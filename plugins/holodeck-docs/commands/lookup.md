@@ -6,7 +6,7 @@ argument-hint: <query>
 
 # /holodeck-docs:lookup
 
-Fetches Unreal Engine documentation, API signatures, and code examples from the holodeck-docs RAG server (572K+ indexed chunks).
+Fetches Unreal Engine documentation, API signatures, and code examples from the holodeck-docs RAG server (333K+ indexed chunks).
 
 ## Usage
 

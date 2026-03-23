@@ -18,16 +18,17 @@ This pattern is replicable: any MCP server with many tools can use the same thin
 ```
                           EM (Opus coordinator)
                                   │
-                ┌─────────────────┼─────────────────┐
-                │                                    │
-           Tier 1: Direct                     Tier 2: Dispatch
-           (EM uses tool)                     (EM → Sonnet agent)
-                │                                    │
-          thin MCP tools                       domain agent
-          (8 in hand)                        (single-domain)
+          ┌───────────────────────┼───────────────────────┐
+          │                       │                        │
+     Tier 1: Direct         Orchestrator            Tier 2: Dispatch
+     (EM uses tool)      (Opus, read-only)        (EM → Sonnet agent)
+          │               inspect + plan                   │
+    thin MCP tools        returns specs             domain agent
+    (8 in hand)           EM dispatches           (single-domain)
 ```
 
-For complex or multi-domain tasks, the EM handles decomposition and sequential dispatch itself — the same pattern used for coordinator enricher/executor pipelines.
+**Single-domain tasks:** EM dispatches the domain agent directly.
+**Multi-domain / underspecified tasks:** EM dispatches the orchestrator (read-only planner) to get a structured execution plan, then dispatches domain agents sequentially per the plan, verifying between steps. The orchestrator cannot dispatch agents or mutate state — it inspects and plans only.
 
 ### Tier 1: Direct — Tools in Hand (Thin Mode)
 
@@ -48,14 +49,15 @@ Quick one-liners, fact-finding, simple mutations. No delegation overhead.
 
 The EM defines the task precisely. The Sonnet agent executes and verifies.
 
-| Agent | Color | Domain |
-|-------|-------|--------|
-| ue-world-builder | green | Environment, levels, lighting, terrain, volumes, splines, navigation |
-| ue-asset-author | cyan | Blueprints (graph ops!), materials, textures, widgets, sequences |
-| ue-gameplay-engineer | yellow | Actors, combat, AI, GAS, inventory, VFX, input |
-| ue-infra-engineer | magenta | Performance, tests, networking, audio, game framework |
+| Agent | Model | Color | Role |
+|-------|-------|-------|------|
+| ue-project-orchestrator | Opus | red | **Read-only planner.** Inspects editor state, decomposes cross-domain/underspecified tasks into per-agent specs, returns execution plan. Cannot dispatch agents or mutate state. |
+| ue-world-builder | Sonnet | green | Environment, levels, lighting, terrain, volumes, splines, navigation, PCG, instancing, collision |
+| ue-asset-author | Sonnet | cyan | Blueprints (**graph ops — Python CANNOT do this**), materials, textures, widgets, sequences, movie render, media, data assets, data tables |
+| ue-gameplay-engineer | Sonnet | yellow | Actors, combat, AI, GAS, inventory, VFX, input, checkpoints, quests, objectives, demo replay, localization |
+| ue-infra-engineer | Sonnet | magenta | Performance, tests, networking, audio, game framework, scalability, accessibility, modding, build, subsystems |
 
-**Domain agents call hidden tools via `execute_domain_tool` proxy.** They include a verification protocol (inspect/screenshot) and return structured completion reports.
+**Orchestrator → EM → Domain agents.** The orchestrator plans; the EM dispatches; domain agents execute via `execute_domain_tool` proxy. Domain agents include verification protocols (inspect/screenshot) and return structured completion reports.
 
 ## Tool Visibility
 

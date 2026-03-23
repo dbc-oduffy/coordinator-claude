@@ -1,9 +1,9 @@
 {
   "name": "game-dev",
   "version": "1.1.0",
-  "description": "Unreal Engine expertise for Claude Code — Sid reviews your UE systems and gameplay code, Blueprint inspector documents your BP corpus, and routing ensures game-dev signals reach the right reviewer.",
+  "description": "Game development domain plugin with Sid reviewer and Unreal Engine MCP integration",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
-  "keywords": ["ue5", "gamedev", "cpp", "claude-code", "game-dev", "unreal-engine", "blueprints", "code-review"]
+  "keywords": ["game-dev", "unreal-engine", "ue5", "blueprints", "code-review"]
 }

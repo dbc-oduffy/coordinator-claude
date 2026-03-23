@@ -37,10 +37,12 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **NotebookLM** — break-glass for YouTube/podcasts/audio Claude can't access. Use /notebooklm-research. NOT for normal web research.
 
-**Palí** — front-end review (tokens, design system, CSS). **Fru** — UX flow review (trust, clarity). Use /review-dispatch.
+**Palí** (senior-front-end) — front-end review (tokens, design system, CSS). **Fru** — UX flow review (trust, clarity). Use /review-dispatch.
+
+**eng-director** (Zolí) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
 
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
-- `/staff-session --mode plan` — domain experts debate (Patrik, Sid, Camelia, etc.), Zolí synthesizes with ambition lens. Use `coordinator:requesting-staff-session` to choose tier and composition.
+- `/staff-session --mode plan` — domain experts debate (Patrik, Sid, Camelia, etc.), Zolí (eng-director) synthesizes with ambition lens. Use `coordinator:requesting-staff-session` to choose tier and composition.
 - `/staff-session --mode review` — same debate structure for critiquing existing artifacts. Zolí synthesizes findings. Lightweight tier falls through to `/review-dispatch`.
 - `/deep-research web` — Pipeline A: internet research (scout → specialists → synthesizer)
 - `/deep-research repo` — Pipeline B: repository analysis (scouts → specialists → synthesizer)

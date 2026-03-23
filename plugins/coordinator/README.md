@@ -48,7 +48,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
 
 <!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (22)
+### Skills (24)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -71,6 +71,7 @@ The coordinator plugin is the backbone of the system. It provides:
 - `using-git-worktrees` — Isolated workspaces per feature.
 - `finishing-a-development-branch` — Complete development, PR, merge.
 - `merging-to-main` — PR creation, CI gating, merge, cleanup.
+- `consolidate-git` — Branch cleanup: absorb unique commits from stale branches, delete them, merge to main.
 
 **Writing & Meta:**
 - `writing-skills` — TDD applied to skill/documentation authoring.

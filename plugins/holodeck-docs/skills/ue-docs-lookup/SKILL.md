@@ -5,7 +5,7 @@ description: "This skill should be used when the user asks about Unreal Engine A
 
 # UE Documentation Lookup
 
-When an Unreal Engine question is detected, use the holodeck-docs MCP tools to fetch current, authoritative documentation rather than relying on training knowledge. The holodeck-docs server indexes 572K+ chunks from UE C++ headers, Epic documentation, sample projects, expert Q&A, and curated cheatsheets.
+When an Unreal Engine question is detected, use the holodeck-docs MCP tools to fetch current, authoritative documentation rather than relying on training knowledge. The holodeck-docs server indexes 333K+ chunks from UE C++ headers, Epic documentation, sample projects, expert Q&A, and curated cheatsheets.
 
 ## Routing Decision
 

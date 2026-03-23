@@ -2,7 +2,7 @@
 
 ## UE Documentation
 
-**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (7 tools, 572K+ chunks, hybrid BM25+semantic search).
+**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (7 tools, 333K+ chunks, hybrid BM25+semantic search).
 
 **Quick reference** (tool names for inline use):
 
