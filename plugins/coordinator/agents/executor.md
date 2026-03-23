@@ -60,6 +60,7 @@ Every exit report MUST include a machine-readable exit status tag as its final l
 7. If a file you're creating grows beyond the plan's intent, report as DONE_WITH_CONCERNS — don't split files unilaterally
 8. If an existing file you're modifying is already large/tangled, note it as a concern in your report
 9. Self-monitor for stuck patterns — see coordinator:stuck-detection skill. If you detect repetition (same action 3+ times), oscillation (A-B-A-B), or analysis paralysis (3+ paragraphs without a tool call), stop and follow the recovery protocol. If recovery exhausts all approaches, report as THRASHING (not BLOCKED) — see Exit Status Tag Protocol.
+10. If your dispatch prompt includes an ANTI-REPETITION section listing previously failed approaches, do NOT retry any of them. Read the stub's `## Execution Post-Mortem` (if present) for context on why they failed. Choose a fundamentally different strategy.
 
 ## Validation Matrix
 
@@ -118,6 +119,8 @@ Files touched so far: <list with status: complete/partial/untouched>
 ```
 
 The watchdog hook may also force a post-mortem using this format with `Detection: watchdog`. In that case, the executor fills in the same fields to the best of its ability and exits with `<exit-status>ABORTED</exit-status>`.
+
+> The coordinator will persist your "Approaches tried" list to `metadata.tried_and_abandoned` for compaction safety. Be specific — each entry becomes anti-repetition guidance for the next executor.
 
 ## Deterministic Failure Recovery
 

@@ -80,6 +80,26 @@ The executor agents will also mark their individual stub documents (per the exec
 
 For each executor that completes:
 
+**Re-dispatch budget:** Each stub gets a maximum of **3 dispatch attempts** (initial + 2 re-dispatches). This budget is shared across all failure modes (BLOCKED spec fixes, THRASHING re-dispatch, validation self-correction) and **supersedes** the previous THRASHING-specific rule ("if second executor also aborts → escalate to PM") — the universal 3-budget is the single source of truth.
+
+Track attempts in the **tracker README** status column (coordinator-owned), not the stub's own status line (which the executor overwrites with its write-ahead format):
+
+```
+Tracker README: | chunk-2A | Execution in progress (attempt 2/3) | ... |
+```
+
+After the 3rd attempt, regardless of outcome:
+- If still failing: escalate to PM with full dispatch history
+- Do NOT re-dispatch. The problem is structural, not fixable by another executor run.
+- Document all 3 attempts in the stub's `## Execution History` section
+
+**Exception:** The Phase 3 step-4 self-correction loop for deterministic validation failures (type errors, lint) counts as part of one dispatch attempt, not separate attempts. The budget counts coordinator-level re-dispatches, not executor-internal fix iterations.
+
+**Worked example — how budgets nest:**
+1. **Dispatch 1 (attempt 1/3):** Executor internally retries fixable errors up to 3-5 times per its own Deterministic Failure Recovery protocol. Reports DONE but validation fails at coordinator level.
+2. **Dispatch 2 (attempt 2/3):** Coordinator re-dispatches with validation errors. Executor retries internally, reports DONE. Validation still fails.
+3. **Dispatch 3 (attempt 3/3):** Coordinator re-dispatches again. If this attempt also fails → PM escalation. No 4th dispatch regardless of failure mode.
+
 **Phase 3.0: Post-Executor Haiku Verification**
 
 Before the coordinator reads files manually, dispatch a **Haiku agent** to do the mechanical data-gathering. The Haiku agent receives the executor's completion report and the stub's acceptance criteria, then:
@@ -95,6 +115,60 @@ Before the coordinator reads files manually, dispatch a **Haiku agent** to do th
 The coordinator then performs the semantic spec compliance check (step 2 below) using the Haiku's structured data — not by reading every file from scratch.
 
 **Why Haiku:** `git diff`, `tsc --noEmit`, and reading file:line are mechanical. Delegating this data-gathering saves coordinator context for the judgment calls (spec intent matching, gap identification).
+
+**Dispatch template:**
+```
+Agent(
+  model: "haiku",
+  prompt: """
+  You are a mechanical verification agent. Check the following:
+
+  EXECUTOR REPORT:
+  {paste executor completion report}
+
+  STUB ACCEPTANCE CRITERIA:
+  {paste stub's ## Acceptance Criteria section, or "NONE — report absence"}
+
+  TASKS:
+  1. Run: git diff --name-only {pre-execution-commit}..HEAD
+     Report: files changed (expected vs actual from executor report)
+  2. Run project validation: {validation command from stub or project config}
+     If no explicit command, use the Validation Matrix: tsconfig.json → npx tsc --noEmit,
+     pyproject.toml → poetry run python -m py_compile, package.json with pnpm → pnpm typecheck.
+     If no project signal found, report validation as SKIPPED (do not assume passing).
+     Report: pass/fail/skipped with output
+  3. For each AC-N item, verify against current file state:
+     Report: AC-N | criterion | PASS/FAIL | evidence
+
+  OUTPUT FORMAT (write to stdout, not to a file):
+  ## Haiku Verification Report
+  ### Files Changed
+  Expected: [list from executor report]
+  Actual: [list from git diff]
+  Match: yes/no
+
+  ### Validation
+  Command: {command}
+  Result: PASS/FAIL/SKIPPED
+  Output: {relevant output, truncated to 50 lines}
+
+  ### Acceptance Criteria
+  | AC | Criterion | Result | Evidence |
+  |----|-----------|--------|----------|
+  | AC-1 | ... | PASS/FAIL | ... |
+
+  ### Missing Criteria
+  [If stub has no ## Acceptance Criteria section, state:
+   "Stub lacks Acceptance Criteria section — flag for coordinator"]
+  """
+)
+```
+
+**If Haiku reports "Stub lacks Acceptance Criteria section":**
+1. Check the stub's enrichment status line — was it previously enriched?
+   - **If enriched and reviewed:** Spec regression. The enricher should have added ACs. Re-dispatch enricher for this stub only (targeted re-enrichment), then re-queue for execution.
+   - **If not enriched:** Hard stop — this stub bypassed the pipeline. Do not execute. Report: "Stub {id} reached execution without enrichment. Pipeline violation."
+2. Do NOT proceed with execution without acceptance criteria — they are the verification contract.
 
 **On DONE/DONE_WITH_CONCERNS report:**
 1. Read the executor's completion report + **Haiku verification report**
@@ -115,20 +189,34 @@ The coordinator then performs the semantic spec compliance check (step 2 below) 
 
 **On BLOCKED report:**
 1. Read the structured escalation report (BLOCKED format)
-2. Diagnose the issue:
+2. **Persist attempted approach:** Extract the "Attempted" field from the BLOCKED report and add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [attempted approach] — Blocked: [blocker]"`
+3. Diagnose the issue:
    - **If fixable by updating the stub:** Update the stub document with the resolution, then re-dispatch the executor
    - **If requires architectural decision:** Make the decision (or escalate to PM), update the stub, then re-dispatch
    - **If fundamental spec problem:** Flag for PM/Coordinator review, do not re-dispatch until resolved
-3. Document what was changed in the stub and why
+4. When re-dispatching after BLOCKED, include in the executor prompt if `tried_and_abandoned` is non-empty:
+   ```
+   ANTI-REPETITION: The following approaches were tried on this stub:
+   {paste tried_and_abandoned entries}
+   The spec has been updated to address the blocker. Use the updated spec, not the old approach.
+   ```
+5. Document what was changed in the stub and why
 
 **On THRASHING REPORT (aborted by watchdog or self-detected):**
 1. Check the executor's return message for post-mortem details (detection type, approaches tried, last error)
-2. If `self`-detected (executor caught it): more reliable diagnosis than `watchdog` (executor was unaware) — weight accordingly
-3. Triage by the diagnosis:
-   - **spec problem** → fix the spec based on the post-mortem's "Approaches tried" and "Last error/state", then re-dispatch with anti-repetition note: "See stub post-mortem — do not repeat listed approaches"
+2. **Persist failed approaches:** For each item in the post-mortem's "Approaches tried" list, add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [approach] — Failed: [last error/state]"`. This survives compaction and prevents re-dispatched executors from repeating dead approaches.
+3. If `self`-detected (executor caught it): more reliable diagnosis than `watchdog` (executor was unaware) — weight accordingly
+4. Triage by the diagnosis:
+   - **spec problem** → fix the spec based on the post-mortem's "Approaches tried" and "Last error/state", then re-dispatch
    - **environment problem** → investigate the environment issue (missing dependency, permissions, file state) before re-dispatching
    - **architectural gap** → escalate to PM — the stub may need redesign, not just a spec patch
-4. If a second executor also aborts on the same stub: escalate to PM — no blind third attempt
+5. When re-dispatching after THRASHING, include in the executor prompt:
+   ```
+   ANTI-REPETITION: The following approaches were tried and failed on this stub:
+   {paste tried_and_abandoned entries}
+   Do NOT repeat these approaches. See stub ## Execution Post-Mortem for details.
+   ```
+6. The re-dispatch budget (3 attempts total) applies — check the tracker README for the current attempt count before re-dispatching.
 
 ### Phase 4: Final Verification
 

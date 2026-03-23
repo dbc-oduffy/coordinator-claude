@@ -31,9 +31,15 @@ After context compaction, check your tasks (TaskList/TaskGet) for "tried and aba
 
 **Recovery:** Read all task metadata and descriptions via TaskGet for notes about failed approaches. Choose a different strategy.
 
+## Pattern 5: Anti-Repetition Violation
+
+Before beginning work, review any ANTI-REPETITION section in your dispatch prompt. Plan your approach to be fundamentally different from all listed failed approaches. If during execution you realize you are converging on a listed failed approach, STOP.
+
+**Recovery:** Choose a fundamentally different approach. If no alternative exists, report BLOCKED with Type: Structural — "All known approaches exhausted."
+
 ## When Stuck Detection Triggers
 
-- Report the pattern you detected (1-4)
+- Report the pattern you detected (1-5)
 - State what you tried and why it failed
 - If you're a dispatched agent (executor/enricher): report BLOCKED with the stuck pattern as the blocker type
 - If you're the coordinator: flag the stuck state to the PM and propose a different approach
