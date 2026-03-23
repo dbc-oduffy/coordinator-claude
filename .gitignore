@@ -1,0 +1,27 @@
+# Machine-specific
+settings.local.json
+
+# Session data (not part of the distribution)
+plans/
+tasks/
+archive/
+projects/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Experiment results (API outputs, reports)
+experiments/results/
+
+# Node
+node_modules/
+
+# IDE
+.vscode/
+.idea/

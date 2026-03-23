@@ -1,0 +1,45 @@
+name: Weekly Health Check
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 9am UTC
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run health checks
+        id: checks
+        run: python .github/scripts/health-check.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create issue if findings
+        if: steps.checks.outputs.has_findings == 'true'
+        run: |
+          gh issue create \
+            --title "Health Check -- $(date -u +%Y-%m-%d)" \
+            --label "health-check" \
+            --body-file /tmp/health-check-report.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure label exists
+        if: always()
+        run: gh label create health-check --description "Weekly automated health check" --color "0E8A16" 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

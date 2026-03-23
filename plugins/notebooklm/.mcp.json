@@ -1,0 +1,7 @@
+{
+  "notebooklm": {
+    "command": "cmd",
+    "args": ["/c", "notebooklm-mcp"],
+    "env": {}
+  }
+}

@@ -1,0 +1,56 @@
+name: Validate Plugins
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - 'work/**'
+      - 'feature/**'
+
+jobs:
+  # Job name 'validate' is a stable contract — referenced by branch protection
+  # and repository rulesets. Do not rename without updating those.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full clone needed for file size guard (git diff origin/main)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+
+      - name: Install PyYAML
+        run: pip install pyyaml==6.0.2
+
+      - name: Validate frontmatter
+        run: python .github/scripts/validate-frontmatter.py
+
+      - name: Validate references
+        run: python .github/scripts/validate-references.py
+
+      - name: Check for secrets
+        run: python .github/scripts/check-secrets.py
+
+      - name: Validate JSON schemas
+        run: python .github/scripts/validate-json-schemas.py
+
+      - name: Validate gitignore policy
+        run: python .github/scripts/validate-gitignore.py
+
+      - name: Check file sizes
+        run: python .github/scripts/check-file-sizes.py
+
+      - name: Validate agent tools
+        run: python3 .github/scripts/validate-agent-tools.py
+
+      - name: Check spec line counts
+        run: python3 .github/scripts/check-spec-line-counts.py
+
+      - name: Check README inventory
+        run: python3 .github/scripts/check-readme-inventory.py
+
+      - name: Validate hook paths
+        run: python3 .github/scripts/validate-hook-paths.py

@@ -1,0 +1,9 @@
+{
+  "name": "notebooklm",
+  "version": "1.0.0",
+  "description": "Research YouTube, podcasts, and media Claude can't access directly — NotebookLM integration that dispatches an Opus orchestrator to design questions and a Sonnet worker to extract findings.",
+  "author": {
+    "name": "Dónal O'Duffy & Claude"
+  },
+  "keywords": ["research", "youtube", "podcast", "claude-code", "notebooklm", "media-research", "mcp", "google"]
+}
