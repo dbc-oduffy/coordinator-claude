@@ -59,7 +59,8 @@ The executor agents will also mark their individual stub documents (per the exec
   - The project root path
   - A list of reference files from the stub's "Reference (read only)" section
   - **The tracker file path** (so the executor can update its own status — see executor agent protocol "Tracker Updates" section)
-  - Instruction: "Follow the executor agent protocol. Read the stub completely before writing code."
+  - **The chunk codename** (e.g., "chunk-2A", "camera-refactor") — the executor uses this to grep canonical trackers and update every reference, not just the dispatch tracker. Extract the codename from the stub's identifier or filename.
+  - Instruction: "Follow the executor agent protocol. Read the stub completely before writing code. Your chunk codename is '{codename}' — use it for the canonical tracker sweep."
 
 **For dependent stubs** (shared files or sequential prerequisites):
 - Dispatch one at a time, waiting for completion before starting the next
@@ -228,12 +229,22 @@ After all stubs are executed:
 
 ### Phase 5: Verify Tracker State
 
-Executors own their tracker updates (status, commit hashes). The coordinator's role here is verification, not data entry.
+Executors own their tracker updates (status, commit hashes). The coordinator's role here is verification, not data entry — but verification must be **thorough**.
 
-1. Read the tracker — confirm each executor updated its own status
+**5.1: Dispatch tracker verification**
+1. Read the dispatch tracker — confirm each executor updated its own status
 2. Fix any gaps (executor crashed before updating, or was dispatched without tracker path)
 3. Note any stubs that remain blocked or require PM decision
 4. Update the tracker's progress summary
+
+**5.2: Canonical tracker sweep verification**
+For each completed stub, grep its codename across canonical trackers to confirm the executor ran its sweep:
+```bash
+grep -in "<codename>" docs/project-tracker.md tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null
+```
+- If a canonical tracker still shows the item as pending/unchecked despite the executor reporting DONE, fix it now
+- If `docs/project-tracker.md` references the work and wasn't updated, that's a gap — update it
+- This is the coordinator's backstop for the executor's sweep. If executors did their job, this is a no-op. If they didn't, it catches the drift.
 
 ### Completion Report
 

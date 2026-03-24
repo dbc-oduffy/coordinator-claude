@@ -151,20 +151,42 @@ Escalate as NEEDS_COORDINATOR when:
 
 ## Tracker Updates — IC Owns Their Status
 
-If your dispatch prompt includes a **tracker file path**, you are responsible for updating your own status in the tracker — just like an IC marking their Jira ticket. The coordinator should not have to do a separate doc-sync pass after you complete.
+You are responsible for updating your own status in **every canonical tracker that references your work** — just like an IC marking their Jira ticket. The coordinator should not have to do a separate doc-sync pass after you complete.
 
-**On start (after write-ahead on stub):**
-- Find your stub's entry in the tracker and update its status to "Execution in progress"
+### Canonical Tracker Sweep
 
-**On completion (DONE/DONE_WITH_CONCERNS):**
-- Update your stub's entry in the tracker to "Done" with the commit hash of your final commit
+Your dispatch prompt includes a **chunk codename** (e.g., "chunk-2A", "camera-refactor", "persona-v2") and may include a **tracker file path**. You must update BOTH the dispatch tracker AND any other canonical trackers that mention your codename.
 
-**On BLOCKED:**
-- Update your stub's entry in the tracker to "Blocked — [brief reason]"
+**On start (after write-ahead on stub), run the full sweep:**
+
+1. **Dispatch tracker** (if path provided): Find your stub's entry and update its status to "Execution in progress"
+2. **Canonical tracker grep** — search the project for your codename:
+   ```bash
+   grep -ril "<your-codename>" docs/project-tracker.md docs/roadmap.md docs/ROADMAP.md ROADMAP.md tasks/*/todo.md 2>/dev/null
+   ```
+   For every file that matches:
+   - Find lines referencing your codename
+   - If the line has a status marker (checkbox `[ ]`, status field, etc.), update it to reflect "in progress" / check it partially / add an "(in progress)" annotation — whatever format the tracker uses
+   - If the line is a description without a status marker, leave it alone
+
+This write-ahead sweep is **crash insurance for the reporting layer**. If the session dies, every tracker shows that work was begun — preventing items from appearing untouched when they were actually mid-execution.
+
+**On completion (DONE/DONE_WITH_CONCERNS), run the sweep again:**
+
+1. **Dispatch tracker** (if path provided): Update your entry to "Done" with the commit hash of your final commit
+2. **Canonical tracker grep** — re-run the same search. For every matching file:
+   - Update status to reflect completion (check the checkbox, change status to "Done", add commit hash where format allows)
+   - For `docs/project-tracker.md`: if your codename appears in a checklist item, check the box (`[x]`). If it appears in a status line, update the status text.
+
+**On BLOCKED, run the sweep:**
+
+1. **Dispatch tracker**: Update to "Blocked — [brief reason]"
+2. **Canonical tracker grep**: Add "(blocked)" annotation to matching status lines — do not check boxes or mark complete
+
+### Archive Fallback
 
 If no tracker path was provided in your dispatch prompt, **log to the completion archive instead.** All completed work must be recorded somewhere — tracker for spec'd work, archive for everything else.
 
-**Archive-only path (no tracker):**
 - On completion, append to `archive/completed/YYYY-MM.md` (relative to project root, create if needed)
 - Use this format under today's date heading:
   ```
@@ -172,7 +194,9 @@ If no tracker path was provided in your dispatch prompt, **log to the completion
   ```
 - If today's date heading already exists, append under it
 
-If a tracker path WAS given, this is a hard exit criterion: your work is not reportable until the tracker reflects your status.
+### Hard Exit Criterion
+
+Your work is not reportable until trackers reflect your status. The dispatch tracker update (if given) is mandatory. The canonical tracker sweep is best-effort — if grep finds no matches beyond the dispatch tracker, that's fine. But if matches exist and you skip them, the coordinator will flag the gap.
 
 ## Self-Review Before Reporting
 
@@ -188,7 +212,7 @@ Before reporting completion, verify:
 - **Discipline:** YAGNI — did I only build what was requested? Did I follow existing codebase patterns?
 - **Testing:** Do tests verify real behavior (not mock behavior)? Comprehensive?
 - **Acceptance Criteria:** Every AC-N item from the stub addressed — if any are FAIL, use DONE_WITH_CONCERNS
-- **Work recorded:** If tracker path provided, did I update my status? If not, did I log to the completion archive? (Every completed task must appear somewhere.)
+- **Work recorded:** Did I run the canonical tracker sweep? Did I update the dispatch tracker (if given)? Did I grep for my codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files? If no tracker path was given, did I log to the completion archive? (Every completed task must appear somewhere, in every place it's referenced.)
 
 If self-review finds issues, fix them before reporting.
 

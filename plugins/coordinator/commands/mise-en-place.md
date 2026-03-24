@@ -109,12 +109,12 @@ This tells the hook to emit informational-only context pressure messages (no han
 
 For each item in the sequenced order:
 
-1. **Write-ahead:** Mark item `in_progress` via TaskUpdate. Update the plan document status if applicable.
-2. **Execute:** Follow the spec. Use `/execute-plan` patterns for plan-based items, or direct implementation for simpler items.
+1. **Write-ahead:** Mark item `in_progress` via TaskUpdate. Update the plan document status if applicable. **Run the canonical tracker sweep** — grep for the item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files. Mark every match as "in progress." This is crash insurance: if the session dies, every tracker shows work was begun.
+2. **Execute:** Follow the spec. Use `/execute-plan` patterns for plan-based items, or direct implementation for simpler items. When dispatching executor agents, pass the chunk codename explicitly so they run their own tracker sweep.
 3. **Verify:** Run the verification method identified in Phase 1. Apply `coordinator:verification-before-completion` — evidence before claims.
 4. **Spec-check:** If the item has an enriched stub or plan document with `## Acceptance Criteria`, read the criteria and confirm each was implemented. For items without formal acceptance criteria (simple backlog items, one-liners), skip — the verification in step 3 suffices.
 5. **Commit:** Commit at completion of each item. Stage everything, brief message. The post-commit hook handles push.
-6. **Mark complete:** Update task via TaskUpdate. Update the plan document if applicable.
+6. **Mark complete + tracker sweep:** Update task via TaskUpdate. Update the plan document if applicable. **Re-run the canonical tracker sweep** — update every match to reflect completion (check boxes, update status fields, add commit hash). If a dispatched executor handled the item, verify it ran its sweep; fix gaps.
 7. **Brief status update:** One line — "[Item X] complete, moving to [Item Y]." Output-only. These are progress breadcrumbs, not check-ins. Never output:
    - "Want me to fire those now?" — Just fire them.
    - "Ready for the next batch?" — Just start it.
@@ -125,11 +125,21 @@ For each item in the sequenced order:
 
 ### Phase 6: Tail — Close Out the Run
 
-After all items are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then execute the tail action:
+After all items are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then run the final tracker sweep before the tail action:
 
 ```bash
 rm -f /tmp/autonomous-run-${SESSION_ID}
 ```
+
+**Final tracker sweep (mandatory before tail):**
+Before invoking `/update-docs`, verify that ALL canonical trackers reflect the run's outcomes. This is the EM's backstop — especially critical because nobody is watching during autonomous runs:
+1. Grep each completed item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, `ROADMAP.md`, and any dispatch trackers
+2. Confirm every completed item shows as done/checked in every tracker that references it
+3. Confirm every in-progress or blocked item shows its current state
+4. Fix any gaps — executors may have crashed before completing their sweep, or the EM's own inline execution may have skipped it under time pressure
+5. Commit tracker fixes (if any) before proceeding to `/update-docs`
+
+This sweep is the difference between "work got done" and "the project knows work got done." `/update-docs` will cascade tactical completions upward via tracker-maintenance, but only if the tactical trackers are accurate.
 
 **Standard (default):**
 1. Invoke `/update-docs` — sync documentation, commit, push to branch
@@ -159,7 +169,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 - **Never escalate tail mode.** Standard → hibernate is the PM's call. Do not suggest it, do not ask about it.
 - **Hibernate is always safe on early stop.** If hibernate mode was invoked and the run must stop early, hibernate anyway. Incomplete work on a branch + hibernated machine is strictly better than incomplete work + machine running all night.
 - **Commit after every item.** Crash insurance. Applies to dispatched executors too — their work is not done until it is committed.
-- **Write-ahead status on everything.** If the session dies, the plan shows exactly where execution stopped.
+- **Write-ahead status on everything.** If the session dies, the plan AND every canonical tracker show exactly where execution stopped. The canonical tracker sweep on start is the insurance policy; the sweep on finish is the receipt.
 - **Push is automatic** via post-commit hook. Verify remote state before hibernating.
 
 ## When to Stop
