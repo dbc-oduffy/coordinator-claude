@@ -43,8 +43,9 @@ if [[ -f "$COMPACTION_SENTINEL" ]]; then
 
   if [[ -n "$STATE_CONTENT" ]]; then
     # Emit with state snapshot — escape for JSON embedding
-    # Replace newlines with \n, quotes with \", backslashes with \\
-    ESCAPED_STATE=$(echo "$STATE_CONTENT" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' '§' | sed 's/§/\\n/g')
+    # Review: Patrik — sed pipeline using § intermediary breaks on content with § or control chars; jq -Rs is safe
+    # Strip the surrounding quotes jq adds so the value embeds cleanly into the outer JSON string
+    ESCAPED_STATE=$(printf '%s' "$STATE_CONTENT" | jq -Rs '.' | sed 's/^"//; s/"$//')
     cat <<JSONEOF
 {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "COMPACTION OCCURRED: Context was compressed. Tasks survived (use TaskList/TaskGet to re-orient). Re-read any active plan files to restore continuity. Key decisions should already be on disk — verify by checking your task list. Check metadata.tried_and_abandoned on tasks for failed approaches before retrying anything.\\n\\n--- PRE-COMPACTION STATE SNAPSHOT ---\\n${ESCAPED_STATE}\\n--- END SNAPSHOT ---"}}
 JSONEOF
@@ -129,6 +130,19 @@ else
   TRANSCRIPT_HASH="$SESSION_ID"
 fi
 
+# Review: Patrik — sentinel files were never cleaned up; delete ones older than 24h to prevent indefinite accumulation
+find /tmp -maxdepth 1 \( -name "context-pressure-*" -o -name "autonomous-run-*" \) -mmin +1440 -delete 2>/dev/null || true
+
+# --- Autonomous run detection ---
+# When the PM has authorized autonomous execution (mise-en-place, /autonomous),
+# a sentinel file suppresses /handoff nudges. The hook still fires (context pressure
+# is real information) but the message is informational-only, no handoff recommendation.
+AUTONOMOUS_SENTINEL="/tmp/autonomous-run-${SESSION_ID}"
+AUTONOMOUS_RUN=false
+if [[ -f "$AUTONOMOUS_SENTINEL" ]]; then
+  AUTONOMOUS_RUN=true
+fi
+
 ADVISORY_SENTINEL="/tmp/context-pressure-advisory-${TRANSCRIPT_HASH}"
 CRITICAL_SENTINEL="/tmp/context-pressure-critical-${TRANSCRIPT_HASH}"
 
@@ -136,9 +150,15 @@ CRITICAL_SENTINEL="/tmp/context-pressure-critical-${TRANSCRIPT_HASH}"
 if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
   touch "$ADVISORY_SENTINEL" "$CRITICAL_SENTINEL"
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
-  cat <<JSONEOF
+  if [[ "$AUTONOMOUS_RUN" == true ]]; then
+    cat <<JSONEOF
+{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~83.5%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+JSONEOF
+  else
+    cat <<JSONEOF
 {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~83.5% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
+  fi
   exit 0
 fi
 
@@ -146,9 +166,15 @@ fi
 if [[ "$FILE_SIZE" -ge "$ADVISORY_BYTES" && ! -f "$ADVISORY_SENTINEL" ]]; then
   touch "$ADVISORY_SENTINEL"
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
-  cat <<JSONEOF
+  if [[ "$AUTONOMOUS_RUN" == true ]]; then
+    cat <<JSONEOF
+{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Context usage is getting heavy. Autonomous run active — continuing per PM instruction. Ensure flight recorder (TaskList) is current so work survives compaction. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+JSONEOF
+  else
+    cat <<JSONEOF
 {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Context usage is getting heavy. Consider completing the current task unit, then running /handoff. This is informational — no action required yet. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
+  fi
   exit 0
 fi
 
