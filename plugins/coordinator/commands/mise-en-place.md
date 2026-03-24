@@ -101,6 +101,12 @@ The tail line is the EM's confirmation of mode — stated declaratively, not as 
 
 ### Phase 5: Execute — The Straight Shot
 
+**Signal autonomous mode:** Before executing the first item, write the autonomous-run sentinel so the context pressure hook knows not to nudge `/handoff`:
+```bash
+echo "mise-en-place" > /tmp/autonomous-run-${SESSION_ID}
+```
+This tells the hook to emit informational-only context pressure messages (no handoff recommendation). The sentinel is cleaned up in Phase 6.
+
 For each item in the sequenced order:
 
 1. **Write-ahead:** Mark item `in_progress` via TaskUpdate. Update the plan document status if applicable.
@@ -119,7 +125,11 @@ For each item in the sequenced order:
 
 ### Phase 6: Tail — Close Out the Run
 
-After all items are executed and verified, mark all item tasks `completed` via TaskUpdate, then execute the tail action:
+After all items are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then execute the tail action:
+
+```bash
+rm -f /tmp/autonomous-run-${SESSION_ID}
+```
 
 **Standard (default):**
 1. Invoke `/update-docs` — sync documentation, commit, push to branch
