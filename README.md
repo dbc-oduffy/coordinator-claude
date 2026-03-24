@@ -121,12 +121,6 @@ coordinator-claude/
 └── assets/                     # Social preview card + generation template
 ```
 
-## Version History
-
-- [**v1.1.1**](https://github.com/oduffy-delphi/coordinator-claude/releases/tag/v1.1.1) — Staff sessions (Agent Teams for collaborative planning/review), README positioning rewrite
-- [**v1.1.0**](https://github.com/oduffy-delphi/coordinator-claude/releases/tag/v1.1.0) — Agent Teams adoption for all research pipelines; deep-research extracted to standalone plugin; context pressure advisory hooks
-- [**v1.0.0**](https://github.com/oduffy-delphi/coordinator-claude/releases/tag/v1.0.0) — Initial public release: 6 plugins, 24 agents, 38 skills, enrichment-review-execution pipeline
-
 <details>
 <summary><strong>Troubleshooting</strong></summary>
 
