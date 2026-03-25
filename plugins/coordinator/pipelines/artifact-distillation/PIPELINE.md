@@ -44,14 +44,27 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
 1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs
-2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON, or mixed formats. Pass format hints per batch to Phase 1 agents so Haiku parses structured metadata separately from prose content.
-3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging
-4. **Read distillation log** (`docs/guides/.distill-log.md`) if it exists — exclude already-distilled artifacts from batching
+2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON, or mixed formats.
+3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check.
+4. **Read distillation log** (`docs/guides/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
 5. **Read `tasks/handoffs/`** for active context (read-only, never deleted)
-6. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `tasks/scratch/artifact-distillation/{run-id}/`
-7. **Sort artifacts chronologically** within each source directory (temporal ordering preserved through pipeline — critical for detecting superseded decisions)
-8. **Group artifacts into 4-8 batches** of ~20-50 files each (by source dir + chronological window)
-9. **Output:** batch table (with format hints), existing wiki inventory, distill-log exclusions
+6. **Reality check (Haiku scout):** Dispatch a single Haiku agent with the candidate file list + existing guide headings. The scout reads each candidate file and classifies it:
+   - **NEW** — contains knowledge not yet captured in existing guides or decision records
+   - **ALREADY_CAPTURED** — knowledge is already in the wiki (compare against guide headings/content)
+   - **EPHEMERAL** — pure session tracking, status updates, no lasting value
+   - **SKIP** — active reference, forward-looking content, or in-progress work
+
+   The scout returns a classified list with counts. This is the **ground truth** for scope, replacing the distill-log as the primary filter. The distill-log is a hint; the scout is the authority.
+
+7. **Scope gate — choose pipeline tier based on the scout's NEW count:**
+   - **0 NEW artifacts:** **Abort.** Report "nothing to distill" and stop. Optionally offer to delete EPHEMERAL files directly.
+   - **<20 NEW artifacts:** **Lightweight mode.** Dispatch a single Sonnet agent that reads all NEW files and produces guide deltas + decision records + deletion manifest in one pass. No Haiku scanning, no clustering, no Opus assembly. Jump directly to Phase 4 (PM gate).
+   - **20-50 NEW artifacts:** **Standard mode.** 2-3 Haiku batches, skip QG (Phase 1.5), coordinator does clustering inline, 2-3 Sonnet synthesizers, coordinator assembles (skip Opus Phase 3).
+   - **50+ NEW artifacts:** **Full pipeline** as designed below.
+8. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `tasks/scratch/artifact-distillation/{run-id}/`
+9. **Sort artifacts chronologically** within each source directory (temporal ordering preserved through pipeline — critical for detecting superseded decisions)
+10. **Group artifacts into 4-8 batches** of ~20-50 files each (by source dir + chronological window)
+11. **Output:** batch table (with format hints), existing wiki inventory, scout classification, **selected pipeline tier**
 
 **If `$ARGUMENTS` includes a path,** scope inventory to that path only.
 
@@ -162,11 +175,13 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3.
 
+**CRITICAL: Checkpoint scratch files before Phase 3.** `git add tasks/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3 is the highest-risk step (largest context load, longest runtime). If it fails, the checkpoint allows re-running Phase 3 without re-doing Phases 1-2.
+
 ---
 
-## Phase 3: Cross-Reference Assembly (Opus, single)
+## Phase 3: Cross-Reference Assembly (Opus or decomposed Sonnet)
 
-**Model:** Opus. **Single agent.**
+**Default:** Opus single agent. **If >200 nuggets or >5 topic clusters:** decompose into 3 parallel Sonnet sub-tasks: (a) apply guide deltas, (b) deduplicate decision records, (c) produce deletion manifest. The coordinator assembles the final output.
 
 **DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3: Opus Cross-Reference Assembly Prompt** verbatim. Fill in:
 - `[N]` — number of topic-specific Sonnet agents
@@ -207,7 +222,7 @@ Present to PM:
 3. **Commit additions:** `"distill: add/update N guides, N decision records"`
 4. **Delete approved artifacts:** `git rm` each file from the deletion manifest
 5. **Commit deletions:** `"distill: remove N distilled artifacts"`
-6. **Update distillation log:** append all processed artifacts (with run ID and disposition) to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs
+6. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
 7. **Amend log update** into the deletion commit
 8. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 

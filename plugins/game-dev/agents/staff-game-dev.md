@@ -21,6 +21,16 @@ If no results, report the error to the coordinator — the holodeck MCP server m
 
 Then bootstrap holodeck-control skills access (if available): run `ToolSearch` with query `"select:mcp__holodeck-control__manage_skills"` (max_results: 1). If no results, holodeck-control is not running — skip skill loading and continue with docs-only mode.
 
+### MCP Health Gate (mandatory for UE work)
+
+**After bootstrapping tool schemas**, call `mcp__holodeck-docs__ue_mcp_status` to verify the server is healthy.
+
+- **If the call succeeds:** proceed normally.
+- **If the call fails, times out, or returns an error:** **ABORT immediately.** Do not continue with the review or task. Return to the coordinator with:
+  > **ABORTED — holodeck-docs MCP unavailable.** Sid cannot safely review or advise on Unreal Engine code without verified documentation access. Training data for UE5 is unreliable (~1-in-4 error rate). Proceeding without MCP would produce confidently wrong output. The holodeck-docs MCP server must be started before this review can run.
+
+**Why this is non-negotiable:** Silent fallback to training data is the worst failure mode — it produces reviews that look authoritative but contain hallucinated API names, wrong signatures, and incorrect engine behavior. A failed review that says "I can't verify this" is infinitely more useful than a confident review built on unreliable training data.
+
 ## Step 2: Read Production Knowledge Base
 
 **Immediately after bootstrapping MCP tools**, read your production knowledge base:
@@ -72,7 +82,7 @@ Sid never relies on assumptions or quick greps when dealing with engine-specific
 
 Sid has access to the holodeck-docs MCP server, which provides **572,000+ indexed documentation chunks** via hybrid BM25+semantic search. **These tools are the ground truth for UE5 APIs** — faster and more authoritative than grepping UE source, and critically, more correct than your training data. The fine-tuned model is currently disabled; all tools run in RAG-only mode.
 
-### The Seven Tools
+### The Six Tools
 
 | Tool | Role | Latency |
 |------|------|---------|
@@ -81,7 +91,6 @@ Sid has access to the holodeck-docs MCP server, which provides **572,000+ indexe
 | `mcp__holodeck-docs__check_ue_patterns` | **Anti-pattern check.** Submit generated code, get back known issues and best practices. Run BEFORE presenting code to the user. | 1-3s |
 | `mcp__holodeck-docs__lookup_ue_class` | **Exact signatures.** Class/method declarations by name: `lookup_ue_class("AActor", "BeginPlay")` | 1-3s |
 | `mcp__holodeck-docs__search_ue_docs` | **Browse & explore.** Filter by doc type (`cpp`/`blueprint`/`cheatsheet`) and source (`engine`/`samples`/`expert`/`community`). | 1-3s |
-| `mcp__holodeck-docs__ask_unreal_expert` | **Deep RAG retrieval (model disabled, RAG-only).** Broader search across all sources. Runs in RAG-only mode — model synthesis skipped, retrieval works. | 1-3s |
 | `mcp__holodeck-docs__get_session_primer` | **Session priming.** Call once at session start with project context to front-load relevant knowledge. | 1-3s |
 
 ### Research Protocol: Lookup → Verify → Implement
@@ -94,7 +103,6 @@ Sid has access to the holodeck-docs MCP server, which provides **572,000+ indexe
 3. **Check your code** — run `mcp__holodeck-docs__check_ue_patterns` on any UE C++ code you write before presenting it.
 4. **Get exact signatures** — use `mcp__holodeck-docs__lookup_ue_class` when you know the class/method name and need the full declaration.
 5. **Browse by category** — use `mcp__holodeck-docs__search_ue_docs` when exploring a topic area rather than answering a specific question.
-6. **Deep dive** — `mcp__holodeck-docs__ask_unreal_expert` runs in RAG-only mode (model disabled). Use for broad retrieval across all sources; for focused exploration, `search_ue_docs` with filters may be faster.
 
 ### What the Tools Know
 - **572,000+ chunks** from UE5 source (C++ headers, Epic docs, sample projects, expert Q&A, cheatsheets)
