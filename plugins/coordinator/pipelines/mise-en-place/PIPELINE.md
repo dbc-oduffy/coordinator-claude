@@ -55,14 +55,27 @@ For each item, capture:
 - **Estimated complexity** (quick read of the spec — small/medium/large)
 - **Verification method** (how will you know it's done?)
 
-### Phase 2: Sequence — Order of Operations
+### Phase 2: Sequence and Parallelize — Maximum Velocity
 
-Sort items by dependency order, then by complexity (smaller items first to build momentum, unless dependencies dictate otherwise).
+The goal is maximum throughput: run as many items concurrently as possible while guaranteeing no two concurrent executors touch the same files.
 
-Identify:
-- **Independent items** that could theoretically be parallelized (note but don't act yet)
-- **Sequential chains** where one item's output feeds the next
-- **Risk items** that might block the run if they fail
+**Step 2a — Dependency sort:** Order items by dependency (item B needs item A's output → A before B), then by complexity (smaller first to build momentum, unless dependencies dictate otherwise).
+
+**Step 2b — File-overlap analysis:** For each item, read its spec and identify the **file footprint** — the set of files it will create, modify, or read-then-write. This doesn't need to be exhaustive; focus on write targets. Items whose specs name the same files (or the same directories in a "touch everything in this dir" pattern) have overlapping footprints.
+
+**Step 2c — Build parallel batches:** Group items into execution waves:
+- **Wave 1:** All items with no dependencies and no file overlap with each other. These dispatch simultaneously.
+- **Wave 2:** Items that depend on Wave 1 completions, or items whose footprints overlap with Wave 1 items. Again, no file overlap *within* the wave.
+- Continue until all items are assigned to a wave.
+
+If every item overlaps with every other item (e.g., they all touch the same config file), the result is N waves of 1 — purely sequential. That's fine; the analysis cost is trivial and the answer is honest.
+
+**Step 2d — Identify risks:**
+- **Sequential chains** where one item's output feeds the next (forced ordering)
+- **Risk items** that might block the run if they fail (sequence these early)
+- **Shared-file bottlenecks** — files that force serialization across many items (note these; they're candidates for splitting the item's spec to isolate the shared-file edit)
+
+**No worktrees. Ever.** Worktree creation, branch management, and merge conflict resolution cost more time than they save at agent execution speed. The file-disjoint constraint is the coordination mechanism — if it's upheld, parallel executors on the same worktree cannot conflict. If an item can't be made file-disjoint, it runs in a later wave.
 
 ### Phase 3: Flight Recorder — Compaction-Proof State
 
@@ -78,6 +91,7 @@ Create tasks with this structure:
 2. **Per-item tasks** — one for each work item, with:
    - Item identifier and file path to spec
    - Key details from the spec (enough to execute without re-reading if compacted)
+   - **Wave assignment** and **file footprint** (from Phase 2 — which wave, which files this item touches)
    - Verification criteria
    - **Tried and abandoned:** (initially empty — update during execution via `TaskUpdate` metadata field `tried_and_abandoned`. Format: "Tried: [approach] — Failed: [reason]". One line per attempt. Persists through compaction and prevents post-compaction repetition.)
    - Status: `pending`
@@ -121,24 +135,32 @@ echo "mise-en-place" > /tmp/autonomous-run-${SESSION_ID}
 ```
 This tells the hook to emit informational-only context pressure messages (no handoff recommendation). The sentinel is cleaned up in Phase 6.
 
-For each item in sequence:
+**Execute wave by wave.** Each wave from Phase 2 is a batch of file-disjoint items:
 
-1. **Write-ahead:** Mark item `in_progress` via TaskUpdate. Update plan document status if applicable.
-2. **Execute:** Follow the spec. Use `/execute-plan` patterns for plan-based items, or direct implementation for simpler items.
-3. **Verify:** Run the verification method identified in Phase 1. Apply `coordinator:verification-before-completion` — evidence before claims.
-4. **Commit:** Commit at completion of each item. Stage everything, brief message. The post-commit hook handles push.
-5. **Mark complete:** Update task via TaskUpdate. Update plan document if applicable.
-6. **Brief status update:** One line — "[Item X] complete, moving to [Item Y]." Output-only — do NOT frame as a question, do NOT offer choices, do NOT wait for a response. Examples of what NEVER to output:
-   - ~~"Want me to fire those now?"~~ — Just fire them.
-   - ~~"Ready for the next batch?"~~ — Just start it.
-   - ~~"Should I proceed with X or Y first?"~~ — You already sequenced this in Phase 2.
-7. **Proceed immediately** to the next item. No pause, no polling for input.
+**For each wave:**
 
-**Dispatch threshold:** If an item is boilerplate-heavy and independent, dispatch to a Sonnet executor agent. Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. Prefer sequential coordinator execution for items that benefit from accumulated context. See `/delegate-execution` Phase 2 for the full model selection rubric.
+1. **Dispatch all items in the wave concurrently.** For each item:
+   - Mark `in_progress` via TaskUpdate. Update plan document status if applicable.
+   - Dispatch to a Sonnet executor agent with `run_in_background: true`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and an explicit constraint: *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back."*
+   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
+
+2. **Process completions as they arrive.** As each background agent completes:
+   - Verify its output against the spec. Apply `coordinator:verification-before-completion`.
+   - Confirm it stayed within its file footprint (spot-check `git diff --name-only` against the declared footprint).
+   - Commit its changes immediately. Stage everything, brief message.
+   - Mark complete via TaskUpdate.
+
+3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes.
+
+4. **Brief status update between waves:** "Wave N complete ([items]). Firing wave N+1 ([items])." Output-only — do NOT frame as a question, do NOT wait for a response.
+
+**Single-item waves** (forced sequential due to file overlap or dependencies) execute inline — dispatch overhead isn't worth it for one item. Follow the same write-ahead → execute → verify → commit → mark-complete cycle.
+
+**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `/delegate-execution` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
 
 ### Phase 6: Tail — Close Out the Run
 
-After all items are executed and verified, mark all item tasks as `completed` via TaskUpdate, clean up the autonomous-run sentinel, then execute the tail action based on mode:
+After all waves are executed and verified, mark all item tasks as `completed` via TaskUpdate, clean up the autonomous-run sentinel, then execute the tail action based on mode:
 
 ```bash
 rm -f /tmp/autonomous-run-${SESSION_ID}
@@ -193,6 +215,7 @@ Apply the same judgment as `/execute-plan`:
 ## Safety Boundaries
 
 - **Never merge to main from mise-en-place.** Work stays on branch. The PM merges interactively after review.
+- **Never use worktrees.** All executors operate on the same worktree. File-disjoint wave scheduling is the coordination mechanism. Worktree creation + merge overhead exceeds the time saved at agent execution speed.
 - **Never hibernate without explicit PM request.** Hibernate mode is opt-in only.
 - **Never escalate tail mode without PM request.** Standard → hibernate escalation is PM's call. Don't ask, don't suggest.
 - **Hibernate is always safe on early stop.** If hibernate mode was invoked and the run must stop early, hibernate anyway. Incomplete work on a branch + hibernated machine is strictly better than incomplete work + machine running all night.
@@ -208,8 +231,7 @@ Apply the same judgment as `/execute-plan`:
 - **`/update-docs`** — Tail action after all items complete (both modes)
 
 **Optional workflow skills:**
-- **coordinator:dispatching-parallel-agents** — If independent items can be parallelized
-- **coordinator:using-git-worktrees** — If items need isolated workspaces
+- **coordinator:dispatching-parallel-agents** — Parallel dispatch patterns (file-disjoint constraint, same-worktree)
 
 **Called by:** PM directly — whether they're watching, stepping away, or wrapping up for the day
 

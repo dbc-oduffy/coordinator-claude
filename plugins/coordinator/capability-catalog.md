@@ -1,4 +1,4 @@
-<!-- Maintenance: update when plugins change. Version: 1.3 | Last reviewed: 2026-03-22 -->
+<!-- Maintenance: update when plugins change. Version: 1.3.2 | Last reviewed: 2026-03-25 -->
 
 # Specialists — Route, Don't Execute
 

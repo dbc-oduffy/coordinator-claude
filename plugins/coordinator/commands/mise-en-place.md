@@ -43,14 +43,27 @@ For each item, capture:
 - **Estimated complexity** (quick read of the spec — small/medium/large)
 - **Verification method** (how will you know it's done?)
 
-### Phase 2: Sequence — Order of Operations
+### Phase 2: Sequence and Parallelize — Maximum Velocity
 
-Sort items by dependency order, then by complexity (smaller items first to build momentum, unless dependencies dictate otherwise).
+The goal is maximum throughput: run as many items concurrently as possible while guaranteeing no two concurrent executors touch the same files.
 
-Identify:
-- **Independent items** that could theoretically be parallelized (note but don't act yet — see dispatch threshold in Phase 5)
-- **Sequential chains** where one item's output feeds the next
-- **Risk items** that might block the run if they fail
+**Step 2a — Dependency sort:** Order items by dependency (item B needs item A's output → A before B), then by complexity (smaller first to build momentum, unless dependencies dictate otherwise).
+
+**Step 2b — File-overlap analysis:** For each item, read its spec and identify the **file footprint** — the set of files it will create, modify, or read-then-write. Focus on write targets. Items whose specs name the same files (or the same directories in a "touch everything in this dir" pattern) have overlapping footprints.
+
+**Step 2c — Build parallel batches (waves):** Group items into execution waves:
+- **Wave 1:** All items with no dependencies and no file overlap with each other. These dispatch simultaneously.
+- **Wave 2:** Items that depend on Wave 1 completions, or whose footprints overlap with Wave 1 items. No file overlap *within* the wave.
+- Continue until all items are assigned.
+
+If every item overlaps (e.g., they all touch the same config file), the result is N sequential waves of 1. That's fine.
+
+**Step 2d — Identify risks:**
+- **Sequential chains** (forced ordering)
+- **Risk items** that might block the run (sequence early)
+- **Shared-file bottlenecks** — files forcing serialization (candidates for spec splitting)
+
+**No worktrees. Ever.** Worktree creation, branch management, and merge conflict resolution cost more than they save at agent execution speed. The file-disjoint constraint is the coordination mechanism. If an item can't be made file-disjoint, it runs in a later wave.
 
 ### Phase 3: Flight Recorder — Compaction-Proof State
 
@@ -66,6 +79,7 @@ Create tasks with this structure:
 2. **Per-item tasks** — one for each work item, with:
    - Item identifier and file path to spec
    - Key details from the spec (enough to execute without re-reading if compacted)
+   - **Wave assignment** and **file footprint** (from Phase 2 — which wave, which files this item touches)
    - Verification criteria
    - **Tried and abandoned:** (initially empty — update during execution via `TaskUpdate` metadata field `tried_and_abandoned`. Format: "Tried: [approach] — Failed: [reason]". One line per attempt. Persists through compaction; prevents post-compaction repetition.)
    - Status: `pending`
@@ -85,10 +99,13 @@ Output this plan to the PM, then IMMEDIATELY begin Phase 5. Do NOT wait for a re
 ```
 ## Mise-en-Place — Ready to Fire
 
-**Items queued:** [N items]
-[Numbered list with identifiers and one-line descriptions]
+**Items queued:** [N items] across [M waves]
 
-**Sequence:** [any dependency or risk notes]
+**Wave 1** (parallel): [items] — file-disjoint ✓
+**Wave 2** (parallel): [items] — depends on Wave 1
+[... or "Wave 1 (sequential): [items] — all items overlap on [file]"]
+
+**Risks:** [any dependency or risk notes]
 **Tail:** /update-docs — straight shot, work stays on branch.
 [or: /update-docs + hibernate — overnight run, work stays on branch.]
 
@@ -107,25 +124,38 @@ echo "mise-en-place" > /tmp/autonomous-run-${SESSION_ID}
 ```
 This tells the hook to emit informational-only context pressure messages (no handoff recommendation). The sentinel is cleaned up in Phase 6.
 
-For each item in the sequenced order:
+**Execute wave by wave.** Each wave from Phase 2 is a batch of file-disjoint items.
 
-1. **Write-ahead:** Mark item `in_progress` via TaskUpdate. Update the plan document status if applicable. **Run the canonical tracker sweep** — grep for the item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files. Mark every match as "in progress." This is crash insurance: if the session dies, every tracker shows work was begun.
-2. **Execute:** Follow the spec. Use `/execute-plan` patterns for plan-based items, or direct implementation for simpler items. When dispatching executor agents, pass the chunk codename explicitly so they run their own tracker sweep.
-3. **Verify:** Run the verification method identified in Phase 1. Apply `coordinator:verification-before-completion` — evidence before claims.
-4. **Spec-check:** If the item has an enriched stub or plan document with `## Acceptance Criteria`, read the criteria and confirm each was implemented. For items without formal acceptance criteria (simple backlog items, one-liners), skip — the verification in step 3 suffices.
-5. **Commit:** Commit at completion of each item. Stage everything, brief message. The post-commit hook handles push.
-6. **Mark complete + tracker sweep:** Update task via TaskUpdate. Update the plan document if applicable. **Re-run the canonical tracker sweep** — update every match to reflect completion (check boxes, update status fields, add commit hash). If a dispatched executor handled the item, verify it ran its sweep; fix gaps.
-7. **Brief status update:** One line — "[Item X] complete, moving to [Item Y]." Output-only. These are progress breadcrumbs, not check-ins. Never output:
+**For each wave:**
+
+1. **Dispatch all items in the wave concurrently.** For each item:
+   - Mark `in_progress` via TaskUpdate. Update the plan document status if applicable. **Run the canonical tracker sweep** — grep for the item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files. Mark every match as "in progress."
+   - Dispatch to a Sonnet executor agent with `run_in_background: true`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and an explicit constraint: *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back."*
+   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
+
+2. **Process completions as they arrive.** As each background agent completes:
+   - Verify its output against the spec. Apply `coordinator:verification-before-completion` — evidence before claims.
+   - **Spec-check:** If the item has an enriched stub or plan document with `## Acceptance Criteria`, read the criteria and confirm each was implemented.
+   - Confirm it stayed within its file footprint — spot-check `git diff --name-only` against the declared footprint. **File footprint violations are bugs in the parallelism plan, not just agent misbehavior** — if an agent needed a file outside its footprint, the Phase 2 analysis missed a dependency.
+   - Commit its changes immediately. Stage everything, brief message. The post-commit hook handles push.
+   - **Mark complete + tracker sweep:** Update task via TaskUpdate. **Re-run the canonical tracker sweep** — update every match to reflect completion. If the executor ran its own sweep, verify; fix gaps.
+
+3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes.
+
+4. **Brief status update between waves:** "Wave N complete ([items]). Firing wave N+1 ([items])." Output-only — never frame as a question, never wait for a response. Never output:
    - "Want me to fire those now?" — Just fire them.
    - "Ready for the next batch?" — Just start it.
    - "Should I proceed with X or Y first?" — This was decided in Phase 2.
-8. **Proceed immediately** to the next item.
 
-**Dispatch threshold:** Boilerplate-heavy independent items get dispatched to Sonnet executor agents — the enrichment pipeline was designed so execution is cheap. Items benefiting from accumulated context (coherence decisions, cross-file awareness) stay in-coordinator. See `/delegate-execution` Phase 2 for the full model selection rubric.
+**Single-item waves** (forced sequential due to file overlap or dependencies) execute inline — dispatch overhead isn't worth it for one item. Follow the same write-ahead → execute → verify → commit → mark-complete cycle.
+
+**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `/delegate-execution` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
+
+**No worktrees.** All executors operate on the same worktree. The file-disjoint constraint from Phase 2 is the coordination mechanism. Do not use `isolation: "worktree"` on any executor dispatch.
 
 ### Phase 6: Tail — Close Out the Run
 
-After all items are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then run the final tracker sweep before the tail action:
+After all waves are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then run the final tracker sweep before the tail action:
 
 ```bash
 rm -f /tmp/autonomous-run-${SESSION_ID}
@@ -165,6 +195,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 ## Safety Boundaries
 
 - **Never merge to main.** Work stays on branch. The PM merges interactively after review, using `/merge-to-main` or `/workday-complete`.
+- **Never use worktrees.** All executors operate on the same worktree. File-disjoint wave scheduling is the coordination mechanism. Worktree creation + merge overhead exceeds the time saved at agent execution speed.
 - **Never hibernate without explicit PM request.** Hibernate mode is opt-in only — detected from `$ARGUMENTS`, never escalated unilaterally.
 - **Never escalate tail mode.** Standard → hibernate is the PM's call. Do not suggest it, do not ask about it.
 - **Hibernate is always safe on early stop.** If hibernate mode was invoked and the run must stop early, hibernate anyway. Incomplete work on a branch + hibernated machine is strictly better than incomplete work + machine running all night.
@@ -203,6 +234,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 | Verification fails with a fixable error | Fix and continue — do not escalate |
 | Verification fails structurally | Stop early, commit progress |
 | Dispatched executor returns BLOCKED | Diagnose — if spec-fixable, update stub and re-dispatch; if architectural, stop early and report |
+| Executor writes outside its file footprint | Bug in Phase 2 analysis — revert the out-of-bounds changes, re-analyze the overlap, adjust wave assignments, and re-execute |
 | `/update-docs` fails in standard mode | Report the failure, leave work on branch |
 | `/update-docs` fails in hibernate mode | Hibernate anyway — item commits already pushed |
 | Push fails before hibernate | Do NOT hibernate — work must be on remote first. Stop and report. |
@@ -210,7 +242,8 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 
 ## Relationship to Other Commands
 
-- **`/delegate-execution`** — used within Phase 5 for boilerplate-heavy independent items; its Phase 2 model selection rubric governs executor dispatch
+- **`/delegate-execution`** — used within Phase 5 for dispatching executor agents; its Phase 2 model selection rubric governs dispatch decisions
+- **coordinator:dispatching-parallel-agents** — parallel dispatch patterns (file-disjoint constraint, same-worktree coordination)
 - **`/update-docs`** — the tail action in both modes; invoked at Phase 6
 - **`/workday-complete`** — what the PM runs afterward (interactively) if they want end-of-day consolidation and health survey
 - **`/merge-to-main`** — what the PM runs when ready to merge the branch; never invoked from this command

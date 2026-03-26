@@ -89,6 +89,17 @@ Not every change needs the full pipeline. Lighter paths:
 - Review-only for auditing existing code
 - Single-session plan execution (no enrichment needed)
 
+### Autonomous Batch Execution (Mise-en-Place)
+
+When the PM authorizes a straight-shot through the backlog (`/mise-en-place`), the EM front-loads parallelism planning:
+
+1. **Inventory** all ready items and their file footprints (which files each item will modify)
+2. **Build waves** — group file-disjoint items into parallel batches. Items sharing files go in separate waves.
+3. **Execute wave by wave** — all items in a wave dispatch concurrently to Sonnet executors. A wave gate between batches ensures later items see earlier changes.
+4. **No worktrees** — all executors operate on the same worktree. The file-disjoint constraint is the coordination mechanism; worktree overhead (branch creation, merge resolution) costs more than it saves at agent speed.
+
+This transforms what would be sequential N-item execution into M-wave execution where each wave may contain multiple concurrent items.
+
 ## Review Routing
 
 The routing system is **composable**:
