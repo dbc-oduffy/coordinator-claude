@@ -76,7 +76,7 @@ Instead of one large repo map injected at the start of every interaction, the sy
 
 </details>
 
-For a deeper assessment of all patterns, see the [novelty research doc](docs/research/2026-03-20-agent-orchestration-novelty-unified.md).
+For a deeper assessment of all patterns, see the [novelty research doc](docs/research/2026-03-20-agent-orchestration-novelty-unified.md). For an accessible video introduction to *why* hierarchical agent architectures matter, Martin Keen's [Hierarchical AI Agents](https://www.youtube.com/watch?v=wh489_XT5TI) covers context dilution, tool overload, and task decomposition — the core problems this system solves.
 
 ## Plugins
 
