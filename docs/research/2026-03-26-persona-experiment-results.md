@@ -86,11 +86,7 @@ The coordinator's personas (Patrik, Sid, Camelia, Fru, Pali, Zoli) are used in t
 
 Neither use case was tested by this experiment. The experiment tested single-pass defect detection on unknown code — a task where the model's analytical capability is the bottleneck, and prompt framing doesn't move the needle.
 
-The untested hypotheses are:
-- **Attention direction diversity:** Does telling Pass 1 to focus on security and Pass 2 to focus on architecture produce broader coverage than two identical passes? (Tests the multi-reviewer pipeline's core value proposition)
-- **Structured disagreement:** Does debate between a conservative and ambitious perspective produce better plans than a single balanced perspective? (Tests the staff session's core value proposition)
-
-These are the next experiments to run.
+The next experiment to run is **structured disagreement** — does debate between a conservative and ambitious perspective produce better plans than a single balanced perspective? This directly tests the staff session architecture, which is the primary way personas are used in production. Multi-pass sequential bug detection is deprioritized as it doesn't reflect an actual use case.
 
 ### Concrete change made
 
