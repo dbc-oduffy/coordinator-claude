@@ -80,6 +80,29 @@ Before dispatching reviewers, mark the artifact's review status. If the artifact
 
 If the artifact is code (no status header), note the review in the tracker or plan doc that references this work. The point is: if a crash happens mid-review, there's a breadcrumb showing what was being reviewed and by whom.
 
+### Phase 2.7: API Verification (docs-checker, optional)
+
+Before dispatching expensive Opus reviewers, optionally dispatch the **docs-checker** agent (Sonnet) to verify external API references in the artifact. This separates mechanical verification from architectural review — reviewers receive a pre-verified artifact and can skip their own API lookups.
+
+**When to run:**
+- Artifact contains UE API references (C++ headers, Blueprint nodes, engine classes)
+- Artifact contains heavy external library usage (SDKs, frameworks)
+- Effort level is Medium or High (skip at Low — not worth the extra dispatch)
+
+**When to skip:**
+- Doc-only or test-only changes
+- Pure architectural changes with no API references
+- Low effort reviews
+- `--reviewers` override was specified (PM is directing the pipeline)
+
+**Dispatch:**
+1. Dispatch `docs-checker` agent with the artifact path
+2. Save the verification report to `tasks/review-findings/{timestamp}-docs-checker.md`
+3. If report contains INCORRECT claims: flag to coordinator before proceeding — the artifact may need fixes before review
+4. Pass the report path to Opus reviewers in their dispatch prompt: "A docs-checker verification report is available at [path]. Trust VERIFIED claims — focus your review on architecture and design."
+
+**On docs-checker failure:** Proceed to Phase 2.8 and Phase 3 without the report. Reviewers fall back to their own verification. This phase is additive, not blocking.
+
 ### Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
 
 Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to verify the artifact is well-formed and worth reviewing. This catches broken artifacts before they waste the most expensive tokens in the system.

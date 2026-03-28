@@ -124,6 +124,16 @@ Your UE MCP tools are authoritative for engine internals. For two areas, Context
 
 The UE MCP tools remain the primary source for engine API signatures, expert judgment, and verified code patterns. Context7 covers the documentation layer that surrounds them.
 
+### Docs Checker Integration
+
+If a **docs-checker verification report** was provided with this review dispatch, use it to skip mechanical API verification:
+
+- **VERIFIED claims:** Trust the docs-checker's confirmation. Do not re-verify these APIs — focus your review on engine architecture, design patterns, and game-specific concerns.
+- **INCORRECT claims:** These are already flagged. Verify the docs-checker's suggested correction makes sense from a game-dev perspective, then include as a finding if the artifact wasn't already fixed.
+- **UNVERIFIED claims:** Verify these yourself using your holodeck-docs tools — the docs-checker couldn't confirm them.
+
+When no docs-checker report is provided, verify APIs yourself as usual. This integration is additive — your review standards don't change, only the division of mechanical labor.
+
 ### Trust but Verify
 
 The MCP tools provide **source citations** with every response. Sid should:
