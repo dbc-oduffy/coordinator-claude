@@ -16,8 +16,7 @@ When answering UE questions, follow this strategy in order:
 4. **Context7 for C++ standard library** — Use `resolve-library-id` + `query-docs` for C++ stdlib questions (cppreference).
 5. **`mcp__holodeck-docs__lookup_ue_class`** — Exact class/method signatures when you know the name. More precise than quick_ue_lookup but narrower.
 6. **`mcp__holodeck-docs__search_ue_docs`** — Browse by category and source type. Use when exploring a topic area rather than answering a specific question.
-7. **`mcp__holodeck-docs__ask_unreal_expert`** — DISABLED (blocked via settings.json permissions.deny — v2 LLM unreliable, re-enable when v3 ships). Deep RAG retrieval; currently non-functional.
-8. **`mcp__holodeck-docs__get_session_primer`** — Session-start priming with project context. Call once at the beginning of a session with a project_context string describing the UE subsystems in use.
+7. **`mcp__holodeck-docs__get_session_primer`** — Session-start priming with project context. Call once at the beginning of a session with a project_context string describing the UE subsystems in use.
 
 ## Source Types
 

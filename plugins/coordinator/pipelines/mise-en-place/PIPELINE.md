@@ -120,7 +120,7 @@ Present the plan to the PM:
 
 **Estimated scope:** [rough sense of the run — "3 small items + 1 medium" etc.]
 
-Ready to execute the full sequence. Proceeding unless you stop me.
+Ready to execute the full sequence. Proceeding.
 ```
 
 The tail line is the EM's confirmation of mode — stated declaratively, not as a question. If the PM didn't specify hibernate, default to `/update-docs` and move on.

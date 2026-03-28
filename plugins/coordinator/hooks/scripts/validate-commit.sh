@@ -11,7 +11,13 @@
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
 
-INPUT=$(cat)
+# Safe stdin read — timeout prevents hang on Windows/Git Bash (see memory:
+# feedback_no_userpromptsubmit_hooks.md for the full incident).
+if command -v timeout &>/dev/null; then
+  INPUT=$(timeout 2 cat 2>/dev/null || true)
+else
+  INPUT=$(cat)
+fi
 
 # Parse command — prefer jq, fall back to sed
 if command -v jq &>/dev/null; then

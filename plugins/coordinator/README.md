@@ -23,7 +23,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (19, all user-invocable via `/`)
+### Commands (20, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -38,7 +38,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/enrich-and-review` | Run enrichment pipeline on chunk directories |
 | `/review-dispatch` | Route artifacts to the right reviewer |
 | `/generate-repomap` | Generate a ranked repository map for LLM context injection |
-| `/mise-en-place` | Autonomous backlog execution — file-overlap analysis, wave-based parallel dispatch, execute without stopping |
+| `/mise-en-place` | Autonomous backlog execution — gather ready items, execute without stopping |
 | `/deep-research` | Deep research pipeline — internet sources (Pipeline A) or codebase (Pipeline B) |
 | `/structured-research` | Batch research across multiple subjects with repeating structure and output schema |
 | `/architecture-audit` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
@@ -46,6 +46,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
+| `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
 <!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
 ### Skills (24)
@@ -83,7 +84,7 @@ The coordinator plugin is the backbone of the system. It provides:
 - `weekly-architecture-audit` — Systematic rotation through project systems. Weighted scoring for audit target selection.
 - `deep-architecture-audit` — Deep-dive architecture audit of a specific system or subsystem.
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
-- `mise-en-place` — Autonomous backlog execution with wave-based parallelism. Analyzes file footprints, groups items into file-disjoint waves, dispatches concurrent executors per wave.
+- `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
 - `tracker-maintenance` — Maintain the project tracker — archive completed work, update dependencies, sweep for untracked commits.
 - `lessons-trim` — Trim stale entries from lessons files, merge duplicates, clean up feature-scoped files.
@@ -120,13 +121,6 @@ project_type: unreal    # unreal | game-docs | web | pure-docs
 Default (no config): core-only (Patrik + Zoli).
 
 ## Recent Changes
-
-### v1.3.2 (March 2026) — Wave-Based Parallel Execution
-
-- **Mise-en-place redesign:** Phase 2 now performs file-overlap analysis and groups items into execution waves. Items within a wave are file-disjoint and dispatch concurrently; wave gates ensure sequential correctness between waves. The EM strategizes for maximum velocity and parallelism.
-- **No worktrees policy:** Worktree creation is explicitly banned in mise-en-place. File-disjoint scheduling on the same worktree is the coordination mechanism — worktree overhead (branch creation, merge conflict resolution) exceeds the time saved at agent execution speed.
-- **File footprint constraints:** Each dispatched executor receives an explicit file footprint and is instructed not to modify files outside it. Footprint violations are treated as Phase 2 analysis bugs, not just agent misbehavior.
-- **Flight recorder upgrade:** Per-item tasks now capture wave assignment and file footprint for compaction-proof recovery.
 
 ### v1.3.1 (March 2026) — Artifact Distillation
 

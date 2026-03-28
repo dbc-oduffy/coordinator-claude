@@ -11,7 +11,7 @@ Game development domain plugin for the Donal + Claude agent hierarchy. Enable fo
 
 **Dependencies:** holodeck-docs plugin (UE documentation lookup — agent, skill, command)
 
-**MCP Servers:** holodeck-docs (UE documentation RAG), holodeck-control (UE Editor integration) — configured globally in `~/.claude.json`
+**MCP Servers:** holodeck-docs (UE documentation RAG), holodeck-control (UE Editor integration) — configured globally in `~/.claude/settings.json`
 
 **Routing:** Registers Sid for game dev signals with Patrik (coordinator) as backstop. Simple doc lookups route to holodeck-docs plugin's ue-docs-researcher (Sonnet); architecture and review route to Sid (Opus).
 

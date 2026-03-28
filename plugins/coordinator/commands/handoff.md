@@ -132,7 +132,7 @@ If the project uses a compiled language with a running IDE or editor (e.g., Unre
 #### Step 4: Confirm
 
 Remind the user:
-- "Handoff saved to `tasks/handoffs/`. Available for any future session to pick up via `/session-start`."
+- "Handoff saved to `tasks/handoffs/`. Pick up with `/pickup` (relay-race resumption) or `/session-start` (general orientation)."
 - "Run `/update-docs` if you want repo-wide documentation maintenance (directory sync, handoff archiving to `archive/handoffs/`)."
 
 **Verify `.gitignore`:** Quickly check that `tasks/` is NOT gitignored. If it is, warn the user — handoffs in a gitignored directory will be invisible to other sessions and lost on clone.

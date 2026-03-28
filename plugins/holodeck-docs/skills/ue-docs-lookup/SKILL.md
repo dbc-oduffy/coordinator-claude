@@ -37,12 +37,10 @@ Choose the right approach based on the question type:
 | `mcp__holodeck-docs__ue_expert_examples` | Expert Q&A pairs + production code examples from Lyra, etc. | 1-3s |
 | `mcp__holodeck-docs__search_ue_docs` | Browse by category (`cpp`/`blueprint`/`cheatsheet`) and source type | 1-3s |
 | `mcp__holodeck-docs__check_ue_patterns` | Proactive anti-pattern detection on generated code | 1-3s |
-| `mcp__holodeck-docs__ask_unreal_expert` | DISABLED — blocked via settings.json (v2 LLM unreliable, re-enable when v3 ships) | — |
 
 ## Important Notes
 
 - **Do not call any single tool more than 2-3 times per question.** If results are unsatisfactory, try a different tool rather than retrying the same one.
 - **Prefer `quick_ue_lookup` as the first tool** for any factual question. It's the fastest and includes API existence validation.
-- **`ask_unreal_expert` is globally disabled** (blocked via `permissions.deny` in settings.json). Do not attempt to call it.
 - **Context7 covers upstream libraries** (ChromaDB, FastMCP, etc.) but has zero UE coverage. Always use holodeck-docs for UE questions.
 - **For architecture and design questions**, dispatch Sid via the game-dev plugin. The researcher and this skill are for factual lookups, not design judgment.

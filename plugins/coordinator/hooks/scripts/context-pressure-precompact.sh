@@ -1,7 +1,7 @@
 #!/bin/bash
 # PreCompact sentinel + state serialization.
 # Output is IGNORED by Claude Code for PreCompact events.
-# State is bridged to context via context-pressure-advisory.sh (UserPromptSubmit).
+# State is bridged to context via context-pressure-advisory.sh (PostToolUse).
 #
 # Writes two files:
 #   /tmp/compaction-occurred-{SESSION_ID}    — sentinel (triggers advisory)
