@@ -13,7 +13,12 @@
 # Assumption: session_id is UUID format (hex + hyphens, filename-safe).
 set -euo pipefail
 
-HOOK_INPUT=$(cat)
+# Safe stdin read — timeout prevents hang if pipe isn't closed (Windows/Git Bash)
+if command -v timeout &>/dev/null; then
+  HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
+else
+  HOOK_INPUT=$(cat)
+fi
 
 # Extract session_id — prefer jq, fall back to grep for environments without it
 if command -v jq &>/dev/null; then
