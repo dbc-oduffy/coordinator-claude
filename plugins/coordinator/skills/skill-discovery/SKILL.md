@@ -19,13 +19,23 @@ This is not negotiable. This is not optional. You cannot rationalize your way ou
 
 **Skills AND commands both use the `Skill` tool.** When you invoke either, its content is loaded and presented to you — follow it directly. Never use the Read tool on skill or command files.
 
-**IMPORTANT — Always use the fully-qualified name.** Both commands and skills live in the `coordinator` plugin and MUST be invoked with the `coordinator:` prefix. Bare names (e.g., `session-end`) will fail with "Unknown skill." Always use `coordinator:session-end`.
+**IMPORTANT — Always use the fully-qualified name.** Skills and commands are registered under their **plugin namespace** and MUST be invoked with the correct prefix. Bare names (e.g., `session-end`) will fail with "Unknown skill."
 
-**Commands** are invoked as `coordinator:command-name` via the Skill tool (e.g., `Skill tool → skill: "coordinator:structured-research", args: "spec.yaml batch"`). They are dispatch workflows that run multi-phase agent pipelines.
+**Plugin prefixes** — use the prefix matching the plugin that owns the skill/command:
 
-**Skills** are invoked as `coordinator:skill-name` via the Skill tool. They are behavioral protocols that shape how you approach work.
+| Plugin | Prefix | Example invocation |
+|--------|--------|--------------------|
+| coordinator | `coordinator:` | `coordinator:session-start` |
+| deep-research | `deep-research:` | `deep-research:deep-research` |
+| notebooklm | `notebooklm:` | `notebooklm:notebooklm-research` |
+| holodeck-control | `holodeck-control:` | `holodeck-control:ue-editor-control` |
+| holodeck-docs | `holodeck-docs:` | `holodeck-docs:ue-docs-lookup` |
 
-> **Why the prefix?** Skills are registered under their plugin namespace. Non-plugin skills (e.g., `simplify`, `loop`) work without a prefix because they have no namespace. All coordinator components require `coordinator:`.
+Non-plugin skills (e.g., `simplify`, `loop`) work without a prefix because they have no namespace.
+
+**Commands** are dispatch workflows that run multi-phase agent pipelines. Invoke via the Skill tool with the correct plugin prefix (e.g., `Skill tool → skill: "coordinator:structured-research", args: "spec.yaml batch"`).
+
+**Skills** are behavioral protocols that shape how you approach work. Invoke via the Skill tool with the correct plugin prefix.
 
 ## Instruction Priority
 
@@ -91,7 +101,7 @@ These thoughts mean STOP—you're rationalizing:
 | "I know what that means" | Knowing the concept ≠ using the skill. Invoke it. |
 | "Let me read the command file" | Commands are invoked via the Skill tool, not read via Read. Reading loses phase separation, template guardrails, and Haiku confabulation prevention. |
 | "The command exists, I'll follow it manually" | Invoke it. `Skill tool → skill: "coordinator:structured-research", args: "spec.yaml batch"` — not Read + manual orchestration. Manual execution skips quality gates and scratch management. |
-| `Skill(session-end)` — bare name | Always use `coordinator:session-end`. ALL coordinator skills/commands need the `coordinator:` prefix. Bare names fail silently. |
+| `Skill(session-end)` — bare name | Always use the fully-qualified name: `coordinator:session-end`, `deep-research:deep-research`, `notebooklm:notebooklm-research`, etc. Bare names fail with "Unknown skill." |
 
 ## Skill Priority
 
@@ -125,6 +135,7 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 | `/session-start` | Beginning of any session — load context, check handoffs, choose work |
 | `/session-end` | End of session — capture lessons, align docs, commit |
 | `/handoff` | Ending a session mid-feature — save state for next session pickup |
+| `/pickup [handoff-path]` | Resume from a handoff — load it and immediately continue the next steps. Relay race: grab the baton and run |
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
 | `/workday-complete` | End of day — update-docs + branch consolidation + health survey |
 
@@ -135,13 +146,14 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 | `/mise-en-place [--hibernate]` | Multiple ready items — autonomous batch execution, straight shot, optional overnight hibernate |
 | `/delegate-execution [stubs]` | Enriched stubs ready — dispatch Sonnet executor agents for implementation |
 
-### Research
-| Command | When to Use |
-|---------|-------------|
-| `/deep-research web <topic>` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget (**deep-research plugin**) |
-| `/deep-research repo <path>` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis (**deep-research plugin**) |
-| `/structured-research <spec> [subject]` | **Batch research with schema-conforming output** — Pipeline C. Use for N entities with repeating structure (teams, companies, tools). Creates or runs a research spec. |
-| `/notebooklm-research <topic> [--sources ...] [--questions ...]` | **Media-rich research via NotebookLM** — Pipeline D. For YouTube videos, podcasts, audio, and other sources Claude can't access directly. Lives in the notebooklm plugin (enable plugin to access command). |
+### Research (cross-plugin — note prefixes)
+| Command | Skill Invocation | When to Use |
+|---------|-----------------|-------------|
+| `/deep-research web <topic>` | `deep-research:deep-research-web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget |
+| `/deep-research repo <path>` | `deep-research:deep-research-repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis |
+| `/deep-research` | `deep-research:deep-research` | Router — picks Pipeline A, B, or C based on args |
+| `/structured-research <spec>` | `deep-research:deep-research-structured` | Pipeline C: batch research with schema-conforming output |
+| `/notebooklm-research <topic>` | `notebooklm:notebooklm-research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) |
 
 ### Collaborative Planning & Review (Agent Teams)
 | Command | When to Use |
@@ -201,8 +213,8 @@ These directories contain pipeline definitions (`PIPELINE.md`) that the correspo
 |---------|-------------------|
 | `/execute-plan` | `pipelines/executing-plans/PIPELINE.md` |
 | `/mise-en-place` | `pipelines/mise-en-place/PIPELINE.md` |
-| `/bug-sweep` | `pipelines/bug-sweep/PIPELINE.md` |
-| `/architecture-audit` | `pipelines/deep-architecture-audit/PIPELINE.md` |
+| `/bug-sweep` | Self-contained (pipeline absorbed into command) |
+| `/architecture-audit` | Self-contained (references `pipelines/deep-architecture-audit/agent-prompts.md` for dispatch templates) |
 | `/architecture-rotation` | `pipelines/weekly-architecture-audit/PIPELINE.md` |
 | `/code-health` | `pipelines/daily-code-health/PIPELINE.md` |
 | `/deep-research` | `deep-research` plugin — `pipelines/PIPELINE.md` |

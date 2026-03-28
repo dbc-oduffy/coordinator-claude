@@ -19,7 +19,13 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # Read hook input from stdin (JSON with transcript_path, session_id)
-HOOK_INPUT=$(cat)
+# Safe stdin read — timeout prevents hang on Windows/Git Bash (see memory:
+# feedback_no_userpromptsubmit_hooks.md for the full incident).
+if command -v timeout &>/dev/null; then
+  HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
+else
+  HOOK_INPUT=$(cat)
+fi
 
 # --- Defensive input validation ---
 TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)

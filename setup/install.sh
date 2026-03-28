@@ -25,7 +25,7 @@ PLUGIN_REGISTRY=(
   "web-dev|on|1.3.0|Palí + Fru reviewers"
   "data-science|on|1.3.0|Camelia reviewer"
   "game-dev|off|1.3.0|Sid reviewer (Unreal Engine)"
-  "notebooklm|off|1.0.0|Media research via NotebookLM"
+  "notebooklm|on|1.0.0|Media research via NotebookLM"
 )
 
 # ---------------------------------------------------------------------------
@@ -246,8 +246,43 @@ copy_marketplace_manifest() {
   fi
 
   mkdir -p "$dest_dir"
-  cp "$src" "$dest"
-  echo "  OK: marketplace manifest"
+
+  # Build JSON list of selected plugin names
+  local selected_json="["
+  local first=true
+  for entry in "${PLUGIN_REGISTRY[@]}"; do
+    local name
+    name="$(echo "$entry" | cut -d'|' -f1)"
+    if [[ "${SELECTED[$name]}" == true ]]; then
+      [[ "$first" == false ]] && selected_json+=","
+      selected_json+="\"$name\""
+      first=false
+    fi
+  done
+  selected_json+="]"
+
+  # Strip pluginRoot (installed layout is flat) and remove unselected plugins
+  # so Claude Code doesn't error on missing directories.
+  run_python "$src" "$dest" "$selected_json" <<'PYEOF'
+import sys, json
+
+src_file = sys.argv[1]
+dest_file = sys.argv[2]
+selected = set(json.loads(sys.argv[3]))
+
+with open(src_file, 'r') as f:
+    data = json.load(f)
+
+if "metadata" in data and "pluginRoot" in data["metadata"]:
+    del data["metadata"]["pluginRoot"]
+
+data["plugins"] = [p for p in data.get("plugins", []) if p["name"] in selected]
+
+with open(dest_file, 'w') as f:
+    json.dump(data, f, indent=2)
+PYEOF
+
+  echo "  OK: marketplace manifest ($(echo "$selected_json" | tr -cd ',' | wc -c | tr -d ' ') + 1 plugins)"
 }
 
 # ---------------------------------------------------------------------------
@@ -370,24 +405,12 @@ register_settings() {
   done
   selected_json+="}"
 
-  local all_names_json="["
-  first=true
-  for entry in "${PLUGIN_REGISTRY[@]}"; do
-    local name
-    name="$(echo "$entry" | cut -d'|' -f1)"
-    [[ "$first" == false ]] && all_names_json+=","
-    all_names_json+="\"$name\""
-    first=false
-  done
-  all_names_json+="]"
-
-  run_python "$settings_file" "$native_plugins_dir" "$selected_json" "$all_names_json" <<'PYEOF'
+  run_python "$settings_file" "$native_plugins_dir" "$selected_json" <<'PYEOF'
 import sys, json, os
 
 settings_file = sys.argv[1]
 native_plugins_dir = sys.argv[2]
 selected_plugins = json.loads(sys.argv[3])  # {name: True}
-all_plugin_names = json.loads(sys.argv[4])  # [name, ...]
 
 if os.path.exists(settings_file):
     with open(settings_file, 'r') as f:
@@ -398,10 +421,10 @@ else:
 if "enabledPlugins" not in data:
     data["enabledPlugins"] = {}
 
-# Set selected plugins to true, non-selected (but known) to false
-for name in all_plugin_names:
+# Only write entries for selected (installed) plugins
+for name in selected_plugins:
     key = f"{name}@coordinator-claude"
-    data["enabledPlugins"][key] = selected_plugins.get(name, False)
+    data["enabledPlugins"][key] = True
 
 if "extraKnownMarketplaces" not in data:
     data["extraKnownMarketplaces"] = {}

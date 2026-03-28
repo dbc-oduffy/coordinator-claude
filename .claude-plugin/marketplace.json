@@ -1,41 +1,47 @@
 {
   "name": "coordinator-claude",
-  "owner": "oduffy-delphi",
-  "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and deep research pipelines.",
+  "owner": {
+    "name": "Dónal O'Duffy & Claude"
+  },
+  "metadata": {
+    "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and deep research pipelines.",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
+  },
   "plugins": [
     {
       "name": "coordinator",
-      "path": "plugins/coordinator",
+      "source": "./coordinator",
       "description": "Core orchestration: PM-EM dynamic, workflow skills, reviewer personas (Patrik, Zolí), session lifecycle, research pipelines, three-tier delegation.",
       "tags": ["orchestration", "code-review", "workflow", "agents", "research"]
     },
     {
       "name": "web-dev",
-      "path": "plugins/web-dev",
+      "source": "./web-dev",
       "description": "Web development reviewers: Palí (frontend, design tokens, CSS) and Fru (UX flows, trust signals).",
       "tags": ["web-development", "frontend", "ux", "design-system"]
     },
     {
       "name": "game-dev",
-      "path": "plugins/game-dev",
+      "source": "./game-dev",
       "description": "Game development reviewer: Sid (Unreal Engine, Blueprint/C++, gameplay mechanics). Includes Blueprint inspector agents.",
       "tags": ["game-development", "unreal-engine", "ue5", "blueprint"]
     },
     {
       "name": "data-science",
-      "path": "plugins/data-science",
+      "source": "./data-science",
       "description": "Data science reviewer: Camelia (ML pipelines, statistics, data modeling, LLM workflows).",
       "tags": ["data-science", "machine-learning", "statistics", "ai"]
     },
     {
       "name": "notebooklm",
-      "path": "plugins/notebooklm",
+      "source": "./notebooklm",
       "description": "Google NotebookLM integration via MCP. Research YouTube videos, podcasts, and audio content.",
       "tags": ["notebooklm", "youtube", "media-research", "mcp"]
     },
     {
       "name": "deep-research",
-      "path": "plugins/deep-research",
+      "source": "./deep-research",
       "description": "Multi-agent deep research pipelines — internet research with Agent Teams (Pipeline A), repo assessment (Pipeline B). Haiku scout builds shared source corpus, Sonnet specialists verify and cross-pollinate, Opus synthesizes findings.",
       "tags": ["research", "deep-research", "agent-teams", "multi-agent", "web-research"]
     }

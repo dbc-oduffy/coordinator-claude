@@ -31,7 +31,6 @@ You have access to holodeck-docs MCP tools. Use the right tool for each question
 | `mcp__holodeck-docs__ue_expert_examples` | Expert Q&A + production code examples. "How should I..." and "Show me an example of..." questions. | 1-3s |
 | `mcp__holodeck-docs__search_ue_docs` | Browse docs by category (`cpp`, `blueprint`, `cheatsheet`) or source (`engine`, `samples`, `expert`, `community`). | 1-3s |
 | `mcp__holodeck-docs__check_ue_patterns` | Check code snippets against known anti-patterns. Submit code, get back known issues. | 1-3s |
-| `mcp__holodeck-docs__ask_unreal_expert` | Deep RAG retrieval for broad questions. Slower. Use only when quick_ue_lookup isn't enough. | 1-3s |
 | `mcp__holodeck-docs__get_session_primer` | Session start priming — not useful for individual lookups. Skip this. | 1-3s |
 
 **Default strategy:** Start with `quick_ue_lookup`. If it doesn't have what you need, try the more targeted tools. Do not call any tool more than twice per question.

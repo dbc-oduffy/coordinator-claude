@@ -93,7 +93,7 @@ Check `tasks/handoffs/` for `.md` files (active handoffs). If handoffs exist:
 4. **Do NOT load, summarize, or act on any handoff.** This applies even if there is only one handoff. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first.
 5. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
 
-**When the PM indicates they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for the Engage section.
+**When the PM indicates they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for the Engage section. Alternatively, the PM may use `/pickup` which is purpose-built for handoff resumption and skips the general orientation ceremony.
 
 **Archiving is handled by `/update-docs` only** (48-hour threshold). This ensures handoffs persist until the work they describe has had time to complete.
 

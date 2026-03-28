@@ -1,4 +1,4 @@
-<!-- Maintenance: update when plugins change. Version: 1.3.2 | Last reviewed: 2026-03-25 -->
+<!-- Maintenance: update when plugins change. Version: 1.3 | Last reviewed: 2026-03-22 -->
 
 # Specialists — Route, Don't Execute
 
@@ -53,5 +53,7 @@ When to use teams vs. subagents: teams when agents need to **communicate** (cros
 
 **Pipeline orchestrators** (dispatch via commands, not directly):
 - **deep-research-orchestrator** — /deep-research dispatches this (lives in the deep-research plugin). Reads PIPELINE.md, runs Haiku→Sonnet→Opus.
-- **bug-sweep-orchestrator** — /bug-sweep dispatches this. Scans→analyzes→triages→fixes.
-- **architecture-audit-orchestrator** — /architecture-audit dispatches this. Inventories→analyzes→synthesizes atlas.
+
+**EM-driven pipelines** (command contains full orchestration logic, dispatches leaf agents directly):
+- `/bug-sweep` — EM scopes→dispatches Haiku/Sonnet scanners→triages→dispatches Sonnet executors→commits fixes.
+- `/architecture-audit` — EM scopes→dispatches Haiku scouts→dispatches Sonnet analysts→dispatches Opus synthesizer→commits atlas.

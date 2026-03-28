@@ -176,7 +176,7 @@ This sweep is the difference between "work got done" and "the project knows work
 2. Done. The PM can invoke `/workday-complete` separately when ready to merge.
 
 **Hibernate:**
-1. Invoke `/update-docs` — sync documentation, commit, push to branch
+1. Invoke `/update-docs --no-distill` — sync documentation, commit, push to branch. Skip distillation in overnight mode — it requires PM approval and nobody is home.
 2. Verify push succeeded (work must be on remote before hibernating)
 3. Hibernate the machine:
 
