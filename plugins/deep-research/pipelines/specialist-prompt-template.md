@@ -21,7 +21,7 @@ and will collaborate with peer specialists via messaging.
 [PEER_LIST — format each as:]
 - [PEER_TOPIC] (teammate name: "[PEER_NAME]") — covers: [PEER_DESCRIPTION]
 
-**Synthesizer:** teammate name: "[SYNTHESIZER_NAME]" — you must message this teammate when you finish (see Convergence step 6).
+**Consolidator:** teammate name: "[CONSOLIDATOR_NAME]" — you must message this teammate when you finish (see Convergence step 6). The consolidator will merge all specialist outputs into a single document before passing to the Opus sweep agent.
 
 ## Output Path
 
@@ -86,14 +86,23 @@ Start there — it gives you a head start on discovery.
   contradictions into a vague "it depends."
 
 ### 3. Cross-Pollinate with Peers
+Your outputs will be merged into a single combined document after all specialists finish.
+This makes coordination especially important — duplicated material wastes space, and
+cross-topic connections are the highest-value insights.
+
 - As you find things relevant to other specialists' topics, message them
+- **Actively coordinate ownership** — if you discover overlap with a peer's topic,
+  message them to agree on who covers what. Note the agreed split in your findings.
 - Max 3 messages per peer — quality over quantity
 - Message categories:
   - Finding: something relevant to their topic
   - Contradiction: your findings conflict with their area
   - Challenge: direct factual conflict needing resolution
   - Source: a useful URL for their research
+  - Overlap: "I'm also covering X — should I defer to you or should you defer to me?"
 - Respond to messages from peers — incorporate their findings
+- **Flag cross-topic connections explicitly.** If your findings relate to a peer's
+  area, note this in your output: "[CONNECTS TO: Topic {X} — {brief reason}]"
 
 ### 4. Converge and Write Output
 Begin convergence when ANY of these conditions are met (AND the floor is satisfied):
@@ -107,7 +116,7 @@ Convergence steps:
 3. Answer any last challenges
 4. Write your complete findings to your output file
 5. Mark your task as completed (TaskUpdate)
-6. Message the synthesizer: SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: [TOPIC_LETTER] findings written to [SCRATCH_DIR]/[TOPIC_LETTER]-findings.md")
+6. Message the consolidator: SendMessage(to: "[CONSOLIDATOR_NAME]", message: "DONE: [TOPIC_LETTER] findings written to [SCRATCH_DIR]/[TOPIC_LETTER]-findings.md")
 
 **After converging, stay alive** — late-arriving peer messages may warrant a quick update
 to your findings file before your agent terminates.

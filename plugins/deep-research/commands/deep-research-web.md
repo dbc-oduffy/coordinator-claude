@@ -1,5 +1,5 @@
 ---
-description: "Pipeline A (Internet Research) using Agent Teams — collaborative research with a Haiku scout, Sonnet specialists, and an Opus synthesizer, all as teammates. EM scopes research, spawns the team, and is freed. The team handles everything autonomously."
+description: "Pipeline A (Internet Research) using Agent Teams — collaborative research with a Haiku scout, Sonnet specialists, a Sonnet consolidator, and an Opus sweep agent, all as teammates. EM scopes research, spawns the team, and is freed. The team handles everything autonomously."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic>"
 ---
@@ -8,10 +8,11 @@ argument-hint: "<topic>"
 
 The EM scopes the research, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Haiku scout** (1) — executes EM-crafted search queries, builds a shared source corpus
-- **Sonnet specialists** (3-5) — blocked until scout completes, then deep-read from the corpus, verify, cross-pollinate
-- **Opus synthesizer** (1) — blocked until all specialists complete, then reads their outputs and writes the final document
+- **Sonnet specialists** (3-4) — blocked until scout completes, then deep-read from the corpus, verify, cross-pollinate
+- **Sonnet consolidator** (1) — blocked until all specialists complete, then merges their outputs into a single deduped document with cross-topic connections flagged
+- **Opus sweep** (1) — blocked until consolidator completes, then reads the combined findings, identifies negative space, fills gaps with targeted research, writes executive summary and conclusion
 
-The scout handles mechanical source discovery so specialists can focus on analysis. Specialists self-govern their timing (floor, diminishing returns, ceiling). The EM does not monitor or broadcast WRAP_UP. When the synthesizer marks its task complete, the EM receives a notification and does quick cleanup.
+The scout handles mechanical source discovery. Specialists self-govern their timing and actively coordinate to avoid duplication. The consolidator produces a single aligned document. The Opus sweep does the judgment work — filling gaps the specialists couldn't see and framing the whole thing. The EM does not monitor or broadcast WRAP_UP.
 
 ## Arguments
 
@@ -38,7 +39,7 @@ Announce: "Running deep research (Agent Teams) on '{topic}'."
 
 This is judgment work — the EM does it directly:
 
-1. Define 3-5 topic areas to investigate
+1. Define 3-4 topic areas to investigate
 2. Write focus questions for each topic
 3. List any known sources
 4. Note cross-cutting themes between topics
@@ -50,7 +51,7 @@ This is judgment work — the EM does it directly:
 6. **Ask the PM for timing preferences:**
    > "Research timing: default is 5-15 min with 5-source minimum. For a trivial topic, I'd suggest 3-8 min / 3 sources. For a complex topic, 5-20 min / 5 sources. What ceiling works for you?"
 
-Cap at 5 topics (team size constraint: 1 scout + 5 specialists + 1 synthesizer = 7 teammates). Write scope AND search queries to `{scratch-dir}/scope.md`.
+Cap at 4 topics (team size constraint: 1 scout + 4 specialists + 1 consolidator + 1 sweep = 7 teammates). Write scope AND search queries to `{scratch-dir}/scope.md`.
 
 ## Step 3 — Create Team and All Tasks
 
@@ -64,26 +65,36 @@ TeamCreate(team_name: "research-{topic-slug}")
 
 **Order matters.** Task IDs from earlier steps are referenced in later steps.
 
-**1. Synthesizer task** (created first — will be blocked later):
+**1. Sweep task** (created first — will be blocked later):
 ```
-TaskCreate(subject: "Synthesize all findings into final document", description: "Read all specialist outputs from {scratch-dir}/, cross-reference, resolve contradictions, write synthesis to {output-path} and {scratch-dir}/synthesis.md")
+TaskCreate(subject: "Sweep: fill gaps, write framing", description: "Read combined findings from {scratch-dir}/combined-findings.md, identify negative space, fill gaps via web research, write exec summary + conclusion to {output-path}")
 ```
 
-**2. Scout task** (no blockers — reads queries from disk):
+**2. Consolidator task** (created second — will be blocked later):
+```
+TaskCreate(subject: "Consolidate specialist findings", description: "Read all specialist outputs from {scratch-dir}/, deduplicate, flag cross-topic connections, write combined document to {scratch-dir}/combined-findings.md")
+```
+
+**3. Scout task** (no blockers — reads queries from disk):
 ```
 TaskCreate(subject: "Build shared source corpus", description: "Read search queries from {scratch-dir}/scope.md, execute via WebSearch, vet accessibility via WebFetch, write corpus to {scratch-dir}/source-corpus.md")
 ```
 
-**3. Specialist tasks** (each blocked by scout):
+**4. Specialist tasks** (each blocked by scout):
 For each topic:
 ```
 TaskCreate(subject: "Analyze topic {letter}: {description}", description: "...")
 TaskUpdate(taskId: "{specialist-id}", addBlockedBy: ["{scout-task-id}"])
 ```
 
-**4. Block synthesizer on all specialists:**
+**5. Block consolidator on all specialists:**
 ```
-TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", ...])
+TaskUpdate(taskId: "{consolidator-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", ...])
+```
+
+**6. Block sweep on consolidator:**
+```
+TaskUpdate(taskId: "{sweep-id}", addBlockedBy: ["{consolidator-id}"])
 ```
 
 ## Step 4 — Spawn All Teammates
@@ -111,9 +122,8 @@ TaskUpdate(taskId: "{scout-id}", owner: "scout")
 For each topic area, read the specialist prompt template from:
 `~/.claude/plugins/oduffy-custom/deep-research/pipelines/specialist-prompt-template.md`
 
-Fill in ALL template fields — including `[SYNTHESIZER_NAME]` (use `"synthesizer"` as the teammate name). This is how specialists know who to send the `DONE` wake-up message to.
+Fill in ALL template fields — including `[CONSOLIDATOR_NAME]` (use `"consolidator"` as the teammate name). This is how specialists know who to send the `DONE` wake-up message to.
 
-Fill in the template and spawn:
 ```
 Agent(
   team_name: "research-{topic-slug}",
@@ -125,27 +135,45 @@ Agent(
 TaskUpdate(taskId: "{id}", owner: "topic-{letter}")
 ```
 
-### Synthesizer (Opus)
+### Consolidator (Sonnet)
 
-Spawn the synthesizer with its task (which is blocked until specialists finish):
+Read the consolidator prompt template from:
+`~/.claude/plugins/oduffy-custom/deep-research/pipelines/consolidator-prompt-template.md`
+
+Fill in template fields: `[RESEARCH_QUESTION]`, `[PROJECT_CONTEXT]`, `[SPECIALIST_COUNT]`, `[SPECIALIST_LIST]`, `[SWEEP_NAME]` (use `"sweep"`), `[SCRATCH_DIR]`, `[TASK_ID]`.
+
 ```
 Agent(
   team_name: "research-{topic-slug}",
-  name: "synthesizer",
-  model: "opus",
-  subagent_type: "deep-research:research-synthesizer",
-  prompt: <filled synthesis prompt — see below>
+  name: "consolidator",
+  model: "sonnet",
+  subagent_type: "deep-research:research-consolidator",
+  prompt: <filled consolidator prompt>
 )
-TaskUpdate(taskId: "{synthesis-id}", owner: "synthesizer")
+TaskUpdate(taskId: "{consolidator-id}", owner: "consolidator")
 ```
 
-**Synthesis prompt** should include:
+### Opus Sweep
+
+Spawn the sweep agent with its task (which is blocked until consolidator finishes):
+```
+Agent(
+  team_name: "research-{topic-slug}",
+  name: "sweep",
+  model: "opus",
+  subagent_type: "deep-research:research-synthesizer",
+  prompt: <filled sweep prompt — see below>
+)
+TaskUpdate(taskId: "{sweep-id}", owner: "sweep")
+```
+
+**Sweep prompt** should include:
 - The research question and project context
-- The scratch directory path (where specialist outputs will be): `{scratch-dir}`
+- The scratch directory path: `{scratch-dir}`
 - The output path for the final document: `{output-path}`
-- The advisory output path: `{advisory-path}` (pre-computed in Step 1 — do not ask the synthesizer to derive it)
-- The synthesis task ID to mark complete when done
-- Instruction: "Read all {scratch-dir}/*-findings.md files, cross-reference, resolve contradictions, and write the synthesis document. Follow your agent definition's output format and principles. After synthesis, write an advisory if you have substantive observations beyond the scope (see advisory template in your agent definition). Write advisory to both {advisory-path} AND {scratch-dir}/advisory.md. If nothing beyond scope, skip and note 'No advisory' in your completion message."
+- The advisory output path: `{advisory-path}` (pre-computed in Step 1)
+- The sweep task ID to mark complete when done
+- Instruction: "Read the combined findings at {scratch-dir}/combined-findings.md. Follow your agent definition's three phases: assess, fill negative space, frame. You have WebSearch and WebFetch for gap-filling research. Write the final document to {output-path} and {scratch-dir}/synthesis.md. Write advisory to {advisory-path} and {scratch-dir}/advisory.md if you have observations beyond scope. If nothing beyond scope, note 'No advisory' in your completion message. You are explicitly encouraged to go beyond the original research scope where your judgment says it's warranted."
 
 Dispatch ALL teammates in a single message (parallel).
 
@@ -153,13 +181,13 @@ Dispatch ALL teammates in a single message (parallel).
 
 After spawning all teammates, announce:
 
-> "Research team is running autonomously on '{topic}' with 1 scout + {N} specialists + 1 synthesizer. Scout builds the shared corpus (~2-3 min), then specialists deep-read and cross-pollinate ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum). I'm available for other work — I'll be notified when the synthesizer completes."
+> "Research team is running autonomously on '{topic}' with 1 scout + {N} specialists + 1 consolidator + 1 Opus sweep. Scout builds the shared corpus (~2-3 min), then specialists deep-read and cross-pollinate ({MIN_MINUTES}-{MAX_MINUTES} min, {MIN_SOURCES}-source minimum). After specialists finish, the consolidator merges and deduplicates their outputs, then the Opus sweep fills gaps and frames the final document. I'm available for other work — I'll be notified when the sweep completes."
 
 **You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
 
 ## Step 6 — On Completion Notification
 
-When you receive a notification that the synthesis task is complete:
+When you receive a notification that the sweep task is complete:
 
 1. Read the synthesis document at `{output-path}`
 2. Verify it has substantive content (not just headers)
@@ -176,7 +204,7 @@ When you receive a notification that the synthesis task is complete:
    ```
 5. Shut down the team: `TeamDelete(team_name: "research-{topic-slug}")`
 6. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
-7. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`."
+7. Present executive summary to PM for discussion. If advisory exists, mention it: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
 
 ## Error Handling
 
@@ -185,6 +213,7 @@ When you receive a notification that the synthesis task is complete:
 | Scout fails (no corpus written) | Specialists fall back to self-directed discovery (existing behavior) — the corpus is optional, not required |
 | Scout times out (partial corpus) | Specialists use what's there + supplement with own searches |
 | Specialist hits ceiling and self-converges | Normal — specialist writes what it has and marks task complete |
-| Synthesizer doesn't wake after all specialists complete | Verify specialists sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
+| Consolidator doesn't wake after all specialists complete | Verify specialists sent DONE messages to consolidator; if not, send manual nudge via SendMessage |
+| Sweep doesn't wake after consolidator completes | Send manual nudge to sweep. If still stalled after 5 min, EM reads combined-findings.md for PM |
 | All specialists fail | TeamDelete, report to PM |
 | Team creation fails | Fall back to relay pattern or manual research |
