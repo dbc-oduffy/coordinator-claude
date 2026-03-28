@@ -229,7 +229,25 @@ copy_plugins() {
       echo "  OK: $name"
     fi
   done
+
+  # Copy marketplace manifest (required for Claude Code to discover plugins)
+  copy_marketplace_manifest
   echo ""
+}
+
+copy_marketplace_manifest() {
+  local src="$REPO_ROOT/.claude-plugin/marketplace.json"
+  local dest_dir="$PLUGINS_TARGET/.claude-plugin"
+  local dest="$dest_dir/marketplace.json"
+
+  if [[ ! -f "$src" ]]; then
+    echo "  WARN: marketplace.json not found in repo — plugins may not load"
+    return
+  fi
+
+  mkdir -p "$dest_dir"
+  cp "$src" "$dest"
+  echo "  OK: marketplace manifest"
 }
 
 # ---------------------------------------------------------------------------
@@ -441,6 +459,14 @@ validate_installation() {
       echo "  FAIL: known_marketplaces.json missing coordinator-claude entry"
       errors=$((errors + 1))
     fi
+  fi
+
+  local manifest="$PLUGINS_TARGET/.claude-plugin/marketplace.json"
+  if [[ -f "$manifest" ]]; then
+    echo "  OK: marketplace manifest exists"
+  else
+    echo "  FAIL: marketplace manifest missing — $manifest"
+    errors=$((errors + 1))
   fi
 
   local installed_file="$CLAUDE_DIR/plugins/installed_plugins.json"
