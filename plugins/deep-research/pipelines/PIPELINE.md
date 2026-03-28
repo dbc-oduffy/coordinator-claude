@@ -6,7 +6,7 @@
 
 Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
 
-- **Internet Research (Pipeline A)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + 3-5 Sonnet specialists + 1 Opus synthesizer.
+- **Internet Research (Pipeline A)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + 3-4 Sonnet specialists + 1 Sonnet consolidator + 1 Opus sweep agent. Specialists research and cross-pollinate, consolidator deduplicates and aligns into a single document, Opus sweep fills negative space and frames the output.
 - **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer.
 
 **Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
