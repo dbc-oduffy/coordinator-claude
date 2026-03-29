@@ -6,6 +6,7 @@
 #   Tier 1 (tag-based): Checks for <exit-status> tag in last assistant output
 #   Tier 1.5 (AC-N check): On DONE, verifies AC-N acceptance criteria lines exist (soft warning if missing)
 #   Tier 2 (heuristic): Counts Edit/Write calls per file — flags 8+ edits to same file
+#                        SKIPPED for protocol-aware agents (any exit-status tag in transcript)
 #
 # Re-entry guard: Blocks once per transcript, then always approves (bark once, let go)
 
@@ -126,9 +127,23 @@ if [[ -n "$EXIT_TAG" ]]; then
   esac
 fi
 
-# --- Tier 2: Heuristic detection (no tag found) ---
+# --- Tier 2: Heuristic detection (no tag found in last text block) ---
+# Before counting edits, check if any exit-status tag exists ANYWHERE in the transcript.
+# Protocol-aware agents (executors) always emit a tag. If we find one anywhere, the agent
+# is protocol-aware and Tier 1 should have handled it — skip the heuristic entirely.
+# This prevents false positives when the tag isn't in the very last text block.
+
+set +e
+ANY_TAG=$(grep -o '<exit-status>[^<]*</exit-status>' "$TRANSCRIPT_PATH" 2>/dev/null | tail -1)
+set -e
+
+if [[ -n "$ANY_TAG" ]]; then
+  # Protocol-aware agent — Tier 1 already handled or should have. Skip heuristic.
+  exit 0
+fi
+
 # Count Edit/Write tool calls per file path in transcript
-# Only fires when no exit-status tag was found at all (non-protocol-aware agent)
+# Only fires for non-protocol-aware agents (no exit-status tag anywhere in transcript)
 
 set +e
 # Extract file_path from Edit and Write tool_use blocks in last 100 assistant lines
