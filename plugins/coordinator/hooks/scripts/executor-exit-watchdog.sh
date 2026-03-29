@@ -5,7 +5,7 @@
 # Three-tier detection:
 #   Tier 1 (tag-based): Checks for <exit-status> tag in last assistant output
 #   Tier 1.5 (AC-N check): On DONE, verifies AC-N acceptance criteria lines exist (soft warning if missing)
-#   Tier 2 (heuristic): Counts Edit/Write calls per file — flags 8+ edits to same file
+#   Tier 2 (heuristic): Counts Edit/Write calls per file — flags 12+ edits to same file
 #                        SKIPPED for protocol-aware agents (any exit-status tag in transcript)
 #
 # Re-entry guard: Blocks once per transcript, then always approves (bark once, let go)
@@ -177,7 +177,7 @@ if [[ $T2_EXIT -ne 0 ]] || [[ -z "$MAX_EDITS" ]]; then
   MAX_EDITS=0
 fi
 
-THRESHOLD=8
+THRESHOLD=12
 
 if [[ "$MAX_EDITS" -ge "$THRESHOLD" ]]; then
   # Likely thrashing — block with post-mortem prompt
