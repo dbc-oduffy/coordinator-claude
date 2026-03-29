@@ -196,4 +196,4 @@ git worktree remove <worktree-path>
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
-- **coordinator:using-git-worktrees** - Cleans up worktree created by that skill
+- **superpowers:using-git-worktrees** - Cleans up worktree created by that skill

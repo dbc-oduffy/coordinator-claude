@@ -139,6 +139,11 @@ State survives compaction through:
 - **Orientation cache** — compact project awareness document, sub-second load
 - **Plan documents** — on-disk specs with write-ahead status fields
 
+Context pressure is monitored by a three-layer hook system:
+- **PreCompact** — writes a sentinel + state snapshot to `/tmp/` before compaction fires
+- **PostToolUse** — (1) bridges the PreCompact snapshot into context on the first tool use after compaction, (2) mid-chain threshold safety net (5 min throttle, 10 min session-age gate)
+- **Stop** — primary threshold check, fires once per turn (10 min session-age gate). Both threshold checks share bark-once sentinels to avoid duplicate warnings.
+
 ### Session End
 `/session-end` captures lessons, updates docs, commits. `/handoff` creates a structured state dump for the next session.
 

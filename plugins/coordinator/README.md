@@ -95,7 +95,12 @@ The coordinator plugin is the backbone of the system. It provides:
 
 ### Hooks
 
-- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness)
+- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness), project orientation, UE knowledge distrust guard
+- **PreToolUse** — Commit validation (Bash), Sonnet research nudge (WebSearch/WebFetch), holodeck delegation nudge (MCP tools)
+- **PostToolUse** — Plan persistence check (ExitPlanMode), context pressure advisory (all tools — Phase 1: post-compaction sentinel bridge, Phase 2: mid-chain threshold safety net, 5 min throttle + 10 min session-age gate)
+- **Stop** — Context pressure threshold check (primary — fires once per turn, 10 min session-age gate)
+- **SubagentStop** — Executor exit watchdog
+- **PreCompact** — Compaction state snapshot (writes sentinel + session state to `/tmp/` for PostToolUse bridge)
 
 ## Routing Extension Protocol
 

@@ -70,7 +70,7 @@ digraph when_to_use {
 - **Disjoint file sets → parallel, same worktree.** Agents write to different files; the filesystem is the coordination mechanism. No merge ceremony needed.
 - **Overlapping files → sequential, same worktree.** Run agents one after another so each sees the previous agent's changes. This is almost always cheaper than worktree creation + merge conflict resolution at agent execution speed.
 - **Overlapping files with different insertion points** (e.g., appending to different sections of the same file) → still sequential. "Theoretically non-conflicting" edits in the same file are fragile; sequential execution eliminates the risk for negligible time cost.
-- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → use worktrees via `coordinator:using-git-worktrees`.
+- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → use worktrees via `superpowers:using-git-worktrees`.
 
 **Why not worktrees by default?** Worktrees solve a human-scale problem: needing days of isolation on parallel features. At agent execution speed, the merge overhead (branch creation, conflict resolution, integration verification) exceeds the time saved by parallelism. Sequential execution on overlapping files is almost always the cheaper path.
 
