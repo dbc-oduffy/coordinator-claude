@@ -6,22 +6,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# --- EM session marker ---
-# Read hook input to get session_id, then write marker file.
-# Used by nudge-em-delegation.sh to distinguish EM from subagents.
-# SessionStart only fires for the top-level session, not subagents.
-if command -v timeout &>/dev/null; then
-  _HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
-else
-  _HOOK_INPUT=$(cat)
-fi
-if command -v jq &>/dev/null; then
-  _SID=$(echo "$_HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
-  if [[ -n "$_SID" ]]; then
-    touch "/tmp/em-session-${_SID}"
-  fi
-fi
-
 # Find repo root (works regardless of CWD)
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 

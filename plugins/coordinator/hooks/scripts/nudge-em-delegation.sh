@@ -45,17 +45,15 @@ fi
 # --- EM-only guard ---
 # This hook should only nudge the top-level EM session, not dispatched subagents.
 # Subagents (executors, enrichers, reviewers) ARE supposed to edit implementation files.
-# Detection: the SessionStart hook writes an EM marker file. If it doesn't exist for
-# this session, we're in a subagent — skip.
-SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null || true)
-EM_MARKER="/tmp/em-session-${SESSION_ID}"
-
-if [[ ! -f "$EM_MARKER" ]]; then
-  # Not the EM session — skip (likely a subagent)
+# Detection: agent_id is present in hook input only for subagent contexts.
+AGENT_ID=$(echo "$HOOK_INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
+if [[ -n "$AGENT_ID" ]]; then
+  # Subagent session — skip
   exit 0
 fi
 
 # --- Session-scoped counter ---
+SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null || true)
 COUNTER_FILE="/tmp/em-edit-count-${SESSION_ID}"
 SENTINEL_FILE="/tmp/em-delegation-nudged-${SESSION_ID}"
 
