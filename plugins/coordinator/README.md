@@ -49,10 +49,9 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
 <!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (18)
+### Skills (17)
 
 **Workflow & Planning:**
-- `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `writing-plans` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
 - `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers `/delegate-execution` in coordinator sessions.
 - `verification-before-completion` — Prove it works before claiming it's done.
