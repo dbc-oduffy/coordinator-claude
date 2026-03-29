@@ -23,7 +23,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (20, all user-invocable via `/`)
+### Commands (21, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -49,7 +49,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
 <!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (24)
+### Skills (18)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
