@@ -1,8 +1,10 @@
 ---
 name: requesting-code-review
-description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+description: "This skill should be used when the coordinator needs to route work to a named reviewer — extends superpowers:requesting-code-review with /review-dispatch routing and named reviewer pool (Patrik, Sid, Camelia, Pali, Fru). Triggers on: 'review this', 'get a review', 'dispatch to reviewer'."
 version: 1.0.0
 ---
+
+> **Foundation:** This skill extends `superpowers:requesting-code-review`. The superpowers skill provides core review patterns (when to review, how to prepare, act on all feedback). This skill adds coordinator-specific routing: `/review-dispatch` command integration and named reviewer pool (Patrik, Sid, Camelia, Pali, Fru).
 
 # Requesting Code Review
 

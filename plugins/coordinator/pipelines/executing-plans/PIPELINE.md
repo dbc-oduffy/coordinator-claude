@@ -75,6 +75,6 @@ After all tasks complete and verified:
 ## Integration
 
 **Required workflow skills:**
-- **coordinator:using-git-worktrees** - Use when branch-level isolation is needed (separate PRs, different base branches). NOT required for single-branch sequential execution — work directly in the current worktree.
+- **superpowers:using-git-worktrees** - Use when branch-level isolation is needed (separate PRs, different base branches). NOT required for single-branch sequential execution — work directly in the current worktree.
 - **coordinator:writing-plans** - Creates the plan this skill executes
 - **coordinator:finishing-a-development-branch** - Complete development after all tasks

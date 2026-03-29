@@ -1,8 +1,10 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
+description: "This skill should be used when coordinator work on a branch is complete and needs integration — extends superpowers:finishing-a-development-branch with CI-gated PR merge via merging-to-main, automated cleanup, and /delegate-execution workflow integration."
 version: 1.0.0
 ---
+
+> **Foundation:** This skill extends `superpowers:finishing-a-development-branch`. The superpowers skill provides core completion flow (verify tests, present options, execute, cleanup). This skill adds coordinator-specific automation: CI-gated PR merge via `merging-to-main` skill, and integration with `/delegate-execution` and `/execute-plan` workflows.
 
 # Finishing a Development Branch
 
@@ -194,4 +196,4 @@ git worktree remove <worktree-path>
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
-- **coordinator:using-git-worktrees** - Cleans up worktree created by that skill
+- **superpowers:using-git-worktrees** - Cleans up worktree created by that skill

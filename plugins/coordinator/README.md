@@ -23,7 +23,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (20, all user-invocable via `/`)
+### Commands (21, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -49,7 +49,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
 <!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (24)
+### Skills (18)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -95,7 +95,12 @@ The coordinator plugin is the backbone of the system. It provides:
 
 ### Hooks
 
-- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness)
+- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness), project orientation, UE knowledge distrust guard
+- **PreToolUse** — Commit validation (Bash), Sonnet research nudge (WebSearch/WebFetch), holodeck delegation nudge (MCP tools)
+- **PostToolUse** — Plan persistence check (ExitPlanMode), context pressure advisory (all tools — Phase 1: post-compaction sentinel bridge, Phase 2: mid-chain threshold safety net, 5 min throttle + 10 min session-age gate)
+- **Stop** — Context pressure threshold check (primary — fires once per turn, 10 min session-age gate)
+- **SubagentStop** — Executor exit watchdog
+- **PreCompact** — Compaction state snapshot (writes sentinel + session state to `/tmp/` for PostToolUse bridge)
 
 ## Routing Extension Protocol
 
