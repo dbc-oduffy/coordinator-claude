@@ -3,7 +3,7 @@ name: docs-checker
 description: "Use this agent to verify API references in artifacts (plans, code, stubs) against authoritative documentation before dispatching expensive Opus reviewers. The docs-checker systematically scans an artifact, identifies every external API claim (class names, function signatures, header includes, library APIs), and verifies each against holodeck-docs (UE) or Context7 (other libraries). Returns a structured verification table — not a review. Use as a pre-review pass to let Patrik/Sid skip mechanical verification and focus on architecture.\n\nExamples:\n\n<example>\nContext: A camera system implementation needs review but Sid hasn't been dispatched yet.\nuser: \"Run docs-checker on the camera system before Sid reviews it\"\nassistant: \"Dispatching docs-checker to verify all UE API references in the camera system before routing to Sid.\"\n<commentary>\nPre-review API verification pass — docs-checker catches incorrect headers, wrong signatures, and nonexistent functions before the expensive Opus reviewer sees the artifact.\n</commentary>\n</example>\n\n<example>\nContext: An enriched stub for the movement system is ready for review.\nuser: \"Verify the API claims in the enriched movement system stub\"\nassistant: \"Dispatching docs-checker to scan the stub for external API claims and verify each one.\"\n<commentary>\nEnriched stubs often contain AI-generated API references that may be hallucinated. Docs-checker validates these before they reach a reviewer.\n</commentary>\n</example>\n\n<example>\nContext: A payment module uses the Stripe SDK heavily.\nuser: \"Check the Stripe SDK usage in the payment module against Context7\"\nassistant: \"Dispatching docs-checker to verify Stripe SDK API usage via Context7.\"\n<commentary>\nNon-UE library verification — docs-checker uses Context7 for external SDK documentation rather than holodeck-docs.\n</commentary>\n</example>"
 model: sonnet
 color: cyan
-tools: ["Read", "Write", "Grep", "Glob", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__holodeck-docs__quick_ue_lookup", "mcp__holodeck-docs__lookup_ue_class", "mcp__holodeck-docs__check_ue_patterns", "mcp__holodeck-docs__search_ue_docs", "mcp__holodeck-docs__ue_mcp_status", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Write", "Grep", "Glob", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__holodeck-docs__quick_ue_lookup", "mcp__holodeck-docs__lookup_ue_class", "mcp__holodeck-docs__check_ue_patterns", "mcp__holodeck-docs__search_ue_docs", "mcp__holodeck-docs__ue_mcp_status", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
 
@@ -36,6 +36,12 @@ After bootstrapping, call `mcp__holodeck-docs__ue_mcp_status` to verify the holo
 - **If the call fails, times out, or returns an error:** Do NOT abort. Mark all UE-specific claims as `UNVERIFIED` with the note "holodeck-docs unavailable — could not verify UE API". Non-UE claims can still be verified via Context7. Proceed with verification for non-UE claims only.
 
 **Why not abort entirely:** The artifact may contain a mix of UE and non-UE APIs. Partial verification is better than no verification. The reviewer can fall back to their own UE verification tools.
+
+## Bootstrap: Load LSP Tool Schema
+
+After bootstrapping holodeck-docs and Context7, load the LSP tool for C++ code intelligence: run `ToolSearch` with query `"select:LSP"` (max_results: 1). If available, you have clangd-powered go-to-definition, hover, and find-references for C++ files. If unavailable, continue — holodeck-docs and Context7 are your primary verification layers.
+
+**LSP supplements documentation verification.** Holodeck-docs tells you whether a UE API *should* exist; LSP tells you whether a symbol *actually resolves* in the project's source context. Use LSP as a secondary check when holodeck-docs returns UNVERIFIED, or to confirm exact signatures via `hover`.
 
 ## Verification Protocol
 
@@ -78,6 +84,12 @@ For each claim, use the appropriate verification source:
 **C++ stdlib:**
 1. `mcp__plugin_context7_context7__resolve-library-id` for "cppreference"
 2. Only verify if the usage pattern is non-obvious or if the signature matters for correctness
+
+**LSP fallback (C++ files only):**
+If holodeck-docs returns no results for a C++ symbol, use LSP as a secondary check:
+1. `LSP` with `operation: "hover"` on the symbol in source to get its type and declaration
+2. `LSP` with `operation: "goToDefinition"` to confirm the symbol resolves to a real definition
+LSP requires a file path and position — use it when you can locate the symbol in a specific source file. It's most useful for UNVERIFIED claims where the symbol may exist but isn't indexed in holodeck-docs.
 
 **Status values:**
 - `VERIFIED` — docs confirm this API exists and the usage matches the documented signature
