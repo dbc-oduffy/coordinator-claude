@@ -14,7 +14,7 @@ Generate a structural map of the current repository, ranked by git activity, fit
 
 **Default invocation** (no arguments):
 ```bash
-python3 ~/.claude/.github/scripts/generate-repomap.py \
+python3 .github/scripts/generate-repomap.py \
   --project-root "${PROJECT_ROOT:-.}" \
   --budget 4000 \
   --profile balanced
@@ -22,7 +22,7 @@ python3 ~/.claude/.github/scripts/generate-repomap.py \
 
 **With user arguments:** If `$ARGUMENTS` is provided, pass the entire argument string to the script. The script handles its own defaults for any flags not specified:
 ```bash
-python3 ~/.claude/.github/scripts/generate-repomap.py $ARGUMENTS
+python3 .github/scripts/generate-repomap.py $ARGUMENTS
 ```
 
 User arguments always take full precedence — do not merge individual flags with defaults.
@@ -39,7 +39,7 @@ The map is cached — subsequent runs only re-parse changed files.
 For generating maps focused on specific task areas:
 
 ```bash
-python3 ~/.claude/.github/scripts/generate-repomap.py \
+python3 .github/scripts/generate-repomap.py \
   --project-root /path/to/project \
   --task "Implement the camera follow system for the drone actor" \
   --focus-files "Source/DroneSim/Camera/CameraFollowComponent.cpp,Source/DroneSim/Drone/DroneActor.h"
@@ -54,6 +54,6 @@ python3 ~/.claude/.github/scripts/generate-repomap.py \
 
 If the script fails:
 1. **Python not found:** Check that `python3` is on PATH. On Windows, `python` may be the correct command — try both.
-2. **Script not found:** Verify `~/.claude/.github/scripts/generate-repomap.py` exists. If running from a different machine, the path may differ.
-3. **Non-zero exit code:** Report the script's stderr output to the user. Common causes: missing dependencies (run `pip install -r ~/.claude/.github/scripts/requirements-repomap.txt`), permission errors on the cache file, or invalid `--project-root` path.
+2. **Script not found:** Verify `.github/scripts/generate-repomap.py` exists. If running from a different machine, the path may differ.
+3. **Non-zero exit code:** Report the script's stderr output to the user. Common causes: missing dependencies (run `pip install -r .github/scripts/requirements-repomap.txt`), permission errors on the cache file, or invalid `--project-root` path.
 4. **No output generated:** Check that the project root contains trackable files (not an empty directory).

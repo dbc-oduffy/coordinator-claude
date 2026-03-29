@@ -82,7 +82,7 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 
 **Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to the backstop dispatch.
 
-**Note:** Templates for Haiku and Sonnet agents are in `plugins/oduffy-custom/coordinator/pipelines/deep-architecture-audit/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
+**Note:** Templates for Haiku and Sonnet agents are in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-audit/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
 
 ### Step 4: Apply Inline Fixes
 

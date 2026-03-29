@@ -1,6 +1,7 @@
 ---
 name: using-git-worktrees
 description: Use when starting feature work that needs true branch-level isolation (separate PRs, different base branches, long-lived parallel features) - NOT for avoiding file conflicts during parallel agent dispatch (use sequential execution instead)
+version: 1.0.0
 ---
 
 # Using Git Worktrees

@@ -102,7 +102,7 @@ TaskUpdate(taskId: "{sweep-id}", addBlockedBy: ["{consolidator-id}"])
 ### Scout (Haiku)
 
 Read the scout prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/scout-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/scout-prompt-template.md`
 
 Fill in template fields: `[RESEARCH_TOPIC]`, `[PROJECT_CONTEXT]`, `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`.
 
@@ -120,7 +120,7 @@ TaskUpdate(taskId: "{scout-id}", owner: "scout")
 ### Specialists (Sonnet)
 
 For each topic area, read the specialist prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/specialist-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/specialist-prompt-template.md`
 
 Fill in ALL template fields — including `[CONSOLIDATOR_NAME]` (use `"consolidator"` as the teammate name). This is how specialists know who to send the `DONE` wake-up message to.
 
@@ -138,7 +138,7 @@ TaskUpdate(taskId: "{id}", owner: "topic-{letter}")
 ### Consolidator (Sonnet)
 
 Read the consolidator prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/consolidator-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/consolidator-prompt-template.md`
 
 Fill in template fields: `[RESEARCH_QUESTION]`, `[PROJECT_CONTEXT]`, `[SPECIALIST_COUNT]`, `[SPECIALIST_LIST]`, `[SWEEP_NAME]` (use `"sweep"`), `[SCRATCH_DIR]`, `[TASK_ID]`.
 

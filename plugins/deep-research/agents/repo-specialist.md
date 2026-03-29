@@ -14,7 +14,7 @@ Haiku scouts have already built file inventories for your chunk (`{chunk-letter}
 ## Startup
 
 1. Read the specialist prompt template at:
-   `~/.claude/plugins/oduffy-custom/deep-research/pipelines/repo-specialist-prompt-template.md`
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-specialist-prompt-template.md`
 2. Follow its instructions for your assigned chunk
 
 ## Key Principles

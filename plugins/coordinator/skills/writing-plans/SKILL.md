@@ -1,6 +1,7 @@
 ---
 name: writing-plans
-description: Requirements are clear and the task needs decomposition — breaks work into executable chunks with dependency ordering and effort estimates
+description: "This skill should be used when requirements are clear and the task needs decomposition into executable chunks — before touching code. Triggers on: 'write a plan', 'break this down', 'plan the implementation'."
+version: 1.0.0
 ---
 
 # Writing Plans

@@ -122,7 +122,7 @@ TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{specialist-A-id}", "{spe
 ### Scouts (Haiku)
 
 Read the scout prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/repo-scout-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/repo-scout-prompt-template.md`
 
 Fill in template fields for each scout. Scout 1 gets chunks A+B, Scout 2 gets chunks C+D.
 
@@ -149,7 +149,7 @@ TaskUpdate(taskId: "{scout-2-id}", owner: "scout-2")
 ### Specialists (Sonnet)
 
 For each chunk, read the specialist prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/repo-specialist-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/repo-specialist-prompt-template.md`
 
 Fill in ALL template fields — including:
 - `[SYNTHESIZER_NAME]` → `"synthesizer"`
@@ -172,7 +172,7 @@ TaskUpdate(taskId: "{specialist-id}", owner: "chunk-{letter}")
 ### Synthesizer (Opus)
 
 Read the synthesizer prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/repo-synthesizer-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/repo-synthesizer-prompt-template.md`
 
 Fill in ALL template fields:
 - `[REPO_NAME]`, `[SCRATCH_DIR]`, `[OUTPUT_PATH]`, `[TASK_ID]`

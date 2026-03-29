@@ -1,6 +1,7 @@
 ---
 name: stuck-detection
-description: Self-monitoring protocol for detecting and recovering from stuck patterns. Referenced by agent prompts — not invoked directly.
+description: "This skill should be used when detecting repetitive actions, oscillating between approaches, or stalling without progress — the three stuck patterns. Referenced by agent prompts for self-monitoring."
+version: 1.0.0
 ---
 
 # Stuck Detection Protocol

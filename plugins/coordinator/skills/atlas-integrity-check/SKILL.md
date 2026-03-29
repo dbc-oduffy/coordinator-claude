@@ -1,6 +1,7 @@
 ---
 name: atlas-integrity-check
 description: "Check today's changed files against the architecture atlas file-index.md — flags unmapped files as potential new systems. This skill should be used when verifying that new or changed files are mapped in the architecture atlas, or after adding new modules or directories. Invoked by /update-docs (Phase 11) or standalone."
+version: 1.0.0
 ---
 
 # Architecture Atlas Integrity Check
@@ -29,3 +30,11 @@ If `tasks/architecture-atlas/file-index.md` exists, check whether today's change
 6. If all changed files are mapped (or no changed files), note: `"Atlas check: all changed files mapped."`
 
 **This is informational only** — do not create new atlas entries or modify any atlas files.
+
+## Common Mistakes
+
+- **Reporting stale health status.** The atlas captures health grades at audit time — don't assume a passing grade from last month still applies after significant churn. Flag for re-audit when many files in a system have changed.
+- **Missing pages for new systems.** When a new module or directory is added, it won't automatically appear in the atlas. Unmapped files surfaced by this check are candidates for a new system page, not just individual file entries.
+- **Frontmatter format errors.** Atlas pages use YAML frontmatter for system metadata. Malformed frontmatter (unquoted colons, missing fields) silently breaks tooling that reads the atlas — validate after any manual edits.
+- **Forgetting to update grades after audits.** Running `/architecture-audit` generates findings but grades only update when explicitly recorded. An unupdated grade after an audit is misleading.
+- **Treating the check as a hard blocker.** This skill is informational — unmapped files are a prompt to update the atlas, not a reason to halt work. Flag and continue.

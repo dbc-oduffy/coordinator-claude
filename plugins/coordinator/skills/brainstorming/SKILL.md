@@ -1,6 +1,7 @@
 ---
 name: brainstorming
-description: "PM asks for a new feature or capability — structured exploration of intent, requirements, and design before any implementation."
+description: "This skill should be used before any creative work — creating features, building components, adding functionality, or modifying behavior. Triggers on: 'build X', 'add a feature', 'create Y', 'new capability', 'design this'. Explores user intent, requirements and design before implementation."
+version: 1.0.0
 ---
 
 # Brainstorming Ideas Into Designs

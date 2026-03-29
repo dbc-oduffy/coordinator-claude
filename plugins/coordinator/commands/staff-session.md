@@ -174,9 +174,9 @@ TaskUpdate(taskId: "{synthesizer-task-id}", addBlockedBy: [{debater-A-id}, {deba
 ## Step 6 — Spawn All Teammates
 
 Read prompt templates from:
-- Plan mode debaters: `~/.claude/plugins/oduffy-custom/coordinator/pipelines/staff-session/planner-prompt-template.md`
-- Review mode debaters: `~/.claude/plugins/oduffy-custom/coordinator/pipelines/staff-session/reviewer-prompt-template.md`
-- Synthesizer (both modes): `~/.claude/plugins/oduffy-custom/coordinator/pipelines/staff-session/synthesizer-prompt-template.md`
+- Plan mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/planner-prompt-template.md`
+- Review mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/reviewer-prompt-template.md`
+- Synthesizer (both modes): `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/synthesizer-prompt-template.md`
 
 For each debater, also read the persona identity excerpt from the persona's agent definition file (the persona identity section — name, role, review standards, output format). This is injected into the debater prompt template at `[PERSONA_IDENTITY]`.
 

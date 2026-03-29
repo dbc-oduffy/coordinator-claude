@@ -8,7 +8,7 @@ argument-hint: "[--dry-run] [--no-delete] [path]"
 
 Extract knowledge from accumulated session artifacts into evergreen wiki documents, then delete the source material. The archive is the compost heap; the wiki is the garden.
 
-**Reference:** Full pipeline design in `~/.claude/plugins/oduffy-custom/coordinator/pipelines/artifact-distillation/PIPELINE.md`. Agent prompt templates in the same directory's `agent-prompts.md`.
+**Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md`. Agent prompt templates in the same directory's `agent-prompts.md`.
 
 **Announce at start:** "I'm running `/distill` to extract knowledge from [N artifacts / artifacts in path] into wiki documents."
 

@@ -20,7 +20,7 @@ Create and execute structured research campaigns. Two modes: **create** a resear
 - One-off research with no repeating structure
 - Quick lookups (use Context7)
 
-**Reference:** Full pipeline design in `~/.claude/plugins/oduffy-custom/coordinator/pipelines/deep-research/PIPELINE.md`. Spec format reference in `~/.claude/plugins/oduffy-custom/coordinator/pipelines/deep-research/spec-format.md`.
+**Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/PIPELINE.md`. Spec format reference in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md`.
 
 ## Arguments
 
@@ -68,7 +68,7 @@ Before writing the spec, read the project:
 
 ### Step 3: Write the Spec
 
-Write to `<output-dir>/spec.yaml` using the format from `~/.claude/plugins/oduffy-custom/coordinator/pipelines/deep-research/spec-format.md`:
+Write to `<output-dir>/spec.yaml` using the format from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md`:
 
 1. **subjects** — source file, key field, total, batching tiers
 2. **topics** — 2-6 topic areas with search domains and focus questions derived from the schema gaps

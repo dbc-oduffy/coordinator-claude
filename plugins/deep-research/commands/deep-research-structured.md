@@ -106,7 +106,7 @@ TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{verifier-1-id}", "{verif
 ### Scout (Haiku)
 
 Read the scout prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/structured-scout-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/structured-scout-prompt-template.md`
 
 Fill in template fields: `[SUBJECT]`, `[SPEC_PATH]`, `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`.
 
@@ -124,7 +124,7 @@ TaskUpdate(taskId: "{scout-id}", owner: "scout")
 ### Verifiers (Sonnet)
 
 For each topic, read the verifier prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/structured-verifier-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/structured-verifier-prompt-template.md`
 
 Fill in ALL template fields — including `[SYNTHESIZER_NAME]` (use `"synthesizer"` as the teammate name), `[GATE_RULES]` (extracted from spec in Step 2), and `[ACCEPTANCE_CRITERIA]` (from spec). This is how verifiers know who to send the `DONE` wake-up message to and how to self-check before converging.
 
@@ -143,7 +143,7 @@ TaskUpdate(taskId: "{id}", owner: "verifier-{topic_id}")
 ### Synthesizer (Opus)
 
 Read the synthesizer prompt template from:
-`~/.claude/plugins/oduffy-custom/deep-research/pipelines/structured-synthesizer-prompt-template.md`
+`${CLAUDE_PLUGIN_ROOT}/pipelines/structured-synthesizer-prompt-template.md`
 
 Fill in ALL template fields — including `[OUTPUT_SCHEMA]` (full schema from spec), `[PHASE_2_GATE_RULES]` (quality gate rules for final output from spec), `[SUBJECT]`, `[SCRATCH_DIR]`, `[SPEC_PATH]`, `[TASK_ID]`.
 

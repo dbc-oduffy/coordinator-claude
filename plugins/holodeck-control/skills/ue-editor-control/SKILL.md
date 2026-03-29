@@ -1,6 +1,7 @@
 ---
 name: ue-editor-control
 description: "This skill should be used when the user wants to perform any operation in the Unreal Engine editor. Triggers on UE editor actions: \"spawn actor\", \"build environment\", \"create level\", \"set up lighting\", \"edit blueprint\", \"create blueprint\", \"wire pins\", \"configure combat\", \"add navigation\", \"set material\", \"place volume\", \"create widget\", \"set up AI\", \"manage sequence\", \"run PIE\", \"take screenshot\", \"profile level\", \"run tests\", \"delete actor\", \"move actor\", \"duplicate\", \"add component\", \"set up replication\", or any request involving the holodeck-control MCP tools. Routes to either direct tool use (thin MCP) or domain-specific agents based on operation type and complexity."
+version: 1.0.0
 ---
 
 # UE Editor Control — Routing Table

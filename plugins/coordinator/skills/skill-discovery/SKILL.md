@@ -1,6 +1,7 @@
 ---
 name: skill-discovery
-description: "Loaded at session start to establish how to find and invoke skills and commands. Also reference when the agent is unsure which skill applies, or when the user asks 'what commands are available' or 'what skills exist.'"
+description: "This skill should be used when unsure which skill or command applies to a task, or when the user asks 'what skills exist', 'what commands are available', or 'help me find the right tool'."
+version: 1.0.0
 ---
 
 <SUBAGENT-STOP>

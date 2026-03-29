@@ -1,6 +1,7 @@
 ---
 name: debt-triage
-description: "Periodic review and prioritization of the technical debt backlog. Invoke on demand or when backlog exceeds 20 open items. This is an EM-PM conversation, not a dispatched agent — the EM reads the backlog, applies judgment, and presents recommendations. Note: weekly-architecture-audit will increasingly insist as the count grows — mild concern at >20, visible disappointment at >30, and a full coffee-down stare-down at >40."
+description: "Use when the technical debt backlog needs review and prioritization, on demand, or when the backlog exceeds 20 open items. This is an EM-PM conversation, not a dispatched agent — the EM reads the backlog, applies judgment, and presents recommendations. Note: weekly-architecture-audit will increasingly insist as the count grows — mild concern at >20, visible disappointment at >30, and a full coffee-down stare-down at >40."
+version: 1.0.0
 ---
 
 # Debt Triage — Backlog Review and Prioritization

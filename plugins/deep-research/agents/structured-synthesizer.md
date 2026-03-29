@@ -3,7 +3,7 @@ name: structured-synthesizer
 description: "Opus synthesizer for Agent Teams-based structured research (Pipeline C). Spawned as a teammate by the deep-research-structured command. Blocked until all verifier tasks complete, then reads their schema field table outputs from disk and produces schema-conforming YAML/JSON output.\n\nExamples:\n\n<example>\nContext: All verifiers have completed their research and written schema field tables to disk.\nuser: \"Synthesize all verified findings into schema-conforming output\"\nassistant: \"I'll read all verifier outputs, cross-reference schema fields, reconcile conflicts, and write YAML/JSON output.\"\n<commentary>\nSynthesizer's task is blocked by all verifier tasks. Once unblocked, it reads schema field tables from the scratch directory. Output is structured data, not prose.\n</commentary>\n</example>"
 model: opus
 tools: ["Read", "Write", "Glob", "Grep", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
-color: blue
+color: magenta
 access-mode: read-write
 ---
 

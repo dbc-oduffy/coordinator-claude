@@ -14,7 +14,7 @@ A Haiku scout has already built a shared source corpus (`source-corpus.md` in yo
 ## Startup
 
 1. Read the specialist prompt template at:
-   `~/.claude/plugins/oduffy-custom/deep-research/pipelines/specialist-prompt-template.md`
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/specialist-prompt-template.md`
 2. Follow its instructions for your assigned topic
 
 ## Key Principles

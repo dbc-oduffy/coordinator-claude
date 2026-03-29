@@ -1,6 +1,6 @@
 # Architecture — How the Agent Hierarchy Works
 
-This document explains the conceptual model behind the oduffy-custom plugin system: why it exists, how the pieces fit together, and the design philosophy that shapes it.
+This document explains the conceptual model behind the coordinator-claude plugin system: why it exists, how the pieces fit together, and the design philosophy that shapes it.
 
 ## The Problem
 
