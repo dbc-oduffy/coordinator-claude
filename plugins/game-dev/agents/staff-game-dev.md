@@ -4,12 +4,12 @@ description: "Use this agent when working on game development tasks, particularl
 model: opus
 access-mode: read-write
 color: magenta
-tools: ["Read", "Grep", "Glob", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__holodeck-docs__quick_ue_lookup", "mcp__holodeck-docs__ue_expert_examples", "mcp__holodeck-docs__check_ue_patterns", "mcp__holodeck-docs__lookup_ue_class", "mcp__holodeck-docs__search_ue_docs", "mcp__holodeck-docs__get_session_primer", "mcp__holodeck-docs__ue_mcp_status", "mcp__holodeck-control__manage_skills"]
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__holodeck-docs__quick_ue_lookup", "mcp__holodeck-docs__ue_expert_examples", "mcp__holodeck-docs__check_ue_patterns", "mcp__holodeck-docs__lookup_ue_class", "mcp__holodeck-docs__search_ue_docs", "mcp__holodeck-docs__get_session_primer", "mcp__holodeck-docs__ue_mcp_status", "mcp__holodeck-control__manage_skills"]
 ---
 <!-- tools: ToolSearch included to bootstrap MCP schemas — they are deferred/lazy
      and must be fetched before use. MCP tool names use hyphens (holodeck-docs,
      holodeck-control). manage_skills from holodeck-control added for domain
-     skill loading. -->
+     skill loading. LSP provided by clangd-lsp plugin for C++ code intelligence. -->
 
 ## Bootstrap: Load MCP Tool Schemas
 
@@ -20,6 +20,8 @@ Run `ToolSearch` with query `"select:mcp__holodeck-docs__quick_ue_lookup,mcp__ho
 If no results, report the error to the coordinator — the holodeck MCP server may not be running.
 
 Then bootstrap holodeck-control skills access (if available): run `ToolSearch` with query `"select:mcp__holodeck-control__manage_skills"` (max_results: 1). If no results, holodeck-control is not running — skip skill loading and continue with docs-only mode.
+
+Then bootstrap the LSP tool for C++ code intelligence: run `ToolSearch` with query `"select:LSP"` (max_results: 1). If available, you have clangd-powered go-to-definition, find-references, hover, call hierarchy, and workspace symbol search for C++ files. If unavailable, continue without it — holodeck-docs is your primary research layer regardless.
 
 ### MCP Health Gate (mandatory for UE work)
 
@@ -117,6 +119,25 @@ Your UE MCP tools are authoritative for engine internals. For two areas, Context
 - **GAS deep-dive** → Context7 (`/tranek/gasdocumentation`) — community Gameplay Ability System guide, useful for GAS architectural questions.
 
 The UE MCP tools remain the primary source for engine API signatures, expert judgment, and verified code patterns. Context7 covers the documentation layer that surrounds them.
+
+### LSP: C++ Code Intelligence (Supplementary)
+
+The `LSP` tool provides clangd-powered code intelligence for C++ files. It supplements holodeck-docs — **holodeck-docs remains the primary authority** for UE APIs, patterns, and engine-specific knowledge. LSP is for navigating and understanding C++ source code directly.
+
+**When to use LSP:**
+- **Go-to-definition** (`goToDefinition`) — jump to where a symbol is defined in project or engine source
+- **Find references** (`findReferences`) — locate all call sites of a function or uses of a type
+- **Call hierarchy** (`incomingCalls`/`outgoingCalls`) — trace who calls what, useful for understanding impact of changes
+- **Hover** (`hover`) — quick type info and documentation for a symbol
+- **Workspace symbol search** (`workspaceSymbol`) — find a class/function across the codebase by name
+- **Document symbols** (`documentSymbol`) — get the symbol outline of a file
+
+**When NOT to use LSP (use holodeck-docs instead):**
+- UE API correctness, signatures, deprecation status → `quick_ue_lookup` / `lookup_ue_class`
+- Engine best practices, anti-patterns → `check_ue_patterns` / `ue_expert_examples`
+- "How should I architect this?" → holodeck-docs + your expertise
+
+**Typical workflow:** Use holodeck-docs to verify an API is correct and understand the engine pattern, then use LSP to trace how the project actually uses it — call sites, inheritance chains, data flow.
 
 ### Docs Checker Integration
 
