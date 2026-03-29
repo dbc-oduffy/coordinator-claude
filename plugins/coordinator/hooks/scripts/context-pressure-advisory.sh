@@ -1,15 +1,18 @@
 #!/bin/bash
 # Context Pressure Advisory — PostToolUse hook
 #
-# Moved from UserPromptSubmit (2026-03-28): UserPromptSubmit hooks block
-# before the model generates ANY response. On Windows/Git Bash, timeout
-# enforcement is unreliable — a hung stdin read on every message killed
-# all sessions. PostToolUse is safer: fires after a tool completes, so a
-# hang only delays the next tool step rather than freezing the terminal.
+# Two responsibilities:
+# Phase 1: Post-compaction sentinel bridge — fires every invocation (cheap
+#          stat call). Reads state snapshot written by PreCompact hook and
+#          injects it into context on the first tool use after compaction.
+# Phase 2: Mid-chain threshold safety net — catches long tool chains that
+#          burn context without the model stopping. Throttled to 5 min,
+#          gated on session age (skip if < 10 min). The primary threshold
+#          check is on the Stop hook (context-pressure-stop.sh).
 #
-# Phase 1: Post-compaction orientation (sentinel bridge) — checked every
-#          invocation (cheap stat call, no throttle)
-# Phase 2: Threshold-based warnings — self-throttled to run every 5 min
+# History: Originally on UserPromptSubmit (2026-03-28), moved to PostToolUse
+# because UPS hooks block before the model generates ANY response, and on
+# Windows/Git Bash, timeout enforcement is unreliable.
 #
 # Hook execution is serial within a session — no TOCTOU risk on sentinel
 # check-then-delete.
@@ -69,14 +72,16 @@ JSONEOF
 fi
 
 # --- Phase 2: Threshold-based context pressure warnings ---
-# Self-throttle: only run the expensive transcript size check every 5 minutes.
-# The sentinel file's mtime is the clock. On every other invocation we exit
-# immediately — this keeps PostToolUse overhead near zero.
+# This is the mid-chain safety net. The primary threshold check is on the
+# Stop hook (context-pressure-stop.sh). This catches long tool chains that
+# burn context without the model ever stopping.
+#
+# Self-throttle: 5 minutes between checks. Session-age gate: skip entirely
+# if session is < 10 minutes old (no compaction risk in early sessions).
 THROTTLE_SENTINEL="/tmp/context-pressure-throttle-${SESSION_ID}"
 THROTTLE_SECONDS=300  # 5 minutes
 
 if [[ -f "$THROTTLE_SENTINEL" ]]; then
-  # Check age of throttle sentinel
   if [[ "$OSTYPE" == darwin* ]]; then
     SENTINEL_MTIME=$(stat -f %m "$THROTTLE_SENTINEL" 2>/dev/null || echo 0)
   else
@@ -89,13 +94,26 @@ if [[ -f "$THROTTLE_SENTINEL" ]]; then
   fi
 fi
 
-# Update throttle timestamp (touch even if we end up not emitting anything)
 touch "$THROTTLE_SENTINEL"
 
-# Research (2026-03-21): Compaction fires at ~83.5% of context window
-# (33K token buffer reserved from 200K window → ~167K trigger point).
-# We can't know exact token count — file size in bytes is a rough proxy.
-# Using ~5 bytes/token (conservative: real ratio is 5-8 depending on content).
+# --- Session-age gate ---
+# Skip threshold checks if session is < 10 minutes old.
+SESSION_BIRTH="/tmp/context-pressure-birth-${SESSION_ID}"
+if [[ ! -f "$SESSION_BIRTH" ]]; then
+  touch "$SESSION_BIRTH"
+  exit 0  # first Phase 2 firing — session just started
+fi
+
+if [[ "$OSTYPE" == darwin* ]]; then
+  BIRTH_MTIME=$(stat -f %m "$SESSION_BIRTH" 2>/dev/null || echo 0)
+else
+  BIRTH_MTIME=$(stat -c %Y "$SESSION_BIRTH" 2>/dev/null || echo 0)
+fi
+NOW=${NOW:-$(date +%s)}
+SESSION_AGE=$(( NOW - BIRTH_MTIME ))
+if [[ "$SESSION_AGE" -lt 600 ]]; then
+  exit 0  # session < 10 minutes old
+fi
 
 if [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]]; then
   exit 0  # fail-open: no transcript to measure

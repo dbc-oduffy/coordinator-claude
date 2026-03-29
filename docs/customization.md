@@ -162,9 +162,7 @@ Add to `~/.claude/plugins/installed_plugins.json`:
 
 ## Writing New Skills
 
-Skills are codified behavioral protocols. The `writing-skills` meta-skill guides you through creating one with TDD principles.
-
-Read it first: `plugins/coordinator/skills/writing-skills/SKILL.md`
+Skills are codified behavioral protocols. The `superpowers:writing-skills` skill guides you through creating one with TDD principles.
 
 ### What a Skill Is
 
