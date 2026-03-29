@@ -34,18 +34,21 @@ Your task is blocked until all workers complete. Do not proceed until unblocked:
 
 ## Your Job (after unblocked)
 
-1. Load notebook_delete MCP tool via ToolSearch
-2. Glob and read all {letter}-findings.md files from [SCRATCH_DIR]
-3. Cross-reference findings across notebooks (if multiple workers)
-4. Write the final synthesis document to [OUTPUT_PATH]
-5. Write advisory (optional): reflect on what you noticed beyond the research scope. If you have substantive observations (framing concerns, blind spots, surprising connections, source ecosystem notes, confidence and quality issues), write advisory to [ADVISORY_PATH] AND [SCRATCH_DIR]/advisory.md. If nothing beyond scope, skip — note "No advisory" in your completion message.
-6. Clean up notebooks:
+Follow the three-phase approach from your agent definition:
+
+1. Load MCP tools via ToolSearch: `notebook_query` (for follow-up queries) and `notebook_delete` (for cleanup)
+2. **Phase 1 — Read and Assess:** Glob and read all {letter}-findings.md files from [SCRATCH_DIR]. Cross-reference findings. Identify implicit gaps — what SHOULD have been covered but isn't?
+3. **Phase 2 — Explore Negative Space:** Resolve contradictions, identify cross-notebook patterns (mark as `[SYNTHESIS]`). Query notebooks for follow-up questions the workers missed (mark as `[FOLLOW-UP QUERY]`). Use WebSearch/WebFetch for gaps notebooks can't answer (mark as `[WEB RESEARCH]`). Flag remaining gaps as `[COVERAGE GAP]`. Exercise judgment beyond scope where warranted.
+4. **Phase 3 — Frame the Document:** Write exec summary, conclusion, "Beyond the Brief", and open questions. Preserve worker findings — frame and extend, don't rewrite.
+5. Write the final synthesis document to [OUTPUT_PATH]
+6. Write advisory (optional): reflect on what you noticed beyond the research scope. If you have substantive observations (framing concerns, blind spots, surprising connections, source ecosystem notes, confidence and quality issues), write advisory to [ADVISORY_PATH] AND [SCRATCH_DIR]/advisory.md. If nothing beyond scope, skip — note "No advisory" in your completion message.
+7. Clean up notebooks:
    - From each {letter}-findings.md metadata, extract the Notebook ID
    - Call notebook_delete for each notebook ID
    - Log cleanup results in the synthesis document
-7. Mark task completed: TaskUpdate
+8. Mark task completed: TaskUpdate
 
 After synthesis, read notebook IDs from each {letter}-findings.md and call notebook_delete for each.
 
-See your agent definition for full synthesis approach, output format, and key principles.
+See your agent definition for full synthesis approach, output format, and key principles. You are explicitly encouraged to go beyond the original research scope where your judgment says it's warranted.
 ```

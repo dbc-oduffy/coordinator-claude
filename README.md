@@ -99,11 +99,15 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 
 See [docs/customization.md](docs/customization.md) for templates, the full persona registry, and instructions for adding skills and CI checks.
 
-## Recommended Companion Plugin
+## Recommended Companion Plugins
 
 Install [superpowers](https://github.com/obra/superpowers) for the full development discipline layer. Coordinator builds on superpowers' skills for TDD, debugging, planning, verification, and git workflows — adding orchestration capabilities like review routing, staff sessions, and execution delegation.
 
 Coordinator works without superpowers, but references to `superpowers:*` skills won't resolve.
+
+Install [clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp) for C++ code intelligence. When available, reviewer agents (Patrik, Sid) and the docs-checker gain go-to-definition, find-references, hover, and call hierarchy via clangd — supplementing documentation-based verification with real code navigation. Requires `clangd` installed on the system (`winget install LLVM.LLVM` on Windows, `brew install llvm` on macOS, `apt install clangd` on Linux).
+
+Coordinator works without clangd-lsp, but C++ reviews lose source-level navigation.
 
 ## Directory Structure
 

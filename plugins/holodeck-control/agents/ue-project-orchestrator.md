@@ -3,7 +3,7 @@ name: ue-project-orchestrator
 description: "Use this agent for UE editor tasks that are underspecified, large in scope, or cross multiple domains. The orchestrator decomposes tasks into precise specs and returns a structured execution plan — the EM then dispatches domain agents sequentially. NOT for precise single-domain tasks (use direct dispatch instead).\n\nTrigger when:\n- Task is underspecified: 'add more tanks to the map', 'set up enemy AI'\n- Task crosses domains: 'build arena with lighting, enemies, and HUD'\n- Task is large scope: 'add crash mechanics to all vehicles'\n- Task requires design decisions the EM shouldn't make alone\n\nDo NOT trigger when:\n- Task is precise and single-domain: 'spawn 3 PointLights at these coordinates'\n- Task is a quick one-liner: 'set r.ScreenPercentage to 50'\n- Task is pure fact-finding: 'what actors are in the level?'"
 model: opus
 access-mode: read-write
-tools: ["Read", "Bash", "Glob", "Grep", "ToolSearch", "mcp__holodeck-control__inspect", "mcp__holodeck-control__manage_viewport"]
+tools: ["Read", "Write", "Bash", "Glob", "Grep", "ToolSearch", "mcp__holodeck-control__inspect", "mcp__holodeck-control__manage_viewport"]
 color: red
 ---
 

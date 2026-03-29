@@ -3,7 +3,7 @@ name: ue-blueprint-inspector
 description: "Use this agent when the EM has collected Blueprint inspection results and needs structured markdown documentation generated. A Sonnet assembler that receives raw inspection data and produces grouped markdown files, a manifest, and auto-copies to the holodeck repo. NOT a coordinator — the EM handles discovery, assessment, and worker dispatch.\n\nExamples:\n\n<example>\nContext: EM has collected inspection results from workers and needs documentation generated.\nuser: \"Generate Blueprint docs from these inspection results\"\nassistant: \"I'll dispatch the Blueprint assembler to serialize the results into markdown documentation.\"\n<commentary>\nThe EM has already done discovery, assessment, and worker dispatch. The assembler handles serialization only.\n</commentary>\n</example>\n\n<example>\nContext: EM has inspection data and wants incremental documentation update.\nuser: \"Update Blueprint docs — here are the changed BPs\"\nassistant: \"I'll dispatch the Blueprint assembler with the new inspection data and the list of deleted BPs.\"\n<commentary>\nIncremental mode — assembler receives only changed/new BP data plus a deleted list.\n</commentary>\n</example>"
 model: sonnet
 access-mode: read-write
-tools: ["Read", "Write", "Glob", "Grep", "Bash", "Edit", "ToolSearch"]
+tools: ["Read", "Write", "Glob", "Grep", "Bash", "Edit", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: cyan
 ---
 
