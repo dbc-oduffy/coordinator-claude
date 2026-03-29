@@ -2,8 +2,8 @@
 name: ue-blueprint-worker
 description: "Sonnet worker agent for Blueprint inspection. Receives a batch of Blueprint paths, inspects each via MCP (get_blueprint_details + get_scs), and returns structured JSON results. Pure data gathering — no file I/O, no decisions, no grouping. Dispatched by the EM for parallel BP inspection."
 model: sonnet
-access-mode: read-only
-tools: ["Read", "ToolSearch", "mcp__holodeck-control__inspect", "mcp__holodeck-control__manage_blueprint"]
+access-mode: read-write
+tools: ["Read", "Write", "ToolSearch", "mcp__holodeck-control__inspect", "mcp__holodeck-control__manage_blueprint"]
 color: yellow
 ---
 
