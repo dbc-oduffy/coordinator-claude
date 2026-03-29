@@ -134,7 +134,7 @@ This tells the hook to emit informational-only context pressure messages (no han
    - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
 
 2. **Process completions as they arrive.** As each background agent completes:
-   - Verify its output against the spec. Apply `coordinator:verification-before-completion` — evidence before claims.
+   - Verify its output against the spec. Apply `superpowers:verification-before-completion` — evidence before claims.
    - **Spec-check:** If the item has an enriched stub or plan document with `## Acceptance Criteria`, read the criteria and confirm each was implemented.
    - Confirm it stayed within its file footprint — spot-check `git diff --name-only` against the declared footprint. **File footprint violations are bugs in the parallelism plan, not just agent misbehavior** — if an agent needed a file outside its footprint, the Phase 2 analysis missed a dependency.
    - Commit its changes immediately. Stage everything, brief message. The post-commit hook handles push.
