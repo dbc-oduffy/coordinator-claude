@@ -29,8 +29,12 @@ else
 fi
 
 # --- Defensive input validation ---
-TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+# SubagentStop provides agent_transcript_path (the subagent's own transcript)
+# and last_assistant_message (the final text block, no parsing needed for Tier 1).
+# transcript_path is the PARENT's transcript — not what we want.
+TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.agent_transcript_path // .transcript_path // empty' 2>/dev/null || true)
 SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+LAST_ASSISTANT_MSG=$(echo "$HOOK_INPUT" | jq -r '.last_assistant_message // empty' 2>/dev/null || true)
 
 if [[ -z "$TRANSCRIPT_PATH" ]]; then
   echo "⚠️  Watchdog: transcript_path missing from hook input — approving (fail-open)" >&2
@@ -61,29 +65,30 @@ if [[ -f "$SENTINEL_FILE" ]]; then
   exit 0
 fi
 
-# --- Extract last assistant text block ---
-# Same bounded pattern as ralph-loop: grep assistant lines, take last 100, parse with jq
-if ! grep -q '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null; then
-  # No assistant messages — likely a very short/failed agent run. Approve.
-  exit 0
-fi
-
-LAST_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" | tail -n 100)
-if [[ -z "$LAST_LINES" ]]; then
-  exit 0
-fi
-
-set +e
-LAST_OUTPUT=$(echo "$LAST_LINES" | jq -rs '
-  map(.message.content[]? | select(.type == "text") | .text) | last // ""
-' 2>&1)
-JQ_EXIT=$?
-set -e
-
-if [[ $JQ_EXIT -ne 0 ]] || [[ -z "$LAST_OUTPUT" ]]; then
-  # Can't parse transcript — fail-open
-  echo "⚠️  Watchdog: failed to parse transcript — approving (fail-open)" >&2
-  exit 0
+# --- Get last assistant output ---
+# Prefer last_assistant_message from hook input (direct, no parsing needed).
+# Fall back to transcript parsing if the field is empty.
+if [[ -n "$LAST_ASSISTANT_MSG" ]]; then
+  LAST_OUTPUT="$LAST_ASSISTANT_MSG"
+else
+  # Fallback: parse transcript for last assistant text block
+  if ! grep -q '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null; then
+    exit 0
+  fi
+  LAST_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" | tail -n 100)
+  if [[ -z "$LAST_LINES" ]]; then
+    exit 0
+  fi
+  set +e
+  LAST_OUTPUT=$(echo "$LAST_LINES" | jq -rs '
+    map(.message.content[]? | select(.type == "text") | .text) | last // ""
+  ' 2>&1)
+  JQ_EXIT=$?
+  set -e
+  if [[ $JQ_EXIT -ne 0 ]] || [[ -z "$LAST_OUTPUT" ]]; then
+    echo "⚠️  Watchdog: failed to parse transcript — approving (fail-open)" >&2
+    exit 0
+  fi
 fi
 
 # --- Tier 1: Tag-based detection ---
@@ -142,12 +147,13 @@ if [[ -n "$ANY_TAG" ]]; then
   exit 0
 fi
 
-# Count Edit/Write tool calls per file path in transcript
+# Count Edit/Write tool calls per file path in the subagent's transcript
 # Only fires for non-protocol-aware agents (no exit-status tag anywhere in transcript)
 
 set +e
-# Extract file_path from Edit and Write tool_use blocks in last 100 assistant lines
-MAX_EDITS=$(echo "$LAST_LINES" | jq -rs '
+# Parse assistant lines from transcript (needed for edit counting even if Tier 1 used last_assistant_message)
+AGENT_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 100)
+MAX_EDITS=$(echo "$AGENT_LINES" | jq -rs '
   [.[] | .message.content[]? | select(.type == "tool_use") |
    select(.name == "Edit" or .name == "Write") |
    .input.file_path // empty] |
