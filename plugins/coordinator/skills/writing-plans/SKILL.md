@@ -1,8 +1,10 @@
 ---
 name: writing-plans
-description: "This skill should be used when requirements are clear and the task needs decomposition into executable chunks — before touching code. Triggers on: 'write a plan', 'break this down', 'plan the implementation'."
+description: "This skill should be used when the coordinator needs to write an implementation plan with review gates and execution delegation — extends superpowers:writing-plans with status tracking, /review-dispatch gates, and executor-driven vs parallel session options. Triggers on: 'plan with review gates', 'plan for delegation', 'write a plan with status tracking'."
 version: 1.0.0
 ---
+
+> **Foundation:** This skill extends `superpowers:writing-plans`. The superpowers skill provides core plan structure, task granularity (2-5 minute steps), TDD orientation, and documentation standards. This skill adds coordinator-specific orchestration: write-ahead status tracking, mandatory review gates via `/review-dispatch`, and execution delegation options.
 
 # Writing Plans
 

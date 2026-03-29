@@ -2,7 +2,7 @@
 
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
-- **8 plugins, 24 agents, 38 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
+- **8 plugins, 24 agents, 32 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
 - **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
@@ -99,6 +99,12 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 
 See [docs/customization.md](docs/customization.md) for templates, the full persona registry, and instructions for adding skills and CI checks.
 
+## Recommended Companion Plugin
+
+Install [superpowers](https://github.com/obra/superpowers) for the full development discipline layer. Coordinator builds on superpowers' skills for TDD, debugging, planning, verification, and git workflows — adding orchestration capabilities like review routing, staff sessions, and execution delegation.
+
+Coordinator works without superpowers, but references to `superpowers:*` skills won't resolve.
+
 ## Directory Structure
 
 ```
@@ -110,7 +116,7 @@ coordinator-claude/
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
 │   │   ├── hooks/              # context pressure advisory, executor watchdog, delegation nudge
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
-│   │   └── skills/             # 38 workflow skills (brainstorming, TDD, debugging, etc.)
+│   │   └── skills/             # 18 coordinator skills (planning, code review, staff sessions, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer

@@ -1,8 +1,10 @@
 ---
 name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: "This skill should be used when the coordinator faces 2+ independent tasks and needs to decide dispatch strategy — extends superpowers:dispatching-parallel-agents with background-by-default policy, Opus tech lead pattern, worktree decision matrix, and /delegate-execution integration."
 version: 1.0.0
 ---
+
+> **Foundation:** This skill extends `superpowers:dispatching-parallel-agents`. The superpowers skill provides core parallel dispatch patterns (when to parallelize, agent prompt structure, common mistakes). This skill adds coordinator-specific patterns: background-by-default policy, Opus tech lead supervision for large stubs, worktree vs same-worktree decision matrix, and `/delegate-execution` integration.
 
 # Dispatching Parallel Agents
 
