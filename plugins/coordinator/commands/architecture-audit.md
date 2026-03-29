@@ -82,7 +82,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 **Dispatch:** One Haiku agent per sub-chunk with `model: "haiku"`.
 
-**Read the template:** Open `~/.claude/plugins/oduffy-custom/coordinator/pipelines/deep-architecture-audit/agent-prompts.md`. Copy the relevant template verbatim:
+**Read the template:** Open `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-audit/agent-prompts.md`. Copy the relevant template verbatim:
 - **First run:** Copy **Phase 1: Haiku Function-Level Inventory Prompt**. Fill in: `[CHUNK LETTER]`, `[SYSTEM NAME]`, `[SUB-CHUNK LABEL]`, `[LIST OF DIRECTORIES/FILES]`, `[SCRATCH_PATH]`.
 - **Refresh:** Copy **Phase 1R: Haiku Delta Inventory Prompt (Refresh)**. Fill in: `[CHUNK LETTER]`, `[SYSTEM NAME]`, `[SUB-CHUNK LABEL]`, `[CHANGED FILES LIST]`, `[EXISTING ATLAS ENTRY]`, `[SCRATCH_PATH]`.
 

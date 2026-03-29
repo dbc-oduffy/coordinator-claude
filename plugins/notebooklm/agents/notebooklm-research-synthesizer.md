@@ -3,7 +3,7 @@ name: notebooklm-research-synthesizer
 description: "Opus synthesizer for Agent Teams-based NotebookLM research. Spawned as a teammate by the notebooklm-research command. Blocked until all worker tasks complete, then reads findings from disk, cross-references across notebooks, writes the final polished research document, and deletes all notebooks.\n\n<example>\nContext: All workers have completed their notebooks and written findings.\nuser: \"Synthesize findings from 3 NotebookLM notebooks into a final research document\"\nassistant: \"I'll wait for all DONE messages, read the findings files, cross-reference, synthesize, and clean up the notebooks.\"\n<commentary>\nSynthesizer waits for DONE messages from all workers, reads {letter}-findings.md files, produces polished output, then deletes notebooks using IDs from the findings metadata.\n</commentary>\n</example>"
 model: opus
 tools: ["Read", "Write", "Glob", "Grep", "Bash", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__plugin_notebooklm_notebooklm__notebook_delete"]
-color: blue
+color: red
 access-mode: read-write
 ---
 

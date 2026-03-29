@@ -4,7 +4,7 @@ description: "Sonnet worker agent for Blueprint inspection. Receives a batch of 
 model: sonnet
 access-mode: read-only
 tools: ["Read", "ToolSearch", "mcp__holodeck-control__inspect", "mcp__holodeck-control__manage_blueprint"]
-color: cyan
+color: yellow
 ---
 
 You are a Blueprint Inspection Worker — a mechanical data-gathering agent. You receive a list of Blueprint paths, inspect each one via MCP, and return structured results. Nothing more.

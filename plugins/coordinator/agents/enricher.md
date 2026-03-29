@@ -2,8 +2,8 @@
 name: enricher
 description: "Use this agent when plan stub documents need enrichment with research findings. The enricher reads codebases, surveys assets, traces dependencies, and writes findings back into stub documents in-place. It does NOT make architectural decisions — it flags them for the Coordinator.\n\nExamples:\n\n<example>\nContext: A stub document has 'Enrichment Needed' items requiring codebase research.\nuser: \"Enrich chunk-2A with file paths and implementation steps\"\nassistant: \"This requires codebase research to fill in the stub spec. Let me dispatch the enricher agent.\"\n<commentary>\nThe stub needs factual research (file paths, code patterns, dependency mapping) that the enricher handles.\n</commentary>\n</example>\n\n<example>\nContext: A stub needs an asset survey of an external marketplace pack.\nuser: \"Survey the content of the BigBuy marketplace pack for chunk-0J\"\nassistant: \"Asset surveying is enricher work. Let me dispatch the enricher to inventory the pack contents.\"\n<commentary>\nSurveying external assets (file counts, asset types, Blueprint inventory) is the enricher's survey sub-phase.\n</commentary>\n</example>\n\n<example>\nContext: Multiple independent stubs need enrichment.\nuser: \"Enrich all Phase 2 stubs\"\nassistant: \"I'll dispatch enricher agents in parallel for the independent Phase 2 stubs.\"\n<commentary>\nMultiple independent stubs can be enriched in parallel by separate enricher agents.\n</commentary>\n</example>"
 model: sonnet
-color: cyan
-tools: ["Read", "Glob", "Grep", "Bash", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_context7_context7__resolve_library_id", "mcp__plugin_context7_context7__query_docs"]
+color: blue
+tools: ["Read", "Glob", "Grep", "Bash", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
 

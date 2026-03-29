@@ -1,6 +1,7 @@
 ---
 name: systematic-debugging
-description: "Something's broken and you don't know why — root-cause investigation protocol: reproduce, trace, identify, verify before proposing any fix"
+description: "This skill should be used when encountering any bug, test failure, or unexpected behavior — before proposing fixes. Triggers on: 'something is broken', 'test is failing', 'unexpected behavior', 'debug this'."
+version: 1.0.0
 ---
 
 # Systematic Debugging

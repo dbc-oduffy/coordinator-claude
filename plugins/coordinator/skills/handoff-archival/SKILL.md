@@ -1,6 +1,7 @@
 ---
 name: handoff-archival
 description: "Archive consumed handoffs — moves tasks/handoffs/*.md files older than 48 hours to archive/handoffs/ and checks .gitignore safety. This skill should be used when cleaning up old handoffs, when the handoffs directory is cluttered, or as part of periodic maintenance. Invoked by /update-docs (Phase 8) or standalone."
+version: 1.0.0
 ---
 
 # Handoff Archival

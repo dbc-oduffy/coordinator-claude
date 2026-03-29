@@ -1,6 +1,7 @@
 ---
 name: validate
-description: Run all CI validation checks locally before committing or creating PRs. Use when about to commit, before /merge-to-main, before /workday-complete, or when the user asks to validate the repo state.
+description: Use when about to commit, before /merge-to-main, before /workday-complete, or when the user asks to validate the repo state. Runs all CI validation checks locally.
+version: 1.0.0
 ---
 
 # Local CI Validation
@@ -35,3 +36,11 @@ Run this command using the Bash tool. Read the full output — every script's pa
 ## Integration
 
 This skill complements `verification-before-completion`. That skill requires evidence before claims; this skill provides the evidence for repo-level validation claims.
+
+## Common Mistakes
+
+- **Forgetting to stage files before validating.** Unstaged changes won't be caught by some checks — ensure your working tree reflects intent before running.
+- **Committing secrets or credentials.** Check for `.env` files, API keys, and private tokens before staging. CI may catch these, but prevention is better.
+- **Skipping JSON and YAML validity checks.** Malformed frontmatter or settings JSON silently breaks plugin loading. Run the validator even for "small" config edits.
+- **Leaving empty chunk or stub files.** Empty files in `docs/plans/` or `tasks/` directories can confuse downstream pipeline tools — delete or populate before committing.
+- **Not reading the full output.** Skimming past FAIL lines or truncated error details means fixing the wrong thing. Read every script's result completely.

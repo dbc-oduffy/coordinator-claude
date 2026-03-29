@@ -79,6 +79,7 @@
     ],
     "SubagentStop": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",

@@ -2,6 +2,7 @@
 name: merging-to-main
 description: Use when work on a branch is ready to merge to main — creates PR, waits for CI, merges, cleans up.
 argument-hint: "[--force]"
+version: 1.0.0
 ---
 
 # Merging to Main

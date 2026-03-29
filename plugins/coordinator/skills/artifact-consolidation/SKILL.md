@@ -1,6 +1,7 @@
 ---
 name: artifact-consolidation
-description: "Prune and consolidate accumulated session artifacts — plans/, archive/handoffs/, stale task dirs. Supports dry-run mode. Use when artifact directories are bloated, during periodic maintenance, or when disk usage from session debris is excessive. Standalone invocation only — not part of /update-docs."
+description: "Use when artifact directories are bloated, during periodic maintenance, or when disk usage from session debris is excessive. Prunes and consolidates accumulated session artifacts — plans/, archive/handoffs/, stale task dirs. Supports dry-run mode. Standalone invocation only — not part of /update-docs."
+version: 1.0.0
 ---
 
 # Artifact Consolidation

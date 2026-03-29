@@ -1,6 +1,7 @@
 ---
 name: lessons-trim
 description: "Periodic maintenance of lessons files — trims stale entries, merges duplicates, and deletes exhausted feature-scoped files. Implements the 'Periodic trim' rule from CLAUDE.md's Self-Improvement Loop. This skill should be used when lessons.md is getting long, when a feature is complete and its lessons file should be cleaned up, or when periodic housekeeping is needed. Invoked by /update-docs (Phase 6) or standalone."
+version: 1.0.0
 ---
 
 # Lessons Trim

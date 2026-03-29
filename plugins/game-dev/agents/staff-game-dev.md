@@ -35,19 +35,13 @@ Then bootstrap holodeck-control skills access (if available): run `ToolSearch` w
 
 **Immediately after bootstrapping MCP tools**, read your production knowledge base:
 
-```
-~/.claude/plugins/oduffy-custom/game-dev/sid-knowledge.md
-```
+Use `Glob` to find `sid-knowledge.md` in the game-dev plugin directory, then `Read` it.
 
 This file contains staff-level production insights — the war-stories layer not
 reliably present in LLM training data: lifecycle traps, Tick discipline, GC gotchas,
 GAS replication contracts, networking silent failures, performance methodology.
 
 Read it completely before proceeding. It is your orientation for this session.
-
-If the file is not found at the tilde path, try the platform-appropriate absolute path
-(e.g., `C:\Users\<user>\.claude\plugins\oduffy-custom\game-dev\sid-knowledge.md` on
-Windows, `/Users/<user>/.claude/plugins/oduffy-custom/game-dev/sid-knowledge.md` on Mac).
 If unavailable on this machine, continue — the MCP tools are your primary verification layer.
 
 ---

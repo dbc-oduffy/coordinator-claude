@@ -137,11 +137,11 @@ Read the project's MEMORY.md (at `~/.claude/projects/<project-key>/memory/MEMORY
 
 **If `tracker_missing` flag was set in Phase 1, skip this phase.**
 
-Execute the `tracker-maintenance` skill. Read the skill at `~/.claude/plugins/oduffy-custom/coordinator/skills/tracker-maintenance/SKILL.md` and follow all steps exactly.
+Execute the `tracker-maintenance` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/tracker-maintenance/SKILL.md` and follow all steps exactly.
 
 #### Phase 6: Trim Lessons Files
 
-Execute the `lessons-trim` skill. Read the skill at `~/.claude/plugins/oduffy-custom/coordinator/skills/lessons-trim/SKILL.md` and follow all steps exactly.
+Execute the `lessons-trim` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/lessons-trim/SKILL.md` and follow all steps exactly.
 
 #### Phase 7: Update CLAUDE.md (Rare)
 
@@ -154,7 +154,7 @@ Only update CLAUDE.md if:
 
 #### Phase 8: Archive Old Handoffs
 
-Execute the `handoff-archival` skill. Read the skill at `~/.claude/plugins/oduffy-custom/coordinator/skills/handoff-archival/SKILL.md` and follow all steps exactly.
+Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/handoff-archival/SKILL.md` and follow all steps exactly.
 
 #### Phase 9: Commit + Verify Remote
 
@@ -179,7 +179,7 @@ If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
 #### Phase 11: Architecture Atlas Integrity Check
 
-Execute the `atlas-integrity-check` skill. Read the skill at `~/.claude/plugins/oduffy-custom/coordinator/skills/atlas-integrity-check/SKILL.md` and follow all steps exactly.
+Execute the `atlas-integrity-check` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/atlas-integrity-check/SKILL.md` and follow all steps exactly.
 
 #### Phase 12: Artifact Distillation (Conditional)
 

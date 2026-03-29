@@ -183,7 +183,7 @@ For each variant:
 
 **This test design predates the plugin architecture and is no longer executable as written.**
 
-The scenarios reference `~/.claude/skills/` as a manually-browsable directory, but skills are now registered via the plugin system (`plugins/oduffy-custom/*/skills/`) and invoked through the Skill tool — not discovered by `ls` or `grep`. The core question "do agents discover and use skills?" is now answered structurally: the Skill tool surfaces available skills in system prompts, and skills are invoked by name. Agent compliance is enforced by the tool interface, not by CLAUDE.md phrasing.
+The scenarios reference `~/.claude/skills/` as a manually-browsable directory, but skills are now registered via the plugin system (`plugins/*/skills/`) and invoked through the Skill tool — not discovered by `ls` or `grep`. The core question "do agents discover and use skills?" is now answered structurally: the Skill tool surfaces available skills in system prompts, and skills are invoked by name. Agent compliance is enforced by the tool interface, not by CLAUDE.md phrasing.
 
 **What remains useful:** The scenarios (time pressure, sunk cost, authority bias, familiarity) are good templates for testing *any* agent compliance behavior under pressure. The documentation variants (soft suggestion → emphatic directive) map to real CLAUDE.md phrasing decisions. A future test could adapt these to test whether agents follow CLAUDE.md instructions (e.g., "enter plan mode for decisions with weight") under the same pressure conditions.
 

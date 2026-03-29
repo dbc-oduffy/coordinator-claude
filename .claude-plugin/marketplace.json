@@ -44,6 +44,18 @@
       "source": "./deep-research",
       "description": "Multi-agent deep research pipelines — internet research with Agent Teams (Pipeline A), repo assessment (Pipeline B). Haiku scout builds shared source corpus, Sonnet specialists verify and cross-pollinate, Opus synthesizes findings.",
       "tags": ["research", "deep-research", "agent-teams", "multi-agent", "web-research"]
+    },
+    {
+      "name": "holodeck-control",
+      "source": "./holodeck-control",
+      "description": "Context-efficient wrapper for holodeck-control MCP server. Routes UE editor operations through domain-specific agents with thin tool visibility.",
+      "tags": ["unreal-engine", "ue5", "editor-control", "mcp", "holodeck"]
+    },
+    {
+      "name": "holodeck-docs",
+      "source": "./holodeck-docs",
+      "description": "UE documentation and Python execution — wraps holodeck-docs MCP server with Sonnet agents for context-isolated doc retrieval and editor scripting.",
+      "tags": ["unreal-engine", "ue5", "documentation", "rag", "mcp", "holodeck"]
     }
   ]
 }

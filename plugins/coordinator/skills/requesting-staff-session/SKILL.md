@@ -1,6 +1,7 @@
 ---
 name: requesting-staff-session
 description: "Use when the PM asks for staff input on a plan or review, when the EM needs multi-perspective planning or critique, or when deciding between /staff-session and /review-dispatch. Guides tier selection, team composition, and scoping."
+version: 1.0.0
 ---
 
 # Requesting a Staff Session

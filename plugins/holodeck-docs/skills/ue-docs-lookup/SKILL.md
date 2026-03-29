@@ -1,6 +1,7 @@
 ---
 name: ue-docs-lookup
 description: "This skill should be used when the user asks about Unreal Engine APIs, classes, functions, Blueprint nodes, UE5 systems, gameplay frameworks, or needs UE code examples. Activates for questions mentioning \"Unreal Engine\", \"UE5\", \"UE4\", \"Blueprint\", UE class names (AActor, UCharacterMovementComponent, UAbilitySystemComponent), or UE concepts (GAS, Enhanced Input, CMC, replication, Slate, UMG). Also activates when the user says \"look up\", \"check the UE docs\", \"what does UE say about\", \"ask holodeck\", or \"use holodeck\". This skill handles factual lookups — architecture and design decisions should go to Sid (game-dev plugin) instead."
+version: 1.0.0
 ---
 
 # UE Documentation Lookup

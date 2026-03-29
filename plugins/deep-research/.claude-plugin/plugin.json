@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "description": "Multi-agent deep research pipelines — internet research (Pipeline A), repo assessment (Pipeline B), and structured schema-conforming research (Pipeline C). All pipelines use Agent Teams with Haiku scouts, Sonnet specialists/verifiers, and Opus synthesizers.",
   "author": { "name": "Dónal O'Duffy & Claude" },
+  "repository": "https://github.com/oduffy-delphi/coordinator-claude",
   "keywords": ["research", "deep-research", "claude-code", "agent-teams", "multi-agent", "orchestration"]
 }

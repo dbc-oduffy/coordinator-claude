@@ -1,6 +1,7 @@
 ---
 name: project-onboarding
 description: "Use when starting work in a new project repository, when /update-docs reports tracker_missing, or when a marketplace user runs the coordinator plugin for the first time."
+version: 1.0.0
 ---
 
 # Project Onboarding

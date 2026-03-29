@@ -4,7 +4,7 @@ description: "Use this agent when you need front-end code review focusing on des
 model: opus
 access-mode: read-write
 color: blue
-tools: ["Read", "Write", "Edit", "Grep", "Glob", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_context7_context7__resolve_library_id", "mcp__plugin_context7_context7__query_docs"]
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 ---
 
 ## Role

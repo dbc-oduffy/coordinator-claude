@@ -1,6 +1,7 @@
 ---
 name: python-execution-routing
 description: "This skill should be used when the user wants to execute Python code in Unreal Engine Editor, automate UE tasks via Python, batch-modify actors or assets with Python, or mentions \"execute_python_code\", \"run Python in UE\", \"UE Python automation\". Also activates when the user says \"run this in the editor\", \"execute this script\", or describes an automation task that requires Python in UE. Do NOT activate for Python API documentation questions or UE Python API signature lookups — those route through ue-docs-lookup. This skill handles routing — deciding whether to dispatch the ue-python-executor agent or call execute_python_code directly."
+version: 1.0.0
 ---
 
 # Python Execution Routing

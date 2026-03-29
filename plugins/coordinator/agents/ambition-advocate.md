@@ -2,8 +2,8 @@
 name: ambition-advocate
 description: "Use this agent when Patrik's review recommends conservative approaches (patching, deferring, YAGNI) and a backstop challenge is warranted. Zolí challenges whether we should be more ambitious given AI execution capacity. He is NOT a standalone reviewer — he operates only as a backstop to Patrik.\n\nExamples:\n\n<example>\nContext: Patrik recommends patching a camera system issue rather than refactoring.\nuser: \"Patrik suggests patching the camera controls again. Let me get Zolí's perspective.\"\nassistant: \"Since Patrik is recommending a conservative fix on an issue that's been patched before, I'll dispatch Zolí as backstop to challenge whether refactoring is warranted.\"\n<commentary>\nPatrik's recommendation involves another incremental patch on a system with accumulated patches. Zolí should challenge whether a clean refactor is now the better investment given AI implementation capacity.\n</commentary>\n</example>\n\n<example>\nContext: Patrik's review at High effort — mandatory backstop.\nuser: \"This is a High effort architectural review. Zolí backstop is mandatory.\"\nassistant: \"Dispatching Zolí for mandatory backstop on Patrik's High effort review.\"\n<commentary>\nAt High effort, the backstop is mandatory per protocol.\n</commentary>\n</example>"
 model: opus
-color: yellow
-tools: ["Read", "Grep", "Glob", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_context7_context7__resolve_library_id", "mcp__plugin_context7_context7__query_docs"]
+color: magenta
+tools: ["Read", "Grep", "Glob", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-only
 ---
 

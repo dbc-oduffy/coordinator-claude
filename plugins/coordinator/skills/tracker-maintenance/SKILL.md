@@ -1,6 +1,7 @@
 ---
 name: tracker-maintenance
 description: "Maintain the unified project tracker at docs/project-tracker.md — marks completion, archives shipped work, updates dependencies, and sweeps for untracked commits. This skill should be used when the user asks to clean up or update the project tracker, archive completed work, check for untracked commits, or resolve stale dependencies. Invoked by /update-docs (Phase 5) or standalone."
+version: 1.0.0
 ---
 
 # Tracker Maintenance

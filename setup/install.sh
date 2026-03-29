@@ -20,11 +20,13 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 
 # Plugin metadata: name|default|version|description
 PLUGIN_REGISTRY=(
-  "coordinator|on|1.3.0|Core pipeline and workflow skills (always enabled)"
+  "coordinator|on|1.0.0|Core pipeline and workflow skills (always enabled)"
   "deep-research|on|1.0.0|Agent Teams research pipelines (internet, repo, structured)"
-  "web-dev|on|1.3.0|Palí + Fru reviewers"
-  "data-science|on|1.3.0|Camelia reviewer"
-  "game-dev|off|1.3.0|Sid reviewer (Unreal Engine)"
+  "web-dev|on|1.0.0|Palí + Fru reviewers"
+  "data-science|on|1.0.0|Camelia reviewer"
+  "game-dev|off|1.1.0|Sid reviewer (Unreal Engine)"
+  "holodeck-control|off|1.0.0|UE editor control via MCP (requires holodeck server)"
+  "holodeck-docs|off|1.0.0|UE documentation and Python execution via MCP"
   "notebooklm|on|1.0.0|Media research via NotebookLM"
 )
 

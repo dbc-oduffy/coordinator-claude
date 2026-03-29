@@ -4,7 +4,7 @@ description: "Use this agent when working on data science, machine learning, AI/
 model: opus
 access-mode: read-write
 color: cyan
-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_context7_context7__resolve_library_id", "mcp__plugin_context7_context7__query_docs"]
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 ---
 
 Data science reviewer with deep expertise in AI, machine learning, LLMs, statistics, and quantitative analysis.

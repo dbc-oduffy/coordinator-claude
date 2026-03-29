@@ -17,7 +17,7 @@ Game development domain plugin for the Donal + Claude agent hierarchy. Enable fo
 
 ## Source of Truth
 
-The `plugin/game-dev/` directory in the [claude-unreal-holodeck](https://github.com/oduffy-delphi/claude-unreal-holodeck) repo is the canonical source for this plugin. Install scripts (`scripts/install-game-dev-plugin.{sh,ps1}`) deploy from the repo to `~/.claude/plugins/oduffy-custom/game-dev/`. Changes should flow repo → install → live, not the other way around.
+This plugin lives in [coordinator-claude](https://github.com/oduffy-delphi/coordinator-claude) at `plugins/game-dev/`.
 
 ## Authors
 

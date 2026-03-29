@@ -1,6 +1,7 @@
 ---
 name: writing-skills
 description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+version: 1.0.0
 ---
 
 # Writing Skills
@@ -9,7 +10,7 @@ description: Use when creating new skills, editing existing skills, or verifying
 
 **Writing skills IS Test-Driven Development applied to process documentation.**
 
-**Skills live in plugin directories: `plugins/oduffy-custom/{plugin}/skills/{skill-name}/SKILL.md`** 
+**Skills live in plugin directories: `${CLAUDE_PLUGIN_ROOT}/skills/{skill-name}/SKILL.md`** 
 
 You write test cases (pressure scenarios with subagents), watch them fail (baseline behavior), write the skill (documentation), watch tests pass (agents comply), and refactor (close loopholes).
 
@@ -415,6 +416,8 @@ Edit skill without testing? Same violation.
 **See companion files in this directory:**
 - `skill-bulletproofing.md` — Rationalization defense, loophole closing, spirit-vs-letter, red flags, RED-GREEN-REFACTOR cycle, anti-patterns, testing all skill types
 - `testing-skills-with-subagents.md` — Complete testing methodology with pressure scenarios
+- **`persuasion-principles.md`** — Persuasion techniques for writing effective skill descriptions and agent compliance prompts
+- **`examples/CLAUDE_MD_TESTING.md`** — Archived test design for agent compliance testing under pressure scenarios
 
 ## STOP: Before Moving to Next Skill
 
