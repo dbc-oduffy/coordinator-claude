@@ -28,6 +28,17 @@ else
   HOOK_INPUT=$(cat)
 fi
 
+# --- Agent type gate ---
+# This watchdog is ONLY for executor agents. Reviewers (Patrik, Sid, etc.), enrichers,
+# and other subagent types should never be subjected to thrashing heuristics — their
+# high-volume Read patterns are normal and the hook's output can replace the agent's
+# actual findings in the return channel.
+AGENT_TYPE=$(echo "$HOOK_INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)
+
+if [[ "$AGENT_TYPE" != "coordinator:executor" ]]; then
+  exit 0
+fi
+
 # --- Defensive input validation ---
 # SubagentStop provides agent_transcript_path (the subagent's own transcript)
 # and last_assistant_message (the final text block, no parsing needed for Tier 1).
