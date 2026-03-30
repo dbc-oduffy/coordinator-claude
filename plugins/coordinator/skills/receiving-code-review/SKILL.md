@@ -1,10 +1,8 @@
 ---
 name: receiving-code-review
-description: "This skill should be used when receiving review feedback from Opus reviewer agents (Patrik, Zoli, Sid, Pali, Fru, Camelia) — extends superpowers:receiving-code-review with triage tables, Disposition tracking (Applied/Captured/Dismissed), and debt tracker integration."
+description: Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
 version: 1.0.0
 ---
-
-> **Foundation:** This skill extends `superpowers:receiving-code-review`. The superpowers skill provides core reception patterns (verify before implementing, push back when wrong, no performative agreement). This skill adds coordinator-specific handling: Opus agent triage tables with Disposition tracking (Applied/Captured/Dismissed), debt tracker integration, and PM escalation paths.
 
 # Code Review Reception
 
