@@ -71,6 +71,16 @@ Invoke `/generate-repomap` with task-scoped flags:
 ```
 Pass the task-scoped map path to the enricher in its dispatch prompt. This is awareness-based — use judgment, not every dispatch needs it.
 
+**Enricher pre-pass discovery.** Scan all enabled plugins for root-level `enricher-pre-pass.md` files. These are instructions that run in the **EM's context** (with full tool access — MCP, Agent dispatch, etc.) to gather information the enricher cannot access with its own tools. For example, a UE plugin might inspect live Blueprint property surfaces via MCP, since the enricher can only read source files.
+
+If pre-pass fragments are found:
+- Read each fragment
+- Follow its instructions for each relevant stub (the fragment defines relevance criteria)
+- The fragment will produce companion artifacts (inventories, screenshots, etc.) written to disk alongside the stubs
+- Include companion artifact paths in the enricher dispatch prompts so enrichers get concrete data, not vague "use MCP" instructions
+
+If no pre-pass fragments are found, skip this step — it's an optional extension point.
+
 **Enricher-survey fragment discovery.** Before dispatching, scan all enabled plugins for root-level `enricher-survey.md` files (analogous to routing fragment discovery in `/review-dispatch`). If a matching fragment exists for the project's `project_type`:
 - Read the fragment file
 - Include its content in the enricher dispatch prompt as domain-specific survey instructions
