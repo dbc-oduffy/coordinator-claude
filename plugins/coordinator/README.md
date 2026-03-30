@@ -23,7 +23,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (20, all user-invocable via `/`)
+### Commands (21, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -46,10 +46,10 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
+| `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
-<!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (24)
+### Skills (23)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -95,7 +95,13 @@ The coordinator plugin is the backbone of the system. It provides:
 
 ### Hooks
 
-- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness)
+- **SessionStart** — Coordinator reminder (EM role/pipeline awareness), project orientation, UE knowledge distrust guard
+- **PreToolUse (Bash)** — validate-commit: blocks bad commit patterns before they run
+- **PreToolUse (WebSearch|WebFetch)** — suggest-sonnet-research: advisory to use deep-research pipelines instead of direct web calls
+- **PostToolUse (ExitPlanMode)** — plan-persistence-check: ensures plan content is written to disk, not held in context
+- **PostToolUse (all)** — context-pressure-advisory: monitors context usage, nudges handoff creation before compaction
+- **SubagentStop** — executor-exit-watchdog: detects executor agents that exit without protocol-compliant status tags
+- **PreCompact** — context-pressure-precompact: fires just before compaction, prompts immediate handoff creation
 
 ## Routing Extension Protocol
 
