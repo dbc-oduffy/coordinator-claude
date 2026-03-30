@@ -6,6 +6,10 @@ plans/
 tasks/
 archive/
 projects/
+.remember/
+
+# Claude Code local state
+.claude/
 
 # OS
 .DS_Store

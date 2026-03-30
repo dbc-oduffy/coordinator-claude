@@ -9,9 +9,11 @@ Game development domain plugin for the Donal + Claude agent hierarchy. Enable fo
 - ue-blueprint-inspector (Opus) — Blueprint documentation coordinator, dispatches Sonnet workers for large projects
 - ue-blueprint-worker (Sonnet) — mechanical per-BP inspection via MCP, dispatched by the inspector coordinator
 
-**MCP Servers:** holodeck-docs (UE documentation RAG), holodeck-control (UE Editor integration) — managed by the holodeck repo, configured globally in `~/.claude/settings.json`
+**Dependencies:** holodeck-docs plugin (UE documentation lookup — agent, skill, command)
 
-**Routing:** Registers Sid for game dev signals with Patrik (coordinator) as backstop. Architecture and review route to Sid (Opus).
+**MCP Servers:** holodeck-docs (UE documentation RAG), holodeck-control (UE Editor integration) — configured globally in `~/.claude/settings.json`
+
+**Routing:** Registers Sid for game dev signals with Patrik (coordinator) as backstop. Simple doc lookups route to holodeck-docs plugin's ue-docs-researcher (Sonnet); architecture and review route to Sid (Opus).
 
 ## Source of Truth
 

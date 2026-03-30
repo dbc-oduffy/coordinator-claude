@@ -1,12 +1,10 @@
 {
   "name": "coordinator",
   "version": "1.0.0",
-  "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 18 workflow skills that enforce quality from plan through execution.",
+  "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 23 workflow skills that enforce quality from plan through execution.",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": ["claude-code", "developer-tools", "quality-pipeline", "session-management", "orchestration", "workflow", "code-review", "agents", "planning"],
-  "recommendedPlugins": ["superpowers"],
-  "recommendedPluginNote": "Superpowers provides the development discipline layer (TDD, debugging, planning, verification, git workflows). Coordinator extends these with orchestration capabilities."
+  "keywords": ["claude-code", "developer-tools", "quality-pipeline", "session-management", "orchestration", "workflow", "code-review", "agents", "planning"]
 }

@@ -46,12 +46,13 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
+| `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
-<!-- Review: patrik — corrected count: 20 SKILL.md-backed skills, 7 PIPELINE.md definitions listed separately under Commands -->
-### Skills (17)
+### Skills (23)
 
 **Workflow & Planning:**
+- `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `writing-plans` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
 - `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers `/delegate-execution` in coordinator sessions.
 - `verification-before-completion` — Prove it works before claiming it's done.
@@ -94,12 +95,13 @@ The coordinator plugin is the backbone of the system. It provides:
 
 ### Hooks
 
-- **SessionStart** — Coordinator discipline reminder (sets EM role, loads pipeline awareness), project orientation, UE knowledge distrust guard
-- **PreToolUse** — Commit validation (Bash), Sonnet research nudge (WebSearch/WebFetch), holodeck delegation nudge (MCP tools)
-- **PostToolUse** — Plan persistence check (ExitPlanMode), context pressure advisory (all tools — Phase 1: post-compaction sentinel bridge, Phase 2: mid-chain threshold safety net, 5 min throttle + 10 min session-age gate)
-- **Stop** — Context pressure threshold check (primary — fires once per turn, 10 min session-age gate)
-- **SubagentStop** — Executor exit watchdog
-- **PreCompact** — Compaction state snapshot (writes sentinel + session state to `/tmp/` for PostToolUse bridge)
+- **SessionStart** — Coordinator reminder (EM role/pipeline awareness), project orientation, UE knowledge distrust guard
+- **PreToolUse (Bash)** — validate-commit: blocks bad commit patterns before they run
+- **PreToolUse (WebSearch|WebFetch)** — suggest-sonnet-research: advisory to use deep-research pipelines instead of direct web calls
+- **PostToolUse (ExitPlanMode)** — plan-persistence-check: ensures plan content is written to disk, not held in context
+- **PostToolUse (all)** — context-pressure-advisory: monitors context usage, nudges handoff creation before compaction
+- **SubagentStop** — executor-exit-watchdog: detects executor agents that exit without protocol-compliant status tags
+- **PreCompact** — context-pressure-precompact: fires just before compaction, prompts immediate handoff creation
 
 ## Routing Extension Protocol
 

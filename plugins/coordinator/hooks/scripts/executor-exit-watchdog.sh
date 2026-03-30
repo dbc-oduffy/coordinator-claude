@@ -5,8 +5,7 @@
 # Three-tier detection:
 #   Tier 1 (tag-based): Checks for <exit-status> tag in last assistant output
 #   Tier 1.5 (AC-N check): On DONE, verifies AC-N acceptance criteria lines exist (soft warning if missing)
-#   Tier 2 (heuristic): Counts Edit/Write calls per file — flags 12+ edits to same file
-#                        SKIPPED for protocol-aware agents (any exit-status tag in transcript)
+#   Tier 2 (heuristic): Counts Edit/Write calls per file — flags 8+ edits to same file
 #
 # Re-entry guard: Blocks once per transcript, then always approves (bark once, let go)
 
@@ -28,24 +27,9 @@ else
   HOOK_INPUT=$(cat)
 fi
 
-# --- Agent type gate ---
-# This watchdog is ONLY for executor agents. Reviewers (Patrik, Sid, etc.), enrichers,
-# and other subagent types should never be subjected to thrashing heuristics — their
-# high-volume Read patterns are normal and the hook's output can replace the agent's
-# actual findings in the return channel.
-AGENT_TYPE=$(echo "$HOOK_INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)
-
-if [[ "$AGENT_TYPE" != "coordinator:executor" ]]; then
-  exit 0
-fi
-
 # --- Defensive input validation ---
-# SubagentStop provides agent_transcript_path (the subagent's own transcript)
-# and last_assistant_message (the final text block, no parsing needed for Tier 1).
-# transcript_path is the PARENT's transcript — not what we want.
-TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.agent_transcript_path // .transcript_path // empty' 2>/dev/null || true)
+TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
 SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
-LAST_ASSISTANT_MSG=$(echo "$HOOK_INPUT" | jq -r '.last_assistant_message // empty' 2>/dev/null || true)
 
 if [[ -z "$TRANSCRIPT_PATH" ]]; then
   echo "⚠️  Watchdog: transcript_path missing from hook input — approving (fail-open)" >&2
@@ -76,30 +60,29 @@ if [[ -f "$SENTINEL_FILE" ]]; then
   exit 0
 fi
 
-# --- Get last assistant output ---
-# Prefer last_assistant_message from hook input (direct, no parsing needed).
-# Fall back to transcript parsing if the field is empty.
-if [[ -n "$LAST_ASSISTANT_MSG" ]]; then
-  LAST_OUTPUT="$LAST_ASSISTANT_MSG"
-else
-  # Fallback: parse transcript for last assistant text block
-  if ! grep -q '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null; then
-    exit 0
-  fi
-  LAST_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" | tail -n 100)
-  if [[ -z "$LAST_LINES" ]]; then
-    exit 0
-  fi
-  set +e
-  LAST_OUTPUT=$(echo "$LAST_LINES" | jq -rs '
-    map(.message.content[]? | select(.type == "text") | .text) | last // ""
-  ' 2>&1)
-  JQ_EXIT=$?
-  set -e
-  if [[ $JQ_EXIT -ne 0 ]] || [[ -z "$LAST_OUTPUT" ]]; then
-    echo "⚠️  Watchdog: failed to parse transcript — approving (fail-open)" >&2
-    exit 0
-  fi
+# --- Extract last assistant text block ---
+# Same bounded pattern as ralph-loop: grep assistant lines, take last 100, parse with jq
+if ! grep -q '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null; then
+  # No assistant messages — likely a very short/failed agent run. Approve.
+  exit 0
+fi
+
+LAST_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" | tail -n 100)
+if [[ -z "$LAST_LINES" ]]; then
+  exit 0
+fi
+
+set +e
+LAST_OUTPUT=$(echo "$LAST_LINES" | jq -rs '
+  map(.message.content[]? | select(.type == "text") | .text) | last // ""
+' 2>&1)
+JQ_EXIT=$?
+set -e
+
+if [[ $JQ_EXIT -ne 0 ]] || [[ -z "$LAST_OUTPUT" ]]; then
+  # Can't parse transcript — fail-open
+  echo "⚠️  Watchdog: failed to parse transcript — approving (fail-open)" >&2
+  exit 0
 fi
 
 # --- Tier 1: Tag-based detection ---
@@ -143,28 +126,13 @@ if [[ -n "$EXIT_TAG" ]]; then
   esac
 fi
 
-# --- Tier 2: Heuristic detection (no tag found in last text block) ---
-# Before counting edits, check if any exit-status tag exists ANYWHERE in the transcript.
-# Protocol-aware agents (executors) always emit a tag. If we find one anywhere, the agent
-# is protocol-aware and Tier 1 should have handled it — skip the heuristic entirely.
-# This prevents false positives when the tag isn't in the very last text block.
+# --- Tier 2: Heuristic detection (no tag found) ---
+# Count Edit/Write tool calls per file path in transcript
+# Only fires when no exit-status tag was found at all (non-protocol-aware agent)
 
 set +e
-ANY_TAG=$(grep -o '<exit-status>[^<]*</exit-status>' "$TRANSCRIPT_PATH" 2>/dev/null | tail -1)
-set -e
-
-if [[ -n "$ANY_TAG" ]]; then
-  # Protocol-aware agent — Tier 1 already handled or should have. Skip heuristic.
-  exit 0
-fi
-
-# Count Edit/Write tool calls per file path in the subagent's transcript
-# Only fires for non-protocol-aware agents (no exit-status tag anywhere in transcript)
-
-set +e
-# Parse assistant lines from transcript (needed for edit counting even if Tier 1 used last_assistant_message)
-AGENT_LINES=$(grep '"role":"assistant"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 100)
-MAX_EDITS=$(echo "$AGENT_LINES" | jq -rs '
+# Extract file_path from Edit and Write tool_use blocks in last 100 assistant lines
+MAX_EDITS=$(echo "$LAST_LINES" | jq -rs '
   [.[] | .message.content[]? | select(.type == "tool_use") |
    select(.name == "Edit" or .name == "Write") |
    .input.file_path // empty] |
@@ -177,7 +145,7 @@ if [[ $T2_EXIT -ne 0 ]] || [[ -z "$MAX_EDITS" ]]; then
   MAX_EDITS=0
 fi
 
-THRESHOLD=12
+THRESHOLD=8
 
 if [[ "$MAX_EDITS" -ge "$THRESHOLD" ]]; then
   # Likely thrashing — block with post-mortem prompt

@@ -33,7 +33,7 @@ The tail action after execution depends on how the PM invoked the skill:
 - The PM wants the backlog cleared — whether they're watching, stepping away, or wrapping up for the day
 
 **Don't use when:**
-- Items aren't scoped yet — use `coordinator:writing-plans` or `superpowers:brainstorming` first
+- Items aren't scoped yet — use `coordinator:writing-plans` or `coordinator:brainstorming` first
 - Only one item to execute — use `/execute-plan` directly
 - The work requires iterative PM judgment calls throughout
 
@@ -145,7 +145,7 @@ This tells the hook to emit informational-only context pressure messages (no han
    - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
 
 2. **Process completions as they arrive.** As each background agent completes:
-   - Verify its output against the spec. Apply `superpowers:verification-before-completion`.
+   - Verify its output against the spec. Apply `coordinator:verification-before-completion`.
    - Confirm it stayed within its file footprint (spot-check `git diff --name-only` against the declared footprint).
    - Commit its changes immediately. Stage everything, brief message.
    - Mark complete via TaskUpdate.
@@ -227,7 +227,7 @@ Apply the same judgment as `/execute-plan`:
 
 **Required workflow skills:**
 - **`/execute-plan`** — Pattern for executing individual plan items
-- **superpowers:verification-before-completion** — Evidence before claims on each item
+- **coordinator:verification-before-completion** — Evidence before claims on each item
 - **`/update-docs`** — Tail action after all items complete (both modes)
 
 **Optional workflow skills:**
