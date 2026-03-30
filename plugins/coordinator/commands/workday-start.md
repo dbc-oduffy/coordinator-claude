@@ -122,6 +122,14 @@ Present a concise morning report:
 - Atlas: [N systems mapped, M stale >90 days / no atlas]
 - Bug backlog: [N open (P0: X, P1: Y) / empty / no backlog]
 - Bug sweep: [current (N commits since) / suggest sweep (N commits since last)]
+- Tools: [missing optional tools, if any — see below]
+
+### Tool Availability
+Check for optional tools that enhance the pipeline. Surface missing ones as install suggestions:
+- **scc** (code statistics): Check `scc` on PATH, then `~/bin/scc`. If missing: _"scc not installed — code statistics won't appear in orientation. Install: `winget install BenBoyter.scc` (or download to ~/bin/scc)."_
+- **shellcheck** (shell linting): Check `shellcheck` on PATH. If missing: _"shellcheck not installed — .sh files won't be linted on commit. Install: `winget install koalaman.shellcheck`."_
+
+If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for missing tools — don't repeat if already installed.
 
 ### Priority Suggestions
 Based on project state:
