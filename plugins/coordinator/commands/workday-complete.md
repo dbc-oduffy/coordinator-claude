@@ -99,7 +99,22 @@ If `scc` is available (check `scc` then `~/bin/scc`), run a fresh count:
 ```bash
 scc --no-complexity --no-cocomo --no-duplicates --sort code
 ```
-Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If scc is not installed, skip silently.
+Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If not installed, note in summary: _"scc not available — install for code stats."_
+
+### Step 3.6: ShellCheck Sweep
+
+If `shellcheck` is available, run it across all tracked `.sh` files in the repo:
+```bash
+git ls-files '*.sh' | while read -r f; do
+  tr -d '\r' < "$f" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|$f:|g"
+done
+```
+
+- **If issues found:** Report them and offer to fix. Most shellcheck findings are quick mechanical fixes (quoting, unused variables, POSIX pitfalls). Fix what's straightforward; flag anything that changes behavior for PM review.
+- **If clean:** Report: _"ShellCheck: all .sh files clean."_
+- **If shellcheck not installed:** Note in summary: _"shellcheck not available — install for shell script linting."_
+
+This is end-of-day cleanup — a good time to catch lint that accumulated during rapid development.
 
 ### Step 4: Final Summary
 
@@ -110,7 +125,8 @@ Include the compact summary (total lines, top 5 languages) in the final summary.
 **Branches consolidated:** [N branches merged into current]
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
-**Code stats:** [total lines / top language breakdown, or "scc not available"]
+**Code stats:** [total lines / top language breakdown, or "scc not available — install for code stats"]
+**Shell lint:** [N issues found and fixed / clean / shellcheck not available — install for linting]
 **Orientation cache:** [refreshed by /update-docs / not present]
 **NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
 ```
