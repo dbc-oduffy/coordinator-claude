@@ -93,6 +93,14 @@ Run the daily code health check on today's commits. This is the "night shift col
    git push origin $(git branch --show-current)
    ```
 
+### Step 3.5: Refresh Code Statistics
+
+If `scc` is available (check `scc` then `~/bin/scc`), run a fresh count:
+```bash
+scc --no-complexity --no-cocomo --no-duplicates --sort code
+```
+Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If scc is not installed, skip silently.
+
 ### Step 4: Final Summary
 
 ```
@@ -102,6 +110,7 @@ Run the daily code health check on today's commits. This is the "night shift col
 **Branches consolidated:** [N branches merged into current]
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
+**Code stats:** [total lines / top language breakdown, or "scc not available"]
 **Orientation cache:** [refreshed by /update-docs / not present]
 **NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
 ```
