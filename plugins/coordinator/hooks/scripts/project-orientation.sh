@@ -101,6 +101,23 @@ if [ -n "$BRANCH" ]; then
     done
 fi
 
+# Code statistics (scc)
+SCC_CMD=""
+for cmd in scc "$HOME/bin/scc" "$HOME/bin/scc.exe"; do
+  if command -v "$cmd" &>/dev/null || [ -x "$cmd" ]; then
+    SCC_CMD="$cmd"
+    break
+  fi
+done
+if [ -n "$SCC_CMD" ]; then
+  # Compact one-line-per-language summary, top 5 languages by code lines
+  SCC_OUT=$("$SCC_CMD" --no-complexity --no-cocomo --no-duplicates --sort code 2>/dev/null | head -20)
+  if [ -n "$SCC_OUT" ]; then
+    echo "  Code stats (scc):"
+    echo "$SCC_OUT" | while read -r line; do echo "    $line"; done
+  fi
+fi
+
 # Active plan files
 PLANS=$(ls tasks/*/todo.md 2>/dev/null)
 if [ -n "$PLANS" ]; then

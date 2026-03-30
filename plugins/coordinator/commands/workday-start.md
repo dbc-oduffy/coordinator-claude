@@ -148,9 +148,10 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
 **Content derivation:**
 1. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
 2. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
-3. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
-4. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
-5. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
+3. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
+4. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
+5. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
+6. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
 
 **Frontmatter:** Include `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
 
