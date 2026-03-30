@@ -1,7 +1,0 @@
-{
-  "holodeck-control": {
-    "command": "node",
-    "args": ["X:/claude-unreal-holodeck/control/server/dist/cli.js"],
-    "env": {}
-  }
-}

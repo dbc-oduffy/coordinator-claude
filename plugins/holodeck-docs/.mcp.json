@@ -1,9 +1,0 @@
-{
-  "holodeck-docs": {
-    "command": "uv",
-    "args": ["--directory", "X:/claude-unreal-holodeck", "run", "python", "-m", "mcp_server"],
-    "env": {
-      "MCP_TRANSPORT": "stdio"
-    }
-  }
-}
