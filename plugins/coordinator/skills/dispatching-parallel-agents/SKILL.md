@@ -1,10 +1,8 @@
 ---
 name: dispatching-parallel-agents
-description: "This skill should be used when the coordinator faces 2+ independent tasks and needs to decide dispatch strategy — extends superpowers:dispatching-parallel-agents with background-by-default policy, Opus tech lead pattern, worktree decision matrix, and /delegate-execution integration."
+description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
 version: 1.0.0
 ---
-
-> **Foundation:** This skill extends `superpowers:dispatching-parallel-agents`. The superpowers skill provides core parallel dispatch patterns (when to parallelize, agent prompt structure, common mistakes). This skill adds coordinator-specific patterns: background-by-default policy, Opus tech lead supervision for large stubs, worktree vs same-worktree decision matrix, and `/delegate-execution` integration.
 
 # Dispatching Parallel Agents
 
@@ -70,7 +68,7 @@ digraph when_to_use {
 - **Disjoint file sets → parallel, same worktree.** Agents write to different files; the filesystem is the coordination mechanism. No merge ceremony needed.
 - **Overlapping files → sequential, same worktree.** Run agents one after another so each sees the previous agent's changes. This is almost always cheaper than worktree creation + merge conflict resolution at agent execution speed.
 - **Overlapping files with different insertion points** (e.g., appending to different sections of the same file) → still sequential. "Theoretically non-conflicting" edits in the same file are fragile; sequential execution eliminates the risk for negligible time cost.
-- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → use worktrees via `superpowers:using-git-worktrees`.
+- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → use worktrees via `coordinator:using-git-worktrees`.
 
 **Why not worktrees by default?** Worktrees solve a human-scale problem: needing days of isolation on parallel features. At agent execution speed, the merge overhead (branch creation, conflict resolution, integration verification) exceeds the time saved by parallelism. Sequential execution on overlapping files is almost always the cheaper path.
 

@@ -31,7 +31,6 @@ This is not negotiable. This is not optional. You cannot rationalize your way ou
 | notebooklm | `notebooklm:` | `notebooklm:notebooklm-research` |
 | holodeck-control | `holodeck-control:` | `holodeck-control:ue-editor-control` |
 | holodeck-docs | `holodeck-docs:` | `holodeck-docs:ue-docs-lookup` |
-| superpowers | `superpowers:` | `superpowers:brainstorming` |
 
 Non-plugin skills (e.g., `simplify`, `loop`) work without a prefix because they have no namespace.
 
@@ -58,7 +57,7 @@ digraph skill_flow {
     "User message received" [shape=doublecircle];
     "About to EnterPlanMode?" [shape=doublecircle];
     "Already brainstormed?" [shape=diamond];
-    "Invoke superpowers:brainstorming skill" [shape=box];
+    "Invoke coordinator:brainstorming skill" [shape=box];
     "Might any skill apply?" [shape=diamond];
     "Invoke Skill tool" [shape=box];
     "Announce: 'Using [skill] to [purpose]'" [shape=box];
@@ -68,9 +67,9 @@ digraph skill_flow {
     "Respond (including clarifications)" [shape=doublecircle];
 
     "About to EnterPlanMode?" -> "Already brainstormed?";
-    "Already brainstormed?" -> "Invoke superpowers:brainstorming skill" [label="no"];
+    "Already brainstormed?" -> "Invoke coordinator:brainstorming skill" [label="no"];
     "Already brainstormed?" -> "Might any skill apply?" [label="yes"];
-    "Invoke superpowers:brainstorming skill" -> "Might any skill apply?";
+    "Invoke coordinator:brainstorming skill" -> "Might any skill apply?";
 
     "User message received" -> "Might any skill apply?";
     "Might any skill apply?" -> "Invoke Skill tool" [label="yes, even 1%"];
@@ -186,26 +185,26 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 Skills are behavioral protocols — they shape how you think about and approach work. Unlike commands, skills don't run pipelines automatically; they guide your behavior.
 
 ### Thinking & Planning
-- **superpowers:brainstorming** — PM asks for a new feature or capability — structured exploration of intent, requirements, and design before any implementation
-- **coordinator:writing-plans** — Requirements are clear and the task needs decomposition — breaks work into executable chunks with review gates and execution delegation (extends superpowers:writing-plans)
-- **superpowers:verification-before-completion** — About to claim work is done — requires evidence before assertions
+- **coordinator:brainstorming** — PM asks for a new feature or capability — structured exploration of intent, requirements, and design before any implementation
+- **coordinator:writing-plans** — Requirements are clear and the task needs decomposition — breaks work into executable chunks with dependency ordering and effort estimates
+- **coordinator:verification-before-completion** — About to claim work is done — requires evidence before assertions
 - **coordinator:stuck-detection** — Self-monitoring protocol for detecting repetition, oscillation, analysis paralysis (injected into agent prompts, not invoked directly)
 
 ### Development Discipline
-- **superpowers:test-driven-development** — RED-GREEN-REFACTOR cycle before writing implementation code
-- **superpowers:systematic-debugging** — Something's broken and you don't know why — root-cause investigation: reproduce, trace, identify, verify before proposing any fix
-- **coordinator:dispatching-parallel-agents** — Pattern for dispatching 2+ independent tasks with coordinator-specific patterns (extends superpowers:dispatching-parallel-agents)
-- **coordinator:requesting-staff-session** — Agent Teams collaborative planning and review
+- **coordinator:test-driven-development** — RED-GREEN-REFACTOR cycle before writing implementation code
+- **coordinator:systematic-debugging** — Something's broken and you don't know why — root-cause investigation: reproduce, trace, identify, verify before proposing any fix
+- **coordinator:dispatching-parallel-agents** — Pattern for dispatching 2+ independent tasks in parallel
+- **coordinator:requesting-staff-session** — Agent Teams collaborative planning and review. Guides when to use `/staff-session` vs `/review-dispatch`, tier selection (lightweight/standard/full), team composition (auto or explicit persona selection), plan mode vs review mode
 
 ### Code Review
-- **coordinator:requesting-code-review** — Routes to `/review-dispatch` with named reviewer pool (extends superpowers:requesting-code-review)
-- **coordinator:receiving-code-review** — Opus agent triage tables and Disposition tracking (extends superpowers:receiving-code-review)
-- **coordinator:requesting-staff-session** — For multi-perspective review with debate
+- **coordinator:requesting-code-review** — Routes to `/review-dispatch` — how to prepare work for review
+- **coordinator:receiving-code-review** — How to receive and act on feedback with technical rigor, not performative agreement
+- **coordinator:requesting-staff-session** — For multi-perspective review with debate: `/staff-session --mode review`. Use when a single reviewer isn't enough — persona agents debate the artifact and produce synthesized findings. See the Collaborative Planning & Review command table above for invocation details.
 
 ### Git & Branching
-- **superpowers:using-git-worktrees** — Isolated workspaces per feature (for separate PRs, different base branches)
-- **coordinator:finishing-a-development-branch** — Implementation complete — CI-gated PR merge and automated cleanup (extends superpowers:finishing-a-development-branch)
-- **coordinator:merging-to-main** — Creates PR, waits for CI, merges, cleans up
+- **coordinator:using-git-worktrees** — Isolated workspaces per feature (for separate PRs, different base branches)
+- **coordinator:finishing-a-development-branch** — Implementation complete — guides completion options (merge, PR, cleanup)
+- **coordinator:merging-to-main** — Creates PR, waits for CI, merges, cleans up. Also invocable via `/workday-complete`
 
 ### Pipeline Definitions (reference material for commands)
 
@@ -235,5 +234,5 @@ These directories contain pipeline definitions (`PIPELINE.md`) that the correspo
 - **coordinator:project-onboarding** — Bootstrap a new project's tracking infrastructure — tracker, tasks, archive, handoffs. Use when starting a new project or when /update-docs reports missing tracker.
 
 ### Meta
-- **superpowers:writing-skills** — TDD applied to skill/documentation authoring
+- **coordinator:writing-skills** — TDD applied to skill/documentation authoring
 - **coordinator:skill-discovery** — This skill — how to find and use skills and commands
