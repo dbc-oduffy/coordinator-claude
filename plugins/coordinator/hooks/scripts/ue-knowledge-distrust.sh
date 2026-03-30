@@ -6,8 +6,8 @@
 # Rationale: LLM training data about Unreal Engine is broadly untrustworthy —
 # not just recent versions. Function names, parameter signatures, class hierarchies,
 # default behaviors, deprecation status — any of it may be wrong, stale, or
-# hallucinated. The holodeck-docs MCP provides 333K+ verified doc chunks as
-# ground truth.
+# hallucinated. The holodeck-docs MCP (when available) provides 333K+ verified
+# doc chunks as ground truth.
 
 # Shallow search — maxdepth 3 covers typical project layouts without scanning
 # deep engine/plugin trees. -print -quit exits on first match for speed.

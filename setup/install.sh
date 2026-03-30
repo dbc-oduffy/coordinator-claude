@@ -25,8 +25,6 @@ PLUGIN_REGISTRY=(
   "web-dev|on|1.0.0|Palí + Fru reviewers"
   "data-science|on|1.0.0|Camelia reviewer"
   "game-dev|off|1.1.0|Sid reviewer (Unreal Engine)"
-  "holodeck-control|off|1.0.0|UE editor control via MCP (requires holodeck server)"
-  "holodeck-docs|off|1.0.0|UE documentation and Python execution via MCP"
   "notebooklm|on|1.0.0|Media research via NotebookLM"
 )
 
