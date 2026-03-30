@@ -266,4 +266,4 @@ Present a concise summary:
 - **Periodically** — when docs have drifted from reality (not necessarily every session)
 - **After major feature implementation** — when significant code was written by one or more agents
 - **Before starting a new phase** — to ensure docs reflect the starting state
-- **Explicitly** — when you want repo-wide maintenance. This is NOT automatically chained by `/session-end` or `/handoff` — invoke it when you want it.
+- **Explicitly** — when you want repo-wide maintenance. `/session-end` and `/handoff` now do lightweight orientation patches (cache, tracker, action items, plan docs) for what the session touched — but `/update-docs` is still the heavyweight pass that re-derives everything, trims lessons, archives handoffs, and runs integrity checks.

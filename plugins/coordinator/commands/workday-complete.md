@@ -101,7 +101,34 @@ scc --no-complexity --no-cocomo --no-duplicates --sort code
 ```
 Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If not installed, note in summary: _"scc not available — install for code stats."_
 
-### Step 3.6: ShellCheck Sweep
+### Step 3.6: Completed Archive Audit
+
+Verify that `archive/completed/YYYY-MM.md` accurately reflects what shipped today. Session-end writes individual entries, but sessions may skip `/session-end`, entries may be vague, or ad-hoc work may slip through.
+
+1. **Gather the day's commits:**
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"
+   ```
+
+2. **Read the current month's archive:** `archive/completed/YYYY-MM.md`. Find entries under today's `## YYYY-MM-DD` heading.
+
+3. **Reconcile commits → archive:** Group related commits into logical work items (same feature/fix = one item). For each work item:
+   - **Present in archive:** Verify the description is accurate and the commit hash is correct. Fix inaccuracies in place.
+   - **Missing from archive:** Append an entry. Use the same format: `- **[Past-tense description]** — [category] | commit: [hash]`
+   - **Trivial commits** (formatting, typos, merge commits, quick-saves): skip — the archive records *what shipped*, not every keystroke.
+
+4. **Reconcile archive → commits:** Check each archive entry for today against the commit log. Flag any entry that doesn't correspond to a real commit — this catches copy-paste errors or entries from a session that was abandoned before committing.
+
+5. **Check tracker alignment:** If `docs/project-tracker.md` exists, verify that any workstream marked as completed today in the archive also has its tracker status updated. Fix mismatches in place.
+
+6. **Report:** Include in the Final Summary:
+   - _"Archive audit: N entries verified, M added, K corrected."_
+   - Or: _"Archive audit: no commits today."_
+
+**Why at end-of-day:** Individual sessions write entries via `/session-end`, but this is the backstop — one authoritative pass across the full day's work. It catches sessions that crashed, skipped session-end, or wrote incomplete entries.
+
+### Step 3.7: ShellCheck Sweep
 
 If `shellcheck` is available, run it across all tracked `.sh` files in the repo:
 ```bash
@@ -126,6 +153,7 @@ This is end-of-day cleanup — a good time to catch lint that accumulated during
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
 **Code stats:** [total lines / top language breakdown, or "scc not available — install for code stats"]
+**Archive audit:** [N entries verified, M added, K corrected / no commits today]
 **Shell lint:** [N issues found and fixed / clean / shellcheck not available — install for linting]
 **Orientation cache:** [refreshed by /update-docs / not present]
 **NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
