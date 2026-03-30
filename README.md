@@ -7,7 +7,7 @@ A plugin system that turns Claude Code into a structured engineering team — yo
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
 - **Sequential persona-based review** — domain expert first, all fixes applied, then generalist reviews a clean artifact. [Research supports](docs/research/2026-03-19-named-persona-performance.md) both the persona mechanism and multi-agent review gains
-- **5-layer project knowledge** — structure, architecture, activity, intent, state — none bulk-loaded, all maintained by an 11-phase doc pipeline that fights staleness automatically
+- **6-layer project knowledge** — structure, architecture, activity, temporal, intent, state — none bulk-loaded, all maintained by an 11-phase doc pipeline that fights staleness automatically
 
 ## Quick Start
 
@@ -72,7 +72,7 @@ Reviewer agents carry rich behavioral profiles, and the system enforces sequenti
 <details>
 <summary><strong>5-layer project knowledge</strong> — layered context, not bulk injection</summary>
 
-Instead of one large repo map injected at the start of every interaction, the system maintains five complementary knowledge layers (structure, architecture, activity, intent, state), none loaded in bulk. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically. See [docs/architecture.md](docs/architecture.md#project-knowledge-layered-context-not-bulk-injection) for the full breakdown.
+Instead of one large repo map injected at the start of every interaction, the system maintains six complementary knowledge layers (structure, architecture, activity, temporal, intent, state), none loaded in bulk. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically. The temporal layer (via the optional [remember plugin](https://github.com/anthropics/claude-plugins-official)) adds automatic rolling session memory — what happened today, this week, historically — used by `/update-docs` and `/workday-complete` to cross-reference activity against the project tracker. See [docs/architecture.md](docs/architecture.md#project-knowledge-layered-context-not-bulk-injection) for the full breakdown.
 
 </details>
 

@@ -105,11 +105,23 @@ Include the compact summary (total lines, top 5 languages) in the final summary.
 
 Verify that `archive/completed/YYYY-MM.md` accurately reflects what shipped today. Session-end writes individual entries, but sessions may skip `/session-end`, entries may be vague, or ad-hoc work may slip through.
 
-1. **Gather the day's commits:**
+1. **Gather the day's activity from all sources:**
+
+   **Git commits:**
    ```bash
    TODAY=$(date +%Y-%m-%d)
    git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"
    ```
+
+   **Temporal memory (`.remember/`):** If the remember plugin is active, read the day's compressed log for richer context than commit messages alone:
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   # Today's compressed summary (most useful — grouped by time block)
+   cat ".remember/today-${TODAY}.md" 2>/dev/null
+   # Current session buffer (not yet compressed)
+   cat ".remember/now.md" 2>/dev/null
+   ```
+   These files contain Haiku-summarized records of every session's activity — including exploration, debugging, and research that doesn't produce commits. Use them to enrich archive entries beyond what git log alone captures, and to catch work that was done but not committed (e.g., research sessions, failed approaches that informed later work).
 
 2. **Read the current month's archive:** `archive/completed/YYYY-MM.md`. Find entries under today's `## YYYY-MM-DD` heading.
 
