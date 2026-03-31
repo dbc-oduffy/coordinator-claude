@@ -99,7 +99,9 @@ with peers is EXPECTED — not just sharing findings, but actively testing claim
   are remarkably well-aligned. Note which.
 - **Actively coordinate ownership** — if you discover overlap with a peer's topic,
   message them to agree on who covers what. Note the agreed split in your findings.
-- Max 3 messages per peer — quality over quantity
+- Max 3 messages per peer — quality over quantity. **Do NOT send acknowledgment-only
+  messages** ("got it", "thanks", "acknowledged"). Every message must contain a finding,
+  challenge, source, or ownership decision. Acknowledgments waste your budget.
 - Message categories:
   - Finding: something relevant to their topic
   - Contradiction: your findings conflict with their area
@@ -119,9 +121,10 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - You have been working for [MAX_MINUTES] minutes (ceiling — converge regardless)
 
 Convergence steps:
-1. Send CONVERGING message to all peers
+1. Send CONVERGING message to all peers (this is informational — peers should NOT
+   reply with acknowledgments, only substantive challenges)
 2. Wait ~30 seconds for final challenges
-3. Answer any last challenges
+3. Answer any substantive challenges (ignore acknowledgment-only messages)
 4. Write your structured claims to [SCRATCH_DIR]/[TOPIC_LETTER]-claims.json
 5. Write your summary to [SCRATCH_DIR]/[TOPIC_LETTER]-summary.md
 6. Mark your task as completed (TaskUpdate)
@@ -149,7 +152,7 @@ Write a JSON array of claim objects to [SCRATCH_DIR]/[TOPIC_LETTER]-claims.json:
     "counter_evidence": "Evidence against this claim, if any (null otherwise)",
     "corroborated_by": "Other sources or peer findings that confirm this (free text, null if none)",
     "contested_by": "Peer challenge details if unresolved (null otherwise)",
-    "type": "fact | limitation | opinion | pattern | recommendation"
+    "type": "fact | limitation | opinion | pattern | recommendation | feature_update"
   }
 ]
 
@@ -157,6 +160,10 @@ Notes on fields:
 - `corroborated_by` and `contested_by` are free-text (source URLs or descriptions),
   NOT cross-specialist claim IDs. You work in parallel and can't see peers' IDs.
 - Within YOUR claims, you can cross-reference by ID (e.g., "see [TOPIC_LETTER]-003").
+- **Null normalization:** Use `null` (not `[]` or `""`) when a field has no value.
+  Use strings or arrays consistently: `corroborated_by` is a string (free text),
+  `contested_by` is a string (free text). Both are `null` when empty.
+- **Confidence is uppercase:** `"HIGH"`, `"MEDIUM"`, or `"LOW"`.
 - Every claim must have a source_url. If from training knowledge, use "training_knowledge"
   and set confidence to LOW.
 
