@@ -76,7 +76,7 @@ Consolidate all of today's work branches for this machine into one clean branch.
 5. **Clean up merged branches:**
    Delete local branches that were merged into the current branch (except the current branch itself):
    ```bash
-   git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d
+   git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | while read -r branch; do git branch -d "$branch"; done
    ```
 
 **Feature branches are excluded** — they are intentionally long-lived and not part of end-of-day cleanup.
@@ -113,15 +113,16 @@ Verify that `archive/completed/YYYY-MM.md` accurately reflects what shipped toda
    git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"
    ```
 
-   **Temporal memory (`.remember/`):** If the remember plugin is active, read the day's compressed log for richer context than commit messages alone:
+   **Session memory:** If the remember plugin is active, read the day's compressed log for richer context than commit messages alone. Memory files live under the project's memory directory:
    ```bash
    TODAY=$(date +%Y-%m-%d)
-   # Today's compressed summary (most useful — grouped by time block)
-   cat ".remember/today-${TODAY}.md" 2>/dev/null
+   SLUG=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
+   # Today's daily summary (most useful — grouped by time block)
+   # Read: ~/.claude/projects/<slug>/memory/sessions/daily/YYYY-MM-DD.md
    # Current session buffer (not yet compressed)
-   cat ".remember/now.md" 2>/dev/null
+   # Read: ~/.claude/projects/<slug>/memory/sessions/current.md
    ```
-   These files contain Haiku-summarized records of every session's activity — including exploration, debugging, and research that doesn't produce commits. Use them to enrich archive entries beyond what git log alone captures, and to catch work that was done but not committed (e.g., research sessions, failed approaches that informed later work).
+   Use the Read tool to load these files. They contain Haiku-summarized records of every session's activity — including exploration, debugging, and research that doesn't produce commits. Use them to enrich archive entries beyond what git log alone captures, and to catch work that was done but not committed (e.g., research sessions, failed approaches that informed later work).
 
 2. **Read the current month's archive:** `archive/completed/YYYY-MM.md`. Find entries under today's `## YYYY-MM-DD` heading.
 
