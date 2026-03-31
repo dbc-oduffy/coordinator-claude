@@ -101,6 +101,14 @@ Check `tasks/handoffs/` for `.md` files (active handoffs). If handoffs exist:
 
 **If `.claude/` is gitignored:** Warn the user — this breaks handoff discovery. `.claude/` should be tracked; only `.claude/settings.local.json` should be ignored.
 
+### Session memory
+
+The remember plugin's SessionStart hook automatically injects temporal memory (what was worked on recently) into the session context. This happens via hook output — no manual action needed here.
+
+If session memory content appears in the hook output (marked with `=== SESSION MEMORY ===`), acknowledge it briefly: _"Session memory loaded — {N} days of history available."_
+
+If no session memory appears, note: _"No session memory available — the remember plugin may not be active."_
+
 ### Action items and roadmap
 
 **Conditional on workday-start:** If `tasks/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.
@@ -142,7 +150,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 ### Delegation context (game-dev projects)
 
-**Conditional on project type:** Only for projects with `project_type: unreal` or `game-docs` in `.claude/coordinator.local.md`. Skip silently for all other project types.
+**Conditional on project type:** Only for projects whose `project_type` list includes `unreal` or `game-docs` in `.claude/coordinator.local.md`. Skip silently if neither type is present.
 
 The capability-catalog (injected at boot) carries the general delegation argument. This section loads the operational routing knowledge needed to delegate effectively in game-dev projects:
 
