@@ -198,4 +198,5 @@ When you receive a notification that the sweep task is complete:
 | Specialist hits ceiling and self-converges | Normal — specialist writes what it has and marks task complete |
 | Sweep doesn't wake after all specialists complete | Verify specialists sent DONE messages to sweep; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
 | All specialists fail | TeamDelete, report to PM |
+| Agents stuck in idle loops | Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results before attempting TeamDelete. If TeamDelete fails ("active" agents), wait for timeout. Do NOT block on stuck agents — read available outputs and present to PM |
 | Team creation fails | Fall back to relay pattern or manual research |
