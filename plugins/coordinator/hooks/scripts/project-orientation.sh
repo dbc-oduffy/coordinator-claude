@@ -2,6 +2,17 @@
 # SessionStart hook: inject project orientation documents into context
 # Convention-based discovery — reads what exists, skips what doesn't.
 # Subsumes the old repomap-sessionstart.sh (staleness check + content injection).
+#
+# Flags:
+#   --lightweight   Skip heavy operations (scc, git log). Used on /clear where
+#                   the project hasn't changed since 2 minutes ago.
+
+LIGHTWEIGHT=false
+for arg in "$@"; do
+  case "$arg" in
+    --lightweight) LIGHTWEIGHT=true ;;
+  esac
+done
 
 # RAM cache check — prefer compact cache over raw docs
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -35,9 +46,19 @@ fi
 
 # Fall through: orientation cache missing or stale.
 # Inject lightweight pointers — the EM can read full files on demand.
-# This replaced raw 300-line injection (repo map + DIRECTORY.md) with
-# a ~10-line summary. The EM has MEMORY.md and CLAUDE.md for structural
-# awareness; full docs are one Read away when a task needs them.
+
+# ── Lightweight mode (used on /clear) ────────────────────────────────────
+# On clear the project hasn't changed — just re-emit branch + pointers.
+if [ "$LIGHTWEIGHT" = true ]; then
+    echo ""
+    echo "── Orientation (lightweight — /clear) ──"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+    [ -n "$BRANCH" ] && echo "  Branch: $BRANCH"
+    echo "  Full orientation available on next fresh session start."
+    exit 0
+fi
+
+# ── Full mode (startup / compact) ────────────────────────────────────────
 
 echo ""
 echo "── Orientation (no fresh cache — pointers only) ──"
@@ -86,9 +107,6 @@ fi
 pointer_doc "Directory" "DIRECTORY.md" "docs/DIRECTORY.md" && found=$((found + 1))
 
 # --- Project vitals (fallback path only) ---
-# Intentionally not in the cache path — the orientation cache already includes
-# branch/commit info when generated. Vitals compensate for cache absence.
-# All git commands use 2>/dev/null — degrades to nothing in non-git contexts.
 echo ""
 echo "── Project Vitals ──"
 
@@ -101,21 +119,39 @@ if [ -n "$BRANCH" ]; then
     done
 fi
 
-# Code statistics (scc)
-SCC_CMD=""
-for cmd in scc "$HOME/bin/scc" "$HOME/bin/scc.exe"; do
-  if command -v "$cmd" &>/dev/null || [ -x "$cmd" ]; then
-    SCC_CMD="$cmd"
-    break
-  fi
-done
-if [ -n "$SCC_CMD" ]; then
-  # Compact one-line-per-language summary, top 5 languages by code lines
-  SCC_OUT=$("$SCC_CMD" --no-complexity --no-cocomo --no-duplicates --sort code 2>/dev/null | head -20)
-  if [ -n "$SCC_OUT" ]; then
+# Code statistics (scc) — cached by git HEAD to avoid rescanning on every session
+SCC_CACHE="${REPO_ROOT:-.}/tasks/.scc-cache"
+SCC_CACHE_HEAD=""
+if [ -f "$SCC_CACHE" ]; then
+    SCC_CACHE_HEAD=$(head -1 "$SCC_CACHE")
+fi
+CURRENT_HEAD=$(git rev-parse HEAD 2>/dev/null)
+
+if [ -n "$SCC_CACHE_HEAD" ] && [ "$SCC_CACHE_HEAD" = "$CURRENT_HEAD" ]; then
+    # Cache hit — emit stored output (skip first line which is the HEAD marker)
+    SCC_OUT=$(tail -n +2 "$SCC_CACHE")
+else
+    # Cache miss — run scc and store
+    SCC_CMD=""
+    for cmd in scc "$HOME/bin/scc" "$HOME/bin/scc.exe"; do
+      if command -v "$cmd" &>/dev/null || [ -x "$cmd" ]; then
+        SCC_CMD="$cmd"
+        break
+      fi
+    done
+    if [ -n "$SCC_CMD" ]; then
+      SCC_OUT=$("$SCC_CMD" --no-complexity --no-cocomo --no-duplicates --sort code 2>/dev/null | head -20)
+      if [ -n "$SCC_OUT" ] && [ -n "$CURRENT_HEAD" ]; then
+        SCC_TMP=$(mktemp "${SCC_CACHE}.XXXXXX" 2>/dev/null) && {
+          { echo "$CURRENT_HEAD"; echo "$SCC_OUT"; } > "$SCC_TMP"
+          mv -f "$SCC_TMP" "$SCC_CACHE" 2>/dev/null
+        } || { echo "$CURRENT_HEAD"; echo "$SCC_OUT"; } > "$SCC_CACHE" 2>/dev/null
+      fi
+    fi
+fi
+if [ -n "$SCC_OUT" ]; then
     echo "  Code stats (scc):"
     echo "$SCC_OUT" | while read -r line; do echo "    $line"; done
-  fi
 fi
 
 # Active plan files
