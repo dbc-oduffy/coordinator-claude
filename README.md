@@ -44,7 +44,7 @@ See [docs/architecture.md](docs/architecture.md) for the full model — agent ro
 <details>
 <summary><strong>Agent Teams for research and planning</strong> — not just "build together"</summary>
 
-Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Three research pipelines (internet, repository, structured/schema-conforming) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus synthesizer produces the final document. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
+Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Four research pipelines (internet, repository, structured, NotebookLM media) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus sweep agent checks coverage adversarially and fills gaps. Internet research (Pipeline A v2.2) adds iterative deepening — a second, smaller team is dispatched to fill significant gaps when warranted. Repository research (Pipeline B) supports `--deeper` (dependency-weighted repomap) and `--deepest` (architecture atlas generation) modes. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
 
 </details>
 
@@ -86,8 +86,8 @@ For a deeper assessment of all patterns, see the [novelty research doc](docs/res
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines (internet, repo, structured) | Research tasks |
-| **[notebooklm](plugins/notebooklm/)** | NotebookLM integration — YouTube, podcast, audio research via MCP | Media research |
+| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation | Research tasks |
+| **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
@@ -124,8 +124,8 @@ coordinator-claude/
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
-│   ├── deep-research/          # Agent Teams research pipelines (A: web, B: repo, C: structured)
-│   └── notebooklm/             # NotebookLM media research via Agent Teams
+│   ├── deep-research/          # Research pipelines: A (web, v2.2), B (repo + repomap/atlas), C (structured)
+│   └── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
 ├── docs/                       # Architecture, customization, CI pipeline
 ├── setup/                      # Installer
 └── assets/                     # Social preview card + generation template
