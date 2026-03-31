@@ -107,7 +107,7 @@ check_prerequisites() {
     echo ""
     echo "WARNING: jq not found on PATH."
     echo "Hook scripts degrade gracefully for basic JSON parsing, but the"
-    echo "executor-exit-watchdog hook requires jq for complex transcript analysis."
+    echo "some hook scripts use jq for JSON parsing."
     echo ""
     echo "Install jq:"
     echo "  macOS:   brew install jq"

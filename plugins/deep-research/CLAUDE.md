@@ -18,7 +18,7 @@ Without this, `/deep-research` will fail.
 ## Commands
 
 - `/deep-research web <topic>` — Pipeline A: internet research
-- `/deep-research repo <path> [--compare <project-path>] [--deeper]` — Pipeline B: repo assessment (+ optional comparison, + optional repomap)
+- `/deep-research repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
 - `/deep-research structured <spec-path> [subject-key]` — Pipeline C: structured research
 
 ## How It Works
@@ -51,6 +51,7 @@ All three pipelines follow the same Agent Teams pattern:
 - 2 Haiku scouts (2 chunks each) — produces structured file inventories with function signatures, constants, data flow
 - In `--compare` mode: scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md
 - In `--deeper` mode: EM generates dependency-weighted repomap during scoping; specialists read it before inventories to prioritize structurally central files
+- In `--deepest` mode (implies `--deeper`): after synthesis, a Sonnet subagent produces architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings
 - Team protocol: `pipelines/repo-team-protocol.md`
 
 ### Pipeline C specifics

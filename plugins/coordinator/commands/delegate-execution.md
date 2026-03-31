@@ -203,11 +203,10 @@ Agent(
    ```
 5. Document what was changed in the stub and why
 
-**On THRASHING REPORT (aborted by watchdog or self-detected):**
+**On THRASHING REPORT (self-detected):**
 1. Check the executor's return message for post-mortem details (detection type, approaches tried, last error)
 2. **Persist failed approaches:** For each item in the post-mortem's "Approaches tried" list, add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [approach] — Failed: [last error/state]"`. This survives compaction and prevents re-dispatched executors from repeating dead approaches.
-3. If `self`-detected (executor caught it): more reliable diagnosis than `watchdog` (executor was unaware) — weight accordingly
-4. Triage by the diagnosis:
+3. Triage by the diagnosis:
    - **spec problem** → fix the spec based on the post-mortem's "Approaches tried" and "Last error/state", then re-dispatch
    - **environment problem** → investigate the environment issue (missing dependency, permissions, file state) before re-dispatching
    - **architectural gap** → escalate to PM — the stub may need redesign, not just a spec patch
