@@ -37,7 +37,14 @@ Add new entries in the established format (bold title + 1-2 sentence rule, max 3
 
 Find and update relevant plan/task documentation to reflect what was completed:
 
-1. **Check for plan docs:** Look for `tasks/todo.md`, `tasks/plan.md`, or any plan document referenced during the session.
+1. **Find the plan docs — actively search, don't wait to recall.** Check these locations in order:
+   - Any plan document referenced or opened during this session (you have it in context)
+   - `tasks/<feature>/todo.md` — feature-scoped plans for current work
+   - `tasks/plans/` — session handoff plans and tactical trackers
+   - `docs/plans/` — historical and reference plans
+   - `~/.claude/plans/` — plans written in plan mode (may need copying to canonical location)
+   - `tasks/todo.md`, `tasks/plan.md` — legacy flat locations
+   If a plan exists for the work this session touched, read it and update it. Don't rely on having opened it earlier — sessions that start from handoffs or dive straight into code often never explicitly open the plan.
 2. **Mark completed items:** Check off finished tasks, update status fields, add completion notes where appropriate.
 3. **Add a review section** (if not already present) summarizing outcomes — what was built, key decisions, anything notable about the result.
 4. **Update other pertinent docs:** If the work affected README files, architecture docs, or other project documentation that should reflect the new state, update those too. Use judgment — only touch docs that are clearly stale as a result of this session's work.
@@ -68,6 +75,23 @@ Sweep the session's commits for completed work that isn't already in the project
 
 **Skip if** no `archive/` directory exists and no `docs/project-tracker.md` exists — the project hasn't adopted unified tracking yet.
 
+### Step 2.7: Refresh Orientation Documents
+
+Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. These are lightweight, targeted patches based on what THIS session accomplished, not a full regeneration.
+
+1. **Orientation cache** (`tasks/orientation_cache.md`): If it exists, patch sections affected by this session's work:
+   - Update `Active Workstreams` if workstreams completed or progressed
+   - Update `Health Snapshot` if bugs were fixed, debt resolved, or issues closed
+   - Update `Doc Freshness` — set `git_head_at_generation` to current HEAD, update last-run dates for any commands invoked this session
+   - Don't regenerate from scratch — that's `/workday-start`'s job. Patch what changed.
+   - If the cache doesn't exist, skip — the project hasn't run `/workday-start` yet.
+
+2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
+
+3. **Action items** (first match: `ACTION-ITEMS.md`, `docs/active/ACTION-ITEMS.md`, `docs/ACTION-ITEMS.md`): If one exists and this session resolved any listed items, check them off or remove them per the file's existing conventions.
+
+**Concurrency note:** These are targeted patches to specific rows/sections based on this session's work — safe with concurrent agents, as long as agents work on different items (which they should by design).
+
 ### Step 3: Commit + Verify Remote
 
 1. `git add -A` and commit with a lightweight message: `"session-end quick-save"`
@@ -87,6 +111,7 @@ Present a brief end-of-session summary:
 **Lessons captured:** [N new / none]
 **Work archived:** [N items added to archive/completed/YYYY-MM.md / none needed / project not using unified tracking]
 **Docs updated:** [list of updated files]
+**Orientation refreshed:** [orientation cache patched / tracker updated / action items checked off / nothing to update / no orientation docs exist]
 **Pushed to remote:** [yes — branch name / no — reason]
 ```
 
