@@ -103,6 +103,19 @@ Check elapsed time via `date +%s` in Bash. If ceiling is reached before you fini
 Write this exact format to `{scratch-dir}/{letter}-findings.md`:
 
 ```markdown
+---
+notebook_id: "{the notebook ID from notebook_create}"
+notebook_name: "{topic-slug}-{letter}"
+queries_asked: {number of queries actually run}
+sources_ingested: {number successfully ingested}
+sources_failed:
+  - "{url or name} — {reason}"
+studio_artifacts:
+  - "{type}: {filename or 'generation failed'}"
+coverage_gaps:
+  - "{topic or question that couldn't be answered}"
+---
+
 # NotebookLM Research: {topic} — Notebook {letter}
 
 ## Metadata
