@@ -52,16 +52,18 @@ Each scout inventories 2 chunks of the target repository. Scouts produce **struc
 
 ## Message Protocol
 
-### Specialist → Specialist (Cross-Pollination)
+### Specialist → Specialist (Adversarial Cross-Pollination)
 
-Send targeted messages to specific peers by name:
+Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — specialists should actively test each other's claims.
 
 | Category | Format | When |
 |---|---|---|
 | **FINDING** | `"Finding for {peer}: {brief}. File: {path}:{line}. Relevant because {reason}."` | A cross-chunk discovery relevant to another specialist |
 | **CONTRADICTION** | `"Contradiction with {peer}: I found {X} in chunk {Y} but your chunk suggests {Z}. Can you verify?"` | Data flow or design pattern conflicts across chunks |
-| **CHALLENGE** | `"Challenge to {peer}: Your chunk's {X} at {file}:{line} conflicts with {Y} at {file}:{line}. Which is the intended flow?"` | Direct factual conflict |
+| **CHALLENGE** | `"Challenge to {peer}: Your chunk's {X} at {file}:{line} conflicts with {Y} at {file}:{line}. Which is the intended flow?"` | Direct factual conflict — resolution expected |
 | **SOURCE** | `"Source for {peer}: {file-path} — covers {aspect} relevant to your chunk."` | Useful file for a peer's analysis |
+
+**Resolution protocol:** When a peer challenges a finding, the challenged specialist must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `[CONTESTED]` findings with both sides' evidence.
 
 ### Specialist → Synthesizer (Wake-Up Signal)
 
