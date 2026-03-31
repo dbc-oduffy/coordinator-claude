@@ -1,6 +1,6 @@
 # Repo Scout Prompt Template
 
-> Used by `deep-research-repo.md` to construct each scout's spawn prompt. Fill in bracketed fields.
+> Used by `repo.md` to construct each scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

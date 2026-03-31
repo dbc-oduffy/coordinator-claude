@@ -20,7 +20,7 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 - Structured batch research → `/structured-research`
 - Quick API docs → Context7
 
-**Announce at start:** "I'm running `/notebooklm-research` to research {topic} using NotebookLM."
+**Announce at start:** "I'm running `/research` to research {topic} using NotebookLM."
 
 ---
 
@@ -195,9 +195,9 @@ Spawn all teammates in one operation:
 - `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise
 
 Spawn teammates using these agent types:
-- Scout: `notebooklm:notebooklm-research-scout`
-- Workers: `notebooklm:notebooklm-research-worker`
-- Sweep: `notebooklm:notebooklm-research-sweep`
+- Scout: `notebooklm:research-scout`
+- Workers: `notebooklm:research-worker`
+- Sweep: `notebooklm:research-sweep`
 
 Assign task owners when spawning each teammate.
 

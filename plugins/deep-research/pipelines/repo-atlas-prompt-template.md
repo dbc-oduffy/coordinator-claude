@@ -1,6 +1,6 @@
 # Repo Atlas Prompt Template
 
-> Used by `deep-research-repo.md` (Step 6.5) to construct the atlas agent's spawn prompt when `--deepest` is used. Fill in bracketed fields.
+> Used by `repo.md` (Step 6.5) to construct the atlas agent's spawn prompt when `--deepest` is used. Fill in bracketed fields.
 
 ## Template
 

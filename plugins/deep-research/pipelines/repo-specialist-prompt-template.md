@@ -1,6 +1,6 @@
 # Repo Specialist Prompt Template
 
-> Used by `deep-research-repo.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
+> Used by `repo.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

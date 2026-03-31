@@ -7,6 +7,6 @@
 > - Synthesizer template: `plugins/deep-research/pipelines/structured-synthesizer-prompt-template.md`
 >
 > The Phase 0 Research Brief Template and Quality Gate Evaluation Template are now embedded in the command driver:
-> `plugins/deep-research/commands/deep-research-structured.md`
+> `plugins/deep-research/commands/structured.md`
 >
 > Pipeline A and B templates were extracted in an earlier migration. See `deep-research/pipelines/` for current templates.

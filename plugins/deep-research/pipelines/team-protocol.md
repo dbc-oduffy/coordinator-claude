@@ -1,6 +1,6 @@
 # Deep Research Team Protocol (v2.1)
 
-> Referenced by agent definitions and `deep-research-web.md` command.
+> Referenced by agent definitions and `web.md` command.
 
 ## Overview
 

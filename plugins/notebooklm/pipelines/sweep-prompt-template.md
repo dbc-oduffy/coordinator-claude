@@ -1,6 +1,6 @@
 # Sweep Prompt Template
 
-> Used by `notebooklm-research.md` to construct the sweep agent's spawn prompt. Fill in bracketed fields.
+> Used by `research.md` to construct the sweep agent's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

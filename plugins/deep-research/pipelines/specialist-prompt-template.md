@@ -1,6 +1,6 @@
 # Specialist Prompt Template (v2.1)
 
-> Used by `deep-research-web.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
+> Used by `web.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

@@ -1,6 +1,6 @@
 # Repo Research Team Protocol
 
-> Referenced by agent definitions and `deep-research-repo.md` command.
+> Referenced by agent definitions and `repo.md` command.
 
 ## Overview
 
