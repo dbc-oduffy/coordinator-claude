@@ -7,7 +7,7 @@ This guide walks you through installing the coordinator-claude plugins and runni
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed and authenticated
 - A Claude API key or Claude Pro/Team subscription
 - Python 3 (for the install script's JSON handling)
-- [jq](https://jqlang.github.io/jq/) — used by hook scripts for JSON parsing (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`). Basic hooks degrade gracefully without it, but the executor-exit-watchdog requires jq.
+- [jq](https://jqlang.github.io/jq/) — used by hook scripts for JSON parsing (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`). Basic hooks degrade gracefully without it.
 
 ### Optional: Temporal Memory
 

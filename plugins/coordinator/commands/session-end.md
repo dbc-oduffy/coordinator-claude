@@ -33,6 +33,14 @@ Read `tasks/lessons.md` (if it exists). If anything was learned this session tha
 
 Add new entries in the established format (bold title + 1-2 sentence rule, max 3 lines). Prefer merging with an existing entry over adding a new one. Skip if nothing new.
 
+### Step 1.5: Final Session Save
+
+Trigger a final memory save to capture the tail end of this session that hasn't been auto-saved. This ensures the session's last work is recorded even if the JSONL delta hadn't reached the auto-save threshold.
+
+Run: `node ~/.claude/plugins/coordinator-claude/remember/lib/pipeline.js save --force`
+
+If the command fails (node not found, plugin not installed), skip silently — session memory is best-effort, not a blocker.
+
 ### Step 2: Update Plan Documentation
 
 Find and update relevant plan/task documentation to reflect what was completed:

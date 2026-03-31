@@ -1,10 +1,12 @@
 # Repo Research Team Protocol
 
-> Referenced by agent definitions and `deep-research-repo.md` command.
+> Referenced by agent definitions and `repo.md` command.
 
 ## Overview
 
 Agent Teams-based repo research: the EM scopes the target repository into 4 domain-aligned chunks, creates a team of 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — file inventory, analysis, optional comparison, cross-pollination, and synthesis. The EM is notified when synthesis completes.
+
+Optional `--deeper` mode adds a dependency-weighted repomap during EM scoping, giving specialists structural centrality rankings to prioritize deep-reads.
 
 ## Team Roles
 
@@ -52,16 +54,18 @@ Each scout inventories 2 chunks of the target repository. Scouts produce **struc
 
 ## Message Protocol
 
-### Specialist → Specialist (Cross-Pollination)
+### Specialist → Specialist (Adversarial Cross-Pollination)
 
-Send targeted messages to specific peers by name:
+Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — specialists should actively test each other's claims.
 
 | Category | Format | When |
 |---|---|---|
 | **FINDING** | `"Finding for {peer}: {brief}. File: {path}:{line}. Relevant because {reason}."` | A cross-chunk discovery relevant to another specialist |
 | **CONTRADICTION** | `"Contradiction with {peer}: I found {X} in chunk {Y} but your chunk suggests {Z}. Can you verify?"` | Data flow or design pattern conflicts across chunks |
-| **CHALLENGE** | `"Challenge to {peer}: Your chunk's {X} at {file}:{line} conflicts with {Y} at {file}:{line}. Which is the intended flow?"` | Direct factual conflict |
+| **CHALLENGE** | `"Challenge to {peer}: Your chunk's {X} at {file}:{line} conflicts with {Y} at {file}:{line}. Which is the intended flow?"` | Direct factual conflict — resolution expected |
 | **SOURCE** | `"Source for {peer}: {file-path} — covers {aspect} relevant to your chunk."` | Useful file for a peer's analysis |
+
+**Resolution protocol:** When a peer challenges a finding, the challenged specialist must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `[CONTESTED]` findings with both sides' evidence.
 
 ### Specialist → Synthesizer (Wake-Up Signal)
 
@@ -140,6 +144,42 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Scout 2 writes to: `{scratch-dir}/C-inventory.md`, `{scratch-dir}/D-inventory.md`
 - Each specialist writes to: `{scratch-dir}/{chunk-letter}-assessment.md` (always) + `{scratch-dir}/{chunk-letter}-comparison.md` (if comparison mode)
 - Synthesizer writes to: `{output-path}` + `{scratch-dir}/synthesis.md`
+
+## Deeper Mode
+
+When `--deeper` is provided, the EM generates a dependency-weighted repomap during Phase 0 (scoping), before chunk definition. The repomap:
+
+1. Extracts import/include/require statements via language-specific grep patterns
+2. Resolves imports to actual files, counts cross-references
+3. Reads top ~20 files to extract key exports
+4. Writes `{scratch-dir}/repomap.md` with files ranked into Tier 1 (10+ refs), Tier 2 (5-9), Tier 3 (2-4)
+
+**Fallback:** If fewer than 5 files have 2+ incoming references (thin import graph), the repomap is skipped and specialists operate in default mode.
+
+**Specialist usage:** Specialists read the repomap BEFORE the scout inventory. The repomap provides the importance lens (what matters); the inventory provides the detail (what exists). Specialists prioritize Tier 1/2 files in their chunk for deep-reading and use cross-chunk references to understand inter-system dependencies.
+
+**Composes with `--compare`:** Both flags can be used simultaneously. The repomap informs prioritization; comparison mode adds the project comparison artifacts.
+
+## Deepest Mode
+
+When `--deepest` is provided, Pipeline B runs as a **two-wave pipeline**. `--deepest` implies `--deeper` (repomap is always generated).
+
+**Wave 1 (Team):** The standard 7-agent team runs unchanged — scouts, specialists, synthesizer produce the assessment. TeamDelete after synthesis completes.
+
+**Wave 2 (Atlas — post-synthesis):** The EM dispatches a single Sonnet subagent (not a teammate — the team has been deleted) that reads all research artifacts from the scratch directory and produces 4 architecture atlas artifacts:
+
+1. **File index** — every file mapped to its system (chunk). Source: scout inventories.
+2. **System map** — ASCII connectivity diagram. Source: specialist data flows + synthesis cross-system insights.
+3. **Connectivity matrix** — cross-system dependency counts with connection details. Source: specialist + synthesis findings.
+4. **Architecture summary** — per-system detail pages with metadata, narrative, flow diagrams, and observations. Source: specialist assessments + synthesis + repomap centrality.
+
+**System taxonomy:** Systems map to EM-defined chunks (A, B, C, D) with their chunk descriptions as system names. The atlas agent does not invent its own groupings.
+
+**Atlas from assessment only:** Atlas artifacts describe the repo on its own merits — no comparison data incorporated, consistent with the assessment/comparison decoupling principle.
+
+**Error handling:** Atlas failure is non-blocking. If the atlas agent fails, the assessment is committed without atlas artifacts and the PM is notified.
+
+**Composes with `--compare`:** `--deepest --compare` produces assessment + comparison + atlas. The atlas draws from assessment data only; comparison artifacts are independent.
 
 ## Comparison Mode
 

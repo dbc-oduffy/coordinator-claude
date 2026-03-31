@@ -111,7 +111,7 @@ Report: "Spec loaded. [N] subjects selected: [list]. Dispatching orchestrators."
 Use the Skill tool to invoke Pipeline C in the deep-research plugin:
 
 ```
-Skill(skill: "deep-research:deep-research-structured", args: "<spec-path> <subject-key>")
+Skill(skill: "deep-research:structured", args: "<spec-path> <subject-key>")
 ```
 
 For batch mode with multiple subjects, invoke the skill once per subject. The deep-research command handles team creation, spawn, and cleanup internally.

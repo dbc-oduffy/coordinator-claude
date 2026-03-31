@@ -1,6 +1,6 @@
 # Structured Research Scout Prompt Template
 
-> Used by `deep-research-structured.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> Used by `structured.md` to construct the scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

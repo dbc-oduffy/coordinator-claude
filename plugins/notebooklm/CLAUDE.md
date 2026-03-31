@@ -2,23 +2,22 @@
 
 This plugin provides access to Google NotebookLM via the [notebooklm-mcp-cli](https://github.com/jacob-bd/notebooklm-mcp-cli) MCP server. It enables research on YouTube videos, podcasts, audio content, and other media that Claude cannot access directly.
 
-## Plugin Lifecycle — Disabled by Default
+## Plugin Lifecycle
 
-This plugin is kept **disabled** in `settings.json` to avoid loading 35 MCP tools into the EM's context on every session. The `/notebooklm-research` command handles enabling the plugin at the start of a research run and disabling it when done. **The EM/coordinator should never call NotebookLM MCP tools directly** — all research flows through the `notebooklm-research-worker` agents dispatched by the command.
+This plugin is kept **disabled** in `settings.json` by default to avoid loading 35 MCP tools into the EM's context on every session. Enable it manually in `settings.json` when running NotebookLM research. The `/research` command (invoked as `notebooklm:research`) does NOT enable or disable the plugin automatically — you must enable it before running the command and disable it when done. **The EM/coordinator should never call NotebookLM MCP tools directly** — all research flows through the `research-worker` agents dispatched by the command.
 
 ## Architecture — Pipeline D (Agent Teams)
 
-This plugin uses a two-phase Agent Teams architecture:
+This plugin uses a single-phase Agent Teams architecture. The EM scopes the research directly — designing notebook topology, questions, source strategy, and worker count with baked-in NLM best practices — then creates the team and is freed.
 
-**Phase 1 — Strategist (pre-team, regular Agent):**
-The Opus strategist encodes all NLM domain expertise — quota awareness, notebook topology, anti-hallucination question design, source strategy. It writes `strategy.md` to disk and returns. The EM reads `worker_count` from strategy.md to right-size the team.
+**Pipeline design informed by NotebookLM best practices research (2026-03-31, 413 lines, 35+ sources). Key findings folded into EM scoping guidance: source quality cascade, 10-25 optimal sources/notebook, citation-forcing question design, Studio output diversity.**
 
-**Phase 2 — Agent Team (scout + N workers + synthesizer):**
+**Agent Team (scout + N workers + sweep):**
 - **Haiku scout** — reads strategy.md, finds YouTube/podcast/article sources via WebSearch, writes `sources.md`. Task completion auto-unblocks workers.
-- **Sonnet workers (1-3)** — each creates one NotebookLM notebook, ingests assigned sources (or uses `research_start`), runs queries, writes `{letter}-findings.md`. Sends DONE to synthesizer when complete.
-- **Opus synthesizer** — blocked until all workers DONE. Reads all findings, cross-references across notebooks, writes final polished document, optionally writes a **Synthesizer Advisory** (`{output-path}-advisory.md`) with staff-engineer observations beyond the research scope (framing concerns, blind spots, surprising connections), then deletes all notebooks via MCP. Advisory is skipped if there's nothing beyond scope.
+- **Sonnet workers (1-3)** — each creates one NotebookLM notebook, ingests assigned sources (or uses `research_start`), runs queries, extracts structured claims, writes `{letter}-claims.json` (structured claim objects) + `{letter}-summary.md` (human-readable overview). Sends DONE to sweep when complete.
+- **Opus sweep** — blocked until all workers DONE. Reads all worker claims (JSON), assesses coverage across notebooks, fills gaps via targeted follow-up queries and WebSearch, writes final polished document, optionally writes a **Sweep Advisory** (`{output-path}-advisory.md`) with staff-engineer observations beyond the research scope (framing concerns, blind spots, surprising connections). Notebook cleanup is optional (`--cleanup` flag; **default: keep notebooks** — they're worth preserving for follow-up queries and re-research). Advisory is skipped if there's nothing beyond scope.
 
-**Worker count is decided by the strategist** based on topic breadth, NLM tier, and daily query budget:
+**Worker count is decided by the EM** based on topic breadth, NLM tier, and daily query budget:
 - Free tier (50 queries/day): typically 1 worker, 5-6 questions
 - Plus tier (500 queries/day): 1-2 workers, 7-8 questions each
 - Ultra tier (5,000 queries/day): up to 3 workers, 8 questions each
@@ -37,7 +36,7 @@ The Opus strategist encodes all NLM domain expertise — quota awareness, notebo
 | Plus | 500 | 100 | 500 |
 | Ultra | 5,000 | 300 | 500 |
 
-The 50 queries/day free-tier limit is the binding constraint. A single run with 3 workers × 5-8 questions = 15-24 queries. The strategist factors tier and daily usage into worker count decisions to prevent quota exhaustion.
+The 50 queries/day free-tier limit is the binding constraint. A single run with 3 workers × 5-8 questions = 15-24 queries. The EM factors tier and daily usage into worker count decisions to prevent quota exhaustion.
 
 ## Important Caveats
 
@@ -47,14 +46,16 @@ The 50 queries/day free-tier limit is the binding constraint. A single run with 
 
 ## Notebook Housekeeping
 
-Notebooks are automatically deleted by the synthesizer after each run. For orphan notebooks from crashed sessions:
+By default, notebooks are **preserved** after research runs — a lot of work goes into assembling them (source ingestion, processing) and they're valuable for follow-up queries, re-research, or sharing. Use `--cleanup` to delete notebooks after a run.
+
+For manual cleanup of accumulated notebooks:
 1. List notebooks via `notebook_list`
 2. Delete stale research notebooks that are no longer needed
-3. Watch for notebooks named `{topic-slug}-{a|b|c}` — these are Pipeline D research notebooks
+3. Research notebooks are named `{topic-slug}-{a|b|c}` — these are Pipeline D notebooks
 
 ## MCP Tools
 
-The MCP server exposes ~35 tools. Workers use a subset (~13) for the research pipeline. The synthesizer uses `notebook_delete` for cleanup. The full tool list is available via `ToolSearch("notebooklm")`. Key tools for research:
+The MCP server exposes ~35 tools. Workers use a subset (~13) for the research pipeline. The sweep agent uses `notebook_delete` for cleanup. The full tool list is available via `ToolSearch("notebooklm")`. Key tools for research:
 
 - `notebook_create` / `notebook_delete` — lifecycle management
 - `notebook_get` / `notebook_list` — status and inventory

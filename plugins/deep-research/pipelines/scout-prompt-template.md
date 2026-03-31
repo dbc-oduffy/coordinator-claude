@@ -1,6 +1,6 @@
 # Scout Prompt Template
 
-> Used by `deep-research-web-teams.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> Used by `web.md` to construct the scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

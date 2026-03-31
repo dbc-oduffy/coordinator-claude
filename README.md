@@ -3,7 +3,7 @@
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
 - **8 plugins, 24 agents, 37 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
-- **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention
+- **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
 - **Sequential persona-based review** — domain expert first, all fixes applied, then generalist reviews a clean artifact. [Research supports](docs/research/2026-03-19-named-persona-performance.md) both the persona mechanism and multi-agent review gains
@@ -44,7 +44,7 @@ See [docs/architecture.md](docs/architecture.md) for the full model — agent ro
 <details>
 <summary><strong>Agent Teams for research and planning</strong> — not just "build together"</summary>
 
-Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Three research pipelines (internet, repository, structured/schema-conforming) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus synthesizer produces the final document. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
+Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Four research pipelines (internet, repository, structured, NotebookLM media) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus sweep agent checks coverage adversarially and fills gaps. Internet research (Pipeline A v2.2) adds iterative deepening — a second, smaller team is dispatched to fill significant gaps when warranted. Repository research (Pipeline B) supports `--deeper` (dependency-weighted repomap) and `--deepest` (architecture atlas generation) modes. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
 
 </details>
 
@@ -86,8 +86,8 @@ For a deeper assessment of all patterns, see the [novelty research doc](docs/res
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines (internet, repo, structured) | Research tasks |
-| **[notebooklm](plugins/notebooklm/)** | NotebookLM integration — YouTube, podcast, audio research via MCP | Media research |
+| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation | Research tasks |
+| **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
@@ -118,14 +118,14 @@ coordinator-claude/
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── agents/             # enricher, executor, reviewers, review-integrator, eng-director
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
-│   │   ├── hooks/              # context pressure advisory, executor watchdog, validate-commit
+│   │   ├── hooks/              # context pressure advisory, validate-commit
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
 │   │   └── skills/             # 23 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
-│   ├── deep-research/          # Agent Teams research pipelines (A: web, B: repo, C: structured)
-│   └── notebooklm/             # NotebookLM media research via Agent Teams
+│   ├── deep-research/          # Research pipelines: A (web, v2.2), B (repo + repomap/atlas), C (structured)
+│   └── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
 ├── docs/                       # Architecture, customization, CI pipeline
 ├── setup/                      # Installer
 └── assets/                     # Social preview card + generation template

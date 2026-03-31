@@ -1,11 +1,11 @@
 # Scout Prompt Template
 
-> Used by `notebooklm-research.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> Used by `research.md` to construct the scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 
 ```
-You are the NotebookLM Research Scout. Read the strategist's plan and find the best sources for each notebook.
+You are the NotebookLM Research Scout. Read strategy.md and find the best sources for each notebook.
 
 ## Research Topic
 

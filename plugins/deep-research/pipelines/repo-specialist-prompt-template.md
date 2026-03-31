@@ -1,6 +1,6 @@
 # Repo Specialist Prompt Template
 
-> Used by `deep-research-repo.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
+> Used by `repo.md` to construct each specialist's spawn prompt. Fill in bracketed fields.
 
 ## Template
 
@@ -27,6 +27,28 @@ important files yourself.
 If the inventory lists significantly fewer, treat it as thin — use Glob to discover
 additional files in your chunk's directories, then Read them yourself. Budget up to
 3 extra minutes for self-directed file discovery before beginning analysis.
+
+[IF DEEPER MODE:]
+## Structural Centrality Map
+
+A dependency-weighted repomap is available at:
+**[SCRATCH_DIR]/repomap.md**
+
+This ranks all repo files by how many other files reference them (import/include/require).
+Read this BEFORE the scout inventory — it provides the importance lens that frames which
+inventory entries deserve your deepest attention.
+
+Use the repomap to:
+- **Prioritize Tier 1/2 files in your chunk** for deep-reading first — these are the
+  structural backbone of the repo
+- **Understand cross-chunk dependencies** — files outside your chunk that yours imports
+  (or that import yours) reveal inter-system coupling
+- **Distinguish core from peripheral** — a 500-line file with 20 incoming references
+  matters more than a 2000-line file with 1
+
+The repomap complements the scout inventory: the repomap tells you what matters,
+the inventory tells you what exists. Read importance first, detail second.
+[END IF DEEPER MODE]
 
 ## Your Peers
 
@@ -63,7 +85,10 @@ Analyze the repo on its own merits. Do NOT compare against any other project.
 
 1. Read the scout inventory for your chunk
 2. Deep-read the most important files (use the inventory to know which matter)
-3. For each area relevant to your chunk, document:
+3. **Prefer execution-trace analysis over structural description.** Instead of describing
+   "what module X contains," trace how data flows through it: entry point → transforms →
+   output. This produces more accurate and useful findings.
+4. For each area relevant to your chunk, document:
 
 ### [Area Name]
 **Implementation:** [description with file:line references, actual values]
@@ -85,7 +110,10 @@ Analyze the repo on its own merits. Do NOT compare against any other project.
 [IF COMPARE MODE:]
 ## Phase 2: Comparison (only if comparison mode is enabled)
 
-After completing the assessment, compare against the project.
+After completing the assessment, compare against the project. The comparison
+uses an independent-analysis-first approach: your Phase 1 assessment is the
+reference for the target repo. Now analyze the project independently against
+the SAME focus questions, then compare the two sets of answers.
 
 **Project path:** [COMPARE_PROJECT_PATH]
 **Project name:** [COMPARE_PROJECT_NAME]
@@ -94,8 +122,8 @@ The scout inventory includes a "Comparison File Candidates" section mapping
 repo files to project file candidates. Start with those files.
 
 1. Read the project files identified by the scout (and any others you discover)
-2. Use your assessment as the reference — do NOT re-read the repo files
-3. For each comparison area, document:
+2. Use your Phase 1 assessment as the reference — do NOT re-read the repo files
+3. For each comparison area, answer the same focus question for the project, then document:
 
 ### [Area Name]
 **[REPO_NAME]:** [from your assessment — architecture, patterns, actual values]
@@ -118,16 +146,22 @@ repo files to project file candidates. Start with those files.
   4. Configuration values that agree by coincidence with no enforcement
 [END IF COMPARE MODE]
 
-## Cross-Pollination with Peers
+## Adversarial Cross-Pollination with Peers
 
-As you find things relevant to other specialists' chunks, message them:
+As you find things relevant to other specialists' chunks, message them.
+Challenges are **expected** — actively test peers' claims, don't just share findings.
+
 - **FINDING:** Something relevant to their chunk
 - **CONTRADICTION:** Your findings conflict with their area
-- **CHALLENGE:** Direct factual conflict needing resolution
+- **CHALLENGE:** Direct factual conflict needing resolution — response expected
 - **SOURCE:** A useful file path for their research
+
+**Self-check: "Have I challenged at least one peer claim?"**
 
 Max 3 messages per peer — quality over quantity.
 Respond to messages from peers — incorporate their findings.
+**Resolution protocol:** When challenged, respond with evidence or concede.
+Unresolved challenges (2-minute timeout) produce [CONTESTED] findings.
 
 ## Convergence
 
@@ -154,8 +188,13 @@ to your findings files before your agent terminates.
 - Write findings incrementally — don't wait until the end
 - Self-govern your timing using the floor/ceiling/diminishing-returns rules above
 - Do NOT modify any repo or project files — only write to your output files
-- Include file:line references for every claim
+- **Cite file:line for every claim.** This is mandatory, not optional. If you cannot
+  cite a specific location, say "unable to locate" rather than making a vague claim.
+  Uncited claims are the primary hallucination vector in code analysis.
 - If something is particularly clever or well-designed, say so and explain why
 - If something has clear limitations, state them factually without softening
 - Do not manufacture consensus between chunks — if patterns conflict, note it
+- **For pattern analysis:** when a canonical pattern exists, name it and cite one
+  exemplar file, then note deviations from the pattern rather than describing every
+  instance.
 ```

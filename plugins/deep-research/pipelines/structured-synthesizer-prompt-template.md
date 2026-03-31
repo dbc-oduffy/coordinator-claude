@@ -1,6 +1,6 @@
 # Structured Research Synthesizer Prompt Template
 
-> Used by `deep-research-structured.md` to construct the synthesizer's spawn prompt. Fill in bracketed fields.
+> Used by `structured.md` to construct the synthesizer's spawn prompt. Fill in bracketed fields.
 
 ## Template
 
