@@ -125,6 +125,27 @@ check_prerequisites() {
       fi
     fi
   fi
+
+  # Optional tools — enhance functionality but not required
+  local optional_missing=()
+
+  if ! command -v shellcheck &>/dev/null; then
+    optional_missing+=("shellcheck — lints .sh files on commit (winget install koalaman.shellcheck)")
+  fi
+
+  if ! command -v scc &>/dev/null && [[ ! -x "$HOME/bin/scc" ]] && [[ ! -x "$HOME/bin/scc.exe" ]]; then
+    optional_missing+=("scc — code statistics in session orientation (winget install BenBoyter.scc)")
+  fi
+
+  if [[ ${#optional_missing[@]} -gt 0 ]]; then
+    echo ""
+    echo "OPTIONAL: These tools enhance coordinator functionality but are not required:"
+    for tool in "${optional_missing[@]}"; do
+      echo "  - $tool"
+    done
+    echo ""
+    echo "All features degrade gracefully without them."
+  fi
 }
 
 # ---------------------------------------------------------------------------

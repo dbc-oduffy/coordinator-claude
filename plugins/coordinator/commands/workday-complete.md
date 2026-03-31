@@ -93,6 +93,68 @@ Run the daily code health check on today's commits. This is the "night shift col
    git push origin $(git branch --show-current)
    ```
 
+### Step 3.5: Refresh Code Statistics
+
+If `scc` is available (check `scc` then `~/bin/scc`), run a fresh count:
+```bash
+scc --no-complexity --no-cocomo --no-duplicates --sort code
+```
+Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If not installed, note in summary: _"scc not available — install for code stats."_
+
+### Step 3.6: Completed Archive Audit
+
+Verify that `archive/completed/YYYY-MM.md` accurately reflects what shipped today. Session-end writes individual entries, but sessions may skip `/session-end`, entries may be vague, or ad-hoc work may slip through.
+
+1. **Gather the day's activity from all sources:**
+
+   **Git commits:**
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"
+   ```
+
+   **Temporal memory (`.remember/`):** If the remember plugin is active, read the day's compressed log for richer context than commit messages alone:
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   # Today's compressed summary (most useful — grouped by time block)
+   cat ".remember/today-${TODAY}.md" 2>/dev/null
+   # Current session buffer (not yet compressed)
+   cat ".remember/now.md" 2>/dev/null
+   ```
+   These files contain Haiku-summarized records of every session's activity — including exploration, debugging, and research that doesn't produce commits. Use them to enrich archive entries beyond what git log alone captures, and to catch work that was done but not committed (e.g., research sessions, failed approaches that informed later work).
+
+2. **Read the current month's archive:** `archive/completed/YYYY-MM.md`. Find entries under today's `## YYYY-MM-DD` heading.
+
+3. **Reconcile commits → archive:** Group related commits into logical work items (same feature/fix = one item). For each work item:
+   - **Present in archive:** Verify the description is accurate and the commit hash is correct. Fix inaccuracies in place.
+   - **Missing from archive:** Append an entry. Use the same format: `- **[Past-tense description]** — [category] | commit: [hash]`
+   - **Trivial commits** (formatting, typos, merge commits, quick-saves): skip — the archive records *what shipped*, not every keystroke.
+
+4. **Reconcile archive → commits:** Check each archive entry for today against the commit log. Flag any entry that doesn't correspond to a real commit — this catches copy-paste errors or entries from a session that was abandoned before committing.
+
+5. **Check tracker alignment:** If `docs/project-tracker.md` exists, verify that any workstream marked as completed today in the archive also has its tracker status updated. Fix mismatches in place.
+
+6. **Report:** Include in the Final Summary:
+   - _"Archive audit: N entries verified, M added, K corrected."_
+   - Or: _"Archive audit: no commits today."_
+
+**Why at end-of-day:** Individual sessions write entries via `/session-end`, but this is the backstop — one authoritative pass across the full day's work. It catches sessions that crashed, skipped session-end, or wrote incomplete entries.
+
+### Step 3.7: ShellCheck Sweep
+
+If `shellcheck` is available, run it across all tracked `.sh` files in the repo:
+```bash
+git ls-files '*.sh' | while read -r f; do
+  tr -d '\r' < "$f" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|$f:|g"
+done
+```
+
+- **If issues found:** Report them and offer to fix. Most shellcheck findings are quick mechanical fixes (quoting, unused variables, POSIX pitfalls). Fix what's straightforward; flag anything that changes behavior for PM review.
+- **If clean:** Report: _"ShellCheck: all .sh files clean."_
+- **If shellcheck not installed:** Note in summary: _"shellcheck not available — install for shell script linting."_
+
+This is end-of-day cleanup — a good time to catch lint that accumulated during rapid development.
+
 ### Step 4: Final Summary
 
 ```
@@ -102,6 +164,9 @@ Run the daily code health check on today's commits. This is the "night shift col
 **Branches consolidated:** [N branches merged into current]
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
+**Code stats:** [total lines / top language breakdown, or "scc not available — install for code stats"]
+**Archive audit:** [N entries verified, M added, K corrected / no commits today]
+**Shell lint:** [N issues found and fixed / clean / shellcheck not available — install for linting]
 **Orientation cache:** [refreshed by /update-docs / not present]
 **NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
 ```

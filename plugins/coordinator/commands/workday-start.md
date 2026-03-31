@@ -20,9 +20,12 @@ Read all files in `tasks/handoffs/`. For each:
    - **Actionable** (keep) — <48hr old, OR has recent branch activity, OR references open work
    - **Stale** — >48hr old AND no branch activity since handoff AND work appears complete
 4. **Surface, don't archive.** Report stale handoffs to the PM but leave archival to `/update-docs` — it is the single authority on handoff lifecycle. This avoids competing archival logic between two commands.
-5. **Report:** "N actionable handoffs for today's sessions. M stale handoffs flagged (will archive on next /update-docs run)."
+5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each actionable handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a handoff's work appears completed, downgrade it: _"Handoff [file] describes [work] — but archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed."_
+6. **Report:** "N actionable handoffs for today's sessions. M stale handoffs flagged (will archive on next /update-docs run). K handoffs appear already completed per archive."
 
 **Why surface-only:** update-docs Phase 8 already handles archival (via the `handoff-archival` skill) with its 48-hour rule. workday-start adds value by surfacing branch-activity context (a 3-day-old handoff with yesterday's commits is still actionable), but doesn't need to be a second archiver.
+
+**Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain "actionable" by age/branch heuristics even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this.
 
 **Note:** Handoff archival (via `/update-docs`) respects branch activity — active branches keep their handoffs.
 
@@ -103,6 +106,12 @@ Surface the project's current state and help align on today's focus:
    - Number of mapped systems
    - Any systems with `last_mapped` date >90 days ago (stale)
    - If file doesn't exist: note "no atlas" for the report
+7. **Reconcile active work against completed archive:** Read `archive/completed/YYYY-MM.md` (current month + previous month if within first 7 days). Cross-reference:
+   - **Tracker items** marked Ready/Executing/In Progress → do any match completed archive entries? If so, flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
+   - **Action items** still listed as open → do any match completed entries? Flag the same way.
+   - **Bug/debt backlog items** still open → do any match entries in the archive marked as fixes?
+   - This is a **fuzzy match on names/descriptions**, not an exact ID join. When unsure, flag as "possible match — verify" rather than auto-resolving.
+   - Report mismatches in the Morning Briefing under a new **Alignment Check** section.
 
 ## Step 5: Morning Briefing
 
@@ -122,6 +131,19 @@ Present a concise morning report:
 - Atlas: [N systems mapped, M stale >90 days / no atlas]
 - Bug backlog: [N open (P0: X, P1: Y) / empty / no backlog]
 - Bug sweep: [current (N commits since) / suggest sweep (N commits since last)]
+- Tools: [missing optional tools, if any — see below]
+
+### Tool Availability
+Check for optional tools that enhance the pipeline. Surface missing ones as install suggestions:
+- **scc** (code statistics): Check `scc` on PATH, then `~/bin/scc`. If missing: _"scc not installed — code statistics won't appear in orientation. Install: `winget install BenBoyter.scc` (or download to ~/bin/scc)."_
+- **shellcheck** (shell linting): Check `shellcheck` on PATH. If missing: _"shellcheck not installed — .sh files won't be linted on commit. Install: `winget install koalaman.shellcheck`."_
+
+If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for missing tools — don't repeat if already installed.
+
+### Alignment Check
+- [N mismatches found between active trackers and completed archive / all aligned]
+- [List each mismatch: "Tracker: X is Executing — Archive: shipped YYYY-MM-DD"]
+- [List each handoff flagged as likely completed]
 
 ### Priority Suggestions
 Based on project state:
@@ -148,9 +170,10 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
 **Content derivation:**
 1. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
 2. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
-3. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
-4. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
-5. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
+3. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
+4. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
+5. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
+6. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
 
 **Frontmatter:** Include `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
 

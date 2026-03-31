@@ -76,7 +76,22 @@ if [[ -n "$JSON_FILES" ]]; then
   fi
 fi
 
-# --- Check 3: Empty JSONL files in chunks/ ---
+# --- Check 3: ShellCheck on staged .sh files ---
+# Pipe through tr -d '\r' to handle Windows CRLF — shellcheck treats \r as errors.
+# Only report non-SC1017 (carriage return) issues to avoid noise on Windows.
+SH_FILES=$(echo "$STAGED" | grep -E '\.sh$' || true)
+if [[ -n "$SH_FILES" ]] && command -v shellcheck &>/dev/null; then
+  while IFS= read -r file; do
+    if [[ -f "$file" ]]; then
+      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|- $file:|g" || true)
+      if [[ -n "$SC_OUT" ]]; then
+        WARNINGS="${WARNINGS}\nSHELLCHECK: $file has issues:\n${SC_OUT}"
+      fi
+    fi
+  done <<< "$SH_FILES"
+fi
+
+# --- Check 4: Empty JSONL files in chunks/ ---
 JSONL_FILES=$(echo "$STAGED" | grep -E '^chunks/.*\.jsonl$' || true)
 if [[ -n "$JSONL_FILES" ]]; then
   while IFS= read -r file; do

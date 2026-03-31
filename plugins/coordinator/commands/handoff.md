@@ -102,7 +102,7 @@ Follow `/session-end` Step 2.5 (Doc-Alignment Insurance) — verify status field
 
 #### Step 2.6: Update Plan Documentation
 
-Follow `/session-end` Step 2 (Update Plan Documentation) — mark completed items, update status fields, add completion notes. Only touch plan/task docs that this session actually worked on. Skip if no plan docs are relevant.
+Follow `/session-end` Step 2 (Update Plan Documentation) — including the active search across all plan locations (`tasks/<feature>/`, `tasks/plans/`, `docs/plans/`, `~/.claude/plans/`). Mark completed items, update status fields, add completion notes. Don't skip this because you don't recall opening a plan — search for one. Skip only if no plan docs exist for this session's work area.
 
 #### Step 2.7: Archive Uncaptured Work
 
@@ -113,6 +113,18 @@ Follow `/session-end` Step 2.6 (Archive Uncaptured Work) — sweep session commi
 If the project uses a compiled language with a running IDE or editor (e.g., Unreal Engine, Unity, Xcode):
 - **Do NOT run builds or test suites during handoff** — they conflict with running editors and concurrent agents
 - Instead, note in the handoff's "Current State" section whether changes need a rebuild, and what tests should be run next session
+
+#### Step 2.9: Refresh Orientation Documents
+
+Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
+
+1. **Orientation cache** (`tasks/orientation_cache.md`): If it exists, patch sections affected by this session's work (Active Workstreams, Health Snapshot, Doc Freshness with current HEAD). Don't regenerate — just patch what changed. Skip if cache doesn't exist.
+
+2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows.
+
+3. **Action items** (first match: `ACTION-ITEMS.md`, `docs/active/ACTION-ITEMS.md`, `docs/ACTION-ITEMS.md`): If one exists and this session resolved any listed items, check them off.
+
+**Same guidance as `/session-end` Step 2.7** — targeted patches to what this session touched, not regeneration. Concurrency-safe.
 
 #### Step 3: Commit + Verify Remote
 

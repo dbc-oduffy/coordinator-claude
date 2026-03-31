@@ -72,6 +72,14 @@ Determine the current state of the codebase — not "what happened this session"
    git log --oneline origin/HEAD..HEAD 2>/dev/null  # committed but not pushed
    ```
 
+5. **Temporal memory cross-reference** (if `.remember/` exists):
+   Read `.remember/recent.md` (last 7 days of activity) and cross-reference against the project tracker. Look for:
+   - **Untracked work:** Activity in the temporal log that doesn't correspond to any tracked workstream — potential drift or ad-hoc work that should be captured
+   - **Stale workstreams:** Tracker items with no corresponding activity in the temporal log — may need status updates or deprioritization
+   - **Completed but unrecorded:** Work described as done in the temporal log but still marked in-progress in the tracker
+
+   If mismatches are found, note them for Phase 5 (tracker maintenance). This is a cross-reference, not an action step — the tracker is updated in Phase 5.
+
 #### Phase 2: Update Source Indexes (or Create Them)
 
 **If no DIRECTORY.md (or equivalent source index) exists at all**, create one. A source index is the single highest-value documentation artifact for LLM-driven development — it eliminates most exploratory grepping and gives every agent immediate orientation.
@@ -218,6 +226,7 @@ Present a concise summary:
 - [Maintained — N items archived, M remaining / No tracker found — NEEDS PM+EM SETUP / No changes needed]
 - Active workstreams: [N] [⚠️ exceeds limit of 5 — consider consolidating]
 - Dependencies resolved: [N] / Dead references: [list if any]
+- Temporal memory cross-ref: [N untracked activities, M stale workstreams / aligned / .remember/ not active]
 
 ### Source Indexes
 - [Created from scratch (N directories, M files) / Updated — N files added, M removed / No changes needed]
@@ -266,4 +275,4 @@ Present a concise summary:
 - **Periodically** — when docs have drifted from reality (not necessarily every session)
 - **After major feature implementation** — when significant code was written by one or more agents
 - **Before starting a new phase** — to ensure docs reflect the starting state
-- **Explicitly** — when you want repo-wide maintenance. This is NOT automatically chained by `/session-end` or `/handoff` — invoke it when you want it.
+- **Explicitly** — when you want repo-wide maintenance. `/session-end` and `/handoff` now do lightweight orientation patches (cache, tracker, action items, plan docs) for what the session touched — but `/update-docs` is still the heavyweight pass that re-derives everything, trims lessons, archives handoffs, and runs integrity checks.
