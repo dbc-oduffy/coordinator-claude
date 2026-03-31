@@ -1,10 +1,10 @@
 ---
-description: "Pipeline A v2.1 (Internet Research) using Agent Teams — collaborative research with a Haiku scout, Sonnet specialists (adversarial peers with structured output), and an Opus sweep agent, all as teammates. EM scopes research, spawns the team, and is freed. The team handles everything autonomously."
+description: "Pipeline A v2.2 (Internet Research) using Agent Teams — collaborative research with a Haiku scout, Sonnet specialists (adversarial peers with structured output), and an Opus sweep agent, all as teammates. EM scopes research, spawns the team, and is freed. The team works autonomously with optional iterative deepening: after Team 1 completes, the EM evaluates the gap report and may dispatch a smaller Team 2 for targeted follow-up."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic>"
 ---
 
-# Deep Research — Pipeline A v2.1 (Internet Research) Agent Teams Driver
+# Deep Research — Pipeline A v2.2 (Internet Research) Agent Teams Driver
 
 The EM scopes the research, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Haiku scout** (1) — executes EM-crafted search queries, builds a shared source corpus
@@ -18,6 +18,7 @@ The scout handles mechanical source discovery. Specialists self-govern their tim
 `$ARGUMENTS`:
 - `<topic>` — the research topic (required)
 - Additional context may follow the topic as free text
+- `--shallow` — skip the deepening decision gate (force single-pass, v2.1 behavior)
 
 ## Step 1 — Setup
 
@@ -31,6 +32,7 @@ The scout handles mechanical source discovery. Specialists self-govern their tim
    ```
 6. Set output path: `docs/research/YYYY-MM-DD-{topic-slug}.md`
 7. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md`)
+8. Parse `--shallow` flag from arguments (default: false)
 
 Announce: "Running deep research (Agent Teams) on '{topic}'."
 
@@ -168,26 +170,175 @@ After spawning all teammates, announce:
 
 **You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
 
-## Step 6 — On Completion Notification
+## Step 6 — Team 1 Completion
 
 When you receive a notification that the sweep task is complete:
 
 1. Read the synthesis document at `{output-path}`
 2. Verify it has substantive content (not just headers)
 3. Check for advisory: `test -f {advisory-path}` — if the file exists, read it
-4. Commit:
+4. Read the gap report at `{scratch-dir}/gap-report.md`
+5. Commit:
    ```bash
-   git add -A && git commit -m "deep-research: complete — {topic-slug}"
+   git add -A && git commit -m "deep-research: Team 1 complete — {topic-slug}"
    ```
-4. Archive paper trail:
+6. Shut down Team 1: `TeamDelete(team_name: "research-{topic-slug}")`
+
+**Proceed to Step 6.5** (do NOT archive yet — deepening may add to the scratch directory).
+
+## Step 6.5 — Deepening Decision Gate
+
+**Skip this step entirely if `--shallow` was passed.** Proceed directly to Step 7.
+
+Parse the gap report's YAML front-matter. Evaluate:
+
+```
+DEEPEN if ANY of:
+  - high_severity_gaps >= 2
+  - contested_unresolved >= 1 AND the contradiction is material to the research question
+  - coverage_score <= 3
+  - The EM judges (from reading the prose) that a gap would materially change
+    the document's recommendations or conclusions
+
+DO NOT DEEPEN if ALL of:
+  - high_severity_gaps == 0
+  - coverage_score >= 4
+  - Remaining gaps are cosmetic (low-severity, nice-to-have, tangential)
+
+ALSO DO NOT DEEPEN if:
+  - The PM's timing preference was fast/short (3-8 min ceiling) — honor the budget
+```
+
+**If NO DEEPEN:** Announce:
+> "Gap report reviewed — {gap_count} gaps identified, {high_severity_gaps} high-severity. Coverage score: {coverage_score}/5. Gaps are minor — proceeding with current synthesis."
+
+Proceed to Step 7.
+
+**If DEEPEN:** Announce:
+> "Gap report shows {high_severity_gaps} high-severity gaps and coverage score {coverage_score}/5. Recommending a deepening pass with {N} gap-specialists. Dispatching Team 2."
+
+Proceed to Step 6.6.
+
+## Step 6.6 — Dispatch Team 2 (Deepening Pass)
+
+1. **Cluster gap targets:** Read the Gap Targets table from the gap report. Cluster related gaps into 1-3 specialist assignments (e.g., two absent claims in the same domain → one gap-specialist). Only include HIGH and MEDIUM severity gaps.
+
+2. **Decide scout inclusion:** If gap targets require research in new topic areas not covered by Team 1's corpus, include a Haiku scout with new search queries. If gaps are refinements (contradictions, uncorroborated claims within existing topics), skip the scout — gap-specialists will do their own targeted searches.
+
+3. **Record Team 2 spawn timestamp:** `date +%s`
+
+4. **Create Team 2:**
+   ```
+   TeamCreate(team_name: "research-{topic-slug}-t2")
+   ```
+
+5. **Create tasks:**
+
+   **Sweep task (merge mode):**
+   ```
+   TaskCreate(subject: "Merge sweep: produce deepening delta", description: "Read Team 1 gap report + Team 2 gap-specialist outputs, produce deepening-delta.md")
+   ```
+
+   **Scout task (if needed):**
+   ```
+   TaskCreate(subject: "Build supplementary corpus for gaps", description: "Execute new search queries for gap targets, write to {scratch-dir}/gap-corpus.md")
+   ```
+
+   **Gap-specialist tasks (1-3):**
+   For each gap cluster, read the gap-specialist prompt template from:
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/gap-specialist-prompt-template.md`
+
+   Fill in template fields: `[GAP_ID]`, `[GAP_DESCRIPTION]`, `[GAP_TYPE]`, `[GAP_SEVERITY]`, `[SUGGESTED_QUERIES]`, `[RELEVANT_TOPIC_LETTER]`, `[GAP_LETTER]` (use letters starting after Team 1's last letter, e.g., if Team 1 used A-D, gap-specialists use E-G), `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`, `[SWEEP_NAME]` = "sweep-t2", peer list, research question, project context.
+
+   ```
+   TaskCreate(subject: "Fill gap {GAP_ID}: {description}", description: "...")
+   TaskUpdate(taskId: "{gap-specialist-id}", addBlockedBy: ["{scout-task-id}"])  # only if scout exists
+   ```
+
+   **Block sweep on all gap-specialists:**
+   ```
+   TaskUpdate(taskId: "{sweep-t2-id}", addBlockedBy: ["{gap-specialist-ids...}"])
+   ```
+
+6. **Spawn all Team 2 teammates in a single message (parallel):**
+
+   **Scout (if needed):**
+   ```
+   Agent(
+     team_name: "research-{topic-slug}-t2",
+     name: "scout-t2",
+     model: "haiku",
+     subagent_type: "deep-research:research-scout",
+     prompt: <scout prompt with gap-specific queries>
+   )
+   ```
+
+   **Gap-specialists:**
+   ```
+   Agent(
+     team_name: "research-{topic-slug}-t2",
+     name: "gap-{letter}",
+     model: "sonnet",
+     subagent_type: "deep-research:research-specialist",
+     prompt: <filled gap-specialist prompt>
+   )
+   ```
+
+   **Sweep (merge mode):**
+   ```
+   Agent(
+     team_name: "research-{topic-slug}-t2",
+     name: "sweep-t2",
+     model: "opus",
+     subagent_type: "deep-research:research-synthesizer",
+     prompt: <sweep prompt with [MERGE_MODE: true], Team 1 synthesis path, gap report path, gap-specialist output paths, delta output path = {scratch-dir}/deepening-delta.md>
+   )
+   ```
+
+7. **Announce:**
+   > "Deepening team (Team 2) dispatched: {scout status} + {N} gap-specialists + 1 Opus merge sweep. Gap-specialists fill targeted gaps (~3-8 min each), then the sweep produces a delta. I'll be notified when complete."
+
+**EM is freed again.** Do not poll.
+
+## Step 6.7 — Team 2 Completion + Merge
+
+When you receive a notification that the Team 2 sweep task is complete:
+
+1. Read the delta document at `{scratch-dir}/deepening-delta.md`
+2. Verify it has substantive content
+3. Read Team 2's advisory if it exists
+
+4. **Merge delta into the Team 1 synthesis at `{output-path}`:**
+   - For each "Resolved Contradictions" entry: find the corresponding section in the synthesis and update it with the resolution. Remove any `[CONTESTED]` markers.
+   - For each "Filled Gaps" entry: find the appropriate topic section and integrate the new findings. Replace `[UNFILLED GAP]` markers where applicable.
+   - For each "Updated Claims" entry: update the relevant finding in the synthesis.
+   - Update the "Open Questions" section: remove questions that were answered, add any from "Still Unresolved".
+   - Strip all `[DEEPENING ADDITION]` and `[SWEEP ADDITION]` markers from the final document — provenance served its purpose during merge. The final document should read seamlessly.
+
+5. Write the merged document back to `{output-path}` and `{scratch-dir}/synthesis-merged.md`
+
+6. Commit:
+   ```bash
+   git add -A && git commit -m "deep-research: Team 2 deepening merged — {topic-slug}"
+   ```
+
+7. Shut down Team 2: `TeamDelete(team_name: "research-{topic-slug}-t2")`
+
+8. Proceed to Step 7.
+
+## Step 7 — Finalize
+
+1. Archive paper trail:
    ```bash
    mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
    rm -rf {scratch-dir}
    ```
-5. Shut down the team: `TeamDelete(team_name: "research-{topic-slug}")`
-6. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
-7. Present executive summary to PM for discussion. If advisory exists, mention it: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
+2. Commit: `git add -A && git commit -m "deep-research: archive + cleanup — {topic-slug}"`
+3. Present executive summary to PM for discussion:
+   - If deepening occurred: "Research complete (2 passes). Team 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); Team 2 filled {N}. See synthesis at `{output-path}`."
+   - If no deepening: "Research complete (single pass). Coverage score: {coverage_score}/5. See synthesis at `{output-path}`."
+   - If advisory exists: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
 
 ## Error Handling
 
@@ -200,3 +351,6 @@ When you receive a notification that the sweep task is complete:
 | All specialists fail | TeamDelete, report to PM |
 | Agents stuck in idle loops | Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results before attempting TeamDelete. If TeamDelete fails ("active" agents), wait for timeout. Do NOT block on stuck agents — read available outputs and present to PM |
 | Team creation fails | Fall back to relay pattern or manual research |
+| **Team 2 sweep fails** | EM reads raw gap-specialist outputs from `{scratch-dir}/D-*-claims.json` and manually integrates into Team 1 synthesis |
+| **All Team 2 gap-specialists fail** | TeamDelete Team 2, proceed to Step 7 with Team 1 synthesis as-is. Note: deepening failure is non-blocking — Team 1's output is already a complete document |
+| **Gap report has no YAML front-matter** | Treat as `coverage_score: 4, high_severity_gaps: 0` — skip deepening (the sweep may be running an older version) |
