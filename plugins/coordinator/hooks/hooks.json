@@ -8,17 +8,20 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
-            "timeout": 3
+            "timeout": 3,
+            "async": true
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh",
-            "timeout": 8
+            "timeout": 8,
+            "async": true
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
-            "timeout": 3
+            "timeout": 3,
+            "async": true
           }
         ]
       },
@@ -28,12 +31,14 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
-            "timeout": 3
+            "timeout": 3,
+            "async": true
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh --lightweight",
-            "timeout": 3
+            "timeout": 3,
+            "async": true
           }
         ]
       }
