@@ -1,5 +1,5 @@
 ---
-description: "NotebookLM research using Agent Teams — two-phase: Opus strategist plans, then right-sized team (scout + N workers + synthesizer) executes. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly."
+description: "NotebookLM research using Agent Teams — EM scopes directly, then right-sized team (scout + N workers + synthesizer) executes autonomously. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic> [--context file1 file2] [--sources url1 url2]"
 ---
@@ -44,7 +44,7 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 
 Parse `$ARGUMENTS`:
 - **Topic** (required) — the research subject
-- `--context` (optional) — files to give the strategist as background
+- `--context` (optional) — background files to inform scoping
 - `--sources` (optional) — PM-provided URLs to research (YouTube, podcasts, articles)
 
 Generate run ID: `{topic-slug}-{YYYYMMDD}` (e.g., `ai-agents-20260321`)
@@ -58,63 +58,84 @@ Set output path: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
 
 Set advisory path: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the output path)
 
-### Step 2 — Scope (lightweight context pass-through)
+---
 
-Write `{scratch-dir}/em-context.md`:
+### Step 2 — EM Scopes Research
+
+**Read the best practices reference** before scoping:
+```
+Read("pipelines/notebooklm-best-practices.md")
+```
+
+**Gather two pieces of required information from the PM before proceeding:**
+
+1. **NLM tier** — if not known, ask:
+   > "What NotebookLM tier are you on? (free/plus/ultra) This determines how many parallel notebooks we can run."
+
+2. **Timing ceiling** — if not specified, ask:
+   > "What's your timing ceiling for this research run? (e.g., 25 min standard, 45 min deep)"
+
+If `--context` files were provided, read them now for topic background.
+
+**Design the research strategy directly.** Apply the best practices reference to decide:
+
+- **Notebook topology** — how many notebooks, what topic cluster goes in each
+- **Questions per notebook** — apply anti-hallucination rules (citation-forcing, specificity, structured synthesis template, source gap audit query)
+- **Custom instructions per notebook** — Role + Context + Rules, max 10,000 characters
+- **Source strategy per notebook** — scout-provided vs research_start (or direct PM URLs)
+- **Studio artifacts** — what to request, if anything
+- **Worker count** — based on tier, topic breadth, and query budget
+
+**EM Scoping Checklist:**
+- [ ] Topic is narrowly defined per notebook (one cluster each)
+- [ ] Questions are citation-forcing and specify output format
+- [ ] Source strategy per notebook is set (scout-provided vs research_start)
+- [ ] Studio artifacts requested match the use case (or skipped)
+- [ ] Rate limit budget accounts for tier + queries used today
+
+**Time-box:** Scoping should take 2-3 minutes. If deliberating longer, pick the simpler topology.
+
+**Write `strategy.md`** to `{scratch-dir}/strategy.md` using this exact format:
 
 ```markdown
-# EM Context for NotebookLM Research
+---
+worker_count: N
+total_expected_queries: M
+tier_assumption: free|plus|ultra
+timing:
+  max_minutes: 25
+---
 
-## Topic
-{topic and desired outcome — what the PM wants to learn}
+## Notebook A
+- **Focus:** [specific topic cluster for this notebook]
+- **Custom instructions:** [role + context + rules, max 10K chars]
+- **Questions:**
+  1. [question 1 — include citation requirement]
+  2. [question 2]
+  ...
+  N. [source gap audit query]
+- **Source strategy:** scout-provided | research_start
+- **Search guidance for scout:** [specific search terms, content types, or exact URLs if PM provided them]
+- **Studio artifacts:** [list, or "none"]
+- **Estimated ceiling:** 25 min
 
-## Background Files
-{list of --context file paths, or "none"}
+## Notebook B (if worker_count >= 2)
+- **Focus:** ...
+- **Custom instructions:** ...
+- **Questions:**
+  ...
+- **Source strategy:** scout-provided | research_start
+- **Search guidance for scout:** ...
+- **Studio artifacts:** [list, or "none"]
+- **Estimated ceiling:** 25 min
 
-## PM-Provided Sources
-{list of --sources URLs, or "none"}
-
-## Timing Preferences
-{any timing constraints from PM, or "none specified"}
-
-## NLM Tier
-{free | plus | ultra — ask PM if not known: "What NotebookLM tier are you on? (free/plus/ultra — this affects how many notebooks we can run in parallel)"}
-
-## Queries Used Today
-{number if known, else "unknown"}
+## Notebook C (if worker_count >= 3)
+...
 ```
 
-**The EM does NOT design questions, craft NLM instructions, decide team size, or search for sources.** That's the strategist's job.
+---
 
-If the PM hasn't specified their NLM tier, ask before proceeding:
-> "What NotebookLM tier are you on? (free/plus/ultra) This determines how many parallel notebooks we can run."
-
-### Step 3 — Phase 1: Dispatch Strategist
-
-Dispatch the strategist as a regular Agent (NOT a teammate):
-
-```
-Agent(
-  subagent_type: "notebooklm:notebooklm-research-strategist",
-  prompt: <fill strategist-prompt-template.md with:
-    [RESEARCH_TOPIC] = topic
-    [EM_CONTEXT] = "See em-context.md"
-    [SCRATCH_DIR] = full path to scratch dir
-    [MAX_MINUTES] = 5
-    [TIER] = tier from em-context.md
-    [QUERIES_USED_TODAY] = queries used today or "unknown"
-    [PM_SOURCES] = --sources URLs or "none"
-  >
-)
-```
-
-Wait for completion (Phase 1 is synchronous — EM waits here).
-
-Read `{scratch-dir}/strategy.md`. Verify it contains YAML frontmatter with `worker_count`.
-
-Extract `worker_count: N` from YAML frontmatter.
-
-### Step 4 — Phase 2: Create Right-Sized Team
+### Step 3 — Create Team + Tasks
 
 ```
 TeamCreate("notebooklm-{topic-slug}")
@@ -132,7 +153,9 @@ For letter in A..{Nth letter}:
 TaskUpdate(task_id: synthesizer_task.id, blockedBy: worker_tasks)
 ```
 
-### Step 5 — Spawn Team (parallel, single message)
+---
+
+### Step 4 — Spawn Teammates
 
 Read the prompt templates from `pipelines/`:
 - `pipelines/scout-prompt-template.md`
@@ -155,21 +178,23 @@ Spawn all teammates in one operation:
 - `[SCRATCH_DIR]` = scratch dir path
 - `[TASK_ID]` = worker_task.id for this letter
 - `[SPAWN_TIMESTAMP]` = current Unix timestamp
-- `[MAX_MINUTES]` = ceiling from strategy.md `estimated_ceiling`, or 25 if not specified
+- `[MAX_MINUTES]` = `max_minutes` from strategy.md YAML, or 25 if not specified
 - `[SYNTHESIZER_NAME]` = synthesizer teammate name
 
 **Synthesizer prompt** (fill template):
 - `[RESEARCH_TOPIC]` = topic
-- `[WORKER_COUNT]` = N (from strategy.md)
+- `[WORKER_COUNT]` = N (from strategy.md YAML frontmatter — already known from scoping)
 - `[WORKER_TASK_IDS]` = comma-separated worker task IDs
 - `[SCRATCH_DIR]` = scratch dir path
 - `[OUTPUT_PATH]` = `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
-- `[ADVISORY_PATH]` = advisory path computed in Step 1 (e.g., `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}-advisory.md`)
+- `[ADVISORY_PATH]` = advisory path computed in Step 1
 - `[TASK_ID]` = synthesizer_task.id
 
 Assign task owners when spawning each teammate.
 
-### Step 6 — EM Freed
+---
+
+### Step 5 — EM Freed
 
 After spawning the team, report to the PM and stop tracking:
 
@@ -183,7 +208,9 @@ After spawning the team, report to the PM and stop tracking:
 >
 > I'm available for other work — the team runs autonomously."
 
-### Step 7 — On Completion
+---
+
+### Step 6 — On Completion
 
 When the synthesizer sends a completion message:
 
@@ -202,3 +229,17 @@ When the synthesizer sends a completion message:
    - Output path
    - Any gaps flagged for follow-up
    - If advisory exists: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`."
+
+---
+
+## Error Handling
+
+| Failure | Action |
+|---------|--------|
+| Scout fails (no sources.md) | Workers fall back to research_start discovery |
+| Worker auth expiry | Worker calls refresh_auth, retries; if persistent, writes partial findings |
+| Worker hits rate limit | Worker writes partial findings, sends DONE |
+| Worker can't ingest source (paywall, format) | Worker logs failure, continues with remaining sources |
+| Synthesizer can't query notebooks | Synthesizer proceeds with findings files only (skip follow-up queries) |
+| Agents stuck in idle loops | Commit/archive before TeamDelete. Don't block — read available outputs |
+| All workers fail | TeamDelete, report to PM with failure details |

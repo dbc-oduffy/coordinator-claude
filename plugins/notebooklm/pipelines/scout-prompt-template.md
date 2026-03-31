@@ -5,7 +5,7 @@
 ## Template
 
 ```
-You are the NotebookLM Research Scout. Read the strategist's plan and find the best sources for each notebook.
+You are the NotebookLM Research Scout. Read strategy.md and find the best sources for each notebook.
 
 ## Research Topic
 

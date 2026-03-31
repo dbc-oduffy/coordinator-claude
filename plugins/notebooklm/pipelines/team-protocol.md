@@ -4,28 +4,18 @@
 
 ## Overview
 
-Agent Teams-based NotebookLM research: the EM scopes research and dispatches an Opus strategist (Phase 1) that designs the full research plan — notebook topology, questions, source strategy, worker count. The EM then creates a right-sized team (scout + N workers + synthesizer) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, synthesis, and cleanup.
+Agent Teams-based NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — then creates a right-sized team (scout + N workers + synthesizer) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, synthesis, and cleanup.
 
-## Two-Phase Architecture
+## Architecture
 
-**Phase 1 — Strategist (pre-team, regular Agent dispatch):**
 ```
-EM: "Research X" + context → dispatch Opus strategist → WAIT for completion
-                                    │
-                                    └── Writes: {scratch-dir}/strategy.md
-                                        Includes: worker_count (1-3),
-                                        notebook topology, questions, source strategy
-```
-
-**Phase 2 — Right-Sized Agent Team:**
-```
-EM: reads strategy.md → creates team with N workers → Spawn all → FREED
+EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + synthesizer) → FREED
          │
          ├── Haiku scout (no blockers)
          │   Reads strategy.md, finds best YouTube / podcast / article sources
          │   Writes: {scratch-dir}/sources.md
          │
-         ├── Sonnet worker(s) (blockedBy: scout) — 1 to 3, per strategist
+         ├── Sonnet worker(s) (blockedBy: scout) — 1 to 3, per strategy.md
          │   Each creates own notebook, ingests assigned sources, queries
          │   Writes: {scratch-dir}/{letter}-findings.md
          │   Sends DONE → synthesizer
@@ -41,21 +31,14 @@ EM: reads strategy.md → creates team with N workers → Spawn all → FREED
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Strategist** | Opus | 1 | Pre-team planner — encodes all NLM domain expertise, decides worker count, designs notebook topology, crafts questions |
 | **Scout** | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
 | **Worker** | Sonnet | 1-3 | Creates own notebook, ingests assigned sources, runs queries, writes findings, sends DONE to synthesizer |
 | **Synthesizer** | Opus | 1 | Cross-references all worker findings, writes final polished document, optionally writes Synthesizer Advisory, cleans up notebooks |
 
-The strategist is NOT a teammate — it's dispatched as a regular Agent in Phase 1. All other roles are teammates spawned in Phase 2.
-
 ## Team Lifecycle
 
 ```
-Phase 1:
-EM: scope + write em-context.md → Dispatch strategist → WAIT → Read strategy.md → Extract worker_count
-
-Phase 2:
-EM: Create team → Spawn (scout + workers + synthesizer) → FREED
+EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + synthesizer) → FREED
 
 Scout: Read strategy.md → WebSearch / WebFetch → Write sources.md → Mark complete → [idle]
 Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Ingest → Query → Write findings → Mark complete → DONE to synthesizer
@@ -90,21 +73,6 @@ The scout→worker transition is scenario 1 (auto-wake). The worker→synthesize
 
 **Sources:** [Claude Code official docs](https://code.claude.com/docs/en/agent-teams), [reverse-engineering analysis (nwyin.com)](https://nwyin.com/blogs/claude-code-agent-teams-reverse-engineered.html), [swarm orchestration guide (kieranklaassen gist)](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea).
 
-## Strategist Protocol (Phase 1 — pre-team)
-
-The strategist encodes all NotebookLM domain expertise so the EM doesn't need any:
-
-1. **Read EM context** from `{scratch-dir}/em-context.md` — topic, background, desired outcome, tier info, PM-provided sources
-2. **Assess topic breadth** — single focused question vs. broad multi-angle investigation
-3. **Decide worker count** (1-3): 1 for focused single-topic, 2 for moderate breadth, 3 for broad multi-angle
-4. **Factor rate limit budget** — tier quotas (50/500/5000 queries/day), usage today, total expected queries
-5. **Design notebook topology** — one topic cluster per notebook, 2-10 sources per notebook
-6. **Craft questions** — anti-hallucination rules, high-value templates, citation forcing
-7. **Specify source strategy** per notebook — scout-provided URLs or `research_start` NLM discovery
-8. **Write `strategy.md`** with YAML frontmatter + `## Notebook A/B/C` sections
-
-**Timing:** 5 minute ceiling. Phase 1 agent (not a teammate) — write the strategy and return.
-
 ## Scout Protocol
 
 The scout finds media sources — optimized for YouTube, podcasts, and audio content that NLM excels at.
@@ -137,7 +105,7 @@ This prevents a race condition where a worker reads sources.md before the scout 
 - Writes findings to `{scratch-dir}/{letter}-findings.md`
 - Marks task `completed`, sends DONE message to synthesizer
 
-**Timing:** 25 minute ceiling (configurable by strategist in strategy.md). Note: source ingestion time depends on NLM processing speed for the content type.
+**Timing:** 25 minute ceiling (configurable via `estimated_ceiling` in strategy.md). Note: source ingestion time depends on NLM processing speed for the content type.
 
 ## Message Protocol
 
@@ -161,7 +129,6 @@ This is the synthesizer's wake-up mechanism. Each DONE message causes the synthe
 
 | Agent | Ceiling | Notes |
 |-------|---------|-------|
-| Strategist (Phase 1) | 5 min | Pre-team planning agent — write and return |
 | Scout | 5 min | Mechanical discovery — go fast |
 | Workers | 25 min (default) | Configurable via strategy.md `estimated_ceiling` field. NLM ingestion time varies. |
 | Synthesizer | No strict ceiling | Runs after all workers complete; writes final doc then cleans up notebooks |
@@ -170,7 +137,7 @@ This is the synthesizer's wake-up mechanism. Each DONE message causes the synthe
 
 ## Rate Limit Budgeting
 
-The strategist factors NLM tier limits into its decisions:
+The EM factors NLM tier limits into its scoping decisions:
 
 | Tier | Queries/day | Worker count guidance |
 |------|-------------|----------------------|
@@ -182,7 +149,7 @@ Workers report remaining quota if available from MCP responses. Strategy.md incl
 
 ## Data Contract
 
-**strategy.md** (written by strategist, read by scout + workers):
+**strategy.md** (written by EM, read by scout + workers):
 
 ```markdown
 ---
@@ -249,8 +216,7 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 
 `tasks/scratch/notebooklm-research/{run-id}/`
 
-- Strategist context: `{scratch-dir}/em-context.md`
-- Strategist output: `{scratch-dir}/strategy.md`
+- Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`
 - Worker outputs: `{scratch-dir}/{letter}-findings.md` (A, B, C as applicable)
 - Final synthesis: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
