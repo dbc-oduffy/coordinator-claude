@@ -7,7 +7,7 @@
 Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
 
 - **Internet Research (Pipeline A v2.1)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + up to 5 Sonnet specialists + 1 Opus sweep agent. Specialists research, cross-pollinate, and challenge each other's claims (adversarial peers). Specialists output structured JSON claims + markdown summaries. Opus sweep reads specialist outputs directly, performs adversarial coverage check, fills negative space, and frames the output. No consolidator — specialists own their fidelity, sweep reads directly.
-- **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer.
+- **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer. Optional `--deeper` mode adds a dependency-weighted repomap during scoping for specialist prioritization.
 
 **Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
 
@@ -96,11 +96,12 @@ Scout 2 (chunks C, D) ─┘                │
 
 ## Phase 0: Scope Definition (EM Direct)
 
-**Model:** EM (Opus). **Time:** ~5 min.
+**Model:** EM (Opus). **Time:** ~5 min (~7 min with `--deeper`).
 
 1. Read the README, pin the version
 2. Survey repo structure (2-3 `ls` commands + file count estimates)
-3. Define exactly 4 domain-aligned chunks
+2b. If `--deeper`: generate dependency-weighted repomap via import extraction + cross-reference counting. Writes `{scratch-dir}/repomap.md`. Skipped if import graph is too thin (<5 files with 2+ refs).
+3. Define exactly 4 domain-aligned chunks (informed by repomap centrality data if `--deeper`)
 4. Assign chunks to scouts (A+B to scout 1, C+D to scout 2)
 5. Estimate file counts per chunk (tripwire for specialist quality recovery)
 6. Write focus questions
@@ -133,13 +134,14 @@ Each scout reads every file in its chunks and produces structured inventory:
 **Model:** Sonnet. **Count:** 4 specialists (one per chunk). **Timing:** Floor 5 min + 3 files; ceiling 15 min.
 
 Each specialist:
-1. Reads the scout inventory for their chunk
-2. Deep-reads the most important files (using inventory as map)
-3. Analyzes architecture, patterns, data flow, strengths, limitations
-4. Cross-pollinates with peers (max 3 messages per peer)
-5. If `--compare`: reads project files identified by scout, produces comparison artifact
-6. Self-governs timing (floor/diminishing returns/ceiling)
-7. Converges: writes output, marks complete, sends DONE to synthesizer
+1. If `--deeper`: reads the repomap first (structural importance lens)
+2. Reads the scout inventory for their chunk
+3. Deep-reads the most important files (using inventory as map, prioritized by repomap if available)
+4. Analyzes architecture, patterns, data flow, strengths, limitations
+5. Cross-pollinates with peers (max 3 messages per peer)
+6. If `--compare`: reads project files identified by scout, produces comparison artifact
+7. Self-governs timing (floor/diminishing returns/ceiling)
+8. Converges: writes output, marks complete, sends DONE to synthesizer
 
 **Quality recovery for thin scout output:** If inventory lists fewer files than `[EXPECTED_FILE_COUNT]`, specialist uses Glob to discover additional files and budgets 3 extra minutes for self-directed discovery.
 

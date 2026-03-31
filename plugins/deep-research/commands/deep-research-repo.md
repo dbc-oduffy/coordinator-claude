@@ -1,7 +1,7 @@
 ---
 description: "Pipeline B (Repo Research) using Agent Teams — 2 Haiku scouts build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. EM scopes, spawns the team, and is freed."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
-argument-hint: "<repo-path> [--compare <project-path>]"
+argument-hint: "<repo-path> [--compare <project-path>] [--deeper]"
 ---
 
 # Deep Research — Pipeline B (Repo Research) Agent Teams Driver
@@ -18,10 +18,11 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 `$ARGUMENTS`:
 - `<repo-path>` — path to the repository to research (required)
 - `--compare <project-path>` — optional path to a project to compare against
+- `--deeper` — generate a dependency-weighted repomap during scoping, giving specialists structural centrality rankings to prioritize deep-reads
 
 ## Step 1 — Setup
 
-1. Parse arguments: extract repo path and optional comparison path
+1. Parse arguments: extract repo path, optional comparison path, and `--deeper` flag
 2. Verify the repo path exists and contains files
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
@@ -33,8 +34,9 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 7. Set output path: `docs/research/YYYY-MM-DD-{topic-slug}.md`
 8. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the assessment output path)
 9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-{topic-slug}-gap-analysis.md`
+10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
 
-Announce: "Running Pipeline B (repo research, Agent Teams) on {repo-path}."
+Announce: "Running Pipeline B (repo research, Agent Teams{', deeper mode' if --deeper}{', comparison mode' if --compare}) on {repo-path}."
 
 ## Step 2 — Orient and Scope Repository (EM Direct)
 
@@ -54,9 +56,69 @@ Read the repo's structural skeleton to ground your scoping in reality, not assum
    - What external dependencies are material to the analysis questions?
 5. **Check for LLM context files** — look for `CONTEXT.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar. If present, read them — they're high-signal orientation material that should be surfaced to all specialists.
 
-### Phase 2: Scoping (informed by orientation)
+### Phase 1.5: Repomap Generation (only if `--deeper`)
 
-6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because: 7-teammate ceiling - 2 scouts - 1 synthesizer = 4 specialist slots.)
+If `--deeper` is set, generate a dependency-weighted repomap before defining chunks. This gives you structural centrality data to inform chunk scoping and gives specialists prioritization guidance.
+
+**Step A — Detect primary language(s):**
+Count files by extension to identify the dominant language(s):
+```bash
+find {repo-path} -type f | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -10
+```
+
+**Step B — Extract import/dependency edges:**
+Run language-appropriate grep patterns on the repo. Use the top language(s) detected above:
+
+| Language | Pattern |
+|----------|---------|
+| Python | `grep -rh "^from \|^import " --include="*.py" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
+| JS/TS | `grep -rh "from ['\"]" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
+| Go | `grep -rh '"[^"]*"' --include="*.go" {repo-path} \| grep -v "// " \| sort \| uniq -c \| sort -rn \| head -40` |
+| Rust | `grep -rh "^use " --include="*.rs" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
+| C/C++ | `grep -rh '#include "' --include="*.h" --include="*.cpp" --include="*.c" --include="*.hpp" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
+| Java | `grep -rh "^import " --include="*.java" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
+
+For polyglot repos, run patterns for the top 2 languages.
+
+**Step C — Resolve to files and count cross-references:**
+From the import output, identify the top ~20 most-imported modules/files. For each, resolve to an actual file path in the repo and count how many distinct files reference it:
+```bash
+grep -rl "{module-name}" --include="*.{ext}" {repo-path} | wc -l
+```
+
+**Step D — Extract key exports:**
+For each of the top ~20 files by reference count, Read the first 50 lines to extract key exports (class names, function signatures, important constants).
+
+**Step E — Write repomap or skip:**
+If fewer than 5 files have 2+ incoming references, the import graph is too thin to be useful. Note this in `scope.md` and proceed without a repomap (specialists operate in default mode).
+
+Otherwise, write `{scratch-dir}/repomap.md`:
+
+```markdown
+# Repository Map — {repo-name}
+
+Ranked by structural centrality (incoming cross-file references).
+Generated during deeper-mode scoping — use to prioritize deep-reads.
+
+## Tier 1 — Core (10+ incoming refs)
+| File | Refs | Key Exports |
+|------|------|-------------|
+| {path} | {count} | {exports} |
+
+## Tier 2 — Important (5-9 refs)
+| File | Refs | Key Exports |
+|------|------|-------------|
+| {path} | {count} | {exports} |
+
+## Tier 3 — Supporting (2-4 refs)
+| File | Refs | Key Exports |
+|------|------|-------------|
+| {path} | {count} | {exports} |
+```
+
+### Phase 2: Scoping (informed by orientation{' and repomap' if --deeper})
+
+6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because: 7-teammate ceiling - 2 scouts - 1 synthesizer = 4 specialist slots.) If `--deeper` produced a repomap, review Tier 1 file distribution across chunks — avoid concentrating all core files in a single chunk.
 7. **Assign chunks to scouts** — Scout 1 gets chunks A+B, Scout 2 gets chunks C+D
 8. **Estimate file counts per chunk** — rough counts from the survey (these become `[EXPECTED_FILE_COUNT]` in specialist prompts, used as a tripwire for detecting thin scout output)
 9. **Write focus questions using execution-trace framing** — instead of "describe the architecture of X", prefer "trace the request from [entry] to [exit]" or "how does data flow from [input] to [output]?" Execution-trace questions produce more accurate specialist output than structural questions.
@@ -74,6 +136,8 @@ Write scope to `{scratch-dir}/scope.md`:
 **Version:** {version}
 **Date:** {date}
 **Comparison:** {project-path or "none"}
+**Deeper mode:** {true/false}
+**Repomap:** {repomap path or "skipped — thin import graph" or "N/A"}
 
 ## Structural Orientation
 
@@ -178,6 +242,7 @@ Fill in ALL template fields — including:
 - `[EXPECTED_FILE_COUNT]` → from the scoping survey
 - `[MIN_MINUTES]`, `[MAX_MINUTES]`, `[MIN_SOURCES]` → from PM timing preferences (or defaults: 5 min, 15 min, 3 files)
 - If `--compare`: include `[COMPARE_PROJECT_PATH]` and `[COMPARE_PROJECT_NAME]`
+- If `--deeper` and repomap was generated (not skipped): include the `[IF DEEPER MODE]` section with `[SCRATCH_DIR]/repomap.md`
 
 ```
 Agent(

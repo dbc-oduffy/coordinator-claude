@@ -6,6 +6,8 @@
 
 Agent Teams-based repo research: the EM scopes the target repository into 4 domain-aligned chunks, creates a team of 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — file inventory, analysis, optional comparison, cross-pollination, and synthesis. The EM is notified when synthesis completes.
 
+Optional `--deeper` mode adds a dependency-weighted repomap during EM scoping, giving specialists structural centrality rankings to prioritize deep-reads.
+
 ## Team Roles
 
 | Role | Model | Count | Responsibility |
@@ -142,6 +144,21 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Scout 2 writes to: `{scratch-dir}/C-inventory.md`, `{scratch-dir}/D-inventory.md`
 - Each specialist writes to: `{scratch-dir}/{chunk-letter}-assessment.md` (always) + `{scratch-dir}/{chunk-letter}-comparison.md` (if comparison mode)
 - Synthesizer writes to: `{output-path}` + `{scratch-dir}/synthesis.md`
+
+## Deeper Mode
+
+When `--deeper` is provided, the EM generates a dependency-weighted repomap during Phase 0 (scoping), before chunk definition. The repomap:
+
+1. Extracts import/include/require statements via language-specific grep patterns
+2. Resolves imports to actual files, counts cross-references
+3. Reads top ~20 files to extract key exports
+4. Writes `{scratch-dir}/repomap.md` with files ranked into Tier 1 (10+ refs), Tier 2 (5-9), Tier 3 (2-4)
+
+**Fallback:** If fewer than 5 files have 2+ incoming references (thin import graph), the repomap is skipped and specialists operate in default mode.
+
+**Specialist usage:** Specialists read the repomap BEFORE the scout inventory. The repomap provides the importance lens (what matters); the inventory provides the detail (what exists). Specialists prioritize Tier 1/2 files in their chunk for deep-reading and use cross-chunk references to understand inter-system dependencies.
+
+**Composes with `--compare`:** Both flags can be used simultaneously. The repomap informs prioritization; comparison mode adds the project comparison artifacts.
 
 ## Comparison Mode
 
