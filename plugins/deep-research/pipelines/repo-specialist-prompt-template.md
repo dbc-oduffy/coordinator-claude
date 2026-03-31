@@ -28,6 +28,28 @@ If the inventory lists significantly fewer, treat it as thin — use Glob to dis
 additional files in your chunk's directories, then Read them yourself. Budget up to
 3 extra minutes for self-directed file discovery before beginning analysis.
 
+[IF DEEPER MODE:]
+## Structural Centrality Map
+
+A dependency-weighted repomap is available at:
+**[SCRATCH_DIR]/repomap.md**
+
+This ranks all repo files by how many other files reference them (import/include/require).
+Read this BEFORE the scout inventory — it provides the importance lens that frames which
+inventory entries deserve your deepest attention.
+
+Use the repomap to:
+- **Prioritize Tier 1/2 files in your chunk** for deep-reading first — these are the
+  structural backbone of the repo
+- **Understand cross-chunk dependencies** — files outside your chunk that yours imports
+  (or that import yours) reveal inter-system coupling
+- **Distinguish core from peripheral** — a 500-line file with 20 incoming references
+  matters more than a 2000-line file with 1
+
+The repomap complements the scout inventory: the repomap tells you what matters,
+the inventory tells you what exists. Read importance first, detail second.
+[END IF DEEPER MODE]
+
 ## Your Peers
 
 [PEER_LIST — format each as:]

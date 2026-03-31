@@ -2,13 +2,9 @@
 
 Multi-agent deep research pipelines for Claude Code. All pipelines use Agent Teams (fire-and-forget):
 
-- **Pipeline A (Internet Research)** v2.1 — investigate a topic across web sources via 1 Haiku scout (source corpus) + up to 5 Sonnet specialists (adversarial peers with structured claims output) + 1 Opus sweep (reads specialist outputs directly, no consolidator)
+- **Pipeline A (Internet Research)** — investigate a topic across web sources via 1 Haiku scout (source corpus) + 3-5 Sonnet specialists (deep-read + verify) + 1 Opus synthesizer
 - **Pipeline B (Repo Research)** — study a repository's architecture via 2 Haiku scouts (file inventory) → 4 Sonnet specialists (analysis + optional comparison) → 1 Opus synthesizer
 - **Pipeline C (Structured Research)** — schema-conforming batch research via 1 Haiku scout + 1-5 Sonnet verifiers (1 per topic) + 1 Opus synthesizer; outputs YAML/JSON matching the spec's output_schema
-
-## Research Basis
-
-Pipeline design decisions are evidence-backed — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM, Baz), academic research on LLM code analysis, and controlled pipeline experiments. See [`docs/research/2026-03-31-deep-research-pipeline-evidence.md`](../../docs/research/2026-03-31-deep-research-pipeline-evidence.md) for the full evidence trace behind each design choice.
 
 ## Prerequisites
 
@@ -22,7 +18,7 @@ Without this, `/deep-research` will fail.
 ## Commands
 
 - `/deep-research web <topic>` — Pipeline A: internet research
-- `/deep-research repo <path> [--compare <project-path>]` — Pipeline B: repo assessment (+ optional comparison)
+- `/deep-research repo <path> [--compare <project-path>] [--deeper]` — Pipeline B: repo assessment (+ optional comparison, + optional repomap)
 - `/deep-research structured <spec-path> [subject-key]` — Pipeline C: structured research
 
 ## How It Works
@@ -46,20 +42,15 @@ All three pipelines follow the same Agent Teams pattern:
 - Synthesizer produces YAML/JSON conforming to the spec's `output_schema`
 - Manifest tracks completion per subject with `manifest_version: 2`
 
-### Pipeline A specifics (v2.1)
+### Pipeline A specifics
 - 1 Haiku scout — builds shared source corpus from web searches
-- Up to 5 Sonnet specialists — adversarial peer interaction (challenges expected, not just permitted), dual output (structured `{letter}-claims.json` + readable `{letter}-summary.md`)
-- No consolidator — specialists own their own fidelity via adversarial cross-pollination; Opus sweep reads specialist outputs directly
-- Opus sweep runs three sequential phases: Phase 1 Assess (adversarial coverage check + gap report) → Phase 2 Fill (targeted web research for gaps) → Phase 3 Frame (exec summary, conclusion, open questions)
-- EM scoping includes a quality checklist (falsifiable sub-questions, effort budgets, adversarial queries) derived from published research
+- Specialists verify claims, resolve contradictions, enforce source recency
 - Team protocol: `pipelines/team-protocol.md`
 
 ### Pipeline B specifics
-- EM performs structural orientation before scoping (entry points, key directories, architecture pattern, LLM context file discovery)
-- Focus questions use execution-trace framing ("trace from entry to exit") over structural description
 - 2 Haiku scouts (2 chunks each) — produces structured file inventories with function signatures, constants, data flow
-- Specialists must cite `file:line` for every claim (primary hallucination mitigation for code analysis)
-- In `--compare` mode: independent-analysis-first approach — analyze each codebase against the same questions independently, then compare answers. Scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md
+- In `--compare` mode: scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md
+- In `--deeper` mode: EM generates dependency-weighted repomap during scoping; specialists read it before inventories to prioritize structurally central files
 - Team protocol: `pipelines/repo-team-protocol.md`
 
 ### Pipeline C specifics
