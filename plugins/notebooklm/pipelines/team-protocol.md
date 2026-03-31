@@ -4,7 +4,7 @@
 
 ## Overview
 
-Agent Teams-based NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — then creates a right-sized team (scout + N workers + sweep) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, gap-filling, and cleanup.
+Agent Teams-based NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — then creates a right-sized team (scout + N workers + sweep) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
 
 ## Architecture
 
@@ -24,7 +24,7 @@ EM: Scope research → Write strategy.md → Create team → Spawn (scout + work
              Reads all claims (JSON), assesses coverage, fills gaps
              Writes: {output-path}
              Writes: {output-path}-advisory.md (if anything beyond scope)
-             Cleans up notebooks
+             Cleans up notebooks (if --cleanup)
 ```
 
 ## Team Roles
@@ -33,7 +33,7 @@ EM: Scope research → Write strategy.md → Create team → Spawn (scout + work
 |------|-------|-------|----------------|
 | **Scout** | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
 | **Worker** | Sonnet | 1-3 | Creates own notebook, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, sends DONE to sweep |
-| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, optionally writes advisory, cleans up notebooks |
+| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, optionally writes advisory, optionally cleans up notebooks (if `--cleanup`) |
 
 ## Team Lifecycle
 
@@ -42,7 +42,7 @@ EM: Scope research → Write strategy.md → Create team → Spawn (scout + work
 
 Scout: Read strategy.md → WebSearch / WebFetch → Write sources.md → Mark complete → [idle]
 Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Ingest → Query → Extract claims → Write {letter}-claims.json + {letter}-summary.md → Mark complete → DONE to sweep
-Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → Notebook cleanup → Mark complete
+Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → Notebook cleanup (if --cleanup) or list preserved → Mark complete
 ```
 
 ## Blocking Chain
