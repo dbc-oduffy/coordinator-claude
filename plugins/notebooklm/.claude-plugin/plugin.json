@@ -1,7 +1,7 @@
 {
   "name": "notebooklm",
-  "version": "1.0.0",
-  "description": "Research YouTube, podcasts, and media Claude can't access directly — NotebookLM integration that dispatches an Opus orchestrator to design questions and a Sonnet worker to extract findings.",
+  "version": "1.1.0",
+  "description": "Research YouTube, podcasts, and media Claude can't access directly — NotebookLM integration with structured claims extraction, adversarial coverage checking, and notebook preservation for follow-up queries.",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
