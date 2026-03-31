@@ -1,5 +1,5 @@
 ---
-description: "NotebookLM research using Agent Teams — EM scopes directly, then right-sized team (scout + N workers + synthesizer) executes autonomously. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly."
+description: "NotebookLM research using Agent Teams — EM scopes directly, then right-sized team (scout + N workers + sweep) executes autonomously. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic> [--context file1 file2] [--sources url1 url2]"
 ---
@@ -141,7 +141,7 @@ timing:
 TeamCreate("notebooklm-{topic-slug}")
 
 // Create tasks
-synthesizer_task = TaskCreate(name: "synthesizer", description: "Cross-notebook synthesis + notebook cleanup")
+sweep_task = TaskCreate(name: "sweep", description: "Coverage assessment + gap fill + notebook cleanup")
 scout_task = TaskCreate(name: "scout", description: "Source discovery for all notebooks")
 
 worker_tasks = []
@@ -150,7 +150,7 @@ For letter in A..{Nth letter}:
   TaskUpdate(task_id: task.id, blockedBy: [scout_task.id])
   worker_tasks.append(task.id)
 
-TaskUpdate(task_id: synthesizer_task.id, blockedBy: worker_tasks)
+TaskUpdate(task_id: sweep_task.id, blockedBy: worker_tasks)
 ```
 
 ---
@@ -160,7 +160,7 @@ TaskUpdate(task_id: synthesizer_task.id, blockedBy: worker_tasks)
 Read the prompt templates from `pipelines/`:
 - `pipelines/scout-prompt-template.md`
 - `pipelines/worker-prompt-template.md`
-- `pipelines/synthesizer-prompt-template.md`
+- `pipelines/sweep-prompt-template.md`
 
 Spawn all teammates in one operation:
 
@@ -179,16 +179,21 @@ Spawn all teammates in one operation:
 - `[TASK_ID]` = worker_task.id for this letter
 - `[SPAWN_TIMESTAMP]` = current Unix timestamp
 - `[MAX_MINUTES]` = `max_minutes` from strategy.md YAML, or 25 if not specified
-- `[SYNTHESIZER_NAME]` = synthesizer teammate name
+- `[SWEEP_NAME]` = sweep teammate name
 
-**Synthesizer prompt** (fill template):
+**Sweep prompt** (fill template):
 - `[RESEARCH_TOPIC]` = topic
 - `[WORKER_COUNT]` = N (from strategy.md YAML frontmatter — already known from scoping)
 - `[WORKER_TASK_IDS]` = comma-separated worker task IDs
 - `[SCRATCH_DIR]` = scratch dir path
 - `[OUTPUT_PATH]` = `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
 - `[ADVISORY_PATH]` = advisory path computed in Step 1
-- `[TASK_ID]` = synthesizer_task.id
+- `[TASK_ID]` = sweep_task.id
+
+Spawn teammates using these agent types:
+- Scout: `notebooklm:notebooklm-research-scout`
+- Workers: `notebooklm:notebooklm-research-worker`
+- Sweep: `notebooklm:notebooklm-research-sweep`
 
 Assign task owners when spawning each teammate.
 
@@ -198,11 +203,11 @@ Assign task owners when spawning each teammate.
 
 After spawning the team, report to the PM and stop tracking:
 
-> "NotebookLM research team running on **{topic}** with 1 scout + {N} worker(s) + 1 synthesizer.
+> "NotebookLM research team running on **{topic}** with 1 scout + {N} worker(s) + 1 sweep agent.
 >
 > - Scout is finding sources (~3-5 min)
-> - Workers will run parallel notebooks (~15-25 min each)
-> - Synthesizer will cross-reference findings and clean up notebooks when done
+> - Workers will run parallel notebooks (~15-25 min each), writing structured claims (JSON) and a summary per notebook
+> - Sweep agent will assess coverage, fill gaps, and clean up notebooks when done
 >
 > Output will be written to: `{output-path}`
 >
@@ -212,10 +217,10 @@ After spawning the team, report to the PM and stop tracking:
 
 ### Step 6 — On Completion
 
-When the synthesizer sends a completion message:
+When the sweep agent sends a completion message:
 
 1. Read `{output-path}`. Verify it's substantive (not empty, not error-only).
-2. Notebooks already cleaned up by synthesizer — note cleanup status from the synthesis doc.
+2. Notebooks already cleaned up by sweep agent — note cleanup status from the output doc.
 3. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
 4. Archive scratch directory:
    ```bash
@@ -225,10 +230,10 @@ When the synthesizer sends a completion message:
 6. Commit the output file.
 7. Present summary to PM:
    - Topic researched + notebooks used
-   - Key findings (2-3 bullet executive summary from the synthesis doc)
+   - Key findings (2-3 bullet executive summary from the output doc)
    - Output path
    - Any gaps flagged for follow-up
-   - If advisory exists: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`."
+   - If advisory exists: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
 
 ---
 
@@ -240,6 +245,6 @@ When the synthesizer sends a completion message:
 | Worker auth expiry | Worker calls refresh_auth, retries; if persistent, writes partial findings |
 | Worker hits rate limit | Worker writes partial findings, sends DONE |
 | Worker can't ingest source (paywall, format) | Worker logs failure, continues with remaining sources |
-| Synthesizer can't query notebooks | Synthesizer proceeds with findings files only (skip follow-up queries) |
+| Sweep can't query notebooks | Sweep proceeds with claims files only (skip follow-up queries) |
 | Agents stuck in idle loops | Commit/archive before TeamDelete. Don't block — read available outputs |
 | All workers fail | TeamDelete, report to PM with failure details |
