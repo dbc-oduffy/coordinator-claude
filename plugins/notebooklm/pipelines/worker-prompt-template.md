@@ -49,9 +49,29 @@ If ceiling reached: write partial findings with what you have, note unanswered q
    - If research_start: research_start with the query, poll research_status, research_import
 7. Verify ingestion with a simple query
 8. Run all research questions from strategy.md
-9. Write findings to [SCRATCH_DIR]/[NOTEBOOK_LETTER]-findings.md (include Notebook ID in metadata)
-10. Mark task completed: TaskUpdate
-11. Send DONE: SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] findings written to [SCRATCH_DIR]/[NOTEBOOK_LETTER]-findings.md")
+9. Generate Studio artifacts (if requested in strategy.md):
+   - If strategy.md requests Studio artifacts for your notebook, generate them after querying
+   - Use studio_create with the requested artifact_type, poll studio_status for completion, then download_artifact
+   - Log results in your findings front-matter under studio_artifacts
+   - If no artifacts requested, skip this step and set studio_artifacts to "none"
+10. Write findings to [SCRATCH_DIR]/[NOTEBOOK_LETTER]-findings.md — include YAML front-matter at the top:
+    ```yaml
+    ---
+    notebook_id: "{id from notebook_create}"
+    notebook_name: "{topic-slug}-[NOTEBOOK_LETTER]"
+    queries_asked: {N}
+    sources_ingested: {N}
+    sources_failed:
+      - "{url} — {reason}"
+    studio_artifacts:
+      - "{type}: {filename or 'generation failed'}"
+    coverage_gaps:
+      - "{topic that couldn't be answered}"
+    ---
+    ```
+    The rest of the findings content follows the markdown format in your agent definition.
+11. Mark task completed: TaskUpdate
+12. Send DONE: SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] findings written to [SCRATCH_DIR]/[NOTEBOOK_LETTER]-findings.md")
 
 See your agent definition for full execution phases, failure handling, and output format.
 ```

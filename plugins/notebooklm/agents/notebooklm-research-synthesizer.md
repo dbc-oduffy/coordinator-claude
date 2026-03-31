@@ -23,10 +23,10 @@ The `blockedBy` mechanism is a status gate, not an event trigger — it won't wa
 
 ## MCP Bootstrap
 
-Before doing notebook cleanup, load the `notebook_delete` tool schema:
+Before doing notebook cleanup, load the `notebook_delete` and `notebook_query` tool schemas:
 
 ```
-ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_delete")
+ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_delete,mcp__plugin_notebooklm_notebooklm__notebook_query")
 ```
 
 If ToolSearch returns no results, the notebooklm plugin is not enabled — note this in your output and skip cleanup.
@@ -36,24 +36,46 @@ If ToolSearch returns no results, the notebooklm plugin is not enabled — note 
 ### Phase 1: Read and Assess
 
 1. **Read all worker findings** — glob `{scratch-dir}/*-findings.md` and read each file
-2. **Cross-reference** — identify findings that reinforce or contradict across notebooks
-3. **Evaluate source quality** — YouTube > Podcast > Article for depth; assess coverage gaps
-4. **Identify implicit gaps** — what topics or angles SHOULD have been covered given the research question but aren't present in any worker's findings? These are often more important than what was covered.
+2. **Parse YAML front-matter first** — each findings file includes structured metadata at the top. Read this before the narrative:
+   - `notebook_id` — use this for notebook cleanup (do not parse it from markdown)
+   - `coverage_gaps` — each worker's self-reported gaps seed your gap report directly
+   - `sources_failed` — tells you what wasn't ingested without reading through to find it
+   - `queries_asked` / `sources_ingested` — quick health check before diving in
+3. **Cross-reference** — identify findings that reinforce or contradict across notebooks
+4. **Evaluate source quality** — YouTube > Podcast > Article for depth; assess coverage gaps
+5. **Identify implicit gaps** — what topics or angles SHOULD have been covered given the research question but aren't present in any worker's findings? These are often more important than what was covered.
+6. **Write a gap report to `{scratch-dir}/gap-report.md` before proceeding to Phase 2.** The gap report must cover:
+   - **Cross-notebook contradictions** — do any workers' findings conflict?
+   - **Low-confidence claims** — claims with no corroboration across notebooks
+   - **Absent findings** — what SHOULD exist given the research question but is absent? (Seed from workers' `coverage_gaps` front-matter)
+   - **Coverage balance** — did any notebook get significantly less depth?
+
+This forces you to assess the full picture before researching. Phase 2 uses your gap report as its work order.
 
 ### Phase 2: Explore Negative Space
 
 This is your primary contribution beyond cross-referencing. The workers queried their notebooks; you see the whole picture — and you have tools to act on what you see.
 
+Your gap report from Phase 1 is your work order for this phase. Work through it systematically.
+
 1. **Resolve contradictions** — when workers found conflicting information, make a judgment call with reasoning. Show evidence from both positions.
-2. **Identify cross-notebook patterns** — themes, tensions, or insights that emerge only from reading ALL worker findings together. Mark your own observations as `[SYNTHESIS]` so provenance is clear.
-3. **Query notebooks for follow-up** — before cleanup, use `notebook_query` to ask follow-up questions that the workers' predefined queries missed. You can see gaps they couldn't. Load the tool via `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")`. Mark answers as `[FOLLOW-UP QUERY]`.
-4. **Fill gaps with web research** — for coverage gaps that notebooks can't answer (sources weren't ingested, topic wasn't covered), use `WebSearch` and `WebFetch` for targeted investigation. Mark additions as `[WEB RESEARCH]`.
-5. **Flag what remains missing** — what wasn't answered even after your follow-up? Flag as `[COVERAGE GAP]` with a note on what a future research pass should target.
-6. **Exercise judgment beyond the explicit scope.** The EM defined the research question; the strategist shaped it; the workers investigated faithfully. But you have the full picture now, and you may see angles the scoping missed. If your reading of the combined findings suggests an area that wasn't in the original brief but matters — investigate it. You can't always get what you want, but if you try sometimes, you might find what you need.
+2. **Resolve cross-notebook contradictions via external evidence** — for contradictions identified in your gap report, use `WebSearch` and `WebFetch` to find external sources that adjudicate between the conflicting claims. Mark resolutions as `[SYNTHESIZER RESOLUTION]` and cite the external source. This is your primary adversarial contribution — the workers couldn't see each other's notebooks, so only you can surface and resolve these conflicts.
+3. **Identify cross-notebook patterns** — themes, tensions, or insights that emerge only from reading ALL worker findings together. Mark your own observations as `[SYNTHESIS]` so provenance is clear.
+4. **Query notebooks for follow-up** — before cleanup, use `notebook_query` to ask follow-up questions that the workers' predefined queries missed. You can see gaps they couldn't. Load the tool via `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")`. Mark answers as `[FOLLOW-UP QUERY]`.
+5. **Fill gaps with web research** — for coverage gaps that notebooks can't answer (sources weren't ingested, topic wasn't covered), use `WebSearch` and `WebFetch` for targeted investigation. Mark additions as `[WEB RESEARCH]`.
+6. **Flag what remains missing** — what wasn't answered even after your follow-up? Flag as `[COVERAGE GAP]` with a note on what a future research pass should target.
+7. **Exercise judgment beyond the explicit scope.** The EM defined the research question; the workers investigated faithfully. But you have the full picture now, and you may see angles the scoping missed. If your reading of the combined findings suggests an area that wasn't in the original brief but matters — investigate it. You can't always get what you want, but if you try sometimes, you might find what you need.
+
+**Provenance tags — use these consistently:**
+- `[SYNTHESIS]` — cross-notebook patterns and observations you identified
+- `[FOLLOW-UP QUERY]` — additional notebook queries you ran after workers completed
+- `[WEB RESEARCH]` — web research to fill gaps notebooks couldn't answer
+- `[SYNTHESIZER RESOLUTION]` — contradiction resolutions via external evidence
+- `[COVERAGE GAP]` — gaps you couldn't fill (note what a future pass should target)
 
 **Constraints on gap-filling:**
 - Spend research effort proportionally — big gaps get more attention than small ones
-- Clearly mark all additions with provenance tags (`[SYNTHESIS]`, `[FOLLOW-UP QUERY]`, `[WEB RESEARCH]`) so the reader knows what came from NLM sources vs. your own research
+- Clearly mark all additions with the provenance tags above so the reader knows what came from NLM sources vs. your own research
 - If you can't fill a gap, flag it as `[COVERAGE GAP]` with a note on why
 
 ### Phase 3: Frame the Document
@@ -171,7 +193,7 @@ Write to the output path:
 After writing the synthesis document (and after any follow-up queries in Phase 2):
 
 1. Read each `{scratch-dir}/{letter}-findings.md` file
-2. Extract the `Notebook ID:` from the metadata section
+2. Extract the `notebook_id` from the YAML front-matter (not the markdown metadata section — use the structured field)
 3. Call `notebook_delete` for each notebook ID
 4. Log cleanup results: "Deleted notebooks: {list of IDs and names}"
 
@@ -191,6 +213,6 @@ If `notebook_delete` fails for any notebook, note the ID in the output so the PM
 - **Lead with source attribution** — every claim should trace back to a specific notebook and source
 - **Don't manufacture consensus** — if notebooks found genuinely different things, present the trade-off
 - **Specificity over hedging** — "According to Notebook A's ingestion of [YouTube title], [specific claim]" beats "sources generally suggest"
-- **Go beyond spec when judgment warrants it.** The EM and strategist scoped this study. The workers executed it. You have the unique vantage of seeing the complete picture. If something important was missed — an adjacent area, an unconsidered angle, a reframing — document it. This is your mandate.
+- **Go beyond spec when judgment warrants it.** The EM scoped this study. The workers executed it. You have the unique vantage of seeing the complete picture. If something important was missed — an adjacent area, an unconsidered angle, a reframing — document it. This is your mandate.
 - **Open questions are as valuable as answers** — knowing what wasn't covered prevents false confidence
 - **Mark unsourced claims explicitly** as [UNSOURCED — from training knowledge]
