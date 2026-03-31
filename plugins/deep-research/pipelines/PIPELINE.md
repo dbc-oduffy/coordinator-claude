@@ -280,10 +280,10 @@ Produces:
 
 # Pipeline A: Internet Research (Agent Teams)
 
-## Architecture (v2.1)
+## Architecture (v2.2)
 
 ```
-EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED → [notification] → Cleanup
+EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED → [notification] → Decision gate
                         │
                         ├── 1 Haiku scout (read queries from scope.md, build source corpus)
                         │
@@ -292,14 +292,31 @@ EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED �
                         │
                         └── 1 Opus sweep (blocked by all specialists)
                             Adversarial coverage check → gap-fill research → exec summary + framing
+                            Writes structured gap report with YAML severity scores
+
+                  ──── Decision Gate (EM) ────
+                  │                           │
+          coverage_score >= 4           coverage_score <= 3
+          high_severity == 0            OR high_severity >= 2
+                  │                           │
+                  ▼                           ▼
+            Step 7: Finalize          Step 6.6: Team 2 (Deepening)
+                                              │
+                                              ├── 0-1 Haiku scout (new queries if needed)
+                                              ├── 1-3 Sonnet gap-specialists (per gap cluster)
+                                              └── 1 Opus sweep (merge mode → delta)
+                                              │
+                                              ▼
+                                        Step 7: Merge + Finalize
 ```
 
-**Key design decisions (v2.1):**
+**Key design decisions (v2.2):**
 - **No consolidator.** v2 had a Sonnet consolidator between specialists and sweep — it became a bottleneck (empirically 4 min slower than the sweep). Specialists own their fidelity via adversarial peer interaction; the sweep reads their outputs directly.
 - **Structured specialist output.** Specialists write JSON claims (`{LETTER}-claims.json`) + markdown summary (`{LETTER}-summary.md`). Primary reader is the EM (Opus), not humans.
 - **Adversarial specialists.** Challenges are expected, not just permitted. Unresolved challenges produce `[CONTESTED]` claims with both sides' evidence.
 - **Sweep phased discipline.** Three explicit sequential phases: (1) assess all claims + emit gap report, (2) fill gaps via web research, (3) frame with exec summary + conclusion.
-- **Deferred to v2.2:** Iterative deepening (research → assess gaps → re-dispatch to specialists), citation-first synthesis, fail-and-retry on weak retrieval.
+- **Iterative deepening (v2.2).** After Team 1 completes, the EM reads the sweep's structured gap report (YAML severity scores + Gap Targets table). If significant gaps remain (high_severity >= 2, or coverage_score <= 3), the EM dispatches a smaller Team 2 (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. Hard cap at 2 passes. Team 2 failure is non-blocking — Team 1's output is already complete. `--shallow` flag skips the decision gate.
+- **Deferred to v2.3:** Citation-first synthesis, fail-and-retry on weak retrieval.
 
 ## Phase 0: Research Framing (EM Direct, ~5 min)
 
@@ -337,11 +354,33 @@ Three explicit sequential phases:
 2. **Fill gaps:** Research gaps via WebSearch/WebFetch. Investigate cross-topic connections and negative space.
 3. **Frame:** Write exec summary, conclusion, advisory (if beyond-scope).
 
+## Phase 4.5: Iterative Deepening (v2.2, conditional)
+
+**Trigger:** After Phase 4 (Team 1 completion), the EM reads the gap report's YAML front-matter and evaluates deepening criteria. Skipped if `--shallow` flag was passed.
+
+**Decision criteria:**
+- DEEPEN if: `high_severity_gaps >= 2`, `contested_unresolved >= 1` (material), or `coverage_score <= 3`
+- SKIP if: `high_severity_gaps == 0` AND `coverage_score >= 4`
+
+**If deepening:**
+1. EM clusters HIGH/MEDIUM gaps from the Gap Targets table into 1-3 specialist assignments
+2. Creates Team 2 (`research-{topic-slug}-t2`): 0-1 scout + 1-3 gap-specialists + 1 merge-mode sweep
+3. Gap-specialists use the `gap-specialist-prompt-template.md` — receive Team 1 findings as context, fill specific gaps
+4. Sweep operates in merge mode — produces `deepening-delta.md` (structured delta, not a full document)
+5. EM merges delta into Team 1's synthesis, strips provenance markers, produces seamless final document
+
+**Team 2 timing:** Gap-specialists use tighter timing (floor 3 min/3 sources, ceiling 8 min) since scope is narrower than Team 1.
+
+**Depth limit:** Hard cap at 2 passes. Team 2's remaining gaps go into "Open Questions," not a Team 3.
+
+**Non-blocking:** Team 2 failure doesn't invalidate Team 1's output. If all gap-specialists fail, the EM finalizes with Team 1's synthesis as-is.
+
 ## Protocol and Templates
 
 - **Team protocol:** `team-protocol.md` — messaging, adversarial challenges, convergence, DONE messages
 - **Scout prompt template:** `scout-prompt-template.md` — web search + accessibility vetting
 - **Specialist prompt template:** `specialist-prompt-template.md` — structured claims + adversarial messaging
+- **Gap-specialist prompt template:** `gap-specialist-prompt-template.md` — Team 2 gap-focused specialist variant with Prior Findings, tighter timing, D-prefixed claim IDs
 - **Scout agent:** `agents/research-scout.md` — Haiku, WebSearch/WebFetch
 - **Specialist agent:** `agents/research-specialist.md` — Sonnet, WebSearch/WebFetch + SendMessage
 - **Sweep agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline B

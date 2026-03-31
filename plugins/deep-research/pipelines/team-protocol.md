@@ -156,3 +156,60 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Each specialist writes to: `{scratch-dir}/{topic-letter}-claims.json` + `{scratch-dir}/{topic-letter}-summary.md`
 - Sweep writes synthesis to: `{output-path}` + `{scratch-dir}/synthesis.md`
 - Sweep writes advisory to: `{advisory-path}` + `{scratch-dir}/advisory.md` (optional — omitted if nothing beyond scope)
+
+## Deepening Protocol (v2.2)
+
+When Team 1's sweep identifies significant coverage gaps, the EM may dispatch a smaller Team 2 for targeted follow-up. This is the deepening protocol.
+
+### Team 2 Composition
+
+| Role | Model | Count | Responsibility |
+|------|-------|-------|----------------|
+| **Scout** (optional) | Haiku | 0-1 | Only if gap targets require new topic areas not in Team 1's corpus |
+| **Gap-Specialist** | Sonnet | 1-3 | One per gap cluster. Fill specific gaps from Team 1's gap report |
+| **Sweep** | Opus | 1 | Merge mode — produce delta document, not full synthesis |
+
+Team size: 2-5 teammates (well under the 7 ceiling).
+
+### Team 2 Lifecycle
+
+```
+EM: Read gap-report.md → Cluster gaps → Create Team 2 → Spawn → FREED
+Scout (if any): New queries → gap-corpus.md → Mark complete → [idle]
+Gap-Specialists: [blocked by scout if any] → Read prior findings → Targeted research → Converge → D-{letter}-claims.json + D-{letter}-summary.md → DONE to sweep
+Sweep: [blocked by gap-specialists] → Read Team 1 synthesis + gap-specialist outputs → Delta → deepening-delta.md → Mark complete
+```
+
+### Team 2 Blocking Chain
+
+```
+Scout (if any) ──→ task completion unblocks gap-specialists
+Gap-Specialists ──→ DONE messages wake sweep
+Sweep ──────────→ mark complete notifies EM
+```
+
+Same mechanics as Team 1: task-gated blocking for scout→specialists, explicit DONE messages for specialists→sweep.
+
+### Team 2 Timing
+
+Gap-specialists use tighter timing than Team 1 specialists because their scope is narrower:
+
+| Parameter | Team 1 Specialist | Team 2 Gap-Specialist |
+|-----------|------------------|----------------------|
+| Floor (minutes) | 5 | 3 |
+| Floor (sources) | 5 | 3 |
+| Ceiling (minutes) | 15 | 8 |
+| Diminishing returns | 3 consecutive | 2 consecutive |
+| Peer messages per peer | 3 | 2 |
+
+### Team 2 Output
+
+Gap-specialists write to `D-{letter}-claims.json` and `D-{letter}-summary.md` (D- prefix distinguishes from Team 1). The sweep operates in merge mode and writes `deepening-delta.md` — a structured delta that the EM integrates into Team 1's synthesis.
+
+### Depth Limit
+
+**Maximum two passes.** Team 1 + Team 2. No further iteration. Team 2's sweep may still identify remaining gaps — these go into the "Open Questions" section of the final document, not into a Team 3.
+
+### Failure Handling
+
+Team 2 failure is **non-blocking**. Team 1 already produced a complete document. If Team 2 fails entirely (all gap-specialists crash, sweep doesn't complete), the EM proceeds to finalization with Team 1's synthesis as-is. The deepening pass is an improvement opportunity, not a requirement.
