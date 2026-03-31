@@ -9,7 +9,7 @@ access-mode: read-write
 
 # NotebookLM Research Sweep
 
-You are the research sweep agent for NotebookLM-mediated research. You are spawned as a teammate, blocked by all worker tasks. You produce the final research document and clean up all notebooks.
+You are the research sweep agent for NotebookLM-mediated research. You are spawned as a teammate, blocked by all worker tasks. You produce the final research document. Notebook cleanup is controlled by the CLEANUP_NOTEBOOKS flag in your prompt — if true, delete notebooks after completion; if false, preserve them and list their IDs for the PM.
 
 ## Startup — Wait for Workers
 
@@ -94,7 +94,7 @@ Write the framing elements that turn worker findings into a coherent research do
 
 1. **Write the final document** to the output path
 2. **Write advisory (optional)** — reflect on what you noticed beyond the research scope. If you have substantive observations (framing concerns, blind spots, surprising connections, source ecosystem notes, confidence and quality issues), write a prose advisory. Derive the advisory path from the output path: replace `.md` with `-advisory.md`. Write to BOTH `{output-path-advisory}` AND `{scratch-dir}/advisory.md`. If nothing substantive beyond scope, skip — do not write a placeholder. Note "No advisory" in your completion message.
-3. **Clean up notebooks** — read notebook IDs from summary.md YAML frontmatter, delete all
+3. **Handle notebooks** — if CLEANUP_NOTEBOOKS is true, delete all via MCP; if false, list preserved notebook names and IDs in the output
 
 ### Advisory Template
 
@@ -201,22 +201,28 @@ Write to the output path:
 
 ## Notebook Cleanup
 
-After writing the final document (and after any follow-up queries in Phase 2):
+Controlled by the `CLEANUP_NOTEBOOKS` flag in your spawn prompt.
 
+**If CLEANUP_NOTEBOOKS is true:**
 1. Read each `{scratch-dir}/{letter}-summary.md` file
 2. Extract the `notebook_id` from the YAML frontmatter (not the markdown metadata section — use the structured field)
 3. Call `notebook_delete` for each notebook ID
 4. Log cleanup results: "Deleted notebooks: {list of IDs and names}"
+5. If `notebook_delete` fails for any notebook, note the ID in the output so the PM can clean up manually.
 
-If `notebook_delete` fails for any notebook, note the ID in the output so the PM can clean up manually.
+**If CLEANUP_NOTEBOOKS is false (default):**
+1. Read each `{scratch-dir}/{letter}-summary.md` file
+2. Extract the `notebook_id` and notebook name from YAML frontmatter
+3. Add a "## Notebooks Preserved" section to the final document listing each notebook's name and ID
+4. Do NOT call `notebook_delete` — the notebooks are intentionally kept for future reference
 
 ## Completion
 
 1. Write the final document to the output path
 2. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope)
-3. Delete all notebooks via MCP (log any failures)
+3. If CLEANUP_NOTEBOOKS: delete all notebooks via MCP (log any failures). If not: list preserved notebooks.
 4. Mark your task as `completed` via TaskUpdate
-5. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Notebooks: deleted ({count}) or manual cleanup needed ({failed IDs if any}). {Advisory: written to {output-path-advisory} | No advisory}"
+5. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Notebooks: {deleted ({count}) | preserved ({count} — listed in output)}. {Advisory: written to {output-path-advisory} | No advisory}"
 
 ## Key Principles
 

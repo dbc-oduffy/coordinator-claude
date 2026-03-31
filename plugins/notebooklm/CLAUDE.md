@@ -15,7 +15,7 @@ This plugin uses a single-phase Agent Teams architecture. The EM scopes the rese
 **Agent Team (scout + N workers + sweep):**
 - **Haiku scout** — reads strategy.md, finds YouTube/podcast/article sources via WebSearch, writes `sources.md`. Task completion auto-unblocks workers.
 - **Sonnet workers (1-3)** — each creates one NotebookLM notebook, ingests assigned sources (or uses `research_start`), runs queries, extracts structured claims, writes `{letter}-claims.json` (structured claim objects) + `{letter}-summary.md` (human-readable overview). Sends DONE to sweep when complete.
-- **Opus sweep** — blocked until all workers DONE. Reads all worker claims (JSON), assesses coverage across notebooks, fills gaps via targeted follow-up queries and WebSearch, writes final polished document, optionally writes a **Sweep Advisory** (`{output-path}-advisory.md`) with staff-engineer observations beyond the research scope (framing concerns, blind spots, surprising connections), then deletes all notebooks via MCP. Advisory is skipped if there's nothing beyond scope.
+- **Opus sweep** — blocked until all workers DONE. Reads all worker claims (JSON), assesses coverage across notebooks, fills gaps via targeted follow-up queries and WebSearch, writes final polished document, optionally writes a **Sweep Advisory** (`{output-path}-advisory.md`) with staff-engineer observations beyond the research scope (framing concerns, blind spots, surprising connections). Notebook cleanup is optional (`--cleanup` flag; **default: keep notebooks** — they're worth preserving for follow-up queries and re-research). Advisory is skipped if there's nothing beyond scope.
 
 **Worker count is decided by the EM** based on topic breadth, NLM tier, and daily query budget:
 - Free tier (50 queries/day): typically 1 worker, 5-6 questions
@@ -46,10 +46,12 @@ The 50 queries/day free-tier limit is the binding constraint. A single run with 
 
 ## Notebook Housekeeping
 
-Notebooks are automatically deleted by the sweep agent after each run. For orphan notebooks from crashed sessions:
+By default, notebooks are **preserved** after research runs — a lot of work goes into assembling them (source ingestion, processing) and they're valuable for follow-up queries, re-research, or sharing. Use `--cleanup` to delete notebooks after a run.
+
+For manual cleanup of accumulated notebooks:
 1. List notebooks via `notebook_list`
 2. Delete stale research notebooks that are no longer needed
-3. Watch for notebooks named `{topic-slug}-{a|b|c}` — these are Pipeline D research notebooks
+3. Research notebooks are named `{topic-slug}-{a|b|c}` — these are Pipeline D notebooks
 
 ## MCP Tools
 

@@ -1,7 +1,7 @@
 ---
 description: "NotebookLM research using Agent Teams — EM scopes directly, then right-sized team (scout + N workers + sweep) executes autonomously. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
-argument-hint: "<topic> [--context file1 file2] [--sources url1 url2]"
+argument-hint: "<topic> [--context file1 file2] [--sources url1 url2] [--cleanup]"
 ---
 
 # NotebookLM Research — Pipeline D (Agent Teams)
@@ -36,6 +36,8 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 
 **Both:** `/notebooklm-research <topic> --context file.md --sources url1`
 
+**With cleanup:** `/notebooklm-research <topic> --cleanup`
+
 ---
 
 ## Execution Flow
@@ -46,6 +48,7 @@ Parse `$ARGUMENTS`:
 - **Topic** (required) — the research subject
 - `--context` (optional) — background files to inform scoping
 - `--sources` (optional) — PM-provided URLs to research (YouTube, podcasts, articles)
+- `--cleanup` (optional) — delete notebooks after research completes. **Default: notebooks are kept.** A lot of work goes into assembling research notebooks (source ingestion, processing); they're usually worth keeping for follow-up queries, re-research, or sharing.
 
 Generate run ID: `{topic-slug}-{YYYYMMDD}` (e.g., `ai-agents-20260321`)
 
@@ -189,6 +192,7 @@ Spawn all teammates in one operation:
 - `[OUTPUT_PATH]` = `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
 - `[ADVISORY_PATH]` = advisory path computed in Step 1
 - `[TASK_ID]` = sweep_task.id
+- `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise
 
 Spawn teammates using these agent types:
 - Scout: `notebooklm:notebooklm-research-scout`
@@ -207,7 +211,7 @@ After spawning the team, report to the PM and stop tracking:
 >
 > - Scout is finding sources (~3-5 min)
 > - Workers will run parallel notebooks (~15-25 min each), writing structured claims (JSON) and a summary per notebook
-> - Sweep agent will assess coverage, fill gaps, and clean up notebooks when done
+> - Sweep agent will assess coverage, fill gaps{', and clean up notebooks' if --cleanup} when done
 >
 > Output will be written to: `{output-path}`
 >
@@ -220,7 +224,7 @@ After spawning the team, report to the PM and stop tracking:
 When the sweep agent sends a completion message:
 
 1. Read `{output-path}`. Verify it's substantive (not empty, not error-only).
-2. Notebooks already cleaned up by sweep agent — note cleanup status from the output doc.
+2. If `--cleanup`: notebooks were deleted by sweep agent — note cleanup status from the output doc. If no `--cleanup`: notebooks are preserved — mention their names/IDs to PM for future reference.
 3. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
 4. Archive scratch directory:
    ```bash
