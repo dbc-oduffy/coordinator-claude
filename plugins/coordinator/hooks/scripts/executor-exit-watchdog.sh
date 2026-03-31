@@ -30,6 +30,7 @@ fi
 # --- Defensive input validation ---
 TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
 SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+AGENT_TYPE=$(echo "$HOOK_INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)
 
 if [[ -z "$TRANSCRIPT_PATH" ]]; then
   echo "⚠️  Watchdog: transcript_path missing from hook input — approving (fail-open)" >&2
@@ -129,6 +130,16 @@ fi
 # --- Tier 2: Heuristic detection (no tag found) ---
 # Count Edit/Write tool calls per file path in transcript
 # Only fires when no exit-status tag was found at all (non-protocol-aware agent)
+#
+# Skip Tier 2 for agent types that legitimately edit the same file many times:
+# enrichers rewrite stub documents in-place, reviewers annotate artifacts,
+# review-integrators apply findings, staff-eng writes position docs.
+case "$AGENT_TYPE" in
+  *enricher*|*reviewer*|*review-integrator*|*staff-eng*|*eng-director*|*docs-checker*|*staff-game-dev*|*senior-front-end*|*staff-ux*|*staff-data-sci*|*ambition-advocate*)
+    # Tier 1 (tag-based) already ran above — this only skips Tier 2 (heuristic)
+    exit 0
+    ;;
+esac
 
 set +e
 # Extract file_path from Edit and Write tool_use blocks in last 100 assistant lines
