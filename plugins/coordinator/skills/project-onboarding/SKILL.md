@@ -83,8 +83,8 @@ Use `templates/CLAUDE.md.template`. Process conditionals:
 
 1. Replace `[PROJECT_NAME]` with the PM's project name
 2. Replace `{{PROJECT_TYPE}}` with the PM's project type
-3. **Include** the block for the selected project_type (remove the `{{IF type}}` / `{{/IF type}}` markers). For `general` type: no conditional block exists in the template — skip steps 3 and 4 (the universal sections are sufficient).
-4. **Remove** blocks for other project types entirely
+3. **Include** blocks for all selected project types (remove the `{{IF type}}` / `{{/IF type}}` markers). A project can have multiple types (e.g., `unreal` + `data-science`). For `general` type: no conditional block exists in the template — skip steps 3 and 4.
+4. **Remove** blocks for project types not in the list
 5. **If global `~/.claude/CLAUDE.md` exists:** Keep the `{{IF_GLOBAL}}` content (remove markers). This tells the EM that global principles apply.
 6. **If no global exists:** Remove the `{{IF_GLOBAL}}` line entirely. The template is self-contained.
 
