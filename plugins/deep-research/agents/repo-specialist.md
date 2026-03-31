@@ -24,10 +24,10 @@ Haiku scouts have already built file inventories for your chunk (`{chunk-letter}
 - **You own your chunk completely** — read files, understand architecture, write findings
 - **Assessment stands alone** — analyze the repo on its own merits FIRST, comparison SECOND
 - **Lead with file:line references:** every claim about the code must be traceable
-- **Cross-pollinate with peers** — message them with relevant cross-chunk findings
+- **Challenge peers actively** — don't just share findings, test their claims. Challenges are expected, not hostile.
 - **Write incrementally** — append findings to your output files as you go, not all at the end
 - **Max 3 messages per peer** — quality over quantity
 
 ## Self-Check
 
-_Before converging: Have I deep-read the key files in my chunk? Have I documented architecture, patterns, data flow, strengths, and limitations? If comparison mode: have I read the project files and compared? Have I incorporated peer messages? Have I sent CONVERGING to peers? Have I sent DONE to the synthesizer?_
+_Before converging: Have I deep-read the key files in my chunk? Have I documented architecture, patterns, data flow, strengths, and limitations? Have I challenged at least one peer claim? If comparison mode: have I read the project files and compared? Have I incorporated peer messages? Have I sent CONVERGING to peers? Have I sent DONE to the synthesizer?_

@@ -6,7 +6,7 @@
 
 Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
 
-- **Internet Research (Pipeline A)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + 3-4 Sonnet specialists + 1 Sonnet consolidator + 1 Opus sweep agent. Specialists research and cross-pollinate, consolidator deduplicates and aligns into a single document, Opus sweep fills negative space and frames the output.
+- **Internet Research (Pipeline A v2.1)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + up to 5 Sonnet specialists + 1 Opus sweep agent. Specialists research, cross-pollinate, and challenge each other's claims (adversarial peers). Specialists output structured JSON claims + markdown summaries. Opus sweep reads specialist outputs directly, performs adversarial coverage check, fills negative space, and frames the output. No consolidator — specialists own their fidelity, sweep reads directly.
 - **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer.
 
 **Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
@@ -263,24 +263,26 @@ Produces:
 
 # Pipeline A: Internet Research (Agent Teams)
 
-## Architecture
+## Architecture (v2.1)
 
 ```
 EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED → [notification] → Cleanup
                         │
                         ├── 1 Haiku scout (read queries from scope.md, build source corpus)
                         │
-                        ├── 3-5 Sonnet specialists (one per topic, blocked by scout)
-                        │   Deep-read sources, verify, cross-pollinate, write findings
+                        ├── up to 5 Sonnet specialists (one per topic, blocked by scout)
+                        │   Deep-read sources, verify, challenge peers, output structured claims + summary
                         │
-                        └── 1 Opus synthesizer (blocked by all specialists)
-                            Cross-reference, resolve contradictions, write synthesis
+                        └── 1 Opus sweep (blocked by all specialists)
+                            Adversarial coverage check → gap-fill research → exec summary + framing
 ```
 
-**Key design decisions:**
-- **No Phase 1 relay.** Sonnet specialists handle discovery supplement themselves (WebSearch). The Haiku scout builds the shared corpus; specialists extend it.
-- **Synthesizer is a teammate, not a manual EM dispatch.** Its task is blocked by all specialist tasks. DONE messages wake it.
-- **Teammates cannot dispatch subagents** (Agent tool excluded from teammate contexts). The EM handles all team creation; teammates work autonomously within the team.
+**Key design decisions (v2.1):**
+- **No consolidator.** v2 had a Sonnet consolidator between specialists and sweep — it became a bottleneck (empirically 4 min slower than the sweep). Specialists own their fidelity via adversarial peer interaction; the sweep reads their outputs directly.
+- **Structured specialist output.** Specialists write JSON claims (`{LETTER}-claims.json`) + markdown summary (`{LETTER}-summary.md`). Primary reader is the EM (Opus), not humans.
+- **Adversarial specialists.** Challenges are expected, not just permitted. Unresolved challenges produce `[CONTESTED]` claims with both sides' evidence.
+- **Sweep phased discipline.** Three explicit sequential phases: (1) assess all claims + emit gap report, (2) fill gaps via web research, (3) frame with exec summary + conclusion.
+- **Deferred to v2.2:** Iterative deepening (research → assess gaps → re-dispatch to specialists), citation-first synthesis, fail-and-retry on weak retrieval.
 
 ## Phase 0: Research Framing (EM Direct, ~5 min)
 
@@ -289,6 +291,8 @@ EM: Phase 0 (scope) → Create team + tasks → Spawn all teammates → FREED �
 3. Craft search queries for the scout (3-5 per topic, including adversarial)
 4. Ask PM for timing preferences
 5. Write scope to `{scratch-dir}/scope.md`
+
+Cap at 5 topics (team size: 1 scout + 5 specialists + 1 sweep = 7). Default 4 topics.
 
 ## Phase 1: Source Discovery (Haiku scout)
 
@@ -305,21 +309,25 @@ Each specialist:
 2. Supplements with own WebSearch if corpus is thin
 3. Deep-reads top sources via WebFetch
 4. Verifies claims, resolves contradictions
-5. Cross-pollinates with peers
-6. Self-governs timing, converges, sends DONE to synthesizer
+5. Cross-pollinates AND challenges peers (adversarial interaction expected)
+6. Outputs structured claims JSON + markdown summary
+7. Self-governs timing, converges, sends DONE to sweep
 
-## Phase 3: Synthesis (Opus synthesizer)
+## Phase 3: Sweep (Opus)
 
-Cross-references all findings, resolves contradictions, produces final research document.
+Three explicit sequential phases:
+1. **Assess:** Read all specialist claims, compare across specialists for contradictions, identify absent claims. Emit gap report.
+2. **Fill gaps:** Research gaps via WebSearch/WebFetch. Investigate cross-topic connections and negative space.
+3. **Frame:** Write exec summary, conclusion, advisory (if beyond-scope).
 
 ## Protocol and Templates
 
-- **Team protocol:** `team-protocol.md` — messaging, convergence, DONE messages
+- **Team protocol:** `team-protocol.md` — messaging, adversarial challenges, convergence, DONE messages
 - **Scout prompt template:** `scout-prompt-template.md` — web search + accessibility vetting
-- **Specialist prompt template:** `specialist-prompt-template.md` — deep-read + verification
+- **Specialist prompt template:** `specialist-prompt-template.md` — structured claims + adversarial messaging
 - **Scout agent:** `agents/research-scout.md` — Haiku, WebSearch/WebFetch
 - **Specialist agent:** `agents/research-specialist.md` — Sonnet, WebSearch/WebFetch + SendMessage
-- **Synthesizer agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline B
+- **Sweep agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline B
 
 ---
 

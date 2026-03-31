@@ -36,20 +36,33 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 
 Announce: "Running Pipeline B (repo research, Agent Teams) on {repo-path}."
 
-## Step 2 — Scope Repository (EM Direct)
+## Step 2 — Orient and Scope Repository (EM Direct)
 
-This is judgment work — the EM does it directly:
+This is judgment work — the EM does it directly. Two phases: orient first, then scope.
+
+### Phase 1: Structural Orientation (do this BEFORE defining chunks)
+
+Read the repo's structural skeleton to ground your scoping in reality, not assumptions:
 
 1. **Read the README** — understand the repo's purpose and architecture
 2. **Pin the version** — record the repo's current version (git tag, release, or commit hash)
 3. **Survey repo structure** — 2-3 `ls` commands on the target repo, plus `find {repo-path} -name '*.py' -o -name '*.ts' -o -name '*.go' | wc -l` (or similar) for file count estimates
-4. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture. (4 chunks because: 7-teammate ceiling - 2 scouts - 1 synthesizer = 4 specialist slots.)
-5. **Assign chunks to scouts** — Scout 1 gets chunks A+B, Scout 2 gets chunks C+D
-6. **Estimate file counts per chunk** — rough counts from the survey (these become `[EXPECTED_FILE_COUNT]` in specialist prompts, used as a tripwire for detecting thin scout output)
-7. **Write focus questions** — what are the key design decisions? What patterns?
-8. **If `--compare`:** identify the project's domain keywords per chunk for comparison file identification
-9. **Ask the PM for timing preferences:**
-   > "Research timing: default is 5-15 min specialist window with 3-file minimum deep-read. For a small repo, I'd suggest 3-10 min / 3 files. For a large repo, 5-20 min / 5 files. What ceiling works for you?"
+4. **Answer four orientation questions** (write answers into scope.md):
+   - What are the entry points? (main files, CLI entry, request handlers, etc.)
+   - What are the 5 most important directories?
+   - What is the architecture pattern? (monolith, microservices, layered, plugin, etc.)
+   - What external dependencies are material to the analysis questions?
+5. **Check for LLM context files** — look for `CONTEXT.md`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, or similar. If present, read them — they're high-signal orientation material that should be surfaced to all specialists.
+
+### Phase 2: Scoping (informed by orientation)
+
+6. **Define exactly 4 chunks** — domain-aligned, based on the repo's own architecture as understood from orientation. (4 chunks because: 7-teammate ceiling - 2 scouts - 1 synthesizer = 4 specialist slots.)
+7. **Assign chunks to scouts** — Scout 1 gets chunks A+B, Scout 2 gets chunks C+D
+8. **Estimate file counts per chunk** — rough counts from the survey (these become `[EXPECTED_FILE_COUNT]` in specialist prompts, used as a tripwire for detecting thin scout output)
+9. **Write focus questions using execution-trace framing** — instead of "describe the architecture of X", prefer "trace the request from [entry] to [exit]" or "how does data flow from [input] to [output]?" Execution-trace questions produce more accurate specialist output than structural questions.
+10. **If `--compare`:** identify the project's domain keywords per chunk for comparison file identification. For comparison mode: specialists will analyze each codebase independently first, then compare answers against the focus questions — not compare code directly.
+11. **Ask the PM for timing preferences:**
+    > "Research timing: default is 5-15 min specialist window with 3-file minimum deep-read. For a small repo, I'd suggest 3-10 min / 3 files. For a large repo, 5-20 min / 5 files. What ceiling works for you?"
 
 Write scope to `{scratch-dir}/scope.md`:
 
@@ -61,6 +74,14 @@ Write scope to `{scratch-dir}/scope.md`:
 **Version:** {version}
 **Date:** {date}
 **Comparison:** {project-path or "none"}
+
+## Structural Orientation
+
+**Entry points:** {main files, CLI entry, request handlers}
+**Key directories:** {top 5 most important directories}
+**Architecture pattern:** {monolith, microservices, layered, plugin, etc.}
+**Material dependencies:** {external deps relevant to analysis}
+**LLM context files:** {CONTEXT.md, CLAUDE.md, etc. — "none" if absent}
 
 ## Chunks
 
