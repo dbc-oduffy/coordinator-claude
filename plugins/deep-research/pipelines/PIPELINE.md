@@ -7,7 +7,7 @@
 Two pipelines for deep investigation, both using Agent Teams (fire-and-forget):
 
 - **Internet Research (Pipeline A v2.1)** — investigate a topic across web sources with multi-agent verification. 1 Haiku scout + up to 5 Sonnet specialists + 1 Opus sweep agent. Specialists research, cross-pollinate, and challenge each other's claims (adversarial peers). Specialists output structured JSON claims + markdown summaries. Opus sweep reads specialist outputs directly, performs adversarial coverage check, fills negative space, and frames the output. No consolidator — specialists own their fidelity, sweep reads directly.
-- **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer. Optional `--deeper` mode adds a dependency-weighted repomap during scoping for specialist prioritization.
+- **Repo Research (Pipeline B)** — study a repository, understand it on its own merits, optionally compare against your project. 2 Haiku scouts + 4 Sonnet specialists + 1 Opus synthesizer. Optional `--deeper` mode adds a dependency-weighted repomap; `--deepest` adds architecture atlas artifacts via a post-synthesis Wave 2 agent.
 
 **Both pipelines use Agent Teams.** The EM scopes, spawns a team, and is freed. The team handles everything autonomously.
 
@@ -161,21 +161,36 @@ Cross-references all findings and produces:
 
 **Output format:** Inline in `repo-synthesizer-prompt-template.md`.
 
+## Phase 3.5: Atlas Generation (only if `--deepest`)
+
+**Model:** Sonnet (subagent, not teammate). **Input:** All scout inventories, specialist assessments, synthesis, repomap.
+
+After synthesis completes, TeamDelete frees the team slot. The EM dispatches a Sonnet subagent that produces 4 atlas artifacts from the research findings:
+- **File index** — every file → system (chunk) mapping
+- **System map** — ASCII connectivity diagram
+- **Connectivity matrix** — cross-system dependency counts
+- **Architecture summary** — per-system details with YAML metadata
+
+Systems = EM-defined chunks. Atlas from assessment data only (no comparison data). Atlas failure is non-blocking — assessment is committed regardless.
+
+**Timing:** 10-minute ceiling with self-timing.
+
 ## Phase 4: Cleanup (EM)
 
 1. Verify synthesis has substantive content
-2. Commit
-3. Archive paper trail to `docs/research/archive/`
-4. Delete scratch directory
-5. Shut down team
-6. Present executive summary to PM
+2. If `--deepest`: verify atlas artifacts, copy to output directory
+3. Commit
+4. Archive paper trail to `docs/research/archive/`
+5. Delete scratch directory
+6. Present executive summary to PM (mention atlas artifacts if `--deepest`)
 
 ## Protocol and Templates
 
-- **Team protocol:** `repo-team-protocol.md` — blocking chain, timing, DONE messages, comparison mode
+- **Team protocol:** `repo-team-protocol.md` — blocking chain, timing, DONE messages, comparison mode, deeper/deepest modes
 - **Scout prompt template:** `repo-scout-prompt-template.md` — file inventory + comparison file identification
 - **Specialist prompt template:** `repo-specialist-prompt-template.md` — dual-output analysis + DONE convergence
 - **Synthesizer prompt template:** `repo-synthesizer-prompt-template.md` — synthesis with Phase 4 template reference
+- **Atlas prompt template:** `repo-atlas-prompt-template.md` — post-synthesis atlas generation (`--deepest` only)
 - **Scout agent:** `agents/repo-scout.md` — Haiku, Read/Glob/Grep, no SendMessage
 - **Specialist agent:** `agents/repo-specialist.md` — Sonnet, Read/Glob/Grep + SendMessage
 - **Synthesizer agent:** `agents/research-synthesizer.md` — Opus, shared with Pipeline A

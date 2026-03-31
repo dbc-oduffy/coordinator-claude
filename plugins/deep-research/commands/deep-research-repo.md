@@ -1,7 +1,7 @@
 ---
 description: "Pipeline B (Repo Research) using Agent Teams — 2 Haiku scouts build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. EM scopes, spawns the team, and is freed."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
-argument-hint: "<repo-path> [--compare <project-path>] [--deeper]"
+argument-hint: "<repo-path> [--compare <project-path>] [--deeper] [--deepest]"
 ---
 
 # Deep Research — Pipeline B (Repo Research) Agent Teams Driver
@@ -19,10 +19,11 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 - `<repo-path>` — path to the repository to research (required)
 - `--compare <project-path>` — optional path to a project to compare against
 - `--deeper` — generate a dependency-weighted repomap during scoping, giving specialists structural centrality rankings to prioritize deep-reads
+- `--deepest` — all of `--deeper`, plus generate architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings after synthesis completes. Two-wave pipeline: Wave 1 is the standard team, Wave 2 dispatches a Sonnet atlas agent.
 
 ## Step 1 — Setup
 
-1. Parse arguments: extract repo path, optional comparison path, and `--deeper` flag
+1. Parse arguments: extract repo path, optional comparison path, `--deeper` flag, and `--deepest` flag. **Note:** `--deepest` implies `--deeper` — if `--deepest` is set, treat `--deeper` as also set.
 2. Verify the repo path exists and contains files
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
@@ -35,8 +36,13 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 8. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the assessment output path)
 9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-{topic-slug}-gap-analysis.md`
 10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
+11. If `--deepest`: set atlas output paths:
+    - `docs/research/YYYY-MM-DD-{topic-slug}-file-index.md`
+    - `docs/research/YYYY-MM-DD-{topic-slug}-system-map.md`
+    - `docs/research/YYYY-MM-DD-{topic-slug}-connectivity-matrix.md`
+    - `docs/research/YYYY-MM-DD-{topic-slug}-architecture-summary.md`
 
-Announce: "Running Pipeline B (repo research, Agent Teams{', deeper mode' if --deeper}{', comparison mode' if --compare}) on {repo-path}."
+Announce: "Running Pipeline B (repo research, Agent Teams{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
 ## Step 2 — Orient and Scope Repository (EM Direct)
 
@@ -295,19 +301,63 @@ When you receive a notification that the synthesis task is complete:
 2. Verify it has substantive content (not just headers)
 3. If comparison mode: read the gap analysis at `{gap-analysis-path}` and verify
 4. Check for advisory: `test -f {advisory-path}` — if the file exists, read it
-5. Commit:
+5. Shut down the team: `TeamDelete(team_name: "repo-research-{topic-slug}")` — frees the team slot. The scratch directory persists.
+6. If `--deepest`: proceed to **Step 6.5** before archiving. Otherwise, skip to step 7.
+7. Commit:
    ```bash
    git add -A && git commit -m "deep-research: complete — {topic-slug}"
    ```
-5. Archive paper trail:
+8. Archive paper trail:
    ```bash
    mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
    rm -rf {scratch-dir}
    ```
-6. Shut down the team: `TeamDelete(team_name: "repo-research-{topic-slug}")`
-7. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
-8. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`."
+9. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
+10. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations.
+
+## Step 6.5 — Atlas Generation (only if `--deepest`)
+
+**Wave 2:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent to produce architecture atlas artifacts from the research team's findings.
+
+1. **Read the atlas prompt template** from:
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-atlas-prompt-template.md`
+
+2. **Fill in template fields:**
+   - `[REPO_NAME]`, `[DATE]`, `[RUN_ID]`
+   - `[SYSTEM_A_NAME]` through `[SYSTEM_D_NAME]` → chunk descriptions from scope.md
+   - `[CHUNK_A_DESCRIPTION]` through `[CHUNK_D_DESCRIPTION]` → from scope.md
+   - `[SCRATCH_DIR]` → scratch directory path
+   - `[SYNTHESIS_PATH]` → the synthesis document path (`{output-path}`)
+   - `[SPAWN_TIMESTAMP]` → current `date +%s`
+   - `[VERSION]` → repo version from scope.md
+
+3. **Dispatch the atlas agent:**
+   ```
+   Agent(
+     model: "sonnet",
+     prompt: <filled atlas prompt>
+   )
+   ```
+   This is a regular subagent, not a teammate — the team has been deleted.
+
+4. **Verify atlas artifacts** — check that all 4 files exist and have substantive content:
+   - `{scratch-dir}/atlas-file-index.md`
+   - `{scratch-dir}/atlas-system-map.md`
+   - `{scratch-dir}/atlas-connectivity-matrix.md`
+   - `{scratch-dir}/atlas-architecture-summary.md`
+
+5. **If verification passes:** Copy atlas artifacts to output directory:
+   ```bash
+   cp {scratch-dir}/atlas-file-index.md {atlas-file-index-path}
+   cp {scratch-dir}/atlas-system-map.md {atlas-system-map-path}
+   cp {scratch-dir}/atlas-connectivity-matrix.md {atlas-connectivity-matrix-path}
+   cp {scratch-dir}/atlas-architecture-summary.md {atlas-architecture-summary-path}
+   ```
+
+6. **If verification fails:** Proceed without atlas artifacts. Note to PM: "Atlas generation failed or produced thin output — assessment is complete, atlas artifacts missing." The assessment is the primary deliverable; atlas is additive.
+
+7. Return to Step 6 step 7 (commit + archive).
 
 ## Error Handling
 
@@ -320,3 +370,6 @@ When you receive a notification that the synthesis task is complete:
 | Synthesizer doesn't wake after all specialists complete | Verify specialists sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
 | All specialists fail | TeamDelete, report to PM |
 | Team creation fails | Report to PM |
+| Atlas agent fails (--deepest) | Commit assessment without atlas. Note to PM: "Atlas generation failed — assessment is complete." Atlas is additive, not blocking. |
+| Atlas agent produces partial output (--deepest) | Accept what exists, note thin coverage to PM |
+| Atlas agent exceeds 10-min ceiling (--deepest) | Proceed without atlas, report to PM |

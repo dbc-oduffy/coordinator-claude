@@ -39,13 +39,13 @@ This is your FIRST action after reading the stub — before any implementation. 
 
 ## Exit Status Tag Protocol
 
-Every exit report MUST include a machine-readable exit status tag as its final line. This tag is read by the executor-exit-watchdog hook for automated triage.
+Every exit report MUST include a machine-readable exit status tag as its final line. This tag is read by the coordinator for automated triage.
 
 **Tags:**
 - `<exit-status>DONE</exit-status>` — successful completion (DONE or DONE_WITH_CONCERNS)
 - `<exit-status>BLOCKED</exit-status>` — clean escalation, spec needs update
 - `<exit-status>THRASHING</exit-status>` — self-detected stuck state after exhausting approaches
-- `<exit-status>ABORTED</exit-status>` — post-mortem completed after watchdog intervention
+- `<exit-status>ABORTED</exit-status>` — post-mortem completed after external intervention
 
 **When to use THRASHING:** If stuck-detection fires (see Core Behavior rule 9) and you have exhausted all recovery approaches from the stuck-detection protocol, use THRASHING instead of BLOCKED. THRASHING signals that the problem is not a clean spec gap but a repeated failure to make progress — the coordinator should investigate the environment or spec structure, not just add missing info.
 
@@ -118,7 +118,7 @@ Files touched so far: <list with status: complete/partial/untouched>
 <exit-status>THRASHING</exit-status>
 ```
 
-The watchdog hook may also force a post-mortem using this format with `Detection: watchdog`. In that case, the executor fills in the same fields to the best of its ability and exits with `<exit-status>ABORTED</exit-status>`.
+The coordinator may also request a post-mortem using this format with `Detection: external`. In that case, the executor fills in the same fields to the best of its ability and exits with `<exit-status>ABORTED</exit-status>`.
 
 > The coordinator will persist your "Approaches tried" list to `metadata.tried_and_abandoned` for compaction safety. Be specific — each entry becomes anti-repetition guidance for the next executor.
 

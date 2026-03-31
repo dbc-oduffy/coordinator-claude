@@ -160,6 +160,27 @@ When `--deeper` is provided, the EM generates a dependency-weighted repomap duri
 
 **Composes with `--compare`:** Both flags can be used simultaneously. The repomap informs prioritization; comparison mode adds the project comparison artifacts.
 
+## Deepest Mode
+
+When `--deepest` is provided, Pipeline B runs as a **two-wave pipeline**. `--deepest` implies `--deeper` (repomap is always generated).
+
+**Wave 1 (Team):** The standard 7-agent team runs unchanged — scouts, specialists, synthesizer produce the assessment. TeamDelete after synthesis completes.
+
+**Wave 2 (Atlas — post-synthesis):** The EM dispatches a single Sonnet subagent (not a teammate — the team has been deleted) that reads all research artifacts from the scratch directory and produces 4 architecture atlas artifacts:
+
+1. **File index** — every file mapped to its system (chunk). Source: scout inventories.
+2. **System map** — ASCII connectivity diagram. Source: specialist data flows + synthesis cross-system insights.
+3. **Connectivity matrix** — cross-system dependency counts with connection details. Source: specialist + synthesis findings.
+4. **Architecture summary** — per-system detail pages with metadata, narrative, flow diagrams, and observations. Source: specialist assessments + synthesis + repomap centrality.
+
+**System taxonomy:** Systems map to EM-defined chunks (A, B, C, D) with their chunk descriptions as system names. The atlas agent does not invent its own groupings.
+
+**Atlas from assessment only:** Atlas artifacts describe the repo on its own merits — no comparison data incorporated, consistent with the assessment/comparison decoupling principle.
+
+**Error handling:** Atlas failure is non-blocking. If the atlas agent fails, the assessment is committed without atlas artifacts and the PM is notified.
+
+**Composes with `--compare`:** `--deepest --compare` produces assessment + comparison + atlas. The atlas draws from assessment data only; comparison artifacts are independent.
+
 ## Comparison Mode
 
 When `--compare <project-path>` is provided:

@@ -100,7 +100,6 @@ The coordinator plugin is the backbone of the system. It provides:
 - **PreToolUse (WebSearch|WebFetch)** — suggest-sonnet-research: advisory to use deep-research pipelines instead of direct web calls
 - **PostToolUse (ExitPlanMode)** — plan-persistence-check: ensures plan content is written to disk, not held in context
 - **PostToolUse (all)** — context-pressure-advisory: monitors context usage, nudges handoff creation before compaction
-- **SubagentStop** — executor-exit-watchdog: detects executor agents that exit without protocol-compliant status tags
 - **PreCompact** — context-pressure-precompact: fires just before compaction, prompts immediate handoff creation
 
 ## Routing Extension Protocol

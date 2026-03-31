@@ -118,7 +118,7 @@ coordinator-claude/
 │   │   ├── .claude-plugin/plugin.json
 │   │   ├── agents/             # enricher, executor, reviewers, review-integrator, eng-director
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
-│   │   ├── hooks/              # context pressure advisory, executor watchdog, validate-commit
+│   │   ├── hooks/              # context pressure advisory, validate-commit
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
 │   │   └── skills/             # 23 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
