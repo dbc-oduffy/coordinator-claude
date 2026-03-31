@@ -1,6 +1,6 @@
 # Deep Research Structured Team Protocol
 
-> Referenced by agent definitions and `deep-research-structured.md` command.
+> Referenced by agent definitions and `structured.md` command.
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # Structured Research Verifier Prompt Template
 
-> Used by `deep-research-structured.md` to construct each verifier's spawn prompt. Fill in bracketed fields.
+> Used by `structured.md` to construct each verifier's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

@@ -2,7 +2,7 @@
 
 Multi-agent deep research pipelines for Claude Code. All pipelines use Agent Teams (fire-and-forget):
 
-- **Pipeline A (Internet Research)** — investigate a topic across web sources via 1 Haiku scout (source corpus) + 3-5 Sonnet specialists (deep-read + verify) + 1 Opus synthesizer
+- **Pipeline A (Internet Research, v2.2)** — investigate a topic across web sources with iterative deepening. Team 1: 1 Haiku scout + 3-5 Sonnet specialists (adversarial peers) + 1 Opus sweep. Optional Team 2 for gap-focused follow-up.
 - **Pipeline B (Repo Research)** — study a repository's architecture via 2 Haiku scouts (file inventory) → 4 Sonnet specialists (analysis + optional comparison) → 1 Opus synthesizer
 - **Pipeline C (Structured Research)** — schema-conforming batch research via 1 Haiku scout + 1-5 Sonnet verifiers (1 per topic) + 1 Opus synthesizer; outputs YAML/JSON matching the spec's output_schema
 
@@ -17,8 +17,8 @@ Without this, `/deep-research` will fail.
 
 ## Commands
 
-- `/deep-research web <topic>` — Pipeline A: internet research
-- `/deep-research repo <path> [--compare <project-path>]` — Pipeline B: repo assessment (+ optional comparison)
+- `/deep-research web <topic> [--shallow]` — Pipeline A: internet research (iterative deepening by default; `--shallow` for single-pass)
+- `/deep-research repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
 - `/deep-research structured <spec-path> [subject-key]` — Pipeline C: structured research
 
 ## How It Works
@@ -42,14 +42,17 @@ All three pipelines follow the same Agent Teams pattern:
 - Synthesizer produces YAML/JSON conforming to the spec's `output_schema`
 - Manifest tracks completion per subject with `manifest_version: 2`
 
-### Pipeline A specifics
+### Pipeline A specifics (v2.2)
 - 1 Haiku scout — builds shared source corpus from web searches
-- Specialists verify claims, resolve contradictions, enforce source recency
+- Specialists verify claims, resolve contradictions, enforce source recency, challenge peers (adversarial cross-pollination)
+- Iterative deepening (default): sweep produces structured gap report; if significant gaps remain, EM dispatches Team 2 (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. `--shallow` skips.
 - Team protocol: `pipelines/team-protocol.md`
 
 ### Pipeline B specifics
 - 2 Haiku scouts (2 chunks each) — produces structured file inventories with function signatures, constants, data flow
 - In `--compare` mode: scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md
+- In `--deeper` mode: EM generates dependency-weighted repomap during scoping; specialists read it before inventories to prioritize structurally central files
+- In `--deepest` mode (implies `--deeper`): after synthesis, a Sonnet subagent produces architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings
 - Team protocol: `pipelines/repo-team-protocol.md`
 
 ### Pipeline C specifics

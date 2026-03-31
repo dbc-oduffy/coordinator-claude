@@ -1,77 +1,60 @@
 # NotebookLM Research Team Protocol
 
-> Referenced by agent definitions and `notebooklm-research.md` command.
+> Referenced by agent definitions and `research.md` command.
 
 ## Overview
 
-Agent Teams-based NotebookLM research: the EM scopes research and dispatches an Opus strategist (Phase 1) that designs the full research plan — notebook topology, questions, source strategy, worker count. The EM then creates a right-sized team (scout + N workers + synthesizer) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, synthesis, and cleanup.
+Agent Teams-based NotebookLM research: the EM scopes research directly — designing notebook topology, questions, source strategy, and worker count — then creates a right-sized team (scout + N workers + sweep) and is **freed**. The team handles everything autonomously — source discovery, notebook creation, ingestion, querying, coverage assessment, and gap-filling. Notebook cleanup is optional (`--cleanup` flag; default: keep).
 
-## Two-Phase Architecture
+## Architecture
 
-**Phase 1 — Strategist (pre-team, regular Agent dispatch):**
 ```
-EM: "Research X" + context → dispatch Opus strategist → WAIT for completion
-                                    │
-                                    └── Writes: {scratch-dir}/strategy.md
-                                        Includes: worker_count (1-3),
-                                        notebook topology, questions, source strategy
-```
-
-**Phase 2 — Right-Sized Agent Team:**
-```
-EM: reads strategy.md → creates team with N workers → Spawn all → FREED
+EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + sweep) → FREED
          │
          ├── Haiku scout (no blockers)
          │   Reads strategy.md, finds best YouTube / podcast / article sources
          │   Writes: {scratch-dir}/sources.md
          │
-         ├── Sonnet worker(s) (blockedBy: scout) — 1 to 3, per strategist
+         ├── Sonnet worker(s) (blockedBy: scout) — 1 to 3, per strategy.md
          │   Each creates own notebook, ingests assigned sources, queries
-         │   Writes: {scratch-dir}/{letter}-findings.md
-         │   Sends DONE → synthesizer
+         │   Writes: {scratch-dir}/{letter}-claims.json + {letter}-summary.md
+         │   Sends DONE → sweep
          │
-         └── Opus synthesizer (blockedBy: all workers)
-             Reads all findings, cross-references across notebooks
+         └── Opus sweep (blockedBy: all workers)
+             Reads all claims (JSON), assesses coverage, fills gaps
              Writes: {output-path}
              Writes: {output-path}-advisory.md (if anything beyond scope)
-             Cleans up notebooks
+             Cleans up notebooks (if --cleanup)
 ```
 
 ## Team Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Strategist** | Opus | 1 | Pre-team planner — encodes all NLM domain expertise, decides worker count, designs notebook topology, crafts questions |
 | **Scout** | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
-| **Worker** | Sonnet | 1-3 | Creates own notebook, ingests assigned sources, runs queries, writes findings, sends DONE to synthesizer |
-| **Synthesizer** | Opus | 1 | Cross-references all worker findings, writes final polished document, optionally writes Synthesizer Advisory, cleans up notebooks |
-
-The strategist is NOT a teammate — it's dispatched as a regular Agent in Phase 1. All other roles are teammates spawned in Phase 2.
+| **Worker** | Sonnet | 1-3 | Creates own notebook, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, sends DONE to sweep |
+| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, optionally writes advisory, optionally cleans up notebooks (if `--cleanup`) |
 
 ## Team Lifecycle
 
 ```
-Phase 1:
-EM: scope + write em-context.md → Dispatch strategist → WAIT → Read strategy.md → Extract worker_count
-
-Phase 2:
-EM: Create team → Spawn (scout + workers + synthesizer) → FREED
+EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + sweep) → FREED
 
 Scout: Read strategy.md → WebSearch / WebFetch → Write sources.md → Mark complete → [idle]
-Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Ingest → Query → Write findings → Mark complete → DONE to synthesizer
-Synthesizer: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read findings → Synthesize → Write advisory (if anything beyond scope) → Notebook cleanup → Mark complete
+Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Ingest → Query → Extract claims → Write {letter}-claims.json + {letter}-summary.md → Mark complete → DONE to sweep
+Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → Notebook cleanup (if --cleanup) or list preserved → Mark complete
 ```
 
 ## Blocking Chain
 
 ```
 Scout (no blockers) ──────→ task completion unblocks workers
-Workers (blockedBy: scout) ──→ DONE messages wake synthesizer
-Synthesizer (blockedBy: all workers) ──→ mark complete notifies EM
+Workers (blockedBy: scout) ──→ DONE messages wake sweep
+Sweep (blockedBy: all workers) ──→ mark complete notifies EM
 ```
 
 - **Scout → Workers:** Task-gated via `blockedBy`. Workers unblock when scout marks its task complete. No messaging needed — workers haven't started yet (auto-wake confirmed empirically 2026-03-21).
-- **Workers → Synthesizer:** Task-gated via `blockedBy` + DONE messages as wake-up signals. The synthesizer is already running but idle — it needs explicit DONE messages to trigger its next poll cycle (confirmed empirically 2026-03-21).
+- **Workers → Sweep:** Task-gated via `blockedBy` + DONE messages as wake-up signals. The sweep is already running but idle — it needs explicit DONE messages to trigger its next poll cycle (confirmed empirically 2026-03-21).
 
 ### How Agent Teams Blocking Actually Works (empirical + sourced)
 
@@ -84,26 +67,11 @@ Agent Teams uses **file-based polling, not callbacks**. Task state lives in JSON
 | **Task-blocked (pending)** | Not yet started — `pending` status, waiting for blockers | `TaskList()` re-evaluates `blockedBy` on next poll; agent auto-starts when unblocked | No — auto-wake works |
 | **Message-blocked (idle)** | Started, checked status, went idle waiting | Needs an inbox message to trigger the next poll cycle | Yes — explicit DONE message required |
 
-The scout→worker transition is scenario 1 (auto-wake). The worker→synthesizer transition is scenario 2 (DONE messages needed). Both confirmed empirically 2026-03-21.
+The scout→worker transition is scenario 1 (auto-wake). The worker→sweep transition is scenario 2 (DONE messages needed). Both confirmed empirically 2026-03-21.
 
 **Shutdown behavior:** Teammates prioritize completing their current work loop over acknowledging shutdown requests. Expect the convergence protocol (write → mark complete → DONE) to run before shutdown acknowledgment. This is good for data integrity but means team teardown takes 30-60 seconds after shutdown requests are sent.
 
 **Sources:** [Claude Code official docs](https://code.claude.com/docs/en/agent-teams), [reverse-engineering analysis (nwyin.com)](https://nwyin.com/blogs/claude-code-agent-teams-reverse-engineered.html), [swarm orchestration guide (kieranklaassen gist)](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea).
-
-## Strategist Protocol (Phase 1 — pre-team)
-
-The strategist encodes all NotebookLM domain expertise so the EM doesn't need any:
-
-1. **Read EM context** from `{scratch-dir}/em-context.md` — topic, background, desired outcome, tier info, PM-provided sources
-2. **Assess topic breadth** — single focused question vs. broad multi-angle investigation
-3. **Decide worker count** (1-3): 1 for focused single-topic, 2 for moderate breadth, 3 for broad multi-angle
-4. **Factor rate limit budget** — tier quotas (50/500/5000 queries/day), usage today, total expected queries
-5. **Design notebook topology** — one topic cluster per notebook, 2-10 sources per notebook
-6. **Craft questions** — anti-hallucination rules, high-value templates, citation forcing
-7. **Specify source strategy** per notebook — scout-provided URLs or `research_start` NLM discovery
-8. **Write `strategy.md`** with YAML frontmatter + `## Notebook A/B/C` sections
-
-**Timing:** 5 minute ceiling. Phase 1 agent (not a teammate) — write the strategy and return.
 
 ## Scout Protocol
 
@@ -132,28 +100,28 @@ This prevents a race condition where a worker reads sources.md before the scout 
 - If source strategy is "scout-provided": ingest scout-provided URLs via `source_add`
 - If source strategy is "research_start": use `research_start` MCP tool for NLM discovery
 - Creates own notebook named `{topic-slug}-{letter}`
-- **Records notebook ID in findings file** (for synthesizer cleanup)
-- Runs all assigned research questions
-- Writes findings to `{scratch-dir}/{letter}-findings.md`
-- Marks task `completed`, sends DONE message to synthesizer
+- Runs all assigned research questions, extracting structured claims per response
+- **Records notebook ID in summary file** (for sweep cleanup)
+- Writes `{scratch-dir}/{letter}-claims.json` (structured claim objects) and `{scratch-dir}/{letter}-summary.md` (human-readable overview with notebook metadata)
+- Marks task `completed`, sends DONE message to sweep
 
-**Timing:** 25 minute ceiling (configurable by strategist in strategy.md). Note: source ingestion time depends on NLM processing speed for the content type.
+**Timing:** 25 minute ceiling (configurable via `estimated_ceiling` in strategy.md). Note: source ingestion time depends on NLM processing speed for the content type.
 
 ## Message Protocol
 
-### Worker → Synthesizer (Wake-Up Signal)
+### Worker → Sweep (Wake-Up Signal)
 
-`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Workers must explicitly message the synthesizer after completing their task:
+`blockedBy` is a status gate, not an event trigger — completing a blocker task does NOT automatically wake the blocked teammate. Workers must explicitly message the sweep after completing their task:
 
 | Category | Format | When |
 |---|---|---|
-| **DONE** | `"DONE: Notebook {letter} findings written to {scratch-dir}/{letter}-findings.md"` | After marking own task `completed` |
+| **DONE** | `"DONE: Notebook {letter} claims written to {scratch-dir}/{letter}-claims.json and {scratch-dir}/{letter}-summary.md"` | After marking own task `completed` |
 
-This is the synthesizer's wake-up mechanism. Each DONE message causes the synthesizer to re-check `TaskList`. When all worker tasks show `completed`, it proceeds with synthesis.
+This is the sweep's wake-up mechanism. Each DONE message causes the sweep to re-check `TaskList`. When all worker tasks show `completed`, it proceeds with coverage assessment and gap-filling.
 
 ### Volume Governance
 
-- **Worker → synthesizer: exactly 1 DONE message per worker**
+- **Worker → sweep: exactly 1 DONE message per worker**
 - **Scout: no messages** (task completion handles unblocking)
 - **No worker → worker messaging** — workers operate independent notebooks with no cross-pollination during execution
 
@@ -161,16 +129,15 @@ This is the synthesizer's wake-up mechanism. Each DONE message causes the synthe
 
 | Agent | Ceiling | Notes |
 |-------|---------|-------|
-| Strategist (Phase 1) | 5 min | Pre-team planning agent — write and return |
 | Scout | 5 min | Mechanical discovery — go fast |
 | Workers | 25 min (default) | Configurable via strategy.md `estimated_ceiling` field. NLM ingestion time varies. |
-| Synthesizer | No strict ceiling | Runs after all workers complete; writes final doc then cleans up notebooks |
+| Sweep | No strict ceiling | Runs after all workers complete; assesses coverage, fills gaps, writes final doc then cleans up notebooks |
 
 **Clock mechanism:** Spawn timestamp is provided in each prompt as `[SPAWN_TIMESTAMP]` (Unix epoch seconds). Agents check elapsed time via `date +%s` in Bash and compare against spawn timestamp.
 
 ## Rate Limit Budgeting
 
-The strategist factors NLM tier limits into its decisions:
+The EM factors NLM tier limits into its scoping decisions:
 
 | Tier | Queries/day | Worker count guidance |
 |------|-------------|----------------------|
@@ -182,7 +149,7 @@ Workers report remaining quota if available from MCP responses. Strategy.md incl
 
 ## Data Contract
 
-**strategy.md** (written by strategist, read by scout + workers):
+**strategy.md** (written by EM, read by scout + workers):
 
 ```markdown
 ---
@@ -223,35 +190,58 @@ Generated by scout at [timestamp].
 Notebook C uses research_start — worker should use NLM discovery, not scout-provided URLs.
 ```
 
-**{letter}-findings.md** (written by workers, read by synthesizer):
+**{letter}-claims.json** (written by workers, read by sweep):
+
+```json
+[
+  {
+    "id": "{letter}-001",
+    "finding": "Specific factual finding extracted from NLM response",
+    "evidence_excerpt": "Most relevant 1-3 sentences from NLM response. Prefix with [PARAPHRASED] if condensed.",
+    "query": "The question that produced this finding",
+    "notebook_sources": ["Source 1 title", "Source 3 title"],
+    "confidence": "HIGH | MEDIUM | LOW",
+    "type": "fact | limitation | pattern | recommendation | capability",
+    "cross_notebook": "B — contradicts their source quality finding (or null)",
+    "transcription_suspect": false
+  }
+]
+```
+
+**{letter}-summary.md** (written by workers, read by sweep):
 
 ```markdown
 # NotebookLM Research: {topic} — Notebook {letter}
 
 ## Metadata
-- **Notebook ID:** {id}    ← synthesizer reads this for cleanup
+- **Notebook ID:** {id}    ← sweep reads this for cleanup
 - **Notebook Name:** {name}
+- **Queries Asked:** {N}
+- **Sources Ingested:** {M}
 - ...
+
+## Overview
+[Human-readable summary of the notebook's findings]
 ```
 
 ## Failure Handling
 
-- **Auth expiry (worker):** Call `refresh_auth`, retry once. If it fails again, write partial findings and send DONE with failure note.
-- **Source ingestion failure (worker):** Log the failure in findings, continue with remaining sources. Do not abort.
-- **research_start failure (worker):** Retry once. If persistent, note failure in findings and attempt alternative sources if scout provided any.
-- **Rate limiting (worker):** Write partial findings immediately. Send DONE with rate limit note. Do not retry — the synthesizer will note the gap.
+- **Auth expiry (worker):** Call `refresh_auth`, retry once. If it fails again, write partial claims and send DONE with failure note.
+- **Source ingestion failure (worker):** Log the failure in summary.md, continue with remaining sources. Do not abort.
+- **research_start failure (worker):** Retry once. If persistent, note failure in summary.md and attempt alternative sources if scout provided any.
+- **Rate limiting (worker):** Write partial claims immediately. Send DONE with rate limit note. Do not retry — the sweep will note the gap.
 - **Query failure (worker):** Retry once. Log and continue with remaining questions.
 - **Scout finds no sources for a notebook:** Worker falls back to self-directed discovery (targeted WebSearch for the notebook's topic area) or uses `research_start` if topic allows.
 - **Scout times out (partial sources.md):** Workers use what's available + note which notebooks have incomplete source lists.
-- **All workers fail:** Synthesizer marks itself failed, EM is notified (no completed worker tasks).
+- **All workers fail:** Sweep marks itself failed, EM is notified (no completed worker tasks).
 
 ## Scratch Directory
 
 `tasks/scratch/notebooklm-research/{run-id}/`
+<!-- NOTE: scratch directory name kept as notebooklm-research for backward compatibility with existing runs -->
 
-- Strategist context: `{scratch-dir}/em-context.md`
-- Strategist output: `{scratch-dir}/strategy.md`
+- Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`
-- Worker outputs: `{scratch-dir}/{letter}-findings.md` (A, B, C as applicable)
-- Final synthesis: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
-- Synthesizer advisory: `{output-path}-advisory.md` (+ backup at `{scratch-dir}/advisory.md`); omitted if nothing beyond scope
+- Worker outputs: `{scratch-dir}/{letter}-claims.json` + `{scratch-dir}/{letter}-summary.md` (A, B, C as applicable)
+- Final output: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
+- Sweep advisory: `{output-path}-advisory.md` (+ backup at `{scratch-dir}/advisory.md`); omitted if nothing beyond scope

@@ -72,8 +72,8 @@ Determine the current state of the codebase — not "what happened this session"
    git log --oneline origin/HEAD..HEAD 2>/dev/null  # committed but not pushed
    ```
 
-5. **Temporal memory cross-reference** (if `.remember/` exists):
-   Read `.remember/recent.md` (last 7 days of activity) and cross-reference against the project tracker. Look for:
+5. **Session memory cross-reference** (if remember plugin is active):
+   Read `memory/sessions/recent.md` from the project's memory directory (`~/.claude/projects/<slug>/memory/sessions/recent.md`) and cross-reference against the project tracker. Look for:
    - **Untracked work:** Activity in the temporal log that doesn't correspond to any tracked workstream — potential drift or ad-hoc work that should be captured
    - **Stale workstreams:** Tracker items with no corresponding activity in the temporal log — may need status updates or deprioritization
    - **Completed but unrecorded:** Work described as done in the temporal log but still marked in-progress in the tracker
@@ -200,7 +200,7 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
    # Count across distillation source directories
    PLANS=$(find docs/plans/ .claude/plans/ -name "*.md" 2>/dev/null | wc -l)
    HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
-   COMPLETED=$(find docs/completed-work/ -name "*.md" 2>/dev/null | wc -l)
+   COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
    TASKS=$(find tasks/ -mindepth 2 -name "*.md" -not -path "tasks/architecture-atlas/*" -not -name "lessons.md" -not -name "health-ledger.md" -not -name "bug-backlog.md" -not -name "debt-backlog.md" 2>/dev/null | wc -l)
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```
@@ -226,7 +226,7 @@ Present a concise summary:
 - [Maintained — N items archived, M remaining / No tracker found — NEEDS PM+EM SETUP / No changes needed]
 - Active workstreams: [N] [⚠️ exceeds limit of 5 — consider consolidating]
 - Dependencies resolved: [N] / Dead references: [list if any]
-- Temporal memory cross-ref: [N untracked activities, M stale workstreams / aligned / .remember/ not active]
+- Temporal memory cross-ref: [N untracked activities, M stale workstreams / aligned / session memory not active]
 
 ### Source Indexes
 - [Created from scratch (N directories, M files) / Updated — N files added, M removed / No changes needed]

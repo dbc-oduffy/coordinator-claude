@@ -10,17 +10,50 @@ PLUGIN_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 
 # Default: no coordinator.local.md found
-PROJECT_TYPE=""
+PROJECT_TYPES=""
 
 if [ -n "$REPO_ROOT" ]; then
   LOCAL_MD="$REPO_ROOT/.claude/coordinator.local.md"
   if [ -f "$LOCAL_MD" ]; then
-    # Extract project_type from YAML frontmatter
-    PROJECT_TYPE=$(sed -n '/^---$/,/^---$/{ /^project_type:/{ s/^project_type:[[:space:]]*//; p; } }' "$LOCAL_MD")
+    # Extract project_type(s) from YAML frontmatter
+    # Supports both single value (project_type: meta) and list (project_type:\n  - unreal\n  - data-science)
+    IN_FRONTMATTER=false
+    IN_PROJECT_TYPE=false
+    PROJECT_TYPES=""
+    while IFS= read -r line; do
+      if [ "$line" = "---" ]; then
+        if $IN_FRONTMATTER; then break; else IN_FRONTMATTER=true; continue; fi
+      fi
+      $IN_FRONTMATTER || continue
+      # Single-value: project_type: foo
+      if echo "$line" | grep -qE '^project_type:[[:space:]]+[^[:space:]]'; then
+        val=$(echo "$line" | sed 's/^project_type:[[:space:]]*//')
+        PROJECT_TYPES="$val"
+        IN_PROJECT_TYPE=false
+        continue
+      fi
+      # List header: project_type:
+      if echo "$line" | grep -qE '^project_type:[[:space:]]*$'; then
+        IN_PROJECT_TYPE=true
+        continue
+      fi
+      # List item:   - foo
+      if $IN_PROJECT_TYPE; then
+        if echo "$line" | grep -qE '^[[:space:]]+-[[:space:]]'; then
+          val=$(echo "$line" | sed 's/^[[:space:]]*-[[:space:]]*//')
+          PROJECT_TYPES="${PROJECT_TYPES:+$PROJECT_TYPES }$val"
+        else
+          IN_PROJECT_TYPE=false
+        fi
+      fi
+    done < "$LOCAL_MD"
   fi
 fi
 
-if [ "$PROJECT_TYPE" = "meta" ]; then
+# Check if a type is in the list
+has_type() { echo " $PROJECT_TYPES " | grep -q " $1 "; }
+
+if has_type "meta"; then
   # Full EM operating model for the orchestration infrastructure repo
   cat <<'EOF'
 # Coordinator — Meta Project Mode
