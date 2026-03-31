@@ -1,6 +1,6 @@
 # NotebookLM Research Team Protocol
 
-> Referenced by agent definitions and `notebooklm-research.md` command.
+> Referenced by agent definitions and `research.md` command.
 
 ## Overview
 
@@ -238,6 +238,7 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 ## Scratch Directory
 
 `tasks/scratch/notebooklm-research/{run-id}/`
+<!-- NOTE: scratch directory name kept as notebooklm-research for backward compatibility with existing runs -->
 
 - Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`

@@ -1,5 +1,5 @@
 ---
-name: notebooklm-research-scout
+name: research-scout
 description: "Haiku scout for Agent Teams-based NotebookLM research. Spawned as a teammate by the notebooklm-research command. Reads strategy.md, finds the best YouTube videos, podcasts, and articles for each notebook's topic area via web search, and writes sources.md for workers to consume.\n\n<example>\nContext: EM has written strategy.md with search guidance for 2 notebooks.\nuser: \"Find the best YouTube videos and podcasts for the notebooks in strategy.md\"\nassistant: \"I'll read the strategy, execute searches for each notebook's topic area, vet accessibility, and write sources.md.\"\n<commentary>\nScout reads strategy.md, executes searches per notebook's 'search guidance for scout' field, writes sources.md with ## Sources for Notebook A/B/C convention. Task completion unblocks workers.\n</commentary>\n</example>"
 model: haiku
 tools: ["WebSearch", "WebFetch", "Read", "Write", "Bash", "TaskUpdate", "TaskList", "TaskGet"]

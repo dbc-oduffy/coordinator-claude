@@ -22,13 +22,13 @@ This is not negotiable. This is not optional. You cannot rationalize your way ou
 
 **IMPORTANT — Always use the fully-qualified name.** Skills and commands are registered under their **plugin namespace** and MUST be invoked with the correct prefix. Bare names (e.g., `session-end`) will fail with "Unknown skill."
 
-**Plugin prefixes** — use the prefix matching the plugin that owns the skill/command:
+**Plugin prefixes** — use the prefix matching the plugin that owns the skill/command. The fully-qualified name is always `{plugin}:{component}` — no redundant prefixing (e.g., `deep-research:web`, not `deep-research:deep-research-web`):
 
 | Plugin | Prefix | Example invocation |
 |--------|--------|--------------------|
 | coordinator | `coordinator:` | `coordinator:session-start` |
-| deep-research | `deep-research:` | `deep-research:deep-research` |
-| notebooklm | `notebooklm:` | `notebooklm:notebooklm-research` |
+| deep-research | `deep-research:` | `deep-research:research` |
+| notebooklm | `notebooklm:` | `notebooklm:research` |
 | holodeck-control | `holodeck-control:` | `holodeck-control:ue-editor-control` |
 | holodeck-docs | `holodeck-docs:` | `holodeck-docs:ue-docs-lookup` |
 
@@ -102,7 +102,7 @@ These thoughts mean STOP—you're rationalizing:
 | "I know what that means" | Knowing the concept ≠ using the skill. Invoke it. |
 | "Let me read the command file" | Commands are invoked via the Skill tool, not read via Read. Reading loses phase separation, template guardrails, and Haiku confabulation prevention. |
 | "The command exists, I'll follow it manually" | Invoke it. `Skill tool → skill: "coordinator:structured-research", args: "spec.yaml batch"` — not Read + manual orchestration. Manual execution skips quality gates and scratch management. |
-| `Skill(session-end)` — bare name | Always use the fully-qualified name: `coordinator:session-end`, `deep-research:deep-research`, `notebooklm:notebooklm-research`, etc. Bare names fail with "Unknown skill." |
+| `Skill(session-end)` — bare name | Always use the fully-qualified name: `coordinator:session-end`, `deep-research:research`, `notebooklm:research`, etc. Bare names fail with "Unknown skill." |
 
 ## Skill Priority
 
@@ -126,9 +126,9 @@ The skill itself tells you which.
 
 Instructions say WHAT, not HOW. "Add X" or "Fix Y" doesn't mean skip workflows.
 
-## Available Commands (invoke via Skill tool as `coordinator:command-name`)
+## Available Commands (invoke via Skill tool with the owning plugin's prefix)
 
-Commands are dispatch workflows — multi-phase agent pipelines invoked with one command. **Use the Skill tool to invoke them, not the Read tool.** Always use the `coordinator:` prefix.
+Commands are dispatch workflows — multi-phase agent pipelines invoked with one command. **Use the Skill tool to invoke them, not the Read tool.** Always use the fully-qualified name with the correct plugin prefix (e.g., `coordinator:session-start`, `deep-research:web`, `notebooklm:research`).
 
 ### Session Lifecycle
 | Command | When to Use |
@@ -150,11 +150,11 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 ### Research (cross-plugin — note prefixes)
 | Command | Skill Invocation | When to Use |
 |---------|-----------------|-------------|
-| `/deep-research web <topic>` | `deep-research:deep-research-web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget |
-| `/deep-research repo <path>` | `deep-research:deep-research-repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis |
-| `/deep-research` | `deep-research:deep-research` | Router — picks Pipeline A, B, or C based on args |
-| `/structured-research <spec>` | `deep-research:deep-research-structured` | Pipeline C: batch research with schema-conforming output |
-| `/notebooklm-research <topic>` | `notebooklm:notebooklm-research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) |
+| `/deep-research web <topic>` | `deep-research:web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget |
+| `/deep-research repo <path>` | `deep-research:repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis |
+| `/deep-research` | `deep-research:research` | Router — picks Pipeline A, B, or C based on args |
+| `/structured-research <spec>` | `deep-research:structured` | Pipeline C: batch research with schema-conforming output |
+| `/notebooklm-research <topic>` | `notebooklm:research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) |
 
 ### Collaborative Planning & Review (Agent Teams)
 | Command | When to Use |

@@ -27,7 +27,8 @@ export async function callHaiku(prompt, { timeout = 120_000 } = {}) {
       cwd: tmpdir(),
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout
+      timeout,
+      windowsHide: true
     });
 
     let stdout = '';

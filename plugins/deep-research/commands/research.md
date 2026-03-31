@@ -21,8 +21,8 @@ This command routes to the appropriate pipeline-specific driver.
 
 Use the Skill tool to invoke the appropriate sub-command, passing through all arguments:
 
-- **Pipeline A:** `skill: "deep-research:deep-research-web", args: "<remaining arguments>"`
-- **Pipeline B:** `skill: "deep-research:deep-research-repo", args: "<remaining arguments>"`
-- **Pipeline C:** `skill: "deep-research:deep-research-structured", args: "<remaining arguments>"`
+- **Pipeline A:** `skill: "deep-research:web", args: "<remaining arguments>"`
+- **Pipeline B:** `skill: "deep-research:repo", args: "<remaining arguments>"`
+- **Pipeline C:** `skill: "deep-research:structured", args: "<remaining arguments>"`
 
 That's it. The driver handles everything from here.

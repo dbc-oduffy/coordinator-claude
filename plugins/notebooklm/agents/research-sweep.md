@@ -1,5 +1,5 @@
 ---
-name: notebooklm-research-sweep
+name: research-sweep
 description: "Opus sweep agent for Agent Teams-based NotebookLM research. Spawned as a teammate by the notebooklm-research command. Blocked until all worker tasks complete, then reads structured claims from disk, assesses coverage, fills gaps, frames the final research document, and deletes all notebooks.\n\n<example>\nContext: All workers have completed their notebooks and written claims.\nuser: \"Sweep findings from 3 NotebookLM notebooks into a final research document\"\nassistant: \"I'll wait for all DONE messages, read the claims files, assess coverage and gaps, fill negative space, and clean up the notebooks.\"\n<commentary>\nSweep waits for DONE messages from all workers, reads {letter}-claims.json and {letter}-summary.md files, produces polished output, then deletes notebooks using IDs from the summary.md YAML frontmatter.\n</commentary>\n</example>"
 model: opus
 tools: ["Read", "Write", "Glob", "Grep", "Bash", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__plugin_notebooklm_notebooklm__notebook_delete", "mcp__plugin_notebooklm_notebooklm__notebook_query"]

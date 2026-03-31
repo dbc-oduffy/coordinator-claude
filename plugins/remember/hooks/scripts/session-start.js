@@ -47,7 +47,8 @@ if (config.features?.recovery !== false) {
           cwd: projectDir,
           env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir },
           detached: true,
-          stdio: 'ignore'
+          stdio: 'ignore',
+          windowsHide: true
         });
         child.on('error', () => {});
         child.unref();
@@ -110,7 +111,8 @@ if (existsSync(dailyDir)) {
       cwd: projectDir,
       env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir },
       detached: true,
-      stdio: 'ignore'
+      stdio: 'ignore',
+      windowsHide: true
     });
     child.on('error', () => {});
     child.unref();

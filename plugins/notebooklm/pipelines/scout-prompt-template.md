@@ -1,6 +1,6 @@
 # Scout Prompt Template
 
-> Used by `notebooklm-research.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> Used by `research.md` to construct the scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 

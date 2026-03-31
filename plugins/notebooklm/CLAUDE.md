@@ -4,7 +4,7 @@ This plugin provides access to Google NotebookLM via the [notebooklm-mcp-cli](ht
 
 ## Plugin Lifecycle
 
-This plugin is kept **disabled** in `settings.json` by default to avoid loading 35 MCP tools into the EM's context on every session. Enable it manually in `settings.json` when running NotebookLM research. The `/notebooklm-research` command does NOT enable or disable the plugin automatically — you must enable it before running the command and disable it when done. **The EM/coordinator should never call NotebookLM MCP tools directly** — all research flows through the `notebooklm-research-worker` agents dispatched by the command.
+This plugin is kept **disabled** in `settings.json` by default to avoid loading 35 MCP tools into the EM's context on every session. Enable it manually in `settings.json` when running NotebookLM research. The `/research` command (invoked as `notebooklm:research`) does NOT enable or disable the plugin automatically — you must enable it before running the command and disable it when done. **The EM/coordinator should never call NotebookLM MCP tools directly** — all research flows through the `research-worker` agents dispatched by the command.
 
 ## Architecture — Pipeline D (Agent Teams)
 

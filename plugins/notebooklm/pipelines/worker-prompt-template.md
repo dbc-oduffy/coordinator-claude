@@ -1,6 +1,6 @@
 # Worker Prompt Template
 
-> Used by `notebooklm-research.md` to construct each worker's spawn prompt. Fill in bracketed fields.
+> Used by `research.md` to construct each worker's spawn prompt. Fill in bracketed fields.
 
 ## Template
 
