@@ -8,6 +8,14 @@
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
   "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": ["ml", "ai", "llm", "claude-code", "data-science", "machine-learning", "statistics", "code-review"],
-  "agents": "./agents"
+  "keywords": [
+    "ml",
+    "ai",
+    "llm",
+    "claude-code",
+    "data-science",
+    "machine-learning",
+    "statistics",
+    "code-review"
+  ]
 }
