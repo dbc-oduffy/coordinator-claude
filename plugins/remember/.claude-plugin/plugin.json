@@ -5,6 +5,7 @@
   "license": "MIT",
   "author": { "name": "Dónal O'Duffy & Claude" },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
+  "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
   "keywords": ["session-memory", "claude-code", "temporal-memory", "session-history"],
   "hooks": "./hooks/hooks.json"
 }
