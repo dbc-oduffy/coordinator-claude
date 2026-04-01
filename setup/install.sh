@@ -20,12 +20,13 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 
 # Plugin metadata: name|default|version|description
 PLUGIN_REGISTRY=(
-  "coordinator|on|1.0.0|Core pipeline and workflow skills (always enabled)"
-  "deep-research|on|1.0.0|Agent Teams research pipelines (internet, repo, structured)"
+  "coordinator|on|1.1.0|Core pipeline and workflow skills (always enabled)"
+  "deep-research|on|1.1.0|Agent Teams research pipelines (internet, repo, structured)"
   "web-dev|on|1.0.0|Palí + Fru reviewers"
   "data-science|on|1.0.0|Camelia reviewer"
   "game-dev|off|1.1.0|Sid reviewer (Unreal Engine)"
-  "notebooklm|on|1.0.0|Media research via NotebookLM"
+  "notebooklm|on|1.1.0|Media research via NotebookLM"
+  "remember|on|1.0.0|Automatic session memory"
 )
 
 # ---------------------------------------------------------------------------
