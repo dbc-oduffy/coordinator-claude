@@ -8,6 +8,14 @@
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
   "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": ["frontend", "css", "react", "claude-code", "web-dev", "ux-review", "design-system", "code-review"],
-  "agents": "./agents"
+  "keywords": [
+    "frontend",
+    "css",
+    "react",
+    "claude-code",
+    "web-dev",
+    "ux-review",
+    "design-system",
+    "code-review"
+  ]
 }

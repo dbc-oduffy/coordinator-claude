@@ -8,8 +8,15 @@
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
   "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": ["claude-code", "developer-tools", "quality-pipeline", "session-management", "orchestration", "workflow", "code-review", "agents", "planning"],
-  "agents": "./agents",
-  "commands": "./commands",
-  "hooks": "./hooks/hooks.json"
+  "keywords": [
+    "claude-code",
+    "developer-tools",
+    "quality-pipeline",
+    "session-management",
+    "orchestration",
+    "workflow",
+    "code-review",
+    "agents",
+    "planning"
+  ]
 }
