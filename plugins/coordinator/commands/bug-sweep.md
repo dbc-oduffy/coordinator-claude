@@ -1,7 +1,7 @@
 ---
 description: Systematic codebase bug hunt — find and fix all AI-fixable bugs in-session, defer blocked ones to backlog
-allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-argument-hint: "[path]"
+allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
+argument-hint: "[path] [--codex-verify]"
 ---
 
 # Bug Sweep — Systematic Codebase Bug Hunt
@@ -16,7 +16,9 @@ Sweep the codebase for bug patterns, fix everything AI-fixable in-session, defer
 
 `$ARGUMENTS` is an optional path to scope the sweep. If omitted, the full codebase is scanned.
 
-Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase]."
+`--codex-verify` — after fixes are committed, run a Codex review on the diff as a second-opinion check from a different model family. Optional; off by default. Requires Codex CLI installed and authenticated (`/codex:setup`).
+
+Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase][, with Codex verification]."
 
 ## Phase 0: Scope and Pattern Selection (~5 min, YOU do this)
 
@@ -108,6 +110,16 @@ Drop all stale findings before categorizing.
 
 **Output:** Two lists — "Fix now" and "Backlog" — grouped by file for efficient executor dispatch.
 
+### Step 2.2: Capture Pre-Fix Baseline
+
+If `--codex-verify` was passed, capture the current HEAD before any fixes are applied:
+
+```bash
+PRE_FIX_REF=$(git rev-parse HEAD)
+```
+
+This ref is used in Phase 4.5 as the diff base for Codex review.
+
 ## Phase 3: Fix (dispatch Sonnet executors, parallel)
 
 Dispatch Sonnet executors with `model: "sonnet"` to fix all "fix now" items. Group fixes by file/system to minimize conflicts.
@@ -156,10 +168,33 @@ Each executor receives:
    **Found:** [total] findings ([X] fixed, [Y] blocked, [Z] false positives)
    **Fixes applied:** [list with file:line refs]
    **Blocked items:** [list with "why blocked" for each, or "none"]
+   **Codex second opinion:** [N findings / clean / skipped: {reason} / not requested]
    ```
 
 4. **Clean scratch:** `rm -rf tasks/scratch/bug-sweep/{run-id}/`
    Only delete after commit succeeds. If Phase 2/3 agents failed, scratch contains Phase 1 findings for recovery.
+
+## Phase 4.5: Codex Verification (optional — `--codex-verify` only)
+
+If `--codex-verify` was passed, run an independent-model review of the fixes via the Codex plugin. This gives a second opinion from a different model family (GPT-5.4) on whether the fixes are correct.
+
+1. **Run Codex review:**
+   Invoke `/codex:review --wait --scope branch --base {PRE_FIX_REF}` (the ref captured in Step 2.2).
+
+2. **Assess result by exit code:**
+   - **Exit code 0 (success):** Append Codex findings to the Phase 4 report under a `## Codex Second Opinion` heading. If Codex found issues not caught by the Claude sweep, add them to the backlog — do NOT auto-fix Codex findings, report them for PM triage.
+   - **Non-zero exit code (failure):** Report: _"Codex verification skipped: {reason from output/stderr}."_ Continue — this is non-blocking.
+
+3. **Update the report:**
+   Add to the Phase 4 report:
+   ```
+   **Codex second opinion:** [N findings / clean / skipped: {reason}]
+   ```
+
+If `--codex-verify` was not passed, add to the report:
+```
+**Codex second opinion:** not requested
+```
 
 ## Pattern Library
 
