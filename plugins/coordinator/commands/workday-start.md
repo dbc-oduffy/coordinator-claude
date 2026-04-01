@@ -16,18 +16,17 @@ Read all files in `tasks/handoffs/`. For each:
 
 1. **Check age** — filename includes timestamp (`YYYY-MM-DD_HHMMSS_sessionid.md`)
 2. **Check branch activity** — is the handoff's referenced branch still active? Any commits since the handoff was written?
-3. **Categorize:**
-   - **Actionable** (keep) — <48hr old, OR has recent branch activity, OR references open work
-   - **Stale** — >48hr old AND no branch activity since handoff AND work appears complete
-4. **Surface, don't archive.** Report stale handoffs to the PM but leave archival to `/update-docs` — it is the single authority on handoff lifecycle. This avoids competing archival logic between two commands.
-5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each actionable handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a handoff's work appears completed, downgrade it: _"Handoff [file] describes [work] — but archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed."_
-6. **Report:** "N actionable handoffs for today's sessions. M stale handoffs flagged (will archive on next /update-docs run). K handoffs appear already completed per archive."
+3. **Categorize** each handoff:
+   - **Active** — has recent branch activity, or references open/in-progress work
+   - **Aging** — older, no branch activity, but not explicitly consumed
+   - **Likely consumed** — work appears in the completed archive (cross-reference below)
+4. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
+5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
+6. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival."
 
-**Why surface-only:** update-docs Phase 8 already handles archival (via the `handoff-archival` skill) with its 48-hour rule. workday-start adds value by surfacing branch-activity context (a 3-day-old handoff with yesterday's commits is still actionable), but doesn't need to be a second archiver.
+**Why surface-only:** Handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do about it.
 
-**Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain "actionable" by age/branch heuristics even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this.
-
-**Note:** Handoff archival (via `/update-docs`) respects branch activity — active branches keep their handoffs.
+**Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 
 ## Step 2: Doc Freshness
 
