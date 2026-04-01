@@ -36,7 +36,7 @@ Sweep (blockedBy: all specialists) → mark complete notifies EM
 
 ### How Agent Teams Blocking Actually Works (empirical + sourced)
 
-Agent Teams uses **file-based polling, not callbacks**. Task state lives in JSON files at `~/.claude/tasks/{team-name}/N.json`. Agents discover available work by calling `TaskList()`, which re-evaluates `blockedBy` arrays fresh on each call. There is no active push/callback when a blocker completes.
+Agent Teams uses **file-based polling, not callbacks**. Task state is managed by the platform in `~/.claude/tasks/{team-name}/N.json` (platform-internal; do not read/write these files directly). Agents discover available work by calling `TaskList()`, which re-evaluates `blockedBy` arrays fresh on each call. There is no active push/callback when a blocker completes.
 
 **Two distinct scenarios with different wake-up behavior:**
 
