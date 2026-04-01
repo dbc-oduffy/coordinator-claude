@@ -5,5 +5,7 @@
   "license": "MIT",
   "author": { "name": "Dónal O'Duffy & Claude" },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": ["research", "deep-research", "claude-code", "agent-teams", "multi-agent", "orchestration"]
+  "keywords": ["research", "deep-research", "claude-code", "agent-teams", "multi-agent", "orchestration"],
+  "agents": "./agents",
+  "commands": "./commands"
 }
