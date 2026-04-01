@@ -19,9 +19,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 
 # Plugin metadata: name|default|version|description
+# Note: deep-research is now a standalone plugin at github.com/oduffy-delphi/deep-research-claude
+# Install it separately: claude plugin install deep-research from deep-research-claude marketplace
 PLUGIN_REGISTRY=(
   "coordinator|on|1.1.0|Core pipeline and workflow skills (always enabled)"
-  "deep-research|on|1.1.0|Agent Teams research pipelines (internet, repo, structured)"
   "web-dev|on|1.0.0|Palí + Fru reviewers"
   "data-science|on|1.0.0|Camelia reviewer"
   "game-dev|off|1.1.0|Sid reviewer (Unreal Engine)"
