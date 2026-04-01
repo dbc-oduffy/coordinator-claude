@@ -4,7 +4,7 @@
     "name": "D\u00f3nal O'Duffy & Claude"
   },
   "metadata": {
-    "description": "Structured agent orchestration for Claude Code \u2014 multi-agent workflows, named reviewer personas, session continuity, and deep research pipelines.",
+    "description": "Structured agent orchestration for Claude Code \u2014 multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
     "version": "1.0.0"
   },
   "plugins": [
@@ -77,39 +77,17 @@
     },
     {
       "name": "deep-research",
-      "source": "./deep-research",
-      "description": "Multi-agent deep research pipelines \u2014 internet research with Agent Teams (Pipeline A), repo assessment (Pipeline B). Haiku scout builds shared source corpus, Sonnet specialists verify and cross-pollinate, Opus synthesizes findings.",
+      "source": {
+        "type": "github",
+        "url": "oduffy-delphi/deep-research-claude"
+      },
+      "description": "Multi-agent deep research pipelines \u2014 internet, repo, and structured research with Agent Teams. Now a standalone plugin.",
       "tags": [
         "research",
         "deep-research",
         "agent-teams",
         "multi-agent",
         "web-research"
-      ]
-    },
-    {
-      "name": "holodeck-control",
-      "source": "./holodeck-control",
-      "description": "Context-efficient wrapper for holodeck-control MCP server. Routes UE editor operations through domain-specific agents with thin tool visibility.",
-      "tags": [
-        "unreal-engine",
-        "ue5",
-        "editor-control",
-        "mcp",
-        "holodeck"
-      ]
-    },
-    {
-      "name": "holodeck-docs",
-      "source": "./holodeck-docs",
-      "description": "UE documentation and Python execution \u2014 wraps holodeck-docs MCP server with Sonnet agents for context-isolated doc retrieval and editor scripting.",
-      "tags": [
-        "unreal-engine",
-        "ue5",
-        "documentation",
-        "rag",
-        "mcp",
-        "holodeck"
       ]
     }
   ]

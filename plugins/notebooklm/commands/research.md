@@ -57,9 +57,9 @@ Create scratch directory:
 mkdir -p tasks/scratch/notebooklm-research/{run-id}/
 ```
 
-Set output path: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
+Set output path: `~/docs/research/YYYY-MM-DD-{topic-slug}.md`
 
-Set advisory path: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the output path)
+Set advisory path: `~/docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the output path)
 
 ---
 
@@ -189,7 +189,7 @@ Spawn all teammates in one operation:
 - `[WORKER_COUNT]` = N (from strategy.md YAML frontmatter — already known from scoping)
 - `[WORKER_TASK_IDS]` = comma-separated worker task IDs
 - `[SCRATCH_DIR]` = scratch dir path
-- `[OUTPUT_PATH]` = `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
+- `[OUTPUT_PATH]` = `~/docs/research/YYYY-MM-DD-{topic-slug}.md`
 - `[ADVISORY_PATH]` = advisory path computed in Step 1
 - `[TASK_ID]` = sweep_task.id
 - `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise

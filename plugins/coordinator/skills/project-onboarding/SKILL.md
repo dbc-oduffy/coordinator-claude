@@ -151,7 +151,7 @@ Check if `.gitignore` exists and contains an entry for `.claude/settings.local.j
 
 3. **If the entry already exists:** Skip silently.
 
-**Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. This breaks handoff discovery. Only .claude/settings.local.json should be ignored — tasks/handoffs/ must be tracked."
+**Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
 
 #### 3f. DIRECTORY.md
 
@@ -183,6 +183,6 @@ Present what was done:
 
 - This skill creates the **skeleton**. The tracker-maintenance skill (invoked by `/update-docs`) handles ongoing maintenance.
 - The project tracker format is defined in the tracker-maintenance skill — this skill uses the same format for consistency.
-- `.claude/` directory contents: `handoffs/` is tracked in git; `settings.local.json` should be in `.gitignore`.
+- Handoffs live at `tasks/handoffs/` (git-tracked). `.claude/` contains only platform settings; `settings.local.json` should be in `.gitignore`.
 - **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files. Easier to maintain, stays under the 12-file ceiling.
 - **Self-contained design:** The CLAUDE.md template works standalone for marketplace users. If global `~/.claude/CLAUDE.md` exists, the DETECT phase adds an "extends global" reference. If not, the template is complete on its own.

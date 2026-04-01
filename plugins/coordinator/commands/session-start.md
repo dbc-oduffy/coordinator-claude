@@ -99,7 +99,7 @@ Check `tasks/handoffs/` for `.md` files (active handoffs). If handoffs exist:
 
 **Path convention:** Active handoffs in `tasks/handoffs/`, archived in `archive/handoffs/`. Both git-tracked.
 
-**If `.claude/` is gitignored:** Warn the user — this breaks handoff discovery. `.claude/` should be tracked; only `.claude/settings.local.json` should be ignored.
+**If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked. `tasks/` contains handoffs and plan docs; `archive/` contains the completion history. `.claude/` contains only platform-managed files (settings, hooks) and need not be tracked.
 
 ### Session memory
 
@@ -150,7 +150,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 ### Delegation context (game-dev projects)
 
-**Conditional on project type:** Only for projects whose `project_type` list includes `unreal` or `game-docs` in `.claude/coordinator.local.md`. Skip silently if neither type is present.
+**Conditional on project type:** Only for projects whose `project_type` list includes `unreal` or `game-docs` in `coordinator.local.md`. Skip silently if neither type is present.
 
 The capability-catalog (injected at boot) carries the general delegation argument. This section loads the operational routing knowledge needed to delegate effectively in game-dev projects:
 

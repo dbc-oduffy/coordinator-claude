@@ -8,7 +8,7 @@ The coordinator plugin is the backbone of the system. It provides:
 
 1. **The orchestration role** — the main session agent operates as EM (engineering manager), delegating work to specialized subagents rather than implementing directly
 2. **Universal reviewers** — Patrik (code quality, architecture) and Zoli (ambition backstop) are available on every project regardless of domain
-3. **Workflow skills** — 22 codified processes (SKILL.md) covering the full development lifecycle, plus 8 pipeline definitions (PIPELINE.md) backing commands
+3. **Workflow skills** — 24 codified processes (SKILL.md) covering the full development lifecycle, plus pipeline definitions backing commands
 4. **Session commands** — slash commands for pipeline operations (dispatch executors, route reviews, manage handoffs)
 
 ## Components
@@ -19,11 +19,13 @@ The coordinator plugin is the backbone of the system. It provides:
 |-------|-------|------|
 | **enricher** | Sonnet | Research agent — surveys codebases, traces deps, fills in stub details |
 | **executor** | Sonnet | Implementation agent — follows specs precisely, reports DONE/DONE_WITH_CONCERNS/BLOCKED |
-| **review-integrator** | Opus | Applies reviewer findings to artifacts with annotations, escalates disagreements |
+| **docs-checker** | Sonnet | Pre-review API verification — scans artifacts for external API claims, verifies against docs |
+| **review-integrator** | Sonnet | Applies reviewer findings to artifacts with annotations, escalates disagreements |
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
+| **eng-director** | Opus | Zolí's staff-session synthesizer — cross-references debater positions into consensus |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (21, all user-invocable via `/`)
+### Commands (22, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -32,6 +34,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/handoff` | Save session state for next session handoff |
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
 | `/workday-complete` | End-of-day — update docs, consolidate branches, run health survey |
+| `/daily-review` | Strategic daily review — inventory today's work, get architectural perspective |
 | `/update-docs` | Repo-wide documentation maintenance and sync (auto-chains `/distill` when thresholds met) |
 | `/delegate-execution` | Dispatch enriched stubs to executor agents |
 | `/execute-plan` | Execute a PM-approved implementation plan in the coordinator session |
@@ -49,7 +52,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
-### Skills (23)
+### Skills (24)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -67,6 +70,8 @@ The coordinator plugin is the backbone of the system. It provides:
 **Code Review:**
 - `requesting-code-review` — Request review via `/review-dispatch`.
 - `receiving-code-review` — How to receive and act on review feedback.
+- `requesting-staff-session` — Guides tier selection, team composition, and scoping for staff sessions.
+- `codex-review-gate` — Run a Codex CLI second-opinion review gate (used by `/bug-sweep` and `/workday-complete`).
 
 **Git & Branching:**
 - `using-git-worktrees` — Isolated workspaces per feature.
@@ -115,7 +120,7 @@ See the parent [ARCHITECTURE.md](../ARCHITECTURE.md) for the full conceptual mod
 
 ## Per-Project Config
 
-Create `.claude/coordinator.local.md` in your project:
+Create `coordinator.local.md` in your project:
 
 ```yaml
 ---
@@ -126,6 +131,21 @@ project_type: unreal    # unreal | game-docs | web | pure-docs
 Default (no config): core-only (Patrik + Zoli).
 
 ## Recent Changes
+
+### v1.4.0 (April 2026) — Pipeline C v2.1: Structured Research Upgrade
+
+Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fixes a synthesizer prose-slippage bug and adds adversarial peer dynamics.
+
+- **Synthesizer output-first ordering:** Skeleton structured data file written immediately as crash insurance (step 2 of 8, not step 5 of 9). Final output overwrites the skeleton after reconciliation and validation. Annotations written separately to `synthesis-annotations.md` — no more ambiguous `synthesis.md` that could be mistaken for the deliverable.
+- **Hard file-existence gate:** EM Step 6 now checks whether the structured data file exists at `[OUTPUT_PATH]` before attempting content validation. Missing file blocks archival and triggers a correction message to the synthesizer. Fixes the COD prose-slippage incident where the synthesizer wrote prose only and the EM archived without catching it.
+- **CONTESTED change type:** New fifth change type for unresolved peer challenges (joining CONFIRMED/UPDATED/NEW/REFUTED). Verifiers produce CONTESTED when a 2-minute challenge timeout expires. Synthesizer MUST resolve all CONTESTED fields — they do not pass through to the output.
+- **Adversarial verifier dynamics:** Mandatory challenge self-check ("Have I challenged at least one peer's schema field value?"), no acknowledgment-only messages, resolution protocol with evidence-or-concede.
+- **SCHEMA_OVERLAP message category:** Adapted from Pipeline A's OVERLAP — cross-field evidence sharing ("While researching {my_field}, I found evidence relevant to your field {their_field}") rather than ownership negotiation. Natural fit for schema-mapped research.
+- **Forced reflection:** After each source fetch, verifiers assess which schema fields were populated or changed. Helps the synthesizer trace which sources drove which field changes.
+- **EM spec quality checklist:** 6-item quality gate before team dispatch — schema field clarity, falsifiable acceptance criteria, clean topic→field mapping, existing data loaded, extractable gate rules, adversarial search terms included.
+- **Scout adversarial pass-through:** Scout brief now includes adversarial queries; scout flags topics with no adversarial sources found.
+
+**Files changed:** `deep-research/` plugin — 4 pipeline templates (verifier, synthesizer, scout, team-protocol), 1 command (structured.md), 1 agent definition (structured-synthesizer.md), CLAUDE.md.
 
 ### v1.3.1 (March 2026) — Artifact Distillation
 

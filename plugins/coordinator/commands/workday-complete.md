@@ -81,17 +81,31 @@ Consolidate all of today's work branches for this machine into one clean branch.
 
 **Feature branches are excluded** — they are intentionally long-lived and not part of end-of-day cleanup.
 
-### Step 3: Code Health Survey (Night Shift)
+### Step 3: Strategic Daily Review
 
-Run the daily code health check on today's commits. This is the "night shift colleague" — health investigation happens at end-of-day, results are ready for the next morning's session-start.
+Run the strategic daily review of today's work. This produces a daily summary artifact and gets an architectural perspective on the day's decisions — checking for lock-in, missed bridging opportunities, and roadmap alignment.
 
-1. Run `/code-health`
-2. The skill handles: finding commits, dispatching reviewer, applying findings, updating health ledger
-3. If findings exist, they are committed to the branch by the skill
-4. Push to remote after health survey completes — results are safe even if machine shuts down:
+1. Run `/daily-review`
+2. The command handles: inventory (Haiku scout), work summary (Sonnet analyst), strategic review (Sonnet persona), health ledger update, and committing all artifacts
+3. The daily summary is written to `archive/daily-summaries/YYYY-MM-DD.md` — this feeds `/update-docs`, `/distill`, and the next morning's orientation
+4. Push to remote after daily review completes — results are safe even if machine shuts down:
    ```bash
    git push origin $(git branch --show-current)
    ```
+
+**Note:** `/code-health` (detailed code-level review) is still available on-demand but is no longer the default end-of-day check. Our review-heavy build pipeline already catches code-level issues; end-of-day focuses on strategic alignment.
+
+### Step 3.4: Plugin Validation Suite
+
+Run the plugin infrastructure test suite to catch marketplace registration errors, missing files, broken hooks, and invalid frontmatter before they cause boot failures:
+
+```bash
+node --test ~/.claude/tests/plugins/run.js
+```
+
+- **If all tests pass:** Report: _"Plugin validation: N tests passed across M plugins."_
+- **If tests fail:** Report failures in summary. These are structural issues that will cause boot errors — flag as actionable for morning.
+- **Does not block** subsequent workday-complete steps — plugin issues don't affect git operations.
 
 ### Step 3.5: Refresh Code Statistics
 
@@ -156,6 +170,31 @@ done
 
 This is end-of-day cleanup — a good time to catch lint that accumulated during rapid development.
 
+### Step 3.8: Codex Review Gate (second-opinion)
+
+Run a Codex review of the day's diff against main as an independent-model second opinion on code quality. This is **on by default** — Codex (GPT-5.4) provides a different model family's perspective on the same changes that the daily review covered. Blind spots may be correlated within a model family; Codex mitigates this by providing an independent sample.
+
+1. **Check diff exists:**
+   ```bash
+   git diff --shortstat origin/main...HEAD
+   ```
+   If no changes exist against main, skip: _"Codex review gate: no diff against main — skipped."_
+
+2. **Run Codex review:**
+   Invoke `/codex:review --wait --scope branch --base origin/main`.
+
+3. **Assess result by exit code:**
+
+   **Exit code 0 (success):** Include Codex findings in the Final Summary. If Codex found issues:
+   - P0/P1 findings: flag to PM in the summary — these should be addressed before merging to main
+   - P2 findings: note in summary, defer to next session
+   - Clean verdict: note in summary as confirmation
+
+   **Non-zero exit code (graceful fallback):** This is expected when Codex credits are limited or the CLI isn't set up. Report the skip reason and continue — the daily review from Step 3 is sufficient on its own:
+   - _"Codex review gate skipped: {reason}. Daily review from Step 3 stands as the sole review."_
+
+4. **Do not block end-of-day on Codex failure.** The daily review already provides strategic and code-level perspective. Codex is additive — a different model family's perspective — not a replacement.
+
 ### Step 4: Final Summary
 
 ```
@@ -165,9 +204,11 @@ This is end-of-day cleanup — a good time to catch lint that accumulated during
 **Branches consolidated:** [N branches merged into current]
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
+**Plugin validation:** [N tests passed / N failures — describe]
 **Code stats:** [total lines / top language breakdown, or "scc not available — install for code stats"]
 **Archive audit:** [N entries verified, M added, K corrected / no commits today]
 **Shell lint:** [N issues found and fixed / clean / shellcheck not available — install for linting]
+**Codex review gate:** [N findings (X P0/P1, Y P2) / clean / skipped: {reason}]
 **Orientation cache:** [refreshed by /update-docs / not present]
 **NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
 ```
@@ -179,6 +220,7 @@ If `$ARGUMENTS` is provided, include it as a summary line at the top: _"Day summ
 - **Merge to main.** Use `/merge-to-main` for that — it runs the test suite first.
 - **Delete the work branch.** It stays alive for morning review.
 - **Auto-push to main.** Main is supervised-only.
+- **Delete handoffs.** Handoffs are archived (moved to `archive/handoffs/`) by `/update-docs`, but never deleted. Only `/distill` may delete handoffs after careful knowledge extraction and PM approval.
 
 ### Concurrent Session Safety
 
@@ -190,4 +232,6 @@ Health files (`tasks/health-ledger.md`, `tasks/health-summary.md`, `tasks/debt-b
 
 - **`/merge-to-main`** is the separate, deliberate merge skill. Run it in the morning after reviewing the branch.
 - **`/update-docs`** is invoked as Step 1 of this command.
-- **`/code-health`** is invoked as Step 3 for the health survey.
+- **`/daily-review`** is invoked as Step 3 for the strategic daily review.
+- **`/code-health`** is available on-demand for detailed code-level review but no longer the default end-of-day check.
+- **`/codex:review`** is invoked in Step 3.8 for independent-model code review. Graceful fallback if Codex is unavailable or credits are exhausted.

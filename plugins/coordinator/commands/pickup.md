@@ -80,7 +80,14 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    Branch: {branch} | Next: {first recommended step, abbreviated}
    ```
 
-5. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list.
+5. **Mark as consumed:** Append a consumed marker to the handoff file so `handoff-archival` knows it's been picked up:
+   ```bash
+   echo "" >> <handoff-file>
+   echo "<!-- consumed: $(date +%Y-%m-%d) -->" >> <handoff-file>
+   ```
+   This is the signal that triggers archival on the next `/update-docs` run. The handoff stays in `tasks/handoffs/` for the duration of this session (in case you need to re-read it), but it's now marked for cleanup.
+
+6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list.
 
 ---
 
@@ -89,4 +96,4 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 - This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/session-start` territory. Pickup is laser-focused on the handoff.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
-- **Archiving:** Do NOT archive the handoff you just picked up. It stays in `tasks/handoffs/` until `/update-docs` archives it on its 48-hour sweep, or until this session writes a successor handoff via `/handoff`.
+- **Archiving:** The consumed marker (Step 5) signals that this handoff has been picked up. It will be archived on the next `/update-docs` run. Handoffs are never archived based on age alone — only when consumed via pickup, superseded by a successor, or when the PM explicitly directs it.

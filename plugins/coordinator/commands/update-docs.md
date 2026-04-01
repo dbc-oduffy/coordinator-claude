@@ -198,7 +198,7 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
 1. **Count artifacts:**
    ```bash
    # Count across distillation source directories
-   PLANS=$(find docs/plans/ .claude/plans/ -name "*.md" 2>/dev/null | wc -l)
+   PLANS=$(find docs/plans/ -name "*.md" 2>/dev/null | wc -l)
    HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
    COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
    TASKS=$(find tasks/ -mindepth 2 -name "*.md" -not -path "tasks/architecture-atlas/*" -not -name "lessons.md" -not -name "health-ledger.md" -not -name "bug-backlog.md" -not -name "debt-backlog.md" 2>/dev/null | wc -l)
