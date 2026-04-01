@@ -1,28 +1,28 @@
-# Deep Research Structured Team Protocol
+# Deep Research Structured Team Protocol (v2.1)
 
 > Referenced by agent definitions and `structured.md` command.
 
 ## Overview
 
-Agent Teams-based structured research: the EM reads a spec YAML, pre-processes it into a scout brief, creates a team of a Haiku scout + Sonnet verifiers + an Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — spec-driven source discovery, schema-mapped verification, cross-topic reconciliation, and schema-conforming output. The EM is notified when synthesis completes, validates schema conformance, then cleans up.
+Agent Teams-based structured research: the EM reads a spec YAML, pre-processes it into a scout brief, creates a team of a Haiku scout + Sonnet verifiers + an Opus synthesizer, spawns all teammates, and is **freed**. The team handles everything autonomously — spec-driven source discovery, schema-mapped verification, adversarial cross-pollination between verifiers, cross-topic reconciliation, and schema-conforming output. The EM is notified when synthesis completes, validates schema conformance via a hard file-existence gate, then cleans up.
 
-Pipeline C is spec-driven and schema-conforming. Unlike Pipeline A (free-form internet research), every finding maps to an output schema field, every verifier self-checks acceptance criteria and gate rules embedded in their prompts, and the final output is validated against the spec before the team is torn down.
+Pipeline C is spec-driven and schema-conforming. Unlike Pipeline A (free-form internet research), every finding maps to an output schema field, every verifier self-checks acceptance criteria and gate rules embedded in their prompts, verifiers actively challenge each other's schema field values, and the final output is validated against the spec before the team is torn down.
 
 ## Team Roles
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
 | **Scout** | Haiku | 1 | Execute spec-derived search queries from scout-brief.md, map findings to schema fields, write per-topic discovery files |
-| **Verifier** | Sonnet | 1-5 | Verify scout's per-topic discovery, compare against existing data, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED), self-check acceptance criteria and gate rules |
-| **Synthesizer** | Opus | 1 | Cross-topic reconciliation, schema validation, produce YAML/JSON output conforming to output_schema |
+| **Verifier** | Sonnet | 1-5 | Verify scout's per-topic discovery, compare against existing data, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), self-check acceptance criteria and gate rules, challenge peers' field values |
+| **Synthesizer** | Opus | 1 | Cross-topic reconciliation, resolve CONTESTED fields, schema validation, produce YAML/JSON output conforming to output_schema |
 
 ## Team Lifecycle
 
 ```
 EM: Read spec → pre-process into scout-brief.md → Create team → Spawn all teammates → FREED
 Scout: Read scout-brief.md → WebSearch → WebFetch (vet accessibility) → Map to schema fields → Write per-topic discovery files → Mark complete → [idle]
-Verifiers: [blocked by scout] → Read discovery files → Verify + compare existing data → Produce schema field tables → Self-check gate rules → Converge → Mark complete → DONE to synthesizer
-Synthesizer: [blocked by verifiers, waiting for DONE msgs] → Verify all complete → Cross-reconcile → Validate schema → Write YAML/JSON output → Mark complete
+Verifiers: [blocked by scout] → Read discovery files → Verify + compare existing data → Challenge peers → Produce schema field tables → Self-check gate rules → Converge → Mark complete → DONE to synthesizer
+Synthesizer: [blocked by verifiers, waiting for DONE msgs] → Verify all complete → Write skeleton to OUTPUT_PATH → Cross-reconcile → Resolve CONTESTED → Validate schema → Overwrite OUTPUT_PATH with final → Write annotations → Mark complete
 ```
 
 ## Blocking Chain
@@ -58,7 +58,7 @@ The scout→verifier transition is scenario 1 (auto-wake). The verifier→synthe
 The scout builds **per-topic discovery files** — schema-mapped findings, one file per topic. It does NOT try to produce finished analysis.
 
 - Reads topic queries and schema field mappings from `{scratch-dir}/scout-brief.md` (written by EM during pre-processing)
-- Executes queries via WebSearch
+- Executes queries via WebSearch, including adversarial queries when provided by the EM
 - Mechanically vets each result via WebFetch: accessible? paywall? date? source type?
 - Maps each finding to schema fields (as listed in scout-brief.md)
 - Writes one discovery file per topic: `{scratch-dir}/{subject}-scout-{topic_id}.md`
@@ -67,16 +67,19 @@ The scout builds **per-topic discovery files** — schema-mapped findings, one f
 
 ## Message Protocol
 
-### Verifier → Verifier (Cross-Pollination)
+### Verifier → Verifier (Adversarial Cross-Pollination)
 
-Send targeted messages to specific peers by name:
+Send targeted messages to specific peers by name. Challenges are **expected**, not just permitted — verifiers should actively test each other's schema field values.
 
 | Category | Format | When |
 |---|---|---|
-| **FINDING** | `"Finding for {peer}: {brief}. Source: {URL}. Schema field: {field_name}. Relevant because {reason}."` | A discovery relevant to another verifier's topic or schema field |
+| **FINDING** | `"Finding for {peer}: {brief}. Source: {URL}. Schema field: {field_name}. Relevant because {reason}."` | A discovery relevant to another verifier's schema fields |
 | **CONTRADICTION** | `"Contradiction with {peer}: I found {X} for field {field_name} but your area suggests {Y}. Can you verify?"` | Sources disagree on a schema field value across topics |
-| **CHALLENGE** | `"Challenge to {peer}: Your finding {X} for field {field_name} conflicts with {Y} from {source}. Which is current?"` | Direct factual conflict on a schema field |
+| **CHALLENGE** | `"Challenge to {peer}: Your finding {X} for field {field_name} conflicts with {Y} from {source}. Which is current?"` | Direct factual conflict on a schema field value — resolution expected |
 | **SOURCE** | `"Source for {peer}: {URL} — covers {aspect} relevant to your topic / field {field_name}."` | Useful source for a peer's topic or schema field |
+| **SCHEMA_OVERLAP** | `"Schema overlap with {peer}: While researching {my_field}, I found evidence relevant to your field {their_field}: {value} from {source}. Flagging for your verification."` | Evidence found for a schema field owned by a different verifier |
+
+**Resolution protocol:** When a peer challenges a schema field value, the challenged verifier must respond with evidence or concede. Unresolved challenges (2-minute timeout) produce `CONTESTED` change type with both sides' evidence — the synthesizer resolves these.
 
 ### Verifier → Synthesizer (Wake-Up Signal)
 
@@ -93,7 +96,7 @@ This is the synthesizer's wake-up mechanism. Each DONE message causes the synthe
 - **Peer messages: max 3 per peer** (max 12 total for a 5-verifier team)
 - **DONE message: exactly 1 per verifier** (sent to synthesizer only)
 - **Scout: no messages** (task completion handles unblocking)
-- Quality over quantity
+- Quality over quantity — **no acknowledgment-only messages** ("got it", "thanks", "acknowledged"). Every message must contain a finding, challenge, source, or schema-field overlap.
 
 ## Self-Governance Timing
 
@@ -130,16 +133,17 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 **Steps:**
 1. **Self-check acceptance criteria** — verify minimum sources met and required schema fields covered
 2. **Self-check gate rules** — verify embedded quality gate rules pass (e.g., source recency, source type requirements)
-3. Send `CONVERGING` to all peers
-4. Wait ~30 seconds for final challenges
-5. Answer any challenges
-6. Write complete output file (schema field table with change types)
-7. Mark task `completed`
-8. Send `DONE` to synthesizer (wake-up signal)
+3. **Self-check adversarial coverage** — "Have I challenged at least one peer's schema field value?" Note the answer.
+4. Send `CONVERGING` to all peers (informational — peers should NOT reply with acknowledgments)
+5. Wait ~30 seconds for final challenges
+6. Answer any substantive challenges
+7. Write complete output file (schema field table with change types)
+8. Mark task `completed`
+9. Send `DONE` to synthesizer (wake-up signal)
 
 **Early convergence note:** Verifiers who converge early remain alive — late-arriving peer messages may warrant a quick update to findings before the agent terminates.
 
-**Timeout:** If a CHALLENGE goes unanswered for 2 minutes → mark finding as `[UNVERIFIED]`.
+**Timeout:** If a CHALLENGE goes unanswered for 2 minutes → mark finding as `CONTESTED` with both sides' evidence.
 
 ## Output Format
 
@@ -169,12 +173,13 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 ## Schema Field Table
 
-| Field | Change Type | New Value | Previous Value | Source | Confidence |
-|-------|-------------|-----------|----------------|--------|------------|
-| ...   | CONFIRMED   | ...       | ...            | URL    | high       |
-| ...   | UPDATED     | ...       | ...            | URL    | medium     |
-| ...   | NEW         | ...       | n/a            | URL    | high       |
-| ...   | REFUTED     | n/a       | ...            | URL    | high       |
+| Field | Value | Source | Confidence | Existing Value | Change Type |
+|-------|-------|--------|------------|----------------|-------------|
+| ...   | ...   | URL    | HIGH       | ...            | CONFIRMED   |
+| ...   | ...   | URL    | MEDIUM     | ...            | UPDATED     |
+| ...   | ...   | URL    | HIGH       | n/a            | NEW         |
+| ...   | ...   | URL    | HIGH       | ...            | REFUTED     |
+| ...   | ...   | URL+URL| HIGH/MED   | ...            | CONTESTED   |
 
 ## Gate Rule Self-Check
 - {Gate rule 1}: PASS / FAIL — {evidence}
@@ -183,7 +188,17 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 ## Acceptance Criteria Self-Check
 - Minimum sources: {N} / {MIN_SOURCES} required — PASS / FAIL
 - Required schema fields covered: {list} — PASS / FAIL
+
+## Adversarial Self-Check
+- Challenged at least one peer: YES / NO — {details}
+- Adversarial sources found: {count} — {summary}
 ```
+
+### Synthesizer Output
+
+- **Structured data:** `[OUTPUT_PATH]` (spec-defined, e.g., `tasks/research/output/FRA-intel.json`)
+- **Annotations:** `{scratch-dir}/synthesis-annotations.md`
+- **Advisory:** `{scratch-dir}/advisory.md` (optional — omitted if nothing beyond scope)
 
 ## Failure Handling
 
@@ -192,7 +207,9 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **Self-timed convergence (ceiling):** Verifiers begin convergence autonomously after max time, without EM intervention
 - **WebSearch/WebFetch failures:** If 3 consecutive fetch attempts fail, converge with what you have and note failures in Investigation Log
 - **Gate rule failure at convergence:** Note in output as `GATE_FAIL: {rule}` — verifier still completes and sends DONE; synthesizer and EM handle escalation
+- **Synthesizer writes prose but no structured data file:** EM file-existence check catches this. Keep team alive, send correction message listing the expected output path and format. Re-validate on revised output.
 - **All verifiers fail:** EM is notified (no completed verifier tasks), reports to PM
+- **Agents stuck in idle loops:** Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results before attempting TeamDelete. If TeamDelete fails ("active" agents), wait for timeout. Do NOT block on stuck agents — read available outputs and present to PM
 
 ## Scratch Directory
 
@@ -200,4 +217,6 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 - Scout writes to: `{scratch-dir}/{subject}-scout-{topic_id}.md` (one per topic)
 - Each verifier writes to: `{scratch-dir}/{topic_id}-findings.md` (schema field tables)
-- Synthesizer writes to: `{scratch-dir}/synthesis-output.yaml` (or `.json`)
+- Synthesizer writes structured data to: `[OUTPUT_PATH]` (spec-defined)
+- Synthesizer writes annotations to: `{scratch-dir}/synthesis-annotations.md`
+- Synthesizer writes advisory to: `{scratch-dir}/advisory.md` (optional)

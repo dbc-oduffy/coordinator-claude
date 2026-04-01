@@ -2,6 +2,7 @@
   "name": "web-dev",
   "version": "1.0.0",
   "description": "Frontend code review specialists for Claude Code — Pali catches design token violations and component anti-patterns, Fru reviews UX flows for clarity and trust. Sequential review ensures nothing ships without both perspectives.",
+  "license": "MIT",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },

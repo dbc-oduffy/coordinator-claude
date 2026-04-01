@@ -1,6 +1,6 @@
-# Structured Research Scout Prompt Template
+# Structured Research Scout Prompt Template (v2.1)
 
-> Used by `structured.md` to construct the scout's spawn prompt. Fill in bracketed fields.
+> Used by `structured.md` command to construct the scout's spawn prompt. Fill in bracketed fields.
 
 ## Template
 
@@ -83,4 +83,8 @@ Write each topic to its own file at [SCRATCH_DIR]/[SUBJECT]-scout-[TOPIC_ID].md:
 - **Write ONE file per topic, not a combined corpus** — verifiers own individual topics
 - Use the search domains from the brief — do NOT improvise different search areas
 - Flag contradictions — do not resolve them. That is the verifier's job
+- **Include adversarial searches** — if the scout brief includes adversarial queries
+  (e.g., "{subject} problems", "{subject} limitations"), execute them. If no adversarial
+  sources are found for a topic, note: "No adversarial sources found for {topic}" in the
+  discovery file. Absence of criticism is itself a finding worth flagging.
 ```
