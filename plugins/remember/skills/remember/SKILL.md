@@ -1,7 +1,8 @@
 ---
 name: remember
 description: Quick-write a lightweight session note to memory/sessions/note.md. For full session wrap-up, use coordinator:session-end or /handoff.
-allowed-tools: Write
+allowed-tools:
+  - Write
 ---
 
 Write a session note so the next session can continue cleanly. Use your knowledge of the current session — you were here. Write in first person ("I").
