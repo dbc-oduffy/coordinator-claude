@@ -43,8 +43,8 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
-1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs
-2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON, or mixed formats.
+1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`
+2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON/YAML, or mixed formats.
 3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check.
 4. **Read distillation log** (`docs/guides/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
 5. **Read `tasks/handoffs/`** for active context (read-only, never deleted)
@@ -53,6 +53,10 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **ALREADY_CAPTURED** — knowledge is already in the wiki (compare against guide headings/content)
    - **EPHEMERAL** — pure session tracking, status updates, no lasting value
    - **SKIP** — active reference, forward-looking content, or in-progress work
+
+   **Special classification rules (override general logic):**
+   - **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, Pipeline A/B/D final outputs): always **NEW** — never EPHEMERAL. These are substantive research artifacts and their full content should flow into the wiki. Pipeline C outputs (structured YAML/JSON, files containing `manifest_version:`) are **PRESERVE** — copy verbatim into `docs/research/` or `docs/decisions/` as-is, no synthesis, never deleted.
+   - **Archived handoffs** (`archive/handoffs/*.md`): always **NEW** — the `## What Was Accomplished`, `## Key Decisions Made`, and `## Blockers or Issues` sections contain architectural decisions and gotchas that must be extracted into guides and decision records.
 
    The scout returns a classified list with counts. This is the **ground truth** for scope, replacing the distill-log as the primary filter. The distill-log is a hint; the scout is the authority.
 
@@ -222,7 +226,7 @@ Present to PM:
 3. **Commit additions:** `"distill: add/update N guides, N decision records"`
 4. **Delete approved artifacts:** `git rm` each file from the deletion manifest
 5. **Commit deletions:** `"distill: remove N distilled artifacts"`
-6. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
+6. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
 7. **Amend log update** into the deletion commit
 8. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 

@@ -2,11 +2,12 @@
 
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
-- **8 plugins, 24 agents, 37 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
+- **6 plugins (+1 standalone), 22 agents, 25 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
 - **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
 - **Sequential persona-based review** — domain expert first, all fixes applied, then generalist reviews a clean artifact. [Research supports](docs/research/2026-03-19-named-persona-performance.md) both the persona mechanism and multi-agent review gains
+- **Cross-model delegation** — Codex CLI runs as a parallel execution runtime via `codex:*` skills, giving the coordinator a second-opinion channel and an independent implementation path for isolated tasks. The integration is structured (rescue agent, review gate, prompt guidance), not just "also install Codex"
 - **6-layer project knowledge** — structure, architecture, activity, temporal, intent, state — none bulk-loaded, all maintained by an 11-phase doc pipeline that fights staleness automatically
 
 ## Quick Start
@@ -46,6 +47,8 @@ See [docs/architecture.md](docs/architecture.md) for the full model — agent ro
 
 Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Four research pipelines (internet, repository, structured, NotebookLM media) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus sweep agent checks coverage adversarially and fills gaps. Internet research (Pipeline A v2.2) adds iterative deepening — a second, smaller team is dispatched to fill significant gaps when warranted. Repository research (Pipeline B) supports `--deeper` (dependency-weighted repomap) and `--deepest` (architecture atlas generation) modes. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
 
+Anthropic independently built a [production multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) using the same core pattern (Opus orchestrator + Sonnet workers, parallel dispatch, effort-scaled pipelines) — their eval showed 90.2% improvement over single-agent. We [converged on the same architecture without reference to their work](docs/research/2026-04-01-anthropic-multi-agent-alignment.md); our system extends it with Haiku scouts for cost efficiency, adversarial peer dynamics between specialists, and asynchronous orchestrator dispatch (their system waits synchronously — they flag this as a known limitation).
+
 </details>
 
 <details>
@@ -70,7 +73,7 @@ Reviewer agents carry rich behavioral profiles, and the system enforces sequenti
 </details>
 
 <details>
-<summary><strong>5-layer project knowledge</strong> — layered context, not bulk injection</summary>
+<summary><strong>6-layer project knowledge</strong> — layered context, not bulk injection</summary>
 
 Instead of one large repo map injected at the start of every interaction, the system maintains six complementary knowledge layers (structure, architecture, activity, temporal, intent, state), none loaded in bulk. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically. The temporal layer (via the optional [remember plugin](https://github.com/anthropics/claude-plugins-official)) adds automatic rolling session memory — what happened today, this week, historically — used by `/update-docs` and `/workday-complete` to cross-reference activity against the project tracker. See [docs/architecture.md](docs/architecture.md#project-knowledge-layered-context-not-bulk-injection) for the full breakdown.
 
@@ -86,8 +89,9 @@ For a deeper assessment of all patterns, see the [novelty research doc](docs/res
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation | Research tasks |
+| **[deep-research](https://github.com/oduffy-delphi/deep-research-claude)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation (standalone repo) | Research tasks |
 | **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
+| **[remember](plugins/remember/)** | Automatic temporal session memory — rolling daily/weekly/archive summaries | Optional; enriches `/update-docs` and `/workday-complete` |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
@@ -109,6 +113,10 @@ Install [clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main
 
 Coordinator works without clangd-lsp, but C++ reviews lose source-level navigation.
 
+Install [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) to enable Codex CLI integration. Coordinator's `codex:*` skills delegate investigation and implementation tasks to Codex as a parallel execution runtime — useful for long-running or isolated coding tasks that benefit from a separate context. The install script will offer to install this alongside superpowers during onboarding.
+
+Coordinator works without codex-plugin-cc, but `codex:*` skills won't resolve.
+
 ## Directory Structure
 
 ```
@@ -116,16 +124,16 @@ coordinator-claude/
 ├── plugins/
 │   ├── coordinator/            # Core orchestration (always enabled)
 │   │   ├── .claude-plugin/plugin.json
-│   │   ├── agents/             # enricher, executor, reviewers, review-integrator, eng-director
+│   │   ├── agents/             # enricher, executor, docs-checker, reviewers, review-integrator, eng-director
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
 │   │   ├── hooks/              # context pressure advisory, validate-commit
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
-│   │   └── skills/             # 23 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
+│   │   └── skills/             # 24 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
-│   ├── deep-research/          # Research pipelines: A (web, v2.2), B (repo + repomap/atlas), C (structured)
-│   └── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
+│   ├── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
+│   └── remember/               # Temporal session memory — rolling daily/weekly/archive
 ├── docs/                       # Architecture, customization, CI pipeline
 ├── setup/                      # Installer
 └── assets/                     # Social preview card + generation template

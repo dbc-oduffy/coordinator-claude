@@ -55,7 +55,7 @@ Domain plugins MUST provide `routing.md` at the plugin root with this structure:
 
 ## Project-Type Configuration
 
-Per-project config in `.claude/coordinator.local.md`:
+Per-project config in `coordinator.local.md`:
 
     ---
     project_type:            # list of types — all matching domain agents are active

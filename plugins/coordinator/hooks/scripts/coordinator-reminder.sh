@@ -13,7 +13,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 PROJECT_TYPES=""
 
 if [ -n "$REPO_ROOT" ]; then
-  LOCAL_MD="$REPO_ROOT/.claude/coordinator.local.md"
+  LOCAL_MD="$REPO_ROOT/coordinator.local.md"
   if [ -f "$LOCAL_MD" ]; then
     # Extract project_type(s) from YAML frontmatter
     # Supports both single value (project_type: meta) and list (project_type:\n  - unreal\n  - data-science)

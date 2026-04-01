@@ -1,20 +1,18 @@
 ---
 name: remember
-description: Save session state for clean continuation next session.
-allowed-tools: Write
+description: Quick-write a lightweight session note to memory/sessions/note.md. For full session wrap-up, use coordinator:session-end or /handoff.
+allowed-tools:
+  - Write
 ---
 
-Write a handoff note so the next session can continue cleanly. Use your knowledge of the current session — you were here. Write in first person ("I").
+Write a session note so the next session can continue cleanly. Use your knowledge of the current session — you were here. Write in first person ("I").
 
-**Path:** Write to the `memory/sessions/handoff.md` file inside the Claude Code project memory directory. The exact path is:
-`~/.claude/projects/<project-slug>/memory/sessions/handoff.md`
-
-where `<project-slug>` is the current project's slug (visible in the session directory path). Overwrite any existing content.
+**Path:** Write to `tasks/session-note.md` in the project root. Overwrite any existing content.
 
 Format:
 
 ```
-# Handoff
+# Session Note
 
 ## State
 {What's done, what's not. Files, MRs, decisions. 2-4 lines max.}
@@ -31,6 +29,6 @@ Rules:
 - Under 20 lines total
 - Specific: file paths, MR numbers, branch names
 - Forward-looking — the next session doesn't care about the journey
-- If nothing meaningful to hand off, write: "No active work."
+- If nothing meaningful to save, write: "No active work."
 
 Say "Saved." when done — nothing else.

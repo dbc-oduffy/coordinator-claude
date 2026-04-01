@@ -15,7 +15,7 @@ When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each
 **Path convention:**
 - **Active handoffs:** `tasks/handoffs/*.md` — current, available for `/session-start` pickup
 - **Archived handoffs:** `archive/handoffs/*.md` — consumed, kept as paper trail
-- Both are git-tracked. `.claude/` must NOT be in `.gitignore` — it contains project configuration that travels with the repo.
+- Both are git-tracked. `tasks/` and `archive/` must NOT be in `.gitignore` — they contain session continuity data that travels with the repo. `.claude/` contains only platform settings and does not need to be tracked.
 
 **Design note:** Multiple agents may be running concurrently. This skill preserves ONE agent's work without assuming exclusive repo access.
 

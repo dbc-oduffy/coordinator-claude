@@ -67,6 +67,22 @@ Can't classify with confidence. Format:
 - **Source:** [filename]
 - **Why ambiguous:** [what makes classification unclear]
 
+## Special Source Rules
+
+**Archived handoffs** (`archive/handoffs/*.md`): Parse the structured sections explicitly:
+- `## What Was Accomplished` → `[KNOWLEDGE:{system}]` nuggets (what was built, where, and why)
+- `## Key Decisions Made` → `[DECISION]` nuggets (use the Decision/Considered/Chose structure verbatim)
+- `## Blockers or Issues` → `[KNOWLEDGE:gotchas]` nuggets (these are architectural lessons, not ephemera)
+- `## Recommended Next Steps` → `[EPHEMERAL]` (session-specific intent, not lasting knowledge)
+- `## Current State` / `## Files Modified` → `[EPHEMERAL]`
+Do NOT classify an entire handoff as EPHEMERAL — even if it contains mostly task tracking, the decision and accomplishment sections have lasting value.
+
+**Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, files with "Deep Research" or "Pipeline" in their title): These are substantive research artifacts. Extract all content as `[KNOWLEDGE:{topic}]` nuggets — use near-verbatim language, preserve the full findings. Do NOT mark as EPHEMERAL. If the file is a Pipeline C output (contains `manifest_version:` or is structured YAML/JSON), mark as `[PRESERVE]` — it is output verbatim to the wiki without synthesis.
+
+### [PRESERVE]
+A structured artifact that should be copied verbatim into the wiki without synthesis.
+Mark as: `PRESERVE: [filename] — [brief reason]`
+
 ## Rules
 
 - Extract, do not synthesize. You are a cataloger, not an analyst.
@@ -366,8 +382,8 @@ The coordinator reads your full output from disk. Do NOT return it in conversati
    Rules for disposition:
    - DISTILLED → DELETE: all non-ephemeral knowledge extracted, no active references
    - EPHEMERAL → DELETE: pure ephemeral content, nothing to extract
-   - SKIP: actively referenced by handoffs, in-progress tasks, or contains unresolved
-     ambiguity
+   - SKIP: actively referenced by handoffs, in-progress tasks, or contains unresolved ambiguity
+   - PRESERVE: research outputs and Pipeline C structured artifacts — copy to canonical location (`docs/research/`) if not already there, never delete. Any file tagged `[PRESERVE]` by the Phase 1 scanner is always PRESERVE. Research outputs (`docs/research/`, `~/docs/research/`) are always PRESERVE regardless of Phase 1 classification.
 
 ## Rules
 - Delta application is mechanical — do not rewrite or improve existing guide prose.

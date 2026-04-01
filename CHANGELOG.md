@@ -2,6 +2,58 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.2.1] — 2026-04-01
+
+### Path Hygiene — Move Default Output Paths Out of `.claude/`
+
+Anthropic now enforces mandatory user permission grants for any writes inside the `.claude/` directory (recursively). Several default output paths were inside `.claude/`, causing permission friction for autonomous pipelines and subagents.
+
+**Changes:**
+- **Research output fallback:** `~/.claude/docs/research/` → `~/docs/research/` in `notebooklm/commands/research.md`, `notebooklm/pipelines/team-protocol.md`, and both cache versions (1.0.0, 1.1.0).
+- **`settings.json` permissions:** Added explicit `Edit(~/.claude/**)` and `Write(~/.claude/**)` allow entries to cover platform-owned paths (task storage, plan mode output, team metadata) that cannot be relocated.
+- **Task storage documentation:** The `~/.claude/tasks/{team-name}/N.json` reference in `deep-research/pipelines/team-protocol.md` and `structured-team-protocol.md` (source + cache) now notes these are platform-internal and must not be directly read/written by agents.
+
+### `/distill` — Handoffs as First-Class Wiki Sources
+
+Archived handoffs contain valuable architectural knowledge that was being treated as ephemera. The distillation pipeline now explicitly treats them as first-class inputs.
+
+**Changes to `coordinator/pipelines/artifact-distillation/PIPELINE.md` and `agent-prompts.md` (source + cache):**
+- **Phase 0 inventory** now includes `docs/research/` and `~/docs/research/` as artifact directories.
+- **Special classification rules** added to the Phase 0 reality-check: archived handoffs are always `NEW` (never ephemeral); research outputs are always `NEW`; Pipeline C structured outputs (files containing `manifest_version:`) are `PRESERVE` — copied verbatim, never deleted.
+- **Phase 1 scanner prompt** now includes explicit handoff section parsing: `## What Was Accomplished` → `[KNOWLEDGE]`, `## Key Decisions Made` → `[DECISION]`, `## Blockers or Issues` → `[KNOWLEDGE:gotchas]`.
+- **New `[PRESERVE]` nugget type** added to the Phase 1 scanner for structured artifacts that should be copied verbatim without synthesis.
+- **Phase 3 deletion manifest** now includes a `PRESERVE` disposition: research outputs and Pipeline C artifacts are never deleted, only canonicalized.
+- **Distillation log format** updated to include `PRESERVE` as a valid disposition value.
+
+## [1.2.0] — 2026-04-01
+
+### Codex Review Gate — Independent-Model Second Opinion
+- **New `codex-review-gate` skill** wraps the Codex plugin's `/codex:review` command with graceful error handling and structured result reporting. Codex (GPT-5.4) provides a different model family's perspective on code changes, catching issues that intra-family reviewers may share blind spots on.
+- **`/workday-complete` Step 3.8 — on by default.** The day's full diff against main is reviewed by Codex as a second opinion alongside the existing daily review. Falls back gracefully if Codex CLI is not installed, not authenticated, or credits are exhausted — the existing daily review from Step 3 stands alone when Codex is unavailable. Designed for users on limited ChatGPT plans: one bounded review per end-of-day, not continuous.
+- **`/bug-sweep --codex-verify` — opt-in flag.** After Claude's sweep identifies and fixes bugs, Codex reviews the fix diff for regressions or issues that Claude's own reviewers might miss. Captures a pre-fix baseline ref in Phase 2 for precise diff scoping. Codex findings go to the backlog for PM triage, not auto-fix.
+- **Why a different model family matters.** Our existing reviewer pipeline (Patrik, Sid, Camelia, Pali) provides thorough domain-specific review, but all reviewers share Claude's model family. Blind spots may be correlated — if Claude misses a pattern, its reviewer personas are more likely to miss it too. Codex mitigates this by providing an independent sample from a different training lineage. The integration is additive (never blocking) and token-conscious (validation of diffs, not codebase discovery).
+- **Requirements:** [openai-codex plugin](https://github.com/openai/codex-plugin-cc) installed, Codex CLI authenticated (`codex login`). No Codex API key needed — runs through the CLI.
+
+## [1.1.1] — 2026-04-01
+
+### Strategic Daily Review (new command)
+- **`/daily-review` replaces `/code-health` as the default end-of-day check** in `/workday-complete`. The review-heavy build pipeline (plan → enrich → chunk → review) already catches code-level issues; end-of-day now focuses on whether the day's accumulated decisions create technical debt, lock into patterns, or miss opportunities for the product's longer-term direction.
+- **Three-phase pipeline.** Haiku scout inventories the day's commits, file changes, plans, and handoffs. Sonnet analyst produces a narrative work summary identifying explicit and implicit architectural decisions. Sonnet reviewer provides a strategic assessment against the project's roadmap and vision.
+- **Reusable daily summary artifact.** Output saved to `archive/daily-summaries/YYYY-MM-DD.md` — feeds `/update-docs`, `/distill`, completed work register, and next-morning orientation. Fills the gap between terse commit logs and verbose in-flight handoffs.
+- `/code-health` remains available for on-demand detailed code-level review.
+
+### Reviewer Strategic Awareness
+- **All five domain reviewers now read project roadmap and vision documents** (when available) before reviewing. Reviewers flag when an implementation — even a correct one — creates accidental lock-in, forecloses a roadmap option, or misses a low-cost bridging opportunity toward planned future capabilities.
+- Strategic findings use `minor`/`nitpick` severity with `architecture` category — they inform, they don't block.
+- Each reviewer's strategic lens is adapted to their domain: the generalist reviewer focuses on architecture and extensibility; the game development reviewer on engine system choices and scalability; the front-end reviewer on design system evolution; the UX reviewer on user journey trajectories; the data science reviewer on model and pipeline architecture.
+- Guardrails prevent false positives: no strategic findings when no roadmap exists, when concerns are purely speculative, or when work is explicitly temporary.
+
+### Orientation Cache Enhancement
+- `/workday-start` now includes a "Yesterday's Strategic Review" excerpt in the orientation cache, giving every subsequent session automatic strategic context without reading a separate file.
+
+### Handoff Deletion Policy
+- **Explicit policy: `/workday-complete` never deletes handoffs.** Handoffs are archived (moved to `archive/handoffs/`) by `/update-docs`, but only `/distill` may delete them — after careful knowledge extraction and PM approval.
+
 ## [1.1.0] — 2026-03-31
 
 ### Remember Plugin (new)

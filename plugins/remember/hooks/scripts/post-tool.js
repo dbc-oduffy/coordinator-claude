@@ -48,7 +48,9 @@ try { fileSize = statSync(jsonlPath).size; } catch { process.exit(0); }
 
 const lastSize = state.lastSave?.fileSize || 0;
 const bytesPerLine = 500; // approximate
-const estimatedDelta = Math.floor((fileSize - lastSize) / bytesPerLine);
+const estimatedDelta = lastSize === 0 || fileSize < lastSize
+  ? Math.floor(fileSize / bytesPerLine)
+  : Math.floor((fileSize - lastSize) / bytesPerLine);
 const threshold = config.thresholds?.deltaLinesTrigger || 50;
 
 if (estimatedDelta < threshold) process.exit(0);

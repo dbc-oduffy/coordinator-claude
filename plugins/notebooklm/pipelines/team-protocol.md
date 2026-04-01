@@ -243,5 +243,5 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 - Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`
 - Worker outputs: `{scratch-dir}/{letter}-claims.json` + `{scratch-dir}/{letter}-summary.md` (A, B, C as applicable)
-- Final output: `~/.claude/docs/research/YYYY-MM-DD-{topic-slug}.md`
+- Final output: `~/docs/research/YYYY-MM-DD-{topic-slug}.md`
 - Sweep advisory: `{output-path}-advisory.md` (+ backup at `{scratch-dir}/advisory.md`); omitted if nothing beyond scope
