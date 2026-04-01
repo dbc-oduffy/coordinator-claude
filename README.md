@@ -109,6 +109,10 @@ Install [clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main
 
 Coordinator works without clangd-lsp, but C++ reviews lose source-level navigation.
 
+Install [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) to enable Codex CLI integration. Coordinator's `codex:*` skills delegate investigation and implementation tasks to Codex as a parallel execution runtime — useful for long-running or isolated coding tasks that benefit from a separate context. The install script will offer to install this alongside superpowers during onboarding.
+
+Coordinator works without codex-plugin-cc, but `codex:*` skills won't resolve.
+
 ## Directory Structure
 
 ```
