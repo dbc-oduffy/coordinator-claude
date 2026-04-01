@@ -2,7 +2,7 @@
 
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
-- **7 plugins, 22 agents, 25 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
+- **6 plugins (+1 standalone), 22 agents, 25 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
 - **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
@@ -87,7 +87,7 @@ For a deeper assessment of all patterns, see the [novelty research doc](docs/res
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation | Research tasks |
+| **[deep-research](https://github.com/oduffy-delphi/deep-research-claude)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation (standalone repo) | Research tasks |
 | **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
 | **[remember](plugins/remember/)** | Automatic temporal session memory — rolling daily/weekly/archive summaries | Optional; enriches `/update-docs` and `/workday-complete` |
 
@@ -130,7 +130,6 @@ coordinator-claude/
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
-│   ├── deep-research/          # Research pipelines: A (web, v2.2), B (repo + repomap/atlas), C (structured)
 │   ├── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
 │   └── remember/               # Temporal session memory — rolling daily/weekly/archive
 ├── docs/                       # Architecture, customization, CI pipeline
