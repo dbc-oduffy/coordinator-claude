@@ -6,7 +6,7 @@
 
 ## Summary
 
-Anthropic's engineering team built a multi-agent research system for Claude.com that uses an orchestrator-worker pattern with Opus lead agents and Sonnet subagents. Their production system revealed the same architectural principles we arrived at independently in coordinator-claude. Their eval showed multi-agent Opus+Sonnet outperformed single-agent Opus by 90.2% on research tasks.
+Anthropic's engineering team built a multi-agent research system for Claude.com that uses an orchestrator-worker pattern with Opus lead agents and Sonnet subagents. Their production system revealed the same architectural principles we arrived at independently in coordinator-claude. Their eval showed multi-agent Opus+Sonnet outperformed single-agent Opus by 90.2% on research tasks (relative improvement on an internal research eval).
 
 ## Where We Converged
 
@@ -27,13 +27,13 @@ Anthropic's engineering team built a multi-agent research system for Claude.com 
 
 Anthropic's lead agent waits synchronously for subagent completion, consuming its context window while workers run. Our system uses Agent Teams with task-based blocking — the EM dispatches a team and is freed. The team runs autonomously; results are written to disk. The EM's context window is preserved for judgment, not spent waiting.
 
-**Why this matters:** Their article notes the "synchronous bottleneck" as a known limitation and flags asynchronous execution as future work. We already operate asynchronously.
+**Why this matters:** Their article describes this explicitly — "Synchronous execution creates bottlenecks" — and flags asynchronous execution as future work that would "enable additional parallelism." We already operate asynchronously.
 
 ### 2. Cost efficiency via Haiku scouts (our advantage)
 
 Anthropic uses Opus + Sonnet (two tiers). We add a third tier: Haiku scouts handle mechanical discovery work (source gathering, file inventory, query execution) before Sonnet specialists do the analytical work. This means the Sonnet specialists start from a pre-built corpus rather than doing their own source discovery — reducing both token cost and time.
 
-**Their cost data:** 15x chat tokens for multi-agent research. Our Haiku scout phase handles ~40% of the total work at ~1/20th the per-token cost of Sonnet, significantly reducing the multiplier.
+**Their cost data:** Multi-agent uses ~15x more tokens than chat interactions (single-agent uses ~4x), so the multi-agent multiplier over single-agent is roughly 3.75x — not 15x. Our Haiku scout phase handles ~40% of the total work at ~1/20th the per-token cost of Sonnet, significantly reducing the multiplier further.
 
 ### 3. Prospective vs. checkpoint recovery
 
@@ -53,8 +53,8 @@ Anthropic describes debugging non-deterministic multi-agent behavior as a major 
 
 ## Their Findings That Validate Our Decisions
 
-1. **"Token usage by itself explains 80% of the variance"** — validates our decision to use Haiku for mechanical work and preserve Opus context for judgment.
-2. **"Minor system failures can be catastrophic for agents"** — validates our write-ahead protocol and prospective handoff design.
+1. **"Token usage by itself explains 80% of the variance"** (in the BrowseComp evaluation specifically) — validates our decision to use Haiku for mechanical work and preserve Opus context for judgment.
+2. **"Without effective mitigations, minor system failures can be catastrophic for agents"** — validates our write-ahead protocol and prospective handoff design.
 3. **90.2% improvement** over single-agent — validates the multi-agent architecture generally, and our research pipeline design specifically.
 4. **"Agent-tool interfaces are as critical as human-computer interfaces"** — validates our inverted capability delegation (thin coordinator tools, rich agent tools).
 5. **Scale effort to complexity** — validates our tiered pipeline approach (not everything needs the full staff session).
@@ -63,4 +63,20 @@ Anthropic describes debugging non-deterministic multi-agent behavior as a major 
 
 1. **LLM-as-judge evaluation** — They use a single prompt scoring factual accuracy, citation accuracy, completeness, source quality, and tool efficiency (0.0-1.0). We could adopt a similar eval for our pipeline outputs.
 2. **SEO content farm detection** — They found agents preferring SEO-optimized content over authoritative sources. Worth checking if our scouts have the same bias.
-3. **Self-improvement loop** — They let Claude diagnose failures and suggest prompt improvements. Our lessons.md system captures this manually; automating it could be valuable.
+3. **Self-improvement loop** — They describe two flavors: (a) Claude diagnosing prompt failures and suggesting improvements to the orchestration prompts; and (b) a tool-testing agent that repeatedly uses flawed tools, then rewrites the tool descriptions based on observed failures — yielding a 40% decrease in task completion time. Our lessons.md system captures (a) manually; automating either flavor, especially (b), could be valuable.
+
+## What We Adopted (2026-04-01)
+
+Based on this analysis, we implemented the following improvements across Pipelines A, B, and D:
+
+1. **SEO farm detection in scouts** — Mechanical flag for SEO content farm indicators (generic domains, clickbait titles, missing attribution), with specialists treating flagged sources as corroboration-only
+2. **Broad-to-narrow search strategy** — Scouts now start with short broad queries before narrowing, avoiding the overly-specific-query failure mode Anthropic identified
+3. **Parallel tool calling** — Specialists instructed to batch WebFetch/Read calls in parallel (3-5 per batch); NotebookLM workers can parallelize notebook_query (but not source_add)
+4. **Extended thinking as scratchpad** — Specialists use thinking for structured post-source reflection; synthesizer uses thinking for cross-reference planning before writing
+5. **Delegation clarity checklist** — EM scoping now requires specific objectives, boundaries, and output format per specialist/worker
+6. **LLM-as-judge eval** — New `/eval-output` skill scores pipeline outputs on 5 criteria (factual accuracy, citation accuracy, completeness, source quality, source diversity) adapted from Anthropic's methodology
+
+Items deferred:
+- **Tool-testing agent** — Systematic testing of MCP tool descriptions. Valuable but large scope; tracked for future work.
+- **End-state evaluation for executors** — Evaluating final state rather than process. Relevant to coordinator executors, not research pipelines.
+- **Pipeline C (structured)** — Excluded from this round; its verifier agents have a different interaction model where these heuristics don't apply directly.
