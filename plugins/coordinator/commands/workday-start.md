@@ -174,6 +174,7 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
 4. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
 5. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
 6. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
+7. **Yesterday's Strategic Review:** Read the most recent file in `archive/daily-summaries/` (glob for `YYYY-MM-DD.md`, sort descending, take first). If a daily summary exists and has a `## Strategic Review` section, extract a 3-5 line excerpt covering the key alignment findings, debt items, and bridging opportunities. Include as a `## Yesterday` section in the orientation cache. This gives every subsequent session automatic strategic context without reading a separate file. If no daily summaries exist, skip silently.
 
 **Frontmatter:** Include `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
 
