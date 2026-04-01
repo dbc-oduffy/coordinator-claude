@@ -95,6 +95,10 @@ If `--context` files were provided, read them now for topic background.
 - [ ] Source strategy per notebook is set (scout-provided vs research_start)
 - [ ] Studio artifacts requested match the use case (or skipped)
 - [ ] Rate limit budget accounts for tier + queries used today
+- [ ] **Each worker assignment has: (a) specific notebook focus, (b) output format reference,
+      (c) source/query guidance, (d) clear topic boundaries vs. peer workers.** Vague assignments
+      ("research X") lead to duplication — be specific about what each worker SHOULD
+      and SHOULD NOT cover.
 
 **Time-box:** Scoping should take 2-3 minutes. If deliberating longer, pick the simpler topology.
 
