@@ -4,14 +4,14 @@ allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TeamC
 argument-hint: "<spec-path> <subject-key>"
 ---
 
-# Deep Research — Pipeline C (Structured Research) Agent Teams Driver
+# Deep Research — Pipeline C v2.1 (Structured Research) Agent Teams Driver
 
 The EM reads the spec and pre-processes it, creates a team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Haiku scout** (1) — executes spec-derived search queries from scout-brief.md, maps findings to schema fields, writes per-topic discovery files
-- **Sonnet verifiers** (1-5) — blocked until scout completes, then verify per-topic findings, compare against existing data, produce schema field tables with change types
-- **Opus synthesizer** (1) — blocked until all verifiers complete, then cross-reconciles and writes schema-conforming output
+- **Sonnet verifiers** (1-5) — blocked until scout completes, then verify per-topic findings, compare against existing data, challenge peers' schema field values, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED)
+- **Opus synthesizer** (1) — blocked until all verifiers complete, then writes skeleton output immediately, cross-reconciles, resolves CONTESTED fields, validates schema, and overwrites with final output
 
-The scout handles mechanical source discovery so verifiers can focus on schema-mapped verification. Verifiers self-govern their timing (floor, diminishing returns, ceiling) and self-check acceptance criteria and gate rules embedded in their prompts. The EM does not monitor or broadcast WRAP_UP. When the synthesizer marks its task complete, the EM receives a notification, validates schema conformance, and does cleanup.
+The scout handles mechanical source discovery so verifiers can focus on schema-mapped verification. Verifiers self-govern their timing (floor, diminishing returns, ceiling), self-check acceptance criteria and gate rules embedded in their prompts, and actively challenge each other's schema field values. The EM does not monitor or broadcast WRAP_UP. When the synthesizer marks its task complete, the EM receives a notification, validates schema conformance via a hard file-existence gate, and does cleanup.
 
 ## Arguments
 
@@ -64,8 +64,20 @@ This is judgment work — the EM does it directly:
    ```
 
 6. **Extract quality gate rules** from the spec — these will be embedded in verifier prompts so verifiers can self-check before converging
-7. **Ask the PM for timing preferences:**
+7. **Include adversarial search terms** in the scout brief — at least one adversarial query per topic (e.g., "{subject} {field} problems", "{subject} controversy", "{subject} limitations")
+8. **Ask the PM for timing preferences:**
    > "Research timing: default is 5-15 min with 5-source minimum per verifier. For a narrow subject, 3-8 min / 3 sources. For a complex subject, 5-20 min / 5 sources. What ceiling works for you?"
+
+### EM Spec Quality Checklist (review before dispatching)
+
+Quality gates for the pre-processed spec — review before creating the team:
+
+- [ ] **Schema fields are unambiguous.** Each field in `output_schema` has a clear type, allowed values (for enums), and enough context that a verifier can determine the correct value from a source. Vague fields like "status" without enum values will produce inconsistent results.
+- [ ] **Acceptance criteria are falsifiable.** Each criterion has a concrete pass/fail condition — not "good coverage" but "minimum 3 sources per topic, at least 1 in native language."
+- [ ] **Topics map cleanly to schema fields.** Every required schema field is assigned to exactly one topic. Unassigned fields produce gaps; multiply-assigned fields produce conflicts. Check the mapping in scout-brief.md before dispatch.
+- [ ] **Existing data is loaded for comparison.** The per-subject source file was read and its content will be passed to verifiers. Without this, verifiers can't assign change types (CONFIRMED/UPDATED/NEW/REFUTED) — everything becomes NEW.
+- [ ] **Gate rules are extractable.** The spec's quality gates can be flattened into verifier-embeddable rules. Complex nested gates need simplification before embedding.
+- [ ] **Adversarial search terms are included.** Scout brief includes at least one adversarial query per topic. Absence of negative findings ≠ absence of real issues.
 
 ## Step 3 — Create Team and All Tasks
 
@@ -81,7 +93,7 @@ TeamCreate(team_name: "structured-{subject-slug}")
 
 **1. Synthesizer task** (created first — will be blocked later):
 ```
-TaskCreate(subject: "Synthesize all verifier findings into schema-conforming output", description: "Read all verifier outputs from {scratch-dir}/, cross-reconcile across topics, resolve contradictions, validate against output_schema, write final YAML/JSON output. Spec path: {spec-path}. Subject: {subject-key}. Scratch dir: {scratch-dir}.")
+TaskCreate(subject: "Synthesize all verifier findings into schema-conforming output", description: "Read all verifier outputs from {scratch-dir}/, write skeleton structured data to {output-path} immediately, cross-reconcile across topics, resolve CONTESTED fields, validate against output_schema, overwrite {output-path} with final output, write annotations to {scratch-dir}/synthesis-annotations.md. Spec path: {spec-path}. Subject: {subject-key}. Scratch dir: {scratch-dir}. Output path: {output-path}.")
 ```
 
 **2. Scout task** (no blockers — reads queries from disk):
@@ -92,7 +104,7 @@ TaskCreate(subject: "Execute spec-derived search queries and map findings to sch
 **3. Verifier tasks** (each blocked by scout, one per topic):
 For each topic:
 ```
-TaskCreate(subject: "Verify topic {topic_id}: {topic_name}", description: "Read scout's per-topic discovery file at {scratch-dir}/{subject-slug}-scout-{topic_id}.md, compare against existing data, produce schema field table with change types (CONFIRMED/UPDATED/NEW/REFUTED), self-check acceptance criteria and gate rules.")
+TaskCreate(subject: "Verify topic {topic_id}: {topic_name}", description: "Read scout's per-topic discovery file at {scratch-dir}/{subject-slug}-scout-{topic_id}.md, compare against existing data, challenge peers' schema field values, produce schema field table with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), self-check acceptance criteria and gate rules.")
 TaskUpdate(taskId: "{verifier-id}", addBlockedBy: ["{scout-task-id}"])
 ```
 
@@ -145,7 +157,7 @@ TaskUpdate(taskId: "{id}", owner: "verifier-{topic_id}")
 Read the synthesizer prompt template from:
 `${CLAUDE_PLUGIN_ROOT}/pipelines/structured-synthesizer-prompt-template.md`
 
-Fill in ALL template fields — including `[OUTPUT_SCHEMA]` (full schema from spec), `[PHASE_2_GATE_RULES]` (quality gate rules for final output from spec), `[SUBJECT]`, `[SCRATCH_DIR]`, `[SPEC_PATH]`, `[TASK_ID]`.
+Fill in ALL template fields — including `[OUTPUT_SCHEMA]` (full schema from spec), `[PHASE_2_GATE_RULES]` (quality gate rules for final output from spec), `[OUTPUT_PATH]` (the spec-defined output path for this subject), `[SUBJECT]`, `[SCRATCH_DIR]`, `[SPEC_PATH]`, `[TASK_ID]`.
 
 ```
 Agent(
@@ -172,30 +184,43 @@ After spawning all teammates, announce:
 
 When you receive a notification that the synthesis task is complete:
 
-1. Read the synthesizer output from `{scratch-dir}/synthesis-output.yaml` (or `.json`)
-2. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it (advisory is archived automatically with the scratch directory in step 6)
-3. **Validate schema conformance BEFORE TeamDelete:**
+1. **File-existence gate (HARD GATE):** Check whether the structured data file exists at `{output-path}`:
+   - If **missing**: schema validation FAILED. Do NOT archive. Keep team alive.
+     Send correction message to synthesizer via `SendMessage`:
+     > "OUTPUT FILE MISSING: Expected structured data at {output-path}. You must write schema-conforming YAML/JSON to this path. Your annotations at synthesis-annotations.md are supplementary — the structured data file IS the deliverable."
+     Wait for revised output. Re-validate from step 1.
+   - If **exists**: proceed to content validation.
+
+2. **Content validation:** Read `{output-path}` and validate schema conformance BEFORE TeamDelete:
    - Check all required fields from `output_schema` are present
    - Check enum values match the spec's allowed values
    - Check array fields meet minimum length requirements from spec
    - If validation **fails**: keep team alive, send a correction message to the synthesizer via `SendMessage` listing the specific fields that failed, and wait for a revised output
-   - If validation **passes**: proceed to step 4
+   - If validation **passes**: proceed to step 3
+
+3. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it
+
 4. Update the manifest:
    - Set subject status to `complete`
    - Record `manifest_version: 2`
+
 5. Commit:
    ```bash
    git add -A && git commit -m "deep-research: structured complete — {subject-slug}"
    ```
-6. Archive paper trail (advisory archived automatically here with the rest of scratch):
+
+6. Archive paper trail:
    ```bash
    mkdir -p docs/research/archive/YYYY-MM-DD-{subject-slug}
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{subject-slug}/
    rm -rf {scratch-dir}
    ```
+
 7. Shut down the team: `TeamDelete(team_name: "structured-{subject-slug}")`
+
 8. Commit: `git add -A && git commit -m "deep-research: structured archive + cleanup"`
-9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED counts) to PM for review. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)."
+
+9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)."
 
 ## Error Handling
 
@@ -206,5 +231,7 @@ When you receive a notification that the synthesis task is complete:
 | Verifier hits ceiling and self-converges | Normal — verifier writes schema field table with what it has, marks task complete, sends DONE to synthesizer |
 | Synthesizer doesn't wake after all verifiers complete | Verify verifiers sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw verifier outputs for PM |
 | Schema validation fails after synthesizer completes | Keep team alive, message synthesizer with specific correction list; retry validation on revised output |
+| Synthesizer writes prose but no structured data file | File-existence gate catches this. Keep team alive, send correction message listing the expected output path and format. Re-validate on revised output. |
 | All verifiers fail | TeamDelete, report to PM |
 | Team creation fails | Fall back to relay pattern or manual research |
+| Agents stuck in idle loops | Known platform issue — commit and archive available results before TeamDelete. If TeamDelete fails, wait for timeout. Read available outputs and present to PM. |

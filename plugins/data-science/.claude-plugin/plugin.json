@@ -2,6 +2,7 @@
   "name": "data-science",
   "version": "1.0.0",
   "description": "ML and data science review for Claude Code — Camelia reviews model architecture, statistical analysis, feature engineering, and LLM workflows with the rigor of a senior data scientist.",
+  "license": "MIT",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },

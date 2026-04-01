@@ -2,9 +2,9 @@
 
 Multi-agent deep research pipelines for Claude Code. All pipelines use Agent Teams (fire-and-forget):
 
-- **Pipeline A (Internet Research, v2.2)** — investigate a topic across web sources with iterative deepening. Team 1: 1 Haiku scout + 3-5 Sonnet specialists (adversarial peers) + 1 Opus sweep. Optional Team 2 for gap-focused follow-up.
+- **Pipeline A (Internet Research)** — investigate a topic across web sources via 1 Haiku scout (source corpus) + 3-5 Sonnet specialists (deep-read + verify) + 1 Opus synthesizer
 - **Pipeline B (Repo Research)** — study a repository's architecture via 2 Haiku scouts (file inventory) → 4 Sonnet specialists (analysis + optional comparison) → 1 Opus synthesizer
-- **Pipeline C (Structured Research)** — schema-conforming batch research via 1 Haiku scout + 1-5 Sonnet verifiers (1 per topic) + 1 Opus synthesizer; outputs YAML/JSON matching the spec's output_schema
+- **Pipeline C (Structured Research, v2.1)** — schema-conforming batch research via 1 Haiku scout + 1-5 Sonnet verifiers (adversarial peer challenges, CONTESTED resolution) + 1 Opus synthesizer (output-first with file-existence gate); outputs YAML/JSON matching the spec's output_schema
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ Without this, `/deep-research` will fail.
 
 ## Commands
 
-- `/deep-research web <topic> [--shallow]` — Pipeline A: internet research (iterative deepening by default; `--shallow` for single-pass)
+- `/deep-research web <topic>` — Pipeline A: internet research
 - `/deep-research repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
 - `/deep-research structured <spec-path> [subject-key]` — Pipeline C: structured research
 
@@ -34,18 +34,21 @@ All three pipelines follow the same Agent Teams pattern:
 7. **Opus synthesizer** reads specialist outputs, cross-references, writes final document(s), and optionally writes a **Synthesizer Advisory** — a companion file with staff-engineer observations beyond the research scope (framing concerns, blind spots, surprising connections). Absent if there's nothing beyond scope.
 8. EM receives notification → cleanup (archive, commit, present results)
 
-### Pipeline C specifics
+### Pipeline C specifics (v2.1)
 - EM pre-processes spec YAML into flat `scout-brief.md` (Haiku can't parse complex YAML)
-- Scout maps findings to schema fields from the brief — per-topic output files, not a single corpus
-- Verifiers produce schema field tables with change types, not prose findings
-- Quality gates from spec are embedded in verifier prompts for self-validation
-- Synthesizer produces YAML/JSON conforming to the spec's `output_schema`
+- EM runs spec quality checklist (6 items: schema clarity, falsifiable criteria, field mapping, existing data, extractable gates, adversarial terms)
+- Scout maps findings to schema fields from the brief — per-topic output files, not a single corpus; includes adversarial search pass-through
+- Verifiers produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED), actively challenge peers' schema field values, use SCHEMA_OVERLAP messages for cross-field evidence sharing
+- Quality gates + acceptance criteria embedded in verifier prompts for self-validation
+- Synthesizer uses output-first ordering: writes skeleton to output path immediately (crash insurance), then reconciles, resolves CONTESTED fields, validates, and overwrites with final output
+- EM validates via hard file-existence gate — missing output file blocks archival and triggers correction
+- Annotations written to `synthesis-annotations.md` (separate from structured data)
 - Manifest tracks completion per subject with `manifest_version: 2`
+- Team protocol: `pipelines/structured-team-protocol.md`
 
-### Pipeline A specifics (v2.2)
+### Pipeline A specifics
 - 1 Haiku scout — builds shared source corpus from web searches
-- Specialists verify claims, resolve contradictions, enforce source recency, challenge peers (adversarial cross-pollination)
-- Iterative deepening (default): sweep produces structured gap report; if significant gaps remain, EM dispatches Team 2 (1-3 gap-specialists + merge-mode sweep) for targeted follow-up. `--shallow` skips.
+- Specialists verify claims, resolve contradictions, enforce source recency
 - Team protocol: `pipelines/team-protocol.md`
 
 ### Pipeline B specifics
@@ -55,10 +58,11 @@ All three pipelines follow the same Agent Teams pattern:
 - In `--deepest` mode (implies `--deeper`): after synthesis, a Sonnet subagent produces architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings
 - Team protocol: `pipelines/repo-team-protocol.md`
 
-### Pipeline C specifics
-- 1 Haiku scout — reads EM-processed scout-brief.md, maps findings to schema fields, writes per-topic discovery files
-- 1-5 Sonnet verifiers (1 per topic) — verify scout's discoveries against existing data, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED)
+### Pipeline C specifics (v2.1)
+- 1 Haiku scout — reads EM-processed scout-brief.md, maps findings to schema fields, writes per-topic discovery files, includes adversarial search pass-through
+- 1-5 Sonnet verifiers (1 per topic) — verify scout's discoveries against existing data, challenge peers' field values, produce schema field tables with change types (CONFIRMED/UPDATED/NEW/REFUTED/CONTESTED)
 - Acceptance criteria + quality gate rules embedded in verifier prompts (self-validation replaces orchestrator re-dispatch)
-- Synthesizer produces schema-conforming YAML/JSON, not prose
+- Synthesizer uses output-first ordering (skeleton → reconcile → validate → overwrite), resolves CONTESTED fields, writes annotations separately
+- EM validates via hard file-existence gate before archival
 - Team protocol: `pipelines/structured-team-protocol.md`
 - Invoked via `/structured-research <spec-path> <subject>` or `/deep-research structured <spec-path> <subject>`

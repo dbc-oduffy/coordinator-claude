@@ -2,11 +2,12 @@
 
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
-- **8 plugins, 24 agents, 37 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
+- **7 plugins, 22 agents, 25 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
 - **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
 - **Sequential persona-based review** — domain expert first, all fixes applied, then generalist reviews a clean artifact. [Research supports](docs/research/2026-03-19-named-persona-performance.md) both the persona mechanism and multi-agent review gains
+- **Cross-model delegation** — Codex CLI runs as a parallel execution runtime via `codex:*` skills, giving the coordinator a second-opinion channel and an independent implementation path for isolated tasks. The integration is structured (rescue agent, review gate, prompt guidance), not just "also install Codex"
 - **6-layer project knowledge** — structure, architecture, activity, temporal, intent, state — none bulk-loaded, all maintained by an 11-phase doc pipeline that fights staleness automatically
 
 ## Quick Start
@@ -70,7 +71,7 @@ Reviewer agents carry rich behavioral profiles, and the system enforces sequenti
 </details>
 
 <details>
-<summary><strong>5-layer project knowledge</strong> — layered context, not bulk injection</summary>
+<summary><strong>6-layer project knowledge</strong> — layered context, not bulk injection</summary>
 
 Instead of one large repo map injected at the start of every interaction, the system maintains six complementary knowledge layers (structure, architecture, activity, temporal, intent, state), none loaded in bulk. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically. The temporal layer (via the optional [remember plugin](https://github.com/anthropics/claude-plugins-official)) adds automatic rolling session memory — what happened today, this week, historically — used by `/update-docs` and `/workday-complete` to cross-reference activity against the project tracker. See [docs/architecture.md](docs/architecture.md#project-knowledge-layered-context-not-bulk-injection) for the full breakdown.
 
@@ -88,6 +89,7 @@ For a deeper assessment of all patterns, see the [novelty research doc](docs/res
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
 | **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation | Research tasks |
 | **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
+| **[remember](plugins/remember/)** | Automatic temporal session memory — rolling daily/weekly/archive summaries | Optional; enriches `/update-docs` and `/workday-complete` |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
@@ -120,16 +122,17 @@ coordinator-claude/
 ├── plugins/
 │   ├── coordinator/            # Core orchestration (always enabled)
 │   │   ├── .claude-plugin/plugin.json
-│   │   ├── agents/             # enricher, executor, reviewers, review-integrator, eng-director
+│   │   ├── agents/             # enricher, executor, docs-checker, reviewers, review-integrator, eng-director
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
 │   │   ├── hooks/              # context pressure advisory, validate-commit
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
-│   │   └── skills/             # 23 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
+│   │   └── skills/             # 24 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
 │   ├── deep-research/          # Research pipelines: A (web, v2.2), B (repo + repomap/atlas), C (structured)
-│   └── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
+│   ├── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
+│   └── remember/               # Temporal session memory — rolling daily/weekly/archive
 ├── docs/                       # Architecture, customization, CI pipeline
 ├── setup/                      # Installer
 └── assets/                     # Social preview card + generation template
