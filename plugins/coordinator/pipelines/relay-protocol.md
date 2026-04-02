@@ -11,7 +11,7 @@ Claude Code subagents cannot dispatch other subagents (no nested Agent tool). Th
 - **Orchestrator** — dispatched as subagent (fresh per phase), NO Agent tool. Does judgment: scoping, quality gates, cross-pollination, synthesis. Reads prior decisions from disk.
 - **Workers** — Haiku/Sonnet subagents dispatched by command. Mechanical/analytical work. Write to scratch files.
 
-**Reference implementation:** `notebooklm/commands/research.md` — proven relay with 2 orchestrator dispatches + 1 worker dispatch.
+**Reference implementation:** `deep-research/notebooklm/commands/research.md` — proven relay with 2 orchestrator dispatches + 1 worker dispatch.
 
 ---
 

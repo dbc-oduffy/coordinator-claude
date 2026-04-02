@@ -54,6 +54,7 @@ After unblocked + bootstrap:
 2. **Record the notebook ID immediately** — you'll need it for cleanup and summary.md metadata
 3. If custom instructions provided in strategy.md, set them via `chat_configure`
 4. **If source strategy is "scout-provided":** Add each URL using `source_add` with `wait: true` for synchronous processing
+   - **SEO-suspect sources:** If the scout corpus marked a source as `SEO-suspect: YES`, note this during ingestion. When extracting claims from that source's content, treat findings with extra scrutiny — do not use it as a primary source, only to corroborate claims from higher-quality sources. If it's your only source for a claim, set confidence to LOW and note the SEO flag in the evidence_excerpt.
 5. **If source strategy is "research_start":** Use `research_start` with the search query from sources.md. Poll `research_status` until complete. Import discovered sources via `research_import`.
 6. After all sources are added, verify processing status via `notebook_get`
 7. **Verify ingestion:** Run a simple query like "List all sources and their main topics" to confirm sources were processed. Silent failures (missing captions, paywalled content) are common.
@@ -62,8 +63,11 @@ After unblocked + bootstrap:
 ### Phase 2 — Query
 
 1. For each research question from your `## Notebook {letter}` section in strategy.md, call `notebook_query`
-2. Capture the full response including citations
-3. If a query fails, retry once. If it fails again, log the failure and continue
+2. **Parallel querying:** When running research questions, you may batch multiple
+   `notebook_query` calls in a single message if the questions are independent.
+   Do NOT parallelize `source_add` — ingestion must be sequential.
+3. Capture the full response including citations
+4. If a query fails, retry once. If it fails again, log the failure and continue
 
 ### Phase 3 — Artifacts (if requested)
 
