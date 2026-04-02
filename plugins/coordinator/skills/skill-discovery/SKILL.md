@@ -150,11 +150,11 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 ### Research (cross-plugin — note prefixes)
 | Command | Skill Invocation | When to Use |
 |---------|-----------------|-------------|
-| `/deep-research web <topic>` | `deep-research:web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget |
-| `/deep-research repo <path>` | `deep-research:repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis |
-| `/deep-research` | `deep-research:research` | Router — picks Pipeline A, B, or C based on args |
-| `/structured-research <spec>` | `deep-research:structured` | Pipeline C: batch research with schema-conforming output |
-| `/notebooklm-research <topic>` | `notebooklm:research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) |
+| `/deep-research web <topic>` | `deep-research:web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget *(requires deep-research plugin)* |
+| `/deep-research repo <path>` | `deep-research:repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis *(requires deep-research plugin)* |
+| `/deep-research` | `deep-research:research` | Router — picks Pipeline A, B, or C based on args *(requires deep-research plugin)* |
+| `/structured-research <spec>` | `deep-research:structured` | Pipeline C: batch research with schema-conforming output *(requires deep-research plugin)* |
+| `/notebooklm-research <topic>` | `notebooklm:research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) *(requires deep-research plugin with notebooklm)* |
 
 ### Collaborative Planning & Review (Agent Teams)
 | Command | When to Use |
@@ -218,8 +218,8 @@ These directories contain pipeline definitions (`PIPELINE.md`) that the correspo
 | `/architecture-audit` | Self-contained (references `pipelines/deep-architecture-audit/agent-prompts.md` for dispatch templates) |
 | `/architecture-rotation` | `pipelines/weekly-architecture-audit/PIPELINE.md` |
 | `/code-health` | `pipelines/daily-code-health/PIPELINE.md` |
-| `/deep-research` | `deep-research` plugin — `pipelines/PIPELINE.md` |
-| `/structured-research` | `pipelines/deep-research/PIPELINE-C.md` |
+| `/deep-research` | deep-research plugin — `pipelines/PIPELINE.md` *(requires deep-research plugin)* |
+| `/structured-research` | deep-research plugin — `pipelines/PIPELINE.md` *(requires deep-research plugin)* |
 | `/staff-session` | `pipelines/staff-session/` (team-protocol, planner/reviewer/synthesizer prompt templates) |
 | `/distill` | `pipelines/artifact-distillation/PIPELINE.md` |
 

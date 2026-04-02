@@ -2,17 +2,9 @@
   "name": "game-dev",
   "version": "1.1.0",
   "description": "Game development domain plugin with Sid reviewer and Unreal Engine MCP integration",
-  "license": "MIT",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": [
-    "game-dev",
-    "unreal-engine",
-    "ue5",
-    "blueprints",
-    "code-review"
-  ]
+  "keywords": ["game-dev", "unreal-engine", "ue5", "blueprints", "code-review"]
 }

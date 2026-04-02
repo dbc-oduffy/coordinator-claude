@@ -2,16 +2,5 @@
   "name": "remember",
   "version": "1.0.0",
   "description": "Automatic session memory — captures what Claude worked on, summarizes via Haiku, injects history at session start. Pure Node.js, cross-platform.",
-  "license": "MIT",
-  "author": {
-    "name": "Dónal O'Duffy & Claude"
-  },
-  "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": [
-    "session-memory",
-    "claude-code",
-    "temporal-memory",
-    "session-history"
-  ]
+  "author": { "name": "Dónal O'Duffy & Claude" }
 }
