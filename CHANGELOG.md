@@ -2,6 +2,26 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.3.0] — 2026-04-02
+
+### Independence from Superpowers — Conscious Uncoupling (D-032)
+
+Coordinator-claude is now fully self-contained. The soft dependency on [superpowers](https://github.com/obra/superpowers) (obra/superpowers) has been removed.
+
+Superpowers gave us our start — we installed it when plugins first shipped, before coordinator-claude existed as a formal system. Its core skills (TDD, systematic debugging, planning, verification) became the behavioral floor we built on. Over time, the philosophical gap widened: superpowers treats the agent as a system to be hardened against its own optimization tendencies; coordinator-claude treats the agent as a professional with defined authority (the PM/EM model). Both work, but for different reasons — and the layered approach was paying context budget for parallel instructions we were overriding.
+
+**New:**
+- **`coordinator:brainstorming` skill** — PM/EM-native design gate. Turns intent into a committed spec through collaborative dialogue. HARD-GATE prevents implementation once brainstorming starts, but the EM has judgment on when to invoke (not "always brainstorm"). Includes targeted rationalization resistance and scope-splitting. Output feeds directly into `coordinator:writing-plans`.
+- **`docs/specs/` convention** — brainstorming specs land at `docs/specs/YYYY-MM-DD-<topic>-design.md`.
+
+**Changed:**
+- **`skill-discovery` flowchart** — brainstorming gate is now judgment-based ("spec exists or EM judges brainstorming unnecessary?"), not mandatory.
+- **`using-git-worktrees`** — removed `~/.config/superpowers/worktrees/` path convention.
+- **`README.md`** — coordinator positioned as self-contained; superpowers install recommendation removed.
+- **`docs/customization.md`** — `superpowers:writing-skills` → `coordinator:writing-skills`.
+
+**Decision doc:** `docs/decisions/D-032-superpowers-conscious-uncoupling.md`
+
 ## [1.2.1] — 2026-04-01
 
 ### Path Hygiene — Move Default Output Paths Out of `.claude/`
