@@ -8,7 +8,7 @@ The coordinator plugin is the backbone of the system. It provides:
 
 1. **The orchestration role** — the main session agent operates as EM (engineering manager), delegating work to specialized subagents rather than implementing directly
 2. **Universal reviewers** — Patrik (code quality, architecture) and Zoli (ambition backstop) are available on every project regardless of domain
-3. **Workflow skills** — 24 codified processes (SKILL.md) covering the full development lifecycle, plus pipeline definitions backing commands
+3. **Workflow skills** — 24 codified processes (SKILL.md) covering the full development lifecycle, plus 8 pipeline definitions (PIPELINE.md) backing commands
 4. **Session commands** — slash commands for pipeline operations (dispatch executors, route reviews, manage handoffs)
 
 ## Components
@@ -19,10 +19,8 @@ The coordinator plugin is the backbone of the system. It provides:
 |-------|-------|------|
 | **enricher** | Sonnet | Research agent — surveys codebases, traces deps, fills in stub details |
 | **executor** | Sonnet | Implementation agent — follows specs precisely, reports DONE/DONE_WITH_CONCERNS/BLOCKED |
-| **docs-checker** | Sonnet | Pre-review API verification — scans artifacts for external API claims, verifies against docs |
-| **review-integrator** | Sonnet | Applies reviewer findings to artifacts with annotations, escalates disagreements |
+| **review-integrator** | Opus | Applies reviewer findings to artifacts with annotations, escalates disagreements |
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
-| **eng-director** | Opus | Zolí's staff-session synthesizer — cross-references debater positions into consensus |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
 ### Commands (22, all user-invocable via `/`)
@@ -34,7 +32,6 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/handoff` | Save session state for next session handoff |
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
 | `/workday-complete` | End-of-day — update docs, consolidate branches, run health survey |
-| `/daily-review` | Strategic daily review — inventory today's work, get architectural perspective |
 | `/update-docs` | Repo-wide documentation maintenance and sync (auto-chains `/distill` when thresholds met) |
 | `/delegate-execution` | Dispatch enriched stubs to executor agents |
 | `/execute-plan` | Execute a PM-approved implementation plan in the coordinator session |
@@ -50,6 +47,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
 | `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
+| `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
 ### Skills (24)
@@ -70,8 +68,6 @@ The coordinator plugin is the backbone of the system. It provides:
 **Code Review:**
 - `requesting-code-review` — Request review via `/review-dispatch`.
 - `receiving-code-review` — How to receive and act on review feedback.
-- `requesting-staff-session` — Guides tier selection, team composition, and scoping for staff sessions.
-- `codex-review-gate` — Run a Codex CLI second-opinion review gate (used by `/bug-sweep` and `/workday-complete`).
 
 **Git & Branching:**
 - `using-git-worktrees` — Isolated workspaces per feature.
@@ -93,7 +89,8 @@ The coordinator plugin is the backbone of the system. It provides:
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
 - `tracker-maintenance` — Maintain the project tracker — archive completed work, update dependencies, sweep for untracked commits.
 - `lessons-trim` — Trim stale entries from lessons files, merge duplicates, clean up feature-scoped files.
-- `handoff-archival` — Archive consumed handoffs older than 48 hours.
+- `handoff-archival` — Archive consumed handoffs.
+- `codex-review-gate` — Run Codex code review as independent-model second opinion. Used by `/bug-sweep` and `/workday-complete`.
 - `atlas-integrity-check` — Check changed files against the architecture atlas for unmapped entries.
 - `artifact-consolidation` — Bulk prune accumulated artifacts without knowledge extraction. For distill-then-delete, use `/distill` instead.
 - `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.
