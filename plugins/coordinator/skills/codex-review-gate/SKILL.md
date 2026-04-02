@@ -28,9 +28,11 @@ If empty (no changes against base), report and return:
 
 ### Step 2: Run the Codex review
 
-Invoke `/codex:review --wait --scope branch --base {base}` via the Skill tool.
+Invoke `/codex:rescue` with the review task:
 
-This runs the review in the foreground and returns the full output. The Codex plugin handles all path resolution, authentication checks, and CLI invocation internally.
+> Review the diff between {base} and HEAD for code quality issues, bugs, security vulnerabilities, and adherence to project conventions. Focus on P0/P1 findings only. Return structured findings.
+
+This routes through the rescue subagent, which calls the Codex companion CLI directly. The `/codex:review` command has `disable-model-invocation` and cannot be invoked via the Skill tool.
 
 ### Step 3: Assess result
 

@@ -181,7 +181,7 @@ Run a Codex review of the day's diff against main as an independent-model second
    If no changes exist against main, skip: _"Codex review gate: no diff against main — skipped."_
 
 2. **Run Codex review:**
-   Invoke `/codex:review --wait --scope branch --base origin/main`.
+   Invoke the `codex-review-gate` skill (reads scope and base from context).
 
 3. **Assess result by exit code:**
 

@@ -27,6 +27,7 @@ echo ""
 # Get list of test files using bash globstar so ** is handled correctly.
 # find -path does not support **, causing silent zero-match false negatives.
 shopt -s globstar nullglob
+# shellcheck disable=SC2206 — intentional glob expansion with globstar
 TEST_FILES=($TEST_PATTERN)
 TOTAL=${#TEST_FILES[@]}
 
