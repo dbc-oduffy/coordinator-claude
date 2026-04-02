@@ -1,14 +1,12 @@
 # coordinator-claude
 
-A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
+A Claude Code plugin that runs your projects like a real dev team — you're PM, Claude is EM.
 
-- **6 plugins (+1 standalone), 22 agents, 26 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
-- **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
-- **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
-- **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
-- **Sequential persona-based review** — domain expert first, all fixes applied, then generalist reviews a clean artifact. [Research supports](docs/research/2026-03-19-named-persona-performance.md) both the persona mechanism and multi-agent review gains
-- **Cross-model delegation** — Codex CLI runs as a parallel execution runtime via `codex:*` skills, giving the coordinator a second-opinion channel and an independent implementation path for isolated tasks. The integration is structured (rescue agent, review gate, prompt guidance), not just "also install Codex"
-- **6-layer project knowledge** — structure, architecture, activity, temporal, intent, state — none bulk-loaded, all maintained by an 11-phase doc pipeline that fights staleness automatically
+## Who This Is For
+
+You don't need to write code. You need to know enough to evaluate it — to spot when something smells wrong, to ask the right questions, to set direction. Amjad Masad (Replit's founder) [opined](https://youtu.be/PlDeqGQZ0CQ) that people who *don't* program may actually be better positioned for the LLM-coding world: they won't micromanage implementation. This plugin leans into that. It gives Claude standing authority to make engineering decisions — how to build, who to delegate to, when to refactor — while you hold product authority: what to build, what to cut, what ships. Just like an EM-PM dynamic.
+
+This isn't a collection of prompt tricks. It's a trust model with routines — session orientation, plan review, multi-source code review, structured handoffs, daily flows — that map to how real engineering teams operate. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
 
 ## Quick Start
 
@@ -20,142 +18,178 @@ bash setup/install.sh
 
 Restart Claude Code, then run `/session-start`. See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
 
-## How It Works
+## How a Session Works
 
-You sit in the captain's chair:
+Most tools hand you a bag of commands and wish you luck. This system has *routines* — things that happen automatically because they should always happen, woven into the session lifecycle so you don't have to remember them.
 
-| Role | Who | Responsibility |
-|------|-----|---------------|
-| **PM (Captain)** | You | Vision, priorities, judgment calls, design approval |
-| **EM (First Officer)** | Claude (main session) | Orchestration, delegation, spec compliance, pipeline flow |
-| **Executor** | Claude (subagent, Sonnet) | Faithful implementation of well-specified work |
-| **Reviewers** | Claude (subagents, Opus) | Code quality, UX, domain expertise — each with a rich behavioral profile |
+**Starting up.** When Claude opens a supported project, a `SessionStart` hook fires automatically — loading the current branch, pending handoffs, lessons from past sessions, project vitals, and an orientation cache. No cold start. Claude lands in the middle of the context window where performance is strongest, with forward-looking state already loaded. This is deliberate: research shows LLMs degrade toward the end of their context and, to a lesser extent, at the beginning ([Liu et al. 2023, "Lost in the Middle"](https://arxiv.org/abs/2307.03172)). The orientation hook front-loads context so the working session occupies the optimal window.
 
-A typical feature flows through:
+**Planning.** You describe what you want. Claude enters plan mode — but the plan isn't just written and executed. You review it. In a real dev team, the PM doesn't just say "build auth" and disappear; they review the spec, push back on scope, ask about edge cases. That's what happens here. For bigger decisions, `/staff-session` spawns persona-based engineers who independently develop positions and debate to consensus — like pulling your tech lead and director of engineering into a room.
 
-```
-Brainstorm  →  Plan  →  Execute  →  Review  →  Ship
-   (skill)    (skill     (executor    (domain       (finish
-               or staff   agents)     → generalist   branch)
-               session)               sequential)
-```
+**Building.** Claude delegates to Sonnet subagents for implementation — cheaper, faster, fresh context. A `PreToolUse` hook nudges Claude away from doing implementation work directly, because the orchestrator's context is too valuable to spend on writing code. This is the same principle as a real EM: you don't want your engineering manager writing production code when they should be coordinating.
 
-See [docs/architecture.md](docs/architecture.md) for the full model — agent roles, pipeline checkpoints, review routing, and the design philosophy behind it.
+**Reviewing.** Code review comes from named personas with rich behavioral profiles — a domain expert reviews first (e.g., a game-dev specialist for Unreal code), all findings are applied, then a generalist reviews the clean artifact. Sequential, with mandatory fix gates. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) and [multi-agent review gains](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic's own eval showed 90.2% improvement over single-agent).
+
+**Staying coherent.** Long sessions hit a hard constraint: context compaction. When triggered, the model summarizes what it *thinks* happened — a retrospective reconstruction that loses intent. A `PostToolUse` hook monitors context pressure and prompts Claude to create a structured handoff *before* compaction fires: decisions made, state reached, explicit next steps. Each handoff chains forward from its predecessor. Research shows structured handoffs significantly outperform automatic summarization ([Kang et al. 2025, ACON](https://arxiv.org/abs/2510.00615); Sourcegraph [retired compaction](https://sourcegraph.com/blog) in their Amp agent in favor of explicit handoffs after measuring degradation).
+
+**Navigating the codebase.** This system invests heavily in documentation-as-navigation. Claude's natural mode is grep-heavy — searching text, reading prose, following paper trails. An architecture atlas, project tracker, orientation caches, and structured comments throughout the codebase give Claude something to *find* when it searches. We call this "grep bait." It's why the doc maintenance pipeline and architecture atlas exist: not bureaucracy, but navigation infrastructure that lets Claude plan from 60 lines of orientation instead of reading 20 source files cold. Research artifacts, lessons files, and handoff documents all serve double duty — they record decisions *and* create searchable landmarks for future sessions.
+
+**Wrapping up.** `/session-end` captures lessons, updates documentation, and commits state. `/workday-complete` goes further: syncs docs, merges to main via PR, and optionally hibernates the machine. The cycle is continuous — each session starts where the last one left off.
+
+## What You Need to Remember
+
+The EM handles most of this automatically. Your key moves:
+
+| Command | When | What It Does |
+|---------|------|-------------|
+| `/session-start` | Beginning of work | Orient Claude to your project (also auto-fires via hooks) |
+| `/pickup` | Resuming work | Load a handoff artifact and continue where you left off |
+| `/handoff` | Stepping away | Save session state for the next session |
+| `/staff-session` | Big decisions | Multi-perspective planning or review from persona-based contributors |
+| `/mise-en-place` | Heads-down time | Claude burns through the backlog autonomously — no input needed |
+| `/autonomous` | Override | Suppress handoff nudges when you want Claude to push through compaction |
+
+That's it for daily use. Everything else — delegation, review routing, doc maintenance, context pressure management — either happens automatically or is suggested for your use.
+
+## All Commands
+
+| Command | Purpose | Why It Exists |
+|---------|---------|---------------|
+| `/session-start` | Orient to project, load context, choose work | Eliminate cold starts; position key context optimally |
+| `/session-end` | Capture lessons, update docs, commit | Preserve institutional knowledge between sessions |
+| `/pickup` | Resume from a handoff artifact | Structured continuity beats re-reading git log |
+| `/handoff` | Save state before stepping away | Prospective capture > retrospective reconstruction |
+| `/staff-session` | Multi-perspective planning or review | Debate surfaces tradeoffs a solo agent misses |
+| `/mise-en-place` | Autonomous backlog execution | Front-load all context, then execute without interruption |
+| `/autonomous` | Toggle autonomous mode | Trust escalation — suppress handoff nudges |
+| `/workday-start` | Morning orientation and triage | Surface staleness, align priorities, suggest work |
+| `/workday-complete` | End-of-day wrap-up | Update docs, merge to main, optionally hibernate |
+| `/review-dispatch` | Route an artifact to the right reviewer | Domain expert → generalist, sequential with fix gates |
+| `/execute-plan` | Execute a PM-approved plan | Direct implementation without re-planning |
+| `/delegate-execution` | Dispatch enriched stubs to executor agents | Parallel agent execution for chunked work |
+| `/update-docs` | Repo-wide documentation maintenance | 11-phase pipeline that fights doc staleness |
+| `/daily-review` | Strategic daily review | Inventory today's work, get architectural perspective |
+| `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
+| `/code-health` | Night-shift code health review | Scan today's commits, dispatch reviewer, apply findings |
+| `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
+| `/generate-repomap` | Generate ranked repo map | Context injection for LLM navigation |
+| `/distill` | Extract knowledge from session artifacts | Turn plans and handoffs into evergreen wiki docs |
 
 <details>
-<summary><strong>Agent Teams for research and planning</strong> — not just "build together"</summary>
+<summary><strong>How this maps to real teams</strong></summary>
 
-Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) (still experimental) enables multiple Claude sessions that communicate via messaging and coordinate via shared task lists. Most early adopters use it for collaborative coding. This system uses it differently: for **structured research** and **multi-perspective planning**. Four research pipelines (internet, repository, structured, NotebookLM media) follow a tiered pattern — Haiku scouts gather sources cheaply, Sonnet specialists analyze and cross-pollinate findings via messaging, an Opus sweep agent checks coverage adversarially and fills gaps. Internet research (Pipeline A v2.2) adds iterative deepening — a second, smaller team is dispatched to fill significant gaps when warranted. Repository research (Pipeline B) supports `--deeper` (dependency-weighted repomap) and `--deepest` (architecture atlas generation) modes. **Staff sessions** use the same infrastructure for planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into a consensus plan. The coordinator scopes the work, spawns the team, and is freed — the team runs autonomously.
+| Real Team Practice | coordinator-claude Equivalent |
+|--------------------|-------------------------------|
+| **Daily standup** | `/session-start` — what happened, what's blocked, what's next |
+| **Sprint planning** | `/staff-session plan` — persona-based engineers debate approach |
+| **Spec review** | Plan mode with PM sign-off — Claude proposes, you approve |
+| **Code review** | `/review-dispatch` — domain expert first, generalist second, fix gates between |
+| **Tech lead gut-check** | Any reviewer can be dispatched ad-hoc for a quick assessment |
+| **Retrospective** | `/session-end` — capture lessons, update docs |
+| **Heads-down sprint** | `/mise-en-place` — autonomous execution through the backlog |
+| **Handoff between shifts** | `/handoff` — structured state capture, not "check the git log" |
 
-Anthropic independently built a [production multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) using the same core pattern (Opus orchestrator + Sonnet workers, parallel dispatch, effort-scaled pipelines) — their eval showed 90.2% improvement over single-agent. We [converged on the same architecture without reference to their work](docs/research/2026-04-01-anthropic-multi-agent-alignment.md); our system extends it with Haiku scouts for cost efficiency, adversarial peer dynamics between specialists, and asynchronous orchestrator dispatch (their system waits synchronously — they flag this as a known limitation).
+The one role we don't have deeply embedded in workflows: **designer.** Meatspace designers are still better at that, and their judgment is going to remain difficult for LLMs to replicate. There's a vibe-design functionality, but it's not gonna rock your world.
 
 </details>
 
 <details>
-<summary><strong>Prospective handoff artifacts</strong> — structured baton-passing that beats compaction</summary>
+<summary><strong>Under the hood — architecture details</strong></summary>
 
-Long-running work in Claude Code faces a hard constraint: context compaction. When triggered, the model summarizes what it *believes* happened — a retrospective reconstruction that loses intent and forward direction. This system takes a different approach: before compaction can fire, a `UserPromptSubmit` hook monitors estimated context usage and prompts the agent to create a **structured handoff artifact** — a *prospective* document that captures decisions made, state reached, and explicit next steps. Each artifact carries forward unresolved items from its predecessor (cascade obligation) and opens with a synthesis of the prior handoff (anti-amnesia chain). See our [handoff vs. compaction research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md).
+**Inverted capability delegation.** The coordinator sees ~8 thin MCP tools; domain agents access 40+ via proxy with full schemas. This saves ~40K tokens from the coordinator's context and forces delegation by design. A `PreToolUse` hook nudges the coordinator when it reaches for domain tools directly.
 
-</details>
+**Proactive artifact generation.** Before compaction fires, a hook prompts structured handoff creation — a prospective document capturing decisions, state, and next steps. Each artifact chains from its predecessor (cascade obligation) and opens with a synthesis of the prior handoff (anti-amnesia chain). See our [handoff vs. compaction research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md).
 
-<details>
-<summary><strong>Inverted capability delegation</strong> — the coordinator sees less, delegates see more</summary>
+**Persona-based sequential review.** Reviewers carry rich behavioral profiles — not just "code reviewer" but characters with expertise domains and review lenses. Sequential review with mandatory fix gates means each reviewer sees a clean artifact. See the [persona research](docs/research/2026-03-19-named-persona-performance.md) and [experiment results](docs/research/2026-03-26-persona-experiment-results.md). They have names for the human user's cognitive ease, while the rest of the persona prompt maps to human-world professional roles and agendas.
 
-Most multi-agent systems give subagents *fewer* tools than the orchestrator. This system deliberately inverts that. The orchestrator sees only ~8 thin MCP tools; domain subagents access 40+ tools via a proxy with full schemas loaded in fresh context. This saves ~40K tokens of MCP schemas from the orchestrator's context window and forces delegation by design. A `PreToolUse` hook nudges the orchestrator to delegate when it reaches for domain tools directly. Microsoft recommends [least-privilege for agent design](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/architecture/baseline-openai-e2e-chat#security); this applies the same principle in the opposite direction.
+**6-layer project knowledge.** Structure, architecture, activity, temporal, intent, state — none bulk-loaded. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically.
 
-</details>
+**Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the [deep-research pipelines](https://github.com/oduffy-delphi/deep-research-claude).
 
-<details>
-<summary><strong>Persona-based sequential review</strong> — not just role labels</summary>
+**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI runs as a parallel execution runtime via `codex:*` skills — a second-opinion channel and independent implementation path.
 
-Reviewer agents carry rich behavioral profiles, and the system enforces sequential review with mandatory fix gates — domain expert first, all findings applied, then generalist reviews a clean artifact. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) and the [multi-agent review gains](https://link.springer.com/article/10.1007/s10462-024-11097-3). See the [full persona registry](docs/customization.md) for all six reviewers.
+See [docs/architecture.md](docs/architecture.md) for the full model. For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 
 </details>
-
-<details>
-<summary><strong>6-layer project knowledge</strong> — layered context, not bulk injection</summary>
-
-Instead of one large repo map injected at the start of every interaction, the system maintains six complementary knowledge layers (structure, architecture, activity, temporal, intent, state), none loaded in bulk. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically. The temporal layer (via the optional [remember plugin](https://github.com/anthropics/claude-plugins-official)) adds automatic rolling session memory — what happened today, this week, historically — used by `/update-docs` and `/workday-complete` to cross-reference activity against the project tracker. See [docs/architecture.md](docs/architecture.md#project-knowledge-layered-context-not-bulk-injection) for the full breakdown.
-
-</details>
-
-For a deeper assessment of all patterns, see the [novelty research doc](docs/research/2026-03-20-agent-orchestration-novelty-unified.md). For an accessible video introduction to *why* hierarchical agent architectures matter, Martin Keen's [Hierarchical AI Agents](https://www.youtube.com/watch?v=wh489_XT5TI) covers context dilution, tool overload, and task decomposition — the core problems this system solves.
 
 ## Plugins
 
 | Plugin | Purpose | When to Enable |
 |--------|---------|----------------|
-| **[coordinator](plugins/coordinator/)** | Core orchestration pipeline, reviewers, all workflow skills | Always |
+| **[coordinator](plugins/coordinator/)** | Core orchestration, reviewers, all workflow skills | Always |
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[deep-research](https://github.com/oduffy-delphi/deep-research-claude)** | Multi-agent research pipelines with iterative deepening, repomap, and atlas generation (standalone repo) | Research tasks |
-| **[notebooklm](plugins/notebooklm/)** | NotebookLM media research (YouTube, podcasts) via MCP — structured claims extraction | Media research |
-| **[remember](plugins/remember/)** | Automatic temporal session memory — rolling daily/weekly/archive summaries | Optional; enriches `/update-docs` and `/workday-complete` |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
 ## Customization
 
 - **Rename personas.** `bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"` renames display names across all plugin files.
-- **Create your own domain reviewer.** The game-dev plugin is a reference implementation — same structure (agent file + routing fragment) for any specialization.
+- **Create your own domain reviewer.** The game-dev plugin is a reference implementation — same structure for any specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
 See [docs/customization.md](docs/customization.md) for templates, the full persona registry, and instructions for adding skills and CI checks.
 
-## Recommended Companion Plugins
+## Companion Plugins
 
-Install [clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp) for C++ code intelligence. When available, reviewer agents (Patrik, Sid) and the docs-checker gain go-to-definition, find-references, hover, and call hierarchy via clangd — supplementing documentation-based verification with real code navigation. Requires `clangd` installed on the system (`winget install LLVM.LLVM` on Windows, `brew install llvm` on macOS, `apt install clangd` on Linux).
+- **[deep-research](https://github.com/oduffy-delphi/deep-research-claude)** — Multi-agent research pipelines (internet, repo analysis, structured research, NotebookLM). The coordinator auto-suggests these via a `PreToolUse` hook when Claude reaches for ad-hoc web search.
+- **[clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp)** — C++ code intelligence. Reviewer agents gain go-to-definition, find-references, and call hierarchy ‒ helpful for those (like us) using Claude Code with Unreal Engine.
+- **[codex-plugin-cc](https://github.com/openai/codex-plugin-cc)** — Codex CLI integration for parallel execution and second-opinion reviews.
+- **[Context7](https://github.com/upstash/context7)** — External library documentation lookup.
 
-Coordinator works without clangd-lsp, but C++ reviews lose source-level navigation.
+All are optional. Coordinator works without them; relevant features degrade gracefully.
 
-Install [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) to enable Codex CLI integration. Coordinator's `codex:*` skills delegate investigation and implementation tasks to Codex as a parallel execution runtime — useful for long-running or isolated coding tasks that benefit from a separate context.
-
-Coordinator works without codex-plugin-cc, but `codex:*` skills won't resolve.
-
-## Directory Structure
+<details>
+<summary><strong>Directory structure</strong></summary>
 
 ```
 coordinator-claude/
 ├── plugins/
 │   ├── coordinator/            # Core orchestration (always enabled)
 │   │   ├── .claude-plugin/plugin.json
-│   │   ├── agents/             # enricher, executor, docs-checker, reviewers, review-integrator, eng-director
-│   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
-│   │   ├── hooks/              # context pressure advisory, validate-commit
-│   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
-│   │   └── skills/             # 25 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
+│   │   ├── agents/             # enricher, executor, docs-checker, reviewers, eng-director
+│   │   ├── commands/           # 22 workflow commands
+│   │   ├── hooks/              # context pressure, orientation, commit validation
+│   │   ├── pipelines/          # staff-session team protocol + prompt templates
+│   │   └── skills/             # 25 skills (planning, review, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
-│   ├── notebooklm/             # NotebookLM media research (v2) — structured claims, notebook preservation
-│   └── remember/               # Temporal session memory — rolling daily/weekly/archive
-├── docs/                       # Architecture, customization, CI pipeline
+│   └── remember/               # Temporal session memory
+├── docs/                       # Architecture, customization, research
 ├── setup/                      # Installer
-└── assets/                     # Social preview card + generation template
+└── assets/                     # Social preview
 ```
+
+</details>
 
 <details>
 <summary><strong>Troubleshooting</strong></summary>
 
-**Plugins not showing as skills/commands:**
+**Plugins not loading:**
 - Check `enabledPlugins` in `~/.claude/settings.json` — must be `true`
 - Check `~/.claude/plugins/installed_plugins.json` — must have entry with correct `installPath`
-- Check `~/.claude/plugins/known_marketplaces.json` — must have marketplace entry
 - Restart Claude Code (changes take effect on next session)
-- The installer (`setup/install.sh`) manages all three files automatically
+- The installer (`setup/install.sh`) manages all config files automatically
 
 **Plugin cache not syncing after editing source:**
-- Claude Code caches plugins by version. Run `bash setup/dev-sync.sh` to sync, or use junctions/symlinks — see [docs/getting-started.md](docs/getting-started.md).
+- Claude Code caches plugins by version. Run `bash setup/dev-sync.sh` to sync.
 
 **Per-project plugin selection:**
 - Create `.claude/coordinator.local.md` with `project_type` field
-- coordinator is always enabled; domain plugins activate per-project
-
-**Plugin-scoped MCP server not starting (Windows):**
-- Use `"command": "cmd", "args": ["/c", "your-command"]` in `.mcp.json`
+- Coordinator is always enabled; domain plugins activate per-project
 
 </details>
+
+## Research
+
+This system's design is informed by published research and validated through controlled experiments:
+
+- [Handoff artifacts vs. compaction](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) — why structured baton-passing beats automatic summarization
+- [Named persona performance](docs/research/2026-03-19-named-persona-performance.md) — evidence that named behavioral profiles improve review quality
+- [Agent orchestration novelty assessment](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) — honest assessment of all patterns against prior art
+- [Anthropic multi-agent alignment](docs/research/2026-04-01-anthropic-multi-agent-alignment.md) — independent convergence with Anthropic's production research system
 
 ---
 
