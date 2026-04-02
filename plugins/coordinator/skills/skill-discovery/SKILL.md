@@ -56,7 +56,7 @@ Coordinator skills override default system prompt behavior, but user instruction
 digraph skill_flow {
     "User message received" [shape=doublecircle];
     "About to EnterPlanMode?" [shape=doublecircle];
-    "Already brainstormed?" [shape=diamond];
+    "Spec exists or EM judges brainstorming unnecessary?" [shape=diamond];
     "Invoke coordinator:brainstorming skill" [shape=box];
     "Might any skill apply?" [shape=diamond];
     "Invoke Skill tool" [shape=box];
@@ -66,9 +66,9 @@ digraph skill_flow {
     "Follow skill exactly" [shape=box];
     "Respond (including clarifications)" [shape=doublecircle];
 
-    "About to EnterPlanMode?" -> "Already brainstormed?";
-    "Already brainstormed?" -> "Invoke coordinator:brainstorming skill" [label="no"];
-    "Already brainstormed?" -> "Might any skill apply?" [label="yes"];
+    "About to EnterPlanMode?" -> "Spec exists or EM judges brainstorming unnecessary?";
+    "Spec exists or EM judges brainstorming unnecessary?" -> "Might any skill apply?" [label="yes — skip brainstorming"];
+    "Spec exists or EM judges brainstorming unnecessary?" -> "Invoke coordinator:brainstorming skill" [label="no — explore design first"];
     "Invoke coordinator:brainstorming skill" -> "Might any skill apply?";
 
     "User message received" -> "Might any skill apply?";

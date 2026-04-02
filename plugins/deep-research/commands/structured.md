@@ -201,7 +201,7 @@ After spawning all teammates, announce:
 When you receive a notification that the synthesis task is complete:
 
 1. **File-existence gate (HARD GATE):** Check whether the structured data file exists at `{output-path}`:
-   <!-- NOTE: The synthesizer writes a schema-invalid skeleton immediately for crash insurance, then overwrites with the final valid output. This gate checks file-existence only — NOT schema validity. Schema validation during the synthesis window would cause false failures. The synthesizer's output-first pattern is documented in docs/superpowers/specs/2026-04-01-pipeline-c-v21-upgrade-design.md. -->
+   <!-- NOTE: The synthesizer writes a schema-invalid skeleton immediately for crash insurance, then overwrites with the final valid output. This gate checks file-existence only — NOT schema validity. Schema validation during the synthesis window would cause false failures. The synthesizer's output-first pattern is documented in docs/specs/2026-04-01-pipeline-c-v21-upgrade-design.md. -->
    - If **missing**: schema validation FAILED. Do NOT archive. Keep team alive.
      Send correction message to synthesizer via `SendMessage`:
      > "OUTPUT FILE MISSING: Expected structured data at {output-path}. You must write schema-conforming YAML/JSON to this path. Your annotations at synthesis-annotations.md are supplementary — the structured data file IS the deliverable."

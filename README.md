@@ -2,7 +2,7 @@
 
 A plugin system that turns Claude Code into a structured engineering team — you're PM, Claude's EM.
 
-- **6 plugins (+1 standalone), 22 agents, 25 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
+- **6 plugins (+1 standalone), 22 agents, 26 skills** — a coherent orchestration stack built on every Claude Code extension primitive (hooks, subagents, skills, commands, Agent Teams, MCP)
 - **Agent Teams for research and planning** — tiered pipelines (Haiku scouts → Sonnet specialists → Opus synthesizer) that run autonomously; staff sessions where persona-based engineers debate and converge on plans without intervention. Pipeline design is [research-backed](docs/research/2026-03-31-deep-research-pipeline-evidence.md) — derived from published guidance (OpenAI, Perplexity, Google, Anthropic, Stanford STORM) and validated through controlled experiments
 - **Prospective handoff artifacts** — structured baton-passing before compaction fires, not retrospective summarization after. [Research](docs/research/2026-03-21-handoff-artifacts-vs-compaction.md) shows this beats automatic summarization for chained agent work
 - **Inverted capability delegation** — the coordinator sees ~8 thin tools; domain agents access 40+ via proxy. The orchestrator is intentionally *less capable* than its delegates, saving ~40K tokens for judgment instead of tool schemas
@@ -105,15 +105,11 @@ See [docs/customization.md](docs/customization.md) for templates, the full perso
 
 ## Recommended Companion Plugins
 
-Install [superpowers](https://github.com/obra/superpowers) for the full development discipline layer. Coordinator builds on superpowers' skills for TDD, debugging, planning, verification, and git workflows — adding orchestration capabilities like review routing, staff sessions, and execution delegation.
-
-Coordinator works without superpowers, but references to `superpowers:*` skills won't resolve.
-
 Install [clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp) for C++ code intelligence. When available, reviewer agents (Patrik, Sid) and the docs-checker gain go-to-definition, find-references, hover, and call hierarchy via clangd — supplementing documentation-based verification with real code navigation. Requires `clangd` installed on the system (`winget install LLVM.LLVM` on Windows, `brew install llvm` on macOS, `apt install clangd` on Linux).
 
 Coordinator works without clangd-lsp, but C++ reviews lose source-level navigation.
 
-Install [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) to enable Codex CLI integration. Coordinator's `codex:*` skills delegate investigation and implementation tasks to Codex as a parallel execution runtime — useful for long-running or isolated coding tasks that benefit from a separate context. The install script will offer to install this alongside superpowers during onboarding.
+Install [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) to enable Codex CLI integration. Coordinator's `codex:*` skills delegate investigation and implementation tasks to Codex as a parallel execution runtime — useful for long-running or isolated coding tasks that benefit from a separate context.
 
 Coordinator works without codex-plugin-cc, but `codex:*` skills won't resolve.
 
@@ -128,7 +124,7 @@ coordinator-claude/
 │   │   ├── commands/           # handoff, session-start, session-end, staff-session, etc.
 │   │   ├── hooks/              # context pressure advisory, validate-commit
 │   │   ├── pipelines/          # staff-session/ (team protocol + prompt templates)
-│   │   └── skills/             # 24 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
+│   │   └── skills/             # 25 coordinator skills (planning, code review, staff sessions, debugging, TDD, etc.)
 │   ├── game-dev/               # Unreal Engine specialist
 │   ├── web-dev/                # Front-end + UX flow reviewers
 │   ├── data-science/           # ML, statistics reviewer
