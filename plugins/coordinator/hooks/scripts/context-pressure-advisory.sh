@@ -112,9 +112,9 @@ fi
 
 # --- Context window size by model (tokens) ---
 case "$MODEL_ID" in
-  *opus*4*6*|*opus-4-6*)     CONTEXT_WINDOW=1000000 ;;  # Opus 4.6: 1M tokens
-  *sonnet*4*6*|*sonnet-4-6*) CONTEXT_WINDOW=200000  ;;  # Sonnet 4.6: 200K tokens
-  *haiku*4*5*|*haiku-4-5*)   CONTEXT_WINDOW=200000  ;;  # Haiku 4.5: 200K tokens
+  *opus*4*6*)     CONTEXT_WINDOW=1000000 ;;  # Opus 4.6: 1M tokens
+  *sonnet*4*6*)   CONTEXT_WINDOW=200000  ;;  # Sonnet 4.6: 200K tokens
+  *haiku*4*5*)    CONTEXT_WINDOW=200000  ;;  # Haiku 4.5: 200K tokens
   *)                         CONTEXT_WINDOW=200000  ;;  # Conservative default
 esac
 

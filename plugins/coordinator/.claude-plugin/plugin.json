@@ -1,22 +1,10 @@
 {
   "name": "coordinator",
-  "version": "1.1.0",
-  "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 24 workflow skills that enforce quality from plan through execution.",
-  "license": "MIT",
+  "version": "1.0.0",
+  "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 23 workflow skills that enforce quality from plan through execution.",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": [
-    "claude-code",
-    "developer-tools",
-    "quality-pipeline",
-    "session-management",
-    "orchestration",
-    "workflow",
-    "code-review",
-    "agents",
-    "planning"
-  ]
+  "keywords": ["claude-code", "developer-tools", "quality-pipeline", "session-management", "orchestration", "workflow", "code-review", "agents", "planning"]
 }

@@ -2,20 +2,9 @@
   "name": "data-science",
   "version": "1.0.0",
   "description": "ML and data science review for Claude Code — Camelia reviews model architecture, statistical analysis, feature engineering, and LLM workflows with the rigor of a senior data scientist.",
-  "license": "MIT",
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/oduffy-delphi/coordinator-claude",
-  "homepage": "https://github.com/oduffy-delphi/coordinator-claude",
-  "keywords": [
-    "ml",
-    "ai",
-    "llm",
-    "claude-code",
-    "data-science",
-    "machine-learning",
-    "statistics",
-    "code-review"
-  ]
+  "keywords": ["ml", "ai", "llm", "claude-code", "data-science", "machine-learning", "statistics", "code-review"]
 }

@@ -56,7 +56,7 @@ Coordinator skills override default system prompt behavior, but user instruction
 digraph skill_flow {
     "User message received" [shape=doublecircle];
     "About to EnterPlanMode?" [shape=doublecircle];
-    "Already brainstormed?" [shape=diamond];
+    "Spec exists or EM judges brainstorming unnecessary?" [shape=diamond];
     "Invoke coordinator:brainstorming skill" [shape=box];
     "Might any skill apply?" [shape=diamond];
     "Invoke Skill tool" [shape=box];
@@ -66,9 +66,9 @@ digraph skill_flow {
     "Follow skill exactly" [shape=box];
     "Respond (including clarifications)" [shape=doublecircle];
 
-    "About to EnterPlanMode?" -> "Already brainstormed?";
-    "Already brainstormed?" -> "Invoke coordinator:brainstorming skill" [label="no"];
-    "Already brainstormed?" -> "Might any skill apply?" [label="yes"];
+    "About to EnterPlanMode?" -> "Spec exists or EM judges brainstorming unnecessary?";
+    "Spec exists or EM judges brainstorming unnecessary?" -> "Might any skill apply?" [label="yes — skip brainstorming"];
+    "Spec exists or EM judges brainstorming unnecessary?" -> "Invoke coordinator:brainstorming skill" [label="no — explore design first"];
     "Invoke coordinator:brainstorming skill" -> "Might any skill apply?";
 
     "User message received" -> "Might any skill apply?";
@@ -150,11 +150,11 @@ Commands are dispatch workflows — multi-phase agent pipelines invoked with one
 ### Research (cross-plugin — note prefixes)
 | Command | Skill Invocation | When to Use |
 |---------|-----------------|-------------|
-| `/deep-research web <topic>` | `deep-research:web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget |
-| `/deep-research repo <path>` | `deep-research:repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis |
-| `/deep-research` | `deep-research:research` | Router — picks Pipeline A, B, or C based on args |
-| `/structured-research <spec>` | `deep-research:structured` | Pipeline C: batch research with schema-conforming output |
-| `/notebooklm-research <topic>` | `notebooklm:research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) |
+| `/deep-research web <topic>` | `deep-research:web` | Pipeline A: investigate a topic — Agent Teams, fire-and-forget *(requires deep-research plugin)* |
+| `/deep-research repo <path>` | `deep-research:repo` | Pipeline B: study a repository — Haiku scouts, Sonnet analysts, Opus synthesis *(requires deep-research plugin)* |
+| `/deep-research` | `deep-research:research` | Router — picks Pipeline A, B, or C based on args *(requires deep-research plugin)* |
+| `/structured-research <spec>` | `deep-research:structured` | Pipeline C: batch research with schema-conforming output *(requires deep-research plugin)* |
+| `/notebooklm-research <topic>` | `notebooklm:research` | Pipeline D: media-rich research via NotebookLM (YouTube, podcasts, audio) *(requires deep-research plugin with notebooklm)* |
 
 ### Collaborative Planning & Review (Agent Teams)
 | Command | When to Use |
@@ -218,8 +218,8 @@ These directories contain pipeline definitions (`PIPELINE.md`) that the correspo
 | `/architecture-audit` | Self-contained (references `pipelines/deep-architecture-audit/agent-prompts.md` for dispatch templates) |
 | `/architecture-rotation` | `pipelines/weekly-architecture-audit/PIPELINE.md` |
 | `/code-health` | `pipelines/daily-code-health/PIPELINE.md` |
-| `/deep-research` | `deep-research` plugin — `pipelines/PIPELINE.md` |
-| `/structured-research` | `pipelines/deep-research/PIPELINE-C.md` |
+| `/deep-research` | deep-research plugin — `pipelines/PIPELINE.md` *(requires deep-research plugin)* |
+| `/structured-research` | deep-research plugin — `pipelines/PIPELINE.md` *(requires deep-research plugin)* |
 | `/staff-session` | `pipelines/staff-session/` (team-protocol, planner/reviewer/synthesizer prompt templates) |
 | `/distill` | `pipelines/artifact-distillation/PIPELINE.md` |
 

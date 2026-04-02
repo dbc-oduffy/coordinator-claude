@@ -179,7 +179,7 @@ Each executor receives:
 If `--codex-verify` was passed, run an independent-model review of the fixes via the Codex plugin. This gives a second opinion from a different model family (GPT-5.4) on whether the fixes are correct.
 
 1. **Run Codex review:**
-   Invoke `/codex:review --wait --scope branch --base {PRE_FIX_REF}` (the ref captured in Step 2.2).
+   Invoke `/codex:rescue` with: "Review the diff between {PRE_FIX_REF} and HEAD for code quality issues, bugs, and security vulnerabilities. Focus on P0/P1 findings. Return structured findings."
 
 2. **Assess result by exit code:**
    - **Exit code 0 (success):** Append Codex findings to the Phase 4 report under a `## Codex Second Opinion` heading. If Codex found issues not caught by the Claude sweep, add them to the backlog — do NOT auto-fix Codex findings, report them for PM triage.
