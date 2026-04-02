@@ -28,6 +28,21 @@ If the inventory lists significantly fewer, treat it as thin — use Glob to dis
 additional files in your chunk's directories, then Read them yourself. Budget up to
 3 extra minutes for self-directed file discovery before beginning analysis.
 
+[IF SURVEY MODE:]
+## Holistic Survey
+
+A solo-Opus holistic survey of the repository is available at:
+- **[SCRATCH_DIR]/survey.md**
+
+Read this FIRST — before the repomap, before the inventory. The survey provides the
+forest-level view: design philosophy, standout features, cross-cutting observations.
+Use it to contextualize your chunk's role in the larger system.
+
+Do NOT duplicate the survey's observations in your assessment. Instead, build on them:
+confirm with file:line evidence, deepen with execution traces, or challenge if your
+analysis contradicts the survey's characterization.
+[END IF SURVEY MODE]
+
 [IF DEEPER MODE:]
 ## Structural Centrality Map
 
@@ -49,6 +64,25 @@ Use the repomap to:
 The repomap complements the scout inventory: the repomap tells you what matters,
 the inventory tells you what exists. Read importance first, detail second.
 [END IF DEEPER MODE]
+
+[IF DEEPEST MODE:]
+## Preliminary Structural Atlas
+
+A preliminary atlas sketch (derived from scout inventories) is available at:
+- **[SCRATCH_DIR]/atlas-sketch-file-index.md** — every file grouped by system
+- **[SCRATCH_DIR]/atlas-sketch-system-map.md** — ASCII diagram of system connections
+- **[SCRATCH_DIR]/atlas-sketch-connectivity-matrix.md** — cross-system dependency counts
+
+Read the system map and connectivity matrix AFTER the repomap but BEFORE deep-reading files.
+These are PRELIMINARY artifacts based on scout data only — connections marked [PRELIMINARY]
+should be verified or refuted during your analysis. Note confirmations and corrections in
+your assessment:
+- `[CONFIRMED: atlas-sketch connection X→Y verified at file:line]`
+- `[REFUTED: atlas-sketch connection X→Y — actual flow is Z at file:line]`
+- `[MISSING: connection X→Y not in atlas sketch, discovered at file:line]`
+
+This validation data is consumed by the atlas refinement pass after synthesis.
+[END IF DEEPEST MODE]
 
 ## Your Peers
 

@@ -81,6 +81,20 @@ This is your primary contribution beyond cross-referencing. The specialists anal
 
 Write the framing elements that turn specialist findings into a coherent research document. **Preserve specialist content** — do NOT rewrite, compress, or summarize the specialist findings. They did the analytical work; you frame and extend it.
 
+### Deduplication Rule (comparison mode only)
+
+When producing BOTH an assessment and a gap analysis, these are complementary documents:
+- The ASSESSMENT describes what the repo IS — architecture, patterns, strengths, limitations.
+- The GAP ANALYSIS describes what to CHANGE — tiered action items with implementation guidance.
+
+Specifically:
+- **Do NOT repeat architectural descriptions** in the gap analysis that already appear in the assessment. The gap analysis may reference the assessment ("as noted in the assessment, the repo uses pattern X") but should not re-describe it.
+- **Action items belong in the gap analysis, not the assessment.** Observations about limitations belong in the assessment; recommendations about what to do about them belong exclusively in the gap analysis. (Note: when there is NO gap analysis — i.e., non-comparison runs — the assessment's existing "Recommendations must be SPECIFIC and ACTIONABLE" principle still applies. This deduplication rule only activates when both documents exist.)
+- **Cross-cutting observations** go in the assessment's "Beyond the Brief" section. Implementation implications of those observations go in the gap analysis.
+- **If a specialist finding is relevant to both documents**, present the observation in the assessment and the action in the gap analysis — never the full finding in both.
+
+The assessment should read standalone without the gap analysis. The gap analysis should reference but not duplicate the assessment.
+
 ## Synthesis — Assessment (ALWAYS)
 
 Follow this output format:

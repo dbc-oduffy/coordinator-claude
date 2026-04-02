@@ -30,11 +30,13 @@ Synthesizer: [blocked by all specialists, waiting for DONE msgs] → Verify all 
 
 ```
 Scout 1 (chunks A, B, no blockers) ─┐
-                                      ├──→ Specialists A, B, C, D (blocked by BOTH scouts)
-Scout 2 (chunks C, D, no blockers) ─┘                │
-                                                       ├──→ DONE messages wake synthesizer
-                                                       │
-                                            Synthesizer (blocked by all 4 specialists)
+                                      ├──→ [if --deepest: Atlas Sketch (Haiku subagent)] ──→ Specialists A, B, C, D
+Scout 2 (chunks C, D, no blockers) ─┘                                                          │
+                                                                                                 ├──→ DONE messages wake synthesizer
+                                                                                                 │
+                                                                                      Synthesizer (blocked by all 4 specialists)
+                                                                                                 │
+                                                                              [if --deepest: Atlas Refinement (post-synth)]
 ```
 
 **Why all specialists blocked by both scouts:** Cross-subsystem connections. Scout 1's chunks may have data flow into scout 2's chunks. Specialists need the COMPLETE inventory across all chunks to understand these connections. The latency cost is minimal — Haiku scouts have a 5-minute ceiling.
@@ -160,24 +162,42 @@ When `--deeper` is provided, the EM generates a dependency-weighted repomap duri
 
 **Composes with `--compare`:** Both flags can be used simultaneously. The repomap informs prioritization; comparison mode adds the project comparison artifacts.
 
+## Survey Mode
+
+When `--survey` is provided (or implied by `--deepest`), the EM dispatches a solo Opus subagent before the team to produce a holistic 20-30KB narrative overview. The survey:
+
+1. Reads the entire repo in one context window
+2. Catches cross-cutting insights that chunked analysis structurally misses
+3. Produces a decision gate: PM can accept the survey as the deliverable or proceed with the team
+
+If the team proceeds, the survey is passed to specialists as their first context artifact, read before repomap and scout inventories.
+
+**Survey caching:** If a prior survey exists at the output path and is less than 7 days old, the EM may reuse it instead of regenerating.
+
 ## Deepest Mode
 
-When `--deepest` is provided, Pipeline B runs as a **two-wave pipeline**. `--deepest` implies `--deeper` (repomap is always generated).
+When `--deepest` is provided, Pipeline B runs as a **three-phase pipeline**. `--deepest` implies both `--deeper` and `--survey`.
 
-**Wave 1 (Team):** The standard 7-agent team runs unchanged — scouts, specialists, synthesizer produce the assessment. TeamDelete after synthesis completes.
+**Phase 1 (Scouts + Atlas Sketch):** EM creates team with scouts + synthesizer (3 teammates initially). Scouts inventory files (~5 min). After scouts complete, EM dispatches a Haiku atlas sketch subagent (regular subagent, NOT a teammate — preserves 7-teammate limit) that reads scout inventories + repomap and produces 3 preliminary atlas artifacts: file index, system map, connectivity matrix. NOT the architecture summary — that requires specialist analysis.
 
-**Wave 2 (Atlas — post-synthesis):** The EM dispatches a single Sonnet subagent (not a teammate — the team has been deleted) that reads all research artifacts from the scratch directory and produces 4 architecture atlas artifacts:
+**Phase 2 (Specialists + Synthesis):** EM spawns 4 specialists into the existing team (total 7 teammates). Specialists receive: survey (if produced) + repomap + atlas sketch + scout inventory. They validate atlas sketch connections with `[CONFIRMED]`/`[REFUTED]`/`[MISSING]` markers. Synthesizer cross-references and produces assessment + gap analysis (with deduplication — assessment describes what IS, gap analysis describes what to CHANGE).
 
-1. **File index** — every file mapped to its system (chunk). Source: scout inventories.
-2. **System map** — ASCII connectivity diagram. Source: specialist data flows + synthesis cross-system insights.
-3. **Connectivity matrix** — cross-system dependency counts with connection details. Source: specialist + synthesis findings.
-4. **Architecture summary** — per-system detail pages with metadata, narrative, flow diagrams, and observations. Source: specialist assessments + synthesis + repomap centrality.
+**Phase 3 (Atlas Refinement — post-synthesis):** After TeamDelete, a Sonnet subagent refines the preliminary atlas using specialist validation data and synthesis findings, and produces the architecture summary (the 4th artifact). This is the only artifact not in the sketch.
+
+```
+Scout 1 (chunks A, B) ─┐
+                         ├──→ Atlas Sketch (Haiku subagent) ──→ Specialists A,B,C,D
+Scout 2 (chunks C, D) ─┘                                          │
+                                                                    ├──→ Synthesizer
+                                                                    │
+                                                         Atlas Refinement (post-synth)
+```
 
 **System taxonomy:** Systems map to EM-defined chunks (A, B, C, D) with their chunk descriptions as system names. The atlas agent does not invent its own groupings.
 
 **Atlas from assessment only:** Atlas artifacts describe the repo on its own merits — no comparison data incorporated, consistent with the assessment/comparison decoupling principle.
 
-**Error handling:** Atlas failure is non-blocking. If the atlas agent fails, the assessment is committed without atlas artifacts and the PM is notified.
+**Error handling:** Atlas sketch failure is non-blocking — specialists proceed without structural orientation (same as `--deeper` mode). Atlas refinement failure is also non-blocking — assessment is committed without atlas artifacts.
 
 **Composes with `--compare`:** `--deepest --compare` produces assessment + comparison + atlas. The atlas draws from assessment data only; comparison artifacts are independent.
 

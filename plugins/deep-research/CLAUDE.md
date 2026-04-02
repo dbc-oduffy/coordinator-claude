@@ -55,9 +55,10 @@ All three pipelines follow the same Agent Teams pattern:
 
 ### Pipeline B specifics
 - 2 Haiku scouts (2 chunks each) — produces structured file inventories with function signatures, constants, data flow
-- In `--compare` mode: scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md
+- In `--compare` mode: scouts also identify equivalent project files; specialists produce both assessment and comparison artifacts; synthesizer produces ASSESSMENT.md + GAP-ANALYSIS.md (with deduplication — assessment describes what IS, gap analysis describes what to CHANGE)
+- In `--survey` mode: a solo Opus subagent produces a holistic 20-30KB narrative overview before the team runs. PM decides whether to proceed with the team or accept the survey as the deliverable. If the team proceeds, the survey is passed to specialists as context.
 - In `--deeper` mode: EM generates dependency-weighted repomap during scoping; specialists read it before inventories to prioritize structurally central files
-- In `--deepest` mode (implies `--deeper`): after synthesis, a Sonnet subagent produces architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings
+- In `--deepest` mode (implies `--deeper` and `--survey`): three-phase pipeline: (1) scouts + Haiku atlas sketch producing preliminary structural artifacts (file index, system map, connectivity matrix), (2) specialists with full context (survey + repomap + atlas sketch + inventory) validate atlas connections + synthesis with deduplication, (3) Sonnet atlas refinement post-synthesis producing the full 4-artifact architecture atlas including architecture summary
 - Team protocol: `pipelines/repo-team-protocol.md`
 
 ### Pipeline C specifics (v2.1)

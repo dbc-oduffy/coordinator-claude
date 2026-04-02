@@ -1,7 +1,7 @@
 ---
-description: "Pipeline B (Repo Research) using Agent Teams — 2 Haiku scouts build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. EM scopes, spawns the team, and is freed."
+description: "Pipeline B (Repo Research) using Agent Teams — optional Opus survey for holistic orientation, 2 Haiku scouts build file inventories, 4 Sonnet specialists analyze and optionally compare, 1 Opus synthesizer produces the final document. In --deepest mode: three-phase pipeline with atlas sketch and refinement."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
-argument-hint: "<repo-path> [--compare <project-path>] [--deeper] [--deepest]"
+argument-hint: "<repo-path> [--compare <project-path>] [--survey] [--deeper] [--deepest]"
 ---
 
 # Deep Research — Pipeline B (Repo Research) Agent Teams Driver
@@ -18,12 +18,13 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 `$ARGUMENTS`:
 - `<repo-path>` — path to the repository to research (required)
 - `--compare <project-path>` — optional path to a project to compare against
+- `--survey` — dispatch a solo Opus agent to produce a holistic 20-30KB narrative overview before the team runs. Useful when the EM is cold on the repo. The survey becomes both a standalone deliverable and a specialist input artifact. Implied by `--deepest` unless the EM already has context.
 - `--deeper` — generate a dependency-weighted repomap during scoping, giving specialists structural centrality rankings to prioritize deep-reads
-- `--deepest` — all of `--deeper`, plus generate architecture atlas artifacts (file index, system map, connectivity matrix, architecture summary) from the team's findings after synthesis completes. Two-wave pipeline: Wave 1 is the standard team, Wave 2 dispatches a Sonnet atlas agent.
+- `--deepest` — all of `--deeper` and `--survey`, plus generate architecture atlas artifacts in two passes: a preliminary sketch from scout data (pre-specialist) and a refined atlas from the full research (post-synthesis). Three-phase pipeline.
 
 ## Step 1 — Setup
 
-1. Parse arguments: extract repo path, optional comparison path, `--deeper` flag, and `--deepest` flag. **Note:** `--deepest` implies `--deeper` — if `--deepest` is set, treat `--deeper` as also set.
+1. Parse arguments: extract repo path, optional comparison path, `--survey` flag, `--deeper` flag, and `--deepest` flag. **Note:** `--deepest` implies both `--deeper` and `--survey` — if `--deepest` is set, treat both as also set. However, the EM MAY skip the survey step if they already have sufficient context on the repo (e.g., it's the project's own repo, or a prior survey exists). State this judgment explicitly: "Skipping survey — I already have context on this repo from [reason]." **Survey caching:** If a prior survey exists at the output path and is less than 7 days old, the EM MAY reuse it instead of regenerating. State: "Reusing prior survey from [date] — [reason still valid]."
 2. Verify the repo path exists and contains files
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
@@ -36,15 +37,57 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 8. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the assessment output path)
 9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-{topic-slug}-gap-analysis.md`
 10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
-11. If `--deepest`: set atlas output paths:
+11. If `--survey` or `--deepest`: set survey path: `{scratch-dir}/survey.md`; set survey output path: `docs/research/YYYY-MM-DD-{topic-slug}-survey.md`
+12. If `--deepest`: set atlas sketch paths:
+    - `{scratch-dir}/atlas-sketch-file-index.md`
+    - `{scratch-dir}/atlas-sketch-system-map.md`
+    - `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
+13. If `--deepest`: set atlas output paths:
     - `docs/research/YYYY-MM-DD-{topic-slug}-file-index.md`
     - `docs/research/YYYY-MM-DD-{topic-slug}-system-map.md`
     - `docs/research/YYYY-MM-DD-{topic-slug}-connectivity-matrix.md`
     - `docs/research/YYYY-MM-DD-{topic-slug}-architecture-summary.md`
 
-Announce: "Running Pipeline B (repo research, Agent Teams{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
+Announce: "Running Pipeline B (repo research, Agent Teams{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
-## Step 2 — Orient and Scope Repository (EM Direct)
+## Step 2 — Holistic Survey (only if `--survey`)
+
+If `--survey` is set and the EM judges a holistic overview is warranted:
+
+1. **Read the survey prompt template** from:
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-survey-prompt-template.md`
+
+2. **Fill in template fields:**
+   - `[REPO_NAME]`, `[REPO_PATH]`, `[DATE]`
+   - `[SCRATCH_DIR]` → scratch directory path
+   - `[SPAWN_TIMESTAMP]` → current `date +%s`
+   - If `--compare`: `[COMPARE_PROJECT_NAME]`, `[COMPARE_PROJECT_PATH]`
+
+3. **Dispatch the survey agent:**
+   ```
+   Agent(
+     model: "opus",
+     prompt: <filled survey prompt>
+   )
+   ```
+   This is a regular subagent — not a teammate. 30-minute ceiling.
+
+4. **Read the survey** at `{scratch-dir}/survey.md`
+
+5. **Decision gate — present to PM:**
+   > "Survey complete — [brief 2-3 sentence summary of key findings]. Two options:
+   > 1. **Survey is sufficient** — we have the overview we need. I'll save this as the deliverable.
+   > 2. **Proceed with team pipeline** — use this survey as specialist context and go deep.
+   > Which approach?"
+
+6. **If PM chooses option 1:**
+   - Copy survey to output path: `cp {scratch-dir}/survey.md {survey-output-path}`
+   - Commit and present to PM. Pipeline ends here.
+
+7. **If PM chooses option 2:** Proceed to Step 3 (Orient and Scope). The survey is saved
+   and will be passed to specialists as context.
+
+## Step 3 — Orient and Scope Repository (EM Direct)
 
 This is judgment work — the EM does it directly. Two phases: orient first, then scope.
 
@@ -172,7 +215,7 @@ Write scope to `{scratch-dir}/scope.md`:
 | D | {keywords} |
 ```
 
-## Step 3 — Create Team and All Tasks
+## Step 4 — Create Team and All Tasks
 
 ### Create Team
 
@@ -196,21 +239,39 @@ TaskCreate(subject: "Scout 1: Inventory chunks A and B", description: "Read and 
 TaskCreate(subject: "Scout 2: Inventory chunks C and D", description: "Read and inventory all files in chunks C and D. Write to {scratch-dir}/C-inventory.md and {scratch-dir}/D-inventory.md. {If compare: also identify comparison file candidates in project.}")
 ```
 
-**3. Specialist tasks** (each blocked by BOTH scouts):
+**2.5. Atlas sketch task** (only if `--deepest`, blocked by BOTH scouts):
+```
+TaskCreate(subject: "Atlas sketch: produce preliminary structural artifacts from scout data", description: "Read scout inventories and repomap, produce preliminary file index, system map, and connectivity matrix to {scratch-dir}/atlas-sketch-*.md")
+TaskUpdate(taskId: "{atlas-sketch-id}", addBlockedBy: ["{scout-1-id}", "{scout-2-id}"])
+```
+
+**3. Specialist tasks** (each blocked by BOTH scouts; also by atlas sketch if `--deepest`):
 For each chunk (A, B, C, D):
 ```
 TaskCreate(subject: "Analyze chunk {letter}: {description}", description: "Deep-read files, write assessment to {scratch-dir}/{letter}-assessment.md. {If compare: also write comparison to {scratch-dir}/{letter}-comparison.md.}")
 TaskUpdate(taskId: "{specialist-id}", addBlockedBy: ["{scout-1-id}", "{scout-2-id}"])
 ```
+If `--deepest`:
+```
+TaskUpdate(taskId: "{specialist-id}", addBlockedBy: ["{atlas-sketch-id}"])
+```
+
+**Note:** In `--deepest` mode, specialist tasks are created upfront with blockers (same as other modes), but specialist agents are spawned LATER — after the atlas sketch completes (see Step 5 phased spawning). The `blockedBy` on atlas-sketch is belt-and-suspenders; the real gate is that specialist agents don't exist yet.
 
 **4. Block synthesizer on all specialists:**
 ```
 TaskUpdate(taskId: "{synthesizer-id}", addBlockedBy: ["{specialist-A-id}", "{specialist-B-id}", "{specialist-C-id}", "{specialist-D-id}"])
 ```
 
-## Step 4 — Spawn All Teammates
+## Step 5 — Spawn Teammates
 
-### Scouts (Haiku)
+**Spawning model depends on mode:**
+- **Default / `--deeper` / `--survey`:** Spawn all 7 teammates in one message (parallel). EM is freed immediately.
+- **`--deepest`:** Phased spawning — spawn scouts + synthesizer first, wait for scouts, run atlas sketch, then spawn specialists. EM is freed after specialists are spawned (~7 min delay).
+
+### Phase A: Spawn Scouts + Synthesizer
+
+#### Scouts (Haiku)
 
 Read the scout prompt template from:
 `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-scout-prompt-template.md`
@@ -237,31 +298,7 @@ Agent(
 TaskUpdate(taskId: "{scout-2-id}", owner: "scout-2")
 ```
 
-### Specialists (Sonnet)
-
-For each chunk, read the specialist prompt template from:
-`${CLAUDE_PLUGIN_ROOT}/pipelines/repo-specialist-prompt-template.md`
-
-Fill in ALL template fields — including:
-- `[SYNTHESIZER_NAME]` → `"synthesizer"`
-- `[PEER_LIST]` → the other 3 specialists with their teammate names and chunk descriptions
-- `[EXPECTED_FILE_COUNT]` → from the scoping survey
-- `[MIN_MINUTES]`, `[MAX_MINUTES]`, `[MIN_SOURCES]` → from PM timing preferences (or defaults: 5 min, 15 min, 3 files)
-- If `--compare`: include `[COMPARE_PROJECT_PATH]` and `[COMPARE_PROJECT_NAME]`
-- If `--deeper` and repomap was generated (not skipped): include the `[IF DEEPER MODE]` section with `[SCRATCH_DIR]/repomap.md`
-
-```
-Agent(
-  team_name: "repo-research-{topic-slug}",
-  name: "chunk-{letter}",
-  model: "sonnet",
-  subagent_type: "deep-research:repo-specialist",
-  prompt: <filled specialist prompt>
-)
-TaskUpdate(taskId: "{specialist-id}", owner: "chunk-{letter}")
-```
-
-### Synthesizer (Opus)
+#### Synthesizer (Opus)
 
 Read the synthesizer prompt template from:
 `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-synthesizer-prompt-template.md`
@@ -283,17 +320,79 @@ Agent(
 TaskUpdate(taskId: "{synthesizer-id}", owner: "synthesizer")
 ```
 
-Dispatch ALL teammates in a single message (parallel).
+### Phase B: Atlas Sketch (only if `--deepest`)
 
-## Step 5 — EM Is Freed
+**If NOT `--deepest`:** Skip this phase — spawn specialists immediately in Phase C alongside scouts and synthesizer (all in one message).
 
-After spawning all teammates, announce:
+**If `--deepest`:** After spawning scouts + synthesizer, wait for both scout tasks to complete. Then:
 
+1. **Read the atlas sketch prompt template** from:
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-atlas-sketch-prompt-template.md`
+
+2. **Fill in template fields** using scope.md chunk descriptions:
+   - `[REPO_NAME]`, `[DATE]`, `[RUN_ID]`
+   - `[SYSTEM_A_NAME]` through `[SYSTEM_D_NAME]` and `[CHUNK_A_DESCRIPTION]` through `[CHUNK_D_DESCRIPTION]` → from scope.md
+   - `[SCRATCH_DIR]` → scratch directory path
+   - `[SPAWN_TIMESTAMP]` → current `date +%s`
+
+3. **Dispatch as a regular Haiku subagent** (NOT a teammate — preserves the 7-teammate limit):
+   ```
+   Agent(
+     model: "haiku",
+     prompt: <filled atlas sketch prompt>
+   )
+   ```
+
+4. **Verify atlas sketch artifacts exist:**
+   - `{scratch-dir}/atlas-sketch-file-index.md`
+   - `{scratch-dir}/atlas-sketch-system-map.md`
+   - `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
+
+5. **Mark atlas-sketch task as completed:** `TaskUpdate(taskId: "{atlas-sketch-id}", status: "completed")`
+
+6. **If verification fails:** Proceed without atlas sketch artifacts. Specialists will operate without structural orientation (same as `--deeper` mode). Note to PM.
+
+### Phase C: Spawn Specialists
+
+For each chunk, read the specialist prompt template from:
+`${CLAUDE_PLUGIN_ROOT}/pipelines/repo-specialist-prompt-template.md`
+
+Fill in ALL template fields — including:
+- `[SYNTHESIZER_NAME]` → `"synthesizer"`
+- `[PEER_LIST]` → the other 3 specialists with their teammate names and chunk descriptions
+- `[EXPECTED_FILE_COUNT]` → from the scoping survey
+- `[MIN_MINUTES]`, `[MAX_MINUTES]`, `[MIN_SOURCES]` → from PM timing preferences (or defaults: 5 min, 15 min, 3 files)
+- If `--compare`: include `[COMPARE_PROJECT_PATH]` and `[COMPARE_PROJECT_NAME]`
+- If `--deeper` and repomap was generated (not skipped): include the `[IF DEEPER MODE]` section with `[SCRATCH_DIR]/repomap.md`
+- If `--deepest` and atlas sketch artifacts exist: include the `[IF DEEPEST MODE]` section with atlas sketch paths
+- If `--survey` and survey was produced: include the `[IF SURVEY MODE]` section with `[SCRATCH_DIR]/survey.md`
+
+```
+Agent(
+  team_name: "repo-research-{topic-slug}",
+  name: "chunk-{letter}",
+  model: "sonnet",
+  subagent_type: "deep-research:repo-specialist",
+  prompt: <filled specialist prompt>
+)
+TaskUpdate(taskId: "{specialist-id}", owner: "chunk-{letter}")
+```
+
+**Dispatch all 4 specialists in a single message (parallel).**
+
+## Step 6 — EM Is Freed
+
+After spawning all teammates (including specialists), announce:
+
+**If `--deepest`:**
+> "Research team running — scouts completed, atlas sketch produced, now 4 specialists + 1 synthesizer working autonomously on '{repo-name}'. Specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the synthesizer completes."
+
+**Otherwise:**
 > "Research team is running autonomously on '{repo-name}' with 2 scouts + 4 specialists + 1 synthesizer. Scouts inventory files (~5 min), then specialists analyze {MIN_MINUTES}-{MAX_MINUTES} min ({MIN_SOURCES}-file minimum). I'm available for other work — I'll be notified when the synthesizer completes."
 
 **You are now free to continue the conversation with the PM.** Do not poll, do not monitor, do not broadcast WRAP_UP. The team handles everything.
 
-## Step 6 — On Completion Notification
+## Step 7 — On Completion Notification
 
 When you receive a notification that the synthesis task is complete:
 
@@ -302,7 +401,7 @@ When you receive a notification that the synthesis task is complete:
 3. If comparison mode: read the gap analysis at `{gap-analysis-path}` and verify
 4. Check for advisory: `test -f {advisory-path}` — if the file exists, read it
 5. Shut down the team: `TeamDelete(team_name: "repo-research-{topic-slug}")` — frees the team slot. The scratch directory persists.
-6. If `--deepest`: proceed to **Step 6.5** before archiving. Otherwise, skip to step 7.
+6. If `--deepest`: proceed to **Step 7.5** before archiving. Otherwise, skip to step 7.
 7. Commit:
    ```bash
    git add -A && git commit -m "deep-research: complete — {topic-slug}"
@@ -316,9 +415,9 @@ When you receive a notification that the synthesis task is complete:
 9. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
 10. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations.
 
-## Step 6.5 — Atlas Generation (only if `--deepest`)
+## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
-**Wave 2:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent to produce architecture atlas artifacts from the research team's findings.
+**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent to refine the preliminary atlas sketch using specialist analysis and synthesis findings, and produce the architecture summary (the 4th artifact, which requires specialist data).
 
 1. **Read the atlas prompt template** from:
    `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-atlas-prompt-template.md`
@@ -331,6 +430,9 @@ When you receive a notification that the synthesis task is complete:
    - `[SYNTHESIS_PATH]` → the synthesis document path (`{output-path}`)
    - `[SPAWN_TIMESTAMP]` → current `date +%s`
    - `[VERSION]` → repo version from scope.md
+   - `[PRELIMINARY_FILE_INDEX]` → `{scratch-dir}/atlas-sketch-file-index.md`
+   - `[PRELIMINARY_SYSTEM_MAP]` → `{scratch-dir}/atlas-sketch-system-map.md`
+   - `[PRELIMINARY_CONNECTIVITY_MATRIX]` → `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
 
 3. **Dispatch the atlas agent:**
    ```
@@ -357,19 +459,23 @@ When you receive a notification that the synthesis task is complete:
 
 6. **If verification fails:** Proceed without atlas artifacts. Note to PM: "Atlas generation failed or produced thin output — assessment is complete, atlas artifacts missing." The assessment is the primary deliverable; atlas is additive.
 
-7. Return to Step 6 step 7 (commit + archive).
+7. Return to Step 7 item 7 (commit + archive).
 
 ## Error Handling
 
 | Failure | Action |
 |---------|--------|
+| Survey agent fails (--survey) | Report to PM: "Survey failed — proceed without survey?" If PM agrees, continue to scoping. Survey is additive, not blocking. |
+| Survey agent exceeds 30-min ceiling | Proceed with whatever was written to survey.md. If empty, skip survey. |
 | Scout fails (no inventory written) | Specialists fall back to self-directed file discovery (Glob + Read). Budget 3 extra minutes. |
 | Scout times out (partial inventory) | Specialists use what's there + supplement with own Glob/Read |
+| Atlas sketch fails (--deepest) | Proceed without atlas sketch. Specialists operate in --deeper mode (repomap only). Atlas refinement still runs post-synthesis. |
+| Atlas sketch produces partial output | Accept what exists. Missing artifacts are simply not passed to specialists. |
 | Specialist hits ceiling and self-converges | Normal — specialist writes what it has and marks task complete |
 | Specialist produces thin assessment | Synthesizer notes the gap; EM can supplement manually |
 | Synthesizer doesn't wake after all specialists complete | Verify specialists sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
 | All specialists fail | TeamDelete, report to PM |
 | Team creation fails | Report to PM |
-| Atlas agent fails (--deepest) | Commit assessment without atlas. Note to PM: "Atlas generation failed — assessment is complete." Atlas is additive, not blocking. |
-| Atlas agent produces partial output (--deepest) | Accept what exists, note thin coverage to PM |
-| Atlas agent exceeds 10-min ceiling (--deepest) | Proceed without atlas, report to PM |
+| Atlas refinement agent fails (--deepest) | Commit assessment without atlas. Note to PM: "Atlas generation failed — assessment is complete." Atlas is additive, not blocking. |
+| Atlas refinement agent produces partial output (--deepest) | Accept what exists, note thin coverage to PM |
+| Atlas refinement agent exceeds 10-min ceiling (--deepest) | Proceed without atlas, report to PM |
