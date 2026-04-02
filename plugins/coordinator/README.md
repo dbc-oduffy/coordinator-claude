@@ -8,7 +8,7 @@ The coordinator plugin is the backbone of the system. It provides:
 
 1. **The orchestration role** — the main session agent operates as EM (engineering manager), delegating work to specialized subagents rather than implementing directly
 2. **Universal reviewers** — Patrik (code quality, architecture) and Zoli (ambition backstop) are available on every project regardless of domain
-3. **Workflow skills** — 24 codified processes (SKILL.md) covering the full development lifecycle, plus 8 pipeline definitions (PIPELINE.md) backing commands
+3. **Workflow skills** — 25 codified processes (SKILL.md) covering the full development lifecycle, plus 8 pipeline definitions (PIPELINE.md) backing commands
 4. **Session commands** — slash commands for pipeline operations (dispatch executors, route reviews, manage handoffs)
 
 ## Components
@@ -50,7 +50,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 
-### Skills (24)
+### Skills (25)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
