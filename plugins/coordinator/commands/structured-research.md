@@ -6,6 +6,11 @@ argument-hint: "'create' <output-dir> | <spec-path> [subject-key|'next'|'batch']
 
 # Structured Research — Pipeline C
 
+### Prerequisites
+
+This command requires the **deep-research** plugin. If the plugin is not installed, report:
+> _"The /structured-research command requires the deep-research plugin (Pipeline C). Install it or see the deep-research-claude repository."_
+
 Create and execute structured research campaigns. Two modes: **create** a research spec from the PM's brief, or **run** an existing spec by dispatching orchestrator agents.
 
 **When to use this (EM pattern recognition):**
@@ -20,7 +25,7 @@ Create and execute structured research campaigns. Two modes: **create** a resear
 - One-off research with no repeating structure
 - Quick lookups (use Context7)
 
-**Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/PIPELINE.md`. Spec format reference in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md`.
+**Reference:** Full pipeline design in the deep-research plugin — see `pipelines/PIPELINE.md` in the deep-research plugin. Spec format reference in `pipelines/spec-format.md` in the deep-research plugin.
 
 ## Arguments
 
@@ -68,7 +73,7 @@ Before writing the spec, read the project:
 
 ### Step 3: Write the Spec
 
-Write to `<output-dir>/spec.yaml` using the format from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/spec-format.md`:
+Write to `<output-dir>/spec.yaml` using the format from `pipelines/spec-format.md` in the deep-research plugin:
 
 1. **subjects** — source file, key field, total, batching tiers
 2. **topics** — 2-6 topic areas with search domains and focus questions derived from the schema gaps

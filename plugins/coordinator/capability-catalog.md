@@ -35,7 +35,7 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **ue-docs-researcher** — multi-source RAG synthesis (333K+ vectors). Route: multi-step UE lookups. Single lookups: quick_ue_lookup directly.
 
-**NotebookLM** — break-glass for YouTube/podcasts/audio Claude can't access. Use /notebooklm-research. NOT for normal web research.
+**NotebookLM** — break-glass for YouTube/podcasts/audio Claude can't access. Use /notebooklm-research. NOT for normal web research. *(requires deep-research plugin with notebooklm)*
 
 **Palí** (senior-front-end) — front-end review (tokens, design system, CSS). **Fru** — UX flow review (trust, clarity). Use /review-dispatch.
 
@@ -44,15 +44,15 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
 - `/staff-session --mode plan` — domain experts debate (Patrik, Sid, Camelia, etc.), Zolí (eng-director) synthesizes with ambition lens. Use `coordinator:requesting-staff-session` to choose tier and composition.
 - `/staff-session --mode review` — same debate structure for critiquing existing artifacts. Zolí synthesizes findings. Lightweight tier falls through to `/review-dispatch`.
-- `/deep-research web` — Pipeline A: internet research (scout → specialists → synthesizer)
-- `/deep-research repo` — Pipeline B: repository analysis (scouts → specialists → synthesizer)
-- `/structured-research` — Pipeline C: schema-conforming batch research
-- `/notebooklm-research` — Pipeline D: media research via NotebookLM MCP
+- `/deep-research web` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
+- `/deep-research repo` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
+- `/structured-research` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*
+- `/notebooklm-research` — Pipeline D: media research via NotebookLM MCP *(requires deep-research plugin with notebooklm)*
 
 When to use teams vs. subagents: teams when agents need to **communicate** (cross-pollinate, resolve contradictions, share discoveries); subagents when tasks are **independent** (no cross-agent value). Teams are fire-and-forget — the EM scopes, spawns, and is freed.
 
 **Pipeline orchestrators** (dispatch via commands, not directly):
-- **deep-research-orchestrator** — /deep-research dispatches this (lives in the deep-research plugin). Reads PIPELINE.md, runs Haiku→Sonnet→Opus.
+- **deep-research-orchestrator** — /deep-research dispatches this (lives in the deep-research plugin). Reads PIPELINE.md, runs Haiku→Sonnet→Opus. *(requires deep-research plugin)*
 
 **EM-driven pipelines** (command contains full orchestration logic, dispatches leaf agents directly):
 - `/bug-sweep` — EM scopes→dispatches Haiku/Sonnet scanners→triages→dispatches Sonnet executors→commits fixes.
