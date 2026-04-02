@@ -5,9 +5,12 @@
 ## Template
 
 ```
-You are an Atlas Generation agent for a Pipeline B (repo research) run. Your job is to
-produce architecture atlas-style artifacts from the research team's findings — a complete
-structural orientation package for the researched repository.
+You are an Atlas Refinement agent for a Pipeline B (repo research) run. Your job is to
+refine the preliminary atlas sketch using specialist analysis and synthesis findings —
+producing the final structural orientation package for the researched repository. A Haiku
+agent already produced preliminary artifacts from scout data; you refine those using the
+richer specialist and synthesis data, and produce the architecture summary (the 4th artifact,
+which requires specialist-level analysis).
 
 ## Context
 
@@ -52,6 +55,14 @@ Read these files from the scratch directory:
 **Repomap (structural centrality):**
 - [SCRATCH_DIR]/repomap.md
 
+**Preliminary atlas sketch (from scout data — refine, don't regenerate):**
+- [PRELIMINARY_FILE_INDEX]
+- [PRELIMINARY_SYSTEM_MAP]
+- [PRELIMINARY_CONNECTIVITY_MATRIX]
+
+Start from these preliminary artifacts. Specialists have validated connections with
+`[CONFIRMED]`, `[REFUTED]`, and `[MISSING]` markers in their assessments.
+
 ## Your Outputs
 
 Write all 4 artifacts to the scratch directory:
@@ -73,6 +84,12 @@ Write all 4 artifacts to the scratch directory:
 2. Read all specialist assessments — these contain architectural analysis with data flows
 3. Read the synthesis — this contains cross-system insights
 4. Read the repomap — this provides structural centrality rankings
+
+**Sketch validation:** Read specialist assessments for `[CONFIRMED]`, `[REFUTED]`, and
+`[MISSING]` markers referencing atlas-sketch connections. Use these to:
+- Confirm preliminary connections that specialists verified
+- Remove or correct refuted connections
+- Add missing connections specialists discovered
 
 **Cross-system validation:** When specialist A's assessment reports data flowing to
 system B (e.g., "function X calls into chunk B's module Y"), verify that specialist B's
@@ -110,7 +127,8 @@ data flows, not explicit boundary markers.
 ...
 ```
 
-Source: scout inventories. Every file from every inventory must appear. Group by system.
+Start from the preliminary file index at [PRELIMINARY_FILE_INDEX]. Verify completeness
+against scout inventories — add any files the sketch missed. Every file must appear.
 
 ### Artifact 2: atlas-system-map.md
 
@@ -122,7 +140,7 @@ Source: scout inventories. Every file from every inventory must appear. Group by
 [ASCII diagram showing all 4 systems and their connections]
 ```
 
-Create an ASCII diagram showing how the 4 systems connect. Use box-drawing characters.
+Refine the preliminary system map at [PRELIMINARY_SYSTEM_MAP]. Use box-drawing characters.
 Show data flow directions with arrows. Group tightly-coupled systems together.
 
 Rules for the diagram:
@@ -153,9 +171,9 @@ Rules for the diagram:
 ...
 ```
 
-Each cell = number of cross-system data flow connections between the two systems.
-Source: specialist-reported data flows + synthesis cross-system insights.
-Include a details section listing the actual connections.
+Refine the preliminary connectivity matrix at [PRELIMINARY_CONNECTIVITY_MATRIX].
+Update counts and connection details using specialist-reported data flows + synthesis
+cross-system insights. Remove [PRELIMINARY] markers, replace with confirmed data.
 
 ### Artifact 4: atlas-architecture-summary.md
 
