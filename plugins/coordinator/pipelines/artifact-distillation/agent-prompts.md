@@ -340,21 +340,23 @@ The coordinator reads your full output from disk. Do NOT return it in conversati
 
 ## Your Task
 
-1. **Apply delta operations** — For each existing guide update, mechanically apply the
-   ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION operations to produce final guide
-   content. Verify each operation references a real heading in the existing guide.
+**Do NOT expand or transcribe delta operations.** Phase 2 scratch files contain
+ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION operations for existing guides and full
+content for new guides. Leave them as-is — the coordinator applies them mechanically in
+Phase 5. Your role is intelligent work only: contradiction detection, deduplication,
+and the deletion manifest.
 
-2. **Cross-reference consistency** — Read all guide content (new + updated) and flag:
+1. **Cross-reference consistency** — Read all Phase 2 scratch files and flag:
    - Contradictions between guides (same topic, different claims)
    - Resolve using temporal ordering: later-dated source artifacts take precedence
    - Note any unresolvable contradictions for PM review
 
-3. **Deduplicate decision records** — Compare Problem + Decision fields across all
+2. **Deduplicate decision records** — Compare Problem + Decision fields across all
    records. If two records describe the same decision:
    - Keep the one with more context/reasoning
    - Note the duplicate in the manifest
 
-4. **Produce DIRECTORY_GUIDE.md** — An index of all guides:
+3. **Produce DIRECTORY_GUIDE.md** — An index of all guides:
 
    # Wiki Guide Directory
 
@@ -368,7 +370,7 @@ The coordinator reads your full output from disk. Do NOT return it in conversati
    |----|-------|------|--------|
    | DR-NNN | [title] | [date] | [status] |
 
-5. **Produce deletion manifest** — Every source artifact with disposition:
+4. **Produce deletion manifest** — Every source artifact with disposition:
 
    ## Deletion Manifest
 
@@ -386,9 +388,8 @@ The coordinator reads your full output from disk. Do NOT return it in conversati
    - PRESERVE: research outputs and Pipeline C structured artifacts — copy to canonical location (`docs/research/`) if not already there, never delete. Any file tagged `[PRESERVE]` by the Phase 1 scanner is always PRESERVE. Research outputs (`docs/research/`, `~/docs/research/`) are always PRESERVE regardless of Phase 1 classification.
 
 ## Rules
-- Delta application is mechanical — do not rewrite or improve existing guide prose.
-- If a delta operation references a heading that doesn't exist, flag it as an error
-  (don't guess).
+- Do NOT expand delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) — the
+  coordinator applies them mechanically in Phase 5. Pass them through as-is.
 - Temporal ordering is the tiebreaker for contradictions. Later artifacts take
   precedence.
 - Every source artifact must appear in the deletion manifest — no silent omissions.

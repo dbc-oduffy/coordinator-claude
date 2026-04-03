@@ -177,6 +177,8 @@ Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in stan
 
 Instruct each agent in its prompt to use Read and Write. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
+**Ownership boundary:** Synthesizers own their scratch files. They write to `tasks/scratch/artifact-distillation/{run-id}/` only — never to `docs/guides/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
+
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3.
 
 **CRITICAL: Checkpoint scratch files before Phase 3.** `git add tasks/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3 is the highest-risk step (largest context load, longest runtime). If it fails, the checkpoint allows re-running Phase 3 without re-doing Phases 1-2.
@@ -185,18 +187,20 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 ## Phase 3: Cross-Reference Assembly (Opus or decomposed Sonnet)
 
-**Default:** Opus single agent. **If >200 nuggets or >5 topic clusters:** decompose into 3 parallel Sonnet sub-tasks: (a) apply guide deltas, (b) deduplicate decision records, (c) produce deletion manifest. The coordinator assembles the final output.
+**Default:** Opus single agent. **If >200 nuggets or >5 topic clusters:** decompose into 2 parallel Sonnet sub-tasks: (a) deduplicate decision records + cross-reference check, (b) produce deletion manifest. The coordinator assembles the final output.
+
+**Opus does NOT expand or apply delta operations.** Phase 2 scratch files contain delta operations for existing guides and full content for new guides — Phase 3 reads them as-is. Mechanical delta application happens in Phase 5 (coordinator). Phase 3's value is in intelligent work only: contradiction detection, deduplication, and the deletion manifest.
 
 **DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3: Opus Cross-Reference Assembly Prompt** verbatim. Fill in:
 - `[N]` — number of topic-specific Sonnet agents
-- Phase 2 scratch file paths or pasted content
+- Phase 2 scratch file paths
 - Existing wiki state (guide files and decision records)
 - `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-opus-assembly.md`
 
 Instruct the agent in its prompt to use Read, Write, and Glob. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
 
 **Phase 3 produces:**
-1. Final guide content (new guides + applied delta updates)
+1. Cross-reference consistency report (contradictions flagged, with temporal resolution)
 2. Deduplicated decision records
 3. Updated `DIRECTORY_GUIDE.md` index
 4. **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, or `SKIP` with reason
@@ -222,17 +226,18 @@ Present to PM:
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
 1. **Safety commit:** `git add -A && git commit -m "pre-distillation checkpoint"`
-2. **Write wiki files** to `docs/guides/`, `docs/decisions/`, `docs/guides/DIRECTORY_GUIDE.md`
-3. **Commit additions:** `"distill: add/update N guides, N decision records"`
-4. **Delete approved artifacts:** `git rm` each file from the deletion manifest
-5. **Commit deletions:** `"distill: remove N distilled artifacts"`
-6. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
-7. **Amend log update** into the deletion commit
-8. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
+2. **Apply delta operations** from Phase 2 scratch files: for each existing guide, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, copy the full content from the Phase 2 scratch file. Apply cross-reference corrections flagged by Phase 3.
+3. **Write wiki files** to `docs/guides/`, `docs/decisions/`, `docs/guides/DIRECTORY_GUIDE.md`
+4. **Commit additions:** `"distill: add/update N guides, N decision records"`
+5. **Delete approved artifacts:** `git rm` each file from the deletion manifest
+6. **Commit deletions:** `"distill: remove N distilled artifacts"`
+7. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
+8. **Amend log update** into the deletion commit
+9. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 
 **Two separate commits** (additions vs deletions) so wiki content survives even if deletion needs reverting.
 
-**If `--no-delete`:** skip steps 4-7, only apply wiki updates (steps 0-3).
+**If `--no-delete`:** skip steps 5-8, only apply wiki updates (steps 0-4).
 
 ---
 
@@ -257,7 +262,7 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Haiku synthesizing instead of cataloging | "Completeness matters more than analysis" instruction is in the Phase 1 template. Don't remove it. |
 | Delta operation references non-existent heading | Phase 3 Opus flags these as errors rather than guessing — surface for coordinator review |
 | Deleting active handoff references | Phase 0 reads `tasks/handoffs/` for active context — those files are read-only, never batched |
-| Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites |
+| Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Opus does not expand them. |
 | Artifacts distilled twice | Distillation log (`docs/guides/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
 | PM skips approval and deletion runs | "Wait for explicit approval" is unconditional — no timeout, no auto-proceed |
 | Scratch file missing after agent completes | Verify with `ls`; re-dispatch once; skip batch on second failure — don't stall the pipeline |
