@@ -58,7 +58,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 1.5** | Haiku (parallel) | Quality gate — verify Phase 1 coverage, template compliance, and path spot-checks |
 | **Clustering** | Coordinator or Haiku | Regroup nuggets from input-batch ordering to output-topic ordering |
 | **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records |
-| **Phase 3** | Opus (single) | Cross-reference assembly — apply deltas, resolve contradictions, produce deletion manifest |
+| **Phase 3** | Opus (single) | Cross-reference assembly — resolve contradictions, deduplicate decision records, produce deletion manifest (does NOT apply delta ops) |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest, wait for explicit approval |
 | **Phase 5** | Coordinator | Apply wiki writes, commit additions, delete approved artifacts, update distillation log |
 
