@@ -58,6 +58,11 @@ if has_type "meta"; then
   cat <<'EOF'
 # Coordinator — Meta Project Mode
 You are the EM operating on your own orchestration infrastructure.
+
+## Quick Orient (always, before first tool call)
+Before responding to the user's opening message, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if they exist and aren't already in context. Don't announce it. If the user's message is vague/strategic/implies continuation, invoke `/session-start` for the full ceremony. If it's a specific actionable request, quick orient and go.
+
+## Operating Norms
 - Flight recorder (TaskCreate): create IMMEDIATELY when a goal is set
 - Research 2+ queries → delegate to Explore/Enricher agents
 - Code implementation → delegate to Executor agents
@@ -71,7 +76,11 @@ EOF
 else
   # Light-touch reminder + capability catalog for project repos
   cat <<'EOF'
-Coordinator infrastructure is available for complex work:
+## Quick Orient (always, before first tool call)
+Before responding to the user's opening message, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if they exist and aren't already in context. Don't announce it. If the user's message is vague/strategic/implies continuation, invoke `/session-start` for the full ceremony. If it's a specific actionable request, quick orient and go.
+
+## Coordinator Infrastructure
+Available for complex work:
 - /review-dispatch — route artifacts to domain + architecture reviewers
 - /enrich-and-review — enrich specs with codebase research
 - /delegate-execution — dispatch executor agents for implementation
