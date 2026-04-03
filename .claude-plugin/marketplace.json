@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "coordinator",
-      "source": "./coordinator",
+      "source": "./plugins/coordinator",
       "description": "Core orchestration: PM-EM dynamic, workflow skills, reviewer personas (Patrik, Zol\u00ed), session lifecycle, research pipelines, three-tier delegation.",
       "tags": [
         "orchestration",
@@ -22,7 +22,7 @@
     },
     {
       "name": "web-dev",
-      "source": "./web-dev",
+      "source": "./plugins/web-dev",
       "description": "Web development reviewers: Pal\u00ed (frontend, design tokens, CSS) and Fru (UX flows, trust signals).",
       "tags": [
         "web-development",
@@ -33,7 +33,7 @@
     },
     {
       "name": "game-dev",
-      "source": "./game-dev",
+      "source": "./plugins/game-dev",
       "description": "Game development reviewer: Sid (Unreal Engine, Blueprint/C++, gameplay mechanics). Includes Blueprint inspector agents.",
       "tags": [
         "game-development",
@@ -44,7 +44,7 @@
     },
     {
       "name": "data-science",
-      "source": "./data-science",
+      "source": "./plugins/data-science",
       "description": "Data science reviewer: Camelia (ML pipelines, statistics, data modeling, LLM workflows).",
       "tags": [
         "data-science",
@@ -55,7 +55,10 @@
     },
     {
       "name": "notebooklm",
-      "source": "./notebooklm",
+      "source": {
+        "type": "npm",
+        "package": "@anthropic/notebooklm-mcp"
+      },
       "description": "Google NotebookLM integration via MCP. Research YouTube videos, podcasts, and audio content.",
       "tags": [
         "notebooklm",
@@ -66,7 +69,7 @@
     },
     {
       "name": "remember",
-      "source": "./remember",
+      "source": "./plugins/remember",
       "description": "Automatic session memory \u2014 captures what Claude worked on, summarizes via Haiku, injects history at session start. Pure Node.js, cross-platform.",
       "tags": [
         "memory",

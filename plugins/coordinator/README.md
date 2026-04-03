@@ -23,7 +23,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (22, all user-invocable via `/`)
+### Commands (23, all user-invocable via `/`)
 
 | Command | Purpose |
 |---------|---------|
@@ -49,6 +49,7 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
+| `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
 ### Skills (25)
 
