@@ -23,13 +23,20 @@ The `blockedBy` mechanism is a status gate, not an event trigger — it won't wa
 
 ## MCP Bootstrap
 
-Before doing notebook cleanup, load the `notebook_delete` and `notebook_query` tool schemas:
+Before doing notebook cleanup or follow-up queries, load the MCP tool schemas. MCP tool names may vary across sessions — use this graduated bootstrap:
 
+**Step 1 — Try exact names:**
 ```
 ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_delete,mcp__plugin_notebooklm_notebooklm__notebook_query")
 ```
 
-If ToolSearch returns no results, the notebooklm plugin is not enabled — note this in your output and skip cleanup.
+**Step 2 — If Step 1 returns no results, try keyword search:**
+```
+ToolSearch("+notebooklm notebook_delete", max_results=5)
+```
+This matches any tool with "notebooklm" in the name. Use whatever names it returns.
+
+**Step 3 — If both return no results**, the notebooklm MCP tools are not available. Note this in your output. Skip notebook cleanup and follow-up queries — proceed with synthesis from the worker artifacts on disk.
 
 ## Your Job — Three Phases
 
