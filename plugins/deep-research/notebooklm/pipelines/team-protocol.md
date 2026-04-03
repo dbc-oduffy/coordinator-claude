@@ -96,7 +96,7 @@ This prevents a race condition where a worker reads sources.md before the scout 
 
 - Reads `## Notebook {letter}` section from strategy.md for its assignment
 - Reads `## Sources for Notebook {letter}` from sources.md for its source list
-- Bootstraps MCP tools via ToolSearch
+- Bootstraps MCP tools via graduated ToolSearch (exact names → keyword fallback → fail gracefully)
 - If source strategy is "scout-provided": ingest scout-provided URLs via `source_add`
 - If source strategy is "research_start": use `research_start` MCP tool for NLM discovery
 - Creates own notebook named `{topic-slug}-{letter}`

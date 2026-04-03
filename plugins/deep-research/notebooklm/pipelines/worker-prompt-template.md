@@ -40,7 +40,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 
 ## Your Job (after task is unblocked)
 
-1. Run ToolSearch to bootstrap MCP tools (see agent definition for the exact query)
+1. Run ToolSearch to bootstrap MCP tools using the graduated bootstrap from your agent definition (exact names → keyword fallback → fail gracefully). Do NOT fall back to the `nlm` CLI if MCP tools aren't found.
 2. Read strategy.md — find ## Notebook [NOTEBOOK_LETTER] for focus, custom instructions, questions, source strategy
 3. Read sources.md — find ## Sources for Notebook [NOTEBOOK_LETTER] for your URLs or research_start query
 4. Create notebook named '[NOTEBOOK_NAME]' via notebook_create — record the notebook ID
@@ -97,8 +97,8 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     ```
     The body is a human-readable overview: metadata table, sources table, brief claims summary narrative, and artifacts section. See your agent definition for the full format.
 
-12. Mark task completed: TaskUpdate
-13. Send DONE: SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] complete — [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json + [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md")
+12. **MANDATORY (all exit paths):** Mark task completed: TaskUpdate — the sweep agent is blocked on this
+13. **MANDATORY (all exit paths):** Send DONE: SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] complete — [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json + [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md")
 
 See your agent definition for full execution phases, failure handling, and output format.
 ```

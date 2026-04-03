@@ -24,13 +24,20 @@ This prevents reading partial files written by the scout before it has finished.
 
 ## Bootstrap
 
-**After confirming your task is unblocked**, load the MCP tool schemas you need:
+**After confirming your task is unblocked**, load the MCP tool schemas you need. MCP tool names may vary across sessions — use this graduated bootstrap:
 
+**Step 1 — Try exact names:**
 ```
 ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_create,mcp__plugin_notebooklm_notebooklm__source_add,mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__notebook_get,mcp__plugin_notebooklm_notebooklm__notebook_delete,mcp__plugin_notebooklm_notebooklm__source_describe,mcp__plugin_notebooklm_notebooklm__source_get_content,mcp__plugin_notebooklm_notebooklm__studio_create,mcp__plugin_notebooklm_notebooklm__studio_status,mcp__plugin_notebooklm_notebooklm__download_artifact,mcp__plugin_notebooklm_notebooklm__research_start,mcp__plugin_notebooklm_notebooklm__research_status,mcp__plugin_notebooklm_notebooklm__research_import")
 ```
 
-If ToolSearch returns no results for these tools, the notebooklm plugin is not enabled. Write a failure note to your output files, mark your task completed, and send DONE to the sweep agent with the error. Do not attempt to proceed without MCP tools.
+**Step 2 — If Step 1 returns no results, try keyword search:**
+```
+ToolSearch("+notebooklm notebook_create", max_results=15)
+```
+This matches any tool with "notebooklm" in the name, regardless of prefix. If this returns results, use whatever tool names it finds — they are the correct names for this session.
+
+**Step 3 — If both searches return no results**, the notebooklm MCP tools are not available in this session. **Do NOT fall back to the `nlm` CLI or any other workaround.** Write a failure note to your output files explaining that MCP tools were not found, mark your task as `completed` via TaskUpdate, and send DONE to the sweep agent with the error. Proceeding without MCP tools breaks the structured output contract.
 
 ## Read Your Assignment
 
@@ -160,10 +167,14 @@ Brief narrative overview of what the notebook found — themes, notable findings
 {For each artifact: type, status, download path if applicable}
 ```
 
-### Phase 5 — Complete and Signal
+### Phase 5 — Complete and Signal (MANDATORY — ALL EXIT PATHS)
+
+**This phase MUST execute regardless of how you got here** — whether all phases succeeded, you hit a failure, you timed out, or MCP bootstrap failed. The sweep agent is blocked waiting for your TaskUpdate. If you skip this, the entire pipeline stalls.
 
 1. Mark your task as `completed` via TaskUpdate
 2. Send DONE message to sweep: `SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook {letter} complete — {scratch-dir}/{letter}-claims.json + {scratch-dir}/{letter}-summary.md")`
+
+If you wrote partial output or failure notes, still mark completed and send DONE — the sweep agent handles gaps.
 
 ## Self-Governance Timing
 
