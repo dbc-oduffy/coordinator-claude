@@ -117,11 +117,11 @@ git commit -m "feat: add specific feature"
 After saving the plan, it MUST go through one review cycle before execution. This catches structural problems while they're cheap to fix — before enrichment and execution invest real work.
 
 1. Route the plan through `/review-dispatch` — the plan document is the artifact
-2. Address **every item** from the reviewer — nitpicks, P2s, P3s, all of them:
-   - Go through findings line-by-line
-   - Implement each suggestion into the plan
-   - Only skip if: (a) requires PM input, or (b) you genuinely disagree (flag to PM with reasoning)
-   - Do NOT selectively incorporate "the important ones" and gloss over the rest
+2. **Dispatch the review-integrator agent** to apply findings to the plan. Do not integrate findings manually — the review-integrator handles this. Your job after dispatch:
+   - Review the integrator's escalation list (usually 0 items)
+   - Spot-check the diff to verify findings were applied correctly
+   - If you disagree with how a finding was applied, change that specific part — don't re-integrate the whole review yourself
+   - Only skip integration of an item if: (a) requires PM input, or (b) you genuinely disagree (flag to PM with reasoning)
 3. Add a review status marker to the plan document header:
 
 ```markdown
