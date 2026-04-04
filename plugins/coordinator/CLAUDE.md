@@ -34,8 +34,9 @@ Every session begins with hooks that inject session memory and orientation point
 
 ## Review Sequencing
 
-- **Multi-persona reviews are always sequential, never parallel.** Run them one after another and **apply all fixes from Reviewer 1 before dispatching Reviewer 2**.
-- **Act on ALL findings, immediately.** The review is the work order; execute it. The only exceptions: items requiring user input (flag them) or genuine disagreement (state it explicitly).
+- **Multi-persona reviews are always sequential, never parallel.** Run them one after another and integrate Reviewer 1's findings before dispatching Reviewer 2.
+- **After every review, dispatch the review-integrator agent — do not integrate findings manually.** The EM's job is to review the integrator's escalation list, spot-check the diff, and resolve any disagreements. Only after that does Reviewer 2 (if any) see the evolved artifact.
+- The only exceptions to full integration: items requiring PM input (flag them) or genuine disagreement (state it explicitly and bring to PM).
 
 ## Task Management
 
