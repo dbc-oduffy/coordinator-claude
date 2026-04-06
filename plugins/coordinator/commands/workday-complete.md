@@ -22,6 +22,19 @@ Invoke `/update-docs` for full repo-wide maintenance. This commits and pushes to
 
 Wait for it to complete before proceeding.
 
+### Step 1.5: Run `/validate`
+
+Run the local CI validation suite to catch issues before branch consolidation:
+
+```bash
+python .github/scripts/run-all-checks.py
+```
+
+This discovers and runs all `validate-*.py` and `check-*.py` scripts by convention. Projects add their own build checks here (e.g., `check-ue-build.py`, `check-npm-build.py`, `check-pnpm-build.py`) — the runner finds them automatically.
+
+- **If all checks pass:** Proceed to Step 2.
+- **If checks fail:** Report the failures. For build failures, stop and fix — don't push broken code. For non-build failures (linting, file sizes), use judgment: fix what's quick, flag the rest in the final summary.
+
 ### Step 2: Branch Consolidation
 
 Consolidate all of today's work branches for this machine into one clean branch.
@@ -201,6 +214,7 @@ Run a Codex review of the day's diff against main as an independent-model second
 ## Workday Complete
 
 **Docs updated:** [yes/no, what changed]
+**Validation:** [N checks passed / N failed — describe failures]
 **Branches consolidated:** [N branches merged into current]
 **Branch state:** [branch name], rebased on main, pushed to remote
 **Health survey:** [N findings / clean / skipped]
