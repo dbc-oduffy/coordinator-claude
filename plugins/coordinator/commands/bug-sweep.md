@@ -63,8 +63,9 @@ Dispatch one agent per chunk with `model: "sonnet"`. Each agent receives its chu
 - Review grep findings for false positives (intentional catch-and-ignore, etc.)
 - Run deeper semantic analysis (error handling gaps, potential null access, resource leaks, logic errors, dead code paths, race conditions)
 - For each finding: severity (P0/P1/P2), confidence (HIGH/MEDIUM/LOW), file:line, description, and whether it's AI-fixable or needs human verification
+- **Include code smells alongside bugs.** Confusing names, structural issues, dead code, mutation footguns — these are all findings worth reporting. Do NOT invent a P3 or "info" tier to downgrade them.
 
-**Agent prompt must instruct:** "Cast a wide net. Report everything that looks like a bug, even if only moderately confident. Err on the side of reporting — false positives are cheap, missed bugs are expensive. Write your complete findings to `{scratch-path}` using the Write tool. Return only a brief summary (finding count, any blockers) — the coordinator reads full output from disk."
+**Agent prompt must instruct:** "Cast a wide net. Report bugs AND code smells — both are worth fixing. Err on the side of reporting — false positives are cheap, missed issues are expensive. Use P0/P1/P2 severity ONLY — do not invent P3, 'info', or 'defer' tiers. A code smell that can be fixed in under 5 minutes is P2, not 'informational'. Write your complete findings to `{scratch-path}` using the Write tool. Return only a brief summary (finding count, any blockers) — the coordinator reads full output from disk."
 
 **Scratch path:** `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1-sonnet.md`
 
@@ -95,16 +96,18 @@ Drop all stale findings before categorizing.
 
 ### Step 2.1: Categorize
 
-1. **Fix now** — the default. If the bug is clear and the fix is clear, fix it:
+1. **Fix now** — the default. If the bug OR smell is clear and the fix is clear, fix it:
    - Missing error handling, dead code, swallowed exceptions, failed tests with obvious cause, straightforward TODO/FIXME items
+   - Code smells: confusing names, mid-file imports, in-place mutation footguns, O(n) where O(1) exists, per-call allocations that should be cached, double-checked locking bugs, dead parameters
 
 2. **Backlog** — only for genuinely blocked bugs:
    - Needs human verification, needs a plan session, logic that might be intentional and requires PM judgment
+   - **NOT for:** "low confidence" findings — verify them and either fix or drop. NOT for "code smells" — those are fixable. NOT for anything you could fix in under 10 minutes.
 
 3. **False positive** — pattern matched but not a bug:
    - Intentional patterns, comments/docs that mention bug patterns
 
-**Bias toward fixing.** Same effort to fix a small bug as to document it. If you can fix it safely, fix it.
+**Bias toward fixing.** Same effort to fix a small bug as to document it. If you can fix it safely, fix it. **Code smells are fixable by definition** — they never belong in backlog. The only valid reasons to backlog are: (a) needs human judgment about intent, (b) fix requires a plan session due to scope, (c) blocked by external dependency.
 
 **Deduplication:** Multiple agents may find the same cross-system issue. Merge duplicates.
 
@@ -224,9 +227,19 @@ If `--codex-verify` was not passed, add to the report:
 - `UPROPERTY()` missing on UObject pointers (GC won't track them)
 - Missing `Super::` calls in overridden lifecycle functions
 
-### Structural Patterns (OFF by default)
+### Code Smells & Structural Patterns (ALWAYS ON)
 
-Include only if PM explicitly requests a broader sweep: `== null` vs `=== null`, `var` vs `let`/`const`, `any` types, functions >200 lines, duplicated code, `FString` concat in hot loops.
+These are not optional — code smells are bugs waiting to happen. Fix them alongside functional bugs:
+- `== null` vs `=== null` (JS/TS)
+- `var` vs `let`/`const` (JS/TS)
+- `any` type assertions hiding real types (TS)
+- Functions >200 lines (any language)
+- Duplicated code blocks (3+ near-identical sites)
+- `FString` concatenation in hot loops (C++/UE)
+- Mid-file imports, unused imports, dead parameters
+- Confusing function names that don't match behavior
+- In-place mutation of shared data without documentation
+- Double-checked locking with subtle correctness issues
 
 ## Cost Profile
 
@@ -242,7 +255,8 @@ Include only if PM explicitly requests a broader sweep: `== null` vs `=== null`,
 |---------|------------|
 | False positive flood | Phase 2 triage with explicit "false positive" category |
 | Fix introduces regression | Post-fix test suite run; revert and defer if new failures |
-| Sonnet over-reports low-confidence issues | Filter by confidence; LOW → backlog |
+| Sonnet over-reports low-confidence issues | Verify and either fix or drop — LOW confidence is not a reason to backlog; it's a reason to verify |
+| Coordinator skips code smells as "informational" | Smells are always fixable. Agents must use P0/P1/P2 only — no P3/info/defer. Coordinator must fix all P2s, not just P0/P1 |
 | Pattern library misses project-specific bugs | Phase 0 reads `tasks/lessons.md` for known gotchas |
 | Test suite doesn't exist | Report the gap, sweep code-only |
 | Executor fix conflicts across files | Group fixes by file/system |
