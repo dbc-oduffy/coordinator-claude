@@ -117,6 +117,25 @@ Use subagents to parallelize the work. Each agent handles one top-level source d
 
 **If no source files changed and indexes exist, skip this phase entirely.**
 
+#### Phase 2b: Maintain `docs/README.md`
+
+The `docs/README.md` is the top-level entry point for all project documentation — wikis, research, specs, and reference docs. It should always exist and always be current.
+
+**If `docs/README.md` does not exist:** Create it now. It should include:
+- A **Wikis and Guides** section: table of all guides in `docs/guides/` (read from `DIRECTORY_GUIDE.md` or glob `docs/guides/*.md`)
+- A **Research** section: pointer to `docs/research/` with highlights of recent files (glob by date, list top 5–10 most recent)
+- A **Design Specifications** section: table of all specs in `docs/superpowers/specs/` (if the directory exists)
+- A **Reference Documentation** section: table of top-level `docs/*.md` files (project-tracker, ci-pipeline, git-workflow, etc.)
+- Footer: `*Last updated: YYYY-MM-DD. Maintained by /update-docs.*`
+
+**If `docs/README.md` already exists:** Update it:
+1. Sync the Wikis and Guides table against `docs/guides/DIRECTORY_GUIDE.md` — add new guides, remove deleted ones, update summaries
+2. Update the Research highlights — add any new `docs/research/*.md` files created since the last update date in the footer
+3. Sync the Design Specifications table against `docs/superpowers/specs/*.md` — add new specs, update status if implementation is detectably complete
+4. Update the footer timestamp
+
+**Include `docs/README.md` in the Phase 9 commit.**
+
 #### Phase 3: Update Plan Documents
 
 For each plan doc that relates to work reflected in the current codebase:
@@ -179,7 +198,14 @@ Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/s
 If `tasks/orientation_cache.md` exists:
 1. Re-derive cache content from the docs just updated (repomap, DIRECTORY, health files)
 2. Update `generated_at` and `git_head_at_generation` to current HEAD
-3. Include in the Phase 9 commit (or amend if already committed)
+3. **Ensure a "Key Documentation" section is present** pointing to `docs/README.md`:
+   ```
+   ## Key Documentation
+   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, reference
+   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
+   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
+   ```
+4. Include in the Phase 9 commit (or amend if already committed)
 
 If no cache exists: skip. Project hasn't run `/workday-start` yet.
 

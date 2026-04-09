@@ -43,9 +43,9 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
-1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`
+1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`, `docs/superpowers/specs/`, `tasks/*/spec.md`, `tasks/*/design.md`
 2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON/YAML, or mixed formats.
-3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check.
+3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check. Also note any gaps: systems that appear in specs or research but have no corresponding guide yet (these are new-guide candidates).
 4. **Read distillation log** (`docs/guides/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
 5. **Read `tasks/handoffs/`** for active context (read-only, never deleted)
 6. **Reality check (Haiku scout):** Dispatch a single Haiku agent with the candidate file list + existing guide headings. The scout reads each candidate file and classifies it:
@@ -55,9 +55,10 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **SKIP** — active reference, forward-looking content, or in-progress work
 
    **Special classification rules (override general logic):**
-   - **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, Pipeline A/B/C/D final outputs): always **PRESERVE** — never deleted, never modified in place. Copy verbatim to `docs/research/` if not already there. Pipeline C outputs (structured YAML/JSON, files containing `manifest_version:`) and all other pipeline research outputs fall under this same rule.
-   - **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path, `*-claims.json`, `*-summary.md` from research pipelines): always **PRESERVE** — never deleted, never modified in place.
+   - **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, Pipeline A/B/C/D final outputs): always **PROMOTE** — source files are never deleted, never modified in place; but key findings (decisions, architecture insights, gotchas) must be extracted and merged into the relevant guide sections. If no matching guide exists for the research topic, create one. Copy verbatim to `docs/research/` if not already there. Pipeline C outputs (structured YAML/JSON, files containing `manifest_version:`) fall under this same rule.
+   - **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path, `*-claims.json`, `*-summary.md` from research pipelines): always **PRESERVE** — never deleted, never modified in place. Key claims may be extracted into guides at synthesizer discretion.
    - **Archived handoffs** (`archive/handoffs/*.md`): always **NEW** — the `## What Was Accomplished`, `## Key Decisions Made`, and `## Blockers or Issues` sections contain architectural decisions and gotchas that must be extracted into guides and decision records.
+   - **Design specs** (`docs/superpowers/specs/*.md`, `tasks/*/spec.md`, `tasks/*/design.md`): classify as **NEW** if the spec was executed (check for corresponding implementation in git log or code) — extract all design decisions as decision records in the relevant guide, then mark the spec as archivable. Classify as **SKIP** if the spec is still in-progress or unapproved.
 
    The scout returns a classified list with counts. This is the **ground truth** for scope, replacing the distill-log as the primary filter. The distill-log is a hint; the scout is the authority.
 
@@ -166,7 +167,9 @@ Each agent receives:
 
 Unchanged sections are NOT included in the delta. This prevents guide drift where each distillation subtly rewords existing content.
 
-For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references).
+**New-guide creation is proactive, not conservative.** If the clustering table reveals a system tag with ≥3 nuggets and no existing guide, the Sonnet agent **must** create a new guide — not fold the nuggets into an existing guide as an appendix. Research outputs and executed specs are strong signals that a new guide is warranted, even if the nugget count is lower. When in doubt, create the guide. A stub guide that grows over sessions is better than knowledge buried in a catch-all guide.
+
+For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references). Also note the new guide in the batch scratch file so Phase 5 can update `docs/guides/DIRECTORY_GUIDE.md` and `docs/README.md`.
 
 Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in standard format with metadata block (Decision ID, Status, Authors, Date, Related, Implementation links).
 
@@ -229,16 +232,17 @@ Present to PM:
 1. **Safety commit:** `git add -A && git commit -m "pre-distillation checkpoint"`
 2. **Apply delta operations** from Phase 2 scratch files: for each existing guide, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, copy the full content from the Phase 2 scratch file. Apply cross-reference corrections flagged by Phase 3.
 3. **Write wiki files** to `docs/guides/`, `docs/decisions/`, `docs/guides/DIRECTORY_GUIDE.md`
-4. **Commit additions:** `"distill: add/update N guides, N decision records"`
-5. **Delete approved artifacts:** `git rm` each file from the deletion manifest
-6. **Commit deletions:** `"distill: remove N distilled artifacts"`
-7. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
-8. **Amend log update** into the deletion commit
-9. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
+4. **Update `docs/README.md`:** If new guides were created, add them to the Wikis and Guides table. If new research files were promoted (PROMOTE classification), add them to the Research section highlights. If specs were archived, update their status in the Design Specifications table. Update the footer timestamp.
+5. **Commit additions:** `"distill: add/update N guides, N decision records"`
+6. **Delete approved artifacts:** `git rm` each file from the deletion manifest
+7. **Commit deletions:** `"distill: remove N distilled artifacts"`
+8. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE|PROMOTE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
+9. **Amend log update** into the deletion commit
+10. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 
 **Two separate commits** (additions vs deletions) so wiki content survives even if deletion needs reverting.
 
-**If `--no-delete`:** skip steps 5-8, only apply wiki updates (steps 0-4).
+**If `--no-delete`:** skip steps 6-9, only apply wiki updates (steps 0-5).
 
 ---
 
