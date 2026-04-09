@@ -22,10 +22,16 @@ Every session begins with hooks that inject session memory and orientation point
 - **Keep entries tight: bold title + 1-2 sentence rule. Max 3 lines per entry.** This file is read every session — don't bloat it.
 - **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it. Cut entries that were specific to a completed phase, are now encoded in code/scripts, or haven't been relevant in 2+ weeks.
 
-## Research Artifacts
+## Documentation and Knowledge System
 
-- When a conversation produces substantive research — landscape surveys, comparative analyses, technical investigations — save as a timestamped markdown file in `docs/research/YYYY-MM-DD-topic.md`.
-- If no `docs/` directory exists, save to `~/docs/research/YYYY-MM-DD-topic.md` — the central fallback.
+The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
+
+- **`docs/README.md`** — master documentation index. Entry point for all project documentation: wikis, research, plans, specs, reference docs. Maintained by `/update-docs` Phase 2b. Created by `/project-onboarding`.
+- **`docs/guides/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/guides/DIRECTORY_GUIDE.md`.
+- **`docs/plans/`** — canonical location for implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here after approval. `/update-docs` Phase 3 tracks their status.
+- **`docs/research/`** — timestamped research outputs from `/deep-research` pipelines. Source files are preserved permanently. Key findings are extracted into the relevant wiki guide by `/distill` (PROMOTE classification).
+
+When a conversation produces substantive research — landscape surveys, comparative analyses, technical investigations — save as a timestamped markdown file in `docs/research/YYYY-MM-DD-topic.md`. If no `docs/` directory exists, save to `~/docs/research/YYYY-MM-DD-topic.md` — the central fallback.
 
 ## Verification Before Done
 
