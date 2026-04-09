@@ -55,7 +55,8 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **SKIP** — active reference, forward-looking content, or in-progress work
 
    **Special classification rules (override general logic):**
-   - **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, Pipeline A/B/D final outputs): always **NEW** — never EPHEMERAL. These are substantive research artifacts and their full content should flow into the wiki. Pipeline C outputs (structured YAML/JSON, files containing `manifest_version:`) are **PRESERVE** — copy verbatim into `docs/research/` or `docs/decisions/` as-is, no synthesis, never deleted.
+   - **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, Pipeline A/B/C/D final outputs): always **PRESERVE** — never deleted, never modified in place. Copy verbatim to `docs/research/` if not already there. Pipeline C outputs (structured YAML/JSON, files containing `manifest_version:`) and all other pipeline research outputs fall under this same rule.
+   - **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path, `*-claims.json`, `*-summary.md` from research pipelines): always **PRESERVE** — never deleted, never modified in place.
    - **Archived handoffs** (`archive/handoffs/*.md`): always **NEW** — the `## What Was Accomplished`, `## Key Decisions Made`, and `## Blockers or Issues` sections contain architectural decisions and gotchas that must be extracted into guides and decision records.
 
    The scout returns a classified list with counts. This is the **ground truth** for scope, replacing the distill-log as the primary filter. The distill-log is a hint; the scout is the authority.

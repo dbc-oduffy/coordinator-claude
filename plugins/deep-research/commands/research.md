@@ -1,5 +1,5 @@
 ---
-description: "Run a deep research pipeline on a topic across internet sources (Pipeline A), a repository (Pipeline B), or structured research with schema-conforming output (Pipeline C). Use for studying codebases, building knowledge bases, evaluating libraries, or investigating multi-source technical topics with verified findings. For batch structured research campaigns, use /structured-research instead."
+description: "PM-GATED — only invoke when the PM explicitly asks for deep research; if the EM thinks it's warranted, ask first. NEVER invoke from a subagent. Run a deep research pipeline on a topic across internet sources (Pipeline A), a repository (Pipeline B), or structured research with schema-conforming output (Pipeline C). Use for studying codebases, building knowledge bases, evaluating libraries, or investigating multi-source technical topics with verified findings. For batch structured research campaigns, use /structured-research instead."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "'repo' <repo-path> [--compare <project-path>] | 'web' <topic> | 'structured' <spec-path> [subject-key]"
 ---

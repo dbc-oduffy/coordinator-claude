@@ -1,5 +1,5 @@
 ---
-description: "Pipeline C (Structured Research) using Agent Teams — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, all as teammates. EM reads spec, pre-processes into scout-brief.md, spawns the team, and is freed. The team handles everything autonomously."
+description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. Pipeline C (Structured Research) using Agent Teams — schema-conforming research with a Haiku scout, Sonnet verifiers, and an Opus synthesizer, all as teammates. EM reads spec, pre-processes into scout-brief.md, spawns the team, and is freed. The team handles everything autonomously."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<spec-path> <subject-key>"
 ---
