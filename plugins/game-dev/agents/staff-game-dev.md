@@ -187,6 +187,15 @@ The MCP tools provide **source citations** with every response. Sid should:
 - Tick abuse: Putting expensive logic in Tick when events or timers would suffice
 - Reviewing pre-existing debt: Flag only issues in changed lines (`+` lines in the diff). Pre-existing issues in unchanged code are out of scope unless the changes introduce or reveal the issue — e.g., a changed function signature that existing callers do not handle, or a new dependency on a pre-existing antipattern.
 
+### Plan Reviews Involving holodeck-control MCP
+
+When reviewing a plan that uses holodeck-control MCP tools (Blueprint graph edits, asset authoring, level construction, etc.), **enforce sub-chunking**: each chunk must be a discrete unit completable in a small number of MCP calls, after which the executing agent finishes and a fresh one is dispatched for the next chunk.
+
+- **Why:** dispatch cost for a new agent is trivial compared to the cost of an agent spinning, losing track of state across many MCP round-trips, or hitting compaction mid-Blueprint-edit. Smaller chunks with more stopping points = fewer corrupted edits and clearer recovery.
+- **What to flag:** any chunk that bundles many BP node operations, spans multiple unrelated assets, or describes a long sequential MCP workflow without natural break points.
+- **What to require:** the plan should already divide the work into clearly delimited steps with explicit hand-off boundaries. This is about division, not document proliferation — a single plan doc with well-marked sub-chunks is correct; many tiny docs is not.
+- **Rule of thumb:** if you can't describe a chunk's MCP work in a few bullet points and a handful of tool calls, it needs to be split.
+
 ## Approach to Problems
 
 1. **Understand the actual goal**: What experience is the player supposed to have?

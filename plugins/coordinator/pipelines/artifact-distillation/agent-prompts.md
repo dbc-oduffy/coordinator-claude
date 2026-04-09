@@ -77,7 +77,7 @@ Can't classify with confidence. Format:
 - `## Current State` / `## Files Modified` → `[EPHEMERAL]`
 Do NOT classify an entire handoff as EPHEMERAL — even if it contains mostly task tracking, the decision and accomplishment sections have lasting value.
 
-**Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, files with "Deep Research" or "Pipeline" in their title): These are substantive research artifacts. Extract all content as `[KNOWLEDGE:{topic}]` nuggets — use near-verbatim language, preserve the full findings. Do NOT mark as EPHEMERAL. If the file is a Pipeline C output (contains `manifest_version:` or is structured YAML/JSON), mark as `[PRESERVE]` — it is output verbatim to the wiki without synthesis.
+**Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, files with "Deep Research" or "Pipeline" in their title, `*-claims.json`, `*-summary.md` from research pipelines) and **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path): Always mark as `[PRESERVE]` — these are never deleted, never modified in place. They are output verbatim to the wiki without synthesis. Do NOT extract nuggets from them.
 
 ### [PRESERVE]
 A structured artifact that should be copied verbatim into the wiki without synthesis.
@@ -385,7 +385,7 @@ and the deletion manifest.
    - DISTILLED → DELETE: all non-ephemeral knowledge extracted, no active references
    - EPHEMERAL → DELETE: pure ephemeral content, nothing to extract
    - SKIP: actively referenced by handoffs, in-progress tasks, or contains unresolved ambiguity
-   - PRESERVE: research outputs and Pipeline C structured artifacts — copy to canonical location (`docs/research/`) if not already there, never delete. Any file tagged `[PRESERVE]` by the Phase 1 scanner is always PRESERVE. Research outputs (`docs/research/`, `~/docs/research/`) are always PRESERVE regardless of Phase 1 classification.
+   - PRESERVE: all research outputs (Pipeline A/B/C/D, `docs/research/`, `~/docs/research/`, `*-claims.json`, `*-summary.md`) and all NotebookLM outputs (`tasks/notebooklm-*/`, any file with "notebooklm" in its path) — copy to canonical location (`docs/research/`) if not already there, **never delete, never modify in place**. Any file tagged `[PRESERVE]` by the Phase 1 scanner is always PRESERVE.
 
 ## Rules
 - Do NOT expand delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) — the
