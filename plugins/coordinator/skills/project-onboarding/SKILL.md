@@ -28,7 +28,10 @@ Check for each of these and record status (exists / missing / incomplete):
 
 ```
 ├── CLAUDE.md                           — project conventions
+├── docs/README.md                      — documentation index (wikis, research, specs, reference)
 ├── docs/project-tracker.md             — workstream tracking
+├── docs/guides/                        — wiki guides (living technical reference, distilled from artifacts)
+├── docs/guides/DIRECTORY_GUIDE.md      — guide index with decision record mapping
 ├── tasks/lessons.md                    — engineering patterns
 ├── archive/completed/                  — completion archive
 ├── tasks/handoffs/                     — session continuity
@@ -122,18 +125,73 @@ If PM said "stubs": create one placeholder workstream:
 
 Use `templates/lessons.md.template`. Replace `[PROJECT_NAME]` with PM's project name.
 
-#### 3d. Directories (if missing)
+#### 3d. docs/README.md (if missing)
+
+Create a documentation index at `docs/README.md`. This is the top-level entry point for all project documentation — the first thing any agent or human should find when looking for docs.
+
+Use the project name and type from Phase 2 to populate the initial structure:
+
+```markdown
+# [Project Name] — Documentation Index
+
+Central entry point for all project documentation. Maintained by `/update-docs`.
+
+---
+
+## Wikis and Guides
+
+Living technical reference — distilled from session artifacts by `/distill`.
+
+→ **[`docs/guides/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
+
+_No guides yet. Guides are created by `/distill` as knowledge accumulates from session artifacts._
+
+---
+
+## Plans
+
+Implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here as the canonical location.
+
+→ [`docs/plans/`](plans/)
+
+---
+
+## Research
+
+Timestamped research outputs from `/deep-research` pipelines. Preserved permanently; key findings extracted into guides by `/distill`.
+
+→ [`docs/research/`](research/)
+
+---
+
+## Reference Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [project-tracker.md](project-tracker.md) | Active workstreams and priorities |
+
+---
+
+*Last updated: [DATE]. Maintained by `/update-docs`.*
+```
+
+Replace `[Project Name]` and `[DATE]` with the appropriate values.
+
+#### 3e. Directories (if missing)
 
 Create with .gitkeep files so they survive git clone:
 
 ```bash
 mkdir -p tasks/handoffs && touch tasks/handoffs/.gitkeep
 mkdir -p archive/completed && touch archive/completed/.gitkeep
+mkdir -p docs/guides && touch docs/guides/.gitkeep
+mkdir -p docs/plans && touch docs/plans/.gitkeep
+mkdir -p docs/research && touch docs/research/.gitkeep
 mkdir -p docs  # for tracker
 mkdir -p tasks  # for lessons
 ```
 
-#### 3e. .gitignore handling
+#### 3f. .gitignore handling
 
 Check if `.gitignore` exists and contains an entry for `.claude/settings.local.json`:
 
@@ -153,7 +211,7 @@ Check if `.gitignore` exists and contains an entry for `.claude/settings.local.j
 
 **Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
 
-#### 3f. DIRECTORY.md
+#### 3g. DIRECTORY.md
 
 Do NOT create this file directly. It requires source file analysis that `/update-docs` Phase 2 handles. Instead, note in the report that the PM should run `/update-docs` to generate the source index.
 
@@ -175,8 +233,16 @@ Present what was done:
 
 ### Next Steps
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
-2. **Run `/update-docs`** — generates DIRECTORY.md source index and orientation cache
+2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
 3. **Run `/session-start`** — verifies everything is wired up correctly
+
+### Documentation System
+The wiki system is now scaffolded at `docs/`:
+- **`docs/README.md`** — master documentation index (entry point for humans and agents)
+- **`docs/guides/`** — wiki guides (populated by `/distill` as knowledge accumulates)
+- **`docs/plans/`** — implementation and design plans (canonical location)
+- **`docs/research/`** — research outputs (preserved permanently)
+- `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
 
 ## Notes

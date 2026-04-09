@@ -148,6 +148,14 @@ The SessionStart hook already injected orientation context at boot (cache if fre
 
 If the hook reported no fresh cache, note: _"No orientation cache — run `/workday-start` or `/update-docs` to generate one."_ Otherwise, move on silently.
 
+### Documentation index
+
+Check if `docs/README.md` exists. If it does, note briefly: _"Documentation index at docs/README.md — [N] wiki guides, [N] research files, [N] plans."_ (Count by globbing each directory.) This tells the agent and PM that accumulated project knowledge is available.
+
+If `docs/README.md` does not exist but `docs/guides/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
+
+If neither exists, skip silently — the project hasn't adopted the wiki system yet.
+
 ### Delegation context (game-dev projects)
 
 **Conditional on project type:** Only for projects whose `project_type` list includes `unreal` or `game-docs` in `coordinator.local.md`. Skip silently if neither type is present.

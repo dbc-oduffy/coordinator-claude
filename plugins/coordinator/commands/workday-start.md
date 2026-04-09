@@ -167,13 +167,22 @@ YYYY-MM-DD
 Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart hook to inject in subsequent sessions instead of raw repomap/DIRECTORY content.
 
 **Content derivation:**
-1. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
-2. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
-3. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
-4. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
-5. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
-6. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
-7. **Yesterday's Strategic Review:** Read the most recent file in `archive/daily-summaries/` (glob for `YYYY-MM-DD.md`, sort descending, take first). If a daily summary exists and has a `## Strategic Review` section, extract a 3-5 line excerpt covering the key alignment findings, debt items, and bridging opportunities. Include as a `## Yesterday` section in the orientation cache. This gives every subsequent session automatic strategic context without reading a separate file. If no daily summaries exist, skip silently.
+1. **Key Documentation:** If `docs/README.md` exists, include a `## Key Documentation` section:
+   ```
+   ## Key Documentation
+   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
+   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
+   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
+   - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
+   ```
+   Count the files in each directory. If `docs/guides/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
+2. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
+3. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
+4. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
+5. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
+6. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
+7. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
+8. **Yesterday's Strategic Review:** Read the most recent file in `archive/daily-summaries/` (glob for `YYYY-MM-DD.md`, sort descending, take first). If a daily summary exists and has a `## Strategic Review` section, extract a 3-5 line excerpt covering the key alignment findings, debt items, and bridging opportunities. Include as a `## Yesterday` section in the orientation cache. This gives every subsequent session automatic strategic context without reading a separate file. If no daily summaries exist, skip silently.
 
 **Frontmatter:** Include `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
 

@@ -61,8 +61,10 @@ Determine the current state of the codebase — not "what happened this session"
 3. **Plan document status:**
    - Check plan doc locations in this order:
      1. `tasks/<feature>/todo.md` — feature-scoped plans (active work)
-     2. `docs/plans/` — historical and reference plans
-     3. `tasks/plans/` — session handoff plans (temporary)
+     2. `docs/plans/` — **canonical location** for approved plans and historical reference
+     3. `~/.claude/plans/` — plan-mode working directory (approved plans should be copied to `docs/plans/`)
+     4. `tasks/plans/` — session handoff plans (temporary)
+   - Any plans in `~/.claude/plans/` that have been approved and should be copied to `docs/plans/`?
    - Any plans with items that appear completed in code?
    - Any plans marked in-progress that are now done?
 
@@ -123,16 +125,18 @@ The `docs/README.md` is the top-level entry point for all project documentation 
 
 **If `docs/README.md` does not exist:** Create it now. It should include:
 - A **Wikis and Guides** section: table of all guides in `docs/guides/` (read from `DIRECTORY_GUIDE.md` or glob `docs/guides/*.md`)
+- A **Plans** section: pointer to `docs/plans/` with count and list of recent plans. `docs/plans/` is the canonical home for approved plans — plans that started in `~/.claude/plans/` should be copied here once approved.
 - A **Research** section: pointer to `docs/research/` with highlights of recent files (glob by date, list top 5–10 most recent)
-- A **Design Specifications** section: table of all specs in `docs/superpowers/specs/` (if the directory exists)
+- A **Design Specifications** section: table of specs (check `docs/specs/`, `docs/superpowers/specs/`, or project-specific locations)
 - A **Reference Documentation** section: table of top-level `docs/*.md` files (project-tracker, ci-pipeline, git-workflow, etc.)
 - Footer: `*Last updated: YYYY-MM-DD. Maintained by /update-docs.*`
 
 **If `docs/README.md` already exists:** Update it:
 1. Sync the Wikis and Guides table against `docs/guides/DIRECTORY_GUIDE.md` — add new guides, remove deleted ones, update summaries
-2. Update the Research highlights — add any new `docs/research/*.md` files created since the last update date in the footer
-3. Sync the Design Specifications table against `docs/superpowers/specs/*.md` — add new specs, update status if implementation is detectably complete
-4. Update the footer timestamp
+2. Sync the Plans section — list new plans in `docs/plans/`, remove deleted ones. Check `~/.claude/plans/` for approved plans not yet in `docs/plans/` and copy them over (the canonical location is in the repo, not the global plans dir)
+3. Update the Research highlights — add any new `docs/research/*.md` files created since the last update date in the footer
+4. Sync the Design Specifications table against project specs directories — add new specs, update status if implementation is detectably complete
+5. Update the footer timestamp
 
 **Include `docs/README.md` in the Phase 9 commit.**
 

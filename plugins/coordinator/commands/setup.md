@@ -207,8 +207,9 @@ Present a summary table:
 - `/session-end` — Wrap up, capture lessons
 - `/handoff` — Save state for next session
 - `/review-dispatch` — Route artifacts to reviewers
-- `/update-docs` — Refresh project documentation
-- `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, workstreams)
+- `/update-docs` — Refresh project documentation, maintain docs/README.md index
+- `/distill` — Extract knowledge from session artifacts into wiki guides
+- `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
 ```
 
 If any **required** items are missing (git), note them prominently.
