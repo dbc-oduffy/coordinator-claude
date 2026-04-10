@@ -19,13 +19,14 @@ Review `tasks/lessons.md` (global) and any `tasks/<feature>/lessons.md` files. T
 **For each lessons file:**
 
 1. Read the file and count entries/lines
-2. **Remove** entries that:
-   - Were specific to a completed phase or one-off bug (no future recurrence)
-   - Are now encoded in code, scripts, CLAUDE.md, or MEMORY.md (redundant)
-   - Haven't been relevant in 2+ weeks (stale)
-   - Document "what happened" rather than a reusable pattern
+2. **Classify** each entry — for every entry that shouldn't stay in `lessons.md`, find it a home rather than discarding it:
+   - **Migrate to wiki guide** — if the entry describes a system behavior, gotcha, or implementation pattern, find (or create) the appropriate `docs/guides/*.md` and add it there under a `## Gotchas` or `## Key Patterns` section. These are battle stories — losing the ability to grep for them is a real cost.
+   - **Migrate to CLAUDE.md / MEMORY.md** — if the entry is a workflow or collaboration norm that's now redundant because it was encoded in those files, confirm it's actually there before removing from lessons.
+   - **Discard** only if the entry is pure ephemeral task state (e.g., "fixed bug in session X") with no extractable pattern and no natural wiki home.
 3. **Merge** entries that cover the same topic into a single tighter entry
-4. **Preserve** entries that are still actively saving time or preventing repeated mistakes
-5. If a feature-scoped lessons file (`tasks/<feature>/lessons.md`) relates to completed work and all entries are either stale or promoted to the global file, delete it
+4. **Preserve** entries that are still actively saving time or preventing repeated mistakes — keep them in `lessons.md` for fast session-start access
+5. If a feature-scoped lessons file (`tasks/<feature>/lessons.md`) relates to completed work and all entries are either migrated or preserved in the global file, delete it
 
-**Judgment call:** When in doubt, keep the entry. The cost of a slightly long file is lower than losing a lesson that would have prevented a future mistake. But be honest — most one-off debugging notes don't belong here.
+**Migration mechanics:** When migrating an entry to a wiki guide, use the existing `docs/guides/` structure. If no guide exists for the relevant system, create one or add a `## Gotchas` section to the closest existing guide. Update `docs/guides/DIRECTORY_GUIDE.md` if you create a new guide.
+
+**Judgment call:** When in doubt, migrate rather than discard — the cost of a slightly long wiki page is lower than losing a hard-won implementation insight. But be honest: pure task-state entries with no pattern content should be discarded, not padded into artificial wiki prose.
