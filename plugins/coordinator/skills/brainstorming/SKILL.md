@@ -69,7 +69,7 @@ digraph brainstorming {
 
 ## Understanding Intent
 
-**Project context first.** Read relevant files, docs, recent commits. Know what exists before asking what to change.
+**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`tasks/architecture-atlas/systems-index.md`), wiki guides (`docs/guides/DIRECTORY_GUIDE.md` → relevant guides), repo map (`tasks/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
 
 **Clarifying questions:**
 - One question per message. Break complex topics into sequential questions.

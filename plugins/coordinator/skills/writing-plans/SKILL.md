@@ -20,6 +20,16 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
 
+## Codebase Research (before file mapping)
+
+Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):
+
+1. `tasks/architecture-atlas/systems-index.md` → relevant system pages in `tasks/architecture-atlas/systems/`
+2. `docs/guides/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/guides/`
+3. `tasks/repomap.md` (or task-scoped variant)
+
+This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
+
 ## File Structure
 
 Before defining tasks, map out which files will be created or modified and what each is responsible for:
