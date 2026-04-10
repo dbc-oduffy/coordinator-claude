@@ -10,17 +10,36 @@ Every session begins with hooks that inject session memory and orientation point
 
 **Full session-start (judgment call):** Invoke `/session-start` when the user's opening message is vague, strategic, or implies session continuity ("let's pick up where we left off," "morning," "what should we work on?"). Skip it when the message is a specific, actionable request ("fix the type error in src/auth/middleware.ts:42") or an obviously quick edit. The signal: would the EM benefit from seeing handoffs, the project tracker, and a work menu before acting? If yes, full ceremony. If no, quick orient and go.
 
+## Codebase Investigation Methodology
+
+When any agent needs to understand the codebase — whether planning, enriching, reviewing, or brainstorming — follow this lookup order:
+
+1. **Accumulated knowledge first.** Check what's already been mapped before searching from scratch:
+   - Architecture atlas: `tasks/architecture-atlas/systems-index.md`, `file-index.md`, system pages
+   - Wiki guides: `docs/guides/DIRECTORY_GUIDE.md` → relevant guides in `docs/guides/`
+   - Repo map: `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md`)
+   - Documentation index: `docs/README.md`
+
+2. **Targeted searches second.** Use Grep/Glob to fill specific gaps that the accumulated knowledge didn't cover — exact symbol locations, current line numbers, files added since the last atlas refresh.
+
+3. **Broad discovery only when necessary.** Full exploratory Glob/Grep sweeps are the fallback when no accumulated knowledge exists, not the default starting point.
+
+This is a universal principle. Every agent that does codebase research — the EM, enrichers, planners, reviewers, brainstormers — should check existing maps and guides before reaching for grep. The investment in atlas/wiki/repomap infrastructure exists precisely so agents don't redundantly re-derive structural knowledge every session.
+
+**Skip silently** if none of these artifacts exist. Their absence doesn't block work — it just means the project hasn't built up this infrastructure yet, and standard discovery applies.
+
 ## Plan-First Workflow
 
 - Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches, or work that would be expensive to redo. Step count alone isn't the trigger; a 5-step mechanical task doesn't need a plan, but a 2-step task with real tradeoffs does.
 - If something goes sideways, STOP and re-plan immediately — don't keep pushing.
 - **Persist review output and plan artifacts to disk before acting on them.** Don't let substantive output exist only in conversation context — write it to a file first.
+- **The EM's default is to plan and dispatch, not to type code.** The EM's primary value is orchestration: reading existing plans, writing stubs, dispatching enrichers, routing reviews, dispatching executors. A handoff or research output is context to inform planning — not a trigger to start coding. When the EM skips the pipeline and plunges into implementation, the resulting work usually gets reverted. Thorough plans let executor agents move with speed and confidence. For simple, well-understood tasks where a plan already exists, the EM may implement directly when it's genuinely cheaper than dispatching — but that's a judgment call after reading the existing stubs, not the default posture.
 
 ## Self-Improvement Loop
 
 - Maintain `tasks/lessons.md` as a living record of engineering patterns worth internalizing. Only capture patterns the codebase or workflow will keep hitting — not every correction, not one-off fixes already encoded in code.
 - **Keep entries tight: bold title + 1-2 sentence rule. Max 3 lines per entry.** This file is read every session — don't bloat it.
-- **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it. Cut entries that were specific to a completed phase, are now encoded in code/scripts, or haven't been relevant in 2+ weeks.
+- **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it via the `lessons-trim` skill. Entries that no longer belong in `lessons.md` should be **migrated to wiki guides** (`docs/guides/`) rather than discarded — they are battle stories, and losing the ability to grep for them is a real cost. Only discard pure task-state entries with no extractable pattern.
 
 ## Documentation and Knowledge System
 
