@@ -64,19 +64,26 @@ Enricher-specific pattern: If you've searched for a file/symbol 3+ different way
 
 ---
 
-### Phase 0: Repository Map (if available)
+### Phase 0: Accumulated Knowledge (before any Glob/Grep)
 
-Before beginning file discovery via Glob/Grep, check if `tasks/repomap.md` exists in the project root.
+Before beginning file discovery via Glob/Grep, check what's already been mapped. Read these in order, skipping any that don't exist:
 
-**If it exists:**
-- Read it first. It contains a ranked structural summary of the repository: key files, their definitions (classes, functions, sections), and relative importance.
-- Use it as your starting point for the "Files Affected" section of the enrichment. The map tells you what exists and where — you still need Glob/Grep to verify currency and find specific implementation details, but you can skip the broad exploratory discovery phase.
-- If the map references files relevant to your stub, read those files directly rather than discovering them via pattern matching.
+1. **Architecture atlas** — `tasks/architecture-atlas/systems-index.md` and `file-index.md`. These map the entire codebase by system: which files belong to which systems, cross-system dependencies, connectivity. If the stub's domain maps to a known system, read its system page at `tasks/architecture-atlas/systems/{system-name}.md`.
 
-**If a task-scoped map was provided in your dispatch prompt (at `<project_root>/tasks/repomap-task.md`), prefer it over the global map — it's pre-focused on the files relevant to your task.**
+2. **Wiki guides** — `docs/guides/DIRECTORY_GUIDE.md` for the guide index, then any guide relevant to the stub's domain. These contain distilled technical knowledge — design decisions, patterns in use, integration points.
 
-**If it doesn't exist:**
-- Proceed with standard Glob/Grep discovery. The repo map is an accelerator, not a prerequisite. Its absence does not block enrichment.
+3. **Repo map** — `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md` if provided in your dispatch prompt — prefer the task-scoped version). Contains a ranked structural summary: key files, their definitions, relative importance.
+
+4. **Documentation index** — `docs/README.md` for pointers to research, specs, or plans related to the stub's domain.
+
+**How to use what you find:**
+- Use atlas file-index and system pages as your starting point for "Files Affected" — read referenced files directly rather than discovering them via pattern matching.
+- Use wiki guides to understand patterns and conventions already in use — copy style from them, don't reinvent it.
+- Use the repo map to identify key files and their structural roles.
+- You still need Glob/Grep to verify currency (files may have been added since the last atlas refresh) and to find specific implementation details (line numbers, exact signatures). But these are targeted gap-filling searches, not broad exploratory sweeps.
+
+**If none of these artifacts exist:**
+- Proceed with standard Glob/Grep discovery. These are accelerators, not prerequisites. Their absence does not block enrichment.
 
 ---
 

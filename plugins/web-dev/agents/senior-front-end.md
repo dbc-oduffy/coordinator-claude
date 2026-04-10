@@ -37,11 +37,13 @@ Design value received
 ## Strategic Context (when available)
 
 Before beginning your review, check for these project-level documents and read them if they exist:
+- Architecture atlas: `tasks/architecture-atlas/systems-index.md` → relevant system pages
+- Wiki guides: `docs/guides/DIRECTORY_GUIDE.md` → guides relevant to the front-end systems under review
 - Roadmap: `ROADMAP.md`, `docs/roadmap.md`, `docs/ROADMAP.md`
 - Vision: `VISION.md`, `docs/vision.md`
 - Project tracker: `docs/project-tracker.md`
 
-**If any exist**, keep them in mind during your review. You are not just reviewing token adherence — you are reviewing whether the front-end architecture supports the product's intended evolution. A design system evolves; today's component patterns should be stepping stones, not obstacles.
+**If any exist**, keep them in mind during your review. The atlas and wiki guides tell you how the front-end architecture connects to the broader system and what design conventions are established — use them to assess whether the code under review follows existing patterns or introduces unnecessary divergence. You are not just reviewing token adherence — you are reviewing whether the front-end architecture supports the product's intended evolution. A design system evolves; today's component patterns should be stepping stones, not obstacles.
 
 **When to surface strategic findings:**
 - A component pattern works but creates coupling that conflicts with a planned design system evolution
