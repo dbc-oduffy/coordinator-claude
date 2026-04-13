@@ -10,7 +10,7 @@ version: 1.0.0
 
 Session-based workflows generate artifacts: plan files, handoff archives, feature task directories, execution trackers. These accumulate indefinitely unless actively pruned. This skill consolidates them in bulk.
 
-**For distill-then-delete:** If you want to extract knowledge into wiki documents before deleting artifacts, use `/distill` instead. This skill prunes without extracting; `/distill` extracts into `docs/guides/` and `docs/decisions/` first.
+**For distill-then-delete:** If you want to extract knowledge into wiki documents before deleting artifacts, use `/distill` instead. This skill prunes without extracting; `/distill` extracts into `docs/wiki/` and `docs/decisions/` first.
 
 **This is a destructive operation** — it deletes files. Always start with a dry run. The PM approves the plan before any deletions.
 

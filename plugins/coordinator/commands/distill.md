@@ -1,5 +1,5 @@
 ---
-description: "Distill accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (docs/guides/, docs/decisions/), then delete source material. Extract knowledge before pruning — the pipeline that bridges artifact-consolidation and wiki maintenance."
+description: "Distill accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (docs/wiki/, docs/decisions/), then delete source material. Extract knowledge before pruning — the pipeline that bridges artifact-consolidation and wiki maintenance."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--dry-run] [--no-delete] [path]"
 ---

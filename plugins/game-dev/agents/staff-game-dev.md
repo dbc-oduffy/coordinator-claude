@@ -59,7 +59,7 @@ Game development architect and reviewer. Core principle: **work WITH the engine,
 
 Before beginning your review, check for these project-level documents and read them if they exist:
 - Architecture atlas: `tasks/architecture-atlas/systems-index.md` → relevant system pages
-- Wiki guides: `docs/guides/DIRECTORY_GUIDE.md` → guides relevant to the systems under review
+- Wiki guides: `docs/wiki/DIRECTORY_GUIDE.md` → guides relevant to the systems under review
 - Roadmap: `ROADMAP.md`, `docs/roadmap.md`, `docs/ROADMAP.md`
 - Vision: `VISION.md`, `docs/vision.md`
 - Project tracker: `docs/project-tracker.md`

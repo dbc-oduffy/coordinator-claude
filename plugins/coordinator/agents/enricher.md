@@ -70,7 +70,7 @@ Before beginning file discovery via Glob/Grep, check what's already been mapped.
 
 1. **Architecture atlas** — `tasks/architecture-atlas/systems-index.md` and `file-index.md`. These map the entire codebase by system: which files belong to which systems, cross-system dependencies, connectivity. If the stub's domain maps to a known system, read its system page at `tasks/architecture-atlas/systems/{system-name}.md`.
 
-2. **Wiki guides** — `docs/guides/DIRECTORY_GUIDE.md` for the guide index, then any guide relevant to the stub's domain. These contain distilled technical knowledge — design decisions, patterns in use, integration points.
+2. **Wiki guides** — `docs/wiki/DIRECTORY_GUIDE.md` for the guide index, then any guide relevant to the stub's domain. These contain distilled technical knowledge — design decisions, patterns in use, integration points.
 
 3. **Repo map** — `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md` if provided in your dispatch prompt — prefer the task-scoped version). Contains a ranked structural summary: key files, their definitions, relative importance.
 
