@@ -20,13 +20,35 @@ When any agent needs to understand the codebase — whether planning, enriching,
    - Repo map: `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md`)
    - Documentation index: `docs/README.md`
 
-2. **Targeted searches second.** Use Grep/Glob to fill specific gaps that the accumulated knowledge didn't cover — exact symbol locations, current line numbers, files added since the last atlas refresh.
+2. **Dispatch a Sonnet scout, don't search yourself.** When accumulated knowledge doesn't answer the question, dispatch an `Explore` agent (`subagent_type: "Explore"`) to do the codebase investigation and report back. Brief it like a team member: what you need to know, which files or patterns to look at, what format to report in. This keeps the EM's context clean and mirrors how a real EM gets briefed by engineers rather than reading every file themselves.
 
-3. **Broad discovery only when necessary.** Full exploratory Glob/Grep sweeps are the fallback when no accumulated knowledge exists, not the default starting point.
+   **Exceptions — the EM may search directly when:**
+   - Reading a single, known file immediately before editing it
+   - A 1-2 call confirmation (e.g., "does this exact symbol exist at this path?")
+   - Dispatch overhead would clearly exceed the lookup (a 3-word Grep on a known path)
 
-This is a universal principle. Every agent that does codebase research — the EM, enrichers, planners, reviewers, brainstormers — should check existing maps and guides before reaching for grep. The investment in atlas/wiki/repomap infrastructure exists precisely so agents don't redundantly re-derive structural knowledge every session.
+   **The default posture:** Before opening Grep or Glob to explore a codebase question, pause — would a Sonnet scout give me a better brief than I'd give myself by spelunking?
 
-**Skip silently** if none of these artifacts exist. Their absence doesn't block work — it just means the project hasn't built up this infrastructure yet, and standard discovery applies.
+3. **Broad discovery only when necessary.** Full exploratory sweeps are the fallback when no accumulated knowledge exists and the question is too open-ended for a focused dispatch. Still do this via a scout — not the EM directly.
+
+This is a universal principle for the EM. Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief. The EM's context is the scarcest resource in the system; protect it.
+
+**Skip silently** if none of the accumulated knowledge artifacts exist. Their absence doesn't block work — it just means the project hasn't built up this infrastructure yet, and scout dispatch applies directly.
+
+## Internet Research Methodology
+
+The same delegation principle applies to web research. When the EM needs to look something up online, the first move is to dispatch a general-purpose Sonnet agent (`subagent_type: "general-purpose"`) to do the search and return a structured brief — not to reach for WebSearch or WebFetch directly.
+
+**Routine:** Brief the scout on the question, the context, and the format you want back (e.g., "compare X and Y along these axes," "find the current API signature for Z"). The scout does the searching; the EM reads the brief, synthesises, and decides whether to probe further.
+
+**After the brief returns:** The EM may follow up directly — targeted WebFetch on a specific URL the scout surfaced, a single clarifying search — but only after the scout has established the lay of the land.
+
+**Exceptions — the EM may search directly when:**
+- Fetching a single, known URL already in context (no discovery needed)
+- A 1-call confirmation of a specific fact the EM already has a URL for
+- The question is so narrow that briefing a scout costs more than the lookup
+
+**The default posture:** Before opening WebSearch, pause — is this a question a Sonnet scout could answer better with a proper sweep than I'd do with one or two reactive queries?
 
 ## Plan-First Workflow
 
