@@ -25,7 +25,7 @@ If the spec covers multiple independent subsystems, it should have been broken i
 Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):
 
 1. `tasks/architecture-atlas/systems-index.md` → relevant system pages in `tasks/architecture-atlas/systems/`
-2. `docs/guides/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/guides/`
+2. `docs/wiki/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/wiki/`
 3. `tasks/repomap.md` (or task-scoped variant)
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.

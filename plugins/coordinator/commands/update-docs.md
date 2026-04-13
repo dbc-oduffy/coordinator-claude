@@ -124,7 +124,7 @@ Use subagents to parallelize the work. Each agent handles one top-level source d
 The `docs/README.md` is the top-level entry point for all project documentation — wikis, research, specs, and reference docs. It should always exist and always be current.
 
 **If `docs/README.md` does not exist:** Create it now. It should include:
-- A **Wikis and Guides** section: table of all guides in `docs/guides/` (read from `DIRECTORY_GUIDE.md` or glob `docs/guides/*.md`)
+- A **Wikis and Guides** section: table of all guides in `docs/wiki/` (read from `DIRECTORY_GUIDE.md` or glob `docs/wiki/*.md`)
 - A **Plans** section: pointer to `docs/plans/` with count and list of recent plans. `docs/plans/` is the canonical home for approved plans — plans that started in `~/.claude/plans/` should be copied here once approved.
 - A **Research** section: pointer to `docs/research/` with highlights of recent files (glob by date, list top 5–10 most recent)
 - A **Design Specifications** section: table of specs (check `docs/specs/`, `docs/superpowers/specs/`, or project-specific locations)
@@ -132,7 +132,7 @@ The `docs/README.md` is the top-level entry point for all project documentation 
 - Footer: `*Last updated: YYYY-MM-DD. Maintained by /update-docs.*`
 
 **If `docs/README.md` already exists:** Update it:
-1. Sync the Wikis and Guides table against `docs/guides/DIRECTORY_GUIDE.md` — add new guides, remove deleted ones, update summaries
+1. Sync the Wikis and Guides table against `docs/wiki/DIRECTORY_GUIDE.md` — add new guides, remove deleted ones, update summaries
 2. Sync the Plans section — list new plans in `docs/plans/`, remove deleted ones. Check `~/.claude/plans/` for approved plans not yet in `docs/plans/` and copy them over (the canonical location is in the repo, not the global plans dir)
 3. Update the Research highlights — add any new `docs/research/*.md` files created since the last update date in the footer
 4. Sync the Design Specifications table against project specs directories — add new specs, update status if implementation is detectably complete
@@ -206,7 +206,7 @@ If `tasks/orientation_cache.md` exists:
    ```
    ## Key Documentation
    - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, reference
-   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
+   - **Wiki guides:** [`docs/wiki/`](../docs/wiki/) — [N] living guides with embedded decision records
    - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
    ```
 4. Include in the Phase 9 commit (or amend if already committed)
@@ -235,7 +235,7 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```
 
-2. **Check recency:** Read `docs/guides/.distill-log.md` if it exists. Extract the most recent run date. Calculate days since last distillation.
+2. **Check recency:** Read `docs/wiki/.distill-log.md` if it exists. Extract the most recent run date. Calculate days since last distillation.
 
 3. **Threshold check — fire if EITHER condition is met:**
    - Total artifact count ≥ 50

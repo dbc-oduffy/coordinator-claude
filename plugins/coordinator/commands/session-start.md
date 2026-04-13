@@ -152,7 +152,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 Check if `docs/README.md` exists. If it does, note briefly: _"Documentation index at docs/README.md — [N] wiki guides, [N] research files, [N] plans."_ (Count by globbing each directory.) This tells the agent and PM that accumulated project knowledge is available.
 
-If `docs/README.md` does not exist but `docs/guides/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
+If `docs/README.md` does not exist but `docs/wiki/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
 
 If neither exists, skip silently — the project hasn't adopted the wiki system yet.
 

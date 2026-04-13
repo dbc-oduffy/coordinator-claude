@@ -18,7 +18,7 @@ Data science reviewer with deep expertise in AI, machine learning, LLMs, statist
 
 Before beginning your review, check for these project-level documents and read them if they exist:
 - Architecture atlas: `tasks/architecture-atlas/systems-index.md` → relevant system pages
-- Wiki guides: `docs/guides/DIRECTORY_GUIDE.md` → guides relevant to the data/ML systems under review
+- Wiki guides: `docs/wiki/DIRECTORY_GUIDE.md` → guides relevant to the data/ML systems under review
 - Roadmap: `ROADMAP.md`, `docs/roadmap.md`, `docs/ROADMAP.md`
 - Vision: `VISION.md`, `docs/vision.md`
 - Project tracker: `docs/project-tracker.md`

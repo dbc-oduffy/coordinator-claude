@@ -16,7 +16,7 @@ When any agent needs to understand the codebase — whether planning, enriching,
 
 1. **Accumulated knowledge first.** Check what's already been mapped before searching from scratch:
    - Architecture atlas: `tasks/architecture-atlas/systems-index.md`, `file-index.md`, system pages
-   - Wiki guides: `docs/guides/DIRECTORY_GUIDE.md` → relevant guides in `docs/guides/`
+   - Wiki guides: `docs/wiki/DIRECTORY_GUIDE.md` → relevant guides in `docs/wiki/`
    - Repo map: `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md`)
    - Documentation index: `docs/README.md`
 
@@ -39,14 +39,14 @@ This is a universal principle. Every agent that does codebase research — the E
 
 - Maintain `tasks/lessons.md` as a living record of engineering patterns worth internalizing. Only capture patterns the codebase or workflow will keep hitting — not every correction, not one-off fixes already encoded in code.
 - **Keep entries tight: bold title + 1-2 sentence rule. Max 3 lines per entry.** This file is read every session — don't bloat it.
-- **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it via the `lessons-trim` skill. Entries that no longer belong in `lessons.md` should be **migrated to wiki guides** (`docs/guides/`) rather than discarded — they are battle stories, and losing the ability to grep for them is a real cost. Only discard pure task-state entries with no extractable pattern.
+- **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it via the `lessons-trim` skill. Entries that no longer belong in `lessons.md` should be **migrated to wiki guides** (`docs/wiki/`) rather than discarded — they are battle stories, and losing the ability to grep for them is a real cost. Only discard pure task-state entries with no extractable pattern.
 
 ## Documentation and Knowledge System
 
 The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
 
 - **`docs/README.md`** — master documentation index. Entry point for all project documentation: wikis, research, plans, specs, reference docs. Maintained by `/update-docs` Phase 2b. Created by `/project-onboarding`.
-- **`docs/guides/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/guides/DIRECTORY_GUIDE.md`.
+- **`docs/wiki/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/wiki/DIRECTORY_GUIDE.md`. Marketplace/asset integration notes live in `docs/wiki/marketplace/`.
 - **`docs/plans/`** — canonical location for implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here after approval. `/update-docs` Phase 3 tracks their status.
 - **`docs/research/`** — timestamped research outputs from `/deep-research` pipelines. Source files are preserved permanently. Key findings are extracted into the relevant wiki guide by `/distill` (PROMOTE classification).
 

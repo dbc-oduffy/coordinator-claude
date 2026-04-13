@@ -171,11 +171,11 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
    ```
    ## Key Documentation
    - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
-   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
+   - **Wiki guides:** [`docs/wiki/`](../docs/wiki/) — [N] living guides with embedded decision records
    - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
    - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
    ```
-   Count the files in each directory. If `docs/guides/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
+   Count the files in each directory. If `docs/wiki/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
 2. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
 3. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
 4. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.

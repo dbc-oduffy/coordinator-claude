@@ -30,8 +30,8 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── CLAUDE.md                           — project conventions
 ├── docs/README.md                      — documentation index (wikis, research, specs, reference)
 ├── docs/project-tracker.md             — workstream tracking
-├── docs/guides/                        — wiki guides (living technical reference, distilled from artifacts)
-├── docs/guides/DIRECTORY_GUIDE.md      — guide index with decision record mapping
+├── docs/wiki/                        — wiki guides (living technical reference, distilled from artifacts)
+├── docs/wiki/DIRECTORY_GUIDE.md      — guide index with decision record mapping
 ├── tasks/lessons.md                    — engineering patterns
 ├── archive/completed/                  — completion archive
 ├── tasks/handoffs/                     — session continuity
@@ -142,7 +142,7 @@ Central entry point for all project documentation. Maintained by `/update-docs`.
 
 Living technical reference — distilled from session artifacts by `/distill`.
 
-→ **[`docs/guides/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
+→ **[`docs/wiki/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
 
 _No guides yet. Guides are created by `/distill` as knowledge accumulates from session artifacts._
 
@@ -184,7 +184,7 @@ Create with .gitkeep files so they survive git clone:
 ```bash
 mkdir -p tasks/handoffs && touch tasks/handoffs/.gitkeep
 mkdir -p archive/completed && touch archive/completed/.gitkeep
-mkdir -p docs/guides && touch docs/guides/.gitkeep
+mkdir -p docs/guides && touch docs/wiki/.gitkeep
 mkdir -p docs/plans && touch docs/plans/.gitkeep
 mkdir -p docs/research && touch docs/research/.gitkeep
 mkdir -p docs  # for tracker
@@ -239,7 +239,7 @@ Present what was done:
 ### Documentation System
 The wiki system is now scaffolded at `docs/`:
 - **`docs/README.md`** — master documentation index (entry point for humans and agents)
-- **`docs/guides/`** — wiki guides (populated by `/distill` as knowledge accumulates)
+- **`docs/wiki/`** — wiki guides (populated by `/distill` as knowledge accumulates)
 - **`docs/plans/`** — implementation and design plans (canonical location)
 - **`docs/research/`** — research outputs (preserved permanently)
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts

@@ -6,7 +6,7 @@
 
 ## Overview
 
-Session workflows generate artifacts that accumulate indefinitely. The knowledge decays (specific steps become stale) but the decisions and reasoning remain valuable. This pipeline distills accumulated session debris into evergreen wiki documents (`docs/guides/` + `docs/decisions/`), then deletes the source material. The archive is the compost heap; the wiki is the garden.
+Session workflows generate artifacts that accumulate indefinitely. The knowledge decays (specific steps become stale) but the decisions and reasoning remain valuable. This pipeline distills accumulated session debris into evergreen wiki documents (`docs/wiki/` + `docs/decisions/`), then deletes the source material. The archive is the compost heap; the wiki is the garden.
 
 ---
 
@@ -45,8 +45,8 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`, `docs/superpowers/specs/`, `tasks/*/spec.md`, `tasks/*/design.md`
 2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON/YAML, or mixed formats.
-3. **Inventory existing wiki:** `docs/guides/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check. Also note any gaps: systems that appear in specs or research but have no corresponding guide yet (these are new-guide candidates).
-4. **Read distillation log** (`docs/guides/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
+3. **Inventory existing wiki:** `docs/wiki/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check. Also note any gaps: systems that appear in specs or research but have no corresponding guide yet (these are new-guide candidates).
+4. **Read distillation log** (`docs/wiki/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
 5. **Read `tasks/handoffs/`** for active context (read-only, never deleted)
 6. **Reality check (Haiku scout):** Dispatch a single Haiku agent with the candidate file list + existing guide headings. The scout reads each candidate file and classifies it:
    - **NEW** — contains knowledge not yet captured in existing guides or decision records
@@ -169,7 +169,7 @@ Unchanged sections are NOT included in the delta. This prevents guide drift wher
 
 **New-guide creation is proactive, not conservative.** If the clustering table reveals a system tag with ≥3 nuggets and no existing guide, the Sonnet agent **must** create a new guide — not fold the nuggets into an existing guide as an appendix. Research outputs and executed specs are strong signals that a new guide is warranted, even if the nugget count is lower. When in doubt, create the guide. A stub guide that grows over sessions is better than knowledge buried in a catch-all guide.
 
-For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references). Also note the new guide in the batch scratch file so Phase 5 can update `docs/guides/DIRECTORY_GUIDE.md` and `docs/README.md`.
+For new guides: produce the full document in standard format (H1 title, optional TOC, architecture overview, reference tables, cross-references). Also note the new guide in the batch scratch file so Phase 5 can update `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md`.
 
 Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in standard format with metadata block (Decision ID, Status, Authors, Date, Related, Implementation links).
 
@@ -181,7 +181,7 @@ Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in stan
 
 Instruct each agent in its prompt to use Read and Write. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
-**Ownership boundary:** Synthesizers own their scratch files. They write to `tasks/scratch/artifact-distillation/{run-id}/` only — never to `docs/guides/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
+**Ownership boundary:** Synthesizers own their scratch files. They write to `tasks/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
 
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3.
 
@@ -231,12 +231,12 @@ Present to PM:
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
 1. **Safety commit:** `git add -A && git commit -m "pre-distillation checkpoint"`
 2. **Apply delta operations** from Phase 2 scratch files: for each existing guide, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, copy the full content from the Phase 2 scratch file. Apply cross-reference corrections flagged by Phase 3.
-3. **Write wiki files** to `docs/guides/`, `docs/decisions/`, `docs/guides/DIRECTORY_GUIDE.md`
+3. **Write wiki files** to `docs/wiki/`, `docs/decisions/`, `docs/wiki/DIRECTORY_GUIDE.md`
 4. **Update `docs/README.md`:** If new guides were created, add them to the Wikis and Guides table. If new research files were promoted (PROMOTE classification), add them to the Research section highlights. If specs were archived, update their status in the Design Specifications table. Update the footer timestamp.
 5. **Commit additions:** `"distill: add/update N guides, N decision records"`
 6. **Delete approved artifacts:** `git rm` each file from the deletion manifest
 7. **Commit deletions:** `"distill: remove N distilled artifacts"`
-8. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/guides/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE|PROMOTE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
+8. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/wiki/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE|PROMOTE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
 9. **Amend log update** into the deletion commit
 10. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 
@@ -268,6 +268,6 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Delta operation references non-existent heading | Phase 3 Opus flags these as errors rather than guessing — surface for coordinator review |
 | Deleting active handoff references | Phase 0 reads `tasks/handoffs/` for active context — those files are read-only, never batched |
 | Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Opus does not expand them. |
-| Artifacts distilled twice | Distillation log (`docs/guides/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
+| Artifacts distilled twice | Distillation log (`docs/wiki/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
 | PM skips approval and deletion runs | "Wait for explicit approval" is unconditional — no timeout, no auto-proceed |
 | Scratch file missing after agent completes | Verify with `ls`; re-dispatch once; skip batch on second failure — don't stall the pipeline |
