@@ -46,7 +46,7 @@ This is a universal principle. Every agent that does codebase research — the E
 The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
 
 - **`docs/README.md`** — master documentation index. Entry point for all project documentation: wikis, research, plans, specs, reference docs. Maintained by `/update-docs` Phase 2b. Created by `/project-onboarding`.
-- **`docs/wiki/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/wiki/DIRECTORY_GUIDE.md`. Marketplace/asset integration notes live in `docs/wiki/marketplace/`.
+- **`docs/wiki/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/wiki/DIRECTORY_GUIDE.md`. Third-party integration notes use subdirectories by source type: `marketplace/` (purchased/licensed), `opensource/` (open-source), `competitors/` (competitor and reference project analysis).
 - **`docs/plans/`** — canonical location for implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here after approval. `/update-docs` Phase 3 tracks their status.
 - **`docs/research/`** — timestamped research outputs from `/deep-research` pipelines. Source files are preserved permanently. Key findings are extracted into the relevant wiki guide by `/distill` (PROMOTE classification).
 
