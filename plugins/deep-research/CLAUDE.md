@@ -1,5 +1,7 @@
 # Deep Research Plugin
 
+> **SUBAGENT PROHIBITION:** Deep Research pipelines are NEVER invoked by subagents, scouts, or dispatched agents acting on the EM's behalf. They are exclusively PM-gated: the PM asks for deep research, the EM confirms and runs it. A Sonnet scout doing a web brief must use WebSearch and WebFetch directly — NOT this pipeline. Any agent that is not the top-level EM must treat all deep-research commands as off-limits.
+
 Multi-agent deep research pipelines for Claude Code. All pipelines use Agent Teams (fire-and-forget):
 
 - **Pipeline A (Internet Research)** — investigate a topic across web sources via 1 Haiku scout (source corpus) + 3-5 Sonnet specialists (deep-read + verify) + 1 Opus synthesizer
