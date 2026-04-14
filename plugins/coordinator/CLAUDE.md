@@ -41,6 +41,14 @@ The same delegation principle applies to web research. When the EM needs to look
 
 **Routine:** Brief the scout on the question, the context, and the format you want back (e.g., "compare X and Y along these axes," "find the current API signature for Z"). The scout does the searching; the EM reads the brief, synthesises, and decides whether to probe further.
 
+**What the scout must and must not do:**
+- **Must:** use WebSearch and WebFetch directly to gather information and return a structured brief
+- **Must NOT:** invoke the Deep Research pipeline (`/deep-research`, `/deep-research web`, or any deep-research skill)
+- **Must NOT:** spawn teams, create teammate agents, or use TeamCreate in any form
+- **Must NOT:** attempt to replicate the multi-agent pipeline — that is overkill for a scout brief
+
+The Deep Research pipeline is a PM-gated, multi-agent, multi-hour workflow. A scout brief is a targeted 5-10 minute solo task using WebSearch and WebFetch. These are entirely different tools for entirely different scales of work.
+
 **After the brief returns:** The EM may follow up directly — targeted WebFetch on a specific URL the scout surfaced, a single clarifying search — but only after the scout has established the lay of the land.
 
 **Exceptions — the EM may search directly when:**
