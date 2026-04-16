@@ -39,13 +39,24 @@ if [ -f "$CACHE" ]; then
             echo "── Orientation: 1 document loaded (from cache) ──"
             exit 0
         fi
-        # Cache-relevant files changed — fall through to pointers
+        # Cache-relevant files changed — emit stale cache with warning
+        echo ""
+        echo "── Orientation (RAM cache, stale — run /workday-start to refresh) ──"
+        cat "$CACHE"
+        echo ""
+        echo "── Orientation: 1 document loaded (stale cache — $CHANGED and possibly others changed since generation) ──"
+        exit 0
     fi
-    # CACHE_HEAD missing or invalid — fall through to pointers
+    # CACHE_HEAD missing or invalid — emit cache without staleness guarantee
+    echo ""
+    echo "── Orientation (RAM cache, HEAD unverifiable) ──"
+    cat "$CACHE"
+    echo ""
+    echo "── Orientation: 1 document loaded (from cache, staleness unknown) ──"
+    exit 0
 fi
 
-# Fall through: orientation cache missing or stale.
-# Inject lightweight pointers — the EM can read full files on demand.
+# Cache absent entirely — inject lightweight pointers, EM reads full files on demand.
 
 # ── Lightweight mode (used on /clear) ────────────────────────────────────
 # On clear the project hasn't changed — just re-emit branch + pointers.
