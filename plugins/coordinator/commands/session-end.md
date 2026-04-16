@@ -93,6 +93,7 @@ Update the documents that future sessions read for orientation — closing the r
    - Update `Doc Freshness` — set `git_head_at_generation` to current HEAD, update last-run dates for any commands invoked this session
    - Don't regenerate from scratch — that's `/workday-start`'s job. Patch what changed.
    - If the cache doesn't exist, skip — the project hasn't run `/workday-start` yet.
+   - **Do not claim the cache is absent based on intuition.** If the SessionStart orientation hook failed to inject output (a known past failure mode), you may have no in-context evidence of the cache. Before asserting "no orientation cache in this repo," run `ls tasks/orientation_cache.md` and read the result. Assertions about existence require a verification step, not a recollection.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
 

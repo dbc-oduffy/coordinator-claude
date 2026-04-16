@@ -14,8 +14,8 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh",
-            "timeout": 8,
-            "async": true
+            "timeout": 30,
+            "async": false
           },
           {
             "type": "command",
@@ -37,6 +37,12 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh --lightweight",
+            "timeout": 3,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
             "timeout": 3,
             "async": true
           }
@@ -73,6 +79,17 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.sh",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.sh",
+            "timeout": 5,
+            "async": true
           }
         ]
       },

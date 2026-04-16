@@ -25,12 +25,10 @@ if [ -f "$CACHE" ]; then
     if [ -n "$CACHE_HEAD" ] && git cat-file -t "$CACHE_HEAD" &>/dev/null; then
         # Programmatic staleness: has anything the cache describes actually changed?
         # These are the paths whose state the orientation cache summarizes.
-        CHANGED=$(git diff --name-only "${CACHE_HEAD}..HEAD" -- \
+        # --quiet short-circuits on the first differing path (no name list materialized).
+        if git diff --quiet "${CACHE_HEAD}..HEAD" -- \
             plugins/ tasks/health-*.md tasks/architecture-atlas/ \
-            .github/ CLAUDE.md DIRECTORY.md tasks/ \
-            2>/dev/null | head -1)
-
-        if [ -z "$CHANGED" ]; then
+            .github/ CLAUDE.md DIRECTORY.md tasks/ 2>/dev/null; then
             # No cache-relevant changes since generation — cache is fresh
             echo ""
             echo "── Orientation (RAM cache, structurally current) ──"
@@ -39,7 +37,12 @@ if [ -f "$CACHE" ]; then
             echo "── Orientation: 1 document loaded (from cache) ──"
             exit 0
         fi
-        # Cache-relevant files changed — emit stale cache with warning
+        # Cache-relevant files changed — compute a sample file name for the banner,
+        # then emit stale cache with warning.
+        CHANGED=$(git diff --name-only "${CACHE_HEAD}..HEAD" -- \
+            plugins/ tasks/health-*.md tasks/architecture-atlas/ \
+            .github/ CLAUDE.md DIRECTORY.md tasks/ \
+            2>/dev/null | head -1)
         echo ""
         echo "── Orientation (RAM cache, stale — run /workday-start to refresh) ──"
         cat "$CACHE"
