@@ -32,6 +32,8 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
    ls pytest.ini pyproject.toml jest.config.* tsconfig.json CMakeLists.txt 2>/dev/null
    ```
 
+   **Docs verification flag:** Set `DOCS_VERIFY = true` when the stack is a compiled language or large opinionated framework where Claude's API knowledge is imperfect and "compiles" does not imply "as documented". Canonical examples: Unreal Engine, C++, C#, Unity, Godot, Java/Spring, Rust. Canonical non-examples: TypeScript, JavaScript, Python — training data is dense and hallucinations rare for common APIs. When in doubt, lean toward enabling it: the cost is a few extra agents, the cost of a missed hallucinated API is a confusing compile failure or silent wrong behavior. This flag enables Track C in Phase 1 and makes Phase 3.5 mandatory.
+
 2. **Select patterns** from the Pattern Library (end of this document) based on detected stack. Universal patterns always apply. Language-specific patterns apply per detected language.
 
 3. **Define search chunks** — split codebase into 3-6 chunks by directory/system. If architecture atlas exists (`tasks/architecture-atlas/systems-index.md`), use its system boundaries. Otherwise, derive from `DIRECTORY.md` or directory structure.
@@ -77,13 +79,29 @@ If no test suite exists, report that fact and skip.
 
 **Scratch path:** `tasks/scratch/bug-sweep/{run-id}/tests-phase1-haiku.md`
 
+### Track C — API Documentation Verification (`DOCS_VERIFY = true` stacks only)
+
+Dispatch one `coordinator:docs-checker` agent per chunk with `model: "sonnet"`. Each agent receives the source files for its chunk. The agent:
+- Scans all external API references (class names, function signatures, header includes, Blueprint nodes, UPROPERTY/UFUNCTION specifiers, enum values, SDK calls)
+- Verifies each against holodeck-docs (UE APIs) or Context7 (non-UE libraries)
+- Returns a structured Docs Verification Report
+
+**Rationale:** For compiled languages and large opinionated frameworks (UE, Unity, C#, C++, etc.), Claude's API knowledge is imperfect — wrong header paths, nonexistent methods, and incorrect signatures can exist silently in codebases because they may still compile or because the error is deferred to link time. Unlike TypeScript/Python where training data is dense, these stacks are precisely where "looks right" and "is right per the docs" diverge. Track C surfaces API bugs at the same triage priority as functional bugs.
+
+**Feeding into triage:**
+- `INCORRECT` findings (docs contradict the code) → P1 bug finding: "API incorrect per holodeck-docs: [detail]"
+- `UNVERIFIED` findings where the symbol follows UE naming conventions but has zero RAG hits → P2 finding: "Possible hallucinated API — zero docs hits"
+- `UNVERIFIED` due to server unavailability → drop (not actionable)
+
+**Scratch path:** `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1-docschecker.md`
+
 ### Scratch Verification
 
 Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks/scratch/bug-sweep/{run-id}/`). If any chunk agent failed to write, re-dispatch once. If it fails again, proceed with available findings.
 
 ## Phase 2: Triage (~5 min, YOU do this)
 
-Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`.
+Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_VERIFY = true`, this includes Track C docs-checker reports — merge their INCORRECT and suspicious-UNVERIFIED findings into the main finding list before categorizing.
 
 ### Step 2.0: Verify Findings Against Current Code
 
@@ -136,6 +154,27 @@ Each executor receives:
 
 **Post-fix:** Run the test suite again to verify fixes don't introduce regressions. If any test fails that wasn't failing before, revert that fix and move the finding to backlog with "regression introduced."
 
+## Phase 3.5: Post-Fix API Verification (YOU do this)
+
+Before committing any fixes, run docs-checker on the changed files to verify that the fixes themselves don't introduce hallucinated or incorrect API usage.
+
+**Mandatory when `DOCS_VERIFY = true` (compiled/framework-heavy stacks). Recommended for any project where fixes reference external library APIs.**
+
+1. **Identify changed files:**
+   ```bash
+   git diff --name-only
+   ```
+
+2. **Dispatch docs-checker:**
+   Dispatch one `coordinator:docs-checker` agent against the set of changed files. Brief it: "Verify all external API claims in these modified files. Focus on claims that appear to be new or changed relative to common patterns. Report INCORRECT and suspicious-UNVERIFIED findings only — skip VERIFIED."
+
+3. **Assess the result:**
+   - **No INCORRECT findings:** Proceed to Phase 4.
+   - **INCORRECT findings in a fix:** Revert that specific fix (`git checkout -- {file}`) and move the finding to backlog with note `"docs-checker: incorrect API in proposed fix — [detail]"`. The original bug remains open; the fix needs rework.
+   - **UNVERIFIED with zero-hit UE naming pattern:** Flag to PM. Don't block — but note it in the Phase 4 report.
+
+**Phase 3.5 does NOT re-run the full sweep.** It reads only the changed files, verifying that executor agents didn't introduce new API errors while fixing existing bugs.
+
 ## Phase 4: Report and Commit (YOU do this)
 
 1. **Commit fixes:**
@@ -171,6 +210,8 @@ Each executor receives:
    **Found:** [total] findings ([X] fixed, [Y] blocked, [Z] false positives)
    **Fixes applied:** [list with file:line refs]
    **Blocked items:** [list with "why blocked" for each, or "none"]
+   **Docs verification (Phase 3.5):** [clean / N incorrect API claims in fixes reverted / skipped: not C++/UE and no external APIs touched]
+   **Track C API sweep:** [N INCORRECT API findings fixed, N suspicious-UNVERIFIED flagged / skipped: `DOCS_VERIFY` not set for this stack]
    **Codex second opinion:** [N findings / clean / skipped: {reason} / not requested]
    ```
 
@@ -249,6 +290,8 @@ These are not optional — code smells are bugs waiting to happen. Fix them alon
 | Medium repo, 6 systems | 7 (6 search + 1 test) | 3-5 | ~25-40 min |
 | Large repo, 8+ systems | 9+ | 4-6 | ~35-50 min |
 
+**`DOCS_VERIFY` overhead:** Track C adds 1 docs-checker agent per chunk (parallel with A2). Phase 3.5 adds 1 docs-checker post-fix pass. Total: +N+1 Sonnet agents, +5-10 min wall-clock. Worth it for compiled/framework-heavy stacks (UE, Unity, C#, C++, etc.) where "compiles" does not imply "as documented" and API hallucinations are the highest-risk false confidence failure mode.
+
 ## Failure Modes
 
 | Failure | Prevention |
@@ -258,6 +301,8 @@ These are not optional — code smells are bugs waiting to happen. Fix them alon
 | Sonnet over-reports low-confidence issues | Verify and either fix or drop — LOW confidence is not a reason to backlog; it's a reason to verify |
 | Coordinator skips code smells as "informational" | Smells are always fixable. Agents must use P0/P1/P2 only — no P3/info/defer. Coordinator must fix all P2s, not just P0/P1 |
 | Pattern library misses project-specific bugs | Phase 0 reads `tasks/lessons.md` for known gotchas |
+| Executor fix uses hallucinated API | Phase 3.5 docs-checker catches it before commit; reverted finding goes to backlog |
+| holodeck-docs server unavailable during Track C | Docs-checker marks claims UNVERIFIED, sweep continues; report notes degraded API verification |
 | Test suite doesn't exist | Report the gap, sweep code-only |
 | Executor fix conflicts across files | Group fixes by file/system |
 | Executor agent failure | Re-dispatch once. Second failure → move finding to backlog with `fix-blocked: agent failure`. Keep scratch files for manual review. |
