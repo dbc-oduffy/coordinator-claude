@@ -10,6 +10,49 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 **Announce at start:** "I'm running workday-start to prepare the day's context."
 
+## Step 0: Branch Setup
+
+Ensure all work today happens on a proper work branch, and consolidate any lingering open branches from previous days.
+
+1. **Determine today's work branch name:**
+   - Machine name: run `hostname` and lowercase it.
+   - Today's branch: `work/{machine}/{YYYY-MM-DD}`
+
+2. **If already on today's work branch:** Skip to Step 1.
+
+3. **Find open (unmerged) work branches owned by this user** — branches that have diverged from main but haven't been merged, scoped to the current git user's machine name:
+   ```bash
+   git branch --list "work/{machine}/*" --no-merged main
+   ```
+   Use the same `{machine}` derived in step 1 (the current machine's hostname, lowercased). This scopes consolidation to branches owned by this user on this machine — collaborators' `work/{their-machine}/*` branches are never touched.
+
+   Exclude today's branch name from the result list.
+
+4. **Create (or checkout) today's branch:**
+   - If the branch doesn't exist: `git checkout -b work/{machine}/{YYYY-MM-DD}`
+   - If it already exists locally: `git checkout work/{machine}/{YYYY-MM-DD}`
+   - If name collides with an already-merged branch, append suffix: `work/{machine}/{YYYY-MM-DD}-2`
+
+5. **Consolidate open branches** — for each branch found in step 3:
+   ```bash
+   git merge {branch-name} --no-ff -m "consolidate {branch-name} into today's work branch"
+   ```
+   - If merge succeeds cleanly: proceed to the next branch.
+   - If merge conflict: **stop immediately.** Abort the merge: `git merge --abort`. Report: _"Merge conflict consolidating {branch-name} — manual resolution required. Continuing workday-start without consolidating this branch."_ Do not attempt to resolve the conflict automatically.
+   - After all merges: the old branches remain as refs (do not delete them — the PM may want to inspect them).
+
+6. **Push today's branch to establish remote tracking:**
+   ```bash
+   git push -u origin work/{machine}/{YYYY-MM-DD}
+   ```
+
+7. **Report:**
+   - If consolidation happened: _"On branch {today-branch}. Consolidated N open branches: {list}."_
+   - If nothing to consolidate: _"On branch {today-branch}. No open work branches to consolidate."_
+   - If any conflicts blocked consolidation: flag them clearly.
+
+**Why this matters:** Without this step, sessions can pile up unmerged work branches indefinitely. The daily consolidation keeps branch history clean and surfaces any accumulated divergence early — before it becomes a merge nightmare.
+
 ## Step 1: Handoff Triage
 
 Read all files in `tasks/handoffs/`. For each:
@@ -171,11 +214,11 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
    ```
    ## Key Documentation
    - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
-   - **Wiki guides:** [`docs/wiki/`](../docs/wiki/) — [N] living guides with embedded decision records
+   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
    - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
    - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
    ```
-   Count the files in each directory. If `docs/wiki/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
+   Count the files in each directory. If `docs/guides/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
 2. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
 3. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
 4. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
