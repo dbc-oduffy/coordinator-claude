@@ -71,7 +71,7 @@ echo "not_found"
 ```
 
 - If found: ready. Note which pipelines are available.
-- If not found: optional. The deep-research plugin adds multi-agent research pipelines (internet, repo, structured). Available from the plugin marketplace or https://github.com/oduffy-delphi/deep-research-claude.
+- If not found: optional. The deep-research plugin adds multi-agent research pipelines (internet, repo, structured). Available from the plugin marketplace or https://github.com/dbc-oduffy/deep-research-claude.
 
 **If deep-research IS found,** also check:
 - Agent Teams env var (already checked above — if missing, flag it as **required** here, not just recommended)
