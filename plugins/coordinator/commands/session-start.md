@@ -192,6 +192,19 @@ Report briefly: _"Project subsystems: {N} available via project_subsystem_profil
 
 **Key behavior change:** When you need to understand a subsystem before delegating work, call `project_subsystem_profile("<name>")` instead of dispatching an Explore agent. The profile returns C++ surface, BP surface, dependencies, and complexity signals — all deterministic SQL at <200ms, replacing 150-300K token Explore dispatches.
 
+**Freshness nudge:** Also invoke the staleness-survey script:
+
+```bash
+python <plugin-cli-path> staleness-survey --project-root <project-root> --json
+```
+
+If verdict ≠ `current`, append one line to the orientation brief:
+
+> _"Project-RAG last scanned {age}. Verdict: {verdict}. Recommend: {recommendation_command}."_
+
+Use the same script as `workday-start.md` Step 3.6 — do not duplicate threshold logic.
+Skip silently if verdict is `current`.
+
 ---
 
 ## Engage

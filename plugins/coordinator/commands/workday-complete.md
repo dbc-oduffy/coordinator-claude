@@ -35,6 +35,19 @@ This discovers and runs all `validate-*.py` and `check-*.py` scripts by conventi
 - **If all checks pass:** Proceed to Step 2.
 - **If checks fail:** Report the failures. For build failures, stop and fix — don't push broken code. For non-build failures (linting, file sizes), use judgment: fix what's quick, flag the rest in the final summary.
 
+### Project-RAG Staleness (conditional)
+
+If `ToolSearch` finds any `mcp__holodeck-project-rag__*` tool, run the
+staleness-survey script (same invocation as workday-start Step 3.6). If the
+verdict is `stale` or `very-stale`, surface it in the evening report:
+
+> **Project-RAG:** {verdict} — last scanned {age}, {code_commits} commits since.
+> Suggest running `{recommendation_command}` before tomorrow's first session.
+
+Skip silently if the gate fails or verdict is `current`/`mild`. Evening surfacing
+is for sessions that need a reindex *before* tomorrow starts; mild staleness can
+wait for morning.
+
 ### Step 2: Branch Consolidation
 
 Consolidate all of today's work branches for this machine into one clean branch.
