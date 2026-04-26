@@ -15,6 +15,33 @@
 
 set -euo pipefail
 
+# Portable sed-in-place wrapper (issue #5).
+#
+# GNU sed accepts `-i` with no argument; BSD sed (macOS default) requires
+# an extension argument or empty string after -i. Detect once at startup.
+#
+# Usage: sed_inplace 's/foo/bar/' path/to/file
+SED_INPLACE_FLAVOR=""
+detect_sed_flavor() {
+  if sed --version 2>/dev/null | grep -q 'GNU sed'; then
+    SED_INPLACE_FLAVOR="gnu"
+  else
+    SED_INPLACE_FLAVOR="bsd"
+  fi
+}
+
+sed_inplace() {
+  local script="$1" file="$2"
+  if [[ "$SED_INPLACE_FLAVOR" == "gnu" ]]; then
+    sed -i "$script" "$file"
+  else
+    # BSD sed: -i '' means no backup file.
+    sed -i '' "$script" "$file"
+  fi
+}
+
+detect_sed_flavor
+
 PLUGIN_DIR="${1:-$HOME/.claude/plugins/cache/claude-plugins-official/remember/0.1.0}"
 
 if [ ! -d "$PLUGIN_DIR" ]; then
@@ -52,11 +79,11 @@ fi
 LOG_SH="$PLUGIN_DIR/scripts/log.sh"
 if ! grep -q 'project_slug' "$LOG_SH" 2>/dev/null; then
     # Fix REMEMBER_CONFIG path
-    sed -i 's|REMEMBER_CONFIG="${PROJECT_DIR:-.}/.claude/remember/config.json"|REMEMBER_CONFIG="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR:-.}/.claude/remember}/config.json"|' "$LOG_SH"
+    sed_inplace 's|REMEMBER_CONFIG="${PROJECT_DIR:-.}/.claude/remember/config.json"|REMEMBER_CONFIG="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR:-.}/.claude/remember}/config.json"|' "$LOG_SH"
     # Fix REMEMBER_HOOKS_DIR path
-    sed -i 's|REMEMBER_HOOKS_DIR="${PROJECT_DIR:-.}/.claude/remember/hooks.d"|REMEMBER_HOOKS_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR:-.}/.claude/remember}/hooks.d"|' "$LOG_SH"
+    sed_inplace 's|REMEMBER_HOOKS_DIR="${PROJECT_DIR:-.}/.claude/remember/hooks.d"|REMEMBER_HOOKS_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR:-.}/.claude/remember}/hooks.d"|' "$LOG_SH"
     # Add project_slug function before the dispatch function
-    sed -i '/^REMEMBER_TZ=\$(config/a\
+    sed_inplace '/^REMEMBER_TZ=\$(config/a\
 \
 # Compute the Claude Code project slug for session JSONL directories.\
 project_slug() {\
@@ -74,26 +101,26 @@ fi
 # --- 3. Patch save-session.sh ---
 SAVE_SH="$PLUGIN_DIR/scripts/save-session.sh"
 # Fix PROJECT_DIR + PIPELINE_DIR
-sed -i 's|^PROJECT_DIR="\$(cd "\$(dirname "\$0")/\.\./\.\./\.\." && pwd)"|PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../../.." \&\& pwd)}"|' "$SAVE_SH"
-sed -i 's|^PIPELINE_DIR="${PROJECT_DIR}/.claude/remember"|PIPELINE_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR}/.claude/remember}"|' "$SAVE_SH"
+sed_inplace 's|^PROJECT_DIR="\$(cd "\$(dirname "\$0")/\.\./\.\./\.\." && pwd)"|PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../../.." \&\& pwd)}"|' "$SAVE_SH"
+sed_inplace 's|^PIPELINE_DIR="${PROJECT_DIR}/.claude/remember"|PIPELINE_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR}/.claude/remember}"|' "$SAVE_SH"
 # Fix session slug
-sed -i "s|echo \"\$PROJECT_DIR\" | tr '/' '-'|project_slug \"\$PROJECT_DIR\"|" "$SAVE_SH"
+sed_inplace "s|echo \"\$PROJECT_DIR\" | tr '/' '-'|project_slug \"\$PROJECT_DIR\"|" "$SAVE_SH"
 echo "  Patched save-session.sh"
 
 # --- 4. Patch run-consolidation.sh ---
 CONSOL_SH="$PLUGIN_DIR/scripts/run-consolidation.sh"
-sed -i 's|^PROJECT_DIR="\$(cd "\$(dirname "\$0")/\.\./\.\./\.\." && pwd)"|PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../../.." \&\& pwd)}"|' "$CONSOL_SH"
-sed -i 's|^PIPELINE_DIR="${PROJECT_DIR}/.claude/remember"|PIPELINE_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR}/.claude/remember}"|' "$CONSOL_SH"
+sed_inplace 's|^PROJECT_DIR="\$(cd "\$(dirname "\$0")/\.\./\.\./\.\." && pwd)"|PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../../.." \&\& pwd)}"|' "$CONSOL_SH"
+sed_inplace 's|^PIPELINE_DIR="${PROJECT_DIR}/.claude/remember"|PIPELINE_DIR="${CLAUDE_PLUGIN_ROOT:-${PROJECT_DIR}/.claude/remember}"|' "$CONSOL_SH"
 echo "  Patched run-consolidation.sh"
 
 # --- 5. Patch post-tool-hook.sh ---
 POST_SH="$PLUGIN_DIR/scripts/post-tool-hook.sh"
-sed -i "s|echo \"\$PROJECT\" | tr '/' '-'|project_slug \"\$PROJECT\"|" "$POST_SH"
+sed_inplace "s|echo \"\$PROJECT\" | tr '/' '-'|project_slug \"\$PROJECT\"|" "$POST_SH"
 echo "  Patched post-tool-hook.sh"
 
 # --- 6. Patch session-start-hook.sh ---
 START_SH="$PLUGIN_DIR/scripts/session-start-hook.sh"
-sed -i "s|echo \"\$PROJECT\" | tr '/' '-'|project_slug \"\$PROJECT\"|" "$START_SH"
+sed_inplace "s|echo \"\$PROJECT\" | tr '/' '-'|project_slug \"\$PROJECT\"|" "$START_SH"
 echo "  Patched session-start-hook.sh"
 
 # --- 7. Patch pipeline/extract.py ---
