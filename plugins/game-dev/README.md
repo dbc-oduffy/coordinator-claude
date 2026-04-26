@@ -17,7 +17,7 @@ Game development domain plugin for the Donal + Claude agent hierarchy. Enable fo
 
 ## Source of Truth
 
-This plugin lives in [coordinator-claude](https://github.com/oduffy-delphi/coordinator-claude) at `plugins/game-dev/`.
+This plugin lives in [coordinator-claude](https://github.com/dbc-oduffy/coordinator-claude) at `plugins/game-dev/`.
 
 ## Authors
 
