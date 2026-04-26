@@ -127,6 +127,38 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 **The trigger is churn, not calendar.** A repo with no commits in 2 months doesn't need sweeping. A repo with 80 commits in a week might, but we wait at least 7 days to avoid suggestion fatigue during intensive work.
 
+## Step 3.6: Project-RAG Staleness (conditional)
+
+**Skip silently** if `ToolSearch` does not find any `mcp__holodeck-project-rag__*`
+tool. This is the same gate pattern used in Step (project-rag block) of
+`session-start.md` — coordinator does not depend on the project-rag plugin; it
+only adapts when the plugin is present. No warning emitted on skip.
+
+When present:
+
+1. Resolve the registered project root from `~/.claude.json`:
+   ```bash
+   python -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); print(d['mcpServers']['holodeck-project-rag']['args'][-1])"
+   ```
+   This returns the `--project-root` value passed to the MCP server boot.
+
+2. Locate the holodeck-project-rag plugin's cli.py. The path is recorded in
+   `~/.claude.json` → `mcpServers.holodeck-project-rag.args` (the script path).
+   Use the same parse as step 1 to extract it.
+
+3. Invoke the staleness survey:
+   ```bash
+   python <plugin-cli-path> staleness-survey --project-root <project-root> --json
+   ```
+
+4. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline
+   the rendered output into the Morning Briefing under a new **Project-RAG**
+   line (template below).
+
+**Flag-only — never auto-run.** A reindex (`/project-rag:index --incremental`)
+can race with an open editor and risks project-lock contention. The PM invokes
+the recommendation manually after `/workday-start` completes.
+
 ## Step 4: Priority Alignment
 
 Surface the project's current state and help align on today's focus:
@@ -173,6 +205,7 @@ Present a concise morning report:
 - Atlas: [N systems mapped, M stale >90 days / no atlas]
 - Bug backlog: [N open (P0: X, P1: Y) / empty / no backlog]
 - Bug sweep: [current (N commits since) / suggest sweep (N commits since last)]
+- Project-RAG: [{verdict} — {age}, {code_commits} commits / {asset_changes} assets / verdict source: {recommendation_command}] _(omit this line if verdict is `current`)_
 - Tools: [missing optional tools, if any — see below]
 
 ### Tool Availability
