@@ -27,6 +27,11 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 # stable by 2.0.0. We warn-don't-fail below this floor.
 CLAUDE_CLI_MIN_VERSION="2.0.0"
 
+# Minimum Node.js version required by the NotebookLM optional add-on
+# (resolves via `npx -y notebooklm-mcp` at runtime). Matches Anthropic's stated
+# floor for Claude Code.
+NODE_MIN_VERSION="18"
+
 # Plugin metadata: name|default|source_kind|description
 #
 # default values:
@@ -207,6 +212,29 @@ check_prerequisites() {
         exit 1
       fi
     fi
+  fi
+
+  # node/npm — surfaced here as warn-only. Hard-failed later (see
+  # check_notebooklm_prereqs) ONLY if the user opts into the NotebookLM add-on,
+  # which resolves via `npx -y notebooklm-mcp` at runtime.
+  NODE_VERSION=""
+  NPM_PRESENT=false
+  if command -v node &>/dev/null; then
+    NODE_VERSION="$(node --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true)"
+  fi
+  if command -v npm &>/dev/null || command -v npm.cmd &>/dev/null; then
+    NPM_PRESENT=true
+  fi
+  if [[ -n "$NODE_VERSION" ]]; then
+    local node_major
+    node_major="$(echo "$NODE_VERSION" | cut -d. -f1)"
+    if [[ "$node_major" -lt "$NODE_MIN_VERSION" ]]; then
+      echo "node       : $NODE_VERSION (below recommended $NODE_MIN_VERSION+ for NotebookLM add-on)"
+    else
+      echo "node       : $NODE_VERSION"
+    fi
+  else
+    echo "node       : not found (only required for the NotebookLM add-on)"
   fi
 
   # Optional tools — enhance functionality but not required
@@ -426,6 +454,51 @@ prompt_optional_addons() {
     echo "NotebookLM add-on: skipped (no TTY for prompt)."
     echo "  Re-run with --install-notebooklm to enable later."
     echo ""
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Conditional prereqs (after plugin selection)
+# ---------------------------------------------------------------------------
+
+# Hard-fail if user opted into NotebookLM but doesn't have Node.js / npm.
+# The NotebookLM MCP server is invoked as `npx -y notebooklm-mcp` — without
+# node + npm + npx the add-on cannot start, and the user would only discover
+# this at first /notebooklm-research call (a much more painful failure mode).
+check_notebooklm_prereqs() {
+  if [[ -z "${SELECTED[notebooklm]+_}" ]] || [[ "${SELECTED[notebooklm]}" != true ]]; then
+    return 0
+  fi
+
+  local fail=false
+  if [[ -z "$NODE_VERSION" ]]; then
+    echo "ERROR: NotebookLM add-on selected but node not found on PATH."
+    echo "       The notebooklm-mcp server runs via 'npx -y notebooklm-mcp'."
+    echo "       Install Node.js $NODE_MIN_VERSION+ from https://nodejs.org/"
+    echo "       (winget install OpenJS.NodeJS.LTS / brew install node /"
+    echo "        sudo apt install nodejs)"
+    fail=true
+  else
+    local node_major
+    node_major="$(echo "$NODE_VERSION" | cut -d. -f1)"
+    if [[ "$node_major" -lt "$NODE_MIN_VERSION" ]]; then
+      echo "ERROR: NotebookLM add-on selected but node $NODE_VERSION is below"
+      echo "       the required $NODE_MIN_VERSION+ floor. Upgrade Node.js."
+      fail=true
+    fi
+  fi
+
+  if [[ "$NPM_PRESENT" != true ]]; then
+    echo "ERROR: NotebookLM add-on selected but npm not found on PATH."
+    echo "       npm ships with the Node.js LTS installer — reinstall node."
+    fail=true
+  fi
+
+  if [[ "$fail" == true ]]; then
+    echo ""
+    echo "Re-run setup without --install-notebooklm (or answer 'n' at the prompt)"
+    echo "to skip the add-on, or install Node.js and re-run."
+    exit 1
   fi
 }
 
@@ -931,6 +1004,9 @@ main() {
   echo ""
 
   select_plugins
+
+  # Run conditional prereqs gate now that selection is known.
+  check_notebooklm_prereqs
 
   if [[ "$NON_INTERACTIVE" == false && -z "$PLUGINS_ARG" ]]; then
     read -r -p "Proceed with installation? [Y/n]: " confirm
