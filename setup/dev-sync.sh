@@ -69,6 +69,22 @@ sync_plugin() {
     orphaned_at=$(cat "$cache_target/.orphaned_at")
   fi
 
+  # Safety guard (issue #13): never run rm -rf inside an empty path or outside
+  # the expected plugins cache. cache_target must be non-empty AND under
+  # $HOME/.claude/plugins/cache. Bail loudly if either check fails.
+  if [[ -z "$cache_target" ]]; then
+    echo "  ERROR: cache_target is empty — refusing to clean. Aborting."
+    exit 1
+  fi
+  local expected_prefix="$HOME/.claude/plugins/cache"
+  case "$cache_target" in
+    "$expected_prefix"/*) : ;;  # ok
+    *)
+      echo "  ERROR: cache_target ($cache_target) is not under $expected_prefix — refusing to clean. Aborting."
+      exit 1
+      ;;
+  esac
+
   # Remove old cache contents (except .orphaned_at) and copy fresh
   find "$cache_target" -mindepth 1 -maxdepth 1 ! -name '.orphaned_at' -exec rm -rf {} +
   cp -r "$src/." "$cache_target/"
