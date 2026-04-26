@@ -10,6 +10,8 @@ Everything in its place before the fire gets lit. This command front-loads all c
 
 **Core principle:** Prep all context, sequence all items, build the flight recorder — then execute without interruption. Once Phase 5 begins, the EM never pauses to ask a question, offer a choice, or wait for a response. The anti-stall rule is not optional: if execution stalls mid-run, the tail phase (hibernate) never triggers, leaving the machine running indefinitely.
 
+**Autonomous-to-completion.** "Mise-en-place" means the PM has authorized the entire run — including the messy parts. Rate-limits, crashed agents, partial commits, recovery re-dispatches, concurrent-session staging conflicts — all routine. The EM drives the run to Phase 6 tail. The only legitimate stops are genuine product/scope questions the PM has unique information on, or the structural-failure cases listed under "When to Stop." Asking an EM whether to finish already-authorized, tractable, scoped, roadmap-aligned work is a failure of the role.
+
 **Announce at start:** "Running /mise-en-place — prepping flight recorder, then straight shot through the backlog."
 
 ## Arguments
@@ -217,6 +219,9 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 - Minor ambiguity resolvable with one judgment call — make the call, note it
 - A single item being harder than expected — push through
 - Wanting to "check in" — the PM authorized the full run
+- **Agent recovery** — rate-limited agents, crashed agents, auth failures, partial commits, uncommitted code on disk, missing subsystem registrations. These are routine operational handling. Re-dispatch, audit partials, finish the work, commit. Never frame "we have N uncommitted workstreams, want me to recover them?" as a choice — recovery IS the work the PM authorized. Asking an EM whether to finish tractable, scoped, roadmap-aligned work is a failure of the role.
+- **Concurrent-session churn** — another session's commits sweeping your staged changes, attribution splits, shared-file merges. Use targeted `git commit -m "..." -- <paths>` and continue.
+- **Subsystem registration gaps** — if a handler file is on disk but `Subsystem.h`/`.cpp` doesn't register it, that's a routine finish-the-work case, not a PM question.
 
 **If you must stop early:**
 1. Commit all current work — even partial progress. Stage everything.

@@ -5,6 +5,6 @@
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
-  "repository": "https://github.com/oduffy-delphi/coordinator-claude",
+  "repository": "https://github.com/dbc-oduffy/coordinator-claude",
   "keywords": ["frontend", "css", "react", "claude-code", "web-dev", "ux-review", "design-system", "code-review"]
 }

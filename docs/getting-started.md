@@ -20,7 +20,7 @@ To install: `claude plugin install remember` from the `claude-plugins-official` 
 ### Automated (recommended)
 
 ```bash
-git clone https://github.com/oduffy-delphi/coordinator-claude.git
+git clone https://github.com/dbc-oduffy/coordinator-claude.git
 cd coordinator-claude
 bash setup/install.sh
 ```
@@ -50,7 +50,7 @@ This renames display names in prose — agent behavior is defined by description
 #### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/oduffy-delphi/coordinator-claude.git
+git clone https://github.com/dbc-oduffy/coordinator-claude.git
 cd coordinator-claude
 ```
 

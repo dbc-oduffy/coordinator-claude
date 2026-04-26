@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**coordinator-claude** — a Claude Code plugin by [Dónal O'Duffy](https://github.com/oduffy-delphi)
+**coordinator-claude** — a Claude Code plugin by [Dónal O'Duffy](https://github.com/dbc-oduffy)
 
 Last updated: 2026-04-02
 
@@ -28,8 +28,8 @@ This plugin does not introduce any third-party service relationships beyond what
 
 ## Source code
 
-This plugin is fully open source. You can audit every agent prompt, skill, command, and hook at [github.com/oduffy-delphi/coordinator-claude](https://github.com/oduffy-delphi/coordinator-claude).
+This plugin is fully open source. You can audit every agent prompt, skill, command, and hook at [github.com/dbc-oduffy/coordinator-claude](https://github.com/dbc-oduffy/coordinator-claude).
 
 ## Contact
 
-Questions about this policy: open an issue on the [GitHub repository](https://github.com/oduffy-delphi/coordinator-claude/issues).
+Questions about this policy: open an issue on the [GitHub repository](https://github.com/dbc-oduffy/coordinator-claude/issues).
