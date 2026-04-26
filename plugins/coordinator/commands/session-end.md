@@ -105,12 +105,16 @@ Update the documents that future sessions read for orientation — closing the r
 
 ### Step 3: Commit + Verify Remote
 
-1. `git add -A` and commit with a lightweight message: `"session-end quick-save"`
-   (The post-commit hook will auto-push on work/feature branches.)
-2. If nothing to commit, check for unpushed commits: `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
-3. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
-4. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
-5. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
+1. **Stage only paths this session touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
+   - Make a mental (or explicit) list of the files you edited during Steps 1/2/2.5/2.6/2.7 (typically a small set: `tasks/lessons.md`, `archive/completed/YYYY-MM.md`, `docs/project-tracker.md`, action-items file, `docs/README.md`).
+   - `git add <path1> <path2> ...` — name each path explicitly.
+   - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
+   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
+2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
+3. If nothing to commit, check for unpushed commits: `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
+4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
+5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
+6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
 
 ### Step 4: Final Summary
 

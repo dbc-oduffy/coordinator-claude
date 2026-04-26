@@ -11,7 +11,7 @@ This isn't a collection of prompt tricks. It's a trust model with routines — s
 ## Quick Start
 
 ```bash
-git clone https://github.com/oduffy-delphi/coordinator-claude.git
+git clone https://github.com/dbc-oduffy/coordinator-claude.git
 cd coordinator-claude
 bash setup/install.sh
 ```
@@ -104,7 +104,7 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 **6-layer project knowledge.** Structure, architecture, activity, temporal, intent, state — none bulk-loaded. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically.
 
-**Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the [deep-research pipelines](https://github.com/oduffy-delphi/deep-research-claude).
+**Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the [deep-research pipelines](https://github.com/dbc-oduffy/deep-research-claude).
 
 **Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI runs as a parallel execution runtime via `codex:*` skills — a second-opinion channel and independent implementation path.
 
@@ -133,7 +133,7 @@ See [docs/customization.md](docs/customization.md) for templates, the full perso
 
 ## Companion Plugins
 
-- **[deep-research](https://github.com/oduffy-delphi/deep-research-claude)** — Multi-agent research pipelines (internet, repo analysis, structured research, NotebookLM). The coordinator auto-suggests these via a `PreToolUse` hook when Claude reaches for ad-hoc web search.
+- **[deep-research](https://github.com/dbc-oduffy/deep-research-claude)** — Multi-agent research pipelines (internet, repo analysis, structured research, NotebookLM). The coordinator auto-suggests these via a `PreToolUse` hook when Claude reaches for ad-hoc web search.
 - **[clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp)** — C++ code intelligence. Reviewer agents gain go-to-definition, find-references, and call hierarchy ‒ helpful for those (like us) using Claude Code with Unreal Engine.
 - **[codex-plugin-cc](https://github.com/openai/codex-plugin-cc)** — Codex CLI integration for parallel execution and second-opinion reviews.
 - **[Context7](https://github.com/upstash/context7)** — External library documentation lookup.
@@ -193,4 +193,4 @@ This system's design is informed by published research and validated through con
 
 ---
 
-[Dónal O'Duffy](https://github.com/oduffy-delphi) & Claude
+[Dónal O'Duffy](https://github.com/dbc-oduffy) & Claude

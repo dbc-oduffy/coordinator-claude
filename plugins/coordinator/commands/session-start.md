@@ -31,6 +31,8 @@ Secure any uncommitted work before touching branches:
 
 ### Branch detection
 
+**main is read-only.** All work — including safety commits — must happen on a work branch. Never commit to main directly.
+
 Get on the right branch:
 
 1. **Push health check:** Run `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`.
@@ -39,7 +41,7 @@ Get on the right branch:
 2. **If already on a non-main branch:** Report the branch name and continue. Don't switch.
    _"Resuming work on {branch} ({N} commits ahead of main)."_
 
-3. **If on main:** Look for today's work branch to resume:
+3. **If on main — create a work branch immediately before doing anything else:**
    - Check local: `git branch --list 'work/{machine}/*'`
    - Check remote: `git branch -r --list 'origin/work/{machine}/*'`
    - Cross-reference with any loaded handoff's `Branch:` field.
@@ -51,6 +53,8 @@ Get on the right branch:
    If no branch for today (or today's was already merged):
    Create: `git checkout -b work/{machine}/{date}`
    If name collision: append suffix: `work/{machine}/{date}-2`
+
+   **Note:** `/workday-start` handles branch setup and open-branch consolidation at the start of each workday. If you're starting a new day and workday-start hasn't run yet, the session-start branch creation here is a safety fallback — recommend running `/workday-start` to also consolidate any open branches from previous days.
 
 ### Branch staleness
 
@@ -152,7 +156,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 Check if `docs/README.md` exists. If it does, note briefly: _"Documentation index at docs/README.md — [N] wiki guides, [N] research files, [N] plans."_ (Count by globbing each directory.) This tells the agent and PM that accumulated project knowledge is available.
 
-If `docs/README.md` does not exist but `docs/wiki/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
+If `docs/README.md` does not exist but `docs/guides/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
 
 If neither exists, skip silently — the project hasn't adopted the wiki system yet.
 
@@ -177,6 +181,16 @@ For multi-domain or underspecified tasks, decompose and dispatch domain agents s
 - Python (`execute_python_code`) is the escape hatch for quick one-liners, not the primary work tool
 
 After loading, note briefly: _"Loaded holodeck delegation context — Tier 2 (domain agents) is the default for real work."_
+
+### Project-RAG subsystem context
+
+**Conditional on MCP availability:** Only if `holodeck-project-rag` MCP tools are available (check via ToolSearch for `mcp__holodeck-project-rag__project_subsystem_profile`). Skip silently if unavailable.
+
+When available, call `project_subsystem_profile()` with no arguments (list mode) to discover the project's subsystem map. This returns subsystem names with file counts — enough for the EM to know what's available without loading full profiles.
+
+Report briefly: _"Project subsystems: {N} available via project_subsystem_profile."_
+
+**Key behavior change:** When you need to understand a subsystem before delegating work, call `project_subsystem_profile("<name>")` instead of dispatching an Explore agent. The profile returns C++ surface, BP surface, dependencies, and complexity signals — all deterministic SQL at <200ms, replacing 150-300K token Explore dispatches.
 
 ---
 

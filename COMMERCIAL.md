@@ -21,7 +21,7 @@ Using the plugins *at work* is fine. Selling the plugins *as a product* requires
 
 ## Contact
 
-For commercial licensing inquiries: [Open a GitHub issue](https://github.com/oduffy-delphi/coordinator-claude/issues) with the label `commercial-license`, or reach out to Dónal O'Duffy directly.
+For commercial licensing inquiries: [Open a GitHub issue](https://github.com/dbc-oduffy/coordinator-claude/issues) with the label `commercial-license`, or reach out to Dónal O'Duffy directly.
 
 ## Why This Model
 

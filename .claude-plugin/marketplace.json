@@ -82,7 +82,7 @@
       "name": "deep-research",
       "source": {
         "type": "github",
-        "url": "oduffy-delphi/deep-research-claude"
+        "url": "dbc-oduffy/deep-research-claude"
       },
       "description": "Multi-agent deep research pipelines \u2014 internet, repo, and structured research with Agent Teams. Now a standalone plugin.",
       "tags": [

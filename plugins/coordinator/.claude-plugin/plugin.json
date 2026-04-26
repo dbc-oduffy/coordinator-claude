@@ -5,6 +5,6 @@
   "author": {
     "name": "Dónal O'Duffy & Claude"
   },
-  "repository": "https://github.com/oduffy-delphi/coordinator-claude",
+  "repository": "https://github.com/dbc-oduffy/coordinator-claude",
   "keywords": ["claude-code", "developer-tools", "quality-pipeline", "session-management", "orchestration", "workflow", "code-review", "agents", "planning"]
 }

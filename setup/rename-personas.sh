@@ -17,6 +17,18 @@
 
 set -euo pipefail
 
+# Warning #6: bash 4.0+ required (associative arrays). The previous
+# `mapfile -d ''` form needed bash 4.4+; we now use a portable while-read loop
+# below to support older bashes (though associative arrays still cap us at 4.0).
+# macOS default bash is 3.2 — error clearly with install guidance.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: this script requires bash 4.0 or later (associative arrays)." >&2
+  echo "  Detected: bash ${BASH_VERSION}" >&2
+  echo "  macOS users: install a newer bash via 'brew install bash' and re-run with" >&2
+  echo "  /opt/homebrew/bin/bash $(basename "$0") ..." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Persona registry
 # Display Name | Slug    | Plugin        | Agent File
@@ -101,7 +113,7 @@ replace_in_prose() {
   # -0777 slurps whole file; -i -pe enables in-place edit with implicit $_ loop.
   # No -CSD: byte-mode matching is correct here — shell expands $old as UTF-8 bytes,
   # and file bytes are also UTF-8. -CSD causes mismatch with multi-byte characters.
-  perl -0777 -i -pe "
+  perl -0777 -i.bak -pe "
     if (/\A---\r?\n(.*?\r?\n)---\r?\n(.*)/s) {
       my (\$fm, \$body) = (\$1, \$2);
       \$body =~ s/\Q$old\E/$new/g;
@@ -132,7 +144,11 @@ count_prose_matches() {
 # ---------------------------------------------------------------------------
 # Collect target files
 # ---------------------------------------------------------------------------
-mapfile -d '' FILES < <(find "$PLUGINS_DIR" \( -name "*.md" -o -name "*.sh" \) -print0)
+# Portable NUL-delimited file collection (works on bash 4.0+; was bash 4.4+ via `mapfile -d ''`).
+FILES=()
+while IFS= read -r -d '' f; do
+  FILES+=("$f")
+done < <(find "$PLUGINS_DIR" \( -name "*.md" -o -name "*.sh" \) -print0)
 # Also include docs/customization.md if it exists
 [[ -f "$REPO_ROOT/docs/customization.md" ]] && FILES+=("$REPO_ROOT/docs/customization.md")
 
