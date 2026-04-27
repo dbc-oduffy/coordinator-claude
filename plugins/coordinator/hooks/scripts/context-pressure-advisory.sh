@@ -111,11 +111,18 @@ if [[ -z "$MODEL_ID" ]]; then
 fi
 
 # --- Context window size by model (tokens) ---
+# Note: Anthropic encodes 1M-context variants with a "[1m]" suffix on the model ID
+# (e.g., "claude-opus-4-7[1m]"). Match that suffix explicitly before the bare model
+# pattern so a plain ID falls through to the 200K default.
 case "$MODEL_ID" in
-  *opus*4*6*)     CONTEXT_WINDOW=1000000 ;;  # Opus 4.6: 1M tokens
-  *sonnet*4*6*)   CONTEXT_WINDOW=200000  ;;  # Sonnet 4.6: 200K tokens
-  *haiku*4*5*)    CONTEXT_WINDOW=200000  ;;  # Haiku 4.5: 200K tokens
-  *)                         CONTEXT_WINDOW=200000  ;;  # Conservative default
+  # Explicit 200K overrides for Opus variants known to ship without the 1M window
+  # (add specific model IDs here as they appear).
+  # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
+  # unless an override above caught it first.
+  *opus*)         CONTEXT_WINDOW=1000000 ;;  # Opus family default: 1M
+  *sonnet*)       CONTEXT_WINDOW=200000  ;;  # Sonnet family default: 200K
+  *haiku*)        CONTEXT_WINDOW=200000  ;;  # Haiku family default: 200K
+  *)              CONTEXT_WINDOW=200000  ;;  # Unknown model — conservative default
 esac
 
 # --- Threshold percentages ---
