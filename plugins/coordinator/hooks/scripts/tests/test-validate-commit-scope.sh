@@ -5,7 +5,7 @@
 #   S1. Staged file in MY_SCOPE (own touched.txt) → no warning emitted
 #   S2. Staged file outside MY_SCOPE, in another session's touch list → warning emitted, scope-warnings.log written, exit 0
 #   S3. Staged file outside MY_SCOPE, no claimant → orphan warning, log entry, exit 0
-#   S4. COORDINATOR_SCOPE_STRICT=1 with foreign files → exit 2
+#   S4. COORDINATOR_SCOPE_STRICT=1 with foreign files → exit 0 + JSON deny on stdout
 #   S5. COORDINATOR_SCOPE_STRICT=1 with COORDINATOR_OVERRIDE_SCOPE=1 → exit 0, override logged
 #   S6. Regression: gitignore check (Check 1) still fires correctly
 #   S7. Regression: JSON validity check (Check 2) still fires correctly
@@ -169,34 +169,36 @@ git restore --staged "orphan-file.txt" 2>/dev/null || git rm --cached "orphan-fi
 rm -f "orphan-file.txt"
 
 # ---------------------------------------------------------------------------
-# S4: COORDINATOR_SCOPE_STRICT=1 with foreign files (owned by another session) → exit 2
+# S4: COORDINATOR_SCOPE_STRICT=1 with foreign files → exit 0 + JSON deny on stdout
 #
-# Uses another session's touched.txt to make the file genuinely foreign
-# (cross-session subtraction removes it from MY_SCOPE regardless of mtime).
+# The hook uses the modern PreToolUse JSON output form
+# (hookSpecificOutput.permissionDecision = "deny"), which requires exit 0
+# so the JSON gets parsed by Claude Code. See coordinator/docs/preooluse-deny-contract.md.
 # ---------------------------------------------------------------------------
 rm -rf "$SESSIONS_DIR"
 echo "strict-test content" > "foreign-strict.txt"
 git add "foreign-strict.txt"
 
 # My session doesn't own foreign-strict.txt; OTHER session claims it.
-# The cross-session subtraction in cs_compute_scope will exclude it from MY_SCOPE.
 init_session_touch "$MY_SID" "owned-file.txt"
 init_session_touch "$OTHER_SID" "foreign-strict.txt"
 
-# Capture output and exit code separately — can't use `|| true` here because
-# we need to observe the non-zero exit from strict mode.
+# Capture stdout and stderr separately so we can verify the JSON went to stdout.
 set +e
-OUTPUT=$(make_commit_input "$MY_SID" "git commit -m 'test'" | COORDINATOR_SCOPE_STRICT=1 bash "$HOOK_SCRIPT" 2>&1)
+STDOUT=$(make_commit_input "$MY_SID" "git commit -m 'test'" | COORDINATOR_SCOPE_STRICT=1 bash "$HOOK_SCRIPT" 2>/dev/null)
 RC=$?
 set -e
 
-if [[ "$RC" -eq 2 ]]; then
-  pass "S4-strict-block: COORDINATOR_SCOPE_STRICT=1 → exit 2 on foreign files"
-elif [[ "$RC" -eq 0 ]]; then
-  fail "S4-strict-block: expected exit 2, got exit 0 (strict mode did not block)"
+if [[ "$RC" -ne 0 ]]; then
+  fail "S4-strict-block: expected exit 0 (JSON form), got $RC"
+elif ! echo "$STDOUT" | grep -q '"permissionDecision":"deny"'; then
+  fail "S4-strict-block: expected permissionDecision=deny in stdout JSON, got: $STDOUT"
+elif ! echo "$STDOUT" | grep -q '"hookEventName":"PreToolUse"'; then
+  fail "S4-strict-block: expected hookEventName=PreToolUse in stdout JSON, got: $STDOUT"
+elif ! echo "$STDOUT" | grep -q "foreign-strict.txt"; then
+  fail "S4-strict-block: expected reason to mention foreign-strict.txt, got: $STDOUT"
 else
-  # Some platforms might use exit 1 — document it
-  fail "S4-strict-block: expected exit 2, got exit $RC (check Claude Code PreToolUse deny contract)"
+  pass "S4-strict-block: COORDINATOR_SCOPE_STRICT=1 → exit 0 + JSON deny with file in reason"
 fi
 
 git restore --staged "foreign-strict.txt" 2>/dev/null || git rm --cached "foreign-strict.txt" 2>/dev/null || true
