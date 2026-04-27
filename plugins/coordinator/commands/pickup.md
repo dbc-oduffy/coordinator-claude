@@ -16,10 +16,16 @@ Pick up a handoff document and continue executing where the previous session lef
 
 Minimal — just enough to not lose work.
 
-1. Run `git status` — if there are ANY uncommitted changes, commit immediately:
+1. Run `git status` — if there are ANY uncommitted changes, commit immediately. Pickup is workstream-specific: stage only the paths belonging to the workstream you're resuming, never `git add -A` or `git add .`. The handoff doc you'll read in Step 2 declares the workstream scope in its `scope:` frontmatter — once read, prefer the helper with `--scope-from`:
    ```
-   git add -A && git commit -m "pickup safety commit"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "pickup: <workstream> — resume"
    ```
+   If the handoff isn't yet identified, stage the specific files explicitly by path:
+   ```
+   git add <path1> <path2> ...
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pickup safety commit"
+   ```
+   Leave files outside this workstream alone — they belong to another concurrent session.
 
 2. **Branch:** If on main, create or resume today's work branch:
    - Check for existing: `git branch --list 'work/{machine}/*'` and `git branch -r --list 'origin/work/{machine}/*'`
@@ -89,6 +95,8 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    c. **Drop confirmed-closed items.** Items verified as already shipped do NOT go into your session execution queue. Optionally note them inline as _"verified-closed since handoff"_ for the paper trail.
 
    **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means redoing shipped work, conflicting with landed commits, or spawning duplicate executors.
+
+   **Partial-completion claims** (DroneSim T1.2): Before redoing any work the handoff describes as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. Treat the handoff's status as a hypothesis, not ground truth — work often persisted despite the handoff saying otherwise.
 
 5. **Report briefly — two lines max:**
    ```
