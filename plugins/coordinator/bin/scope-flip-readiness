@@ -1,0 +1,308 @@
+#!/bin/bash
+# scope-flip-readiness — evaluate whether strict-mode scope-guard can be enabled
+#
+# Reads warn-logs from all (live + archived) sessions and evaluates the flip predicate:
+#
+#   1. >= 10 sessions have warn-only scope warnings logged
+#   2. False-positive rate < 10%  (legitimate-mine / all-resolved)
+#   3. Zero unresolved orphan-class warnings in trailing 7 days
+#   4. >= 14 days elapsed since .warn-mode-enabled-at sentinel was written
+#
+# All four must be true for READY. Any failure → NOT-READY.
+#
+# Usage:
+#   scope-flip-readiness           # human-readable output; exit 0=READY, 1=NOT-READY
+#   scope-flip-readiness --json    # machine-readable JSON output
+#
+# Log format (written by validate-commit.sh, resolved by scope-warning-resolve):
+#   <ISO-ts> | <session_id> | foreign-staged | <file> | owner:<owner> | <resolution>
+#
+# Resolution values:
+#   pending-resolution         not yet resolved (counts as unresolved)
+#   legitimate-mine            false positive
+#   not-mine-unstaged          true positive — guard worked
+#   not-mine-committed-anyway  true positive — committed anyway
+#   orphan-claimed             orphan claimed
+#   orphan-rejected            orphan rejected
+#
+# Part of Phase 5 — scoped-safety-commits plan.
+# See: ~/.claude/plugins/coordinator-claude/coordinator/docs/preooluse-deny-contract.md
+
+set -euo pipefail
+
+OUTPUT_JSON=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --json) OUTPUT_JSON=1 ;;
+    -h|--help)
+      echo "Usage: scope-flip-readiness [--json]"
+      echo "  --json  machine-readable JSON output"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# --- Locate git root ---
+
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -z "$GIT_ROOT" ]]; then
+  echo "Error: not inside a git repository. Run from within the project repo." >&2
+  exit 1
+fi
+
+SESSIONS_DIR="${GIT_ROOT}/.git/coordinator-sessions"
+SENTINEL="${SESSIONS_DIR}/.warn-mode-enabled-at"
+
+# --------------------------------------------------------------------------
+# Helper: seconds since an ISO timestamp
+# --------------------------------------------------------------------------
+seconds_since_iso() {
+  local iso_ts="$1"
+  local epoch_then epoch_now
+  # Try GNU date first (Linux / Git Bash on Windows)
+  epoch_then=$(date -d "$iso_ts" +%s 2>/dev/null) \
+    || epoch_then=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$iso_ts" +%s 2>/dev/null) \
+    || { echo "0"; return; }
+  epoch_now=$(date -u +%s 2>/dev/null || date +%s)
+  echo $(( epoch_now - epoch_then ))
+}
+
+# --------------------------------------------------------------------------
+# Collect all scope-warnings.log files (live sessions + archive)
+# --------------------------------------------------------------------------
+ALL_LOG_FILES=()
+
+# Live sessions
+if [[ -d "$SESSIONS_DIR" ]]; then
+  while IFS= read -r -d '' logfile; do
+    ALL_LOG_FILES+=("$logfile")
+  done < <(find "$SESSIONS_DIR" -maxdepth 2 -name "scope-warnings.log" -not -path "*/.archive/*" -print0 2>/dev/null || true)
+
+  # Archived sessions
+  if [[ -d "${SESSIONS_DIR}/.archive" ]]; then
+    while IFS= read -r -d '' logfile; do
+      ALL_LOG_FILES+=("$logfile")
+    done < <(find "${SESSIONS_DIR}/.archive" -name "scope-warnings.log" -print0 2>/dev/null || true)
+  fi
+fi
+
+# --------------------------------------------------------------------------
+# Criterion 1: sessions with warns >= 10
+# Each unique session_id appearing in any log file counts as one session.
+# --------------------------------------------------------------------------
+declare -A SESSION_SET=()
+TOTAL_WARN_LINES=0
+TOTAL_RESOLVED=0
+TOTAL_LEGITIMATE_MINE=0
+TOTAL_ORPHAN_UNRESOLVED_7D=0
+
+# Cutoff for "trailing 7 days" — epoch seconds
+EPOCH_NOW=$(date -u +%s 2>/dev/null || date +%s)
+CUTOFF_7D=$(( EPOCH_NOW - 7 * 86400 ))
+
+for logfile in "${ALL_LOG_FILES[@]}"; do
+  [[ -f "$logfile" ]] || continue
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    # Parse: <ts> | <session_id> | <event_type> | <file> | owner:<owner> | <resolution>
+    # Fields are pipe-separated with surrounding spaces.
+    IFS='|' read -ra FIELDS <<< "$line"
+    [[ ${#FIELDS[@]} -lt 6 ]] && continue
+
+    ts=$(echo "${FIELDS[0]}" | tr -d ' ')
+    session_id=$(echo "${FIELDS[1]}" | tr -d ' ')
+    # field[2] = event type (foreign-staged)
+    # field[3] = file path
+    # field[4] = owner:xxx
+    resolution=$(echo "${FIELDS[5]}" | tr -d ' ')
+
+    [[ -z "$session_id" ]] && continue
+
+    SESSION_SET["$session_id"]=1
+    TOTAL_WARN_LINES=$(( TOTAL_WARN_LINES + 1 ))
+
+    # Resolved = anything that is not "pending-resolution"
+    if [[ "$resolution" != "pending-resolution" ]]; then
+      TOTAL_RESOLVED=$(( TOTAL_RESOLVED + 1 ))
+      if [[ "$resolution" == "legitimate-mine" ]]; then
+        TOTAL_LEGITIMATE_MINE=$(( TOTAL_LEGITIMATE_MINE + 1 ))
+      fi
+    else
+      # Check if this unresolved entry is in the trailing 7 days
+      # Parse ts to epoch — attempt GNU date then BSD
+      entry_epoch=$(date -d "$ts" +%s 2>/dev/null \
+        || date -jf "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null \
+        || echo "0")
+      owner_field=$(echo "${FIELDS[4]}" | tr -d ' ')
+      if [[ "$entry_epoch" -gt "$CUTOFF_7D" ]]; then
+        # It's in the trailing 7 days — check if orphan-class
+        if echo "$owner_field" | grep -qi "orphan"; then
+          TOTAL_ORPHAN_UNRESOLVED_7D=$(( TOTAL_ORPHAN_UNRESOLVED_7D + 1 ))
+        fi
+      fi
+    fi
+
+  done < "$logfile"
+done
+
+SESSIONS_WITH_WARNS=${#SESSION_SET[@]}
+
+# --------------------------------------------------------------------------
+# Criterion 2: false-positive rate < 10%
+# Rate = legitimate-mine / all-resolved
+# If no resolved entries exist, rate is undefined — we report 0 resolved,
+# which means the rate cannot be computed. Treat as failing (0% FP, but also
+# 0 resolved is not a meaningful soak signal).
+# --------------------------------------------------------------------------
+FP_RATE_PCT=0
+FP_RATE_DISPLAY="N/A (0 resolved)"
+FP_RATE_OK=0
+
+if [[ $TOTAL_RESOLVED -gt 0 ]]; then
+  # Integer arithmetic: multiply by 1000 for one decimal place precision
+  FP_RATE_PCT=$(( TOTAL_LEGITIMATE_MINE * 1000 / TOTAL_RESOLVED ))
+  # FP_RATE_PCT is now tenths of a percent (e.g., 83 = 8.3%)
+  FP_INT=$(( FP_RATE_PCT / 10 ))
+  FP_FRAC=$(( FP_RATE_PCT % 10 ))
+  FP_RATE_DISPLAY="${FP_INT}.${FP_FRAC}% (${TOTAL_LEGITIMATE_MINE}/${TOTAL_RESOLVED} resolved)"
+  # 10% threshold = 100 tenths
+  if [[ $FP_RATE_PCT -lt 100 ]]; then
+    FP_RATE_OK=1
+  fi
+else
+  FP_RATE_OK=0
+fi
+
+# --------------------------------------------------------------------------
+# Criterion 3: zero unresolved orphan-class warns in trailing 7d
+# --------------------------------------------------------------------------
+ORPHAN_OK=0
+if [[ $TOTAL_ORPHAN_UNRESOLVED_7D -eq 0 ]]; then
+  ORPHAN_OK=1
+fi
+
+# --------------------------------------------------------------------------
+# Criterion 4: >= 14 days since sentinel
+# --------------------------------------------------------------------------
+SOAK_OK=0
+SOAK_ELAPSED_DAYS=-1
+SOAK_DISPLAY="warn-mode-enabled-at sentinel not found"
+
+if [[ -f "$SENTINEL" ]]; then
+  SENTINEL_TS=$(cat "$SENTINEL" | tr -d '[:space:]')
+  SOAK_SECONDS=$(seconds_since_iso "$SENTINEL_TS")
+  SOAK_ELAPSED_DAYS=$(( SOAK_SECONDS / 86400 ))
+  SOAK_DISPLAY="${SOAK_ELAPSED_DAYS}d (need >=14d)"
+  if [[ $SOAK_ELAPSED_DAYS -ge 14 ]]; then
+    SOAK_OK=1
+  fi
+fi
+
+SESSIONS_OK=0
+if [[ $SESSIONS_WITH_WARNS -ge 10 ]]; then
+  SESSIONS_OK=1
+fi
+
+# --------------------------------------------------------------------------
+# Overall verdict
+# --------------------------------------------------------------------------
+READY=0
+if [[ $SESSIONS_OK -eq 1 && $FP_RATE_OK -eq 1 && $ORPHAN_OK -eq 1 && $SOAK_OK -eq 1 ]]; then
+  READY=1
+fi
+
+# --------------------------------------------------------------------------
+# Output
+# --------------------------------------------------------------------------
+
+tick() { [[ "$1" -eq 1 ]] && echo "✅" || echo "❌"; }
+
+if [[ $OUTPUT_JSON -eq 1 ]]; then
+  cat <<EOF
+{
+  "ready": $([ $READY -eq 1 ] && echo "true" || echo "false"),
+  "criteria": {
+    "sessions_with_warns": {
+      "value": $SESSIONS_WITH_WARNS,
+      "threshold": 10,
+      "pass": $([ $SESSIONS_OK -eq 1 ] && echo "true" || echo "false")
+    },
+    "false_positive_rate": {
+      "legitimate_mine": $TOTAL_LEGITIMATE_MINE,
+      "total_resolved": $TOTAL_RESOLVED,
+      "rate_tenths_pct": $FP_RATE_PCT,
+      "threshold_tenths_pct": 100,
+      "pass": $([ $FP_RATE_OK -eq 1 ] && echo "true" || echo "false")
+    },
+    "orphan_unresolved_7d": {
+      "value": $TOTAL_ORPHAN_UNRESOLVED_7D,
+      "threshold": 0,
+      "pass": $([ $ORPHAN_OK -eq 1 ] && echo "true" || echo "false")
+    },
+    "soak_elapsed_days": {
+      "value": $SOAK_ELAPSED_DAYS,
+      "threshold": 14,
+      "sentinel_found": $([ -f "$SENTINEL" ] && echo "true" || echo "false"),
+      "pass": $([ $SOAK_OK -eq 1 ] && echo "true" || echo "false")
+    }
+  },
+  "total_warn_entries": $TOTAL_WARN_LINES,
+  "sessions_seen": $SESSIONS_WITH_WARNS
+}
+EOF
+else
+  # Human-readable
+  if [[ $READY -eq 1 ]]; then
+    STATUS_LABEL="READY ✅"
+  else
+    STATUS_LABEL="NOT-READY"
+  fi
+
+  echo "Strict-mode flip readiness: ${STATUS_LABEL}"
+  echo "  Sessions with warns: ${SESSIONS_WITH_WARNS}  (need >=10)  $(tick $SESSIONS_OK)"
+  echo "  False-positive rate: ${FP_RATE_DISPLAY}  $(tick $FP_RATE_OK)"
+  echo "  Open orphan warns in trailing 7d: ${TOTAL_ORPHAN_UNRESOLVED_7D}  (need 0)  $(tick $ORPHAN_OK)"
+  if [[ -f "$SENTINEL" ]]; then
+    echo "  Soak elapsed: ${SOAK_DISPLAY}  $(tick $SOAK_OK)"
+  else
+    echo "  Soak elapsed: warn-mode-enabled-at sentinel not found  ❌"
+    echo "    Run: scope-soak-enable  to start the soak clock"
+  fi
+  echo ""
+
+  if [[ $READY -eq 1 ]]; then
+    echo "Recommendation: set COORDINATOR_SCOPE_STRICT=1 in user settings.json. Strict mode active on next session."
+    echo ""
+    echo "How to flip:"
+    echo "  1. Open ~/.claude/settings.json (or project .claude/settings.json)"
+    echo "  2. Add COORDINATOR_SCOPE_STRICT=1 to the env block"
+    echo "  3. On next session start, the scope guard will block foreign-file commits"
+    echo "  4. Override syntax: Set COORDINATOR_OVERRIDE_SCOPE=1 to bypass scope guard for this commit."
+  else
+    # Build a specific recommendation
+    UNMET_COUNT=0
+    UNMET_REASONS=""
+    [[ $SESSIONS_OK -eq 0 ]] && UNMET_REASONS="${UNMET_REASONS} sessions-count" && UNMET_COUNT=$(( UNMET_COUNT + 1 ))
+    [[ $FP_RATE_OK -eq 0 ]] && UNMET_REASONS="${UNMET_REASONS} false-positive-rate" && UNMET_COUNT=$(( UNMET_COUNT + 1 ))
+    [[ $ORPHAN_OK -eq 0 ]] && UNMET_REASONS="${UNMET_REASONS} open-orphan-warns" && UNMET_COUNT=$(( UNMET_COUNT + 1 ))
+    [[ $SOAK_OK -eq 0 ]] && UNMET_REASONS="${UNMET_REASONS} soak-duration" && UNMET_COUNT=$(( UNMET_COUNT + 1 ))
+
+    if [[ $TOTAL_ORPHAN_UNRESOLVED_7D -gt 0 ]]; then
+      echo "Recommendation: continue warn-only soak. Re-evaluate after orphan warns resolved."
+      echo "  Use 'scope-warning-resolve <session_id> <line> orphan-claimed|orphan-rejected' to resolve each open orphan warn."
+    elif [[ $SESSIONS_OK -eq 0 ]]; then
+      STILL_NEEDED=$(( 10 - SESSIONS_WITH_WARNS ))
+      echo "Recommendation: continue warn-only soak. ${STILL_NEEDED} more session(s) with scope warnings needed."
+    else
+      echo "Recommendation: continue warn-only soak. Unmet criteria:${UNMET_REASONS}."
+    fi
+  fi
+fi
+
+# Exit code: 0 = READY, 1 = NOT-READY
+[[ $READY -eq 1 ]] && exit 0 || exit 1
