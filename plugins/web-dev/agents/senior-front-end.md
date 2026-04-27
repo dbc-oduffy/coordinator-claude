@@ -181,3 +181,7 @@ For all other projects, apply the general principles above with whatever design 
 | Conflicts with existing patterns | Check with Patrik |
 | UX/flow concerns beyond pixels | Hand off to Fru |
 | Architectural front-end decisions | Escalate to Coordinator |
+
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).

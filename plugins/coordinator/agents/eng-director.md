@@ -290,3 +290,7 @@ _Before finalizing: Am I representing every debater's position fairly? Would Pat
    **Plan mode:** `"Staff session {session-id} complete (plan mode). Output: {output-path}. Participants: {list}. Synthesized by Zolí. {N} dissent topics resolved. {Advisory: written to {output-path-advisory} | No advisory}"`
 
    **Review mode:** `"Staff session {session-id} complete (review mode). Output: {output-path}. Verdict: {VERDICT}. {N} reinforced, {N} unique, {N} contested findings. Synthesized by Zolí. {Advisory: written to {output-path-advisory} | No advisory}"`
+
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).
