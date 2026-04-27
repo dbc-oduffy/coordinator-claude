@@ -186,22 +186,46 @@ if [[ -n "$WARNINGS" ]]; then
   echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
 fi
 
-# NOTE: exit 2 may need to be exit 1 or stderr-message-based — verify Claude Code
-# PreToolUse deny contract before setting COORDINATOR_SCOPE_STRICT=1 in Phase 5.
-
-# Strict-mode block (Phase 5 — gated on COORDINATOR_SCOPE_STRICT=1)
+# Strict-mode block (Phase 5 — gated on COORDINATOR_SCOPE_STRICT=1).
+#
+# Deny contract verified 2026-04-27 against canonical docs at
+# https://code.claude.com/docs/en/hooks. Uses the modern JSON output form
+# (hookSpecificOutput.permissionDecision = "deny") rather than exit 2 + stderr.
+# Both are valid; JSON is preferred because permissionDecisionReason is
+# purpose-built to surface the message verbatim to the EM Claude session.
+# See coordinator/docs/preooluse-deny-contract.md for verification details.
 if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; then
-  echo "BLOCKED: commit contains files outside this session's scope:" >&2
-  echo "$SCOPE_FOREIGN_FILES" >&2
-  echo "" >&2
-  echo "Override: set COORDINATOR_OVERRIDE_SCOPE=1 to commit anyway (logged to overrides.log)." >&2
-  echo "Or use the scoped helper: ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \"<subject>\"" >&2
   # If the override env var is set, log and allow:
   if [[ "${COORDINATOR_OVERRIDE_SCOPE:-0}" == "1" ]]; then
     echo "$(date -Iseconds) | $SESSION_ID | OVERRIDE | $SCOPE_FOREIGN_FILES" >> ".git/coordinator-sessions/$SESSION_ID/overrides.log" 2>/dev/null || true
     exit 0
   fi
-  exit 2  # PreToolUse deny code — VERIFY this is the correct deny exit code per Claude Code's hook contract before flipping the env var.
+
+  # Build the deny reason — surfaced to the EM via permissionDecisionReason
+  REASON="BLOCKED: commit contains files outside this session's scope:${SCOPE_FOREIGN_FILES}"$'\n\n'
+  REASON+="Override: set COORDINATOR_OVERRIDE_SCOPE=1 to commit anyway (logged to overrides.log)."$'\n'
+  REASON+="Or use the scoped helper: ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \"<subject>\""
+
+  # Emit the JSON deny form on stdout (only parsed on exit 0).
+  # jq is preferred for proper escaping; fall back to printf-based JSON if absent.
+  if command -v jq &>/dev/null; then
+    jq -nc --arg reason "$REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+  else
+    # Minimal JSON-string escaping (newline, quote, backslash). Adequate for
+    # our reason content which contains only ASCII + newlines + quotes.
+    ESC_REASON=${REASON//\\/\\\\}
+    ESC_REASON=${ESC_REASON//\"/\\\"}
+    ESC_REASON=${ESC_REASON//$'\n'/\\n}
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$ESC_REASON"
+  fi
+
+  exit 0
 fi
 
 exit 0
