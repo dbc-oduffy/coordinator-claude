@@ -43,7 +43,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 1. **Check for uncommitted changes.** If any exist:
    ```bash
-   git add -A && git commit -m "pre-merge quick-save"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-merge quick-save"
    ```
 
 2. **Handle current branch:**
@@ -146,6 +146,21 @@ gh pr merge <pr-number> --merge --delete-branch  # retry
 Do NOT force. Report conflicting files and suggest:
 _"Main has diverged with conflicts. Options: (a) merge main into this branch and resolve conflicts, (b) rebase onto main. Recommend (a) for simplicity."_
 Stop and wait for PM judgment.
+
+### Step 4.5: Post-Merge Re-Verify Shared Infra (geneva T1.7)
+
+After the merge completes — especially when merge conflicts were resolved or when main had concurrent edits to shared files (plugin internals, shared scripts, configs) — re-verify that your intended changes survived.
+
+**Why this matters:** Last-writer-wins silently reverts edits when both sides touched the same hunk and the conflict was resolved naively. A merge that "succeeded" may have dropped your change without any warning.
+
+**Verification steps:**
+
+1. For each file you specifically edited on this branch, run:
+   ```bash
+   git show HEAD:<file-path> | grep -F "<canonical phrase from your change>"
+   ```
+2. If a canonical phrase is missing, your change was overwritten. Re-apply it and push a follow-up commit immediately.
+3. Pay particular attention to shared infra files (`~/.claude/`, config files, shared scripts) — these are the highest-risk files in concurrent-session environments.
 
 ### Step 5: Local Cleanup
 

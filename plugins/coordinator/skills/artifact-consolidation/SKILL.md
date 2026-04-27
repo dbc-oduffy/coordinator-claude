@@ -80,7 +80,7 @@ Run this phase first, always. Present the results to the PM before proceeding.
 
 1. **Create a safety commit** before any deletions:
    ```
-   git add -A && git commit -m "pre-consolidation checkpoint"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-consolidation checkpoint"
    ```
 
 2. **Delete PRUNE-classified files** using `git rm` (so deletions are tracked in git history):
@@ -92,7 +92,7 @@ Run this phase first, always. Present the results to the PM before proceeding.
 
 4. **Commit the consolidation:**
    ```
-   git add -A && git commit -m "artifact consolidation: pruned N plans, N handoffs, N task dirs"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "artifact consolidation: pruned N plans, N handoffs, N task dirs"
    ```
 
 5. **Report results:**

@@ -229,7 +229,7 @@ Present to PM:
 ## Phase 5: Apply and Clean (Coordinator-orchestrated, Sonnet-applied)
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
-1. **Safety commit:** `git add -A && git commit -m "pre-distillation checkpoint"`
+1. **Safety commit:** `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-distillation checkpoint"`
 
 2. **Split apply work across 2-3 Sonnet apply-agents (parallel where possible).**
 
