@@ -37,6 +37,13 @@ Generate a filename: `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_{session-id}.md` wher
 Write the file with this structure:
 
 ```markdown
+---
+workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
+scope:                              # git pathspec syntax — files this workstream owns
+  - path/to/file.md
+  - dir/with/files/**
+---
+
 # Session Handoff — [DATE]
 
 ## What Was Accomplished
@@ -134,11 +141,11 @@ Update the documents that future sessions read for orientation — closing the r
    - Make a mental (or explicit) list of the files this workstream edited this session (typically small: the handoff doc itself, `tasks/` files, and any late-session work).
    - `git add <path1> <path2> ...` — name each path explicitly.
    - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
-2. If there are staged changes, commit with a workstream-scoped message:
+2. If there are staged changes, commit using the scoped helper — it reads `workstream:` and `scope:` from the handoff doc's frontmatter and stages only the declared paths:
    ```
-   git commit -m "handoff quick-save: <workstream>"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "handoff quick-save: <workstream>"
    ```
-   where `<workstream>` is the slug from the handoff doc filename (e.g., `handoff quick-save: scoped-safety-commits`).
+   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `--scope-from` flag reads `scope:` as git pathspec entries and stages only those paths — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`).
 3. **Pushing:** The post-commit hook handles pushing to branch automatically.
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main

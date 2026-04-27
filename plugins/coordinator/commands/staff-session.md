@@ -277,7 +277,7 @@ When you receive a notification that the synthesizer task is complete:
 
 4. Commit the output:
    ```bash
-   git add -A && git commit -m "staff-session: {mode} — {topic-slug}"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "staff-session: {mode} — {topic-slug}"
    ```
 
 5. Archive the paper trail:
@@ -298,7 +298,7 @@ When you receive a notification that the synthesizer task is complete:
 
 8. Commit cleanup:
    ```bash
-   git add -A && git commit -m "staff-session: archive + cleanup"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "staff-session: archive + cleanup"
    ```
 
 9. Present output to PM:

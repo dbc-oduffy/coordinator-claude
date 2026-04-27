@@ -39,7 +39,7 @@ When invoked, systematically update all documentation artifacts to match reality
 Commit everything before updating documentation — captures all uncommitted changes from any source.
 
 1. **Branch guard:** If on `main`, create a work branch first (`work/{machine}/{date}`) and switch to it. Never commit directly to main — the repo's merge policy (PR + CI) is the only path to main.
-2. `git add -A` and commit with a lightweight message: `"pre-docs quick-save"`
+2. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-docs quick-save"`
 3. If nothing to commit, move on
 4. Do not push yet — push happens in Phase 9 after all docs are updated
 
@@ -189,7 +189,7 @@ Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/s
 
 #### Phase 9: Commit + Verify Remote
 
-1. `git add -A` and commit: `"docs maintenance"`
+1. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "docs maintenance"`
    (The post-commit hook will auto-push on work/feature branches.)
 2. **Verify remote is synced:** `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
    If unpushed commits remain, push explicitly.

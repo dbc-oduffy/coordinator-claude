@@ -46,6 +46,22 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 7. **Output:** Chunk table with pattern assignments + test runner command.
 
+## Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
+
+**Before dispatching any Phase 1 agents, verify that known backlog items are still applicable.**
+
+If this sweep is re-running against a prior bug backlog (`tasks/bug-backlog.md`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
+
+1. Read each cited file:line — does the bug pattern still exist in HEAD?
+2. Check recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
+3. Return a `still-open` / `already-fixed` verdict per item
+
+Drop `already-fixed` items from the dispatch queue before any Phase 1 agents are launched.
+
+**Why verify first:** In one measured run, 11 of 20 backlog items were already fixed before dispatch — fixes landed through other workstreams without updating the tracker. Dispatching agents on ghost debt wastes time and produces false findings.
+
+**P0/P1 verification gate** (fifa T1.5, paired with E1.6): Before fixing any item that is or will be classified P0 or P1, the EM (or a verifier subagent) must read the cited code and confirm the claim against current source — not the agent's paraphrase. Bug-sweep Sonnet agents have a 100% false positive rate on P0 claims in their 2026-03-19 sweep. P2 and lower-confidence findings had a much better hit rate (~60%).
+
 ## Phase 1: Search + Test (dispatch leaf agents, parallel)
 
 **Three parallel tracks:**
@@ -102,15 +118,6 @@ Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks
 ## Phase 2: Triage (~5 min, YOU do this)
 
 Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_VERIFY = true`, this includes Track C docs-checker reports — merge their INCORRECT and suspicious-UNVERIFIED findings into the main finding list before categorizing.
-
-### Step 2.0: Verify Findings Against Current Code
-
-Dispatch one Haiku agent per chunk with `model: "haiku"`. Each agent receives the findings for its chunk and:
-1. Reads each cited file:line — does the code the agent described actually exist there?
-2. Checks recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
-3. Returns a verified/stale verdict per finding
-
-Drop all stale findings before categorizing.
 
 ### Step 2.1: Categorize
 
@@ -179,8 +186,7 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
 
 1. **Commit fixes:**
    ```bash
-   git add -A
-   git commit -m "bug-sweep: fixed N bugs across M files"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "bug-sweep: fixed N bugs across M files"
    ```
 
 2. **Update bug backlog** (`tasks/bug-backlog.md`) — only if there are genuinely blocked items:
