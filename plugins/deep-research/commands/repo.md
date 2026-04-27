@@ -404,7 +404,7 @@ When you receive a notification that the synthesis task is complete:
 6. If `--deepest`: proceed to **Step 7.5** before archiving. Otherwise, skip to step 7.
 7. Commit:
    ```bash
-   git add -A && git commit -m "deep-research: complete — {topic-slug}"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: complete — {topic-slug}"
    ```
 8. Archive paper trail:
    ```bash
@@ -412,7 +412,7 @@ When you receive a notification that the synthesis task is complete:
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
    rm -rf {scratch-dir}
    ```
-9. Commit: `git add -A && git commit -m "deep-research: archive + cleanup"`
+9. Commit: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup"`
 10. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations.
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
