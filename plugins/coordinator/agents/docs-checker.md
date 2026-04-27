@@ -142,3 +142,7 @@ Self-monitor for stuck patterns. If 3+ consecutive tool calls return empty resul
 3. Include a summary at the end of the report: "Verification degraded after N consecutive tool failures — partial results."
 
 Do not retry the same tool call with identical parameters. If `quick_ue_lookup` returns nothing, try `lookup_ue_class` or `search_ue_docs` once before marking as unverified.
+
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).
