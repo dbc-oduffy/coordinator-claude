@@ -92,6 +92,24 @@ You: [Fix progress indicators]
 - Review before merge
 - Review when stuck
 
+## Matching Review Tier to Plan Complexity
+
+**Match review tier to plan complexity, not plan importance.**
+
+Staff sessions (2+ reviewers + synthesizer) are for contested architectural decisions or cross-domain plans where multiple expert perspectives are genuinely needed and may contradict each other. Most plans — even important ones — need a single domain reviewer routed through `/review-dispatch`.
+
+Routing every "important" plan to a staff session burns budget without finding more bugs. Importance is not the trigger; genuine multi-perspective contention is.
+
+| Situation | Correct tier |
+|-----------|--------------|
+| New feature implementation, single domain | `/review-dispatch` → one reviewer |
+| Cross-domain plan (e.g., UE + data pipeline) | `/review-dispatch` → two sequential reviewers |
+| Contested architectural choice with 2+ valid approaches | Staff session |
+| "This is important, I want it done right" | `/review-dispatch` → one reviewer |
+| Plan touches auth, security, billing — high stakes but clear approach | `/review-dispatch` → one reviewer |
+
+The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
+
 ## Red Flags
 
 **Never:**

@@ -122,6 +122,40 @@ git commit -m "feat: add specific feature"
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
+## Hard Constraints for Executor-Bound Plans
+
+These apply to any plan that will be handed to an executor agent. Violations here are the most common source of scope bleed and unauthorized work.
+
+### (a) Executor specs must include explicit file-scope constraints
+
+"Restructure the cheatsheets" or "fix the auth module" is insufficient — an executor without a scope constraint will modify adjacent files, run scripts, and create unauthorized commits. Every executor-bound stub MUST include a constraint block:
+
+```markdown
+**Scope constraint:** Only edit files matching `<pattern>`. Do NOT modify files outside that scope. Do NOT run scripts beyond `<allowed list>`. Do NOT create commits.
+```
+
+Name the allowed paths explicitly. If the stub says "update the config files," list them by path — don't rely on the executor to infer scope.
+
+### (b) Orchestrator agents in plans must be read-only planners
+
+The Agent tool is single-level nesting — subagents cannot spawn further subagents. When a plan calls for an agent that decomposes work and "dispatches sub-tasks," that agent MUST be configured as a read-only planner:
+
+- No `Agent` tool in its `allowed-tools`
+- No `execute-*` tools either (omni-tool gravity: if the tool is present, the agent will use it)
+- Sub-task dispatch happens back at the EM level, not nested inside the orchestrator
+
+If a plan step says "an orchestrator agent will analyze and dispatch," rewrite it: "orchestrator agent analyzes and returns a briefing; EM dispatches sub-tasks based on briefing."
+
+### (c) Cross-plan reconciliation is a separate pass
+
+When plan A depends on plan B — shared paths, asset names, API contracts — a reviewer of A in isolation cannot see contradictions with B. Plans that interlock require an explicit cross-plan reconciliation step:
+
+- Read both plans' cross-references side by side
+- Verify mount paths, asset names, and assumed APIs align
+- Document any conflicts before execution begins
+
+**In the plan document itself:** If interlocking plans exist, add a `**Depends on:**` line in the header and a reconciliation checklist as the final pre-execution step. Do not leave this implicit.
+
 ## Plan Review Gate (Mandatory)
 
 After saving the plan, it MUST go through one review cycle before execution. This catches structural problems while they're cheap to fix — before enrichment and execution invest real work.

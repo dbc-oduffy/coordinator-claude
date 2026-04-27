@@ -53,6 +53,14 @@ The same delegation principle applies to web research. When the EM needs to look
 
 **The default posture:** Before opening WebSearch, pause — is this a question a Sonnet scout could answer better with a proper sweep than I'd do with one or two reactive queries?
 
+## Scouts That Produce File Output — Mandatory DONE-After-Write
+
+When dispatching any scout (codebase, internet research, MCP probe, anything) whose deliverable is a file on disk rather than a chat reply, the dispatch prompt MUST end with:
+
+> Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+
+After the scout returns, verify the file exists before acting on its claimed deliverable. If the file is missing, recover via `SendMessage` to the scout (preserves analysis) rather than redispatching from scratch. This protects against the ~10% rate of agents that compose excellent output then forget to call Write.
+
 ## Plan-First Workflow
 
 - Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches, or work that would be expensive to redo. Step count alone isn't the trigger; a 5-step mechanical task doesn't need a plan, but a 2-step task with real tradeoffs does.
@@ -87,6 +95,10 @@ When a conversation produces substantive research — landscape surveys, compara
 - **Multi-persona reviews are always sequential, never parallel.** Run them one after another and integrate Reviewer 1's findings before dispatching Reviewer 2.
 - **After every review, dispatch the review-integrator agent — do not integrate findings manually.** The EM's job is to review the integrator's escalation list, spot-check the diff, and resolve any disagreements. Only after that does Reviewer 2 (if any) see the evolved artifact.
 - The only exceptions to full integration: items requiring PM input (flag them) or genuine disagreement (state it explicitly and bring to PM).
+
+## Reviewer Findings — Apply, Don't Ratify
+
+**Don't ratify tradeoff-free quality fixes.** When a reviewer (Patrik, Sid, Camelia, Palí, Fru) surfaces a concrete correctness fix with no product tradeoff — wrong API name, wrong precedence, factual error, missing import, broken assumption — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, "match competitor X vs. exceed them," architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation, and it slows the loop the structural pipeline exists to speed up.
 
 ## Task Management
 

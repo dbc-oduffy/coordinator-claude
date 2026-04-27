@@ -33,6 +33,26 @@ For each finding in the list:
 
 For markdown/documentation files, use HTML comments or context-appropriate notation.
 
+### Pattern Findings — Sibling Sweep Before Closing
+
+When a reviewer finding describes a **pattern** rather than a **spot bug**, perform a sibling sweep before marking it applied.
+
+**Pattern-shaped finding:** "this anti-pattern: early-return without OutResult population" — the finding is about a recurring shape across the codebase, not a single location. The integrator must:
+1. `grep` the codebase for sibling occurrences of the same shape
+2. Apply the fix to all siblings, not just the file the reviewer cited
+3. Report sibling-sweep results in the completion report so the EM sees the full footprint
+
+**Spot-shaped finding:** "line 42 has the wrong constant" — one location, one fix. Apply only there.
+
+**How to distinguish:** A finding is pattern-shaped if it:
+- Uses generalizing language ("this pattern", "always", "any X that Y")
+- References a category of code rather than a specific location
+- Implies a policy the codebase should follow consistently
+
+When in doubt, do the grep — false-positive sweeps cost one tool call; missed siblings recur in the next review.
+
+**Completion report:** Add a `Sibling Sweep` column to the triage table for pattern-shaped findings, noting files affected and whether additional fixes were applied.
+
 ### Complexity Threshold — When NOT to Apply Inline
 
 If a finding requires ANY of:

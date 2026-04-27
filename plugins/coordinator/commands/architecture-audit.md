@@ -16,7 +16,9 @@ Produce a comprehensive **architecture atlas** — function-level connectivity m
 
 **Core principle:** Each model tier does what it's best at. Haiku inventories mechanically (cheap, parallel). Sonnet analyzes and diagrams (analytical depth). Opus synthesizes cross-system connectivity (highest judgment). Don't waste expensive models on cheap work.
 
-**Sub-chunking principle:** Any system with >12 files splits into sub-chunks of 8-12 files grouped by concern before dispatching.
+**Sub-chunking principle:**
+- **First run (Phase 1, full inventory):** Any system with >12 files splits into sub-chunks of **8-12 files** grouped by concern.
+- **Refresh (Phase 1R, delta-only):** Phase 1R inventories ONLY new/changed symbols — not every function — so each Haiku can absorb a much larger file count tractably. Use sub-chunks of **30-60 changed files**. Empirically this cuts wall-clock ~3x vs. the default chunk size on large refresh runs (e.g., 27-Haiku audits) without degrading delta quality. Do NOT apply this widening to first-run / full inventories.
 
 **Not for:** Weekly spot-checks (use weekly-architecture-audit), daily commit reviews (use daily-code-health), or one-off investigation.
 
@@ -91,6 +93,8 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 **Scratch path:** `tasks/scratch/deep-architecture-audit/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
 
 **Scratch verification:** Before Phase 2, verify all expected files exist. Re-dispatch once on missing. Skip sub-chunk on second failure.
+
+**Inline-markdown failure mode:** ~10% of Haiku Phase 1/1R agents return the inventory as inline markdown in their reply instead of calling Write — even when the prompt names the path. Detect by: scratch file missing/empty AND the agent's reply contains a heavy markdown body (e.g., multiple `### ` headings or >100 lines of structured output). On detection, re-dispatch with this prefix prepended to the prompt: `CRITICAL: Inline markdown is unacceptable. You MUST call the Write tool with file_path="[SCRATCH_PATH]" or your task fails. Do not return the inventory in your reply.` This recovery prompt has reliably converted inline-output Haikus on retry.
 
 ## Phase 2/2R: System Analysis (dispatch Sonnet agents, parallel)
 
@@ -174,6 +178,8 @@ The Opus agent produces all atlas artifacts:
 | >12 files per agent | Sub-chunk to 8-12 files before dispatch |
 | ASCII diagrams too wide | Template says "max 100 chars, split if needed" |
 | Custom prompts instead of templates | Copy template verbatim from agent-prompts.md |
+| Haiku returns inline markdown instead of calling Write | Phase 1/1R templates carry MANDATORY Write framing; on detection (empty scratch + heavy markdown reply), re-dispatch with the CRITICAL prefix shown in Phase 1 Scratch verification |
+| Phase 1R refresh runs slow due to over-narrow chunking | Use 30-60 changed files per Haiku for refresh (Phase 1R is delta-only); keep 8-12 only for first-run full inventories |
 | Opus context overflow | Summarize Phase 2 to boundary catalogs if >80K tokens |
 | Partial write on failure | Atomic commit in Phase 4; failure leaves previous atlas intact |
 | Grades added during discovery | Templates enforce observations only; weekly audit adds grades |
