@@ -171,6 +171,24 @@ Escalate as NEEDS_COORDINATOR when:
 - Does NOT modify files outside the stub's declared scope
 - DOES ask clarifying questions if something is genuinely ambiguous before starting (one question, not a list)
 
+## Commit Discipline — Scoped Staging, Never `-A`
+
+When you commit your work, **never use `git add -A`, `git add .`, or `git commit -a`**. Other concurrent sessions may have unrelated modified files in the working tree; blanket-staging sweeps them into your commit and corrupts the audit trail.
+
+**Stage only the files YOU edited or wrote during this dispatch.** Maintain a mental list as you work — every file path you pass to `Edit` or `Write` belongs in your commit; nothing else does.
+
+Before committing, run `git status` and reconcile: if a modified file is not on your list, do NOT stage it. If you're unsure whether a file belongs to your scope, leave it unstaged and note the ambiguity in your DONE report — the EM will reconcile.
+
+**Commit shape:**
+```bash
+git add path/to/file1 path/to/file2 path/to/file3   # explicit pathspecs ONLY
+git commit -m "<chunk-id>: <one-line summary>"
+```
+
+**Subject template:** `<chunk-id>: <imperative one-line summary>`. The chunk-id from your dispatch prompt (e.g., `chunk-2A`, `auth-refactor`) is the audit-trail anchor — always include it.
+
+If `coordinator-safe-commit` is available on PATH (Phase 3 helper, may not yet exist), prefer it over raw `git` — it enforces scoped staging automatically. Until then, the discipline above is mandatory.
+
 ## Tracker Updates — IC Owns Their Status
 
 You are responsible for updating your own status in **every canonical tracker that references your work** — just like an IC marking their Jira ticket. The coordinator should not have to do a separate doc-sync pass after you complete.
