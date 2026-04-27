@@ -53,6 +53,28 @@ The same delegation principle applies to web research. When the EM needs to look
 
 **The default posture:** Before opening WebSearch, pause — is this a question a Sonnet scout could answer better with a proper sweep than I'd do with one or two reactive queries?
 
+## Agent Prompts Are Self-Contained
+
+Dispatched agents see only their own prompt. Project-level and global CLAUDE.md files are invisible to subagents — they read nothing outside the prompt sent to them. Any rule, constraint, or norm that governs a delegate's behavior must appear verbatim in the dispatch prompt, not merely in the EM's CLAUDE.md.
+
+The scout-DONE-after-Write block below is the canonical example of this principle in action: the instruction appears inline in the prompt, not assumed from system context.
+
+## Adding a Convention to the Coordinator System
+
+When introducing a new coordinator convention, enumerate every contact-point that must reference it before considering the rollout complete:
+
+- **Onboarding scaffold** — does `/project-onboarding` surface it?
+- **Session-start** — does `/session-start` or `session-start.md` prompt for it?
+- **Session-end checklist** — does `/session-end` reinforce or enforce it?
+- **Relevant hook** — is there a PostToolUse or SubagentStop hook that catches violations?
+- **Canonical artifact** — is the phrase greppable from at least one per-project file an agent will encounter?
+
+Process alone fails. If the phrase is only in CLAUDE.md and not greppable from the surfaces agents actually touch during work, the convention will decay. Prefer belt-and-suspenders: process + greppable anchor at every contact-point.
+
+## Agent Teams Pipelines
+
+**`blockedBy` is a gate, not a trigger.** A teammate that starts, checks `blockedBy`, and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up message in the unblocker's done-protocol.
+
 ## Scouts That Produce File Output — Mandatory DONE-After-Write
 
 When dispatching any scout (codebase, internet research, MCP probe, anything) whose deliverable is a file on disk rather than a chat reply, the dispatch prompt MUST end with:
@@ -60,6 +82,15 @@ When dispatching any scout (codebase, internet research, MCP probe, anything) wh
 > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 
 After the scout returns, verify the file exists before acting on its claimed deliverable. If the file is missing, recover via `SendMessage` to the scout (preserves analysis) rather than redispatching from scratch. This protects against the ~10% rate of agents that compose excellent output then forget to call Write.
+
+**Exception — `Explore` subagents:** Explore is read-only and cannot Write. When dispatching Explore for an audit or inventory deliverable, the EM is responsible for persisting each return to disk before integrating. Do not ask Explore for `DONE: <path>` — it cannot produce one. Use `general-purpose` scouts when an on-disk deliverable is required.
+
+## Verifying Scout Deliverables
+
+After confirming a scout's file exists:
+
+- **Write fallback (Sonnet permission errors):** If Write is denied — Sonnet scouts sometimes hit permission errors — fall back to `Bash` with `node -e "require('fs').writeFileSync(path, content)"` or `python -c` equivalent. Do not redispatch the agent over a tool-permission failure.
+- **Size threshold:** After confirming the file exists, eyeball its size against the expected deliverable. A research doc returning 1-2KB is almost always a summary masquerading as the real artifact. Set an order-of-magnitude expectation in the dispatch prompt ("expect 5-15KB"); treat undersized output as a failed run requiring recovery, not a success.
 
 ## Plan-First Workflow
 
@@ -74,6 +105,21 @@ After the scout returns, verify the file exists before acting on its claimed del
 - **Keep entries tight: bold title + 1-2 sentence rule. Max 3 lines per entry.** This file is read every session — don't bloat it.
 - **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it via the `lessons-trim` skill. Entries that no longer belong in `lessons.md` should be **migrated to wiki guides** (`docs/wiki/`) rather than discarded — they are battle stories, and losing the ability to grep for them is a real cost. Only discard pure task-state entries with no extractable pattern.
 
+### Capturing Lessons That Should Promote
+
+When writing a new lesson, classify it before committing: **tier-1** (universal -- would apply to any project type: UE, web, data, research) or **tier-2** (project-specific). If tier-1:
+
+1. Tag the lesson in `tasks/lessons.md` with a `[universal]` marker for traceability.
+2. Append a one-liner to the global queue at `~/.claude/tasks/coordinator-improvement-queue.md`:
+   ```
+   - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
+   ```
+
+The classification question is tight: "If a different project type also used the coordinator pipeline, would this rule apply to them?" If yes -> tier-1. If no -> tier-2.
+
+The global queue is consumed by `/workday-start` and `/workday-complete`; triage runs when queue depth >= 5 or oldest entry > 14 days. See `docs/` for reference notes on hook authoring and subprocess contracts.
+
+
 ## Documentation and Knowledge System
 
 The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
@@ -84,6 +130,8 @@ The project's accumulated knowledge lives in `docs/` under a wiki system maintai
 - **`docs/research/`** — timestamped research outputs from `/deep-research` pipelines. Source files are preserved permanently. Key findings are extracted into the relevant wiki guide by `/distill` (PROMOTE classification).
 
 When a conversation produces substantive research — landscape surveys, comparative analyses, technical investigations — save as a timestamped markdown file in `docs/research/YYYY-MM-DD-topic.md`. If no `docs/` directory exists, save to `~/docs/research/YYYY-MM-DD-topic.md` — the central fallback.
+
+**Memory is for cross-session pointers and lightweight orientation, not decision content.** Decisions, frameworks, and adoption strategies belong in the plan, wiki guide, or DR -- places that get loaded into context when the work resumes. If a memory entry grows beyond a one-line pointer + link, migrate the body to a wiki/DR and leave the pointer behind.
 
 ## Verification Before Done
 
@@ -96,9 +144,31 @@ When a conversation produces substantive research — landscape surveys, compara
 - **After every review, dispatch the review-integrator agent — do not integrate findings manually.** The EM's job is to review the integrator's escalation list, spot-check the diff, and resolve any disagreements. Only after that does Reviewer 2 (if any) see the evolved artifact.
 - The only exceptions to full integration: items requiring PM input (flag them) or genuine disagreement (state it explicitly and bring to PM).
 
+## Synthesis Discipline
+
+**Synthesizers don't rewrite — they assess, fill, and frame.** A synthesizer's job is (1) assess the combined inputs, (2) fill gaps via fresh research, (3) frame for the reader — never re-author specialist content. If the synthesizer is producing prose the specialists already wrote, the pipeline is leaking detail.
+
+Empirically, rewriting-synthesizers drop edge cases (+25-33pp), nuanced facts (+19-21pp), and cross-topic relationships (+42pp) vs. solo runs. If synthesizer output reads like a condensed version of the specialists' prose, treat that as a pipeline failure — not a style choice.
+
 ## Reviewer Findings — Apply, Don't Ratify
 
 **Don't ratify tradeoff-free quality fixes.** When a reviewer (Patrik, Sid, Camelia, Palí, Fru) surfaces a concrete correctness fix with no product tradeoff — wrong API name, wrong precedence, factual error, missing import, broken assumption — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, "match competitor X vs. exceed them," architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation, and it slows the loop the structural pipeline exists to speed up.
+
+**Exception — math, algebraic, and precedence claims:** A single agent's math or symbolic-reasoning finding requires independent verification before applying — re-derive it, run a quick test, or cross-check with a second agent. Confidence in tone correlates poorly with correctness in symbolic reasoning.
+
+## Convergence as Confidence
+
+When N>=2 independent agents flag the same issue from different entry points, treat as high-confidence and dispatch a fix without further verification. Single-agent findings -- especially math, logic, or precedence claims -- require a verification pass before action.
+
+The threshold is independence and different entry points, not raw count. Two agents both reading the same parent document and echoing it do not constitute convergence.
+
+## P0/P1 Verification Gate
+
+*(fifa T1.5, paired with E5.2)*
+
+P0 and P1 severity claims from sweep agents have a poor track record -- in one measured sweep, both P0 claims were wrong (FBref comment stripping was intentional design; the FM API timeout was a misidentification). Before acting on any P0 or P1, the EM or a verifier subagent must read the cited code and confirm the claim against current source -- not the agent's paraphrase.
+
+This gate is distinct from the tradeoff-free quality-fix carve-out: even when a P0 finding looks tradeoff-free, verify first. High-confidence framing pressures the model to commit; that pressure inverts the hit rate.
 
 ## Task Management
 
@@ -113,6 +183,7 @@ Two tracking layers serve different purposes:
 - **Work happens on branches.** Default: `work/{machine}/{YYYY-MM-DD}`. Create at session start if not already on a non-main branch. `main` is "known-good" — only merged via PR.
 - **Commits are quick-saves.** Commit at natural checkpoints. Don't wait to be asked.
 - **Use `/merge-to-main`** or `/workday-complete` to integrate to main. Never push directly.
+- **Scoped staging is the default. Never use `git add -A` or `git add .` for routine commits.** Blanket staging creates audit-trail-misleading commits when concurrent sessions are active — the commit subject narrates one workstream while the staged files include another's edits. Instead, stage explicitly by path and use the canonical helper: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. The helper wraps scoped staging and enforces the norm by default. Two ceremonies are exempt: `/session-start` (deliberate pre-orientation capture of loose state) and `/workday-complete` (intentional end-of-day sweep) — both use `--blanket` with the helper, e.g. `CLAUDE_INVOKING_COMMAND=session-start ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "chore: session-start sweep — pre-orientation capture"`. For genuine emergencies outside those ceremonies, `COORDINATOR_OVERRIDE_SCOPE=1` is the audited escape hatch — use it only when you can name what you are sweeping and why.
 
 ## Core Principles
 
