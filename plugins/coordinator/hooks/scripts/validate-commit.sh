@@ -101,9 +101,107 @@ if [[ -n "$JSONL_FILES" ]]; then
   done <<< "$JSONL_FILES"
 fi
 
+# --- Check 5: Scoped staging — Bash-PreToolUse scope guard (warn-only in Phase 2) ---
+# Fires only on `git commit` (already gated above). Compares staged files against
+# the current session's scope (touched.txt union mtime-dirty, minus other sessions)
+# per Phase 2 of scoped-safety-commits plan.
+#
+# Phase 2 behavior: warn-only. Foreign files are logged to scope-warnings.log and
+# added to WARNINGS — commit is never blocked here (COORDINATOR_SCOPE_STRICT unset).
+# Strict-mode blocking is dormant until Phase 5 predicate is met.
+
+# Extract session_id from the hook input JSON already parsed at top of file.
+if command -v jq &>/dev/null; then
+  SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+else
+  SESSION_ID=$(echo "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+fi
+
+SCOPE_FOREIGN_FILES=""
+
+if [[ -n "$SESSION_ID" ]]; then
+  # Locate .git root for session dir resolution
+  GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  SESSION_DIR="${GIT_ROOT}/.git/coordinator-sessions/${SESSION_ID}"
+
+  if [[ -d "$SESSION_DIR" ]]; then
+    # Source the session library
+    LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-session.sh"
+    if [[ ! -f "$LIB_PATH" ]]; then
+      LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+    fi
+
+    if [[ -f "$LIB_PATH" ]]; then
+      # shellcheck source=/dev/null
+      source "$LIB_PATH"
+
+      # Compute MY_SCOPE (stdout = scope paths; stderr = skip/orphan diagnostics)
+      MY_SCOPE=$(cs_compute_scope "$SESSION_ID" 2>/dev/null || true)
+
+      # Check each staged file against MY_SCOPE
+      while IFS= read -r staged_file; do
+        [[ -z "$staged_file" ]] && continue
+
+        # Check if staged_file is in MY_SCOPE
+        if ! echo "$MY_SCOPE" | grep -qxF "$staged_file" 2>/dev/null; then
+          # Foreign file — determine if owned by another session or orphan
+          OWNER_SESSION=""
+          if [[ -d "${GIT_ROOT}/.git/coordinator-sessions" ]]; then
+            for other_sdir in "${GIT_ROOT}/.git/coordinator-sessions"/*/; do
+              [[ -d "$other_sdir" ]] || continue
+              other_id=$(basename "$other_sdir")
+              [[ "$other_id" == "$SESSION_ID" ]] && continue
+              [[ "$other_id" == ".archive" ]] && continue
+              if [[ -f "${other_sdir}/touched.txt" ]] && grep -qxF "$staged_file" "${other_sdir}/touched.txt" 2>/dev/null; then
+                OWNER_SESSION="$other_id"
+                break
+              fi
+            done
+          fi
+
+          if [[ -z "$OWNER_SESSION" ]]; then
+            OWNER_LABEL="orphan"
+          else
+            OWNER_LABEL="session ${OWNER_SESSION}"
+          fi
+
+          # Log structured entry to scope-warnings.log
+          WARN_LOG="${SESSION_DIR}/scope-warnings.log"
+          WARN_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+          echo "${WARN_TS} | ${SESSION_ID} | foreign-staged | ${staged_file} | owner:${OWNER_LABEL} | pending-resolution" >> "$WARN_LOG" 2>/dev/null || true
+
+          # Accumulate human-readable warning
+          WARNINGS="${WARNINGS}\nSCOPE: ${staged_file} is staged but not in this session's touch list — likely owned by ${OWNER_LABEL}. Strict mode would block this commit."
+
+          # Accumulate for strict-mode block below
+          SCOPE_FOREIGN_FILES="${SCOPE_FOREIGN_FILES} ${staged_file}"
+        fi
+      done <<< "$STAGED"
+    fi
+  fi
+fi
+
 # Print warnings (non-blocking) and always allow commit
 if [[ -n "$WARNINGS" ]]; then
   echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+fi
+
+# NOTE: exit 2 may need to be exit 1 or stderr-message-based — verify Claude Code
+# PreToolUse deny contract before setting COORDINATOR_SCOPE_STRICT=1 in Phase 5.
+
+# Strict-mode block (Phase 5 — gated on COORDINATOR_SCOPE_STRICT=1)
+if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; then
+  echo "BLOCKED: commit contains files outside this session's scope:" >&2
+  echo "$SCOPE_FOREIGN_FILES" >&2
+  echo "" >&2
+  echo "Override: set COORDINATOR_OVERRIDE_SCOPE=1 to commit anyway (logged to overrides.log)." >&2
+  echo "Or use the scoped helper: ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \"<subject>\"" >&2
+  # If the override env var is set, log and allow:
+  if [[ "${COORDINATOR_OVERRIDE_SCOPE:-0}" == "1" ]]; then
+    echo "$(date -Iseconds) | $SESSION_ID | OVERRIDE | $SCOPE_FOREIGN_FILES" >> ".git/coordinator-sessions/$SESSION_ID/overrides.log" 2>/dev/null || true
+    exit 0
+  fi
+  exit 2  # PreToolUse deny code — VERIFY this is the correct deny exit code per Claude Code's hook contract before flipping the env var.
 fi
 
 exit 0
