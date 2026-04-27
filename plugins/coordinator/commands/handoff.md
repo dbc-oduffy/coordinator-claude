@@ -130,11 +130,15 @@ Update the documents that future sessions read for orientation — closing the r
 
 **Now** that the handoff is written, commit everything and verify remote sync.
 
-1. `git add -A` — stage everything, don't try to separate workstreams
-2. If there are staged changes, commit with a lightweight message:
+1. **Stage only paths this workstream touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
+   - Make a mental (or explicit) list of the files this workstream edited this session (typically small: the handoff doc itself, `tasks/` files, and any late-session work).
+   - `git add <path1> <path2> ...` — name each path explicitly.
+   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
+2. If there are staged changes, commit with a workstream-scoped message:
    ```
-   git commit -m "handoff quick-save"
+   git commit -m "handoff quick-save: <workstream>"
    ```
+   where `<workstream>` is the slug from the handoff doc filename (e.g., `handoff quick-save: scoped-safety-commits`).
 3. **Pushing:** The post-commit hook handles pushing to branch automatically.
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
