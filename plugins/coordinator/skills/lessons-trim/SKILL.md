@@ -27,6 +27,15 @@ Review `tasks/lessons.md` (global) and any `tasks/<feature>/lessons.md` files. T
 4. **Preserve** entries that are still actively saving time or preventing repeated mistakes — keep them in `lessons.md` for fast session-start access
 5. If a feature-scoped lessons file (`tasks/<feature>/lessons.md`) relates to completed work and all entries are either migrated or preserved in the global file, delete it
 
+**"Remind agent X to do Y" entries are NOT lessons — they are agent-prompt updates.** If a candidate lesson reads "remind reviewer/agent Y to check Z" or "prompt agent X to always do Y," the correct fix is to add Z directly to Y's agent definition. `lessons.md` is loaded by the EM, not by Y — storing a behavioral rule for Y in `lessons.md` is dead weight that never reaches the agent it's meant for.
+
+During trim, reclassify any such entry:
+1. Find the relevant agent file (e.g., `plugins/coordinator-claude/coordinator/agents/<agent-name>.md`)
+2. Add the substance of the lesson to that agent's prompt — in the appropriate behavioral section
+3. Delete the lesson entry from `lessons.md` entirely (do not migrate to wiki; this is a routing correction, not a battle story)
+
+If the agent file cannot be located or is read-only, escalate to the EM rather than leaving the lesson in place.
+
 **Migration mechanics:** When migrating an entry to a wiki guide, use the existing `docs/wiki/` structure. If no guide exists for the relevant system, create one or add a `## Gotchas` section to the closest existing guide. Update `docs/wiki/DIRECTORY_GUIDE.md` if you create a new guide.
 
 **Judgment call:** When in doubt, migrate rather than discard — the cost of a slightly long wiki page is lower than losing a hard-won implementation insight. But be honest: pure task-state entries with no pattern content should be discarded, not padded into artificial wiki prose.

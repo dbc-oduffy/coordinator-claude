@@ -43,17 +43,20 @@ relationships.
 **Sub-chunk label:** [SUB-CHUNK LABEL] (use "—" if this system has only one chunk)
 **Files to read:** [LIST OF DIRECTORIES/FILES]
 
-## Output Location
+## Output Location — MANDATORY Write Tool Call
 
-**IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
+**CRITICAL:** Your task completes ONLY when you have called the Write tool with your
+findings. Returning the inventory as inline markdown in your reply is **unacceptable
+and counts as task failure** — the coordinator reads from disk, not from your message.
 
-Use the Write tool to save your full findings to this file. Then return a brief summary
-(3-5 lines) to the coordinator confirming:
-1. File written at the path above
+**Required action:** Call `Write(file_path: "[SCRATCH_PATH]", content: <full inventory>)`.
+Then return a brief summary (3-5 lines) confirming:
+1. File written at [SCRATCH_PATH] (must be the exact path)
 2. Key metrics (files inventoried, findings count, etc.)
 3. Any blockers or anomalies encountered
 
-The coordinator reads your full output from disk. Do NOT return it in conversation.
+If you find yourself about to write the inventory inline in your reply, STOP and call
+Write instead. The full markdown body must live on disk, not in chat.
 
 For each file, produce:
 
@@ -113,17 +116,20 @@ files.
 **Sub-chunk label:** [SUB-CHUNK LABEL] (use "—" if this system has only one chunk)
 **Changed files to read:** [CHANGED FILES LIST]
 
-## Output Location
+## Output Location — MANDATORY Write Tool Call
 
-**IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
+**CRITICAL:** Your task completes ONLY when you have called the Write tool with your
+findings. Returning the inventory as inline markdown in your reply is **unacceptable
+and counts as task failure** — the coordinator reads from disk, not from your message.
 
-Use the Write tool to save your full findings to this file. Then return a brief summary
-(3-5 lines) to the coordinator confirming:
-1. File written at the path above
+**Required action:** Call `Write(file_path: "[SCRATCH_PATH]", content: <full inventory>)`.
+Then return a brief summary (3-5 lines) confirming:
+1. File written at [SCRATCH_PATH] (must be the exact path)
 2. Key metrics (files inventoried, findings count, etc.)
 3. Any blockers or anomalies encountered
 
-The coordinator reads your full output from disk. Do NOT return it in conversation.
+If you find yourself about to write the inventory inline in your reply, STOP and call
+Write instead. The full markdown body must live on disk, not in chat.
 
 ### Existing Atlas Entry (for reference — do not re-inventory unchanged content)
 [EXISTING ATLAS ENTRY]

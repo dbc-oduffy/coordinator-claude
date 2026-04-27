@@ -14,17 +14,20 @@ batch and extract structured knowledge nuggets.
 **Files to read:** [BATCH_FILES]
 **Format hints:** [FORMAT_HINTS]
 
-## Output Location
+## Output Location — MANDATORY Write Tool Call
 
-**IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
+**CRITICAL:** Your task completes ONLY when you have called the Write tool with your
+findings. Returning the nuggets as inline markdown in your reply is **unacceptable
+and counts as task failure** — the coordinator reads from disk, not from your message.
 
-Use the Write tool to save your full findings to this file. Then return a brief summary
-(3-5 lines) to the coordinator confirming:
-1. File written at the path above
+**Required action:** Call `Write(file_path: "[SCRATCH_PATH]", content: <full nugget extraction>)`.
+Then return a brief summary (3-5 lines) confirming:
+1. File written at [SCRATCH_PATH] (must be the exact path)
 2. Key metrics (files processed, nugget count by type, any files with zero nuggets)
 3. Any blockers or anomalies encountered
 
-The coordinator reads your full output from disk. Do NOT return it in conversation.
+If you find yourself about to write `[KNOWLEDGE:...]` or `[DECISION]` blocks inline
+in your reply, STOP and call Write instead. Nugget content must live on disk, not in chat.
 
 ## Nugget Types
 
@@ -108,17 +111,20 @@ You are a quality gate agent verifying Phase 1 artifact scanning output.
 **Original batch file list:** [BATCH_FILES]
 **Phase 1 output file:** [PHASE1_SCRATCH_PATH]
 
-## Output Location
+## Output Location — MANDATORY Write Tool Call
 
-**IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
+**CRITICAL:** Your task completes ONLY when you have called the Write tool with your
+findings. Returning the verdict inline in your reply is **unacceptable and counts as
+task failure** — the coordinator reads from disk, not from your message.
 
-Use the Write tool to save your full findings to this file. Then return a brief summary
-(3-5 lines) to the coordinator confirming:
-1. File written at the path above
+**Required action:** Call `Write(file_path: "[SCRATCH_PATH]", content: <full verification output>)`.
+Then return a brief summary (3-5 lines) confirming:
+1. File written at [SCRATCH_PATH] (must be the exact path)
 2. Your verdict (PASS / THIN / FAIL) and brief reasoning
 3. Any specific failures found
 
-The coordinator reads your full output from disk. Do NOT return it in conversation.
+If you find yourself about to write your verdict or coverage analysis inline in your
+reply, STOP and call Write instead. Verification output must live on disk, not in chat.
 
 ## Verification Checks
 
@@ -161,17 +167,20 @@ because total nuggets across all batches exceed the inline-processing threshold 
 
 **Input files:** [LIST_OF_PHASE1_SCRATCH_FILES]
 
-## Output Location
+## Output Location — MANDATORY Write Tool Call
 
-**IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
+**CRITICAL:** Your task completes ONLY when you have called the Write tool with your
+findings. Returning the clustering tables inline in your reply is **unacceptable and
+counts as task failure** — the coordinator reads from disk, not from your message.
 
-Use the Write tool to save your full findings to this file. Then return a brief summary
-(3-5 lines) to the coordinator confirming:
-1. File written at the path above
+**Required action:** Call `Write(file_path: "[SCRATCH_PATH]", content: <full clustering output>)`.
+Then return a brief summary (3-5 lines) confirming:
+1. File written at [SCRATCH_PATH] (must be the exact path)
 2. Number of topic clusters produced
 3. Total nuggets mapped (by type)
 
-The coordinator reads your full output from disk. Do NOT return it in conversation.
+If you find yourself about to write cluster tables or nugget mappings inline in your
+reply, STOP and call Write instead. Clustering output must live on disk, not in chat.
 
 ## Your Task
 

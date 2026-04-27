@@ -74,7 +74,23 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
 3. **Check the handoff's branch:** If the handoff specifies a `Branch:` in its "Current State" section AND it differs from your current branch, check out that branch (unless it's already been merged to main).
 
-4. **Report briefly — two lines max:**
+4. **Reconcile handoff items against git — MANDATORY before executing anything.**
+
+   Concurrent sessions and machines routinely close items the handoff still lists as open. Before acting on ANY item in "Recommended Next Steps," "In-Progress Work," or equivalent pending-work sections:
+
+   a. **Git log check:** Extract the handoff's written date from its filename or header (`YYYY-MM-DD`). Then run:
+      ```bash
+      git log --oneline --since="<handoff-date>" --all
+      ```
+      Scan commit subjects for key nouns from each pending item. A commit whose subject clearly matches an item is strong evidence that item shipped.
+
+   b. **Plan/stub status check:** For any pending item that references a plan or stub file (e.g., `docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file and check its `**Status:**` field. A stub the handoff calls "pending" but whose own status reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item.
+
+   c. **Drop confirmed-closed items.** Items verified as already shipped do NOT go into your session execution queue. Optionally note them inline as _"verified-closed since handoff"_ for the paper trail.
+
+   **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means redoing shipped work, conflicting with landed commits, or spawning duplicate executors.
+
+5. **Report briefly — two lines max:**
    ```
    Picked up: {handoff heading}
    Branch: {branch} | Next: {first recommended step, abbreviated}
@@ -97,3 +113,4 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
 - **Archiving:** The consumed marker (Step 5) signals that this handoff has been picked up. It will be archived on the next `/update-docs` run. Handoffs are never archived based on age alone — only when consumed via pickup, superseded by a successor, or when the PM explicitly directs it.
+- **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

@@ -65,11 +65,29 @@ Read all files in `tasks/handoffs/`. For each:
    - **Likely consumed** — work appears in the completed archive (cross-reference below)
 4. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
 5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
-6. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival."
+6. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.**
+
+   Concurrent sessions and machines routinely close items the handoff still lists as open. Before surfacing any "Recommended Next Steps," "In-Progress Work," or equivalent pending-work items from a handoff as today's action items:
+
+   a. **Git log check:** Extract the handoff's written date from its filename or header (`YYYY-MM-DD`). Then run:
+      ```bash
+      git log --oneline --since="<handoff-date>" --all
+      ```
+      Scan commit subjects for key nouns from each pending item. A commit whose subject clearly matches an item is strong evidence that item shipped.
+
+   b. **Plan/stub status check:** For any pending item that references a plan or stub file (e.g., `docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file and check its `**Status:**` field. A stub the handoff calls "pending" but whose own status reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item.
+
+   c. **Drop confirmed-closed items from the actionable list.** Items verified as already shipped do NOT surface as today's work. Note them in the report as _"verified-closed since handoff"_ so the PM sees the reconciliation was done.
+
+   **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means the Morning Briefing will recommend work that has already shipped, wasting the PM's attention on ghost items.
+
+7. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival. [X items across handoffs verified-closed by git reconciliation.]"
 
 **Why surface-only:** Handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do about it.
 
 **Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
+
+**Why git-reconcile pending items:** The completed archive records sessions that ran `/workday-complete` or `/update-docs` — it is not exhaustive. Executor sessions that commit and exit without ceremony never land in the archive. The git log is the authoritative record of what actually shipped; the archive is a secondary cross-check. Both checks together cover the failure modes the other misses.
 
 ## Step 2: Doc Freshness
 
@@ -286,5 +304,7 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
 ## Concurrent Session Safety
 
 workday-start is read-only for all project tracking files. It writes only one file: `tasks/.workday-start-marker`. Multiple sessions can safely read the same health files; the marker is a simple date string with no merge-conflict risk.
+
+**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1.6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
 
 If `$ARGUMENTS` is provided, include it as a focus hint in the Morning Briefing: _"Requested focus: {arguments}"_

@@ -10,6 +10,14 @@ Produce a daily work summary artifact and get a strategic architectural review. 
 
 **Announce at start:** "I'm running /daily-review to summarize today's work and get a strategic check."
 
+## Never Skip on a "Small" Day
+
+The strongest predictor of a review that surfaces regressions is a small commit count, not a large one. When today's work touched one code path, the adjacent or sibling path is the highest-probability next bug — and a quiet day is exactly when the EM and PM are most tempted to skip ("only 8 commits, nothing worth reviewing"). Empirically, that's where the architectural drift and silent regressions hide.
+
+**Run this review on every committed day, regardless of commit count.** The cost is ~7-11 minutes; the asymmetry strongly favors running it. A quiet day's review catches the regression a single fix introduced on a parallel handler. Skipping because the day felt small means the next session inherits the surprise.
+
+The only valid skip: **zero new commits today AND no agent-driven changes outside commits.** Anything else — one commit, one file — run the review.
+
 ## Output Artifact
 
 `archive/daily-summaries/YYYY-MM-DD.md` — a reusable daily summary that feeds:

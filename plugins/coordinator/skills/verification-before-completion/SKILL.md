@@ -74,6 +74,35 @@ Skip any step = lying, not verifying
 | "Partial check is enough" | Partial proves nothing |
 | "Different words so rule doesn't apply" | Spirit over letter |
 
+## Multi-File Executor Verification
+
+Two universal rules that apply after any executor or apply-agent dispatch:
+
+### (a) Diff is ground truth — not the agent's chat summary
+
+Executor and apply-agents consistently under-count their own work in chat (observed repeatedly in distill and architecture-audit runs). After any multi-file executor dispatch:
+
+1. Run `git diff --stat <expected-path-glob>` — treat the diff as ground truth, not the agent's completion report.
+2. **Empty diff for an agent that claimed work = re-dispatch** with the explicit list of unfinished files. Do not accept "I completed all files" alongside a zero-line diff.
+3. For spec-driven dispatches that mandate a canonical phrase or pattern across N files, also run `grep -l "<canonical phrase>" <target-files>`. File count alone is not proof — the canonical content must actually appear.
+
+### (b) Match verification to the change you made (L274)
+
+Verification must target the actual side effects of YOUR action. Running an unrelated expensive process ("ran the full test suite, all green") as "verification" of a one-line change is cargo-cult.
+
+- Made a code edit? Re-Read the file and grep for the changed symbol.
+- Added a pattern across files? `grep -l` the pattern across those files.
+- Fixed a specific code path? Exercise that path — don't just run unrelated tests.
+
+"I made the edit" without re-Read is an assertion, not evidence.
+
+| Verification Claim | Must Run | Not Sufficient |
+|--------------------|----------|----------------|
+| N files updated by executor | `git diff --stat` showing N files | Agent chat summary |
+| Canonical phrase applied across files | `grep -l "<phrase>" <targets>` | "All files processed" |
+| One-line bug fix | Re-Read file + grep for change | Full test suite passing |
+| Pattern applied consistently | Targeted grep on changed files | Build success |
+
 ## Key Patterns
 
 **Tests:**

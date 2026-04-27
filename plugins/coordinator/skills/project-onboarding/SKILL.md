@@ -245,6 +245,28 @@ The wiki system is now scaffolded at `docs/`:
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
 
+## Onboarding Bug Fixes — Three-Layer Rule
+
+When an onboarding or install failure is discovered and fixed, a single fix is not enough. A cohort of users already hit the failure and won't re-install. Any onboarding bug fix that doesn't ship all three layers will recur:
+
+**Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure. This is the obvious fix; it's necessary but not sufficient on its own.
+
+**Layer 2 — Reactive repair:** A `doctor`-style standalone script that:
+- **By default:** diagnoses the environment and reports what's wrong (non-destructive)
+- **With a flag** (e.g., `--fix`): applies the repair in place
+
+Users who already hit the failure won't re-run the full installer. They need a targeted recovery path that works against their existing broken state.
+
+**Layer 3 — Searchable docs:** A row in the troubleshooting table (or a new table if none exists) keyed on the **literal error text** the user would see. Search-reflex users paste the error into a search or into the docs — they need to land on the fix immediately.
+
+```markdown
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `ModuleNotFoundError: No module named 'X'` | Y was not installed | Run `doctor --fix` or `pip install X` |
+```
+
+**When onboarding flags a new failure:** Before closing the fix, verify all three layers exist. If a layer is missing, create it as part of the same fix — not a follow-up task.
+
 ## Notes
 
 - This skill creates the **skeleton**. The tracker-maintenance skill (invoked by `/update-docs`) handles ongoing maintenance.
