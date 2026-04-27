@@ -38,6 +38,17 @@ Before beginning work, review any ANTI-REPETITION section in your dispatch promp
 
 **Recovery:** Choose a fundamentally different approach. If no alternative exists, report BLOCKED with Type: Structural — "All known approaches exhausted."
 
+## Stuck Teammates: Protect the Work First
+
+Some Agent Teams teammates enter an idle loop where they stop processing shutdown requests and plain-text messages. `TeamDelete` rejects while they are "active." There is no clean live-kill mechanism — they will eventually time out on their own.
+
+**Before attempting any cleanup of a stuck teammate:**
+1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
+2. **Archive the deliverable** — if the session's output is a file, verify it exists on disk and is substantive before attempting team teardown.
+3. **Then** attempt shutdown/TeamDelete. If it fails, leave the agent to time out. The work is safe.
+
+The stuck agent's timeout does not block the session from advancing. Once deliverables are committed and archived, the EM can proceed to the next phase or close the session.
+
 ## When Stuck Detection Triggers
 
 - Report the pattern you detected (1-5)

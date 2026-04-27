@@ -157,10 +157,10 @@ mv docs/research/archive/YYYY-MM-DD-{topic-slug}/ docs/research/{topic-slug}/YYY
 After each phase's workers complete and output is verified, the command commits:
 
 ```bash
-git add -A && git commit -m "{pipeline}: phase {N} ({description}) complete"
+~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "{pipeline}: phase {N} ({description}) complete"
 ```
 
-This provides revert safety. The EM does NOT need to read the paper trail when results come back — it's there for later critique if needed.
+This provides revert safety. The helper stages only paths touched in the current phase — no blanket staging. The EM does NOT need to read the paper trail when results come back — it's there for later critique if needed.
 
 ---
 
