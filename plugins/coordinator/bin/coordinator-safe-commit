@@ -1,0 +1,653 @@
+#!/bin/bash
+# coordinator-safe-commit — Scoped safety commit helper (Phase 3, scoped-safety-commits plan)
+#
+# Canonical invocation:
+#   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"
+# Or alias in shell rc:
+#   alias safe-commit='~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit'
+#
+# Usage forms:
+#   coordinator-safe-commit "<subject>"                   # default — scoped staging
+#   coordinator-safe-commit --blanket "<subject>"         # blanket staging (carve-outs only)
+#   coordinator-safe-commit --scope-from <path> "<subject>" # workstream-anchored (handoff/pickup)
+#   coordinator-safe-commit --dry-run "<subject>"         # show what would be staged, no commit
+#
+# Environment:
+#   CLAUDE_SESSION_ID            — session ID (highest priority source)
+#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be session-start or workday-complete)
+#   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
+#
+# See: ~/.claude/plans/scoped-safety-commits.md  (design)
+#      ~/.claude/plans/review-scoped-safety-commits-patrik.md  (Patrik's review)
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Library source
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="${SCRIPT_DIR}/../lib/coordinator-session.sh"
+
+if [[ ! -f "$LIB" ]]; then
+  echo "ERROR: coordinator-session.sh not found at ${LIB}" >&2
+  exit 1
+fi
+# shellcheck source=../lib/coordinator-session.sh
+source "$LIB"
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+MODE="default"       # default | blanket | scope-from | dry-run
+SCOPE_FROM_PATH=""
+SUBJECT=""
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  coordinator-safe-commit "<subject>"
+  coordinator-safe-commit --blanket "<subject>"
+  coordinator-safe-commit --scope-from <handoff.md> "<subject>"
+  coordinator-safe-commit --dry-run "<subject>"
+USAGE
+  exit 1
+}
+
+# Parse flags before subject
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --blanket)
+      MODE="blanket"
+      shift
+      ;;
+    --scope-from)
+      MODE="scope-from"
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --scope-from requires a path argument." >&2
+        exit 1
+      fi
+      SCOPE_FROM_PATH="$2"
+      shift 2
+      ;;
+    --dry-run)
+      MODE="dry-run"
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "ERROR: Unknown flag: $1" >&2
+      usage
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+# Remaining arg is the subject
+if [[ $# -eq 0 ]]; then
+  echo "ERROR: Commit subject is required." >&2
+  usage
+fi
+if [[ $# -gt 1 ]]; then
+  echo "ERROR: Too many positional arguments. Quote your subject." >&2
+  usage
+fi
+SUBJECT="$1"
+
+if [[ -z "$SUBJECT" ]]; then
+  echo "ERROR: Commit subject cannot be empty." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Session ID resolution
+# ---------------------------------------------------------------------------
+
+resolve_session_id() {
+  # Priority 1: environment variable
+  if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
+    echo "$CLAUDE_SESSION_ID"
+    return 0
+  fi
+
+  # Priority 2: sentinel file
+  local root
+  root=$(_cs_git_root) || true
+  if [[ -n "$root" ]]; then
+    local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
+    if [[ -f "$sentinel" ]]; then
+      local sid
+      sid=$(cat "$sentinel" | tr -d '[:space:]')
+      if [[ -n "$sid" ]]; then
+        echo "$sid"
+        return 0
+      fi
+    fi
+  fi
+
+  # Priority 3: find a session dir whose meta.json PID matches a live process
+  local base
+  base=$(_cs_sessions_dir) || true
+  if [[ -z "$base" || ! -d "$base" ]]; then
+    echo "" ; return 1
+  fi
+
+  local live_sessions=()
+  for sdir in "${base}"/*/; do
+    [[ -d "$sdir" ]] || continue
+    local sid
+    sid=$(basename "$sdir")
+    [[ "$sid" == ".archive" ]] && continue
+
+    local pid
+    pid=$(_cs_read_meta_field "$sdir" "pid")
+    if _cs_pid_alive "$pid"; then
+      live_sessions+=("$sid")
+    fi
+  done
+
+  if [[ ${#live_sessions[@]} -eq 1 ]]; then
+    echo "${live_sessions[0]}"
+    return 0
+  elif [[ ${#live_sessions[@]} -eq 0 ]]; then
+    echo "ERROR: No live session found. Set CLAUDE_SESSION_ID or ensure a session was initialized." >&2
+    return 1
+  else
+    echo "ERROR: Multiple live sessions found — cannot auto-detect session ID. Set CLAUDE_SESSION_ID explicitly. Candidates: ${live_sessions[*]}" >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# YAML frontmatter parser (for --scope-from)
+# ---------------------------------------------------------------------------
+
+# parse_scope_from_frontmatter <file>
+# Prints one pathspec per line to stdout.
+# Returns 1 if frontmatter is missing or scope: is absent.
+parse_scope_from_frontmatter() {
+  local fpath="${1:?}"
+
+  if [[ ! -f "$fpath" ]]; then
+    echo "ERROR: Handoff file not found: ${fpath}" >&2
+    return 1
+  fi
+
+  # Read lines between the first two "---" delimiters (YAML frontmatter)
+  local in_frontmatter=false
+  local started=false
+  local in_scope=false
+  local found_scope=false
+  local scope_entries=()
+
+  while IFS= read -r line; do
+    if [[ "$line" == "---" ]]; then
+      if [[ "$started" == false ]]; then
+        started=true
+        in_frontmatter=true
+        continue
+      elif [[ "$in_frontmatter" == true ]]; then
+        in_frontmatter=false
+        break
+      fi
+    fi
+
+    [[ "$in_frontmatter" == false ]] && continue
+
+    # Detect "scope:" key
+    if [[ "$line" =~ ^scope:[[:space:]]*$ ]]; then
+      in_scope=true
+      found_scope=true
+      continue
+    fi
+
+    # If we are inside scope:, collect list items ("  - value")
+    if [[ "$in_scope" == true ]]; then
+      if [[ "$line" =~ ^[[:space:]]+\-[[:space:]]+(.+)$ ]]; then
+        scope_entries+=("${BASH_REMATCH[1]}")
+      elif [[ "$line" =~ ^[a-zA-Z] ]]; then
+        # New top-level key — exit scope block
+        in_scope=false
+      fi
+    fi
+  done < "$fpath"
+
+  if [[ "$found_scope" == false ]]; then
+    echo "ERROR: No 'scope:' field found in YAML frontmatter of ${fpath}" >&2
+    return 1
+  fi
+
+  if [[ ${#scope_entries[@]} -eq 0 ]]; then
+    echo "ERROR: 'scope:' field is present but empty in ${fpath}" >&2
+    return 1
+  fi
+
+  for entry in "${scope_entries[@]}"; do
+    echo "$entry"
+  done
+  return 0
+}
+
+# validate_pathspec <pathspec>
+# Returns 0 if git accepts it, 1 if malformed.
+validate_pathspec() {
+  local ps="${1:?}"
+  git ls-files -- "$ps" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Structured pre-commit summary printer
+# ---------------------------------------------------------------------------
+
+# print_summary <staged_count> <staged_list_nl> <orphan_count> <orphan_list_nl> <other_count> <other_list_nl>
+print_summary() {
+  local staged_count="$1"
+  local staged_list="$2"
+  local orphan_count="$3"
+  local orphan_list="$4"
+  local other_count="$5"
+  local other_list="$6"
+
+  echo "" >&2
+  echo "Scope: ${staged_count} file(s) staged" >&2
+  if [[ -n "$staged_list" ]]; then
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && echo "  ${f}" >&2
+    done <<< "$staged_list"
+  fi
+
+  echo "Orphans (dirty, no session claim): ${orphan_count} file(s) — NOT STAGED" >&2
+  if [[ -n "$orphan_list" ]]; then
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && echo "  ${f}" >&2
+    done <<< "$orphan_list"
+  fi
+
+  echo "Other-session-owned (excluded): ${other_count} file(s)" >&2
+  if [[ -n "$other_list" ]]; then
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && echo "  ${f}" >&2
+    done <<< "$other_list"
+  fi
+  echo "" >&2
+}
+
+# ---------------------------------------------------------------------------
+# BLANKET MODE
+# ---------------------------------------------------------------------------
+
+do_blanket() {
+  local session_id="$1"
+
+  # Carve-out enforcement: only valid from session-start or workday-complete
+  local invoking="${CLAUDE_INVOKING_COMMAND:-}"
+  local allowed=false
+
+  if [[ "$invoking" == "session-start" || "$invoking" == "workday-complete" ]]; then
+    allowed=true
+  fi
+
+  # Fallback: inspect parent process command line
+  if [[ "$allowed" == false ]]; then
+    local ppid_cmd=""
+    if [[ -r "/proc/$PPID/cmdline" ]]; then
+      ppid_cmd=$(tr '\0' ' ' < "/proc/$PPID/cmdline" 2>/dev/null || true)
+    else
+      ppid_cmd=$(ps -p "$PPID" -o command= 2>/dev/null || true)
+    fi
+    if [[ "$ppid_cmd" == *"session-start.md"* || "$ppid_cmd" == *"workday-complete.md"* ]]; then
+      allowed=true
+    fi
+  fi
+
+  if [[ "$allowed" == false ]]; then
+    cat >&2 <<'ERR'
+ERROR: --blanket is only valid from /session-start or /workday-complete.
+Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.
+ERR
+    exit 1
+  fi
+
+  # Log this invocation
+  local base sdir log_dir
+  base=$(_cs_sessions_dir) || true
+  if [[ -n "$base" && -n "$session_id" ]]; then
+    sdir="${base}/${session_id}"
+    mkdir -p "$sdir"
+    log_dir="${sdir}/blanket-invocations.log"
+    echo "$(_cs_now_iso) invoking_command=${invoking:-unknown}" >> "$log_dir"
+  fi
+
+  # Stage everything (this is the ONE sanctioned use of git add -A)
+  git add -A
+  git commit -m "$SUBJECT"
+}
+
+# ---------------------------------------------------------------------------
+# SCOPE-FROM MODE
+# ---------------------------------------------------------------------------
+
+do_scope_from() {
+  local session_id="$1"
+
+  # 1. Verify file exists
+  if [[ ! -f "$SCOPE_FROM_PATH" ]]; then
+    echo "ERROR: --scope-from path does not exist: ${SCOPE_FROM_PATH}" >&2
+    exit 1
+  fi
+
+  # 2. Parse frontmatter scope: array
+  local handoff_scope_raw
+  if ! handoff_scope_raw=$(parse_scope_from_frontmatter "$SCOPE_FROM_PATH"); then
+    exit 1
+  fi
+
+  local handoff_pathspecs=()
+  while IFS= read -r ps; do
+    [[ -n "$ps" ]] && handoff_pathspecs+=("$ps")
+  done <<< "$handoff_scope_raw"
+
+  # 3. Validate each pathspec
+  for ps in "${handoff_pathspecs[@]}"; do
+    if ! validate_pathspec "$ps"; then
+      echo "ERROR: Malformed or invalid pathspec in scope: '${ps}'" >&2
+      exit 1
+    fi
+  done
+
+  # 4. Expand handoff pathspecs to actual file list
+  local handoff_files=()
+  for ps in "${handoff_pathspecs[@]}"; do
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && handoff_files+=("$f")
+    done < <(git ls-files -- "$ps" 2>/dev/null; git ls-files --others --exclude-standard -- "$ps" 2>/dev/null)
+  done
+
+  # 5. Build MY_SCOPE: (handoff_files ∪ touched.txt) − other_sessions
+  # First get my touched.txt
+  local my_touched=()
+  local base
+  base=$(_cs_sessions_dir) || true
+  if [[ -n "$base" && -n "$session_id" ]]; then
+    local sdir="${base}/${session_id}"
+    if [[ -f "${sdir}/touched.txt" ]]; then
+      while IFS= read -r t; do
+        [[ -n "$t" ]] && my_touched+=("$t")
+      done < "${sdir}/touched.txt"
+    fi
+  fi
+
+  # Union: handoff + touched (deduplicated)
+  declare -A candidate_map
+  for f in "${handoff_files[@]}" "${my_touched[@]}"; do
+    [[ -n "$f" ]] && candidate_map["$f"]=1
+  done
+
+  # Build other sessions' claim map
+  declare -A other_claims
+  local other_excluded=()
+  if [[ -n "$base" && -d "$base" ]]; then
+    for other_sdir in "${base}"/*/; do
+      [[ -d "$other_sdir" ]] || continue
+      local other_id
+      other_id=$(basename "$other_sdir")
+      [[ "$other_id" == "$session_id" ]] && continue
+      [[ "$other_id" == ".archive" ]] && continue
+      if [[ -f "${other_sdir}/touched.txt" ]]; then
+        while IFS= read -r opath; do
+          [[ -n "$opath" ]] && other_claims["$opath"]="$other_id"
+        done < "${other_sdir}/touched.txt"
+      fi
+    done
+  fi
+
+  # Subtract other-session claims
+  local my_scope=()
+  for candidate in "${!candidate_map[@]}"; do
+    if [[ -v "other_claims[$candidate]" ]]; then
+      other_excluded+=("$candidate")
+      echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
+    else
+      my_scope+=("$candidate")
+    fi
+  done
+
+  if [[ "${MODE}" == "dry-run" ]]; then
+    echo "DRY RUN — would stage:" >&2
+    for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
+    echo "(no git add or commit executed)" >&2
+    exit 0
+  fi
+
+  if [[ ${#my_scope[@]} -eq 0 ]]; then
+    echo "ERROR: No staged scope detected for this session. Either nothing was touched, or the touch-tracker hook didn't fire. Run with --dry-run to inspect." >&2
+    exit 1
+  fi
+
+  # Stage
+  local staged_count=${#my_scope[@]}
+  printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
+  git commit -m "$SUBJECT"
+
+  print_summary "$staged_count" "$(printf '%s\n' "${my_scope[@]}")" \
+    0 "" \
+    "${#other_excluded[@]}" "$(printf '%s\n' "${other_excluded[@]:-}")"
+}
+
+# ---------------------------------------------------------------------------
+# OVERRIDE MODE helper
+# ---------------------------------------------------------------------------
+
+do_override() {
+  local session_id="$1"
+
+  echo "WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path." >&2
+  echo "         Staging all dirty files. This will be logged." >&2
+
+  # Collect dirty files for the log
+  local dirty_files=()
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && dirty_files+=("$f")
+  done < <(
+    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u
+  )
+
+  # Log the override
+  local base
+  base=$(_cs_sessions_dir) || true
+  if [[ -n "$base" && -n "$session_id" ]]; then
+    local sdir="${base}/${session_id}"
+    mkdir -p "$sdir"
+    local log_file="${sdir}/overrides.log"
+    {
+      echo "=== Override at $(_cs_now_iso) ==="
+      echo "Subject: ${SUBJECT}"
+      echo "Files staged:"
+      printf '  %s\n' "${dirty_files[@]:-}"
+      echo ""
+    } >> "$log_file"
+  fi
+
+  git add -A
+  git commit -m "$SUBJECT"
+}
+
+# ---------------------------------------------------------------------------
+# DEFAULT / DRY-RUN MODE (main scoped path)
+# ---------------------------------------------------------------------------
+
+do_scoped() {
+  local session_id="$1"
+
+  # Read my touched.txt for post-filtering (mtime-only orphan exclusion)
+  # cs_compute_scope adds mtime-dirty unclaimed files to my_scope, but per
+  # plan orphan policy those must only be warned, never auto-staged.
+  # We enforce this here by removing from my_scope any file that:
+  #   - is NOT in my touched.txt
+  #   - is NOT claimed by another session (i.e., is an orphan)
+  local my_touched=()
+  local base
+  base=$(_cs_sessions_dir) || true
+  if [[ -n "$base" && -n "$session_id" && -f "${base}/${session_id}/touched.txt" ]]; then
+    while IFS= read -r t; do
+      [[ -n "$t" ]] && my_touched+=("$t")
+    done < "${base}/${session_id}/touched.txt"
+  fi
+
+  # Capture cs_compute_scope output: stdout = my scope, stderr = skip + orphan messages
+  local scope_stdout scope_stderr
+  local tmpout tmperr
+  tmpout=$(mktemp)
+  tmperr=$(mktemp)
+
+  cs_compute_scope "$session_id" > "$tmpout" 2> "$tmperr"
+
+  scope_stdout=$(cat "$tmpout")
+  scope_stderr=$(cat "$tmperr")
+  rm -f "$tmpout" "$tmperr"
+
+  # Parse raw scope from cs_compute_scope stdout (may include mtime-added orphans)
+  local raw_scope=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && raw_scope+=("$line")
+  done <<< "$scope_stdout"
+
+  # Post-filter: separate legitimate scope (in my touched.txt) from mtime-only orphans
+  # A file is an mtime-only orphan if:
+  #   - cs_compute_scope included it (so no other session claims it)
+  #   - it is NOT in my touched.txt
+  # Per plan orphan policy: warn only, do NOT stage.
+  local my_scope=()
+  local mtime_orphans=()
+  for candidate in "${raw_scope[@]:-}"; do
+    [[ -z "$candidate" ]] && continue
+    local in_touched=false
+    for t in "${my_touched[@]:-}"; do
+      [[ "$t" == "$candidate" ]] && { in_touched=true; break; }
+    done
+    if [[ "$in_touched" == true ]]; then
+      my_scope+=("$candidate")
+    else
+      # Not in my touched.txt — treat as mtime-only orphan
+      mtime_orphans+=("$candidate")
+    fi
+  done
+
+  # Parse other-session exclusions from stderr (skipping ... lines)
+  local other_excluded_files=()
+  while IFS= read -r line; do
+    if [[ "$line" == "skipping "* ]]; then
+      other_excluded_files+=("$line")
+    fi
+  done <<< "$scope_stderr"
+
+  # Merge orphans: library-detected ones (from stderr) + mtime-only ones we post-filtered
+  # Library stderr emits "orphan: <path>"; collect those too
+  local orphan_files=()
+  while IFS= read -r line; do
+    if [[ "$line" == "orphan: "* ]]; then
+      orphan_files+=("${line#orphan: }")
+    fi
+  done <<< "$scope_stderr"
+  # Add mtime-only orphans that the library didn't mark (it thought they were ours)
+  for mto in "${mtime_orphans[@]:-}"; do
+    orphan_files+=("$mto")
+    echo "orphan (mtime-only, not in touched.txt): ${mto}" >&2
+  done
+
+  # Dry-run: print and exit without committing
+  if [[ "$MODE" == "dry-run" ]]; then
+    echo "DRY RUN — would stage ${#my_scope[@]} file(s):" >&2
+    for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
+    if [[ ${#orphan_files[@]} -gt 0 ]]; then
+      echo "Orphans (not staged): ${#orphan_files[@]} file(s):" >&2
+      for f in "${orphan_files[@]}"; do echo "  $f" >&2; done
+    fi
+    if [[ ${#other_excluded_files[@]} -gt 0 ]]; then
+      echo "Excluded (other-session-owned): ${#other_excluded_files[@]}" >&2
+    fi
+    echo "(no git add or commit executed)" >&2
+    exit 0
+  fi
+
+  # Validate we have something to stage
+  if [[ ${#my_scope[@]} -eq 0 ]]; then
+    echo "ERROR: No staged scope detected for this session. Either nothing was touched, or the touch-tracker hook didn't fire. Run with --dry-run to inspect." >&2
+    exit 1
+  fi
+
+  # Stage explicitly using xargs -0 to handle spaces in paths
+  printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
+
+  # Commit
+  if ! git commit -m "$SUBJECT"; then
+    echo "ERROR: git commit failed. Staged set: ${my_scope[*]}" >&2
+    exit 1
+  fi
+
+  # Print structured summary (to stderr so it doesn't pollute capture)
+  print_summary \
+    "${#my_scope[@]}" \
+    "$(printf '%s\n' "${my_scope[@]}")" \
+    "${#orphan_files[@]}" \
+    "$(printf '%s\n' "${orphan_files[@]:-}")" \
+    "${#other_excluded_files[@]}" \
+    "$(printf '%s\n' "${other_excluded_files[@]:-}")"
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+# ---------------------------------------------------------------------------
+
+main() {
+  # Resolve session ID (needed for all modes except dry-run of blanket)
+  local session_id=""
+
+  if [[ "$MODE" != "blanket" ]]; then
+    # For non-blanket modes we always need a session ID
+    if ! session_id=$(resolve_session_id); then
+      # Error already printed by resolve_session_id
+      exit 1
+    fi
+    if [[ -z "$session_id" ]]; then
+      echo "ERROR: Could not resolve session ID." >&2
+      exit 1
+    fi
+  else
+    # For blanket mode, try to resolve for logging purposes, but don't fail if absent
+    session_id=$(resolve_session_id 2>/dev/null) || session_id=""
+  fi
+
+  # COORDINATOR_OVERRIDE_SCOPE=1 intercepts default mode only
+  if [[ "${COORDINATOR_OVERRIDE_SCOPE:-}" == "1" && "$MODE" == "default" ]]; then
+    do_override "$session_id"
+    exit 0
+  fi
+
+  case "$MODE" in
+    blanket)
+      do_blanket "$session_id"
+      ;;
+    scope-from)
+      do_scope_from "$session_id"
+      ;;
+    dry-run)
+      do_scoped "$session_id"
+      ;;
+    default)
+      do_scoped "$session_id"
+      ;;
+    *)
+      echo "ERROR: Unknown mode: ${MODE}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
