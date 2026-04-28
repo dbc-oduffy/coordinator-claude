@@ -47,7 +47,26 @@ COMPACTION_SENTINEL="/tmp/compaction-occurred-${SESSION_ID}"
 COMPACTION_STATE="/tmp/compaction-state-${SESSION_ID}.md"
 
 if [[ -f "$COMPACTION_SENTINEL" ]]; then
+  # Read pre-compaction transcript size recorded by precompact hook, then
+  # delete the sentinel.
+  PRE_SIZE=$(head -1 "$COMPACTION_SENTINEL" 2>/dev/null | tr -d '[:space:]' || true)
   rm -f "$COMPACTION_SENTINEL"
+
+  # False-positive guard: Claude Code fires PreCompact in scenarios that don't
+  # actually shrink the parent transcript meaningfully (notably subagent-result
+  # integration on 1M-context models). If the transcript size hasn't dropped
+  # at least 15% since precompact fired, treat as a false alarm: clean up state
+  # and exit silently rather than emitting a misleading orientation prompt.
+  if [[ -n "$PRE_SIZE" && "$PRE_SIZE" =~ ^[0-9]+$ && -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+    POST_SIZE=$(stat -c '%s' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%z' "$TRANSCRIPT_PATH" 2>/dev/null || echo "$PRE_SIZE")
+    # Threshold: post must be < pre * 0.85 (i.e., >=15% shrink) to count as real.
+    THRESHOLD=$(( PRE_SIZE * 85 / 100 ))
+    if [[ "$POST_SIZE" -ge "$THRESHOLD" ]]; then
+      # No meaningful shrink — silently consume associated state and exit.
+      rm -f "$COMPACTION_STATE"
+      exit 0
+    fi
+  fi
 
   STATE_CONTENT=""
   if [[ -f "$COMPACTION_STATE" ]]; then
@@ -111,11 +130,18 @@ if [[ -z "$MODEL_ID" ]]; then
 fi
 
 # --- Context window size by model (tokens) ---
+# Note: Anthropic encodes 1M-context variants with a "[1m]" suffix on the model ID
+# (e.g., "claude-opus-4-7[1m]"). Match that suffix explicitly before the bare model
+# pattern so a plain ID falls through to the 200K default.
 case "$MODEL_ID" in
-  *opus*4*6*)     CONTEXT_WINDOW=1000000 ;;  # Opus 4.6: 1M tokens
-  *sonnet*4*6*)   CONTEXT_WINDOW=200000  ;;  # Sonnet 4.6: 200K tokens
-  *haiku*4*5*)    CONTEXT_WINDOW=200000  ;;  # Haiku 4.5: 200K tokens
-  *)                         CONTEXT_WINDOW=200000  ;;  # Conservative default
+  # Explicit 200K overrides for Opus variants known to ship without the 1M window
+  # (add specific model IDs here as they appear).
+  # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
+  # unless an override above caught it first.
+  *opus*)         CONTEXT_WINDOW=1000000 ;;  # Opus family default: 1M
+  *sonnet*)       CONTEXT_WINDOW=200000  ;;  # Sonnet family default: 200K
+  *haiku*)        CONTEXT_WINDOW=200000  ;;  # Haiku family default: 200K
+  *)              CONTEXT_WINDOW=200000  ;;  # Unknown model — conservative default
 esac
 
 # --- Threshold percentages ---

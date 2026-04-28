@@ -33,6 +33,18 @@ Read `tasks/lessons.md` (if it exists). If anything was learned this session tha
 
 Add new entries in the established format (bold title + 1-2 sentence rule, max 3 lines). Prefer merging with an existing entry over adding a new one. Skip if nothing new.
 
+### Step 1.2: Lesson Classification
+
+For each new lesson added in Step 1, ask the tier-1 question: **"If a different project type — UE / web / data / research — also used the coordinator pipeline, would this rule apply?"** This is autonomous self-classification; no separate review step is needed.
+
+- **If yes (tier-1 / universal):** (a) tag the entry in `tasks/lessons.md` by appending `[universal]` on the same line as the bold title; (b) append a one-liner to the global queue at `~/.claude/tasks/coordinator-improvement-queue.md`:
+  ```
+  - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
+  ```
+  Use the project repo name as `<source-repo>`, and `tasks/lessons.md:<line-number>` as `<source-file>:<line>`. If the same `<source-file>:<line>` already exists in the queue, skip — the queue is append-only and that pair is the dedup key.
+- **If no (tier-2 / project-specific):** no action beyond the lesson already written.
+- **If nothing new was added in Step 1:** skip this step entirely.
+
 ### Step 1.5: Final Session Save
 
 Trigger a final memory save to capture the tail end of this session that hasn't been auto-saved. This ensures the session's last work is recorded even if the JSONL delta hadn't reached the auto-save threshold.
@@ -94,6 +106,7 @@ Update the documents that future sessions read for orientation — closing the r
    - Don't regenerate from scratch — that's `/workday-start`'s job. Patch what changed.
    - If the cache doesn't exist, skip — the project hasn't run `/workday-start` yet.
    - **Do not claim the cache is absent based on intuition.** If the SessionStart orientation hook failed to inject output (a known past failure mode), you may have no in-context evidence of the cache. Before asserting "no orientation cache in this repo," run `ls tasks/orientation_cache.md` and read the result. Assertions about existence require a verification step, not a recollection.
+   - **Stale is not a skip condition — it's a refresh trigger.** If `generated_at` is older than today, or `git_head_at_generation` doesn't match current HEAD, or the SessionStart hook flagged the cache as stale, do a full refresh (re-derive Active Workstreams, Health Snapshot, Recent Work, Doc Freshness from current repo state) before concluding session-end. Leaving a stale cache in place means the next session boots on misleading orientation. The process owns freshness.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
 
@@ -115,6 +128,21 @@ Update the documents that future sessions read for orientation — closing the r
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
 6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
+
+### Step 3.5: Archive Session Claim
+
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. `/session-end` is one of two session-exit pathways (the other being `/handoff`); both must clean up claims, otherwise sessions that wind down via `/session-end` leak claims that force the next concurrent EM into a 24h wait, `COORDINATOR_OVERRIDE_SCOPE=1`, or hand-archival.
+
+Run:
+```bash
+sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
+  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  cs_archive "$sid" 2>/dev/null || true
+```
+
+Idempotent — already-archived sessions return 0 silently (verified: a session archived by `/handoff` and re-archived here is a no-op). Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the sentinel is missing or the lib is unavailable.
+
+**Note on session_id source:** The sentinel is "last writer wins" across concurrent sessions. If `CLAUDE_SESSION_ID` is exported in your environment, prefer it over the sentinel — that's the session that actually owns this exit.
 
 ### Step 4: Final Summary
 

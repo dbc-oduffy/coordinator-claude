@@ -226,23 +226,48 @@ Present to PM:
 
 ---
 
-## Phase 5: Apply and Clean (Coordinator)
+## Phase 5: Apply and Clean (Coordinator-orchestrated, Sonnet-applied)
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
-1. **Safety commit:** `git add -A && git commit -m "pre-distillation checkpoint"`
-2. **Apply delta operations** from Phase 2 scratch files: for each existing guide, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, copy the full content from the Phase 2 scratch file. Apply cross-reference corrections flagged by Phase 3.
-3. **Write wiki files** to `docs/wiki/`, `docs/decisions/`, `docs/wiki/DIRECTORY_GUIDE.md`
-4. **Update `docs/README.md`:** If new guides were created, add them to the Wikis and Guides table. If new research files were promoted (PROMOTE classification), add them to the Research section highlights. If specs were archived, update their status in the Design Specifications table. Update the footer timestamp.
-5. **Commit additions:** `"distill: add/update N guides, N decision records"`
-6. **Delete approved artifacts:** `git rm` each file from the deletion manifest
-7. **Commit deletions:** `"distill: remove N distilled artifacts"`
-8. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/wiki/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE|PROMOTE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
-9. **Amend log update** into the deletion commit
-10. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
+1. **Safety commit:** `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-distillation checkpoint"`
+
+2. **Split apply work across 2-3 Sonnet apply-agents (parallel where possible).**
+
+   Single-agent application has timed out at ~50 min / ~170 tool-uses on large runs (e.g., the 2026-04-26 run). The coordinator MUST decompose the apply work into independent slices and dispatch a Sonnet apply-agent per slice. The coordinator orchestrates and verifies; it does not type the edits itself.
+
+   Standard slicing (use all three for medium/large runs; combine into 1-2 agents for small runs):
+
+   - **Apply-Agent A — Topic-guide deltas:** For each existing guide with a Phase 2 scratch file, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, write the full content from the Phase 2 scratch file. Output: list of guide files touched.
+   - **Apply-Agent B — Gotchas distribution + bookkeeping:** Apply cross-cutting nuggets (gotchas, lessons, cross-references) flagged by Phase 3, then update `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md` (add new guides to the Wikis and Guides table; add promoted research to the Research section; mark archived specs; bump footer timestamp). Output: list of bookkeeping files touched.
+   - **Apply-Agent C — Leftover guides + decision records:** Any guide files or decision records not covered by A (e.g., low-volume topics handled in a single batch). Output: list of files touched.
+
+   Apply-agents must use Read, Write, Edit only — no further dispatch.
+
+3. **Verify apply-agent output via `git diff --stat`, NOT the agent's self-report.** Apply-agents under-count their own work in chat (observed on 2026-04-26). After all apply-agents return, run `git diff --stat docs/wiki/ docs/decisions/ docs/README.md` and use the diff as ground truth for what changed. If diff is empty for an agent that claimed work, re-dispatch with the unfinished file list.
+
+4. **Commit additions:** `"distill: add/update N guides, N decision records"`
+
+5. **Delete approved artifacts — `.md`-only filter is MANDATORY.**
+
+   `git rm -r tasks/<feature-dir>/` is **forbidden**. Recursive directory removal sweeps up co-located non-markdown research corpora (e.g., the 2026-04-26 run swept 525 non-md files from a `.next/`/asar corpus shared with a distill target) and violates the "research provenance is always retained" rule.
+
+   Required procedure for each deletion-manifest entry:
+   - Build the deletion list as **`*.md` only** — no recursive directory globs.
+   - Per directory entry: `git ls-files '<dir>/*.md' '<dir>/**/*.md'` then `git rm` only those.
+   - **Pre-commit audit gate:** `git status --porcelain | awk '$1=="D"' | grep -v '\.md$'` MUST return empty. If it returns ANY paths, abort the deletion commit, restore the unintended deletions (`git restore --staged --worktree <path>`), and report to PM. Non-`.md` deletions are never silently accepted, even if the deletion manifest names them.
+   - Research outputs (`docs/research/`, `~/docs/research/`), NotebookLM artifacts (`*-claims.json`, `*-summary.md`, anything under `tasks/notebooklm-*/`), and Pipeline C structured outputs are **never deleted** by `/distill` regardless of manifest contents — these were marked PRESERVE/PROMOTE at Phase 0 and are corpus, not debris.
+
+6. **Commit deletions:** `"distill: remove N distilled artifacts"`
+
+7. **Update distillation log:** append all processed artifacts **with individual file paths and dispositions** to `docs/wiki/.distill-log.md` — this is the idempotency mechanism for subsequent runs. Format: `- [file_path] → [DISTILLED|EPHEMERAL|SKIP|PRESERVE|PROMOTE] (run: [run-id])`. Per-file entries are required — directory-level summaries are insufficient for Phase 0 exclusion matching.
+
+8. **Amend log update** into the deletion commit
+
+9. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
 
 **Two separate commits** (additions vs deletions) so wiki content survives even if deletion needs reverting.
 
-**If `--no-delete`:** skip steps 6-9, only apply wiki updates (steps 0-5).
+**If `--no-delete`:** skip steps 5-8, only apply wiki updates (steps 0-4).
 
 ---
 
@@ -271,3 +296,6 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Artifacts distilled twice | Distillation log (`docs/wiki/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
 | PM skips approval and deletion runs | "Wait for explicit approval" is unconditional — no timeout, no auto-proceed |
 | Scratch file missing after agent completes | Verify with `ls`; re-dispatch once; skip batch on second failure — don't stall the pipeline |
+| Phase 5 single apply-agent times out (~50min/170 tool-uses on large runs) | Phase 5 step 2 splits work across 2-3 Sonnet apply-agents (topic deltas / bookkeeping / leftovers); coordinator orchestrates, never types edits itself |
+| Apply-agents under-count their own work in chat | Phase 5 step 3: verify with `git diff --stat`, treat the diff as ground truth, re-dispatch on missing changes |
+| `git rm -r tasks/<dir>/` sweeps up co-located research corpora (asar, `.next/`, datasets) | Phase 5 step 5: `.md`-only deletion lists; pre-commit audit `git status --porcelain \| awk '$1=="D"' \| grep -v '\.md$'` must be empty; PRESERVE/PROMOTE corpora never deleted regardless of manifest |

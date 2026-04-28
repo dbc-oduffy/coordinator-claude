@@ -12,6 +12,16 @@ The "night shift colleague." Reads the health ledger's last-check timestamp to f
 
 ---
 
+## Never Skip on a "Small" Day
+
+The strongest predictor of a bug-filled review is a small commit count, not a large one. When today's fixes touched one code path, the adjacent or sibling path is the highest-probability next bug — and a small commit count is exactly when reviewers and EMs are most tempted to skip ("only 8 commits, nothing to see"). That's where the regressions hide.
+
+**Run this review on every committed day, regardless of commit count.** The cost-benefit is asymmetric: a 5-minute review on a quiet day catches the silent regression a fix introduced on a parallel handler; skipping a busy day misses bugs the next session will trip on.
+
+The only valid skip condition is the one already in the Failure Modes table: **zero new commits since last check.** Anything else — even a single commit — run the review.
+
+---
+
 ## Step 1: Find New Commits
 
 Determine the scope of commits to review:

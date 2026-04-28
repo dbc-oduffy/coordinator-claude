@@ -1,0 +1,161 @@
+#!/bin/bash
+# scope-warning-resolve — mark a scope-warning log entry with its resolution
+#
+# Usage:
+#   scope-warning-resolve <session_id> <line_number> <resolution>
+#
+# Valid resolutions:
+#   legitimate-mine        — file was correctly mine; warn was a false positive
+#   not-mine-unstaged      — I unstaged it after seeing the warn (true positive — guard worked)
+#   not-mine-committed-anyway — I committed despite the warn (true positive — guard would block in strict mode)
+#   orphan-claimed         — file was orphaned; I claimed it deliberately
+#   orphan-rejected        — orphan; I left it for whoever owns it
+#
+# The script edits scope-warnings.log in-place for the given session, replacing
+# "pending-resolution" on the specified line with the chosen resolution.
+#
+# Log format (written by validate-commit.sh):
+#   <ISO-ts> | <session_id> | foreign-staged | <file> | owner:<owner> | pending-resolution
+#
+# After resolution:
+#   <ISO-ts> | <session_id> | foreign-staged | <file> | owner:<owner> | legitimate-mine
+#
+# Part of Phase 5 — scoped-safety-commits plan.
+# See: ~/.claude/plugins/coordinator-claude/coordinator/docs/preooluse-deny-contract.md
+
+set -euo pipefail
+
+VALID_RESOLUTIONS=(
+  "legitimate-mine"
+  "not-mine-unstaged"
+  "not-mine-committed-anyway"
+  "orphan-claimed"
+  "orphan-rejected"
+)
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: scope-warning-resolve <session_id> <line_number> <resolution>
+
+Valid resolutions:
+  legitimate-mine            file was correctly mine; warn was a false positive
+  not-mine-unstaged          I unstaged it after seeing the warn (true positive)
+  not-mine-committed-anyway  I committed despite the warn (true positive — would block in strict mode)
+  orphan-claimed             orphan file; I claimed it deliberately
+  orphan-rejected            orphan file; I left it for whoever owns it
+
+Example:
+  scope-warning-resolve abc-123 3 legitimate-mine
+EOF
+  exit 1
+}
+
+# --- Argument validation ---
+
+if [[ $# -ne 3 ]]; then
+  echo "Error: expected 3 arguments, got $#" >&2
+  usage
+fi
+
+SESSION_ID="$1"
+LINE_NUM="$2"
+RESOLUTION="$3"
+
+# Validate line number is a positive integer
+if ! [[ "$LINE_NUM" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: line_number must be a positive integer, got: '${LINE_NUM}'" >&2
+  exit 1
+fi
+
+# Validate resolution code
+valid=0
+for res in "${VALID_RESOLUTIONS[@]}"; do
+  if [[ "$RESOLUTION" == "$res" ]]; then
+    valid=1
+    break
+  fi
+done
+if [[ $valid -eq 0 ]]; then
+  echo "Error: invalid resolution '${RESOLUTION}'" >&2
+  echo "Valid resolutions: ${VALID_RESOLUTIONS[*]}" >&2
+  exit 1
+fi
+
+# --- Locate the log file ---
+
+# Prefer git repo context; fall back to HOME-relative path
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$GIT_ROOT" ]]; then
+  LOG_FILE="${GIT_ROOT}/.git/coordinator-sessions/${SESSION_ID}/scope-warnings.log"
+else
+  # No git repo in cwd — refuse rather than guess
+  echo "Error: not inside a git repository. Run from within the project repo." >&2
+  exit 1
+fi
+
+if [[ ! -f "$LOG_FILE" ]]; then
+  echo "Error: log file not found: ${LOG_FILE}" >&2
+  echo "  Does session '${SESSION_ID}' exist and have scope warnings?" >&2
+  exit 1
+fi
+
+# --- Validate line number is within file bounds ---
+
+TOTAL_LINES=$(wc -l < "$LOG_FILE" 2>/dev/null || echo 0)
+if [[ "$LINE_NUM" -gt "$TOTAL_LINES" ]]; then
+  echo "Error: line ${LINE_NUM} does not exist in ${LOG_FILE} (file has ${TOTAL_LINES} lines)" >&2
+  exit 1
+fi
+
+# --- Check the target line contains pending-resolution ---
+
+TARGET_LINE=$(sed -n "${LINE_NUM}p" "$LOG_FILE")
+if [[ -z "$TARGET_LINE" ]]; then
+  echo "Error: line ${LINE_NUM} is empty" >&2
+  exit 1
+fi
+
+if ! echo "$TARGET_LINE" | grep -q "pending-resolution"; then
+  # Already resolved — show current state
+  CURRENT_RES=$(echo "$TARGET_LINE" | grep -oE '[a-z-]+$' || echo "unknown")
+  echo "Warning: line ${LINE_NUM} does not contain 'pending-resolution'" >&2
+  echo "  Current value: ${TARGET_LINE}" >&2
+  echo "  Current resolution appears to be: ${CURRENT_RES}" >&2
+  echo "  Overwriting anyway with: ${RESOLUTION}" >&2
+fi
+
+# --- Edit in-place: replace pending-resolution (or last field) with new resolution ---
+# Use a temp file approach for cross-platform safety (avoids sed -i BSD vs GNU divergence).
+
+TMP_FILE=$(mktemp "${LOG_FILE}.tmp.XXXXXX")
+trap 'rm -f "$TMP_FILE"' EXIT
+
+# Replace only the last field "pending-resolution" on the target line.
+# The sed address is exact line number; the substitution replaces the trailing word cluster.
+awk -v lineno="$LINE_NUM" -v old="pending-resolution" -v new="$RESOLUTION" '
+  NR == lineno {
+    # Replace last pipe-separated field (trim trailing whitespace)
+    if (sub(/[[:space:]]*\| [a-z-]+[[:space:]]*$/, " | " new)) {
+      print
+      next
+    }
+    # If "pending-resolution" appears anywhere else on the line, replace last occurrence
+    if (sub(/pending-resolution/, new)) { print; next }
+    print
+    next
+  }
+  { print }
+' "$LOG_FILE" > "$TMP_FILE"
+
+# Verify the edit actually changed something
+if diff -q "$LOG_FILE" "$TMP_FILE" > /dev/null 2>&1; then
+  echo "Warning: no change was made to line ${LINE_NUM}. Does it contain 'pending-resolution'?" >&2
+  rm -f "$TMP_FILE"
+  exit 0
+fi
+
+mv "$TMP_FILE" "$LOG_FILE"
+
+echo "Resolved: line ${LINE_NUM} in ${LOG_FILE}"
+echo "  Resolution: ${RESOLUTION}"
+echo "  Entry: $(sed -n "${LINE_NUM}p" "$LOG_FILE")"
