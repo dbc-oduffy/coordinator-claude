@@ -32,6 +32,16 @@ This is an **EM-PM conversation**, not a dispatched agent. The EM reads the back
 
 Also read `tasks/bug-backlog.md` (if it exists). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `Cross-ref` field on both entries (e.g., `Cross-ref: BS-2026-03-18-1` on the debt item, `Cross-ref: WAA-2026-03-19-1` on the bug item). Present overlaps to PM for deduplication decision.
 
+### Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
+
+Before dispatching any Haiku verification agents, do a quick staleness pre-check on the full item list.
+
+For each item in `tasks/debt-backlog.md`, note its cited file path and the date it was logged. Items where `git log --since="<finding-date>" -- <file-path>` shows relevant commits are candidates for `already-fixed` status and should be confirmed first.
+
+This pre-check prevents dispatching agents to verify debt that has already been resolved. In one measured run, 11 of 20 backlog items were already fixed before dispatch — the same failure mode applies to debt backlogs that drift behind active development.
+
+**Why pre-dispatch rather than during Step 2:** Step 2 Haiku agents do the full per-line verification; this pre-check is the EM's own lightweight scan (date + git log) that prunes obviously-stale items before agent dispatch, reducing cost.
+
 ### Step 2: Verify Relevance (Haiku agents)
 
 **Dispatch Haiku agents** to verify each open item against the current code. This is mechanical read-and-confirm work — no judgment needed. Group items by system for efficient dispatch (one Haiku per system).

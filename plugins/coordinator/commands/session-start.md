@@ -22,7 +22,7 @@ Secure any uncommitted work before touching branches:
 
 1. Run `git status` — if there are ANY uncommitted changes (staged, unstaged, or untracked), commit immediately:
    ```
-   git add -A && git commit -m "session-start safety commit"
+   CLAUDE_INVOKING_COMMAND=session-start ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "chore: session-start sweep — pre-orientation capture"
    ```
 2. This is crash insurance. If a previous session died mid-work, this captures its state. The auto-push hook will push to the remote.
 3. If nothing to commit, move on silently.

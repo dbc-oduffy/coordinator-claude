@@ -122,6 +122,59 @@ git commit -m "feat: add specific feature"
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
 
+## Shared-State Pre-Flight Gate
+
+Before a plan changes the semantics of a shared symbol — a state enum, gameplay tag, public field, or exported function signature — include a reverse-reference scan in the plan: list every consumer found via grep, IDE rename-preview, or equivalent tool. Plans that mutate shared contracts without enumerating consumers are incomplete and risk silent breakage across subsystems with no obvious compile-time signal.
+
+**Checklist:** For each shared symbol the plan mutates, add a subsection that names every file/component that reads or depends on it. If the scan is non-trivial, make it an explicit plan step, not an assumption.
+
+## Data Before Dispatch
+
+Before writing a plan or dispatching agents on a debugging or fix task, identify and run the smallest diagnostic that exposes ground truth — a test runner, curl probe, `git show`, or single inspect call. Target: < 60 seconds. This is the cheapest step in any plan and prevents hours of hypothesis-driven agent rework.
+
+**Framing rule:** Hypothesis-driven dispatch without diagnostic data is a stuck-detection trigger. If you find yourself writing a plan section that says "the cause is probably X," stop and run the diagnostic first. (geneva T1.2, paired across writing-plans + systematic-debugging)
+
+## Hard Constraints for Executor-Bound Plans
+
+These apply to any plan that will be handed to an executor agent. Violations here are the most common source of scope bleed and unauthorized work.
+
+### (a) Executor specs must include explicit file-scope constraints
+
+"Restructure the cheatsheets" or "fix the auth module" is insufficient — an executor without a scope constraint will modify adjacent files, run scripts, and create unauthorized commits. Every executor-bound stub MUST include a constraint block:
+
+```markdown
+**Scope constraint:** Only edit files matching `<pattern>`. Do NOT modify files outside that scope. Do NOT run scripts beyond `<allowed list>`. Do NOT create commits.
+```
+
+Name the allowed paths explicitly. If the stub says "update the config files," list them by path — don't rely on the executor to infer scope.
+
+### (b) Orchestrator agents in plans must be read-only planners
+
+The Agent tool is single-level nesting — subagents cannot spawn further subagents. When a plan calls for an agent that decomposes work and "dispatches sub-tasks," that agent MUST be configured as a read-only planner:
+
+- No `Agent` tool in its `allowed-tools`
+- No `execute-*` tools either (omni-tool gravity: if the tool is present, the agent will use it)
+- Sub-task dispatch happens back at the EM level, not nested inside the orchestrator
+
+If a plan step says "an orchestrator agent will analyze and dispatch," rewrite it: "orchestrator agent analyzes and returns a briefing; EM dispatches sub-tasks based on briefing."
+
+### (c) Cross-plan reconciliation is a separate pass
+
+When plan A depends on plan B — shared paths, asset names, API contracts — a reviewer of A in isolation cannot see contradictions with B. Plans that interlock require an explicit cross-plan reconciliation step:
+
+- Read both plans' cross-references side by side
+- Verify mount paths, asset names, and assumed APIs align
+- Document any conflicts before execution begins
+
+**In the plan document itself:** If interlocking plans exist, add a `**Depends on:**` line in the header and a reconciliation checklist as the final pre-execution step. Do not leave this implicit.
+
+### (d) Tool resolution in teammate prompts
+
+When a plan step dispatches a teammate agent that needs MCP tools, use graduated ToolSearch in the teammate's prompt — never hardcode a single tool name prefix. MCP tool names vary across teammate spawn contexts (e.g., `mcp__notebooklm__*` vs `mcp__plugin_notebooklm_notebooklm__*`).
+
+**Graduated resolution order:** `select:exact` → `+prefix` keyword fallback → graceful failure message. Any teammate prompt that names an MCP tool should follow this pattern; hardcoding a single prefix is a silent failure waiting for the next spawn context change.
+
+
 ## Plan Review Gate (Mandatory)
 
 After saving the plan, it MUST go through one review cycle before execution. This catches structural problems while they're cheap to fix — before enrichment and execution invest real work.

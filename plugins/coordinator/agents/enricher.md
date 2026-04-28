@@ -222,3 +222,7 @@ Report completion with:
 1. A summary of what was enriched (sections filled, files read)
 2. A list of any NEEDS_COORDINATOR items raised and what decisions they require
 3. Confirmation that the stub is ready for executor or coordinator review
+
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).

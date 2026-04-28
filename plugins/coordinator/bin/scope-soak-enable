@@ -1,0 +1,64 @@
+#!/bin/bash
+# scope-soak-enable — start the warn-only soak clock for scoped-safety-commits
+#
+# Writes .git/coordinator-sessions/.warn-mode-enabled-at with the current ISO
+# timestamp if the sentinel does not already exist. Idempotent: refuses to
+# overwrite an existing sentinel and prints the existing timestamp instead.
+#
+# Run this ONCE after Phase 2's validate-commit.sh scope-guard hook is live.
+# The flip-readiness evaluator (scope-flip-readiness) reads this sentinel to
+# compute the "2-week minimum soak" criterion.
+#
+# Usage:
+#   scope-soak-enable
+#
+# Part of Phase 5 — scoped-safety-commits plan.
+# See: ~/.claude/plugins/coordinator-claude/coordinator/docs/preooluse-deny-contract.md
+
+set -euo pipefail
+
+# --- Locate git root ---
+
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -z "$GIT_ROOT" ]]; then
+  echo "Error: not inside a git repository. Run from within the project repo." >&2
+  exit 1
+fi
+
+SESSIONS_DIR="${GIT_ROOT}/.git/coordinator-sessions"
+SENTINEL="${SESSIONS_DIR}/.warn-mode-enabled-at"
+
+# --- Idempotent: check for existing sentinel ---
+
+if [[ -f "$SENTINEL" ]]; then
+  EXISTING=$(cat "$SENTINEL")
+  echo "Soak already started — sentinel already exists."
+  echo "  Enabled at: ${EXISTING}"
+  echo "  Sentinel:   ${SENTINEL}"
+  echo ""
+  echo "To check flip readiness, run: scope-flip-readiness"
+  exit 0
+fi
+
+# --- Create sessions dir if needed ---
+
+if [[ ! -d "$SESSIONS_DIR" ]]; then
+  mkdir -p "$SESSIONS_DIR"
+fi
+
+# --- Write sentinel ---
+
+TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+echo "$TS" > "$SENTINEL"
+
+echo "Soak clock started."
+echo "  Enabled at: ${TS}"
+echo "  Sentinel:   ${SENTINEL}"
+echo ""
+echo "The flip predicate requires:"
+echo "  - >= 10 sessions with scope warnings recorded"
+echo "  - False-positive rate < 10%"
+echo "  - Zero unresolved orphan-class warnings in trailing 7 days"
+echo "  - >= 14 days elapsed since this sentinel was written"
+echo ""
+echo "To check flip readiness, run: scope-flip-readiness"

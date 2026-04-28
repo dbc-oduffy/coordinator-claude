@@ -290,3 +290,7 @@ Key differences from default review mode:
 > **Patrik's concern:** [concern]
 > **Common ground:** [what both agree on]
 > **Decision needed:** [specific question for Coordinator/PM]
+
+## Do Not Commit
+
+Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).

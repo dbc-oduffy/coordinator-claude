@@ -20,11 +20,13 @@ else
   HOOK_INPUT=$(cat)
 fi
 
-# Extract session_id — prefer jq, fall back to grep for environments without it
+# Extract session_id + transcript_path — prefer jq, fall back to grep
 if command -v jq &>/dev/null; then
   SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
 else
   SESSION_ID=$(echo "$HOOK_INPUT" | sed -n 's/.*"session_id"\s*:\s*"\([^"]*\)".*/\1/p' | head -1)
+  TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | sed -n 's/.*"transcript_path"\s*:\s*"\([^"]*\)".*/\1/p' | head -1)
 fi
 
 if [[ -z "$SESSION_ID" ]]; then
@@ -32,7 +34,15 @@ if [[ -z "$SESSION_ID" ]]; then
 fi
 
 # --- Write sentinel (critical path) ---
-touch "/tmp/compaction-occurred-${SESSION_ID}"
+# Sentinel content is the pre-compaction transcript size in bytes (or empty if
+# unknown). Advisory hook reads this and compares against post-compaction size
+# to suppress false-positive emissions when Claude Code fires PreCompact without
+# a meaningful context shrink (e.g., subagent-result integration on 1M models).
+PRE_SIZE=""
+if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+  PRE_SIZE=$(stat -c '%s' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%z' "$TRANSCRIPT_PATH" 2>/dev/null || true)
+fi
+echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}"
 
 # --- Write state snapshot (best-effort, wrapped in subshell) ---
 # Per-section budgets prevent any single section from blowing the 100-line cap.

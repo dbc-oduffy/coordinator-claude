@@ -126,6 +126,21 @@ Invoke `/merge-to-main` to create a PR, wait for CI, merge, and clean up.
 
 If the current branch IS main (because all work was already absorbed and we're cleaning remotes only), skip this step.
 
+### Step 5.5: Post-Merge Re-Verify Shared Infra (geneva T1.7)
+
+After the merge to main completes — especially when conflicts were resolved during cherry-pick or merge, or when main contained concurrent edits to shared files — re-verify that your intended changes survived.
+
+**Why this matters:** Last-writer-wins silently reverts edits when both sides touched the same hunk and the conflict was resolved naively. A consolidation merge that "succeeded" may have silently dropped changes made on absorbed branches.
+
+**Verification steps:**
+
+1. For each file with a known specific change (esp. plugin internals, shared scripts, configs):
+   ```bash
+   git show HEAD:<file-path> | grep -F "<canonical phrase from your change>"
+   ```
+2. If a canonical phrase is missing, your change was overwritten. Re-apply it with a follow-up commit.
+3. This is especially important for `~/.claude/` plugin files and project-wide config files touched by multiple branches in the consolidation.
+
 ### Step 6: Report
 
 ```

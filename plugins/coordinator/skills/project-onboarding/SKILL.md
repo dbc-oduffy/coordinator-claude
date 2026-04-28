@@ -211,6 +211,30 @@ Check if `.gitignore` exists and contains an entry for `.claude/settings.local.j
 
 **Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
 
+#### 3f.5. Auto-push post-commit hook
+
+Check for `.git/hooks/post-commit`. If absent, install one that delegates to the canonical helper so SSH remotes on Windows route through PowerShell (1Password agent compatibility) and HTTPS remotes go straight through git:
+
+```bash
+cat > .git/hooks/post-commit <<'HOOK'
+#!/bin/bash
+# Auto-push to remote on work/* or feature/* branches — crash insurance.
+# Delegates to coordinator-auto-push helper.
+exec "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push"
+HOOK
+chmod +x .git/hooks/post-commit
+```
+
+If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the existing block(s) and append the helper invocation backgrounded:
+
+```bash
+# === Auto-push (crash insurance) ===
+( "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push" ) &
+exit 0
+```
+
+Skip if a custom auto-push hook already exists and the PM has signed off on it.
+
 #### 3g. DIRECTORY.md
 
 Do NOT create this file directly. It requires source file analysis that `/update-docs` Phase 2 handles. Instead, note in the report that the PM should run `/update-docs` to generate the source index.
@@ -244,6 +268,28 @@ The wiki system is now scaffolded at `docs/`:
 - **`docs/research/`** — research outputs (preserved permanently)
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
+
+## Onboarding Bug Fixes — Three-Layer Rule
+
+When an onboarding or install failure is discovered and fixed, a single fix is not enough. A cohort of users already hit the failure and won't re-install. Any onboarding bug fix that doesn't ship all three layers will recur:
+
+**Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure. This is the obvious fix; it's necessary but not sufficient on its own.
+
+**Layer 2 — Reactive repair:** A `doctor`-style standalone script that:
+- **By default:** diagnoses the environment and reports what's wrong (non-destructive)
+- **With a flag** (e.g., `--fix`): applies the repair in place
+
+Users who already hit the failure won't re-run the full installer. They need a targeted recovery path that works against their existing broken state.
+
+**Layer 3 — Searchable docs:** A row in the troubleshooting table (or a new table if none exists) keyed on the **literal error text** the user would see. Search-reflex users paste the error into a search or into the docs — they need to land on the fix immediately.
+
+```markdown
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `ModuleNotFoundError: No module named 'X'` | Y was not installed | Run `doctor --fix` or `pip install X` |
+```
+
+**When onboarding flags a new failure:** Before closing the fix, verify all three layers exist. If a layer is missing, create it as part of the same fix — not a follow-up task.
 
 ## Notes
 

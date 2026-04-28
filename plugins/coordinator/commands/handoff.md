@@ -37,6 +37,13 @@ Generate a filename: `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_{session-id}.md` wher
 Write the file with this structure:
 
 ```markdown
+---
+workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
+scope:                              # git pathspec syntax — files this workstream owns
+  - path/to/file.md
+  - dir/with/files/**
+---
+
 # Session Handoff — [DATE]
 
 ## What Was Accomplished
@@ -86,11 +93,17 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 - [file path] — [one-line description of change]
 ```
 
-**Anti-amnesia chain:** The `_Continuing from..._` preamble in `## What Was Accomplished` creates a chain — any single handoff is a self-contained orientation point, not just an incremental update. To populate it: read the most recent file in `tasks/handoffs/` by filename timestamp. If one exists, open with a 2-3 sentence synthesis of that prior state. If no prior handoff exists, omit the preamble. This takes seconds and prevents every future session from re-deriving context.
+**Anti-amnesia chain:** The `_Continuing from..._` preamble in `## What Was Accomplished` creates a chain — any single handoff is a self-contained orientation point, not just an incremental update. **The predecessor is whatever handoff this session was opened with — period.** Identify it from a positive opening signal:
 
-**Cascading unresolved items:** When reading the predecessor, check its `## Recommended Next Steps` and `## Carried Forward` sections for items this session did NOT complete. Any unresolved items **must** be carried forward into the new handoff's `## Carried Forward` section — they don't disappear just because a session ended. Each carried item retains its origin annotation (e.g., `_(carried from 2026-03-20_100000_abc123.md)_`) so the full lineage is visible. Items leave the cascade only when: (1) completed by a session (moved to `## What Was Accomplished`), or (2) explicitly dismissed by the PM. A session cannot silently drop a carried item.
+1. **Session was started with `/pickup <handoff>`** — the file passed to `/pickup` is the predecessor. This is the canonical signal. If `/pickup` was used, you already know the answer.
+2. **The PM explicitly named a handoff at session start** — e.g., "continue from yesterday's auth handoff." (Combining two predecessors into one handoff requires explicit PM direction at session start — the EM does not collapse the chain on its own.)
+3. **Neither?** Then this handoff has **no predecessor**. Omit the `Continuing from` preamble entirely and write a standalone handoff.
 
-**Chain archival:** Because the cascade ensures all unresolved obligations flow into the new handoff, the predecessor can always be safely archived after a continuation. Move the predecessor to `archive/handoffs/` (create the directory if needed). The new handoff is now the single source of truth — it contains both the context synthesis (preamble) and the obligation chain (carried forward items).
+**"Most recent file in `tasks/handoffs/`" is a facile signal — do not use it.** Concurrent sessions across machines routinely produce adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. Picking the most recent timestamp corrupts the audit trail and incorrectly archives active work belonging to other workstreams. If you didn't open this session with a specific handoff, you have no predecessor.
+
+**Cascading unresolved items (only when there IS a predecessor):** When this session genuinely continues a predecessor, check its `## Recommended Next Steps` and `## Carried Forward` sections for items this session did NOT complete. Any unresolved items **must** be carried forward into the new handoff's `## Carried Forward` section — they don't disappear just because a session ended. Each carried item retains its origin annotation (e.g., `_(carried from 2026-03-20_100000_abc123.md)_`) so the full lineage is visible. Items leave the cascade only when: (1) completed by a session (moved to `## What Was Accomplished`), or (2) explicitly dismissed by the PM. A session cannot silently drop a carried item.
+
+**Chain archival (only the explicit predecessor):** Because the cascade ensures all unresolved obligations flow into the new handoff, the **explicit** predecessor can be safely archived after a continuation. Move *only* that predecessor to `archive/handoffs/` (create the directory if needed). Do not sweep other adjacent handoffs in `tasks/handoffs/` — they belong to other workstreams or other sessions and are not yours to archive.
 
 #### Step 2: Capture Lessons
 
@@ -130,16 +143,35 @@ Update the documents that future sessions read for orientation — closing the r
 
 **Now** that the handoff is written, commit everything and verify remote sync.
 
-1. `git add -A` — stage everything, don't try to separate workstreams
-2. If there are staged changes, commit with a lightweight message:
+1. **Stage only paths this workstream touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
+   - Make a mental (or explicit) list of the files this workstream edited this session (typically small: the handoff doc itself, `tasks/` files, and any late-session work).
+   - `git add <path1> <path2> ...` — name each path explicitly.
+   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
+2. If there are staged changes, commit using the scoped helper — it reads `workstream:` and `scope:` from the handoff doc's frontmatter and stages only the declared paths:
    ```
-   git commit -m "handoff quick-save"
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "handoff quick-save: <workstream>"
    ```
+   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `--scope-from` flag reads `scope:` as git pathspec entries and stages only those paths — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`).
 3. **Pushing:** The post-commit hook handles pushing to branch automatically.
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
 4. **Verify remote is synced:** confirm no unpushed commits remain (`git log origin/$(git branch --show-current)..HEAD`). If auto-push failed, push explicitly and warn the PM.
+
+#### Step 3.5: Archive Session Claim
+
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Without this, `coordinator-safe-commit --scope-from` in concurrent sessions repeatedly trips on dead-PID claims that touched the same scope files — forcing the next EM to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+
+Run:
+```bash
+sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
+  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  cs_archive "$sid" 2>/dev/null || true
+```
+
+Idempotent — already-archived sessions return 0 silently. Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the sentinel is missing or the lib is unavailable.
+
+**Note on session_id source:** The sentinel is "last writer wins" across concurrent sessions. If `CLAUDE_SESSION_ID` is exported in your environment, prefer it over the sentinel — that's the session that actually owns this handoff.
 
 #### Step 4: Confirm
 
@@ -151,6 +183,7 @@ Remind the user:
 
 ### Notes
 
+- **A Claude Code restart is a session boundary, not a step within a session.** If your workflow needs an MCP-bridge restart, a runtime artifact rebuild, or a `/reload-plugins` between code-edit and verification, run `/handoff` BEFORE the restart, not after. Splitting code+build from runtime-verify across two sessions is cleaner than trying to span the restart — context is lost in the gap, and the post-restart session that picks up has no context unless a handoff exists. Symptom that you should have handed off: you find yourself saying "let me just wait through this restart and then verify" — stop, hand off, the next session verifies.
 - Each session writes a NEW file with a unique timestamp — never overwrite other sessions' handoffs
 - Keep it concise — aim for under 50 lines. The next session will also have MEMORY.md and project context.
 - Focus on state that MEMORY.md doesn't capture: in-progress work, blockers, uncommitted changes

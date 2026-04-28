@@ -48,6 +48,16 @@ Skip silently if the gate fails or verdict is `current`/`mild`. Evening surfacin
 is for sessions that need a reindex *before* tomorrow starts; mild staleness can
 wait for morning.
 
+### Step 1.7: Coordinator-Improvement Queue Check
+
+Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count entries in the `## Active queue` section (each line beginning with `- `) and note the date of the oldest entry.
+
+- **If ≥ 5 active entries OR oldest entry is > 14 days ago (heuristic — flag for revisit after first organic cycle):** surface a one-liner to the PM in the Final Summary:
+  > "Coordinator-improvement queue has K entries (oldest: YYYY-MM-DD). Triage now or defer to a future session?"
+  The invitation to triage is optional — follow the PM's energy. If they want to triage: read the queue, dispatch a small executor per entry (drawing on the entry's "proposed target"), verify, percolate to X:/coordinator-claude. Move applied entries from `## Active queue` to `## Processed`. If the queue has > 15 entries, treat this as a `/staff-session`-style multi-executor sweep.
+- **If < 5 entries AND all are ≤ 14 days old:** skip silently — no surfacing needed.
+- **If the file does not exist:** skip silently.
+
 ### Step 2: Branch Consolidation
 
 Consolidate all of today's work branches for this machine into one clean branch.
