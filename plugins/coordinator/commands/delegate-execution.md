@@ -34,6 +34,15 @@ If `$ARGUMENTS` is provided:
 
 The executor agents will also mark their individual stub documents (per the executor's write-ahead protocol), creating two layers of breadcrumbs. If a session crashes mid-execution, both the tracker and the stub itself show "in progress."
 
+### Between Dispatch Waves — Checkpoint Protocol (DroneSim T1.1)
+
+After each parallel or sequential executor wave completes, before launching the next:
+
+1. **Verify external persistence** — confirm any persistence step that executors were responsible for (force-save, build artifact write, DB migration commit) actually completed. Executor self-reports that "compiled and saved" may not reflect what hit disk.
+2. **Git commit** — commit the wave's output before launching the next wave.
+
+Each wave is a checkpoint. Prefer to never batch multiple waves before committing — if a crash occurs between waves, you lose only the in-flight wave, not all prior work. This directly supports the global doctrine: "Make long-running work resumable — checkpoint to disk so crashes cost one increment, not the full runtime."
+
 ### Phase 2: Select Model and Dispatch Executors
 
 #### Model Selection Rubric
@@ -50,6 +59,12 @@ The executor agents will also mark their individual stub documents (per the exec
 **If a stub genuinely needs Opus-level judgment to execute** (unresolved ambiguity, `NEEDS_COORDINATOR` markers, cross-file coherence decisions not captured in code sketches), the EM handles it directly — don't dispatch it. The coordinator IS the Opus. If you find yourself wanting to dispatch an Opus executor, ask: "Is the spec incomplete?" If yes, fix the spec. If no, the EM can do the work inline or supervise Sonnet executors directly.
 
 #### Dispatch
+
+#### Briefing Concreteness (DroneSim T1.4)
+
+Prefer enumerated targets over described scope. "Apply this regex to these 7 files" beats "apply this regex everywhere it's needed." When the work is enumerable, enumerate it in the prompt.
+
+Vague specs invite hallucinated completion — agents with vague instructions will by default report success against their own interpretation of the scope, not against the coordinator's intent. Hardcoded file lists, symbol lists, and exact replacement strings produce measurably higher first-try success than scope descriptions.
 
 **For independent stubs** (no shared dependencies):
 - Dispatch executor agents in parallel using Task tool with `run_in_background: true`
@@ -217,6 +232,20 @@ Agent(
    Do NOT repeat these approaches. See stub ## Execution Post-Mortem for details.
    ```
 6. The re-dispatch budget (3 attempts total) applies — check the tracker README for the current attempt count before re-dispatching.
+
+### Scope-Conformance Check — After Every Executor Returns (geneva T1.5)
+
+Before staging any executor output:
+
+1. Run `git diff --stat` to enumerate all changed paths.
+2. Confirm each changed path is within the dispatch's declared scope.
+3. Stash or revert any out-of-scope edits — common out-of-scope mutations include test file deletions, unrelated refactors, and autonomous commits the executor made despite instructions.
+
+**Dispatch-prompt enforcement clause** — include this verbatim in every executor prompt:
+
+> Modify ONLY the files listed in scope. Do not commit. Do not delete or modify tests unless explicitly listed.
+
+See `skills/verification-before-completion/SKILL.md` → "Scope-Conformance Check After Executor Returns" for the coordinator-side mechanical check.
 
 ### Phase 4: Final Verification
 

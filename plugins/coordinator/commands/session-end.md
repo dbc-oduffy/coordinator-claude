@@ -33,6 +33,18 @@ Read `tasks/lessons.md` (if it exists). If anything was learned this session tha
 
 Add new entries in the established format (bold title + 1-2 sentence rule, max 3 lines). Prefer merging with an existing entry over adding a new one. Skip if nothing new.
 
+### Step 1.2: Lesson Classification
+
+For each new lesson added in Step 1, ask the tier-1 question: **"If a different project type — UE / web / data / research — also used the coordinator pipeline, would this rule apply?"** This is autonomous self-classification; no separate review step is needed.
+
+- **If yes (tier-1 / universal):** (a) tag the entry in `tasks/lessons.md` by appending `[universal]` on the same line as the bold title; (b) append a one-liner to the global queue at `~/.claude/tasks/coordinator-improvement-queue.md`:
+  ```
+  - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
+  ```
+  Use the project repo name as `<source-repo>`, and `tasks/lessons.md:<line-number>` as `<source-file>:<line>`. If the same `<source-file>:<line>` already exists in the queue, skip — the queue is append-only and that pair is the dedup key.
+- **If no (tier-2 / project-specific):** no action beyond the lesson already written.
+- **If nothing new was added in Step 1:** skip this step entirely.
+
 ### Step 1.5: Final Session Save
 
 Trigger a final memory save to capture the tail end of this session that hasn't been auto-saved. This ensures the session's last work is recorded even if the JSONL delta hadn't reached the auto-save threshold.

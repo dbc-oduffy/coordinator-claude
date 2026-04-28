@@ -143,6 +143,20 @@ Ready to implement <feature-name>
 | Tests fail during baseline | Report failures + ask |
 | No package.json/Cargo.toml | Skip dependency install |
 
+## Stale-Snapshot Hazard
+
+Parallel worktrees each see only the parent commit at the moment of branching — they do not receive subsequent commits made to the parent branch while they are in flight.
+
+**The hazard:** If chunk A's worktree merges its changes to `main` while chunk B's worktree is still running, chunk B has no visibility into A's landed changes. When B returns, applying its diff blindly will overwrite or conflict with A's work — even on lines where both made changes that "shouldn't" conflict.
+
+**Two valid resolutions:**
+
+1. **Sequence dependent chunks — don't parallelize them.** If chunk B depends on or overlaps with chunk A's output, run B after A has landed and merged. Parallelism is only safe for truly disjoint file sets.
+
+2. **Superset + dedupe on return.** When chunks have unavoidable overlap (discovered after the fact), take the superset of both changes and deduplicate — never blindly apply chunk B's diff over chunk A's landed change. The later chunk's version is not automatically correct; review the overlap and keep the right content from each.
+
+**Prefer option 1 at design time.** Detecting overlap after both chunks are in flight and attempting superset reconciliation is significantly more expensive than sequencing correctly upfront.
+
 ## Common Mistakes
 
 ### Skipping ignore verification
