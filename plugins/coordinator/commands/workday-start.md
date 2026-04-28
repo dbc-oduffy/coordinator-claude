@@ -12,46 +12,9 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 ## Step 0: Branch Setup
 
-Ensure all work today happens on a proper work branch, and consolidate any lingering open branches from previous days.
+Ensure work happens on today's work branch (`work/{machine}/{YYYY-MM-DD}`, machine = `hostname` lowercased) and consolidate lingering open branches from previous days. If already on today's branch, skip. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
 
-1. **Determine today's work branch name:**
-   - Machine name: run `hostname` and lowercase it.
-   - Today's branch: `work/{machine}/{YYYY-MM-DD}`
-
-2. **If already on today's work branch:** Skip to Step 1.
-
-3. **Find open (unmerged) work branches owned by this user** — branches that have diverged from main but haven't been merged, scoped to the current git user's machine name:
-   ```bash
-   git branch --list "work/{machine}/*" --no-merged main
-   ```
-   Use the same `{machine}` derived in step 1 (the current machine's hostname, lowercased). This scopes consolidation to branches owned by this user on this machine — collaborators' `work/{their-machine}/*` branches are never touched.
-
-   Exclude today's branch name from the result list.
-
-4. **Create (or checkout) today's branch:**
-   - If the branch doesn't exist: `git checkout -b work/{machine}/{YYYY-MM-DD}`
-   - If it already exists locally: `git checkout work/{machine}/{YYYY-MM-DD}`
-   - If name collides with an already-merged branch, append suffix: `work/{machine}/{YYYY-MM-DD}-2`
-
-5. **Consolidate open branches** — for each branch found in step 3:
-   ```bash
-   git merge {branch-name} --no-ff -m "consolidate {branch-name} into today's work branch"
-   ```
-   - If merge succeeds cleanly: proceed to the next branch.
-   - If merge conflict: **stop immediately.** Abort the merge: `git merge --abort`. Report: _"Merge conflict consolidating {branch-name} — manual resolution required. Continuing workday-start without consolidating this branch."_ Do not attempt to resolve the conflict automatically.
-   - After all merges: the old branches remain as refs (do not delete them — the PM may want to inspect them).
-
-6. **Push today's branch to establish remote tracking:**
-   ```bash
-   git push -u origin work/{machine}/{YYYY-MM-DD}
-   ```
-
-7. **Report:**
-   - If consolidation happened: _"On branch {today-branch}. Consolidated N open branches: {list}."_
-   - If nothing to consolidate: _"On branch {today-branch}. No open work branches to consolidate."_
-   - If any conflicts blocked consolidation: flag them clearly.
-
-**Why this matters:** Without this step, sessions can pile up unmerged work branches indefinitely. The daily consolidation keeps branch history clean and surfaces any accumulated divergence early — before it becomes a merge nightmare.
+**Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
 
 ## Step 1: Handoff Triage
 
@@ -65,31 +28,9 @@ Read all files in `tasks/handoffs/`. For each:
    - **Likely consumed** — work appears in the completed archive (cross-reference below)
 4. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
 5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
-6. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.**
-
-   Concurrent sessions and machines routinely close items the handoff still lists as open. Before surfacing any "Recommended Next Steps," "In-Progress Work," or equivalent pending-work items from a handoff as today's action items:
-
-   a. **Git log check:** Extract the handoff's written date from its filename or header (`YYYY-MM-DD`). Then run:
-      ```bash
-      git log --oneline --since="<handoff-date>" --all
-      ```
-      Scan commit subjects for key nouns from each pending item. A commit whose subject clearly matches an item is strong evidence that item shipped.
-
-   b. **Plan/stub status check:** For any pending item that references a plan or stub file (e.g., `docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file and check its `**Status:**` field. A stub the handoff calls "pending" but whose own status reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item.
-
-   c. **Drop confirmed-closed items from the actionable list.** Items verified as already shipped do NOT surface as today's work. Note them in the report as _"verified-closed since handoff"_ so the PM sees the reconciliation was done.
-
-   **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means the Morning Briefing will recommend work that has already shipped, wasting the PM's attention on ghost items.
-
-   **Partial-completion claims** (DroneSim T1.2): Before surfacing any work the handoff describes as "stalled", "unfinished", or "partial" as today's action items, verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. Treat the handoff's status as a hypothesis, not ground truth — work often persisted despite the handoff saying otherwise.
+6. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.** Per-handoff: (a) `git log --oneline --since="<handoff-date>" --all` and scan subjects for matching pending items; (b) Read referenced plan/stub `**Status:**` fields; (c) drop confirmed-closed items from the actionable list, note as "verified-closed since handoff" in the report. Empirical baseline: 30–60% of inherited items are already closed. **Full procedure + rationale (surface-only / cross-reference / git-reconcile):** see `pipelines/workday-start-internals.md` § Step 1.
 
 7. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival. [X items across handoffs verified-closed by git reconciliation.]"
-
-**Why surface-only:** Handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do about it.
-
-**Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
-
-**Why git-reconcile pending items:** The completed archive records sessions that ran `/workday-complete` or `/update-docs` — it is not exhaustive. Executor sessions that commit and exit without ceremony never land in the archive. The git log is the authoritative record of what actually shipped; the archive is a secondary cross-check. Both checks together cover the failure modes the other misses.
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
@@ -98,6 +39,17 @@ Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). If the f
 _"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD). Triage now?"_
 
 If the file does not exist or the queue is empty, skip silently. The threshold is a heuristic starting point — calibrate based on actual queue velocity after the first organic triage cycle.
+
+## Step 1.6: Scheduled Rechecks
+
+Glob `tasks/cookbook-recheck-due-*.md` (and `tasks/recheck-due-*.md` for general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+
+For each marker found:
+- **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
+- **If due date is within 7 days**, surface as a heads-up: _"Scheduled recheck upcoming: `<filename>` (due {YYYY-MM-DD}, in {N} days)."_
+- **Otherwise**, skip silently.
+
+If no marker files exist, skip silently. Do not auto-execute the recheck procedure — these markers are PM-actioned, not auto-dispatched.
 
 ## Step 2: Doc Freshness
 
@@ -268,31 +220,9 @@ YYYY-MM-DD
 
 ## Step 5.5: Write Orientation Cache
 
-Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart hook to inject in subsequent sessions instead of raw repomap/DIRECTORY content.
+Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects in subsequent sessions instead of raw repomap/DIRECTORY content. Sections: Key Documentation (from `docs/README.md`), Structure (top 15 from repomap), Navigation (from DIRECTORY.md), Code Statistics (`scc` if available), Health Snapshot, Doc Inventory, Staleness markers, Yesterday's Strategic Review (from `archive/daily-summaries/`). Frontmatter: `generated_by`, `generated_at`, `git_head_at_generation`. Skip if `tasks/` doesn't exist.
 
-**Content derivation:**
-1. **Key Documentation:** If `docs/README.md` exists, include a `## Key Documentation` section:
-   ```
-   ## Key Documentation
-   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
-   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
-   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
-   - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
-   ```
-   Count the files in each directory. If `docs/guides/DIRECTORY_GUIDE.md` exists, reference it. If `docs/README.md` does NOT exist, note: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
-2. **Structure:** Read `tasks/repomap.md`, extract top 15 entries by rank. Note total file count.
-3. **Navigation:** Read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (directory name + file count + purpose).
-4. **Code Statistics:** Run `scc --no-complexity --no-cocomo --no-duplicates --sort code` (if scc is available). Include a compact summary: total lines of code, top 5 languages with line counts. This calibrates session agents on project scale. If scc is not installed, skip silently — `~/bin/scc` is the conventional install path on Windows.
-5. **Health Snapshot:** Compact version of the Morning Briefing's health data (already in context from Steps 3-4).
-6. **Doc Inventory:** Checklist of standard docs (already checked in Step 2).
-7. **Staleness markers:** Repomap age, last update-docs run (already checked in Step 2).
-8. **Yesterday's Strategic Review:** Read the most recent file in `archive/daily-summaries/` (glob for `YYYY-MM-DD.md`, sort descending, take first). If a daily summary exists and has a `## Strategic Review` section, extract a 3-5 line excerpt covering the key alignment findings, debt items, and bridging opportunities. Include as a `## Yesterday` section in the orientation cache. This gives every subsequent session automatic strategic context without reading a separate file. If no daily summaries exist, skip silently.
-
-**Frontmatter:** Include `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
-
-**Target: 40-60 lines.** This replaces ~300 lines of raw hook injection for subsequent sessions.
-
-**If `tasks/` directory doesn't exist:** Skip. Not all repos use `tasks/`.
+**Full content derivation per section:** see `pipelines/workday-start-internals.md` § Step 5.5.
 
 ## What This Does NOT Do
 
@@ -315,6 +245,6 @@ Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart
 
 workday-start is read-only for all project tracking files. It writes only one file: `tasks/.workday-start-marker`. Multiple sessions can safely read the same health files; the marker is a simple date string with no merge-conflict risk.
 
-**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1.6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
+**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1, item 6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
 
 If `$ARGUMENTS` is provided, include it as a focus hint in the Morning Briefing: _"Requested focus: {arguments}"_
