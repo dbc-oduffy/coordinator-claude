@@ -292,3 +292,9 @@ These techniques are part of systematic debugging and available in this director
 
 <!-- Review: Patrik — unsourced statistics softened to qualitative observations -->
 In observed debugging sessions, systematic approaches typically resolve issues in a single pass, while guess-and-check approaches frequently require multiple sessions and introduce regressions.
+
+## Data Before Dispatch
+
+Before dispatching agents on a debugging or fix task, identify and run the smallest diagnostic that exposes ground truth — a test runner, curl probe, `git show`, or single inspect call. Target: < 60 seconds. Measured data beats speculation: a 20-second `pnpm test:unit` run identified 3 of 9 misdiagnosed root cause categories that would have driven agent rework; a single curl + `getent hosts` + `ss -tlnp` diagnostic identified two root causes that multiple hypothesis-driven commits had failed to isolate.
+
+**Rule:** Hypothesis-driven dispatch without first running a diagnostic is a stuck-detection trigger. If the fix plan contains "the cause is probably X" without a supporting diagnostic, stop and get the data. (geneva T1.2, paired across writing-plans + systematic-debugging)

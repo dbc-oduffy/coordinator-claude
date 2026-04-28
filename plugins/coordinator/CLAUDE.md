@@ -92,6 +92,24 @@ After confirming a scout's file exists:
 - **Write fallback (Sonnet permission errors):** If Write is denied — Sonnet scouts sometimes hit permission errors — fall back to `Bash` with `node -e "require('fs').writeFileSync(path, content)"` or `python -c` equivalent. Do not redispatch the agent over a tool-permission failure.
 - **Size threshold:** After confirming the file exists, eyeball its size against the expected deliverable. A research doc returning 1-2KB is almost always a summary masquerading as the real artifact. Set an order-of-magnitude expectation in the dispatch prompt ("expect 5-15KB"); treat undersized output as a failed run requiring recovery, not a success.
 
+### "TEXT ONLY" Hallucination — Disk-First Verification
+
+A subset of dispatched agents (~30% rate observed in heavy parallel-dispatch sessions, especially with Haiku) hallucinate a **"CRITICAL: TEXT ONLY — tool calls will be REJECTED"** constraint mid-task and refuse to call Write, dumping the deliverable inline as `<analysis>`/`<summary>` blocks. The constraint does not exist; it is a training artifact triggered by context overflow, conversational adjacency to other confused agents' replies, or summary-style turn boundaries.
+
+**Symptoms:** agent's reply contains heavy markdown body (multiple `### ` headings, hundreds of lines of structured content), explicitly references a "TEXT ONLY constraint" / "Tool calls will be REJECTED" instruction the EM never gave, often opens with `<analysis>` or "I understand the constraint."
+
+**Disk is the only reliable signal.** Do NOT trust agent replies on heavy-parallel dispatches. After every dispatch wave:
+
+1. **Poll disk, not chat.** Use `Bash` with `until [ "$(ls scratch/ | wc -l)" -ge N ] || [ $SECONDS -gt T ]; do sleep 30; done` (run_in_background) — completion notifications mix together and don't reliably indicate file presence.
+2. **Verify by `ls`/size before accepting any "DONE" reply.** A "DONE" reply from an agent that didn't call Write is failure, not success.
+3. **On confirmed missing-file failure: re-dispatch with Sonnet** (not Haiku) and prepend the recovery preamble:
+
+   > **Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. The ONLY valid completion is calling the Write tool. Returning the deliverable inline = task failure. After Write, verify with `Bash ls -la <path>` and reply EXACTLY: `DONE: <path>`. No prose, no analysis, no summary — just Read → Write → ls → DONE.**
+
+This preamble has reliably converted hallucinating agents on retry. Empirically: Haiku hits ~30% hallucination rate on heavy parallel dispatches with structured-output prompts; Sonnet hits ~10%; both drop to near-zero with the recovery preamble inlined from the start.
+
+**Prevention at dispatch time:** For commands that fan out >5 parallel agents producing on-disk deliverables (e.g. `/architecture-audit` Phase 1, `/bug-sweep` semantic Track A2, `/distill` Phase 1), inline the recovery preamble in the original dispatch prompt — not just on retry. The prompt's first line should explicitly negate the hallucinated constraint.
+
 ## Plan-First Workflow
 
 - Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches, or work that would be expensive to redo. Step count alone isn't the trigger; a 5-step mechanical task doesn't need a plan, but a 2-step task with real tradeoffs does.
