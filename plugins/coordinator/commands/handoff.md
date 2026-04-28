@@ -183,6 +183,7 @@ Remind the user:
 
 ### Notes
 
+- **A Claude Code restart is a session boundary, not a step within a session.** If your workflow needs an MCP-bridge restart, a runtime artifact rebuild, or a `/reload-plugins` between code-edit and verification, run `/handoff` BEFORE the restart, not after. Splitting code+build from runtime-verify across two sessions is cleaner than trying to span the restart — context is lost in the gap, and the post-restart session that picks up has no context unless a handoff exists. Symptom that you should have handed off: you find yourself saying "let me just wait through this restart and then verify" — stop, hand off, the next session verifies.
 - Each session writes a NEW file with a unique timestamp — never overwrite other sessions' handoffs
 - Keep it concise — aim for under 50 lines. The next session will also have MEMORY.md and project context.
 - Focus on state that MEMORY.md doesn't capture: in-progress work, blockers, uncommitted changes
