@@ -155,14 +155,7 @@ Agent(
 TaskUpdate(taskId: "{sweep-id}", owner: "sweep")
 ```
 
-**Sweep prompt** should include:
-- The research question and project context
-- The scratch directory path: `{scratch-dir}`
-- The list of specialist topic letters and their output file paths
-- The output path for the final document: `{output-path}`
-- The advisory output path: `{advisory-path}` (pre-computed in Step 1)
-- The sweep task ID to mark complete when done
-- Instruction: "Read all specialist outputs from {scratch-dir}/ ({letter}-claims.json and {letter}-summary.md for each specialist). Follow your agent definition's three phases: Phase 1 — assess all claims and emit gap report, Phase 2 — fill gaps via WebSearch/WebFetch, Phase 3 — frame with exec summary and conclusion. Write the final document to {output-path} and {scratch-dir}/synthesis.md. Write advisory to {advisory-path} and {scratch-dir}/advisory.md if you have observations beyond scope. If nothing beyond scope, note 'No advisory' in your completion message. You are explicitly encouraged to go beyond the original research scope where your judgment says it's warranted."
+**Sweep prompt fields and verbatim instruction:** see `pipelines/web-research-internals.md` § Sweep Prompt Contents.
 
 Dispatch ALL teammates in a single message (parallel).
 
@@ -194,141 +187,32 @@ When you receive a notification that the sweep task is complete:
 
 **Skip this step entirely if `--shallow` was passed.** Proceed directly to Step 7.
 
-Parse the gap report's YAML front-matter. Evaluate:
+Parse the gap report's YAML front-matter and apply the DEEPEN / DO NOT DEEPEN rules in `pipelines/web-research-internals.md` § Step 6.5. The decision turns on `high_severity_gaps`, `contested_unresolved`, `coverage_score`, plus the PM's timing budget.
 
-```
-DEEPEN if ANY of:
-  - high_severity_gaps >= 2
-  - contested_unresolved >= 1 AND the contradiction is material to the research question
-  - coverage_score <= 3
-  - The EM judges (from reading the prose) that a gap would materially change
-    the document's recommendations or conclusions
-
-DO NOT DEEPEN if ALL of:
-  - high_severity_gaps == 0
-  - coverage_score >= 4
-  - Remaining gaps are cosmetic (low-severity, nice-to-have, tangential)
-
-ALSO DO NOT DEEPEN if:
-  - The PM's timing preference was fast/short (3-8 min ceiling) — honor the budget
-```
-
-**If NO DEEPEN:** Announce:
-> "Gap report reviewed — {gap_count} gaps identified, {high_severity_gaps} high-severity. Coverage score: {coverage_score}/5. Gaps are minor — proceeding with current synthesis."
-
-Proceed to Step 7.
-
-**If DEEPEN:** Announce:
-> "Gap report shows {high_severity_gaps} high-severity gaps and coverage score {coverage_score}/5. Recommending a deepening pass with {N} gap-specialists. Dispatching Team 2."
-
-Proceed to Step 6.6.
+- **If NO DEEPEN:** announce per the template in the internals doc, then proceed to Step 7.
+- **If DEEPEN:** announce per the template, then proceed to Step 6.6.
 
 ## Step 6.6 — Dispatch Team 2 (Deepening Pass)
 
-1. **Cluster gap targets:** Read the Gap Targets table from the gap report. Cluster related gaps into 1-3 specialist assignments (e.g., two absent claims in the same domain → one gap-specialist). Only include HIGH and MEDIUM severity gaps.
+1. **Cluster gap targets** (HIGH/MEDIUM only) into 1-3 specialist assignments. Two absent claims in the same domain → one gap-specialist.
+2. **Decide scout inclusion:** include a Haiku scout if gaps require new topic areas; skip if gaps are refinements within existing topics (gap-specialists do their own targeted searches).
+3. **Record Team 2 spawn timestamp:** `date +%s`.
+4. **Create team, tasks, and dispatch all teammates in a single message (parallel)** — sweep is in merge mode and blocks on all gap-specialists; gap-specialists block on the scout if one exists. Then announce per the template and free the EM.
 
-2. **Decide scout inclusion:** If gap targets require research in new topic areas not covered by Team 1's corpus, include a Haiku scout with new search queries. If gaps are refinements (contradictions, uncorroborated claims within existing topics), skip the scout — gap-specialists will do their own targeted searches.
-
-3. **Record Team 2 spawn timestamp:** `date +%s`
-
-4. **Create Team 2:**
-   ```
-   TeamCreate(team_name: "research-{topic-slug}-t2")
-   ```
-
-5. **Create tasks:**
-
-   **Sweep task (merge mode):**
-   ```
-   TaskCreate(subject: "Merge sweep: produce deepening delta", description: "Read Team 1 gap report + Team 2 gap-specialist outputs, produce deepening-delta.md")
-   ```
-
-   **Scout task (if needed):**
-   ```
-   TaskCreate(subject: "Build supplementary corpus for gaps", description: "Execute new search queries for gap targets, write to {scratch-dir}/gap-corpus.md")
-   ```
-
-   **Gap-specialist tasks (1-3):**
-   For each gap cluster, read the gap-specialist prompt template from:
-   `${CLAUDE_PLUGIN_ROOT}/pipelines/gap-specialist-prompt-template.md`
-
-   Fill in template fields: `[GAP_ID]`, `[GAP_DESCRIPTION]`, `[GAP_TYPE]`, `[GAP_SEVERITY]`, `[SUGGESTED_QUERIES]`, `[RELEVANT_TOPIC_LETTER]`, `[GAP_LETTER]` (use letters starting after Team 1's last letter, e.g., if Team 1 used A-D, gap-specialists use E-G), `[SCRATCH_DIR]`, `[TASK_ID]`, `[SPAWN_TIMESTAMP]`, `[SWEEP_NAME]` = "sweep-t2", peer list, research question, project context.
-
-   ```
-   TaskCreate(subject: "Fill gap {GAP_ID}: {description}", description: "...")
-   TaskUpdate(taskId: "{gap-specialist-id}", addBlockedBy: ["{scout-task-id}"])  # only if scout exists
-   ```
-
-   **Block sweep on all gap-specialists:**
-   ```
-   TaskUpdate(taskId: "{sweep-t2-id}", addBlockedBy: ["{gap-specialist-ids...}"])
-   ```
-
-6. **Spawn all Team 2 teammates in a single message (parallel):**
-
-   **Scout (if needed):**
-   ```
-   Agent(
-     team_name: "research-{topic-slug}-t2",
-     name: "scout-t2",
-     model: "haiku",
-     subagent_type: "deep-research:research-scout",
-     prompt: <scout prompt with gap-specific queries>
-   )
-   ```
-
-   **Gap-specialists:**
-   ```
-   Agent(
-     team_name: "research-{topic-slug}-t2",
-     name: "gap-{letter}",
-     model: "sonnet",
-     subagent_type: "deep-research:research-specialist",
-     prompt: <filled gap-specialist prompt>
-   )
-   ```
-
-   **Sweep (merge mode):**
-   ```
-   Agent(
-     team_name: "research-{topic-slug}-t2",
-     name: "sweep-t2",
-     model: "opus",
-     subagent_type: "deep-research:research-synthesizer",
-     prompt: <sweep prompt with [MERGE_MODE: true], Team 1 synthesis path, gap report path, gap-specialist output paths, delta output path = {scratch-dir}/deepening-delta.md>
-   )
-   ```
-
-7. **Announce:**
-   > "Deepening team (Team 2) dispatched: {scout status} + {N} gap-specialists + 1 Opus merge sweep. Gap-specialists fill targeted gaps (~3-8 min each), then the sweep produces a delta. I'll be notified when complete."
+**Full team/task creation snippets, gap-specialist template field list, parallel-dispatch syntax, merge-mode sweep prompt fields, announce template:** see `pipelines/web-research-internals.md` § Step 6.6.
 
 **EM is freed again.** Do not poll.
 
 ## Step 6.7 — Team 2 Completion + Merge
 
-When you receive a notification that the Team 2 sweep task is complete:
+When the Team 2 sweep completes:
 
-1. Read the delta document at `{scratch-dir}/deepening-delta.md`
-2. Verify it has substantive content
-3. Read Team 2's advisory if it exists
-
-4. **Merge delta into the Team 1 synthesis at `{output-path}`:**
-   - For each "Resolved Contradictions" entry: find the corresponding section in the synthesis and update it with the resolution. Remove any `[CONTESTED]` markers.
-   - For each "Filled Gaps" entry: find the appropriate topic section and integrate the new findings. Replace `[UNFILLED GAP]` markers where applicable.
-   - For each "Updated Claims" entry: update the relevant finding in the synthesis.
-   - Update the "Open Questions" section: remove questions that were answered, add any from "Still Unresolved".
-   - Strip all `[DEEPENING ADDITION]` and `[SWEEP ADDITION]` markers from the final document — provenance served its purpose during merge. The final document should read seamlessly.
-
-5. Write the merged document back to `{output-path}` and `{scratch-dir}/synthesis-merged.md`
-
-6. Commit:
-   ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"
-   ```
-
-7. Shut down Team 2: `TeamDelete(team_name: "research-{topic-slug}-t2")`
-
-8. Proceed to Step 7.
+1. Read `{scratch-dir}/deepening-delta.md`; verify substantive content; read Team 2 advisory if present.
+2. **Merge delta into `{output-path}`** per the rules in `pipelines/web-research-internals.md` § Step 6.7 (Resolved Contradictions, Filled Gaps, Updated Claims, Open Questions, strip provenance markers).
+3. Write merged doc back to `{output-path}` and `{scratch-dir}/synthesis-merged.md`.
+4. Commit: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"`
+5. `TeamDelete(team_name: "research-{topic-slug}-t2")`
+6. Proceed to Step 7.
 
 ## Step 7 — Finalize
 
@@ -346,15 +230,4 @@ When you receive a notification that the Team 2 sweep task is complete:
 
 ## Error Handling
 
-| Failure | Action |
-|---------|--------|
-| Scout fails (no corpus written) | Specialists fall back to self-directed discovery (existing behavior) — the corpus is optional, not required |
-| Scout times out (partial corpus) | Specialists use what's there + supplement with own searches |
-| Specialist hits ceiling and self-converges | Normal — specialist writes what it has and marks task complete |
-| Sweep doesn't wake after all specialists complete | Verify specialists sent DONE messages to sweep; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
-| All specialists fail | TeamDelete, report to PM |
-| Agents stuck in idle loops | Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results before attempting TeamDelete. If TeamDelete fails ("active" agents), wait for timeout. Do NOT block on stuck agents — read available outputs and present to PM |
-| Team creation fails | Fall back to relay pattern or manual research |
-| **Team 2 sweep fails** | EM reads raw gap-specialist outputs from `{scratch-dir}/D-*-claims.json` and manually integrates into Team 1 synthesis |
-| **All Team 2 gap-specialists fail** | TeamDelete Team 2, proceed to Step 7 with Team 1 synthesis as-is. Note: deepening failure is non-blocking — Team 1's output is already a complete document |
-| **Gap report has no YAML front-matter** | Treat as `coverage_score: 4, high_severity_gaps: 0` — skip deepening (the sweep may be running an older version) |
+See `pipelines/web-research-internals.md` § Error Handling Matrix for the full failure-mode → action table (scout/specialist/sweep/Team-2 failures).
