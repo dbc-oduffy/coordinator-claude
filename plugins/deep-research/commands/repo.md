@@ -38,15 +38,7 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-{topic-slug}-gap-analysis.md`
 10. If `--deeper`: set repomap path: `{scratch-dir}/repomap.md`
 11. If `--survey` or `--deepest`: set survey path: `{scratch-dir}/survey.md`; set survey output path: `docs/research/YYYY-MM-DD-{topic-slug}-survey.md`
-12. If `--deepest`: set atlas sketch paths:
-    - `{scratch-dir}/atlas-sketch-file-index.md`
-    - `{scratch-dir}/atlas-sketch-system-map.md`
-    - `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
-13. If `--deepest`: set atlas output paths:
-    - `docs/research/YYYY-MM-DD-{topic-slug}-file-index.md`
-    - `docs/research/YYYY-MM-DD-{topic-slug}-system-map.md`
-    - `docs/research/YYYY-MM-DD-{topic-slug}-connectivity-matrix.md`
-    - `docs/research/YYYY-MM-DD-{topic-slug}-architecture-summary.md`
+12. If `--deepest`: set atlas sketch (scratch) and refined-output (docs/research/) paths — see `pipelines/repo-research-internals.md` § Atlas Path Conventions for the 3 sketch + 4 final artifact paths.
 
 Announce: "Running Pipeline B (repo research, Agent Teams{', deepest mode' if --deepest}{', deeper mode' if --deeper and not --deepest}{', survey mode' if --survey and not --deepest}{', comparison mode' if --compare}) on {repo-path}."
 
@@ -107,63 +99,9 @@ Read the repo's structural skeleton to ground your scoping in reality, not assum
 
 ### Phase 1.5: Repomap Generation (only if `--deeper`)
 
-If `--deeper` is set, generate a dependency-weighted repomap before defining chunks. This gives you structural centrality data to inform chunk scoping and gives specialists prioritization guidance.
+Generate a dependency-weighted repomap before defining chunks — gives structural centrality data for chunk scoping and specialist deep-read prioritization. Five steps: (A) detect primary language(s), (B) extract import edges via language-appropriate grep, (C) resolve to files and count cross-references, (D) extract key exports, (E) write `{scratch-dir}/repomap.md` (Tier 1/2/3 by ref count) or skip if the import graph is too thin (<5 files with 2+ refs).
 
-**Step A — Detect primary language(s):**
-Count files by extension to identify the dominant language(s):
-```bash
-find {repo-path} -type f | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -10
-```
-
-**Step B — Extract import/dependency edges:**
-Run language-appropriate grep patterns on the repo. Use the top language(s) detected above:
-
-| Language | Pattern |
-|----------|---------|
-| Python | `grep -rh "^from \|^import " --include="*.py" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
-| JS/TS | `grep -rh "from ['\"]" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
-| Go | `grep -rh '"[^"]*"' --include="*.go" {repo-path} \| grep -v "// " \| sort \| uniq -c \| sort -rn \| head -40` |
-| Rust | `grep -rh "^use " --include="*.rs" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
-| C/C++ | `grep -rh '#include "' --include="*.h" --include="*.cpp" --include="*.c" --include="*.hpp" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
-| Java | `grep -rh "^import " --include="*.java" {repo-path} \| sort \| uniq -c \| sort -rn \| head -40` |
-
-For polyglot repos, run patterns for the top 2 languages.
-
-**Step C — Resolve to files and count cross-references:**
-From the import output, identify the top ~20 most-imported modules/files. For each, resolve to an actual file path in the repo and count how many distinct files reference it:
-```bash
-grep -rl "{module-name}" --include="*.{ext}" {repo-path} | wc -l
-```
-
-**Step D — Extract key exports:**
-For each of the top ~20 files by reference count, Read the first 50 lines to extract key exports (class names, function signatures, important constants).
-
-**Step E — Write repomap or skip:**
-If fewer than 5 files have 2+ incoming references, the import graph is too thin to be useful. Note this in `scope.md` and proceed without a repomap (specialists operate in default mode).
-
-Otherwise, write `{scratch-dir}/repomap.md`:
-
-```markdown
-# Repository Map — {repo-name}
-
-Ranked by structural centrality (incoming cross-file references).
-Generated during deeper-mode scoping — use to prioritize deep-reads.
-
-## Tier 1 — Core (10+ incoming refs)
-| File | Refs | Key Exports |
-|------|------|-------------|
-| {path} | {count} | {exports} |
-
-## Tier 2 — Important (5-9 refs)
-| File | Refs | Key Exports |
-|------|------|-------------|
-| {path} | {count} | {exports} |
-
-## Tier 3 — Supporting (2-4 refs)
-| File | Refs | Key Exports |
-|------|------|-------------|
-| {path} | {count} | {exports} |
-```
+**Full grep patterns per language, repomap template, and skip criteria:** see `pipelines/repo-research-internals.md` § Phase 1.5.
 
 ### Phase 2: Scoping (informed by orientation{' and repomap' if --deeper})
 
@@ -324,33 +262,9 @@ TaskUpdate(taskId: "{synthesizer-id}", owner: "synthesizer")
 
 **If NOT `--deepest`:** Skip this phase — spawn specialists immediately in Phase C alongside scouts and synthesizer (all in one message).
 
-**If `--deepest`:** After spawning scouts + synthesizer, wait for both scout tasks to complete. Then:
+**If `--deepest`:** After spawning scouts + synthesizer, wait for both scout tasks to complete, then dispatch a Haiku atlas-sketch subagent (NOT a teammate — preserves the 7-teammate limit) using `pipelines/repo-atlas-sketch-prompt-template.md`. Verify the 3 sketch artifacts exist in `{scratch-dir}/`, mark the atlas-sketch task completed. On failure, specialists fall back to `--deeper` mode (repomap only).
 
-1. **Read the atlas sketch prompt template** from:
-   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-atlas-sketch-prompt-template.md`
-
-2. **Fill in template fields** using scope.md chunk descriptions:
-   - `[REPO_NAME]`, `[DATE]`, `[RUN_ID]`
-   - `[SYSTEM_A_NAME]` through `[SYSTEM_D_NAME]` and `[CHUNK_A_DESCRIPTION]` through `[CHUNK_D_DESCRIPTION]` → from scope.md
-   - `[SCRATCH_DIR]` → scratch directory path
-   - `[SPAWN_TIMESTAMP]` → current `date +%s`
-
-3. **Dispatch as a regular Haiku subagent** (NOT a teammate — preserves the 7-teammate limit):
-   ```
-   Agent(
-     model: "haiku",
-     prompt: <filled atlas sketch prompt>
-   )
-   ```
-
-4. **Verify atlas sketch artifacts exist:**
-   - `{scratch-dir}/atlas-sketch-file-index.md`
-   - `{scratch-dir}/atlas-sketch-system-map.md`
-   - `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
-
-5. **Mark atlas-sketch task as completed:** `TaskUpdate(taskId: "{atlas-sketch-id}", status: "completed")`
-
-6. **If verification fails:** Proceed without atlas sketch artifacts. Specialists will operate without structural orientation (same as `--deeper` mode). Note to PM.
+**Template fields, dispatch syntax, verification details:** see `pipelines/repo-research-internals.md` § Phase B.
 
 ### Phase C: Spawn Specialists
 
@@ -417,65 +331,10 @@ When you receive a notification that the synthesis task is complete:
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
-**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent to refine the preliminary atlas sketch using specialist analysis and synthesis findings, and produce the architecture summary (the 4th artifact, which requires specialist data).
+**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent (NOT a teammate — team is deleted) to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `pipelines/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 7.
 
-1. **Read the atlas prompt template** from:
-   `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-atlas-prompt-template.md`
-
-2. **Fill in template fields:**
-   - `[REPO_NAME]`, `[DATE]`, `[RUN_ID]`
-   - `[SYSTEM_A_NAME]` through `[SYSTEM_D_NAME]` → chunk descriptions from scope.md
-   - `[CHUNK_A_DESCRIPTION]` through `[CHUNK_D_DESCRIPTION]` → from scope.md
-   - `[SCRATCH_DIR]` → scratch directory path
-   - `[SYNTHESIS_PATH]` → the synthesis document path (`{output-path}`)
-   - `[SPAWN_TIMESTAMP]` → current `date +%s`
-   - `[VERSION]` → repo version from scope.md
-   - `[PRELIMINARY_FILE_INDEX]` → `{scratch-dir}/atlas-sketch-file-index.md`
-   - `[PRELIMINARY_SYSTEM_MAP]` → `{scratch-dir}/atlas-sketch-system-map.md`
-   - `[PRELIMINARY_CONNECTIVITY_MATRIX]` → `{scratch-dir}/atlas-sketch-connectivity-matrix.md`
-
-3. **Dispatch the atlas agent:**
-   ```
-   Agent(
-     model: "sonnet",
-     prompt: <filled atlas prompt>
-   )
-   ```
-   This is a regular subagent, not a teammate — the team has been deleted.
-
-4. **Verify atlas artifacts** — check that all 4 files exist and have substantive content:
-   - `{scratch-dir}/atlas-file-index.md`
-   - `{scratch-dir}/atlas-system-map.md`
-   - `{scratch-dir}/atlas-connectivity-matrix.md`
-   - `{scratch-dir}/atlas-architecture-summary.md`
-
-5. **If verification passes:** Copy atlas artifacts to output directory:
-   ```bash
-   cp {scratch-dir}/atlas-file-index.md {atlas-file-index-path}
-   cp {scratch-dir}/atlas-system-map.md {atlas-system-map-path}
-   cp {scratch-dir}/atlas-connectivity-matrix.md {atlas-connectivity-matrix-path}
-   cp {scratch-dir}/atlas-architecture-summary.md {atlas-architecture-summary-path}
-   ```
-
-6. **If verification fails:** Proceed without atlas artifacts. Note to PM: "Atlas generation failed or produced thin output — assessment is complete, atlas artifacts missing." The assessment is the primary deliverable; atlas is additive.
-
-7. Return to Step 7 item 7 (commit + archive).
+**Template fields, dispatch syntax, copy commands:** see `pipelines/repo-research-internals.md` § Step 7.5.
 
 ## Error Handling
 
-| Failure | Action |
-|---------|--------|
-| Survey agent fails (--survey) | Report to PM: "Survey failed — proceed without survey?" If PM agrees, continue to scoping. Survey is additive, not blocking. |
-| Survey agent exceeds 30-min ceiling | Proceed with whatever was written to survey.md. If empty, skip survey. |
-| Scout fails (no inventory written) | Specialists fall back to self-directed file discovery (Glob + Read). Budget 3 extra minutes. |
-| Scout times out (partial inventory) | Specialists use what's there + supplement with own Glob/Read |
-| Atlas sketch fails (--deepest) | Proceed without atlas sketch. Specialists operate in --deeper mode (repomap only). Atlas refinement still runs post-synthesis. |
-| Atlas sketch produces partial output | Accept what exists. Missing artifacts are simply not passed to specialists. |
-| Specialist hits ceiling and self-converges | Normal — specialist writes what it has and marks task complete |
-| Specialist produces thin assessment | Synthesizer notes the gap; EM can supplement manually |
-| Synthesizer doesn't wake after all specialists complete | Verify specialists sent DONE messages; if not, send manual nudge via SendMessage. If still stalled after 5 min, EM reads raw specialist outputs for PM |
-| All specialists fail | TeamDelete, report to PM |
-| Team creation fails | Report to PM |
-| Atlas refinement agent fails (--deepest) | Commit assessment without atlas. Note to PM: "Atlas generation failed — assessment is complete." Atlas is additive, not blocking. |
-| Atlas refinement agent produces partial output (--deepest) | Accept what exists, note thin coverage to PM |
-| Atlas refinement agent exceeds 10-min ceiling (--deepest) | Proceed without atlas, report to PM |
+See `pipelines/repo-research-internals.md` § Error Handling Matrix for the full failure-mode → action table (survey/scout/atlas-sketch/specialist/synthesizer/atlas-refinement failures).
