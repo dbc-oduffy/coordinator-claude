@@ -211,6 +211,30 @@ Check if `.gitignore` exists and contains an entry for `.claude/settings.local.j
 
 **Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
 
+#### 3f.5. Auto-push post-commit hook
+
+Check for `.git/hooks/post-commit`. If absent, install one that delegates to the canonical helper so SSH remotes on Windows route through PowerShell (1Password agent compatibility) and HTTPS remotes go straight through git:
+
+```bash
+cat > .git/hooks/post-commit <<'HOOK'
+#!/bin/bash
+# Auto-push to remote on work/* or feature/* branches — crash insurance.
+# Delegates to coordinator-auto-push helper.
+exec "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push"
+HOOK
+chmod +x .git/hooks/post-commit
+```
+
+If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the existing block(s) and append the helper invocation backgrounded:
+
+```bash
+# === Auto-push (crash insurance) ===
+( "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push" ) &
+exit 0
+```
+
+Skip if a custom auto-push hook already exists and the PM has signed off on it.
+
 #### 3g. DIRECTORY.md
 
 Do NOT create this file directly. It requires source file analysis that `/update-docs` Phase 2 handles. Instead, note in the report that the PM should run `/update-docs` to generate the source index.
