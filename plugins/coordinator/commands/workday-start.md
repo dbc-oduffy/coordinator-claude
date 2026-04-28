@@ -40,6 +40,17 @@ _"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD). Triage now
 
 If the file does not exist or the queue is empty, skip silently. The threshold is a heuristic starting point — calibrate based on actual queue velocity after the first organic triage cycle.
 
+## Step 1.6: Scheduled Rechecks
+
+Glob `tasks/cookbook-recheck-due-*.md` (and `tasks/recheck-due-*.md` for general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+
+For each marker found:
+- **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
+- **If due date is within 7 days**, surface as a heads-up: _"Scheduled recheck upcoming: `<filename>` (due {YYYY-MM-DD}, in {N} days)."_
+- **Otherwise**, skip silently.
+
+If no marker files exist, skip silently. Do not auto-execute the recheck procedure — these markers are PM-actioned, not auto-dispatched.
+
 ## Step 2: Doc Freshness
 
 Check if documentation is stale relative to recent code changes:
@@ -234,6 +245,6 @@ Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the Sessi
 
 workday-start is read-only for all project tracking files. It writes only one file: `tasks/.workday-start-marker`. Multiple sessions can safely read the same health files; the marker is a simple date string with no merge-conflict risk.
 
-**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1.6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
+**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1, item 6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
 
 If `$ARGUMENTS` is provided, include it as a focus hint in the Morning Briefing: _"Requested focus: {arguments}"_
