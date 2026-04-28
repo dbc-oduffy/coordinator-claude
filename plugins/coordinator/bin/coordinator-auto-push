@@ -1,0 +1,66 @@
+#!/bin/bash
+# coordinator-auto-push — canonical post-commit auto-push helper
+#
+# Pushes the current branch to origin if it is a work/* or feature/* branch.
+# On Windows + Git Bash, falls back to PowerShell when the remote requires SSH,
+# because Git Bash's bundled OpenSSH cannot reach 1Password's SSH agent
+# (Windows pipe \\.\pipe\openssh-ssh-agent).
+#
+# Invocation: called from .git/hooks/post-commit (sync) or wrapped in `( ... ) &`
+# for async push (large repos).
+#
+# Always exits 0 — auto-push must never block a commit.
+#
+# Logs failures to .git/push-failures.log.
+
+set -uo pipefail
+
+BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
+
+# Only push on work/* or feature/* branches, never main
+case "$BRANCH" in
+  work/*|feature/*) ;;
+  *) exit 0 ;;
+esac
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || exit 0
+
+log_failure() {
+  local reason="$1"
+  echo "[$(date -Iseconds)] PUSH FAILED on $BRANCH ($reason)" \
+    >> "$REPO_ROOT/.git/push-failures.log"
+}
+
+# --- Path selection -------------------------------------------------------
+# Git Bash on Windows sets MSYSTEM (MINGW64 / MINGW32 / MSYS).
+# SSH remotes on git@host or ssh:// URLs need 1Password's agent, which
+# Git Bash's bundled ssh cannot reach. PowerShell uses Windows OpenSSH which
+# can. HTTPS remotes work fine in either shell (Windows Credential Manager).
+
+is_windows_bash=false
+if [[ -n "${MSYSTEM:-}" ]] || [[ "${OS:-}" == "Windows_NT" ]]; then
+  is_windows_bash=true
+fi
+
+is_ssh_remote=false
+case "$REMOTE_URL" in
+  git@*|ssh://*) is_ssh_remote=true ;;
+esac
+
+if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
+  # Route through PowerShell so Windows OpenSSH + 1Password agent pipe is used.
+  # Quote the repo path; -C handles spaces. -NonInteractive prevents UI prompts.
+  if ! powershell.exe -NonInteractive -NoProfile -Command \
+       "git -C '$REPO_ROOT' push origin '$BRANCH' --set-upstream" \
+       >/dev/null 2>&1; then
+    log_failure "powershell ssh push"
+  fi
+else
+  # Direct push — HTTPS on any platform, or SSH on Linux/macOS.
+  if ! git push origin "$BRANCH" --set-upstream >/dev/null 2>&1; then
+    log_failure "direct push"
+  fi
+fi
+
+exit 0
