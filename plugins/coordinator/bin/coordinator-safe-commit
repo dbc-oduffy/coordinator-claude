@@ -157,9 +157,15 @@ resolve_session_id() {
     return 0
   elif [[ ${#live_sessions[@]} -eq 0 ]]; then
     echo "ERROR: No live session found. Set CLAUDE_SESSION_ID or ensure a session was initialized." >&2
+    echo "Fallback: bypass the helper with explicit-path commit:" >&2
+    echo "  git add -- <your-paths>" >&2
+    echo "  git commit -m \"<subject>\"" >&2
     return 1
   else
     echo "ERROR: Multiple live sessions found — cannot auto-detect session ID. Set CLAUDE_SESSION_ID explicitly. Candidates: ${live_sessions[*]}" >&2
+    echo "If session-ownership is misidentifying your work (your files blocked, others' files swept), the safer fallback is to bypass the helper:" >&2
+    echo "  git add -- <your-paths>" >&2
+    echo "  git commit -m \"<subject>\"" >&2
     return 1
   fi
 }
@@ -186,7 +192,12 @@ parse_scope_from_frontmatter() {
   local found_scope=false
   local scope_entries=()
 
-  while IFS= read -r line; do
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip trailing CR for CRLF-encoded files (Windows handoffs).
+    # Without this, "$line" == "---" never matches and the parser silently
+    # reports "no scope: field found" — a bug observed across 4+ sessions.
+    line="${line%$'\r'}"
+
     if [[ "$line" == "---" ]]; then
       if [[ "$started" == false ]]; then
         started=true
