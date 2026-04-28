@@ -298,3 +298,13 @@ In observed debugging sessions, systematic approaches typically resolve issues i
 Before dispatching agents on a debugging or fix task, identify and run the smallest diagnostic that exposes ground truth — a test runner, curl probe, `git show`, or single inspect call. Target: < 60 seconds. Measured data beats speculation: a 20-second `pnpm test:unit` run identified 3 of 9 misdiagnosed root cause categories that would have driven agent rework; a single curl + `getent hosts` + `ss -tlnp` diagnostic identified two root causes that multiple hypothesis-driven commits had failed to isolate.
 
 **Rule:** Hypothesis-driven dispatch without first running a diagnostic is a stuck-detection trigger. If the fix plan contains "the cause is probably X" without a supporting diagnostic, stop and get the data. (geneva T1.2, paired across writing-plans + systematic-debugging)
+
+## Ground Truth Beats Derived Signals
+
+Three converging patterns from past sessions all reduce to one principle: **prefer the cheapest direct read of the system's source-of-truth over reasoning from derived/secondary signals.**
+
+- **Empirical audit before fix code.** When a reviewer mandates a specific mechanism ("gate on `cursor.kind == X`"), require an audit that verifies the mechanism applies before any fix code lands. A one-hour audit beats a half-day of wrong-fix code.
+- **Build the cheap N-way diagnostic before any single fix.** When N tools/components might be broken for unknown reasons, don't dispatch N investigations — first ship the per-symptom reporter that surfaces all N states at once, then dispatch with data.
+- **Trust the original log, not the derived timing claim.** When diagnosing cross-language or cross-process bugs (Node↔UE, CI↔build, client↔server), cross-reference the upstream/server-side log directly rather than trusting timing inferences from the downstream side. A "client timeout" hypothesis from the Node side may actually be game-thread blockage from the editor side; fixing the wrong layer wastes a session.
+
+**The unifying check before any fix:** "What's the cheapest read of the system that would directly confirm or refute my hypothesis?" If that read costs less than 5 minutes, do it before writing fix code. Confidence in tone correlates poorly with correctness in symbolic reasoning — get the data.

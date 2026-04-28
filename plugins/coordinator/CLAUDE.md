@@ -110,6 +110,18 @@ This preamble has reliably converted hallucinating agents on retry. Empirically:
 
 **Prevention at dispatch time:** For commands that fan out >5 parallel agents producing on-disk deliverables (e.g. `/architecture-audit` Phase 1, `/bug-sweep` semantic Track A2, `/distill` Phase 1), inline the recovery preamble in the original dispatch prompt — not just on retry. The prompt's first line should explicitly negate the hallucinated constraint.
 
+## Verifying Executor Output After a Crash or Timeout
+
+When a dispatched executor reports a crash, rate-limit error, session timeout, or simply doesn't return a clean DONE, the working tree is not empty by default. Files the executor wrote before the failure are still present — partial output is the common case, not the exception.
+
+**Procedure when an executor fails:**
+1. **`git status` against the executor's expected scope** — list every file the dispatch brief asked for, check whether each is present and non-trivial.
+2. **Diff the partial output against the spec** — what's done, what's missing, what's wrong.
+3. **Dispatch a remainder-executor + EM-side commit** — never re-dispatch the original assignment from scratch when partial output exists. The remainder brief specifies only the gap; the EM commits the union.
+4. **Treat "the executor didn't run" as a hypothesis to falsify, not an assumption to act on.** A clean redispatch over partial work duplicates effort and can clobber valid edits.
+
+This applies symmetrically to scout deliverables — but for scouts the failure mode is usually a missing Write call (covered above), whereas executors typically partial-complete a multi-file brief.
+
 ## Plan-First Workflow
 
 - Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches, or work that would be expensive to redo. Step count alone isn't the trigger; a 5-step mechanical task doesn't need a plan, but a 2-step task with real tradeoffs does.
