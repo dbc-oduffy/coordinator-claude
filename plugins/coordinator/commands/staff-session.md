@@ -64,39 +64,7 @@ Announce: "Routing to `/review-dispatch` for single-reviewer gut-check."
 
 ## Step 3 — Scope (EM Direct)
 
-Write `{scratch-dir}/scope.md`:
-
-```markdown
-# Staff Session Scope
-
-**Mode:** {plan|review}
-**Tier:** {standard|full}
-**Run ID:** {run-id}
-**Date:** {YYYY-MM-DD}
-**Topic:** {topic}
-
-## Objectives / Artifact
-
-{If plan mode: paste or reference the objectives document — what the PM wants built and why. Include any context from conversation. The team writes the plan; the EM writes objectives and constraints only.}
-
-{If review mode: path to the artifact being reviewed — {input-path}. Include any specific review focus areas the PM mentioned.}
-
-## Context Files
-
-{List any relevant files the PM mentioned, or auto-detected from the objectives/artifact — e.g., existing related plans, key source files, architecture docs. "None" if none.}
-
-## Constraints
-
-{Any PM-provided constraints: timeline pressure, dependencies, things to avoid, architectural boundaries. "None specified" if none.}
-
-## Timing Preferences
-
-{PM-specified ceiling, or defaults: plan mode 10 min, review mode 8 min.}
-```
-
-**Plan mode:** The EM does NOT write the plan. The EM writes objectives and constraints only. The team writes the plan.
-
-**Review mode:** The EM provides the artifact path and any specific review focus areas. The EM does not pre-form opinions about findings.
+Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/templates-and-fields.md` § Step 3. Plan mode: EM writes objectives and constraints only — never the plan. Review mode: EM provides artifact path and focus areas only — never pre-formed findings.
 
 ## Step 4 — Select Team Composition
 
@@ -173,39 +141,7 @@ TaskUpdate(taskId: "{synthesizer-task-id}", addBlockedBy: [{debater-A-id}, {deba
 
 ## Step 6 — Spawn All Teammates
 
-Read prompt templates from:
-- Plan mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/planner-prompt-template.md`
-- Review mode debaters: `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/reviewer-prompt-template.md`
-- Synthesizer (both modes): `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/synthesizer-prompt-template.md`
-
-For each debater, also read the persona identity excerpt from the persona's agent definition file (the persona identity section — name, role, review standards, output format). This is injected into the debater prompt template at `[PERSONA_IDENTITY]`.
-
-Fill ALL template fields before spawning. Do not leave any `[BRACKETED_FIELD]` unfilled.
-
-Common fields for all templates:
-- `[TOPIC]` → topic string
-- `[MODE]` → plan|review
-- `[TIER]` → standard|full
-- `[SCRATCH_DIR]` → full path to scratch directory
-- `[SCOPE_FILE]` → `{scratch-dir}/scope.md`
-- `[SPAWN_TIMESTAMP]` → Unix epoch seconds from Step 1
-- `[TASK_ID]` → this teammate's task ID
-- `[SYNTHESIZER_NAME]` → `"synthesizer"` (teammate name — used for DONE messages)
-- `[OUTPUT_PATH]` → output path for the final document
-
-Debater-specific fields:
-- `[PERSONA_IDENTITY]` → persona identity excerpt from agent definition file
-- `[PERSONA_SLUG]` → persona slug (e.g., `patrik`)
-- `[POSITION_FILE]` → `{scratch-dir}/{persona-slug}-position.md`
-- `[PEER_LIST]` → the other debaters' teammate names and persona slugs (for messaging)
-- `[MIN_MINUTES]` → floor: 3 (both modes)
-- `[MAX_MINUTES]` → ceiling: 10 (plan mode), 8 (review mode)
-- `[INPUT_PATH]` → review mode only: path to artifact being reviewed
-
-Synthesizer-specific fields:
-- `[DEBATER_COUNT]` → number of debaters
-- `[DEBATER_SLUGS]` → comma-separated persona slugs
-- `[ADVISORY_PATH]` → `{scratch-dir}/advisory.md`
+Read the planner / reviewer / synthesizer prompt templates from `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/`. For each debater, read the persona identity excerpt from its agent definition file (injected at `[PERSONA_IDENTITY]`). Fill ALL `[BRACKETED_FIELD]` placeholders before spawning — **see `pipelines/staff-session/templates-and-fields.md` § Step 6 for the full common/debater/synthesizer field list.**
 
 **Spawn ALL teammates in a single message (parallel):**
 
@@ -309,13 +245,4 @@ When you receive a notification that the synthesizer task is complete:
 
 ## Error Handling
 
-| Failure | Action |
-|---------|--------|
-| Single debater crashes (no position written) | Synthesizer works with remaining positions. Note the gap: "Missing perspective: {persona}." EM can supplement manually. |
-| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). `TeamDelete`, fall back to `/review-dispatch` for the same artifact. |
-| Synthesizer fails | EM reads raw debater position documents from scratch dir. Manual synthesis is feasible — position docs are structured. |
-| Team creation fails | Report to PM. Fall back to `/review-dispatch` or EM-authored plan. |
-| DONE message not received (debater marked complete but synthesizer not woken) | Synthesizer checks `TaskList` on a polling cycle. If all debater tasks show `completed` but no DONE received after 2 minutes, synthesizer proceeds anyway. EM can send a manual nudge via `SendMessage` if synthesizer appears stalled. |
-| Debate loops (debaters exchange challenges without converging) | Ceiling time is a hard cutoff. Diminishing returns detection also triggers convergence after 2 no-change exchanges. Position documents capture the disagreement; synthesizer resolves or presents as dissent. |
-| Unknown persona slug in `--members` | Halt before team creation. Report the unknown slug and list valid slugs. Do not create a partial team. |
-| Output file missing after synthesizer completes | Read `{scratch-dir}/synthesis.md` as fallback. If that is also missing, read raw position files and report to PM. |
+See `pipelines/staff-session/templates-and-fields.md` § Error Handling Matrix for the full failure-mode → action table (debater crash, synthesizer failure, DONE-not-received, debate loops, unknown slug, missing output).
