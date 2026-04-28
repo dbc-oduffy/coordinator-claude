@@ -120,6 +120,14 @@ The classification question is tight: "If a different project type also used the
 The global queue is consumed by `/workday-start` and `/workday-complete`; triage runs when queue depth >= 5 or oldest entry > 14 days. See `docs/` for reference notes on hook authoring and subprocess contracts.
 
 
+## Handoff Lineage — Single Predecessor, No Adjacency-Inference
+
+**The predecessor is whatever handoff this session was opened with — period.** In practice that means: the file passed to `/pickup <handoff>`, or the file the PM named at session start. That is the *only* signal. If neither happened, the handoff is standalone — omit the `Continuing from` preamble and do not archive any other handoff as "superseded."
+
+**"Most recent handoff" is a facile signal.** Concurrent sessions across machines routinely produce timestamp-adjacent handoffs that have nothing to do with each other. Reading the most recent file in `tasks/handoffs/` and treating it as the predecessor is exactly the eager-merging failure mode this rule prevents. Adjacency is not ancestry.
+
+**A handoff has one predecessor, not many.** Combining two predecessors into one successor only happens by explicit PM direction at session start. The EM does not collapse the chain on its own. EMs have historically been too eager to mark adjacent or topically-similar handoffs as subsumed — this corrupts the audit trail and incorrectly archives active work belonging to other workstreams. When in doubt, leave the other handoff alone and ask the PM.
+
 ## Documentation and Knowledge System
 
 The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
