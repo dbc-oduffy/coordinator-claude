@@ -158,6 +158,21 @@ Update the documents that future sessions read for orientation — closing the r
    stay local until merged via PR.
 4. **Verify remote is synced:** confirm no unpushed commits remain (`git log origin/$(git branch --show-current)..HEAD`). If auto-push failed, push explicitly and warn the PM.
 
+#### Step 3.5: Archive Session Claim
+
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Without this, `coordinator-safe-commit --scope-from` in concurrent sessions repeatedly trips on dead-PID claims that touched the same scope files — forcing the next EM to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+
+Run:
+```bash
+sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
+  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  cs_archive "$sid" 2>/dev/null || true
+```
+
+Idempotent — already-archived sessions return 0 silently. Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the sentinel is missing or the lib is unavailable.
+
+**Note on session_id source:** The sentinel is "last writer wins" across concurrent sessions. If `CLAUDE_SESSION_ID` is exported in your environment, prefer it over the sentinel — that's the session that actually owns this handoff.
+
 #### Step 4: Confirm
 
 Remind the user:
