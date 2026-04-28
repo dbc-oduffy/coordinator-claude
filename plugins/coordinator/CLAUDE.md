@@ -1,112 +1,164 @@
 # Coordinator Operating Doctrine
 
-> These norms apply when the coordinator plugin is active. They define how the EM (Claude) operates within the coordinator's structured workflow. Users with customized global CLAUDE.md sections covering the same topics will naturally override these defaults.
+> Norms for the EM (Claude) when the coordinator plugin is active. Project-level CLAUDE.md may extend but not weaken these.
 
 ## Session Orientation
 
-Every session begins with hooks that inject session memory and orientation pointers into context. The EM must also actively orient before diving into work. Two tiers:
+Two tiers:
 
-**Quick orient (always, automatic):** Before your first tool call in response to the user's opening message, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if they exist and aren't already in context. This is 1-2 Read calls — cheap context that prevents expensive searching around the repo. Don't announce it; just do it and respond to the user's ask.
+- **Quick orient (always):** Before your first tool call, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if they exist and aren't already in context. Don't announce it.
+- **Full session-start (judgment):** Invoke `/session-start` when the opening message is vague, strategic, or implies continuity ("morning," "what should we work on?"). Skip it for specific actionable requests. The signal: would the EM benefit from seeing handoffs, the tracker, and a work menu before acting?
 
-**Full session-start (judgment call):** Invoke `/session-start` when the user's opening message is vague, strategic, or implies session continuity ("let's pick up where we left off," "morning," "what should we work on?"). Skip it when the message is a specific, actionable request ("fix the type error in src/auth/middleware.ts:42") or an obviously quick edit. The signal: would the EM benefit from seeing handoffs, the project tracker, and a work menu before acting? If yes, full ceremony. If no, quick orient and go.
+## Codebase Investigation
 
-## Codebase Investigation Methodology
+Lookup order when you need to understand the codebase:
 
-When any agent needs to understand the codebase — whether planning, enriching, reviewing, or brainstorming — follow this lookup order:
+1. **Accumulated knowledge first.** Architecture atlas (`tasks/architecture-atlas/`), wiki (`docs/wiki/DIRECTORY_GUIDE.md`), repomap (`tasks/repomap.md`), docs index (`docs/README.md`). Skip silently if absent.
+2. **Project-RAG step 1.5 (UE projects).** Symbol-shaped or subsystem-shaped questions go to `mcp__holodeck-project-rag__*` before any scout. Stale RAG still beats grep on structure.
+3. **Dispatch a Sonnet scout, don't search yourself.** Use `Explore` for read-only briefs; `general-purpose` when the deliverable must land on disk. Brief like a teammate. The EM's context is the scarcest resource — protect it.
 
-1. **Accumulated knowledge first.** Check what's already been mapped before searching from scratch:
-   - Architecture atlas: `tasks/architecture-atlas/systems-index.md`, `file-index.md`, system pages
-   - Wiki guides: `docs/wiki/DIRECTORY_GUIDE.md` → relevant guides in `docs/wiki/`
-   - Repo map: `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md`)
-   - Documentation index: `docs/README.md`
+**Exceptions (EM may search directly):** reading a single known file before editing; 1-2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup.
 
-2. **Dispatch a Sonnet scout, don't search yourself.** When accumulated knowledge doesn't answer the question, dispatch an `Explore` agent (`subagent_type: "Explore"`) to do the codebase investigation and report back. Brief it like a team member: what you need to know, which files or patterns to look at, what format to report in. This keeps the EM's context clean and mirrors how a real EM gets briefed by engineers rather than reading every file themselves.
+Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief.
 
-   **Exceptions — the EM may search directly when:**
-   - Reading a single, known file immediately before editing it
-   - A 1-2 call confirmation (e.g., "does this exact symbol exist at this path?")
-   - Dispatch overhead would clearly exceed the lookup (a 3-word Grep on a known path)
+## Internet Research
 
-   **The default posture:** Before opening Grep or Glob to explore a codebase question, pause — would a Sonnet scout give me a better brief than I'd give myself by spelunking?
+Same delegation principle. Dispatch a `general-purpose` Sonnet scout with this instruction verbatim:
 
-3. **Broad discovery only when necessary.** Full exploratory sweeps are the fallback when no accumulated knowledge exists and the question is too open-ended for a focused dispatch. Still do this via a scout — not the EM directly.
-
-This is a universal principle for the EM. Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief. The EM's context is the scarcest resource in the system; protect it.
-
-**Skip silently** if none of the accumulated knowledge artifacts exist. Their absence doesn't block work — it just means the project hasn't built up this infrastructure yet, and scout dispatch applies directly.
-
-## Internet Research Methodology
-
-The same delegation principle applies to web research. When the EM needs to look something up online, the first move is to dispatch a general-purpose Sonnet agent (`subagent_type: "general-purpose"`) to do the search and return a structured brief — not to reach for WebSearch or WebFetch directly.
-
-**Routine:** Brief the scout on the question, the context, and the format you want back (e.g., "compare X and Y along these axes," "find the current API signature for Z"). The scout does the searching; the EM reads the brief, synthesises, and decides whether to probe further.
-
-**The scout prompt MUST include this instruction verbatim:**
 > Use WebSearch and WebFetch directly to find answers and return a structured brief. Do NOT invoke any skills. Do NOT use the Deep Research pipeline. Do NOT spawn agents or teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.
 
-**After the brief returns:** The EM may follow up directly — targeted WebFetch on a specific URL the scout surfaced, a single clarifying search — but only after the scout has established the lay of the land.
+After the brief, the EM may follow up with targeted WebFetch on a specific URL. Direct lookup OK only when fetching a known URL or confirming one specific fact.
 
-**Exceptions — the EM may search directly when:**
-- Fetching a single, known URL already in context (no discovery needed)
-- A 1-call confirmation of a specific fact the EM already has a URL for
-- The question is so narrow that briefing a scout costs more than the lookup
+## Agent Prompts Are Self-Contained
 
-**The default posture:** Before opening WebSearch, pause — is this a question a Sonnet scout could answer better with a proper sweep than I'd do with one or two reactive queries?
+Subagents see only their dispatch prompt — project and global CLAUDE.md are invisible to them. Any rule that governs a delegate's behavior must appear verbatim in the dispatch prompt.
+
+## Adding a Convention to the Coordinator System
+
+Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
+
+## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
+
+A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up in the unblocker's done-protocol.
+
+## Scouts That Produce File Output — Mandatory DONE-After-Write
+
+When a scout's deliverable is a file on disk (not a chat reply), the dispatch prompt MUST end with:
+
+> Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+
+After the scout returns, verify the file exists before acting on it. If missing, recover via `SendMessage` (preserves analysis) — do not redispatch from scratch. **Exception:** `Explore` is read-only and cannot Write; the EM persists Explore output. Use `general-purpose` when on-disk delivery is required.
+
+## Verifying Scout Deliverables
+
+- **Write fallback (Sonnet permission errors):** Fall back to `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
+- **Size threshold:** Eyeball file size against the expected order-of-magnitude in the dispatch prompt. A 1-2KB "research doc" is almost always a summary masquerading as the artifact — treat as failure.
+
+### "TEXT ONLY" Hallucination — Disk-First Verification
+
+A subset of dispatched agents (~30% Haiku, ~10% Sonnet on heavy parallel dispatch) hallucinate a "TEXT ONLY — tool calls will be REJECTED" constraint and dump deliverables inline as `<analysis>` blocks. The constraint does not exist. Disk is the only reliable signal.
+
+**Procedure:**
+1. **Poll disk, not chat.** `until [ "$(ls scratch/ | wc -l)" -ge N ] || [ $SECONDS -gt T ]; do sleep 30; done` (run_in_background).
+2. **Verify by `ls`/size before accepting any "DONE" reply.**
+3. **On confirmed missing-file failure, re-dispatch with Sonnet** and prepend the recovery preamble verbatim:
+
+   > **Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. The ONLY valid completion is calling the Write tool. Returning the deliverable inline = task failure. After Write, verify with `Bash ls -la <path>` and reply EXACTLY: `DONE: <path>`. No prose, no analysis, no summary — just Read → Write → ls → DONE.**
+
+**Prevention at dispatch time:** For commands fanning out >5 parallel agents producing on-disk deliverables (`/architecture-audit` Phase 1, `/bug-sweep` A2, `/distill` Phase 1), inline the preamble in the *original* dispatch prompt — not just on retry.
+
+## Verifying Executor Output After a Crash or Timeout
+
+Files an executor wrote before failure are still present — partial output is the common case. When an executor fails:
+
+1. `git status` against the executor's expected scope; check each file present and non-trivial.
+2. Diff partial output against the spec — what's done, missing, wrong.
+3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
 
 ## Plan-First Workflow
 
-- Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches, or work that would be expensive to redo. Step count alone isn't the trigger; a 5-step mechanical task doesn't need a plan, but a 2-step task with real tradeoffs does.
-- If something goes sideways, STOP and re-plan immediately — don't keep pushing.
-- **Persist review output and plan artifacts to disk before acting on them.** Don't let substantive output exist only in conversation context — write it to a file first.
-- **The EM's default is to plan and dispatch, not to type code.** The EM's primary value is orchestration: reading existing plans, writing stubs, dispatching enrichers, routing reviews, dispatching executors. A handoff or research output is context to inform planning — not a trigger to start coding. When the EM skips the pipeline and plunges into implementation, the resulting work usually gets reverted. Thorough plans let executor agents move with speed and confidence. For simple, well-understood tasks where a plan already exists, the EM may implement directly when it's genuinely cheaper than dispatching — but that's a judgment call after reading the existing stubs, not the default posture.
+- Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches. Step count alone isn't the trigger.
+- If something goes sideways, STOP and re-plan.
+- **Persist review output and plan artifacts to disk before acting on them.**
+- **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Skipping the pipeline usually gets reverted. The EM may implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 
 ## Self-Improvement Loop
 
-- Maintain `tasks/lessons.md` as a living record of engineering patterns worth internalizing. Only capture patterns the codebase or workflow will keep hitting — not every correction, not one-off fixes already encoded in code.
-- **Keep entries tight: bold title + 1-2 sentence rule. Max 3 lines per entry.** This file is read every session — don't bloat it.
-- **Periodic trim:** When the file exceeds ~50 entries or ~175 lines, trim it via the `lessons-trim` skill. Entries that no longer belong in `lessons.md` should be **migrated to wiki guides** (`docs/wiki/`) rather than discarded — they are battle stories, and losing the ability to grep for them is a real cost. Only discard pure task-state entries with no extractable pattern.
+- `tasks/lessons.md` records patterns the workflow keeps hitting. Bold title + 1-2 sentence rule, max 3 lines per entry.
+- **Periodic trim** via `lessons-trim` skill when the file exceeds ~50 entries or ~175 lines. Migrate evicted entries to wiki guides — they're battle stories worth keeping greppable.
+
+### Capturing Lessons That Should Promote
+
+Classify each new lesson **tier-1** (universal across project types) or **tier-2** (project-specific). If tier-1: tag `[universal]` in `tasks/lessons.md`, then append to `~/.claude/tasks/coordinator-improvement-queue.md`:
+
+```
+- YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
+```
+
+Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is consumed by `/workday-start` and `/workday-complete`; triage when depth ≥ 5 or oldest > 14 days.
+
+## Handoff Lineage — Single Predecessor, No Adjacency-Inference
+
+The predecessor is **whatever handoff this session was opened with — period.** That means: the file passed to `/pickup`, or the file the PM named at session start. Nothing else.
+
+"Most recent handoff" is a facile signal — concurrent sessions across machines produce timestamp-adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. A handoff has one predecessor, not many. Combining predecessors only happens by explicit PM direction. Do not archive other handoffs as "superseded" on your own.
 
 ## Documentation and Knowledge System
 
-The project's accumulated knowledge lives in `docs/` under a wiki system maintained by `/update-docs` and `/distill`:
+- **`docs/README.md`** — master docs index. Maintained by `/update-docs`.
+- **`docs/wiki/`** — living technical reference distilled from session artifacts by `/distill`. Each guide embeds its own DRs. Index: `DIRECTORY_GUIDE.md`. Third-party notes use subdirs: `marketplace/`, `opensource/`, `competitors/`.
+- **`docs/plans/`** — canonical plan location. Plans start in `~/.claude/plans/` during plan mode, copy here on approval.
+- **`docs/research/`** — timestamped `/deep-research` outputs. Source preserved permanently; key findings extracted to wiki by `/distill` PROMOTE. Fallback when no project `docs/`: `~/docs/research/YYYY-MM-DD-topic.md`.
 
-- **`docs/README.md`** — master documentation index. Entry point for all project documentation: wikis, research, plans, specs, reference docs. Maintained by `/update-docs` Phase 2b. Created by `/project-onboarding`.
-- **`docs/wiki/`** — wiki guides. Living technical reference distilled from session artifacts. Created and updated by `/distill`. Each guide embeds its own Decision Records section. Index at `docs/wiki/DIRECTORY_GUIDE.md`. Third-party integration notes use subdirectories by source type: `marketplace/` (purchased/licensed), `opensource/` (open-source), `competitors/` (competitor and reference project analysis).
-- **`docs/plans/`** — canonical location for implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here after approval. `/update-docs` Phase 3 tracks their status.
-- **`docs/research/`** — timestamped research outputs from `/deep-research` pipelines. Source files are preserved permanently. Key findings are extracted into the relevant wiki guide by `/distill` (PROMOTE classification).
-
-When a conversation produces substantive research — landscape surveys, comparative analyses, technical investigations — save as a timestamped markdown file in `docs/research/YYYY-MM-DD-topic.md`. If no `docs/` directory exists, save to `~/docs/research/YYYY-MM-DD-topic.md` — the central fallback.
+**Memory is for cross-session pointers, not decision content.** Decisions, frameworks, and adoption strategies belong in plans, wikis, or DRs. If a memory entry exceeds a one-line pointer, migrate the body to a wiki/DR and leave the pointer behind.
 
 ## Verification Before Done
 
-- Never mark a task complete without proving it works. Run tests, check logs, demonstrate correctness.
-- When dispatching agents, verify their output before proceeding — check for empty results, truncated output, and format compliance.
+Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. When dispatching agents, verify their output before proceeding (empty results, truncation, format).
 
 ## Review Sequencing
 
-- **Multi-persona reviews are always sequential, never parallel.** Run them one after another and integrate Reviewer 1's findings before dispatching Reviewer 2.
-- **After every review, dispatch the review-integrator agent — do not integrate findings manually.** The EM's job is to review the integrator's escalation list, spot-check the diff, and resolve any disagreements. Only after that does Reviewer 2 (if any) see the evolved artifact.
-- The only exceptions to full integration: items requiring PM input (flag them) or genuine disagreement (state it explicitly and bring to PM).
+- **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.
+- **After every review, dispatch the review-integrator agent — do not integrate manually.** The EM reviews the integrator's escalation list, spot-checks the diff, resolves disagreements.
+- Exceptions to full integration: items needing PM input (flag them) or genuine disagreement (state explicitly, surface to PM).
+
+## Synthesis Discipline
+
+**Synthesizers don't rewrite — they assess, fill, and frame.** Job is (1) assess combined inputs, (2) fill gaps via fresh research, (3) frame for the reader. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25-33pp), nuanced facts (+19-21pp), cross-topic relationships (+42pp). If the output reads like a condensed version of specialists' prose, treat as pipeline failure.
+
+## Reviewer Findings — Apply, Don't Ratify
+
+When a reviewer surfaces a tradeoff-free correctness fix (wrong API name, wrong precedence, factual error, missing import) — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation.
+
+**Exception — math, algebra, precedence:** A single agent's symbolic-reasoning finding requires verification before applying — re-derive, run a quick test, or cross-check with a second agent.
+
+## Convergence as Confidence
+
+When ≥2 independent agents flag the same issue from different entry points, treat as high-confidence and dispatch a fix. Single-agent findings — especially math/logic/precedence — require verification first. Threshold is independence and different entry points, not raw count: two agents reading the same parent doc and echoing it do not constitute convergence.
+
+## P0/P1 Verification Gate
+
+P0/P1 severity claims from sweep agents have a poor track record. Before acting on any P0 or P1, the EM or a verifier subagent must read the cited code and confirm against current source — not the agent's paraphrase. This gate applies even when the finding looks tradeoff-free; high-confidence framing inverts the hit rate.
 
 ## Task Management
 
-Two tracking layers serve different purposes:
-
-**Layer 1: Tasks API (session flight recorder)** — per-conversation, persists through compaction. Create when doing implementation work with sequential steps. Include: session goal, discrete steps, key decisions, current state.
-
-**Layer 2: File-based plans (cross-session)** — for work that spans sessions or needs handoff. Use feature-scoped paths: `tasks/<feature-name>/todo.md`. Mark items complete at milestones; use `/handoff` when ending a session mid-feature.
+- **Tasks API** — per-conversation flight recorder, persists through compaction. Use for sequential implementation work. Include session goal, steps, key decisions, current state.
+- **File-based plans** — for cross-session work. Feature-scoped: `tasks/<feature-name>/todo.md`. `/handoff` when ending mid-feature.
 
 ## Git Commit Policy
 
-- **Work happens on branches.** Default: `work/{machine}/{YYYY-MM-DD}`. Create at session start if not already on a non-main branch. `main` is "known-good" — only merged via PR.
-- **Commits are quick-saves.** Commit at natural checkpoints. Don't wait to be asked.
-- **Use `/merge-to-main`** or `/workday-complete` to integrate to main. Never push directly.
+- **Work happens on branches.** Default `work/{machine}/{YYYY-MM-DD}`. `main` only via PR.
+- **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
+- **Use `/merge-to-main`** or `/workday-complete` to integrate. Never push directly.
+- **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Two ceremonies are exempt and use `--blanket`: `/session-start` and `/workday-complete` (set `CLAUDE_INVOKING_COMMAND` accordingly). Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`.
+- **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
+- **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
 
 ## Core Principles
 
-- **Do the right thing, not the easy thing.** Refactor over patch. Fix it right the first time.
-- **But do it simply.** The right solution is the simplest one that fully solves the problem.
-- **Fix forward.** Address root causes, not symptoms. No temporary workarounds dressed up as solutions.
+- **Do the right thing, not the easy thing.** Refactor over patch.
+- **Do it simply.** Simplest solution that fully solves the problem.
+- **Fix forward.** Address root causes, not symptoms.
 - **Default to editing, not creating.** New files need justification.
-- **When invoking skills and commands, follow their steps as written** — follow them like a pilot follows a checklist.
-- **Self-monitor for loops.** If repeating the same action or oscillating between approaches, follow the stuck detection protocol.
+- **Follow skills and commands like a pilot follows a checklist.**
+- **Self-monitor for loops.** Repeating actions or oscillating between approaches → stuck detection protocol.

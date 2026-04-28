@@ -39,6 +39,24 @@ Before invoking `/staff-session`, the EM should have:
 - [ ] Tier selected based on the decision table above
 - [ ] Team composition confirmed (or accept auto-selection)
 
+## 7-Teammate Cap
+
+Agent Teams enforces a hard limit of 7 teammates per session. When a pipeline needs an extra step between existing phases (e.g., an atlas sketch between scouts and specialists), **dispatch it as a regular subagent — not a teammate.**
+
+The EM is not freed during that subagent window, but the overhead is small: a focused subagent running one well-specified task completes quickly, and the EM resumes team coordination immediately after. This is preferable to restructuring the team composition or exceeding the cap.
+
+**Pattern:** scouts (N teammates) → EM dispatches subagent for inter-phase work → specialists (M teammates). Total teammates: N + M, staying within 7.
+
+## Anti-Pattern: Dedicated Mechanical-Merge Slots
+
+**Do not allocate a team slot to an agent whose only job is dedup/concat/reformat.** Every slot in a 7-teammate session is precious; mechanical merge does not justify one.
+
+When an agent's entire brief is "take these N specialist outputs and combine them," fold that work into the producers (via adversarial peer interaction) or the consumer that already has judgment (e.g., the Opus synthesizer or the EM). A team slot must justify itself with judgment work, not bookkeeping.
+
+**Empirical basis:** In one measured pipeline run, the dedicated consolidator added 4+ minutes wall-clock and was beaten to completion by the downstream sweep that read raw specialist outputs directly.
+
+If a consolidation step genuinely requires judgment (contradiction reconciliation, cross-domain synthesis, edge-case resolution), give it to the consumer-with-judgment rather than a dedicated consolidator slot.
+
 ## Example Invocations
 
 ```

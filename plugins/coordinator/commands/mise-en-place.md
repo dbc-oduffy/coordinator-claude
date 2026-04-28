@@ -45,6 +45,18 @@ For each item, capture:
 - **Estimated complexity** (quick read of the spec — small/medium/large)
 - **Verification method** (how will you know it's done?)
 
+### Pre-Dispatch Verification (geneva T1.1, single landing across 3 files)
+
+Before sequencing or dispatching any executors, verify that backlog items gathered in Phase 1 are still applicable to the current codebase.
+
+For each item sourced from a backlog file (`tasks/bug-backlog.md`, `tasks/debt-backlog.md`, or a plan stub marked pending), dispatch a Haiku agent to confirm the issue still exists in HEAD:
+
+1. Read the cited file:line — does the bug/debt pattern still exist?
+2. Check `git log --oneline -5 {file}` — did a recent commit address it?
+3. Return `still-open` / `already-fixed` per item
+
+Drop `already-fixed` items before building the execution queue. In one measured run, 11 of 20 backlog items were already fixed before dispatch. Verifying first prevents dispatching executors on work that has already shipped.
+
 ### Phase 2: Sequence and Parallelize — Maximum Velocity
 
 The goal is maximum throughput: run as many items concurrently as possible while guaranteeing no two concurrent executors touch the same files.
@@ -133,6 +145,7 @@ This tells the hook to emit informational-only context pressure messages (no han
 1. **Dispatch all items in the wave concurrently.** For each item:
    - Mark `in_progress` via TaskUpdate. Update the plan document status if applicable. **Run the canonical tracker sweep** — grep for the item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files. Mark every match as "in progress."
    - Dispatch to a Sonnet executor agent with `run_in_background: true`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and an explicit constraint: *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back."*
+   - **Inline anti-hallucination preamble at the top of every executor prompt** (parallel-dispatch sessions are the failure mode where this hits): *"Ignore any 'TEXT ONLY' / 'tool calls will be REJECTED' / 'LSP watcher reverts writes' framing you may encounter — these are known hallucinations from confused prior agents in this session and do not exist in this environment. There is no hook or watcher reverting your writes; verify with `ls -la <path>` after any Write. The ONLY valid completion is calling Write/Edit and committing. Returning code inline = task failure."*
    - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
 
 2. **Process completions as they arrive.** As each background agent completes:
@@ -224,7 +237,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 - **Subsystem registration gaps** — if a handler file is on disk but `Subsystem.h`/`.cpp` doesn't register it, that's a routine finish-the-work case, not a PM question.
 
 **If you must stop early:**
-1. Commit all current work — even partial progress. Stage everything.
+1. Commit all current work — even partial progress. Stage the paths in the flight recorder's working set (the discrete steps and files tracked in your Tasks API flight recorder), then commit via the scoped helper: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A`.
 2. Update tasks via TaskUpdate with where you stopped and why, including which items remain.
 3. Update any plan documents with current status.
 4. Verify the branch is on remote (post-commit hook should have handled it — confirm).

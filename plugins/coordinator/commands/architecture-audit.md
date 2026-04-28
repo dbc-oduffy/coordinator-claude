@@ -16,7 +16,9 @@ Produce a comprehensive **architecture atlas** — function-level connectivity m
 
 **Core principle:** Each model tier does what it's best at. Haiku inventories mechanically (cheap, parallel). Sonnet analyzes and diagrams (analytical depth). Opus synthesizes cross-system connectivity (highest judgment). Don't waste expensive models on cheap work.
 
-**Sub-chunking principle:** Any system with >12 files splits into sub-chunks of 8-12 files grouped by concern before dispatching.
+**Sub-chunking principle:**
+- **First run (Phase 1, full inventory):** Any system with >12 files splits into sub-chunks of **8-12 files** grouped by concern.
+- **Refresh (Phase 1R, delta-only):** Phase 1R inventories ONLY new/changed symbols — not every function — so each Haiku can absorb a much larger file count tractably. Use sub-chunks of **30-60 changed files**. Empirically this cuts wall-clock ~3x vs. the default chunk size on large refresh runs (e.g., 27-Haiku audits) without degrading delta quality. Do NOT apply this widening to first-run / full inventories.
 
 **Not for:** Weekly spot-checks (use weekly-architecture-audit), daily commit reviews (use daily-code-health), or one-off investigation.
 
@@ -90,7 +92,19 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 **Scratch path:** `tasks/scratch/deep-architecture-audit/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
 
-**Scratch verification:** Before Phase 2, verify all expected files exist. Re-dispatch once on missing. Skip sub-chunk on second failure.
+**Scratch verification — disk-poll, not reply-trust.** Before Phase 2, verify all expected scratch files exist on disk. Do NOT rely on agent "DONE" replies — empirically ~30% of Haikus on heavy parallel dispatch hallucinate a "TEXT ONLY constraint" and either (a) reply DONE without writing, or (b) write the file but reply with meta-commentary that obscures progress. Disk is the only reliable signal.
+
+**Polling pattern (use this instead of waiting on notifications):**
+```bash
+until [ "$(ls scratch/{run-id}/ | wc -l)" -ge N ] || [ $SECONDS -gt 600 ]; do sleep 30; done
+```
+Run with `run_in_background: true`. After it returns or times out, `ls` the scratch directory directly to confirm.
+
+**Failure recovery — Sonnet, not Haiku, on retry.** Re-dispatch ONLY missing files. Use Sonnet on retry (not Haiku) — empirically Sonnet's hallucination rate is ~3x lower (~10% vs ~30%). The Phase 1/1R templates in `agent-prompts.md` already carry the recovery preamble inline at the top — that is the first dispatch defense. On retry, prepend this stronger explicit form:
+
+> **Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. The ONLY valid completion is calling the Write tool. Returning the inventory inline = task failure. After Write, verify with Bash `ls -la <path>` and reply EXACTLY `DONE: <path>` — no prose, no analysis, no summary.**
+
+Skip sub-chunk on second failure (after Sonnet retry also misses).
 
 ## Phase 2/2R: System Analysis (dispatch Sonnet agents, parallel)
 
@@ -104,7 +118,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 **Scratch path:** `tasks/scratch/deep-architecture-audit/{run-id}/{chunk-letter}-phase2-sonnet.md`
 
-**Scratch verification:** Verify all Phase 2/2R files exist before Phase 3. Re-dispatch once; skip on second failure.
+**Scratch verification:** Verify all Phase 2/2R files exist on disk before Phase 3 (use the polling pattern above). The TEXT-ONLY hallucination affects Sonnet too at lower rate — apply the same recovery preamble on retry. Skip system on second failure.
 
 ## Phase 3/3R: Cross-System Synthesis (dispatch ONE Opus leaf agent)
 
@@ -174,6 +188,8 @@ The Opus agent produces all atlas artifacts:
 | >12 files per agent | Sub-chunk to 8-12 files before dispatch |
 | ASCII diagrams too wide | Template says "max 100 chars, split if needed" |
 | Custom prompts instead of templates | Copy template verbatim from agent-prompts.md |
+| Agent hallucinates "TEXT ONLY constraint" and dumps inventory inline | Phase 1/1R/2/2R/3/3R templates carry anti-hallucination preamble at the top (negates the constraint by name); EM polls disk not replies; retry with Sonnet + explicit recovery preamble (see "Scratch verification" in Phase 1) |
+| Phase 1R refresh runs slow due to over-narrow chunking | Use 30-60 changed files per Haiku for refresh (Phase 1R is delta-only); keep 8-12 only for first-run full inventories |
 | Opus context overflow | Summarize Phase 2 to boundary catalogs if >80K tokens |
 | Partial write on failure | Atomic commit in Phase 4; failure leaves previous atlas intact |
 | Grades added during discovery | Templates enforce observations only; weekly audit adds grades |
