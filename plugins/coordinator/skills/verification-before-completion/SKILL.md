@@ -86,6 +86,15 @@ Executor and apply-agents consistently under-count their own work in chat (obser
 2. **Empty diff for an agent that claimed work = re-dispatch** with the explicit list of unfinished files. Do not accept "I completed all files" alongside a zero-line diff.
 3. For spec-driven dispatches that mandate a canonical phrase or pattern across N files, also run `grep -l "<canonical phrase>" <target-files>`. File count alone is not proof — the canonical content must actually appear.
 
+
+### (c) Edit tool success is not proof of change (DroneSim T1.3)
+
+After a sequence of Edit calls — especially before claiming a fix is in or before commit — run `git diff <file>` (or `git diff --stat`) to confirm the bytes actually moved. Edit returns success on no-ops where the new_string already matched.
+
+### (d) Subagents may "fix" things without producing diffs (fifa T1.4)
+
+Subagents conflate "this is correct now" with "I made it correct." Before reporting fixes applied, executor prompts should include `git status --short` + `git diff --stat`; report actual diff stats, not self-narrated counts of intended changes. "No-op, target was already correct" is a valid outcome — and an honest one.
+
 ### (b) Match verification to the change you made (L274)
 
 Verification must target the actual side effects of YOUR action. Running an unrelated expensive process ("ran the full test suite, all green") as "verification" of a one-line change is cargo-cult.
@@ -102,6 +111,28 @@ Verification must target the actual side effects of YOUR action. Running an unre
 | Canonical phrase applied across files | `grep -l "<phrase>" <targets>` | "All files processed" |
 | One-line bug fix | Re-Read file + grep for change | Full test suite passing |
 | Pattern applied consistently | Targeted grep on changed files | Build success |
+
+## Format Validation (fifa T1.3)
+
+For batch outputs with a known schema, existence checks are not enough. Prefer a sweep confirming each file contains the canonical block before reporting completion.
+
+**Why this is distinct from existence checks:** A file can exist and still be schema-nonconformant. In a 64-nation pipeline, 3 nations produced prose-only syntheses (no JSON block) and 2 had non-standard JSON root keys — 5/64 files would have silently passed an existence check.
+
+**Sweep pattern:**
+```bash
+# Confirm JSON block present
+grep -l '```json' outputs/*.md
+
+# Confirm expected root key (jq)
+for f in outputs/*.json; do jq -e '.expected_root_key' "$f" > /dev/null || echo "FAIL: $f"; done
+```
+
+**Failure modes to check explicitly:**
+- Prose-only output when structured format was required (no code fence / no JSON block)
+- Non-standard root keys (e.g. `data` instead of `results`, `output` instead of expected key)
+- Truncated output (file exists but JSON is incomplete / malformed)
+
+Run this sweep before reporting batch completion — not after.
 
 ## Key Patterns
 
@@ -159,6 +190,14 @@ From 24 failure memories:
 - Paraphrases and synonyms
 - Implications of success
 - ANY communication suggesting completion/correctness
+
+## Scope-Conformance Check After Executor Returns (geneva T1.5)
+
+Before staging any executor output: (1) run `git diff --stat` to enumerate changed paths, (2) confirm each path is within the dispatch's declared scope, (3) stash or revert any out-of-scope edits.
+
+Out-of-scope edits are common failure modes: test file deletions, unrelated refactors, autonomous commits the executor made despite instructions. The check is mechanical and must happen before the coordinator reads the diff semantically.
+
+See `commands/delegate-execution.md` → "Scope-Conformance Check" for the dispatch-prompt clause that enforces this on the executor side.
 
 ## The Bottom Line
 

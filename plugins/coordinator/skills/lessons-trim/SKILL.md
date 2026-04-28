@@ -38,4 +38,15 @@ If the agent file cannot be located or is read-only, escalate to the EM rather t
 
 **Migration mechanics:** When migrating an entry to a wiki guide, use the existing `docs/wiki/` structure. If no guide exists for the relevant system, create one or add a `## Gotchas` section to the closest existing guide. Update `docs/wiki/DIRECTORY_GUIDE.md` if you create a new guide.
 
+
+### Tier-1 check before removal
+
+When trimming an entry that is being migrated or discarded: check whether it qualifies as a tier-1 (universal) pattern before removing it from `lessons.md`. Ask: **"If a different project type — UE / web / data / research — also used the coordinator pipeline, would this rule apply?"**
+
+- **If yes and the entry is already tagged `[universal]`:** verify a corresponding entry exists in `~/.claude/tasks/coordinator-improvement-queue.md` before removing. If the queue entry is missing, append it now (format: `- YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>`), then proceed with removal.
+- **If yes and the entry was never tagged:** tag it `[universal]` in the source file, append to the queue with today's date, then proceed with removal.
+- **If no:** proceed with normal migrate/discard flow.
+
+This ensures no universal pattern leaves `lessons.md` without first landing in the promotion queue.
+
 **Judgment call:** When in doubt, migrate rather than discard — the cost of a slightly long wiki page is lower than losing a hard-won implementation insight. But be honest: pure task-state entries with no pattern content should be discarded, not padded into artificial wiki prose.

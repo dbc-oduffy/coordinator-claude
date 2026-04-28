@@ -377,6 +377,28 @@ pptx/
 ```
 When: Reference material too large for inline
 
+## Common Footguns
+
+### Frontmatter footguns
+
+**`allowed-tools` must be a YAML list, not a scalar.** Writing `allowed-tools: Write` fails validation; the correct form is:
+```yaml
+allowed-tools:
+  - Write
+```
+The `validate-frontmatter.py` script enforces this. A scalar value silently passes YAML parsing but fails the schema check.
+
+**`access-mode: read-only` silently overrides the tools list.** An agent with `Write` in `tools:` but `access-mode: read-only` cannot write — the access mode wins silently and the agent's deliverable disappears. Default all agents that produce file output (findings, plans, position docs, verification tables) to `access-mode: read-write`. Audit before shipping: grep your agent files for `access-mode: read-only` and confirm none of them are expected to emit artifacts.
+
+### Prompts live in one place
+
+A driver/skill/command MUST `@`-reference the canonical prompt template, never inline its body. If you find yourself copy-pasting prompt text into a driver, stop — make it a template file and reference it. Drift between an inlined copy and the template is a silent correctness bug that goes undetected across multiple sessions.
+
+### Hook authoring
+
+Hook authoring has its own contract that bites anyone writing `SubagentStop` or other hooks. See `coordinator/docs/hook-authoring-notes.md` for the two most common hook footguns (SubagentStop agent_type gating and stderr-as-error-channel).
+
+
 ## The Iron Law (Same as TDD)
 
 ```

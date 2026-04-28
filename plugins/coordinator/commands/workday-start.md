@@ -81,6 +81,8 @@ Read all files in `tasks/handoffs/`. For each:
 
    **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means the Morning Briefing will recommend work that has already shipped, wasting the PM's attention on ghost items.
 
+   **Partial-completion claims** (DroneSim T1.2): Before surfacing any work the handoff describes as "stalled", "unfinished", or "partial" as today's action items, verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. Treat the handoff's status as a hypothesis, not ground truth — work often persisted despite the handoff saying otherwise.
+
 7. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival. [X items across handoffs verified-closed by git reconciliation.]"
 
 **Why surface-only:** Handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do about it.
@@ -88,6 +90,14 @@ Read all files in `tasks/handoffs/`. For each:
 **Why cross-reference completed archive:** Handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 
 **Why git-reconcile pending items:** The completed archive records sessions that ran `/workday-complete` or `/update-docs` — it is not exhaustive. Executor sessions that commit and exit without ceremony never land in the archive. The git log is the authoritative record of what actually shipped; the archive is a secondary cross-check. Both checks together cover the failure modes the other misses.
+
+## Step 1.5: Coordinator-Improvement Queue Check
+
+Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). If the file has **≥ 5 active entries** OR the **oldest entry is > 14 days old**, surface a one-liner to the PM in the Morning Briefing:
+
+_"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD). Triage now?"_
+
+If the file does not exist or the queue is empty, skip silently. The threshold is a heuristic starting point — calibrate based on actual queue velocity after the first organic triage cycle.
 
 ## Step 2: Doc Freshness
 
