@@ -130,6 +130,16 @@ Skip sub-chunk on second failure (after Sonnet retry also misses).
 - **First run:** Copy **Phase 3: Opus Cross-System Synthesis Prompt (Full)**. Fill in `[N]` and paste Phase 2 reports.
 - **Refresh:** Copy **Phase 3R: Opus Cross-System Synthesis Prompt (Refresh)**. Fill in `[N]`, paste stable atlas pages, and paste Phase 2R reports.
 
+**Domain glossary:** Add the following instruction to the synthesizer prompt verbatim:
+
+> If `CONTEXT.md` exists at the project root, read it. Use canonical terms throughout your synthesis. If the audit surfaces a domain term that recurs across systems and isn't yet in `CONTEXT.md`, flag it in your output under "Glossary candidates" — do NOT update `CONTEXT.md` yourself (the producer skills do that, not synthesizers). If `CONTEXT.md` is absent, proceed silently — do not flag, suggest, or scaffold.
+
+**Deletion test — module shallowness probe:** Add the following instruction to the synthesizer prompt verbatim:
+
+> For each system boundary you evaluate, apply the deletion test: *"Imagine deleting the module. If complexity vanishes, the module wasn't hiding anything (it was a pass-through). If complexity reappears across N callers, it was earning its keep."* Pair with the one-adapter / two-adapter rule: one adapter is a hypothetical seam, two adapters is a real seam.
+>
+> A deletion-test verdict is a single-agent claim. Per the convergence rule, do NOT recommend removal, refactor, or consolidation based on this probe alone. Surface the module as a candidate under a "Shallowness candidates" section — convergence (≥2 independent agents flagging the same module from different entry points) is required before any verdict becomes actionable.
+
 The Opus agent produces all atlas artifacts:
 - `systems-index.md` — master index (no grades)
 - `cross-system-map.md` — unified ASCII diagram

@@ -34,15 +34,52 @@ For ANY technical issue: test failures, bugs, unexpected behavior, performance p
 
 You MUST complete each phase before proceeding to the next.
 
-### Phase 1: Root Cause Investigation
+### Phase 1: Build the Feedback Loop
 
-**Before any fix:**
+**This is the skill. Everything else is mechanical.**
+
+If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause. If you don't have one, no amount of staring at code will save you. Spend disproportionate effort here. Be aggressive. Be creative. Refuse to give up.
+
+A 2-second deterministic loop is a debugging superpower. A 30-second flaky loop is barely better than no loop. Treat the loop itself as a product — once you have one, ask: can it be faster? Sharper signal? More deterministic?
+
+**Do not proceed to Phase 2 until you have a loop you believe in.**
+
+#### Step 1: Build the feedback loop
+
+Try techniques in this order — cheapest and most common first. If rung N doesn't fit, drop to rung N+1:
+
+1. **Failing test** — a unit or integration test that reproduces the bug deterministically. Best outcome. Try this first.
+2. **curl / HTTP probe** — for network/API bugs, a single curl command that demonstrates the bad response.
+3. **CLI fixture** — a command-line invocation with fixed inputs that reliably triggers the failure.
+4. **Headless browser** — for UI bugs where the DOM state is the signal; Playwright/Puppeteer script that captures the failure.
+5. **Trace replay** — capture a request/event trace, replay it in isolation. Good for distributed or async bugs.
+6. **Throwaway harness** — a small scratch script that wires just enough of the system to expose the failure.
+7. **Fuzz** — property-based or random input generation to locate the minimal triggering input.
+8. **Bisection** — `git bisect` or binary search across config/data space to find the first broken state.
+9. **Differential** — run the same path against two environments (working vs. broken, old version vs. new) and diff the outputs.
+10. **HITL bash** — last resort: a structured script that drives a human through precise steps and captures their observations. Even then, structure the interaction so the loop is repeatable.
+
+If you genuinely cannot build a loop — stop. Do not proceed to hypothesise. State explicitly what was tried, ask for env access, a captured artifact, or permission to instrument.
+
+#### Step 2: Read, reproduce, and gather evidence
 
 1. **Read error messages carefully.** Don't skip past errors. Read stack traces completely. Note line numbers, file paths, error codes.
-2. **Reproduce consistently.** Can you trigger it reliably? What are the exact steps? If not reproducible → gather more data, don't guess.
+2. **Reproduce consistently.** Can you trigger it reliably? What are the exact steps? If not reproducible → raise the reproduction rate; don't try to make a flaky bug deterministic, just make it frequent enough to diagnose.
 3. **Check recent changes.** Git diff, recent commits, new dependencies, config changes, environmental differences.
 4. **Gather evidence in multi-component systems.** When the system has multiple components (CI → build → signing, API → service → DB), add diagnostic instrumentation at each component boundary BEFORE proposing fixes — log data entering and exiting each component, verify env/config propagation, check state at each layer. Run once to see WHERE it breaks, then investigate that specific component. A single diagnostic pass beats hypothesis ping-pong.
 5. **Trace data flow.** When the error is deep in the call stack: where does the bad value originate? What called this with a bad value? Keep tracing up until you find the source. Fix at source, not at symptom. See `root-cause-tracing.md` for the full backward tracing technique.
+
+#### Step 3: Form 3–5 ranked falsifiable hypotheses before testing any
+
+Single-hypothesis generation anchors on the first plausible idea. Resist it.
+
+Generate 3–5 candidate hypotheses. Rank them by plausibility. Each hypothesis MUST complete this form:
+
+> *"If \<X\> is the cause, then \<changing Y\> will make the bug disappear."*
+
+If you cannot state the prediction — the hypothesis is a vibe. Discard it or sharpen it until it becomes testable. Show the ranked list before testing: the PM or another engineer often has domain knowledge that re-ranks instantly ("we just deployed a change to #3") or knows hypotheses already ruled out. Cheap checkpoint, big time saver.
+
+**Do not proceed to Phase 2 until you have a loop you believe in and at least 3 ranked falsifiable hypotheses.**
 
 ### Phase 2: Pattern Analysis
 
@@ -53,9 +90,9 @@ You MUST complete each phase before proceeding to the next.
 
 ### Phase 3: Hypothesis and Testing
 
-1. **Form a single hypothesis.** State it: "I think X is the root cause because Y." Be specific.
+1. **Work from your ranked list (Phase 1 Step 3).** Take the top-ranked falsifiable hypothesis. State it: "I think X is the root cause because Y — if true, changing Z will make the bug disappear." Be specific.
 2. **Test minimally.** Smallest possible change. One variable at a time.
-3. **Verify before continuing.** Worked → Phase 4. Didn't work → form a NEW hypothesis. Don't add more fixes on top.
+3. **Verify before continuing.** Worked → Phase 4. Didn't work → strike that hypothesis, take the next one from the ranked list. Don't add more fixes on top.
 4. **When you don't know, say so.** Don't pretend. Ask, research.
 
 ### Phase 4: Implementation
@@ -101,7 +138,7 @@ All of these mean: STOP. Return to Phase 1.
 
 | Phase | Key Activities | Success Criteria |
 |-------|---------------|------------------|
-| 1. Root Cause | Read errors, reproduce, check changes, gather evidence | Understand WHAT and WHY |
+| 1. Feedback Loop | Build loop, gather evidence, 3–5 falsifiable hypotheses | Loop you believe in + ranked hypotheses |
 | 2. Pattern | Find working examples, compare | Identify differences |
 | 3. Hypothesis | Form theory, test minimally | Confirmed or new hypothesis |
 | 4. Implementation | Create test, fix, verify | Bug resolved, tests pass |

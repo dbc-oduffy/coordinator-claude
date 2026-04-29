@@ -560,6 +560,46 @@ HANDOFF
     && assert_contains "T19-extra" "extra-touched.txt" "$commit_files"
 }
 
+# T21: Scope-from — CRLF-encoded handoff (Windows line endings).
+# Regression for the "touch-tracker not firing" bug observed across 4+ sessions:
+# CRLF-encoded handoffs produced "no scope: field found" because "$line" == "---"
+# silently failed to match "---\r". Parser now strips trailing CR.
+test_scope_from_crlf_handoff() {
+  setup_repo
+  local my_sid="session-mine-$$"
+  make_session "$my_sid" "$$"
+
+  echo "scoped content" > scoped-file.txt
+  echo "out of scope" > out-of-scope.txt
+
+  mkdir -p tasks/handoffs
+  # Write the handoff with explicit CRLF line endings via printf
+  printf -- '---\r\nworkstream: crlf-test\r\nscope:\r\n  - scoped-file.txt\r\n---\r\n# CRLF Handoff\r\n' \
+    > tasks/handoffs/handoff-crlf.md
+
+  # Sanity-check the file is actually CRLF (od is more portable than grep $'\r')
+  local crcount
+  crcount=$(od -An -c tasks/handoffs/handoff-crlf.md | tr -s ' ' '\n' | grep -c '^\\r$' || true)
+  if [[ "$crcount" -lt 5 ]]; then
+    teardown_repo
+    echo "    Expected ≥5 CR bytes in fixture, got $crcount" >&2
+    fail "T21" "test fixture failed to write CRLF endings"
+    return 1
+  fi
+
+  local out rc
+  rc=0
+  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff-crlf.md "test: crlf scope-from" 2>&1) || rc=$?
+
+  local commit_files
+  commit_files=$(git show --name-only HEAD --format="" | grep -v "^$" || true)
+
+  teardown_repo
+  [[ $rc -eq 0 ]] \
+    && assert_contains "T21-scoped" "scoped-file.txt" "$commit_files" \
+    && assert_not_contains "T21-not-scoped" "out-of-scope.txt" "$commit_files"
+}
+
 # T20: Scope-from — missing scope: key in frontmatter → clear error
 test_scope_from_missing_scope_key() {
   setup_repo
@@ -613,6 +653,7 @@ run_test "T17: Multiple live sessions → error naming both"     test_multi_live
 run_test "T18: --dry-run: no commit in dry-run mode"           test_dry_run_scope_from_no_commit
 run_test "T19: --scope-from: union with session touched.txt"   test_scope_from_union_with_touched
 run_test "T20: --scope-from: missing scope: key → error"       test_scope_from_missing_scope_key
+run_test "T21: --scope-from: CRLF handoff parses correctly"    test_scope_from_crlf_handoff
 
 echo ""
 echo "============================================"

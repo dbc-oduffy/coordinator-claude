@@ -199,7 +199,7 @@ Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/s
 
 #### Phase 10: Refresh Orientation Cache
 
-If `tasks/orientation_cache.md` exists:
+If `tasks/orientation_cache.md` exists, **always do a full refresh in this phase — never skip on grounds of "looks roughly current."** Stale orientation poisons every subsequent session-start:
 1. Re-derive cache content from the docs just updated (repomap, DIRECTORY, health files)
 2. Update `generated_at` and `git_head_at_generation` to current HEAD
 3. **Ensure a "Key Documentation" section is present** pointing to `docs/README.md`:
