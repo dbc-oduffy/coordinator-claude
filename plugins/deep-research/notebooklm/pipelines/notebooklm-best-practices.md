@@ -15,6 +15,8 @@
 - **Google Docs with multiple Tabs count as one source** — useful for packing more structured content per source slot.
 - **Strip PII from research documents before ingestion.**
 - **Verify ingestion.** Silent failures are common — YouTube with no captions, JS-rendered web pages, paywalled articles. Include a verification query in the question list.
+- **YouTube URLs must be direct `youtube.com/watch?v=...` links.** NLM extracts transcripts from YouTube videos — this is one of its highest-value capabilities. But it ONLY works with direct YouTube URLs. Forum pages, Epic Dev Community pages, ClassCentral listings, and blog posts that *link* to videos give NLM only the page text (title, description, comments), not the video transcript. A forum thread about a GDC talk is NOT the talk. Scout agents must use `site:youtube.com` searches to find direct video URLs.
+- **Medium and paywalled sites are effectively blocked.** Medium's bot protection and paywalls consistently prevent NLM ingestion. Pre-download content or find alternative sources.
 
 ---
 

@@ -69,6 +69,10 @@ digraph brainstorming {
 
 ## Understanding Intent
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+**If MCP tools matching `mcp__*project-rag*` are available in this session, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
+<!-- END project-rag-preamble -->
+
 **Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`tasks/architecture-atlas/systems-index.md`), wiki guides (`docs/wiki/DIRECTORY_GUIDE.md` → relevant guides), repo map (`tasks/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
 
 **Clarifying questions:**
@@ -81,6 +85,14 @@ digraph brainstorming {
 **Technical constraints:** If the EM sees a technical issue with the PM's direction, raise it directly. "That approach would require X, which conflicts with Y. Here's what I'd recommend instead." The EM's job is honest technical counsel, not silent compliance.
 
 **Scope assessment:** If the request spans independent subsystems, flag this early. Each subsystem gets its own spec, plan, and execution cycle. Don't try to design everything in one pass — decompose first, then deep-dive each piece.
+
+## Domain Language Discipline
+
+If `CONTEXT.md` exists at the project root, read it before the first PM clarification question. If it is absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms in your questions. When the PM says a term that's on the `_Avoid_:` list, gently substitute the canonical term and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
+
+When the PM resolves a term during dialogue (defines, disambiguates, or names a previously-fuzzy concept), update `CONTEXT.md` inline — don't batch. Use the format at `docs/wiki/context-md-convention.md`.
+
+If `CONTEXT.md` doesn't exist and a term gets resolved that would clearly recur, lazily create it with the resolved term as the first entry. Never scaffold an empty file. If no term has been resolved yet, don't create the file.
 
 ## Exploring Approaches
 
@@ -108,6 +120,7 @@ The spec must carry enough context for a cold-start agent to implement the featu
 2. **Internal consistency:** Do sections contradict each other? Does the architecture match the requirements?
 3. **Scope check:** Is this focused enough for a single plan? If it spans independent subsystems, split into separate specs now.
 4. **Ambiguity check:** Could any requirement be interpreted two ways? Pick one and make it explicit.
+5. **Glossary check:** If a term was resolved in dialogue, has `CONTEXT.md` been updated so downstream plan-writing will use the canonical form? (Missing this produces plans with the wrong term, which re-invites the conflation the glossary was built to prevent.)
 
 Fix issues inline. No separate review pass needed.
 

@@ -45,10 +45,25 @@ Collect all results from the inspection data in your dispatch prompt, then seria
 
 ```markdown
 # Blueprint: {Name}
-**Type:** {InferredType} | **Parent:** {ParentClass} ({ShortName}) | **Source:** {ProjectName} | **UE:** {Version}
+**Type:** {InferredType} | **Parent:** {ParentClass} ({ShortName}) | **ParentPath:** {parentClassPath} | **Source:** {ProjectName} | **UE:** {Version} | **Replicates:** {true|false}
+```
 
+Header field rules:
+- Omit `**ParentPath:** {parentClassPath}` entirely if `parentClassPath` is empty, null, or absent — do NOT emit `**ParentPath:** None`.
+- Omit `**Replicates:** {true|false}` entirely if `bReplicates` is null, unknown, or absent (e.g., pre-C3 data or ControlRig BPs with no replication info).
+
+```markdown
 {Brief one-sentence description based on name, parent class, and contents}
 
+## Implemented Interfaces
+- {InterfaceName} ({class_path})
+```
+
+Section rules:
+- Omit `## Implemented Interfaces` entirely if `implementedInterfaces` is empty, null, or absent. Do not emit an empty section.
+- If only string names are available (no `class_path` from pre-C3 worker), emit `- {InterfaceName}` without the path.
+
+```markdown
 ## Components (SCS)
 {Hierarchical component list, or "None" if empty}
 
@@ -57,10 +72,18 @@ Collect all results from the inspection data in your dispatch prompt, then seria
 
 ## Functions
 {List each: "- {Name}({Params}) → {ReturnType}" or "None"}
+<!-- TODO: add [pure]/[const] annotations when plugin emits isPure/isConst — not yet scoped -->
 
 ## Events
 {List each: "- {Name}" or "None"}
+
+## Construction Script
+UserConstructionScript: present
 ```
+
+Section rules:
+- Omit `## Construction Script` entirely if `constructionScriptPresent` is `false`, null, or absent. Only emit this section when `constructionScriptPresent: true` in the input JSON.
+<!-- TODO: BPI Event Overrides — requires plugin graph walk of ImplementedInterfaces[].Graphs, not yet scoped -->
 
 When multiple BPs share a file, separate them with `---`.
 
@@ -110,6 +133,7 @@ Rules:
 - Within each category, sort variables alphabetically.
 - Format: `- \`{Name}\` ({Type}) — Default: {Value}` (omit default if empty).
 - If flags exist: `- \`{Name}\` ({Type}, EditAnywhere)`.
+- If `replicated: true` in the variable JSON, append `, Replicated` inside the type parentheses: `\`{Name}\` ({Type}, Replicated) — Default: {Value}`. Flags and Replicated may coexist: `\`{Name}\` ({Type}, EditAnywhere, Replicated)`.
 - Strip `[Category]` prefixes from names when the category matches.
 
 ## Phase 2: Write Manifest

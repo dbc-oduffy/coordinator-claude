@@ -42,7 +42,7 @@ If the file does not exist or the queue is empty, skip silently. The threshold i
 
 ## Step 1.6: Scheduled Rechecks
 
-Glob `tasks/cookbook-recheck-due-*.md` (and `tasks/recheck-due-*.md` for general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
 
 For each marker found:
 - **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
@@ -50,6 +50,18 @@ For each marker found:
 - **Otherwise**, skip silently.
 
 If no marker files exist, skip silently. Do not auto-execute the recheck procedure — these markers are PM-actioned, not auto-dispatched.
+
+## Step 1.7: Project-RAG Preamble Drift Check
+
+Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-preamble-sync.sh`).
+
+- **If no consumers found** (script exits 0 with "no consumers found" message): skip silently.
+- **If all consumers OK** (exit 0, all lines show `OK`): skip silently.
+- **If any MISMATCH or MISSING_END** (exit non-zero): surface to PM in the Morning Briefing under a new **Preamble Drift** line:
+
+  _"project-rag-preamble drift detected in [N] consumer(s): [list files]. Run `bin/verify-preamble-sync.sh --fix` to repair, then commit all touched files together."_
+
+**Do NOT auto-fix.** The EM should investigate which consumer drifted and why before applying `--fix`. A drift may indicate an intentional local edit that needs to be merged back into the canonical snippet rather than simply overwritten.
 
 ## Step 2: Doc Freshness
 
