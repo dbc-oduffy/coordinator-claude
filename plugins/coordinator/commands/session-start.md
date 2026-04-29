@@ -82,6 +82,8 @@ Load project state into context. These checks are independent of each other.
 
 Read `tasks/lessons.md` (if it exists) — learned patterns from past corrections. Review every entry.
 
+Read `CONTEXT.md` (if it exists at the project root) — domain glossary with canonical terms and `_Avoid_:` synonym lists. If absent, proceed silently — do not flag, suggest, or scaffold.
+
 Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system context — don't re-read them.
 
 **After reading:** Note the count. No need to recite principles — they're in CLAUDE.md.

@@ -60,6 +60,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 - **Uncommitted changes:** [yes/no — what]
 
 ## In-Progress Work
+<!-- Durability: describe what is happening, not how to continue it. Path references here are OK — you're describing state, not prescribing steps. -->
 - [What was being worked on when the session ended]
 - [Current step in the plan, if following a plan doc]
 - [Plan doc path if applicable]
@@ -79,9 +80,12 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 - [Anything that's stuck or needs human intervention]
 
 ## Recommended Next Steps
-1. [First thing the next session should do]
+<!-- Durability: name subsystems and concepts, not file paths or line numbers. Each step = behavioral outcome (what to accomplish), not procedure (how to do it). Include an "Out of scope" line to prevent gold-plating. -->
+1. [First thing the next session should do — behavioral outcome, verifiable]
 2. [Second thing]
 3. [Third thing]
+
+**Out of scope for next session:** [explicitly name what the next session should NOT do or expand into]
 
 ## Carried Forward
 <!-- Items from the predecessor handoff that this session did NOT resolve. These cascade
@@ -92,6 +96,18 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 ## Files Modified This Session
 - [file path] — [one-line description of change]
 ```
+
+### Durability Rules for Next-Steps and In-Progress Sections
+
+These four rules apply specifically to `## Recommended Next Steps` and `## In-Progress Work`. They do **not** apply to `## Current State` or `## Files Modified This Session` — those sections legitimately carry procedural detail and file paths because they are *describing what is*, not *prescribing what to do*.
+
+1. **No file paths or line numbers in next-steps prose.** They go stale within hours — a renamed file or merged diff makes the step wrong before the next session even opens it. Reference subsystems, components, and concepts instead. _Exception:_ when the path IS the artifact (e.g., "the plan at `docs/plans/X.md`"), that's an identifier, not a procedural step — fine to include.
+
+2. **Behavioral, not procedural.** Describe *what* the next session needs to accomplish, not *how* to accomplish it. The "how" goes stale; the "what" is durable. Bad: "run `npm test` and fix the three failures in `src/auth/token.ts:142`." Good: "get the auth token tests green — they are failing against the new expiry contract."
+
+3. **Each next step is independently verifiable.** The picker should be able to confirm "done" without reading this handoff again. If a step can't be verified on its own, break it down or add an acceptance signal.
+
+4. **Explicit out-of-scope line.** Every `## Recommended Next Steps` section should end with an "Out of scope for next session" line naming what the next session should NOT expand into. This prevents a fresh-eyed picker from gold-plating or drifting.
 
 **Anti-amnesia chain:** The `_Continuing from..._` preamble in `## What Was Accomplished` creates a chain — any single handoff is a self-contained orientation point, not just an incremental update. **The predecessor is whatever handoff this session was opened with — period.** Identify it from a positive opening signal:
 

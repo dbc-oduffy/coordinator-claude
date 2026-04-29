@@ -39,7 +39,9 @@ You are the NotebookLM Research Scout. Read strategy.md and find the best source
        no clear author, clickbait title ("Top 10 Best..." "Ultimate Guide to...")
      * If flagged: mark source as `SEO-suspect: YES` in sources output
    - Prioritize: YouTube videos → Podcasts → Articles
-   - Aim for 3-8 sources per notebook
+   - **YouTube-first search pass:** For each notebook, run at least one search with `site:youtube.com` in the query to find direct video URLs. NLM can ingest YouTube videos and extract transcripts — but ONLY from `youtube.com/watch?v=...` URLs, NOT from forum pages, blog posts, or course aggregators that link to videos.
+   - **URL validation:** When labeling a source as "Video talk", verify the URL matches `youtube.com/watch?v=`. Reject `forums.unrealengine.com`, `dev.epicgames.com/community`, `classcentral.com`, and similar pages that DESCRIBE talks but don't contain the video content. These pages give NLM only the title and comments, not the transcript.
+   - Aim for 3-8 sources per notebook, with at least 50% being direct YouTube URLs when the topic has conference talk coverage
 3. For each notebook marked "research_start":
    - Note in sources.md that this notebook uses NLM discovery
    - Copy the search query from strategy.md's 'Search guidance for scout' into sources.md

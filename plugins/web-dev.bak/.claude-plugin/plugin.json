@@ -1,0 +1,10 @@
+{
+  "name": "web-dev",
+  "version": "1.0.0",
+  "description": "Frontend code review specialists for Claude Code — Pali catches design token violations and component anti-patterns, Fru reviews UX flows for clarity and trust. Sequential review ensures nothing ships without both perspectives.",
+  "author": {
+    "name": "Dónal O'Duffy & Claude"
+  },
+  "repository": "https://github.com/oduffy-delphi/coordinator-claude",
+  "keywords": ["frontend", "css", "react", "claude-code", "web-dev", "ux-review", "design-system", "code-review"]
+}

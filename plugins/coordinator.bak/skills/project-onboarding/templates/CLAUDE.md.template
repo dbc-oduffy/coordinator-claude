@@ -1,0 +1,64 @@
+# [PROJECT_NAME]
+
+> Project-specific conventions and context. {{IF_GLOBAL}}Extends global `~/.claude/CLAUDE.md`.{{/IF_GLOBAL}}
+
+## Project Overview
+
+<!-- Fill in: what this project does, its primary purpose, key technologies -->
+
+## Project Type
+
+<!-- project_type: {{PROJECT_TYPE}} — controls domain agent routing -->
+
+{{IF game-dev}}
+## Unreal Engine Conventions
+
+- **Engine version:** UE5.x (specify)
+- **Build command:** <!-- e.g., UnrealBuildTool invocation -->
+- **Cook command:** <!-- platform-specific cook -->
+- **Blueprint vs C++:** <!-- project policy on when to use each -->
+- **Naming conventions:** <!-- UE naming standards: A_ for assets, BP_ for blueprints, etc. -->
+- **Key modules:** <!-- list primary C++ modules -->
+{{/IF game-dev}}
+
+{{IF web-dev}}
+## Web Development
+
+- **Framework:** <!-- e.g., Next.js, React, Vue, Svelte -->
+- **Dev server:** <!-- e.g., npm run dev, port -->
+- **Component conventions:** <!-- file structure, naming, styling approach -->
+- **State management:** <!-- e.g., Zustand, Redux, signals -->
+- **CSS approach:** <!-- e.g., Tailwind, CSS Modules, styled-components -->
+- **Key routes/pages:** <!-- list primary routes -->
+{{/IF web-dev}}
+
+{{IF data-science}}
+## Data Science Conventions
+
+- **Notebook conventions:** <!-- naming, cell organization, output clearing policy -->
+- **Data pipelines:** <!-- tools, orchestration, storage locations -->
+- **Model versioning:** <!-- MLflow, DVC, manual, etc. -->
+- **Environment management:** <!-- conda, venv, poetry -->
+- **Key datasets:** <!-- list primary data sources -->
+{{/IF data-science}}
+
+## Build & Test
+
+- **Build:** <!-- how to build the project -->
+- **Test:** <!-- how to run tests -->
+- **Lint:** <!-- linting command if any -->
+
+## Architecture
+
+<!-- Brief description of project structure — key directories, main entry points, dependency flow -->
+
+## Conventions
+
+- <!-- Project-specific coding conventions -->
+- <!-- Naming patterns, file organization rules -->
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| <!-- key file --> | <!-- purpose --> |

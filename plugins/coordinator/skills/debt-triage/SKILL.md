@@ -22,6 +22,17 @@ Review the debt backlog, verify items are still relevant, re-prioritize based on
 
 This is an **EM-PM conversation**, not a dispatched agent. The EM reads the backlog, applies judgment, and presents recommendations.
 
+### Step 0: Surface Prior Rejections
+
+Before reading the backlog, check `tasks/out-of-scope/*.md` (if the directory exists — skip silently if absent). For each file present, note the concept and rejection reason. During triage, when any incoming item or discussion overlaps a known rejection, surface it:
+
+> "This is similar to `tasks/out-of-scope/<concept>.md` — we rejected this because [reason]. Still feel the same?"
+
+The maintainer can:
+- **Confirm** — append the new instance under "Prior requests" in the file
+- **Reconsider** — delete the file and proceed to evaluate normally
+- **Override** — proceed with implementation despite the prior rejection
+
 ### Step 1: Read Current State
 
 1. Read `tasks/debt-backlog.md`
@@ -41,6 +52,16 @@ For each item in `tasks/debt-backlog.md`, note its cited file path and the date 
 This pre-check prevents dispatching agents to verify debt that has already been resolved. In one measured run, 11 of 20 backlog items were already fixed before dispatch — the same failure mode applies to debt backlogs that drift behind active development.
 
 **Why pre-dispatch rather than during Step 2:** Step 2 Haiku agents do the full per-line verification; this pre-check is the EM's own lightweight scan (date + git log) that prunes obviously-stale items before agent dispatch, reducing cost.
+
+### Step 1c: Analyst brief — structural probes
+
+When evaluating whether a debt item or proposed enhancement is worth acting on, the debt-triage analyst may apply two concrete structural probes:
+
+**Deletion test.** Imagine deleting the module, class, or abstraction in question. If complexity vanishes (callers simplify, the code reads more directly), the abstraction was a pass-through — it was not earning its keep. If complexity reappears across N callers (each must now handle what the module was hiding), the abstraction was load-bearing. Use this as a single-sentence verdict: "Deletion test: complexity would [vanish / reappear at N callers]."
+
+**One-adapter / two-adapter rule.** One adapter is a hypothetical seam. Two adapters is a real seam that pays its abstraction cost. A single adapter wrapping one concrete implementation is usually premature — the deletion test confirms this. Two independent adapters in production justify the interface.
+
+These probes apply when evaluating YAGNI calls, scope-change proposals, and deepening candidates. Pair any deletion-test finding with the convergence rule (≥2 independent agents before acting on a "shallow module" verdict) — single-agent subjective verdicts have elevated false-positive rates.
 
 ### Step 2: Verify Relevance (Haiku agents)
 
@@ -108,9 +129,30 @@ After PM decisions:
 2. Update priorities per PM direction
 3. Remove items PM declares YAGNI
 4. Update header counts
-5. Commit:
+5. For any item rejected with a **load-bearing reason** (scope conflict, doctrine conflict, cost-benefit rejection, architectural veto): write `tasks/out-of-scope/<concept>.md` using the template below. One file per *concept*, not per item — if a matching file already exists, append a new entry under "Prior requests" instead of creating a duplicate. **Bugs do NOT go to `.out-of-scope/`** — only enhancement rejections. Create the directory on first use; never scaffold it empty.
+
+   ```markdown
+   # Out of scope: <concept>
+
+   **First raised:** YYYY-MM-DD
+   **Status:** Rejected (open to reconsideration)
+
+   ## What was proposed
+   [One sentence describing the enhancement.]
+
+   ## Why we rejected it
+   [Load-bearing reason. Cost, scope, doctrine conflict, etc.]
+
+   ## Prior requests
+   - YYYY-MM-DD: [Brief description of how this came up]
+
+   ## What would change our minds
+   [Conditions under which this should be reconsidered. Optional but useful.]
+   ```
+
+6. Commit:
    ```bash
-   git add tasks/debt-backlog.md
+   git add tasks/debt-backlog.md tasks/out-of-scope/
    git commit -m "debt-triage: reviewed N items, closed M, N remain open"
    ```
 

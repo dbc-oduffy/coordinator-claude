@@ -37,6 +37,8 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
 
+- **Tripwire — Patrik UE block:** Patrik's prompt (`staff-eng.md`) contains a `project_type`-gated UE block (added by holodeck overlay 2026-04-29). When editing `staff-eng.md`, check the gate parses cleanly and the listed UE worker names (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`) still exist in the holodeck plugin.
+
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
 A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up in the unblocker's done-protocol.
@@ -109,6 +111,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 - **`docs/wiki/`** — living technical reference distilled from session artifacts by `/distill`. Each guide embeds its own DRs. Index: `DIRECTORY_GUIDE.md`. Third-party notes use subdirs: `marketplace/`, `opensource/`, `competitors/`.
 - **`docs/plans/`** — canonical plan location. Plans start in `~/.claude/plans/` during plan mode, copy here on approval.
 - **`docs/research/`** — timestamped `/deep-research` outputs. Source preserved permanently; key findings extracted to wiki by `/distill` PROMOTE. Fallback when no project `docs/`: `~/docs/research/YYYY-MM-DD-topic.md`.
+
+- **`CONTEXT.md`** (project root, optional, lazy) — domain glossary in the team's canonical vocabulary. Each term carries an `_Avoid_:` list of forbidden synonyms. Produced lazily by `coordinator:brainstorming` and `coordinator:writing-plans` when terms are resolved in dialogue. Consumed silently by other skills — if absent, proceed silently (no flagging, no scaffolding). Never scaffolded empty. Convention: `docs/wiki/context-md-convention.md`. Read alongside `orientation_cache.md` and `lessons.md` at session start if present.
 
 **Memory is for cross-session pointers, not decision content.** Decisions, frameworks, and adoption strategies belong in plans, wikis, or DRs. If a memory entry exceeds a one-line pointer, migrate the body to a wiki/DR and leave the pointer behind.
 

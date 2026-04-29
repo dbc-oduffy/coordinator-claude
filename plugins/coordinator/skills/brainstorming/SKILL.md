@@ -82,6 +82,14 @@ digraph brainstorming {
 
 **Scope assessment:** If the request spans independent subsystems, flag this early. Each subsystem gets its own spec, plan, and execution cycle. Don't try to design everything in one pass — decompose first, then deep-dive each piece.
 
+## Domain Language Discipline
+
+If `CONTEXT.md` exists at the project root, read it before the first PM clarification question. If it is absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms in your questions. When the PM says a term that's on the `_Avoid_:` list, gently substitute the canonical term and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
+
+When the PM resolves a term during dialogue (defines, disambiguates, or names a previously-fuzzy concept), update `CONTEXT.md` inline — don't batch. Use the format at `docs/wiki/context-md-convention.md`.
+
+If `CONTEXT.md` doesn't exist and a term gets resolved that would clearly recur, lazily create it with the resolved term as the first entry. Never scaffold an empty file. If no term has been resolved yet, don't create the file.
+
 ## Exploring Approaches
 
 - Propose 2-3 approaches with trade-offs. More than 3 creates decision paralysis.
@@ -108,6 +116,7 @@ The spec must carry enough context for a cold-start agent to implement the featu
 2. **Internal consistency:** Do sections contradict each other? Does the architecture match the requirements?
 3. **Scope check:** Is this focused enough for a single plan? If it spans independent subsystems, split into separate specs now.
 4. **Ambiguity check:** Could any requirement be interpreted two ways? Pick one and make it explicit.
+5. **Glossary check:** If a term was resolved in dialogue, has `CONTEXT.md` been updated so downstream plan-writing will use the canonical form? (Missing this produces plans with the wrong term, which re-invites the conflation the glossary was built to prevent.)
 
 Fix issues inline. No separate review pass needed.
 
