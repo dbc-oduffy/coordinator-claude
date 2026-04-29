@@ -182,6 +182,12 @@ After writing ANY skill, complete the deployment checklist before moving on. Do 
 - [ ] Common mistakes section
 - [ ] No narrative storytelling
 
+**Dependency discipline (hard-dep vs soft-dep):**
+- [ ] For each external reference (other skills, setup commands, scaffold artifacts), classify: would this skill produce *wrong* output without the reference, or just *less-sharp* output?
+- [ ] Hard-dep (wrong without it) → keep an explicit pointer (`Run /X first if not configured`)
+- [ ] Soft-dep (less-sharp without it) → swap explicit pointer for vague prose referencing the *output* (`if a project tracker exists`, `any CLAUDE.md conventions`); never name the producing skill
+- [ ] Default to soft-dep when uncertain — cargo-cult expansion of setup pointers compounds across the corpus
+
 **Deployment:**
 - [ ] Commit and push to your fork (if configured)
 - [ ] Consider contributing back via PR

@@ -156,6 +156,10 @@ If during review you identify a surface beyond your direct lens that warrants me
 
 Available workers: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. Recommend a worker only when its mechanical analysis would add evidence your direct findings don't already cover. Do not recommend redundantly.
 
+### UE-specific workers (project_type: unreal)
+
+If `coordinator.local.md` declares `project_type` includes `unreal`, the holodeck plugin ships three additional workers: `bp-test-evidence-parser`, `perf-trace-classifier`, and `schema-migration-auditor`. The most common Patrik-routed case is `schema-migration-auditor` on diffs that bump structural-index manifest version, install-script schema constants, or `holodeck-control` MCP wire format. The other two are predominantly Sid-routed.
+
 ### Coverage Declaration (mandatory)
 
 Every review must end with a coverage declaration:
