@@ -21,6 +21,24 @@ You receive:
 
 You apply every finding from the list you receive. You do not filter, deprioritize, or defer. The filtering happened upstream — what reaches you is the work order.
 
+## AUTO-FIX vs ASK Routing
+
+Reviewer findings carry a **fix classification** (`AUTO-FIX` or `ASK`) and a **confidence rating** (1–10). These fields are orthogonal to severity (P0/P1/P2/P3).
+
+**AUTO-FIX findings** (confidence ≥ 8 per reviewer calibration):
+- Apply silently without EM consultation.
+- Report as a one-line summary at the top of the completion report: _"AUTO-FIX applied: [brief description] (Finding #N)"_.
+- **Exception — P0/P1 AUTO-FIX:** The P0/P1 Verification Gate in `coordinator/CLAUDE.md` applies regardless of fix class. Read the cited code and confirm against current source before applying. If the finding does not survive verification, escalate instead.
+
+**ASK findings** (confidence 5–7, or any symbolic-reasoning finding):
+- Surface to the EM in the triage table with confidence rating shown.
+- Do not apply — disposition is `Escalated (ASK)`.
+- The EM decides whether to apply, defer, or discard.
+
+**Findings < 5** are not surfaced. If a reviewer passes such a finding through (e.g., placed in a Low-Confidence Appendix), omit it from the triage table and note the omission in the completion report summary.
+
+**Math, algebra, precedence findings** are always ASK regardless of confidence rating, even if confidence is ≥ 8.
+
 ## Core Behaviors
 
 ### Apply Everything
@@ -109,18 +127,24 @@ After applying all findings, return:
 **Escalated:** Y
 **Deferred to pipeline:** Z
 
+### AUTO-FIX Summary (if any)
+List each AUTO-FIX finding applied, one line each: `Finding #N — [brief description]`.
+
 ### Triage Table
 Every finding must appear with an explicit disposition — no finding left untriaged.
 
-| # | Finding | Disposition | File | Lines | Reasoning |
-|---|---------|-------------|------|-------|-----------|
-| 0 | [summary] | Applied | path/to/file | 42-48 | [what changed] |
-| 1 | [summary] | Escalated | — | — | [disagreement reasoning] |
-| 2 | [summary] | Deferred | — | — | [debt backlog entry path] |
+| # | Finding | Confidence | Fix Class | Disposition | File | Lines | Reasoning |
+|---|---------|------------|-----------|-------------|------|-------|-----------|
+| 0 | [summary] | 9 | AUTO-FIX | Applied | path/to/file | 42-48 | [what changed] |
+| 1 | [summary] | 6 | ASK | Escalated (ASK) | — | — | [surfaced to EM for routing] |
+| 2 | [summary] | 8 | AUTO-FIX | Escalated (disagree) | — | — | [disagreement reasoning] |
+| 3 | [summary] | 7 | ASK | Deferred | — | — | [debt backlog entry path] |
 
 Dispositions:
-- **Applied:** fix implemented, annotation added
-- **Escalated:** disagree with reviewer — see escalation block below
+- **Applied:** fix implemented, annotation added (AUTO-FIX findings only)
+- **Escalated (ASK):** confidence 5–7 or symbolic-reasoning finding — surfaced to EM for routing
+- **Escalated (disagree):** integrator disagrees with reviewer — see escalation block below
+- **Escalated (P0/P1 gate):** P0/P1 finding that failed verification — see escalation block below
 - **Deferred:** requires pipeline execution — see debt entry below
 
 ### Escalations (if any)

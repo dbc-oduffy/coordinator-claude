@@ -131,17 +131,18 @@ Run the strategic daily review of today's work. This produces a daily summary ar
 
 **Note:** `/code-health` (detailed code-level review) is still available on-demand but is no longer the default end-of-day check. Our review-heavy build pipeline already catches code-level issues; end-of-day focuses on strategic alignment.
 
-### Step 3.4: Plugin Validation Suite
+### Step 3.4: Plugin Validation Suite (blocking gate)
 
-Run the plugin infrastructure test suite to catch marketplace registration errors, missing files, broken hooks, and invalid frontmatter before they cause boot failures:
+Run the plugin infrastructure test suite to catch marketplace registration errors, missing files, broken hooks, and invalid frontmatter before they cause boot failures. The suite now includes hook-behavior tests (coordinator-safe-commit, verify-preamble-sync, coordinator-auto-push, session-init) that guard against regressions in load-bearing infrastructure:
 
 ```bash
 node --test ~/.claude/tests/plugins/run.js
 ```
 
 - **If all tests pass:** Report: _"Plugin validation: N tests passed across M plugins."_
-- **If tests fail:** Report failures in summary. These are structural issues that will cause boot errors — flag as actionable for morning.
-- **Does not block** subsequent workday-complete steps — plugin issues don't affect git operations.
+- **If hook-behavior tests fail:** This is a **blocking failure** — stop and report. Hook regressions discovered at workday-close are recoverable; regressions discovered in mid-session are not. Fix the regression before proceeding to Step 4.
+- **If only non-hook tests fail (marketplace, frontmatter, manifest):** Report failures in summary. Flag as actionable for morning. These are structural issues that will cause boot errors but do not block the workday-close git steps.
+- **Calibration-sync informational:** If the `reviewer-calibration sentinel sync` test fails, this is informational unless Borrow #5 has fully landed — note in summary but do not block.
 
 ### Step 3.5: Refresh Code Statistics
 

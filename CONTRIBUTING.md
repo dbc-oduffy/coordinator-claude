@@ -12,10 +12,21 @@ Thanks for your interest in contributing! This project is community-first and we
 
 ## How to Contribute
 
-1. **Fork the repo** and create a feature branch
-2. **Make your changes** — follow existing conventions (frontmatter format, file naming, directory structure)
-3. **Run validation** locally: `python .github/scripts/run-all-checks.py`
-4. **Submit a PR** with a clear description of what and why
+1. **For substantial changes, open an issue first** to discuss direction. Drive-by typo fixes and obvious bugs don't need this; new skills, agent behavior changes, or pipeline restructures do. Saves both of us from a PR that gets closed because it's heading somewhere we don't want to go.
+2. **Fork the repo** and create a feature branch
+3. **Make your changes** — follow existing conventions (frontmatter format, file naming, directory structure)
+4. **Run validation** locally: `python .github/scripts/run-all-checks.py`
+5. **Submit a PR** with a clear description of what and why
+
+## Pull Request Policy
+
+`main` is protected. All changes land via PR.
+
+- **Maintainer approval required.** Every PR needs an approving review from @dbc-oduffy before it can merge. Approvals are dismissed when new commits are pushed, and the last push must be approved.
+- **CI must pass.** Validation runs automatically on every PR.
+- **No force pushes, no branch deletion, conversations must be resolved.**
+
+Maintainer self-merges (admin override on the maintainer's own PRs) are allowed — the PR ceremony itself is the speedbump.
 
 ## Conventions
 
