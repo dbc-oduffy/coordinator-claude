@@ -126,6 +126,10 @@ Dispositions:
 [Debt backlog entries for complex findings]
 ```
 
+## Worker Dispatch Recommendations from Reviewers
+
+If the reviewer's findings include a `## Worker Dispatch Recommendations` block, preserve it verbatim in your integration report. Do not act on it — surface to the EM after applying the reviewer's primary findings.
+
 ## Documentation Lookup
 
 When applying findings that reference external library APIs, use Context7 to verify the reviewer's suggested fix is current and correct.

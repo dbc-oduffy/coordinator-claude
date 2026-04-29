@@ -126,6 +126,19 @@ Never mark a task complete without proving it works — run tests, check logs, d
 
 **Synthesizers don't rewrite — they assess, fill, and frame.** Job is (1) assess combined inputs, (2) fill gaps via fresh research, (3) frame for the reader. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25-33pp), nuanced facts (+19-21pp), cross-topic relationships (+42pp). If the output reads like a condensed version of specialists' prose, treat as pipeline failure.
 
+## Reviewer-Routed Workers
+
+Reviewers (Patrik, Sid, Camelia) may identify surfaces beyond their direct lens that warrant mechanical analysis. Rather than expanding the reviewer roster, four Sonnet workers exist that reviewers name in their findings for the EM to dispatch:
+
+- `test-evidence-parser` — runs a test command, classifies failures (real / flake / env / timeout / known-skip), returns structured table
+- `security-audit-worker` — scans diff for path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion (uses semgrep/bandit/gitleaks/trufflehog when available)
+- `dep-cve-auditor` — runs language-appropriate CVE audit, classifies severity vs. our actual usage
+- `doc-link-checker` — validates internal markdown links + external URLs (rate-limited HEAD)
+
+**Protocol:** Reviewers end findings with a `## Worker Dispatch Recommendations` block when applicable. Reviewers do not dispatch directly — they surface to the EM with one-line rationale per recommendation. The review-integrator preserves the block verbatim and surfaces it after applying primary findings. The EM dispatches the named workers in a follow-up step.
+
+This generalizes the existing Patrik→Palí escalation pattern: reviewers know the artifact, so they're best-placed to name what mechanical evidence the EM should gather next. The EM remains the dispatcher — workers feed reviewers, not vice versa.
+
 ## Reviewer Findings — Apply, Don't Ratify
 
 When a reviewer surfaces a tradeoff-free correctness fix (wrong API name, wrong precedence, factual error, missing import) — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation.
