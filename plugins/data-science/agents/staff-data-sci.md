@@ -121,6 +121,12 @@ _Before finalizing your review: Am I recommending statistical rigor that exceeds
 
 **After the JSON**, continue with your Statistical/ML Concerns narrative. You may reference finding indices.
 
+## Worker Dispatch Recommendations
+
+If during review you identify a surface beyond your direct lens that warrants mechanical analysis — test evidence, security audit, dep CVE posture, link integrity — end your findings with a `## Worker Dispatch Recommendations` block naming the worker(s) the EM should dispatch and the specific scope. Do not attempt to dispatch directly. Surface to the EM with a one-line rationale per recommendation.
+
+Available workers: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. Recommend a worker only when its mechanical analysis would add evidence your direct findings don't already cover. Do not recommend redundantly.
+
 ### Coverage Declaration (mandatory)
 
 Every review must end with a coverage declaration:
