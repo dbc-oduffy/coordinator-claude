@@ -41,6 +41,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 - **Tripwire — project-RAG preamble:** Consumer files carry the preamble verbatim between sentinel comments (`<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->` … `<!-- END project-rag-preamble -->`). When editing the project-RAG preamble: (1) edit `snippets/project-rag-preamble.md` — that is the single authoring source; (2) run `bin/verify-preamble-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
+- **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
+
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
 A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up in the unblocker's done-protocol.
@@ -154,6 +156,8 @@ This generalizes the existing Patrik→Palí escalation pattern: reviewers know 
 When a reviewer surfaces a tradeoff-free correctness fix (wrong API name, wrong precedence, factual error, missing import) — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation.
 
 **Exception — math, algebra, precedence:** A single agent's symbolic-reasoning finding requires verification before applying — re-derive, run a quick test, or cross-check with a second agent.
+
+The mechanical implementation of this doctrine lives in the synced calibration block in each reviewer's prompt — the `## Confidence Calibration (1–10)` and `## Fix Classification (AUTO-FIX vs ASK)` sections distributed from `snippets/reviewer-calibration.md`. Each reviewer rates every finding with a confidence score and an AUTO-FIX/ASK classification; the review-integrator routes accordingly without EM involvement for clear-cut fixes. When this doctrine and the calibration block diverge, edit `snippets/reviewer-calibration.md` and propagate with `bin/verify-calibration-sync.sh --fix`.
 
 ## Convergence as Confidence
 

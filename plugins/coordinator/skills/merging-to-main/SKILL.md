@@ -19,13 +19,21 @@ Merge a work or feature branch to main via PR with CI gating. Creates the PR, wa
 
 Before creating a PR, attempt the project's test suite to catch issues early.
 
-1. **Detect test runner:** Look for common test commands:
+1. **Run the coordinator hook test suite first:**
+   ```bash
+   node --test ~/.claude/tests/plugins/run.js
+   ```
+   If this fails, halt and report which tests failed before proceeding. The hook suite
+   covers load-bearing infrastructure (coordinator-safe-commit, verify-preamble-sync,
+   coordinator-auto-push, session-init) and must pass before any merge.
+
+2. **Detect project test runner:** Look for common test commands:
    - `pnpm test` or `npm test` (Node.js projects)
    - `pytest` or `python -m pytest` (Python projects)
    - `/validate` skill (all projects with CI)
    - Project-specific test commands from `CLAUDE.md` or `package.json`
 
-2. **Run the test suite.** If tests pass: proceed to Step 1.
+3. **Run the project test suite.** If tests pass: proceed to Step 1.
 
 3. **If tests fail:** Alert the PM and halt:
    _"Test suite failed before merge. Fix the failures first, or use `/merge-to-main --force` to bypass the test gate for hotfixes."_
