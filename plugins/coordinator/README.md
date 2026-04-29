@@ -2,16 +2,95 @@
 
 Core orchestration plugin for the Dónal + Claude agent hierarchy. Always enabled on every project.
 
-## What It Does
+This plugin addresses six failure modes that compound silently in sustained AI-assisted development. Each maps to named skills and commands.
 
-The coordinator plugin is the backbone of the system. It provides:
+---
 
-1. **The orchestration role** — the main session agent operates as EM (engineering manager), delegating work to specialized subagents rather than implementing directly
-2. **Universal reviewers** — Patrik (code quality, architecture) and Zoli (ambition backstop) are available on every project regardless of domain
-3. **Workflow skills** — 25 codified processes (SKILL.md) covering the full development lifecycle, plus 8 pipeline definitions (PIPELINE.md) backing commands
-4. **Session commands** — slash commands for pipeline operations (dispatch executors, route reviews, manage handoffs)
+## Failure Mode 1 — EM loses the thread across sessions
 
-## Components
+*The session ends, context compresses, and the next session starts cold. Decisions made, approaches abandoned, lessons learned — all gone. The EM re-derives the same conclusions and makes the same mistakes.*
+
+**Addressed by:**
+- `/handoff` — Snapshot session state to disk before context pressure hits. Includes goal, decisions, tried-and-abandoned, next steps.
+- `/pickup` — Resume from a handoff with full orientation before continuing. Never cold-start.
+- `/session-start` — Full session orientation: triage handoffs, surface staleness, choose work. Invoke when the opening is vague or strategic.
+- `tasks/lessons.md` + `lessons-trim` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Trim when file exceeds ~50 entries.
+- `handoff-archival` skill — Periodic cleanup of consumed handoffs.
+- `/workday-start` / `/workday-complete` — Full-day framing: morning triage and evening consolidation.
+
+---
+
+## Failure Mode 2 — Agent gets underspecified work
+
+*A stub goes to an executor with vague file paths, assumed context, and fuzzy acceptance criteria. The executor fills in gaps by hallucinating plausible-looking details. The output looks right until someone reads it carefully.*
+
+**Addressed by:**
+- `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
+- `writing-plans` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
+- `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
+- `/delegate-execution` — Dispatch enriched stubs to executors. Spec compliance check before routing to Patrik.
+- `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
+- Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
+
+---
+
+## Failure Mode 3 — Code review produces noise, not signal
+
+*Reviewer returns 30 findings. Six are real problems. Twenty-four are style preferences, redundant observations, and concerns the PM needs to adjudicate. The EM spends more time triaging the review than reading the code.*
+
+**Addressed by:**
+- `/review-dispatch` — Route artifacts to the right reviewer based on change signals (code, architecture, domain). Includes effort calibration, skip conditions, and EM override guidance.
+- Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
+- `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
+- Backstop pattern — Zoli (ambition advocate) challenges conservative Patrik recommendations. Mandatory for high-effort reviews.
+- `requesting-code-review` / `receiving-code-review` skills — Codified protocol for preparation, routing, and applying feedback.
+- Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
+
+---
+
+## Failure Mode 4 — Synthesizer rewrites instead of synthesizes
+
+*A synthesizer agent receives three specialist reports and returns a summary that reads like a condensed version of the specialists' prose. Edge cases drop. Cross-topic relationships vanish. Nuanced facts smooth over.*
+
+**Addressed by:**
+- Synthesis Discipline (coordinator CLAUDE.md) — Synthesizers assess, fill, and frame. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25–33pp), nuanced facts (+19–21pp), cross-topic relationships (+42pp).
+- Pipeline C v2.1 (`/structured-research`) — Hard file-existence gate, CONTESTED change type for unresolved peer challenges, adversarial verifier dynamics, forced reflection after each source fetch.
+- `/distill` — 6-phase pipeline: Haiku scans → Haiku QG → Sonnet synthesis → Opus assembly → PM gate → apply+delete. Synthesis of session artifacts into evergreen wiki guides.
+- `deep-research` skill / `/deep-research` — Multi-source investigation. Pipeline A (internet), Pipeline B (codebase), Pipeline C (structured schema research), Pipeline D (NotebookLM media).
+
+---
+
+## Failure Mode 5 — Codebase debt accumulates invisibly
+
+*No session flags architecture drift. No process surfaces the accumulation. The system works until it doesn't, and by then the debt is load-bearing.*
+
+**Addressed by:**
+- `/architecture-audit` — Bootstrap or refresh the architecture atlas via multi-phase agent pipeline. Produces a structured, queryable record of system architecture.
+- `/architecture-rotation` — Weekly rotation through project systems. Weighted scoring for audit target selection. Systematic coverage rather than reactive triage.
+- `debt-triage` skill — Review and prioritize the technical debt backlog. EM-PM conversation, not a dispatched agent. Keeps PM aligned on what's accumulating.
+- `/code-health` — Night-shift code health review: scan recent commits, dispatch reviewer, apply findings, update health ledger.
+- `weekly-architecture-audit` / `deep-architecture-audit` skills — Structured audit protocols with health ledger templates.
+- `atlas-integrity-check` skill — Check changed files against the architecture atlas for unmapped entries.
+
+---
+
+## Failure Mode 6 — Bugs ship without root-cause diagnosis
+
+*An agent identifies a symptom and patches it. The root cause stays in place. Two sessions later, a variant of the same bug appears. The patch list grows; the underlying issue doesn't.*
+
+**Addressed by:**
+- `systematic-debugging` skill — Root-cause debugging process. Diagnose before proposing fixes. Post-item-4: feedback-loop-first framing.
+- `test-driven-development` skill — RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
+- `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog. Uses `codex-review-gate` as independent-model second opinion.
+- `verification-before-completion` skill — Prove it works before claiming done. Catches the "it should work" class of failures.
+- `stuck-detection` skill — Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
+- P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
+
+---
+
+## Reference
+
+Full component inventory for the record. The failure-mode sections above are the navigational surface; this is the index.
 
 ### Agents
 
@@ -23,13 +102,14 @@ The coordinator plugin is the backbone of the system. It provides:
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (23, all user-invocable via `/`)
+### Commands (23)
 
 | Command | Purpose |
 |---------|---------|
 | `/session-start` | Orient session — preflight, load context, choose work |
 | `/session-end` | Wrap up finished work — capture lessons, update docs |
 | `/handoff` | Save session state for next session handoff |
+| `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
 | `/workday-complete` | End-of-day — update docs, consolidate branches, run health survey |
 | `/update-docs` | Repo-wide documentation maintenance and sync (auto-chains `/distill` when thresholds met) |
@@ -46,12 +126,11 @@ The coordinator plugin is the backbone of the system. It provides:
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
-| `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (25)
+### Skills (25+)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -105,7 +184,7 @@ The coordinator plugin is the backbone of the system. It provides:
 - **PostToolUse (all)** — context-pressure-advisory: monitors context usage, nudges handoff creation before compaction
 - **PreCompact** — context-pressure-precompact: fires just before compaction, prompts immediate handoff creation
 
-## Routing Extension Protocol
+### Routing Extension Protocol
 
 The coordinator defines the routing framework that domain plugins extend:
 
@@ -116,7 +195,7 @@ The coordinator defines the routing framework that domain plugins extend:
 
 See the parent [ARCHITECTURE.md](../ARCHITECTURE.md) for the full conceptual model.
 
-## Per-Project Config
+### Per-Project Config
 
 Create `coordinator.local.md` in your project:
 
@@ -127,6 +206,8 @@ project_type: unreal    # unreal | game-docs | web | pure-docs
 ```
 
 Default (no config): core-only (Patrik + Zoli).
+
+---
 
 ## Recent Changes
 
@@ -186,6 +267,8 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 - **Delegate-execution:** Spec compliance check — coordinator verifies executor fidelity before routing to Patrik
 - **Skill-discovery:** SUBAGENT-STOP gate; instruction priority hierarchy
 - **Executing-plans:** Delegate-execution preference note for coordinator sessions
+
+---
 
 ## Authors
 

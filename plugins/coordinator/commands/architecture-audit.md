@@ -6,7 +6,9 @@ argument-hint: "[--refresh]"
 
 # Architecture Audit — Deep System Discovery
 
-Produce a comprehensive **architecture atlas** — function-level connectivity maps, ASCII flow diagrams, cross-system dependency matrices, and per-system observations. The atlas is a persistent artifact that weekly audits maintain incrementally.
+Produce a comprehensive **architecture atlas** — narrative system descriptions, philosophy-versus-reality assessments, ASCII flow diagrams, cross-system dependency matrices, and per-system observations. The atlas is a persistent artifact that weekly audits maintain incrementally.
+
+**RAG-era focus:** When project-RAG is present (any `mcp__*project-rag*` tool available), the atlas's value lies in **narrative and judgment** — "does the philosophy match reality?" — not in exhaustive file enumeration, which RAG owns. On RAG repos, Phase 1 haiku inventory still runs but file-level mapping output is summarized rather than enumerated. The full Phase 3 synthesis produces narrative-first system descriptions. On non-RAG repos, behavior is unchanged.
 
 **This command occupies your context for ~25-55 min. It is not background work.**
 
@@ -130,6 +132,20 @@ Skip sub-chunk on second failure (after Sonnet retry also misses).
 - **First run:** Copy **Phase 3: Opus Cross-System Synthesis Prompt (Full)**. Fill in `[N]` and paste Phase 2 reports.
 - **Refresh:** Copy **Phase 3R: Opus Cross-System Synthesis Prompt (Refresh)**. Fill in `[N]`, paste stable atlas pages, and paste Phase 2R reports.
 
+**RAG-era synthesis instruction (add to Opus prompt when project-RAG is present):**
+
+> Project-RAG is available on this repo and owns file-level structural mapping. Your atlas is the narrative layer — describe WHAT each system does, WHY it exists, and HOW its design philosophy plays out in practice. You do NOT need to enumerate every file; instead, describe the boundaries, roles, and cross-cutting concerns in prose. The `file-index.md` artifact should still be produced (the integrity-check skill needs it), but keep it summary-level: directory-to-system mappings are sufficient, not individual files. The goal is a narrative that survives a re-read by a future EM and answers "does the philosophy still match reality?" — not "does every file have a system assignment?"
+
+**Domain glossary:** Add the following instruction to the synthesizer prompt verbatim:
+
+> If `CONTEXT.md` exists at the project root, read it. Use canonical terms throughout your synthesis. If the audit surfaces a domain term that recurs across systems and isn't yet in `CONTEXT.md`, flag it in your output under "Glossary candidates" — do NOT update `CONTEXT.md` yourself (the producer skills do that, not synthesizers). If `CONTEXT.md` is absent, proceed silently — do not flag, suggest, or scaffold.
+
+**Deletion test — module shallowness probe:** Add the following instruction to the synthesizer prompt verbatim:
+
+> For each system boundary you evaluate, apply the deletion test: *"Imagine deleting the module. If complexity vanishes, the module wasn't hiding anything (it was a pass-through). If complexity reappears across N callers, it was earning its keep."* Pair with the one-adapter / two-adapter rule: one adapter is a hypothetical seam, two adapters is a real seam.
+>
+> A deletion-test verdict is a single-agent claim. Per the convergence rule, do NOT recommend removal, refactor, or consolidation based on this probe alone. Surface the module as a candidate under a "Shallowness candidates" section — convergence (≥2 independent agents flagging the same module from different entry points) is required before any verdict becomes actionable.
+
 The Opus agent produces all atlas artifacts:
 - `systems-index.md` — master index (no grades)
 - `cross-system-map.md` — unified ASCII diagram
@@ -147,26 +163,38 @@ The Opus agent produces all atlas artifacts:
    - `cross-system-map.md`, `connectivity-matrix.md`, `file-index.md` present
    - All YAML frontmatter has required fields
 
-2. **Atomic commit:**
+2. **Flag-drift-from-RAG check (when project-RAG is present):**
+   - Call `project_subsystem_profile` (or equivalent `mcp__*project-rag*` tool) to retrieve the project-RAG subsystem list.
+   - Compare against the systems named in `tasks/architecture-atlas/systems-index.md`.
+   - Flag any mismatches: systems named in the atlas that don't appear in RAG's profile (may be renamed or merged), or RAG-known subsystems not mentioned in the atlas (may be new systems that emerged since last audit).
+   - Record mismatches in the Phase 4 report under "RAG drift". These are suggestions, not blockers.
+   - If project-RAG is absent, skip this step silently.
+
+3. **Quarterly narrative-drift reminder (per Camelia F7):**
+   - Check each system's `last_mapped` date in `systems-index.md`. For any system >90 days since last mapped, note it in the report: "Narrative drift risk: [system] mapped [date]. Recommend a re-read sweep — narrative atlases drift silently when systems reorganize."
+
+4. **Atomic commit:**
    ```bash
    git add tasks/architecture-atlas/
    git commit -m "deep-architecture-audit: [first run|refresh] — [N] systems mapped"
    ```
 
-3. **Calculate rotation target:** Systems with highest cross-system connectivity and oldest `Last mapped` → suggested starting point for weekly-architecture-audit.
+5. **Calculate rotation target:** Systems with highest cross-system connectivity and oldest `Last mapped` → suggested starting point for weekly-architecture-audit.
 
-4. **Report to PM:**
+6. **Report to PM:**
    ```markdown
    ## Architecture Audit Complete
 
    **Mode:** [first run / refresh]
    **Systems mapped:** [N] ([list])
    **Key findings:** [coupling hotspots, boundary patterns, notable design choices]
+   **RAG drift:** [N mismatches: list / none detected / RAG absent — check skipped]
+   **Narrative drift risk:** [systems > 90 days / all current]
    **Suggested rotation target:** [system name] (highest connectivity / oldest mapping)
    **Atlas location:** tasks/architecture-atlas/
    ```
 
-5. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-audit/{run-id}/`
+7. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-audit/{run-id}/`
    Only delete after commit succeeds. On Phase 2/3 failure, scratch contains earlier phases for recovery.
 
 ## Cost Profile

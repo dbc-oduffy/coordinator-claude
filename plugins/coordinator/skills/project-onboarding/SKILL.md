@@ -30,11 +30,14 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── CLAUDE.md                           — project conventions
 ├── docs/README.md                      — documentation index (wikis, research, specs, reference)
 ├── docs/project-tracker.md             — workstream tracking
-├── docs/wiki/                        — wiki guides (living technical reference, distilled from artifacts)
-├── docs/wiki/DIRECTORY_GUIDE.md      — guide index with decision record mapping
-├── tasks/lessons.md                    — engineering patterns
-├── archive/completed/                  — completion archive
-├── tasks/handoffs/                     — session continuity
+├── docs/wiki/                          — wiki guides (LAZY — created by coordinator:distill on first guide extraction)
+├── docs/wiki/DIRECTORY_GUIDE.md        — guide index with decision record mapping
+├── docs/plans/                         — implementation plans (LAZY — created when first plan is copied from ~/.claude/plans/)
+├── docs/research/                      — research outputs (LAZY — created by coordinator:deep-research on first run)
+├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:session-end on first lesson)
+├── archive/completed/                  — completion archive (LAZY — created by coordinator:session-end on first completion)
+├── tasks/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
+├── CONTEXT.md                          — domain glossary (LAZY — never scaffold; produced when first term is resolved)
 ├── DIRECTORY.md                        — source index
 └── .gitignore                          — check for .claude/settings.local.json entry
 ```
@@ -80,6 +83,28 @@ Wait for PM response before proceeding.
 
 Create only what's missing. Use the templates in this skill's `templates/` directory as the base.
 
+#### Lazy-creation discipline
+
+Only scaffold files that have **meaningful day-1 content**. A file that is nothing but a header and a comment on day 1 is not load-bearing — it is a placeholder that will sit empty and train agents to ignore it. Empty scaffolding has zero signal value. Inspired by the lazy-file-creation principle from the mattpocock/skills audit (2026-04-29): create files and directories only when there is a real artifact to write.
+
+**Audit verdict — Phase 3 scaffold items:**
+
+| Item | Verdict | Reasoning |
+|------|---------|-----------|
+| `CLAUDE.md` | EAGER | Project conventions apply immediately; filled in Phase 2 |
+| `docs/project-tracker.md` | EAGER | Workstreams established in Phase 2; real content on day 1 |
+| `docs/README.md` | EAGER | Structural index with project name, pointers to plans/research/wikis |
+| `.gitignore` entry | EAGER | Prevents accidental credential commits from first commit onwards |
+| Post-commit hook | EAGER | Auto-push crash insurance is needed from the very first commit |
+| `tasks/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
+| `tasks/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
+| `archive/completed/` dir | LAZY | No completed work until first work item ships |
+| `docs/wiki/` dir | LAZY | Wiki guides come from `/distill` after artifacts accumulate |
+| `docs/plans/` dir | LAZY | Plans come from plan mode; none exist on day 1 |
+| `docs/research/` dir | LAZY | Research outputs come from `/deep-research` pipelines |
+
+LAZY items are NOT created here. Each has a designated "create on first use" owner noted in its section below.
+
 #### 3a. CLAUDE.md (if missing)
 
 Use `templates/CLAUDE.md.template`. Process conditionals:
@@ -121,9 +146,11 @@ If PM said "stubs": create one placeholder workstream:
 - [ ] _PM: Define initial workstreams and deliverables_
 ```
 
-#### 3c. tasks/lessons.md (if missing)
+#### 3c. tasks/lessons.md — SKIP (lazy)
 
-Use `templates/lessons.md.template`. Replace `[PROJECT_NAME]` with PM's project name.
+Do NOT create this file during onboarding. It has no meaningful day-1 content — it is a header and a comment until the first real lesson is captured. Creating it empty trains agents to ignore the directory.
+
+**Create on first use:** `coordinator:session-end` creates `tasks/lessons.md` (using `templates/lessons.md.template`) the first time a lesson is captured, if the file does not already exist. `coordinator:lessons-trim` also skips gracefully when the file is absent.
 
 #### 3d. docs/README.md (if missing)
 
@@ -177,19 +204,24 @@ Timestamped research outputs from `/deep-research` pipelines. Preserved permanen
 
 Replace `[Project Name]` and `[DATE]` with the appropriate values.
 
-#### 3e. Directories (if missing)
+#### 3e. Directories
 
-Create with .gitkeep files so they survive git clone:
+Only create directories that have real day-1 content or that are referenced by files being written in this phase:
 
 ```bash
-mkdir -p tasks/handoffs && touch tasks/handoffs/.gitkeep
-mkdir -p archive/completed && touch archive/completed/.gitkeep
-mkdir -p docs/guides && touch docs/wiki/.gitkeep
-mkdir -p docs/plans && touch docs/plans/.gitkeep
-mkdir -p docs/research && touch docs/research/.gitkeep
-mkdir -p docs  # for tracker
-mkdir -p tasks  # for lessons
+mkdir -p docs   # for project-tracker.md (3b) and README.md (3d)
+mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 ```
+
+**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, or `docs/research/` with `.gitkeep` files. These are lazy directories — created by the skill that first writes to them:
+
+- `tasks/handoffs/` — created by `coordinator:handoff` on first session hand-off
+- `archive/completed/` — created by `coordinator:session-end` on first archived completion
+- `docs/wiki/` — created by `coordinator:distill` when the first guide is extracted
+- `docs/plans/` — created when the first plan is copied from `~/.claude/plans/`
+- `docs/research/` — created by `coordinator:deep-research` on first research run
+
+Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory (they see it exists but empty, rather than understanding it is built lazily).
 
 #### 3f. .gitignore handling
 
@@ -261,11 +293,10 @@ Present what was done:
 3. **Run `/session-start`** — verifies everything is wired up correctly
 
 ### Documentation System
-The wiki system is now scaffolded at `docs/`:
-- **`docs/README.md`** — master documentation index (entry point for humans and agents)
-- **`docs/wiki/`** — wiki guides (populated by `/distill` as knowledge accumulates)
-- **`docs/plans/`** — implementation and design plans (canonical location)
-- **`docs/research/`** — research outputs (preserved permanently)
+The documentation index is live at `docs/README.md`. Subdirectories are created lazily as artifacts accumulate:
+- **`docs/wiki/`** — created by `/distill` when first guide is extracted
+- **`docs/plans/`** — created when first plan is written in plan mode
+- **`docs/research/`** — created by `/deep-research` on first run
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
 

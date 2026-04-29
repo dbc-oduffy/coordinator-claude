@@ -8,6 +8,22 @@ argument-hint: "[--budget N] [--project-root PATH] [--profile PROFILE]"
 
 Generate a structural map of the current repository, ranked by git activity, fitted to a token budget. Output goes to `.claude/repomap.md` in the project root (this is where the SessionStart staleness hook looks).
 
+## Three-Tier Gating (RAG-era behavior)
+
+**Detect RAG state before generating.** Check whether any `mcp__*project-rag*` tool is available:
+
+| RAG State | Behavior |
+|-----------|----------|
+| **RAG absent** | Generate unconditionally. Repomap retains its primary role — it is the main structural orientation artifact for this repo. |
+| **RAG present + stale or uninitialized** | Generate as a fast stopgap. Note in output: "Generated as RAG-fallback — RAG is present but stale. Repomap provides fast structural orientation while reindexing is pending." EM chooses repomap-vs-reindex per session based on time budget. |
+| **RAG present + fresh** | **Skip generation.** Report: "Repomap skipped — project-RAG is present and fresh. Use `mcp__*project-rag*` tools for structural lookups." Exit cleanly. |
+
+**Rationale:** Reindexing a large project-RAG takes 5-30 min; repomap generation takes seconds. When RAG is stale, repomap is a valuable stopgap. When RAG is fresh, repomap is redundant overhead. When RAG is absent, repomap is primary.
+
+**Determining RAG freshness:** If a project-RAG staleness banner was emitted at session start (W1 hook output, visible in context), use that signal. Otherwise treat as "RAG present + stale" (conservative: generate as fallback rather than silently skip).
+
+**Note on value auditing:** `/update-docs` Phase 10b emits an audit log entry (`tasks/repomap-audit.log`) when repomap is generated as a RAG-fallback, tracking whether it provided unique value. After two consecutive `no` entries, `/update-docs` surfaces a retirement recommendation. This skill does not self-audit — auditing is a `/update-docs` concern.
+
 ## Instructions
 
 ### Locating the Generator
