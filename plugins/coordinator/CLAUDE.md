@@ -14,7 +14,7 @@ Two tiers:
 Lookup order when you need to understand the codebase:
 
 1. **Accumulated knowledge first.** Architecture atlas (`tasks/architecture-atlas/`), wiki (`docs/wiki/DIRECTORY_GUIDE.md`), repomap (`tasks/repomap.md`), docs index (`docs/README.md`). Skip silently if absent.
-2. **Project-RAG step 1.5 (UE projects).** Symbol-shaped or subsystem-shaped questions go to `mcp__holodeck-project-rag__*` before any scout. Stale RAG still beats grep on structure.
+2. **Project-RAG step 1.5.** If any `mcp__*project-rag*` tools are available in this session, prefer them over grep/Explore for any code-shaped lookup before dispatching a scout. Symbol-shaped questions ("where is X defined", "which class handles Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does subsystem X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 3. **Dispatch a Sonnet scout, don't search yourself.** Use `Explore` for read-only briefs; `general-purpose` when the deliverable must land on disk. Brief like a teammate. The EM's context is the scarcest resource — protect it.
 
 **Exceptions (EM may search directly):** reading a single known file before editing; 1-2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup.
@@ -36,6 +36,12 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 ## Adding a Convention to the Coordinator System
 
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
+
+- **Tripwire — Patrik UE block:** Patrik's prompt (`staff-eng.md`) contains a `project_type`-gated UE block (added by holodeck overlay 2026-04-29). When editing `staff-eng.md`, check the gate parses cleanly and the listed UE worker names (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`) still exist in the holodeck plugin.
+
+- **Tripwire — project-RAG preamble:** Consumer files carry the preamble verbatim between sentinel comments (`<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->` … `<!-- END project-rag-preamble -->`). When editing the project-RAG preamble: (1) edit `snippets/project-rag-preamble.md` — that is the single authoring source; (2) run `bin/verify-preamble-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
+
+- **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -75,12 +81,17 @@ Files an executor wrote before failure are still present — partial output is t
 2. Diff partial output against the spec — what's done, missing, wrong.
 3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
 
+## Executor Dispatch Mode
+
+Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher (anything that mutates files). Without it, the subagent runs in `default` mode, prompts on every Edit/Write, and auto-denies — no human to answer the prompt.
+
 ## Plan-First Workflow
 
 - Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches. Step count alone isn't the trigger.
 - If something goes sideways, STOP and re-plan.
 - **Persist review output and plan artifacts to disk before acting on them.**
 - **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Skipping the pipeline usually gets reverted. The EM may implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
+- **Investigate before planning.** Bug reports and consumer-supplied docs are framing, not ground truth. Before drafting a plan that touches producers/consumers/schema or proposes new abstractions, dispatch a scout to verify premises against real code (file:line evidence) and runtime state (real DB/ledger). Skipping this step is laziness and produces wrong designs.
 
 ## Self-Improvement Loop
 
@@ -110,6 +121,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 - **`docs/plans/`** — canonical plan location. Plans start in `~/.claude/plans/` during plan mode, copy here on approval.
 - **`docs/research/`** — timestamped `/deep-research` outputs. Source preserved permanently; key findings extracted to wiki by `/distill` PROMOTE. Fallback when no project `docs/`: `~/docs/research/YYYY-MM-DD-topic.md`.
 
+- **`CONTEXT.md`** (project root, optional, lazy) — domain glossary in the team's canonical vocabulary. Each term carries an `_Avoid_:` list of forbidden synonyms. Produced lazily by `coordinator:brainstorming` and `coordinator:writing-plans` when terms are resolved in dialogue. Consumed silently by other skills — if absent, proceed silently (no flagging, no scaffolding). Never scaffolded empty. Convention: `docs/wiki/context-md-convention.md`. Read alongside `orientation_cache.md` and `lessons.md` at session start if present.
+
 **Memory is for cross-session pointers, not decision content.** Decisions, frameworks, and adoption strategies belong in plans, wikis, or DRs. If a memory entry exceeds a one-line pointer, migrate the body to a wiki/DR and leave the pointer behind.
 
 ## Verification Before Done
@@ -126,11 +139,26 @@ Never mark a task complete without proving it works — run tests, check logs, d
 
 **Synthesizers don't rewrite — they assess, fill, and frame.** Job is (1) assess combined inputs, (2) fill gaps via fresh research, (3) frame for the reader. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25-33pp), nuanced facts (+19-21pp), cross-topic relationships (+42pp). If the output reads like a condensed version of specialists' prose, treat as pipeline failure.
 
+## Reviewer-Routed Workers
+
+Reviewers (Patrik, Sid, Camelia) may identify surfaces beyond their direct lens that warrant mechanical analysis. Rather than expanding the reviewer roster, four Sonnet workers exist that reviewers name in their findings for the EM to dispatch:
+
+- `test-evidence-parser` — runs a test command, classifies failures (real / flake / env / timeout / known-skip), returns structured table
+- `security-audit-worker` — scans diff for path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion (uses semgrep/bandit/gitleaks/trufflehog when available)
+- `dep-cve-auditor` — runs language-appropriate CVE audit, classifies severity vs. our actual usage
+- `doc-link-checker` — validates internal markdown links + external URLs (rate-limited HEAD)
+
+**Protocol:** Reviewers end findings with a `## Worker Dispatch Recommendations` block when applicable. Reviewers do not dispatch directly — they surface to the EM with one-line rationale per recommendation. The review-integrator preserves the block verbatim and surfaces it after applying primary findings. The EM dispatches the named workers in a follow-up step.
+
+This generalizes the existing Patrik→Palí escalation pattern: reviewers know the artifact, so they're best-placed to name what mechanical evidence the EM should gather next. The EM remains the dispatcher — workers feed reviewers, not vice versa.
+
 ## Reviewer Findings — Apply, Don't Ratify
 
 When a reviewer surfaces a tradeoff-free correctness fix (wrong API name, wrong precedence, factual error, missing import) — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation.
 
 **Exception — math, algebra, precedence:** A single agent's symbolic-reasoning finding requires verification before applying — re-derive, run a quick test, or cross-check with a second agent.
+
+The mechanical implementation of this doctrine lives in the synced calibration block in each reviewer's prompt — the `## Confidence Calibration (1–10)` and `## Fix Classification (AUTO-FIX vs ASK)` sections distributed from `snippets/reviewer-calibration.md`. Each reviewer rates every finding with a confidence score and an AUTO-FIX/ASK classification; the review-integrator routes accordingly without EM involvement for clear-cut fixes. When this doctrine and the calibration block diverge, edit `snippets/reviewer-calibration.md` and propagate with `bin/verify-calibration-sync.sh --fix`.
 
 ## Convergence as Confidence
 

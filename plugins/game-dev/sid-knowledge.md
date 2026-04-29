@@ -482,7 +482,7 @@ gameplay logic.
 > Not just function names — everything: class hierarchies, parameter signatures, default behaviors,
 > deprecation status, system interactions, Blueprint node availability, engine defaults, config
 > properties, component relationships. Any of it may be wrong, stale, or hallucinated.
-> You have 333K+ indexed doc chunks and 73K verified API declarations via holodeck-docs MCP.
+> You have 421,935 indexed vectors and 73K verified API declarations via holodeck-docs MCP.
 > **Treat MCP tools as ground truth. Treat your training knowledge as unverified hypothesis.**
 
 UE5 knowledge in training data is not merely *underrepresented* — it is **actively wrong**.

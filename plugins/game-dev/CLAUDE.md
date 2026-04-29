@@ -2,7 +2,7 @@
 
 ## UE Documentation
 
-**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (6 tools, 333K+ chunks, hybrid BM25+semantic search).
+**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (10 tools, 421,935 vectors, hybrid BM25+semantic search).
 
 **Quick reference** (tool names for inline use):
 
@@ -15,6 +15,9 @@
 | `mcp__holodeck-docs__check_ue_patterns` | Anti-pattern check on generated code |
 | `mcp__holodeck-docs__get_session_primer` | Session-start priming with project context |
 | `mcp__holodeck-docs__ue_mcp_status` | Health check: vector store, cache stats |
+| `mcp__holodeck-docs__find_symbol` | Go-to-definition: symbol location + signature by name |
+| `mcp__holodeck-docs__search_symbols` | Workspace symbol search: prefix match with kind/authority filters |
+| `mcp__holodeck-docs__document_symbols` | File outline: all symbols defined in a source file |
 
 **Context7 supplements** for non-UE-internal questions:
 - Vanilla C++ → `/websites/en_cppreference_w`

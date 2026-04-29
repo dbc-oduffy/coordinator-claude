@@ -16,7 +16,19 @@ When invoked, capture lessons and update plan/project documentation to reflect c
 
 ### Step 1: Capture Lessons
 
-Read `tasks/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first:
+Read `tasks/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first.
+
+**Create on first use:** `tasks/lessons.md` is not scaffolded by `/project-onboarding` (it would be empty — no lessons exist on day 1). If lessons exist to capture AND the file does not exist yet, create it now using the template header:
+
+```markdown
+# Lessons — [Project Name]
+
+Engineering patterns worth internalizing. Bold title + 1-2 sentence rule. Max 3 lines per entry.
+
+<!-- This file is maintained by the EM. See CLAUDE.md § Self-Improvement Loop for conventions. -->
+```
+
+Then append the new entry. If there are no lessons to capture and the file doesn't exist, do not create it.
 
 **Feature scope:** `<feature>` is derived from the current work context:
 - If a feature-scoped plan exists at `tasks/<feature>/todo.md`, use that feature name
