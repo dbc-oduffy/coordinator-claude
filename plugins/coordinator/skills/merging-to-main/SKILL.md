@@ -1,8 +1,8 @@
 ---
 name: merging-to-main
-description: Use when work on a branch is ready to merge to main — creates PR, waits for CI, merges, cleans up.
+description: Use when work on a branch is ready to merge to main — drafts release notes, creates PR, waits for CI, merges, cleans up. Always emits release-notes (even for tiny merges) so downstream consumers can see what changed.
 argument-hint: "[--force]"
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Merging to Main
@@ -75,23 +75,107 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    git push origin $(git branch --show-current) --set-upstream
    ```
 
+### Step 1.5: Draft Release Notes (mandatory, every merge)
+
+Every merge to `main` gets a release-notes summary — even small ones (`v4.1.422`-style patch granularity). The reasoning: with LLM authoring overhead near-zero, omitting consumer-facing notes is a cost we impose on downstream readers (other agents, future-you, marketplace consumers, anyone pulling the publish repo). Don't do that.
+
+This step ALWAYS runs — no opt-out. It is the most consumer-visible artifact of the merge.
+
+1. **Inventory the merge:**
+   ```bash
+   COMMITS=$(git log main..HEAD --oneline)
+   COMMIT_COUNT=$(git rev-list --count main..HEAD)
+   CHANGED_FILES=$(git diff --name-only main..HEAD)
+   STATS=$(git diff --shortstat main..HEAD)
+   ```
+
+2. **Group changes by impact category** (don't mirror commit-by-commit; group by what a reader cares about):
+   - **Added** — new features, new files, new capabilities
+   - **Changed** — behavior changes, refactors with user-visible effect, API changes
+   - **Fixed** — bug fixes, regression repairs
+   - **Deps** — dependency bumps, CVE remediation, transitive updates
+   - **Internal** — refactors with no user-visible effect (omit if trivial; keep if substantive)
+
+   Single-commit dependency-bump merges still get a one-line note (e.g. _"Deps: bump express past path-to-regexp CVE; transitive only, no API surface change."_). Don't skip "trivial" merges — that's how CHANGELOGs rot.
+
+3. **Detect repo-root `CHANGELOG.md`:**
+   ```bash
+   if [ -f CHANGELOG.md ]; then HAS_CHANGELOG=1; else HAS_CHANGELOG=0; fi
+   ```
+   - If present: this repo has external consumers and an established notes convention. Always update it.
+   - If absent: do NOT auto-create. Embed notes in PR body only.
+
+4. **Determine version bump suggestion** (advisory — surfaced for PM, never auto-applied):
+   - Read `package.json` `version` field (or equivalent for the repo's ecosystem).
+   - Suggest based on diff scope:
+     - **patch** — bug fixes, dep bumps, internal refactors
+     - **minor** — new backwards-compatible features
+     - **major** — breaking changes, removed APIs
+   - If unsure between two levels, suggest the lower one and let the PM override.
+
+5. **Draft the entry.** Format:
+   ```markdown
+   ## v{suggested-version} — {YYYY-MM-DD}
+
+   ### Added
+   - {one-line bullet per logical addition}
+
+   ### Changed
+   - {one-line bullet per logical change}
+
+   ### Fixed
+   - {one-line bullet per fix}
+
+   ### Deps
+   - {one-line bullet per dep change, including CVE refs if applicable}
+
+   ### Internal
+   - {one-liners for substantive internal refactors; omit section if all trivial}
+   ```
+
+   For trivial single-commit merges, collapse to a single bullet under one section — don't pad sections that don't apply.
+
+6. **If `HAS_CHANGELOG=1`:** prepend the new entry to `CHANGELOG.md` (above prior entries, below any header). Commit on the same branch:
+   ```bash
+   git add CHANGELOG.md
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "docs(changelog): release notes for upcoming merge"
+   git push origin "$BRANCH"
+   ```
+   This commit lands as part of the PR — consumers reading the merge see the notes inline with the work.
+
+7. **Stash the entry text** for use as the PR body in Step 2. Whether or not CHANGELOG.md exists, the entry is the PR body's primary content.
+
+**Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
+
 ### Step 2: Create PR
 
 ```bash
 BRANCH=$(git branch --show-current)
 
-# Generate title based on branch type
+# Title based on branch type
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# Generate body from commit log
-BODY=$(git log main..HEAD --oneline)
+# PR body = release notes from Step 1.5 + commit log appendix
+BODY="$(cat <<EOF
+$RELEASE_NOTES_FROM_STEP_1_5
+
+---
+
+<details>
+<summary>Commit log</summary>
+
+$(git log main..HEAD --oneline)
+</details>
+EOF
+)"
 
 gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
 ```
 
 - Title: `"Work: {machine} {date}"` for work branches, `"Feature: {name}"` for feature branches.
-- Body: auto-generated from `git log main..HEAD --oneline`.
+- Body: structured release notes from Step 1.5 (primary), with the raw commit log collapsed in a `<details>` appendix for traceability.
+- If a version bump was suggested in Step 1.5 and the PM hasn't confirmed it, surface in the PR body: _"Suggested bump: patch ({old} → {new}) — confirm before tagging."_
 
 ### Step 3: Wait for CI
 
@@ -193,10 +277,13 @@ If on a worktree: `git worktree remove <path>` instead.
 - Force push is allowed by the ruleset if needed
 
 **Always:**
+- Draft release notes (Step 1.5) — every merge, even patch-level
 - Verify remote is synced before creating PR
 - Wait for all CI checks to complete
 - Use merge commits to preserve history
 - Clean up branch after successful merge
+
+**Why release-notes-on-every-merge:** With LLM authoring overhead near-zero, omitting consumer notes is a cost imposed on downstream readers. Other agents reading the publish repos, future-you scanning history, marketplace consumers pulling updates — all benefit. The "humans don't bother for small stuff" pattern doesn't apply here; we have the cycles to be more cognizant.
 
 ## Integration
 
