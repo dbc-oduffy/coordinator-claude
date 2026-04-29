@@ -91,6 +91,7 @@ Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / en
 - If something goes sideways, STOP and re-plan.
 - **Persist review output and plan artifacts to disk before acting on them.**
 - **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Skipping the pipeline usually gets reverted. The EM may implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
+- **Investigate before planning.** Bug reports and consumer-supplied docs are framing, not ground truth. Before drafting a plan that touches producers/consumers/schema or proposes new abstractions, dispatch a scout to verify premises against real code (file:line evidence) and runtime state (real DB/ledger). Skipping this step is laziness and produces wrong designs.
 
 ## Self-Improvement Loop
 
