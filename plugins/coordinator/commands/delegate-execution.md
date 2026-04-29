@@ -8,6 +8,10 @@ argument-hint: "[stub-ids|directory-path|'all']"
 
 Hand enriched, reviewed stub specifications to executor agents for implementation, selecting the appropriate model (Sonnet or Opus) based on stub complexity.
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+**If MCP tools matching `mcp__*project-rag*` are available in this session, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
+<!-- END project-rag-preamble -->
+
 ## Instructions
 
 When invoked, dispatch executor agents to implement enriched and reviewed stubs.
