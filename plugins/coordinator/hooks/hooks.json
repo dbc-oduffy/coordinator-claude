@@ -3,6 +3,17 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NonInteractive -File ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.ps1 2>/dev/null || bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
         "matcher": "startup|compact",
         "hooks": [
           {

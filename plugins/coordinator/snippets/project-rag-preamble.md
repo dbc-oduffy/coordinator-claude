@@ -1,0 +1,3 @@
+&lt;!-- canonical source for project-rag-preamble — edit here, then run bin/verify-preamble-sync.sh --fix --&gt;
+
+**If MCP tools matching `mcp__*project-rag*` are available in this session, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.

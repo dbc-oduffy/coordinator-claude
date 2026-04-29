@@ -14,7 +14,7 @@ Two tiers:
 Lookup order when you need to understand the codebase:
 
 1. **Accumulated knowledge first.** Architecture atlas (`tasks/architecture-atlas/`), wiki (`docs/wiki/DIRECTORY_GUIDE.md`), repomap (`tasks/repomap.md`), docs index (`docs/README.md`). Skip silently if absent.
-2. **Project-RAG step 1.5 (UE projects).** Symbol-shaped or subsystem-shaped questions go to `mcp__holodeck-project-rag__*` before any scout. Stale RAG still beats grep on structure.
+2. **Project-RAG step 1.5.** If any `mcp__*project-rag*` tools are available in this session, prefer them over grep/Explore for any code-shaped lookup before dispatching a scout. Symbol-shaped questions ("where is X defined", "which class handles Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does subsystem X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 3. **Dispatch a Sonnet scout, don't search yourself.** Use `Explore` for read-only briefs; `general-purpose` when the deliverable must land on disk. Brief like a teammate. The EM's context is the scarcest resource — protect it.
 
 **Exceptions (EM may search directly):** reading a single known file before editing; 1-2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup.
@@ -38,6 +38,8 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
 
 - **Tripwire — Patrik UE block:** Patrik's prompt (`staff-eng.md`) contains a `project_type`-gated UE block (added by holodeck overlay 2026-04-29). When editing `staff-eng.md`, check the gate parses cleanly and the listed UE worker names (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`) still exist in the holodeck plugin.
+
+- **Tripwire — project-RAG preamble:** Consumer files carry the preamble verbatim between sentinel comments (`<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->` … `<!-- END project-rag-preamble -->`). When editing the project-RAG preamble: (1) edit `snippets/project-rag-preamble.md` — that is the single authoring source; (2) run `bin/verify-preamble-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -76,6 +78,10 @@ Files an executor wrote before failure are still present — partial output is t
 1. `git status` against the executor's expected scope; check each file present and non-trivial.
 2. Diff partial output against the spec — what's done, missing, wrong.
 3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
+
+## Executor Dispatch Mode
+
+Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher (anything that mutates files). Without it, the subagent runs in `default` mode, prompts on every Edit/Write, and auto-denies — no human to answer the prompt.
 
 ## Plan-First Workflow
 

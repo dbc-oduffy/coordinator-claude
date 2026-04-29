@@ -15,7 +15,7 @@ When invoked, systematically update all documentation artifacts to match reality
 **Arguments:**
 - `--no-distill` — Skip the artifact distillation check (Phase 12). Use when calling from overnight/unattended workflows (mise-en-place hibernate mode) or when you just want a fast doc sync.
 
-**Execution model:** Phases 1–11 are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
+**Execution model:** Phases 1–11b are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
 
 ### What This Does
 
@@ -28,8 +28,11 @@ When invoked, systematically update all documentation artifacts to match reality
 7. **Updates** CLAUDE.md if architecture or conventions changed (rare)
 8. **Archives** old handoffs (`handoff-archival` skill)
 9. **Commits** all doc changes and verifies remote sync
+9b. **Regenerates repomap** (RAG-gated: primary when no RAG, fallback when RAG stale, skipped when RAG fresh)
 10. **Refreshes** orientation cache if present
-11. **Checks** changed files against architecture atlas (`atlas-integrity-check` skill)
+10b. **Logs repomap audit value** (when RAG present and repomap generated as fallback)
+11. **Checks** changed files against architecture atlas — narrative-drift mode on RAG repos, hybrid mode on non-RAG repos (`atlas-integrity-check` skill)
+11b. **Verifies preamble sync** (runs `bin/verify-preamble-sync.sh`; surfaces diff to PM on failure)
 12. **Distills** accumulated artifacts into wiki guides if thresholds are met (`/distill` pipeline, conditional)
 
 ### Execution Workflow
@@ -197,6 +200,24 @@ Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/s
 
 **Note:** This skill pushes to the current branch only. Getting changes onto main is the caller's responsibility (e.g., `/workday-complete` or `/merge-to-main`). If you're on main at this point, something went wrong in Phase 0.
 
+#### Detection-Gating Contract — RAG_PRESENT
+
+All "when RAG present" gates in this command use the same detection mechanism: check whether any MCP tool matching `mcp__*project-rag*` (case-insensitive substring) is available in the current session. A positive match sets the logical `RAG_PRESENT` flag for this run. Future maintainers: the same detection is used by `coordinator/hooks/project-rag-detect.*` (W1 hook) — keep them in sync.
+
+**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):**
+- **RAG absent (`!RAG_PRESENT`):** repomap retains its primary role — generate/refresh unconditionally.
+- **RAG present + stale or uninitialized:** repomap available as a fast stopgap. Generate as fallback, emit audit log entry (Phase 10b). EM chooses repomap-vs-reindex per session based on time budget.
+- **RAG present + fresh:** skip repomap generation entirely.
+
+#### Phase 9b: Repomap Regeneration (RAG-gated)
+
+**Three-tier logic:**
+- `!RAG_PRESENT`: run `/generate-repomap` as today (unconditional). Repomap is primary.
+- `RAG_PRESENT` + stale/uninitialized: run `/generate-repomap` as fallback stopgap. Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG stale)."
+- `RAG_PRESENT` + fresh: skip. Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
+
+**Previously this was handled inline in Phase 10.** It is now an explicit conditional phase so the gating logic is visible to maintainers.
+
 #### Phase 10: Refresh Orientation Cache
 
 If `tasks/orientation_cache.md` exists, **always do a full refresh in this phase — never skip on grounds of "looks roughly current."** Stale orientation poisons every subsequent session-start:
@@ -215,9 +236,43 @@ If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
 **Execution:** The Sonnet agent handles this as part of its mechanical work. Include the cache format spec in the dispatch prompt so the agent can write it directly.
 
+#### Phase 10b: Repomap Audit Log (when RAG present and repomap was generated as fallback)
+
+**Only execute when:** project-RAG was detected (see detection-gating contract below) AND repomap was generated during this run as a fallback (i.e., RAG is present but stale or uninitialized, not fresh).
+
+Emit a single log entry to `tasks/repomap-audit.log` (create if absent, append-only):
+
+```
+YYYY-MM-DD | repomap_unique_value: yes|no | <brief justification — what did repomap reveal that RAG could not?>
+```
+
+After **two consecutive `no` entries**, surface a recommendation to PM: "Repomap has provided no unique value over two consecutive runs on this repo. Consider retiring it here — project-RAG covers the same surface. No auto-action taken."
+
+Do NOT retire the repomap automatically. The PM decides.
+
 #### Phase 11: Architecture Atlas Integrity Check
 
 Execute the `atlas-integrity-check` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/atlas-integrity-check/SKILL.md` and follow all steps exactly.
+
+**RAG-gating note:** When `RAG_PRESENT`, the atlas-integrity-check skill has been repurposed toward narrative-drift detection (not file-coverage enumeration). The skill handles this internally based on RAG state — no special flag needed here.
+
+**Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it again in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
+
+**Quarterly atlas re-read reminder (Camelia F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
+
+#### Phase 11b: Preamble Sync Check
+
+Run the preamble sync verification script:
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/verify-preamble-sync.sh
+```
+
+**If the script exits non-zero:** Surface to PM with the diff output — do NOT auto-fix. The EM should investigate which consumer drifted from the canonical snippet. Example escalation: *"Preamble sync check failed — one or more agent/skill files have drifted from `snippets/project-rag-preamble.md`. Diff attached. Which file was intentionally changed?"*
+
+**If the script is absent** (not yet installed): skip silently and note "preamble sync check: script not found — W2 may not be deployed yet."
+
+**If the script exits 0:** Note in Phase 13 report: "Preamble sync: in sync."
 
 #### Phase 12: Artifact Distillation (Conditional)
 
@@ -281,7 +336,16 @@ Present a concise summary:
 - [M ad-hoc items captured from git log / No untracked work found]
 
 ### Architecture Atlas
-- [All changed files mapped / N unmapped files — potential new system detected: [directories] / Skipped — file-index.md not found]
+- [Narrative-drift findings: N suggestions / No drift detected / Skipped — atlas not found]
+- [Atlas drift risk: system X last mapped DATE — quarterly re-read due / All systems current]
+- [Project-RAG staleness: fresh / stale / uninitialized / absent]
+
+### Repomap
+- [Generated (primary — no RAG) / Generated as RAG-fallback (RAG stale) / Skipped (RAG present + fresh)]
+- [Audit log: repomap_unique_value: yes|no — justification / Not applicable]
+
+### Preamble Sync
+- [In sync / FAILED — diff surfaced to PM / Script not found (W2 not deployed)]
 
 ### Distillation
 - [Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]

@@ -26,6 +26,10 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 
 ## Codebase Research (before file mapping)
 
+<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
+**If MCP tools matching `mcp__*project-rag*` are available in this session, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
+<!-- END project-rag-preamble -->
+
 Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):
 
 1. `tasks/architecture-atlas/systems-index.md` → relevant system pages in `tasks/architecture-atlas/systems/`
