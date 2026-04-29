@@ -2,6 +2,25 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.4.0] — 2026-04-29
+
+### Added
+- **Project-RAG readiness (W1–W6)** — generic project-RAG detection hook (cross-platform), single-source preamble snippet with sentinel-fenced inline distribution to 8 consumers + `verify-preamble-sync.sh`, `docs/wiki/rag-bait-conventions.md` (4 patterns including function-level purpose lines), executor RAG-bait stanza, Patrik generic project-RAG block alongside the UE block.
+- **Reviewer-routed workers** — four Sonnet workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) named in reviewer findings; EM dispatches. Generalizes the Patrik→Palí escalation pattern.
+- **Mandatory release notes on every merge** — `merging-to-main` Step 1.5 always runs. Detects `CHANGELOG.md`, groups by Added/Changed/Fixed/Deps/Internal, suggests version bump (advisory).
+- **Holodeck overlay Phase 1** — Patrik UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
+
+### Changed
+- **`/distill` reframed** — trim+archive specs (not delete), allowlist/denylist rubric, mandatory re-homing, Decision Rationale extraction, schema-pinned distillation log, broader link-heal sweep, negative-AC set-diff token check.
+- **`/update-docs`** — gates atlas-enumeration + repomap-regen on RAG presence; adds preamble-sync phase; per-run repomap audit log.
+- **`/architecture-audit`** — reframed to narrative + judgment with flag-drift-from-RAG check.
+- **`atlas-integrity-check`** — repurposed to narrative-drift detection.
+- **Three-tier repomap gating** — PM-directed: absent→primary, stale→fallback, fresh→skipped (demote, don't retire).
+- **Plan-First Workflow** — adds "investigate before planning" doctrine; bug reports and consumer docs are framing, not ground truth.
+
+### Internal
+- Coordinator hook test suite wired as blocking gate in `workday-complete` and `merging-to-main`; reviewer-calibration sentinel sync via `bin/verify-calibration-sync.sh`.
+
 ## [1.3.0] — 2026-04-02
 
 ### Independence from Superpowers — Conscious Uncoupling (D-032)
