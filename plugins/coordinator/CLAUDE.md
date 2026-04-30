@@ -129,9 +129,9 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. When dispatching agents, verify their output before proceeding (empty results, truncation, format).
 
-## Shipped Code Has No Home Field
+## Build For Someone Else's Machine
 
-Code that runs on someone else's machine — installers, hooks, runtime scripts, agent preambles, runbook examples — must not bake in paths from the maintainer's machine, even as fallbacks. Resolution order: explicit flag → env var → marker auto-discovery → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). Project-scoped tools also need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime fallback values, not assertion data.
+Default assumption: the code will run on a machine you've never seen — different OS, different drive layout, different project names. Portability is the baseline, not a feature. For any path the code consults: explicit flag → env var → marker auto-discovery (sentinel file, tool-owned data dir) → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). A hardcoded local path is acceptable only as a last-resort fallback after the above, and only when its absence wouldn't silently misbehave. Project-scoped tools need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime values consulted on real invocations.
 
 ## Review Sequencing
 
