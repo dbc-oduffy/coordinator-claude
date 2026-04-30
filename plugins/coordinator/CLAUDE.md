@@ -129,6 +129,10 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. When dispatching agents, verify their output before proceeding (empty results, truncation, format).
 
+## Build For Someone Else's Machine
+
+Default assumption: the code will run on a machine you've never seen — different OS, different drive layout, different project names. Portability is the baseline, not a feature. For any path the code consults: explicit flag → env var → marker auto-discovery (sentinel file, tool-owned data dir) → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). A hardcoded local path is acceptable only as a last-resort fallback after the above, and only when its absence wouldn't silently misbehave. Project-scoped tools need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime values consulted on real invocations.
+
 ## Review Sequencing
 
 - **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.

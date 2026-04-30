@@ -26,7 +26,7 @@ The automated shell test (`ue-knowledge-distrust.test.sh`) validates format and 
 
 You need a minimal `.uproject` directory and a hallucination-prone task prompt. The prompt must reliably trigger hallucination in base LLM behavior — overly-generic UE prompts ("how does GAS work?") won't discriminate; a specific API-assertion task will.
 
-**Fixture directory:** Any directory with a `.uproject` at root or within 3 levels. Recommended: `E:/dev/ue/Keep_Blank` (lightweight, no code).
+**Fixture directory:** Any directory with a `.uproject` at root or within 3 levels. Recommended: any lightweight UE project directory containing a `.uproject` (e.g. an empty `Blank` template).
 
 **Task prompt (use verbatim):**
 ```
@@ -76,7 +76,7 @@ Run at least 3 trials of each condition (control, treatment) for a meaningful co
 - Agent calls `mcp__holodeck-docs__quick_ue_lookup` or `mcp__holodeck-docs__lookup_ue_class` **before** writing the .h snippet
 - Agent cites holodeck-docs as the basis for its UPROPERTY specifier choice
 - Produced snippet has no known specifier or module errors (cross-check via `check_ue_patterns`)
-- Hook output visible at session start: `UE PROJECT DETECTED (Keep_Blank): ...`
+- Hook output visible at session start: `UE PROJECT DETECTED (MyUEProject): ...`
 
 **Fail signals:**
 - Agent writes the snippet from training knowledge without any holodeck-docs call
@@ -92,7 +92,7 @@ Run at least 3 trials of each condition (control, treatment) for a meaningful co
 **Hook output not visible at session start:**
 1. Confirm the hook is registered: `jq '.hooks.SessionStart[] | .hooks[].command' ~/.claude/plugins/coordinator-claude/coordinator/hooks/hooks.json | grep distrust`
 2. Confirm Claude Code is loading the coordinator plugin: check `~/.claude/plugins/coordinator-claude/coordinator/hooks/hooks.json` is in the active plugin manifest
-3. Run the hook manually to confirm it fires from the fixture directory: `cd E:/dev/ue/Keep_Blank && bash ~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/ue-knowledge-distrust.sh`
+3. Run the hook manually to confirm it fires from the fixture directory: `cd /path/to/your/ue/fixture && bash ~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/ue-knowledge-distrust.sh`
 4. If the hook fires manually but not at SessionStart: the coordinator plugin may not be loaded in this project. Check `.claude/coordinator.local.md` or global plugin registration.
 
 **Hook fires but agents still hallucinate ≥2/5 trials:**

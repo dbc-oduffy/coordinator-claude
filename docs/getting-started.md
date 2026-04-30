@@ -1,6 +1,6 @@
 # Getting Started with coordinator-claude
 
-This guide walks you through installing the coordinator-claude plugins and running your first session.
+This guide is for humans who want to drive the install themselves or read what's happening under the hood. The first-class install path is to paste the prompt from the [README Quick Start](../README.md#quick-start) into Claude Code and let your agent do it — agents follow [docs/agent-install.md](agent-install.md), which points back here for the manual fallback.
 
 ## Prerequisites
 
