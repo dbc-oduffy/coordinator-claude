@@ -10,13 +10,16 @@ This isn't a collection of prompt tricks. It's a trust model with routines — s
 
 ## Quick Start
 
-```bash
-git clone https://github.com/dbc-oduffy/coordinator-claude.git
-cd coordinator-claude
-bash setup/install.sh
+You don't install this. Your agent does. Open Claude Code in any project and paste:
+
+```
+Install coordinator-claude. The playbook is at
+https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/agent-install.md
+— read it, follow it, and queue /project-onboarding as the immediate next step
+after I restart Claude Code.
 ```
 
-Restart Claude Code, then run `/session-start`. See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/project-onboarding` bootstraps tracking infrastructure in your project.
 
 ## How a Session Works
 
