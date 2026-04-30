@@ -131,15 +131,7 @@ Never mark a task complete without proving it works — run tests, check logs, d
 
 ## Shipped Code Has No Home Field
 
-Code that runs on someone else's machine — installers, runtime scripts, hooks, agent preambles, runbook examples, MCP server configs, Markdown how-to docs that get copy-pasted — must not bake in paths from the maintainer's machine. Hardcoded fallbacks like `X:\DroneSim`, `E:/dev/ue/Keep_Blank`, or `/Users/me/projects/...` either silently misreport (wrong drive enumerated, wrong project assumed, banner emitted in unrelated repo sessions) or noisily fail in ways that look like bugs in the consumer's setup, not ours. The rule applies even when the path is "just a fallback" or "just an example" — examples get copied, fallbacks fire silently.
-
-**Resolution order for any user-supplied path:** explicit flag → env var → marker auto-discovery (cwd-walk for a sentinel file like `.uproject`, `package.json`, `Cargo.toml`, or a tool-owned data dir) → silent skip OR hard error with remediation text. Never a literal fallback that depends on whose machine it is. If marker auto-discovery is the last step before fail-shut, prefer silent skip when the tool is opt-in (hooks, banners) and a hard error with remediation when the tool was explicitly invoked.
-
-**Cwd-scope guard for tools that are project-scoped:** when a tool indexes ONE codebase (project-RAG, repo-specific hooks, project-scoped MCP servers, etc.), it must verify cwd is inside the indexed root before emitting output. Otherwise it pollutes unrelated repo sessions on the same machine with banners about a different codebase. The guard is one of the first things the tool does, not an afterthought.
-
-**Test fixtures and battle-stories are the exception** — `tests/.../fixtures.py`, golden files, and JSON test inputs need concrete strings to assert against. Comments noting where a bug was historically observed ("live-observed Keep_Blank session 2026-04-27") are also fine. The rule targets *runtime fallback values consulted on real invocations*, not assertion data or historical context.
-
-**How to spot it during review:** any drive letter (`X:\`, `E:/`, `/Users/`, `/home/`), maintainer-known project name, or absolute home path appearing as a default in a `param(...)`, function default arg, `or`/`||` fallback, JSON config value, or `if not set` branch in shipped code. Reviewer prompt: "would this work on a fresh clone on a different OS, on a different drive, by someone who has never heard of this project's other repos?"
+Code that runs on someone else's machine — installers, hooks, runtime scripts, agent preambles, runbook examples — must not bake in paths from the maintainer's machine, even as fallbacks. Resolution order: explicit flag → env var → marker auto-discovery → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). Project-scoped tools also need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime fallback values, not assertion data.
 
 ## Review Sequencing
 
