@@ -43,6 +43,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 - **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
+- **Tripwire — gh-merge prohibition in doc-maintenance dispatch prompts:** Three skills dispatch Sonnet agents that touch git and must carry an explicit "DO NOT run `gh pr merge`, `gh pr create` against main, or `git push origin main`" prohibition inline in their dispatch prompt: `/update-docs` (Execution model paragraph, Phases 1–11b dispatch), `/distill` (any Phase that commits or pushes), `/architecture-audit` (Phase 4 integration commit). When adding a NEW skill that dispatches a Sonnet agent with write access to git, add it to this list. Purpose: prevent doc-maintenance agents from autonomously merging PRs to main (postmortem: 2026-05-01 incident where `/update-docs` Phase 9 agent created and merged PR #6 directly).
+
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
 A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up in the unblocker's done-protocol.
@@ -129,6 +131,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. When dispatching agents, verify their output before proceeding (empty results, truncation, format).
 
+**"Shipped" means on `origin/main`, not on a branch tip.** Before any handoff, doc, lessons entry, or memory update asserts work has shipped/landed, run `bin/check-shipped-on-main.sh <commit>` for at least one canonical commit per claim. Branch-tip is not shipping; PR-merged-from-this-branch is shipping IF AND ONLY IF no further commits were added to the source branch after the merge. The git tree is the only authoritative answer.
+
 ## Build For Someone Else's Machine
 
 Default assumption: the code will run on a machine you've never seen — different OS, different drive layout, different project names. Portability is the baseline, not a feature. For any path the code consults: explicit flag → env var → marker auto-discovery (sentinel file, tool-owned data dir) → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). A hardcoded local path is acceptable only as a last-resort fallback after the above, and only when its absence wouldn't silently misbehave. Project-scoped tools need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime values consulted on real invocations.
@@ -185,6 +189,7 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting 
 - **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Two ceremonies are exempt and use `--blanket`: `/session-start` and `/workday-complete` (set `CLAUDE_INVOKING_COMMAND` accordingly). Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`.
 - **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
 - **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
+- **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start` (consolidate, defer, or archive). See `bin/sync-main.sh` and the workday-start Step 0 contract.
 
 ## Core Principles
 

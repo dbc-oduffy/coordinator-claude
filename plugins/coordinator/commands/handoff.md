@@ -157,6 +157,12 @@ Update the documents that future sessions read for orientation — closing the r
 
 #### Step 3: Commit + Verify Remote
 
+**Pre-flight: verify shipped claims.** For each commit referenced in this handoff's `## What Was Accomplished` as completed/shipped, run `bin/check-shipped-on-main.sh <sha>`. If any commit is NOT on `origin/main`:
+
+1. Append a `## Not Yet On Main` section to the handoff body listing each unmerged commit with `{sha} — {subject}`.
+2. Replace any "shipped" / "landed" / "in production" wording in `## What Was Accomplished` with "complete on branch, not yet merged."
+3. Do not block the handoff — write the truth and continue.
+
 **Now** that the handoff is written, commit everything and verify remote sync.
 
 1. **Stage only paths this workstream touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
