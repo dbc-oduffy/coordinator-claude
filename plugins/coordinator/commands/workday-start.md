@@ -12,9 +12,42 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 ## Step 0: Branch Setup
 
-Ensure work happens on today's work branch (`work/{machine}/{YYYY-MM-DD}`, machine = `hostname` lowercased) and consolidate lingering open branches from previous days. If already on today's branch, skip. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
+Ensure work happens on today's work branch (`work/{machine}/{YYYY-MM-DD}`, machine = `hostname` lowercased) and consolidate lingering open branches from previous days.
+
+**Sync-main invariant (run first, before any branch creation):**
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
+```
+If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the PM. Do not create a branch from stale main.
+
+If already on today's branch, skip branch creation. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
 
 **Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
+
+### Step 0 conflict handling — Branch Reconciliation Decision
+
+When `git merge --no-ff` of a lingering branch hits a conflict, **do not silently continue**. Abort the merge and produce a **Branch Reconciliation Decision** block in the Morning Briefing naming each conflicting branch:
+
+**Interactive sessions (TTY attached):** Hard-block until the PM chooses one of:
+- **Option A — Consolidate now:** PM accepts the conflict and runs `/consolidate-git` immediately. The skill chains into it; workday-start resumes after consolidation completes.
+- **Option B — Defer:** PM explicitly defers the branch. Write one entry to `tasks/.deferred-branches.md`:
+  ```
+  {branch} | reason: {PM-provided reason} | re-check: {today + 7 days} | deferred-by: workday-start {today}
+  ```
+  The next workday-start will surface this entry prominently if the re-check date has passed.
+- **Option C — Archive (abandon):** PM signals the branch is dead. Rename it `archive/{machine}/{today}/{original-branch-name}` locally; push the renamed ref; delete the old ref. Stop tracking.
+
+**Non-interactive sessions (no TTY — overnight/mise-en-place chained):** Auto-defer unresolved branches with `reason=auto-deferred, awaiting PM` and `re-check={today}`. Emit a note in the Morning Briefing. The next interactive workday-start will surface them prominently and force the A/B/C decision.
+
+## Step 0.5: Orphan Branch Sweep
+
+Run `bin/orphan-branch-sweep.sh --format text --severity-min warning`. For each line returned:
+
+- **CRITICAL** entries → surface in the Morning Briefing under a `### Orphan Sweep` section. Include the branch name, the merged PR number, and the count of post-merge commits. Recommend: _"Investigate before opening new work — these commits may be orphaned. Salvage via PR or consolidate into today's branch."_
+- **WARNING** entries → surface as a heads-up in the same section. Recommend: _"Open a PR or consolidate before the branch goes stale."_
+- **No output** → skip silently (do not emit "no orphans found" — noise).
+
+Append the rendered section to the Morning Briefing template in Step 5 (after `### Alignment Check`, before `### Priority Suggestions`).
 
 ## Step 1: Handoff Triage
 
@@ -211,6 +244,11 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 - [N mismatches found between active trackers and completed archive / all aligned]
 - [List each mismatch: "Tracker: X is Executing — Archive: shipped YYYY-MM-DD"]
 - [List each handoff flagged as likely completed]
+
+### Orphan Sweep
+_(Omit this section entirely if orphan-branch-sweep.sh produced no WARNING or CRITICAL output.)_
+- **CRITICAL:** [branch] — PR #N merged, [M] commits added after merge. Investigate before new work.
+- **WARNING:** [branch] — no PR, [N] commits, branch date [YYYY-MM-DD]. Open a PR or consolidate.
 
 ### Priority Suggestions
 Based on project state:
