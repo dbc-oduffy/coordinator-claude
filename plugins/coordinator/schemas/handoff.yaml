@@ -1,0 +1,16 @@
+schema: handoff
+applies_to: "tasks/handoffs/*.md"
+required:
+  title: string
+  created: iso-date
+  branch: string
+  status:
+    type: enum
+    values: [active, consumed, superseded]
+  predecessor:
+    type: string-or-null
+optional:
+  consumed_by: string
+  consumed_at: iso-date
+  session_goal: string
+  machine: string

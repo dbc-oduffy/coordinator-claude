@@ -25,35 +25,62 @@ The tail action after execution depends on how the PM invoked the skill:
 
 **Announce at start:** "I'm running `/mise-en-place` to prep and execute a straight shot through the backlog."
 
+## What Mise IS NOT
+
+Mise is not "plan-as-you-go autonomy." It is not a license to live-assemble specs, research contracts that downstream items will consume, or run a "foundations wave" whose output becomes reference material for later waves. Those activities require EM judgment, reviewer dispatch, and PM alignment — they are session-EM territory, not autonomous-execution territory.
+
+The coordinator system optimizes for first-pass correctness: planning happens deeply BEFORE the run, so executors only type. If a planned wave produces decisions/artifacts that later waves depend on for their own definition, the run is not ready for mise — it is ready for a planning session.
+
 ## When to Use
 
-- You have 2+ thoroughly-scoped work items ready for execution (plan stubs, enriched specs, well-defined tasks)
-- The items are sequentially executable — each can be completed before moving to the next
-- The PM wants autonomous execution with minimal interruption
+- You have 2+ items that are **mise-grade** by the readiness criteria below
+- The PM wants autonomous execution of mechanical work with minimal interruption
 - The PM wants the backlog cleared — whether they're watching, stepping away, or wrapping up for the day
 
-**Don't use when:**
-- Items aren't scoped yet — use `coordinator:writing-plans` or `coordinator:brainstorming` first
-- Only one item to execute — use `/execute-plan` directly
-- The work requires iterative PM judgment calls throughout
+## Readiness Criteria — All Items Must Pass
+
+A mise-grade item meets ALL of the following:
+
+1. **Reviewed and sealed.** Spec has been through enrichment + reviewer; findings integrated. No "executor types it, then we review."
+2. **No downstream contract.** Output is not reference material later waves consume to define their own behavior.
+3. **Pure-executor agent type.** A Sonnet executor (or coordinator-inline) can complete it given the spec — not enricher, not reviewer, not staff-session, not live-MCP authoring.
+4. **File footprint declarable.** Files-to-be-written can be named in advance.
+5. **Verification is mechanical.** Tests pass, signatures match, AC checked off — not "the reviewer agrees."
+
+## Don't Use When
+
+The EM must REJECT a /mise run if any candidate item exhibits these patterns:
+
+- **"Wave 1: foundations"** — wiki pages, contract definitions, schema authoring, research outputs, or any artifact later waves consume as reference. Foundations belong in a planning session, not a mise.
+- **Mixed agent types in the planned waves** — enricher + executor + MCP-author together signals the work isn't ready.
+- Items marked `Pending Review` or with open reviewer findings.
+- Vague acceptance criteria ("improves the system") rather than verifiable ones.
+- Items requiring `manage_*` MCP tools in a live editor — those need an interactive EM-driven flow.
+- Research/brainstorming stubs whose output is "a decision."
+- Only one item — use `/execute-plan` directly.
+- Items aren't scoped yet — use `coordinator:writing-plans` or `coordinator:brainstorming` first.
+- Iterative PM judgment expected throughout.
+
+**If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, /review-dispatch, /staff-session, /delegate-execution). The PM decides whether to pull the failed items or defer the mise.
 
 ## The Process
 
+### Phase 0: Readiness Gate
+
+**Bypass condition.** If the session was opened from a handoff (or the PM's invocation explicitly references one) and that handoff states the queued items have already been gated as mise-ready, **skip Phase 0 entirely** and proceed to Phase 1. The bypass is valid when the handoff names the items in scope and asserts mise-readiness in unambiguous terms. Re-running the gate after a verified handoff is wasted context — large backlogs can blow the EM's window on stub reading alone, which is the failure mode this bypass exists to prevent. Announce the bypass: "Phase 0 bypassed — handoff at <path> verified mise-readiness for [items]." If unsure whether the handoff covers all queued items, do NOT bypass.
+
+**Otherwise:** before inventory, before announcement, before any flight-recorder work — apply the readiness criteria above to every candidate item. If any item fails, output the refusal block (see the command file for format) and stop. Do not proceed to Phase 1.
+
 ### Phase 1: Inventory — What's on the Board?
 
-Gather every ready-to-execute work item. Sources to check:
+**Bandwidth rule:** The EM does NOT read every stub. For runs with >3 items (or PM-flagged "many items"), dispatch a Sonnet inventory scout with `run_in_background: true` to produce a structured table at `tasks/mise-inventory-<timestamp>.md` (one row per item: identifier | spec path | one-line summary | declared file footprint | dependencies | verification | complexity). The scout writes to disk and returns `DONE: <path>`; the EM reads the table from disk and works from it for Phase 2 sequencing. The full spec text stays out of the EM's context until the executors load it.
+
+Sources the scout (or the EM, for ≤3-item runs) checks:
 
 1. **Plan files:** `tasks/*/todo.md` — items marked ready/pending execution
 2. **Enriched stubs:** Any chunk directories with status "Enriched" or "Reviewed"
 3. **PM's explicit list:** If the PM named specific items (e.g., "PX4-6B through Cesium-D"), use that as the canonical list
 4. **Open tasks:** Any `tasks/*/` directories with incomplete work
-
-For each item, capture:
-- **Identifier** (stub name, plan reference, or short description)
-- **Location** (file path to spec/plan)
-- **Dependencies** (does it need another item completed first?)
-- **Estimated complexity** (quick read of the spec — small/medium/large)
-- **Verification method** (how will you know it's done?)
 
 ### Phase 2: Sequence and Parallelize — Maximum Velocity
 
@@ -137,18 +164,20 @@ This tells the hook to emit informational-only context pressure messages (no han
 
 **Execute wave by wave.** Each wave from Phase 2 is a batch of file-disjoint items:
 
+**Bandwidth rule:** /mise backgrounds executors by default — single-item waves included. The EM steers many items; pulling each executor's transcript into context burns the window before the run finishes. Executors do their own verification-and-commit; verifiers (Haiku, also backgrounded) check the result; the EM reads only one-screen DONE summaries and PASS/FAIL verdicts from disk.
+
 **For each wave:**
 
 1. **Dispatch all items in the wave concurrently.** For each item:
    - Mark `in_progress` via TaskUpdate. Update plan document status if applicable.
-   - Dispatch to a Sonnet executor agent with `run_in_background: true`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and an explicit constraint: *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back."*
-   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
+   - Dispatch to a Sonnet executor agent with `run_in_background: true` and `mode: "acceptEdits"`. The prompt must include the full spec (or path to it), the item's file footprint from Phase 2, the footprint constraint, the self-verify-and-commit constraint, and the DONE-summary constraint. See the command file for verbatim wording.
+   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave — rare exception, not default.
 
-2. **Process completions as they arrive.** As each background agent completes:
-   - Verify its output against the spec. Apply `coordinator:verification-before-completion`.
-   - Confirm it stayed within its file footprint (spot-check `git diff --name-only` against the declared footprint).
-   - Commit its changes immediately. Stage everything, brief message.
-   - Mark complete via TaskUpdate.
+2. **Process completions via Haiku verifiers.** As each background executor reports DONE:
+   - Read only the DONE summary file. Do NOT pull the executor's transcript into context.
+   - Dispatch a Haiku verifier with `run_in_background: true` to read the DONE summary + spec + commit diff and write a verdict at `tasks/mise-verify/<item-id>.md` ending with `STATUS: PASS` (or `FOOTPRINT-VIOLATION` | `AC-MISS` | `VERIFICATION-CMD-FAILED` | `NEEDS-EM`). Verifiers are wave-scoped — batch them and gate the wave on all PASS.
+   - On any non-PASS verdict, the EM decides re-dispatch / revert / defer / early-stop from the verdict + diff alone.
+   - Mark complete via TaskUpdate on PASS.
 
 3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes.
 

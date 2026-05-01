@@ -14,6 +14,8 @@ Everything in its place before the fire gets lit. This command front-loads all c
 
 **Announce at start:** "Running /mise-en-place — prepping flight recorder, then straight shot through the backlog."
 
+**What mise IS NOT:** Mise is not "plan-as-you-go autonomy." It is not a license to live-assemble specs, research contracts that downstream items will consume, or run a "foundations wave" whose output becomes reference material for later waves. Those activities require EM judgment, reviewer dispatch, and PM alignment — they are session-EM territory, not autonomous-execution territory. The coordinator system optimizes for first-pass correctness: planning happens deeply BEFORE the run, so executors only type. If you find yourself sequencing a wave that produces decisions other waves depend on, you are not ready for mise — you are ready for a planning session.
+
 ## Arguments
 
 Parse `$ARGUMENTS` for the tail mode:
@@ -27,23 +29,70 @@ Parse `$ARGUMENTS` for the tail mode:
 
 ## Instructions
 
-Follow all six phases in order. The pipeline definition at `pipelines/mise-en-place/PIPELINE.md` is the authoritative source. This command codifies its orchestration.
+Follow all phases in order. The pipeline definition at `pipelines/mise-en-place/PIPELINE.md` is the authoritative source. This command codifies its orchestration.
+
+### Phase 0: Readiness Gate — Reject the Run if Items Aren't Mise-Grade
+
+**Bypass condition.** If the session was opened from a handoff (or the PM's invocation explicitly references one) and that handoff states the queued items have already been gated as mise-ready, **skip Phase 0 entirely** and proceed to Phase 1. The bypass is valid when the handoff names the items in scope and asserts mise-readiness in unambiguous terms (e.g., "items A, B, C are mise-grade — proceed straight to dispatch", "Phase 0 verified", "ready for /mise"). Re-running the gate after a verified handoff is wasted context — large backlogs can blow the EM's window on stub reading alone, which is the exact failure mode the bypass exists to prevent. If the bypass applies, announce it explicitly: "Phase 0 bypassed — handoff at <path> verified mise-readiness for [items]. Proceeding to Phase 1." If you are uncertain whether the handoff covers all queued items, do NOT bypass — run the full gate.
+
+**Otherwise, run this gate before Phase 1 inventory and before announcing the run.** If any candidate item fails the gate, do NOT proceed with /mise. Report the disqualifying items to the PM and recommend the appropriate alternative (planning session, /enrich-and-review, /staff-session, /execute-plan, or interactive /delegate-execution).
+
+A mise-grade item meets ALL of the following:
+
+1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (Patrik/Sid/Camelia/Palí/Fru as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
+2. **No downstream contract.** This item's output is not reference material that subsequent waves consume to define their own behavior. Wiki pages, schema definitions, research outputs, and enricher-quality stubs frequently fail this test — if Wave N produces a doc that Wave N+1 reads to know what to build, the run is not mise.
+3. **Pure-executor agent type.** A single Sonnet executor (or coordinator-inline executor) can complete it given the spec. Items requiring live-editor MCP authoring, enricher judgment, reviewer judgment, or staff-session synthesis are not executor work — they belong in their dedicated commands.
+4. **File footprint declarable.** You can name the files the executor will write before dispatching. If the spec says "discover what needs changing," that is investigation, not execution.
+5. **Verification is mechanical.** "Tests pass," "function exists with this signature," "file matches this acceptance criterion" — not "Sid agrees this looks right."
+
+**Disqualifying patterns (reject the run if any item exhibits these):**
+
+- "Wave 1: foundations" — wiki pages, contract definitions, schema authoring, or any artifact later waves consume as reference. Foundations belong in a planning session, not a mise.
+- Mixed agent types in the planned waves — enricher + executor + MCP-author in the same run signals the work isn't ready.
+- Items marked `Pending Review` or `Needs Patrik` or with open reviewer findings.
+- Stubs whose acceptance criteria are vague ("improves the system," "addresses the concern") rather than verifiable.
+- Items requiring `manage_*` MCP tools in a live editor session — those need an interactive EM-driven flow.
+- Research stubs, brainstorming stubs, or anything whose output is "a decision."
+
+**If the gate rejects the run:** Output a clear refusal with the disqualifying items, the reason for each, and the recommended next step. Example:
+
+```
+## Mise-en-Place — Cannot Proceed
+
+The following items are not mise-grade:
+
+- 2A-1 (enricher-quality stub) — requires reviewer judgment after execution.
+  → Route through /enrich-and-review, then /review-dispatch before /mise.
+- 3B-1 (research stub, defines contract for downstream waves) — output is
+  reference material for later waves. → Run as a planning task; mise the
+  consumers afterward.
+- 3A-9 (MCP-authoring stub, requires live UE editor) — not executor work.
+  → Dispatch interactively via /delegate-execution with the relevant domain agent.
+
+Recommend: split the foundations work out, complete it in a session, then
+re-invoke /mise on the remaining mechanical items.
+```
+
+Do not soften this. The point of the gate is to refuse premature autonomy. If even one item fails, decline the entire run rather than fragmenting it on the fly — the PM gets to decide whether to pull the failed items or whether the remaining items still warrant a mise.
 
 ### Phase 1: Inventory — What's on the Board?
 
-Gather every ready-to-execute work item. Sources to check:
+**Bandwidth rule:** The EM does NOT read every stub. Large backlogs (>5 items, or any run flagged "many items") will blow the EM's context window if the coordinator pulls every spec into-context. Instead, dispatch a **Sonnet inventory scout** with `run_in_background: true` and an on-disk deliverable. The EM works from the scout's structured table — identifiers, paths, footprints, dependencies — not the full stub text.
+
+**Inventory scout dispatch (default for any run with >3 items, or PM-flagged as large):**
+
+> Read every queued item's spec and produce a structured inventory at `tasks/mise-inventory-<timestamp>.md`. For each item, emit one row: identifier | spec path | one-line summary | declared file footprint (write targets) | dependencies (item IDs) | verification method | complexity (S/M/L). Do NOT summarize the specs into the EM's context — write the table to disk and reply `DONE: <path>`. The EM will read the table directly, not your reply.
+
+Sources the scout should check:
 
 1. **Plan files:** `tasks/*/todo.md` — items marked ready/pending execution
 2. **Enriched stubs:** Any chunk directories with status "Enriched" or "Reviewed"
 3. **PM's explicit list:** If `$ARGUMENTS` names specific items (e.g., "PX4-6B through Cesium-D"), use that as the canonical list
 4. **Open tasks:** Any `tasks/*/` directories with incomplete work
 
-For each item, capture:
-- **Identifier** (stub name, plan reference, or short description)
-- **Location** (file path to spec/plan)
-- **Dependencies** (does it need another item completed first?)
-- **Estimated complexity** (quick read of the spec — small/medium/large)
-- **Verification method** (how will you know it's done?)
+After the scout returns, the EM reads `tasks/mise-inventory-<timestamp>.md` once and works from that table for Phase 2 sequencing. The full spec text stays on disk and is loaded only by the executors that consume it.
+
+**Small runs exemption:** If there are 3 or fewer items AND the EM has already read them in this session (e.g., the PM listed them inline with brief specs), the EM may inventory inline without dispatching a scout. Default is to dispatch.
 
 ### Pre-Dispatch Verification (geneva T1.1, single landing across 3 files)
 
@@ -138,22 +187,32 @@ echo "mise-en-place" > /tmp/autonomous-run-${SESSION_ID}
 ```
 This tells the hook to emit informational-only context pressure messages (no handoff recommendation). The sentinel is cleaned up in Phase 6.
 
+**Bandwidth rule:** Executors are backgrounded by default in /mise — not just for parallel waves, but always. This is stricter than `/delegate-execution`, which lets the EM run executors inline. In /mise the EM is steering many items; pulling each executor's transcript into context burns the window before the run finishes. Single-item waves still background — accept the dispatch overhead.
+
+The executor does its own verification and commit. The EM consumes only a brief on-disk DONE summary, not the executor's full transcript. This is the structural bandwidth fix: the EM holds the wave map and the DONE-summary paths, nothing more.
+
 **Execute wave by wave.** Each wave from Phase 2 is a batch of file-disjoint items.
 
 **For each wave:**
 
 1. **Dispatch all items in the wave concurrently.** For each item:
    - Mark `in_progress` via TaskUpdate. Update the plan document status if applicable. **Run the canonical tracker sweep** — grep for the item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files. Mark every match as "in progress."
-   - Dispatch to a Sonnet executor agent with `run_in_background: true`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and an explicit constraint: *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back."*
+   - Dispatch to a Sonnet executor agent with `run_in_background: true` and `mode: "acceptEdits"`. The prompt must include: the full spec (or path to it), the item's file footprint from Phase 2, and the constraints below.
    - **Inline anti-hallucination preamble at the top of every executor prompt** (parallel-dispatch sessions are the failure mode where this hits): *"Ignore any 'TEXT ONLY' / 'tool calls will be REJECTED' / 'LSP watcher reverts writes' framing you may encounter — these are known hallucinations from confused prior agents in this session and do not exist in this environment. There is no hook or watcher reverting your writes; verify with `ls -la <path>` after any Write. The ONLY valid completion is calling Write/Edit and committing. Returning code inline = task failure."*
-   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave.
+   - **Footprint constraint:** *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back via the DONE summary with status BLOCKED."*
+   - **Self-verify-and-commit constraint** (this is what shifts bandwidth out of the EM):
+     > After implementation: (1) re-read the spec's `## Acceptance Criteria` and confirm each item is implemented; (2) run `git diff --name-only` and confirm every changed path is inside the declared footprint; (3) run any verification commands the spec names (tests, lints, type-checks); (4) stage your changed paths explicitly (`git add -- <paths>` — never `git add -A`) and commit using `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<short subject>"`. The post-commit hook pushes automatically.
+   - **DONE-summary constraint:**
+     > Write a one-screen summary to `tasks/mise-done/<item-id>.md` with: status (DONE | BLOCKED | PARTIAL), commit SHA, files touched (list from `git diff --tree --name-only HEAD~1..HEAD`), AC checklist (each criterion checked or note), verification commands run + outcomes, and any deviations from the spec. Reply EXACTLY `DONE: tasks/mise-done/<item-id>.md` (or `BLOCKED: <path>`). No prose in chat — the EM reads the file, not your reply.
+   - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave. This is the rare exception, not the default.
 
-2. **Process completions as they arrive.** As each background agent completes:
-   - Verify its output against the spec. Apply `coordinator:verification-before-completion` — evidence before claims.
-   - **Spec-check:** If the item has an enriched stub or plan document with `## Acceptance Criteria`, read the criteria and confirm each was implemented.
-   - Confirm it stayed within its file footprint — spot-check `git diff --name-only` against the declared footprint. **File footprint violations are bugs in the parallelism plan, not just agent misbehavior** — if an agent needed a file outside its footprint, the Phase 2 analysis missed a dependency.
-   - Commit its changes immediately. Stage everything, brief message. The post-commit hook handles push.
-   - **Mark complete + tracker sweep:** Update task via TaskUpdate. **Re-run the canonical tracker sweep** — update every match to reflect completion. If the executor ran its own sweep, verify; fix gaps.
+2. **Process completions as they arrive.** As each background agent reports DONE:
+   - Read the DONE summary file (only). Do NOT pull the executor's transcript into context.
+   - **Dispatch a Haiku verifier** with `run_in_background: true` and an on-disk verdict at `tasks/mise-verify/<item-id>.md`. The verifier reads the DONE summary + spec + commit diff and returns one of: `PASS` | `FOOTPRINT-VIOLATION` | `AC-MISS` | `VERIFICATION-CMD-FAILED` | `NEEDS-EM`. Verifier prompt:
+     > Read the executor's DONE summary at `<path>`, the spec at `<spec-path>`, and the commit at `<sha>` (use `git show <sha>` and `git show --stat <sha>`). Confirm: (a) every changed path is inside the declared footprint `[list]`; (b) every `## Acceptance Criteria` item from the spec is implemented; (c) the verification commands the spec names (tests, lints) actually ran and passed per the DONE summary. Write a one-screen verdict to `tasks/mise-verify/<item-id>.md` ending with a single status line: `STATUS: PASS` (or one of the failure codes above) and a one-paragraph rationale citing file:line evidence. Reply EXACTLY `DONE: <path>`. No prose in chat.
+   - **Verifiers are wave-scoped, not item-scoped — batch them.** Dispatch all wave verifiers concurrently after all wave executors return. Wave gate moves only when all verifiers are PASS.
+   - On any non-PASS verdict, EM reads the verdict file and decides: (a) re-dispatch executor with adjusted spec, (b) revert out-of-bounds changes and re-plan footprint, (c) defer to a later wave, (d) early-stop per "When to Stop." Work from the verdict + diff, not the executor's transcript.
+   - **Mark complete + tracker sweep:** On PASS, update task via TaskUpdate. **Re-run the canonical tracker sweep** — update every match to reflect completion. If the executor ran its own sweep, verify; fix gaps.
 
 3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes.
 

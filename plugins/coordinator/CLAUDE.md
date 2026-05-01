@@ -11,15 +11,31 @@ Two tiers:
 
 ## Codebase Investigation
 
-Lookup order when you need to understand the codebase:
+Context is the EM's scarcest resource. Investigation lookups are tiered: start at the cheapest tier that could answer the question, escalate one step at a time, never skip. Full doctrine: `docs/wiki/tiered-context-loading.md`.
 
-1. **Accumulated knowledge first.** Architecture atlas (`tasks/architecture-atlas/`), wiki (`docs/wiki/DIRECTORY_GUIDE.md`), repomap (`tasks/repomap.md`), docs index (`docs/README.md`). Skip silently if absent.
-2. **Project-RAG step 1.5.** If any `mcp__*project-rag*` tools are available in this session, prefer them over grep/Explore for any code-shaped lookup before dispatching a scout. Symbol-shaped questions ("where is X defined", "which class handles Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does subsystem X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
-3. **Dispatch a Sonnet scout, don't search yourself.** Use `Explore` for read-only briefs; `general-purpose` when the deliverable must land on disk. Brief like a teammate. The EM's context is the scarcest resource — protect it.
+**Tier 0 — Boot context (always present).** `orientation_cache.md`, `lessons.md`, session memory. Loaded at start; no tool call needed. Check these before any lookup.
 
-**Exceptions (EM may search directly):** reading a single known file before editing; 1-2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup.
+**Tier 1 — Curated narrative (on demand).** Architecture atlas (`tasks/architecture-atlas/`), wiki guides (`docs/wiki/`), decision records (`docs/decisions/`), docs index (`docs/README.md`). ≤8K tokens per fetch. For subsystem-shaped questions ("how does X work", "what decisions were made about Y"), this tier answers most questions without any code inspection.
+
+**Tier 2 — Structured query (on demand).** If any `mcp__*project-rag*` tools are available, prefer them over grep or scout for any code-shaped lookup. Symbol-shaped questions → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped → `project_subsystem_profile`. Impact → `project_referencers` with depth=2. `bin/query-records` for frontmatter-indexed records. Stale RAG still beats grep on structure. ≤2K tokens per query.
+
+**Tier 3 — Targeted code/grep (on demand).** `Read` of a known path, `Grep` for a specific symbol, `Glob` for pattern discovery. Use when tier 1–2 leave a specific gap — exact line numbers, recent additions not yet in the atlas, a symbol not in the RAG index. ≤4K tokens per call.
+
+**Tier 4 — Sonnet scout (last resort).** Dispatch `Explore` (read-only briefs) or `general-purpose` (deliverable lands on disk) only when tiers 1–3 have returned nothing useful for the question. The EM's context is the scarcest resource — offloading to a scout is not free.
+
+**Tier-4 rationale rule (hard requirement).** Every `Agent` dispatch with `subagent_type` in `{Explore, general-purpose, deep-research:*, feature-dev:code-explorer}` MUST begin with:
+```
+Tier 1-3 attempted: <what each returned>; insufficient because <reason>.
+```
+Dispatches missing this preamble are flagged by the telemetry hook as `rationale_present: false` and are reviewable by Patrik.
+
+**Exceptions (EM may go direct without full escalation):** reading a single known file before editing; 1–2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup. Tier-4 rationale rule still applies when dispatching scouts.
 
 Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief.
+
+## Live Queries vs. Scaffolded Indices
+
+When the answer is derivable from frontmatter on tracked records, prefer `bin/query-records` over hand-maintained tables. Static scaffolding is for narrative content; queries are for structured records. `/update-docs` regenerates query callouts via `bin/refresh-queries.js`. Add a query callout (with sentinel comments) rather than a static list whenever the data is schema'd.
 
 ## Internet Research
 
@@ -44,6 +60,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 - **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
 - **Tripwire — gh-merge prohibition in doc-maintenance dispatch prompts:** Three skills dispatch Sonnet agents that touch git and must carry an explicit "DO NOT run `gh pr merge`, `gh pr create` against main, or `git push origin main`" prohibition inline in their dispatch prompt: `/update-docs` (Execution model paragraph, Phases 1–11b dispatch), `/distill` (any Phase that commits or pushes), `/architecture-audit` (Phase 4 integration commit). When adding a NEW skill that dispatches a Sonnet agent with write access to git, add it to this list. Purpose: prevent doc-maintenance agents from autonomously merging PRs to main (postmortem: 2026-05-01 incident where `/update-docs` Phase 9 agent created and merged PR #6 directly).
+
+- **Tripwire — query callouts:** Live `<!-- BEGIN query: ... -->` callouts in markdown files are regenerated by `bin/refresh-queries.js`. Edit the callout spec line, never the expanded block — the expansion will be overwritten on next refresh. `refresh-queries.sh` runs as part of `/update-docs` Phase 11c; `--check` is the verification mode for ad-hoc validation (e.g., pre-merge). When introducing a new query callout, run `bin/refresh-queries.sh` locally before committing.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -187,7 +205,7 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting 
 - **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
 - **Use `/merge-to-main`** or `/workday-complete` to integrate. Never push directly.
 - **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Two ceremonies are exempt and use `--blanket`: `/session-start` and `/workday-complete` (set `CLAUDE_INVOKING_COMMAND` accordingly). Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`.
-- **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
+- **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification. Setting `CLAUDE_SESSION_ID` inline (`CLAUDE_SESSION_ID=… safe-commit`) works for single-call use but does not change cross-session resolution behavior — the variable is per-invocation, not session-sticky.
 - **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
 - **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start` (consolidate, defer, or archive). See `bin/sync-main.sh` and the workday-start Step 0 contract.
 
