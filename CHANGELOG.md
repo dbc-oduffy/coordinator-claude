@@ -2,6 +2,23 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.7.0] — 2026-05-01
+
+### Theme — Portable Ideas from Obsidian (W1+W2+W3)
+
+Three workstreams percolated from `~/.claude` HEAD as a single bundle (R2 APPROVED_WITH_NOTES, all 7 findings integrated). Schemas + lint belt, live-query primitives, and tiered context-loading doctrine — each tackling a different decay mode in the coordinator pipeline.
+
+### Added
+- **W1 — Frontmatter schemas + lint belt + PreToolUse validator.** New `schemas/{handoff,plan,review,decision,worker-run,lesson-entry}.yaml`, shared `bin/lib/schema.{js,test.js}` validator (with code-span / link-text robustness), `bin/lint-frontmatter.{sh,js}` CLI, and `hooks/scripts/validate-frontmatter-schema.{js,test.js}` PreToolUse hook (default WARN mode; `COORDINATOR_SCHEMA_STRICT=1` to deny).
+- **W2 — Live queries CLI + sentinel-block primitives.** `bin/query-records.{js,sh}` queries frontmatter-indexed records; `bin/refresh-queries.{js,sh}` regenerates `<!-- BEGIN query: ... -->` callouts in markdown (consumed by `/update-docs` Phase 11c); `bin/lib/sentinel-blocks.{js,test.js,cli.js}` factor out shared sentinel-block extraction (now delegated by `verify-preamble-sync.sh` and `verify-calibration-sync.sh`).
+- **W3 — Tiered context loading doctrine + telemetry.** New `docs/wiki/tiered-context-loading.md` canonical guide; `coordinator/CLAUDE.md` "Codebase Investigation" section rewritten to enumerate tiers 0–4 plus the tier-4 rationale rule; `hooks/scripts/track-tier-usage.sh` PostToolUse telemetry counter classifies each tool call by tier and detects the rationale preamble; `/session-end` Step 0 emits a tier-usage report.
+
+### Changed
+- **Doctrine + preamble syncs** across `CLAUDE.md`, `agents/staff-eng`, and commands `{distill, handoff, mise-en-place, session-start, session-end, update-docs}` to thread the new tiered-context model and rationale rule through the agent surfaces that consume them.
+
+### Internal
+- Test coverage for `schema.js` (code-span / link-text edge cases), `query-records`, and `sentinel-blocks` modules.
+
 ## [1.6.0] — 2026-05-01
 
 ### Theme — Orphan-Branch Prevention
