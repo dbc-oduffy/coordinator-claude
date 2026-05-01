@@ -51,6 +51,11 @@ Get on the right branch:
    `git checkout {branch}`
 
    If no branch for today (or today's was already merged):
+   Run sync-main invariant first:
+   ```bash
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh --quiet
+   ```
+   If it exits non-zero, report the divergence to the PM before creating the branch.
    Create: `git checkout -b work/{machine}/{date}`
    If name collision: append suffix: `work/{machine}/{date}-2`
 

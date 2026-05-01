@@ -61,6 +61,12 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    **If on main with unpushed commits ahead of origin/main:**
    These commits need to go through a PR, not be pushed directly. Auto-recover:
    ```bash
+   # Sync-main invariant: verify origin/main is reachable before creating branch.
+   # If local main is ahead of origin/main, abort rather than creating a stale branch.
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh || {
+     echo "sync-main.sh failed — local main has diverged. Investigate before creating a recovery branch."
+     exit 1
+   }
    # Determine branch name using git-workflow conventions
    BRANCH="work/$(hostname | tr '[:upper:]' '[:lower:]')/$(date +%Y-%m-%d)"
    git checkout -b "$BRANCH"
@@ -213,6 +219,24 @@ This blocks until all checks complete.
 
 ### Step 4: Merge
 
+**Pre-merge quiet check (5-minute activity gate).** Source branches still receiving commits in the last 5 minutes indicate active work that may not belong in this merge. Run before `gh pr merge`:
+
+```bash
+# Get the timestamp of the last commit on the PR's source branch via gh
+last_iso=$(gh pr view "$PR" --json commits -q '.commits[-1].committedDate')
+last=$(python -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$last_iso")
+now=$(python -c "import time; print(int(time.time()))")
+if [ $((now - last)) -lt 300 ]; then
+  branch=$(gh pr view "$PR" --json headRefName -q .headRefName)
+  echo "Source branch $branch has commits younger than 5 minutes — wait for activity to settle, or pass --force-merge-active-branch."
+  exit 1
+fi
+```
+
+**Note:** `gh pr view --json commits` returns commits in chronological order (verified against gh 2.87.3). `.commits[-1]` is the newest commit.
+
+**Override:** If `$ARGUMENTS` contains `--force-merge-active-branch`, skip this gate entirely. Use for deliberate fast merges where the 5-minute window is known-safe.
+
 Use merge commit (not squash) — preserves commit history as breadcrumbs.
 
 ```bash
@@ -285,6 +309,14 @@ If on a worktree: `git worktree remove <path>` instead.
 - **Branch deleted:** {branch} (local + remote)
 - **Now on:** main @ {sha}
 ```
+
+**Other unmerged branches:**
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
+```
+
+If any output: include in the report and recommend: _"Multiple work branches in flight — verify these don't carry work intended for this PR."_
 
 ## Red Flags
 

@@ -80,11 +80,15 @@ project=$(basename "$(git rev-parse --show-toplevel)")
 ### 2. Create Worktree
 
 ```bash
+# Sync-main invariant: ensure local main == origin/main before branching.
+~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
+# If sync-main.sh exits non-zero, stop — do not create a worktree from stale main.
+
 # Determine full path
 path="$LOCATION/$BRANCH_NAME"
 
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
+# Create worktree with new branch off the now-current main
+git worktree add "$path" -b "$BRANCH_NAME" main
 cd "$path"
 ```
 

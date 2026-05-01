@@ -157,6 +157,8 @@ The Opus agent produces all atlas artifacts:
 
 ## Phase 4: Integration and Report (YOU do this)
 
+**Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; architecture-audit agents do not.
+
 1. **Review atlas for completeness:**
    - Every system has a file in `systems/`
    - `systems-index.md` has a row for every system

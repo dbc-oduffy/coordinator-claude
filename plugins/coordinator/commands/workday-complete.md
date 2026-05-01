@@ -62,6 +62,12 @@ Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count entries in the `#
 
 Consolidate all of today's work branches for this machine into one clean branch.
 
+0. **Sync-main invariant** (run before any branch ops):
+   ```bash
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
+   ```
+   If it exits non-zero, report to PM — do not proceed with consolidation until main is synced.
+
 1. **Discover branches:**
    ```bash
    MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
