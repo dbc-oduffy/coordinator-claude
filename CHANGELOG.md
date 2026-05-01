@@ -2,6 +2,33 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.6.0] — 2026-05-01
+
+### Theme — Orphan-Branch Prevention
+
+In response to a 2026-05-01 postmortem (15 commits stranded for 22 hours on a branch whose source-PR had already merged, with downstream sessions actively rewriting docs to claim "shipped"), the coordinator pipeline gains structural defenses against orphan branches and false "shipped" claims. Three shared helpers, six surfaces hardened, one paragraph of doctrine.
+
+### Added
+- **`bin/orphan-branch-sweep.sh`** — enumerates `work/*` and `feature/*` branches owned by the user, classifies CRITICAL (commits added after a PR merged from this branch) / WARNING (no PR, ahead, ≥2 days old or >36h) / OK. JSON or text output, `--severity-min` filtering eliminates `| jq` / `| grep` parsing at every call site.
+- **`bin/sync-main.sh`** — fetch + ff-only invariant called before any branch creation. Uses `git fetch origin main:main` refspec form so local `main == origin/main` regardless of which branch the working tree is on. Every `git checkout -b` site in the coordinator pipeline now runs this first.
+- **`bin/check-shipped-on-main.sh`** — thin wrapper around `git merge-base --is-ancestor` so "shipped" claims have a single authoritative answer.
+- **`commands/workday-start.md` Step 0.5** — new orphan sweep surfaces CRITICAL/WARNING branches in the Morning Briefing before any new work begins.
+- **`commands/workday-start.md` Step 0 Branch Reconciliation Decision** — when yesterday's branch can't be merged forward, the PM is forced to choose A (consolidate now) / B (defer with re-check date in `tasks/.deferred-branches.md`) / C (archive). TTY-aware: blocks interactively, auto-defers in non-interactive (overnight) sessions.
+- **Tracking file `tasks/.deferred-branches.md`** — single-line entries managed by the Branch Reconciliation Decision flow; surfaced when re-check date arrives.
+
+### Changed
+- **`commands/handoff.md` Step 3** — pre-flight reachability check on completed-work commits. When commits aren't on `origin/main`, "shipped" wording is replaced with "complete on branch, not yet merged" and a `## Not Yet On Main` section is appended.
+- **`commands/update-docs.md`, `commands/distill.md`, `commands/architecture-audit.md`** — explicit DO-NOT-MERGE prohibition inline in Sonnet dispatch prompts. Closes the 2026-05-01 rogue-merge trigger (a doc-maintenance Sonnet ran `gh pr merge` autonomously).
+- **`skills/merging-to-main/SKILL.md`** — Step 4 5-min quiet gate (cross-platform `gh`+Python snippet, override via `--force-merge-active-branch`); Step 6 reports other unmerged branches owned by the user.
+- **`skills/using-git-worktrees/SKILL.md`, `commands/workday-complete.md`, `commands/session-start.md`** — `sync-main.sh` injected at every branch-creation site.
+- **`coordinator/CLAUDE.md`** — one paragraph added to "Verification Before Done" ("Shipped means on `origin/main`, not on a branch tip"), one bullet under "Git Commit Policy" pointing at `sync-main.sh` + the workday-start contract, and a tripwire entry naming the three skills that must carry the gh-merge prohibition. Aggressive compression — ~5 lines total addition, lean per-PM-direction.
+
+### Internal
+- **Test fixture** `tests/plugins/orphan-sweep.test.js` covering the three severity classes with stubbed `gh`.
+
+### Why this matters
+The git tree is the only authoritative answer to "is this shipped." Handoffs, docs, and orientation cache are downstream artifacts that inherit any lie planted upstream — in the postmortem, a single false "shipped" claim propagated through five layers of artifacts in 24 hours, and a follow-on session struck a real shipped tool from the docs as "never built." This release closes the surfaces where that lie can be authored.
+
 ## [1.5.0] — 2026-04-30
 
 ### Theme — Build For Someone Else's Machine
