@@ -186,7 +186,7 @@ After loading, note briefly: _"Loaded holodeck delegation context — Tier 2 (do
 
 ### Project-RAG subsystem context
 
-**Conditional on MCP availability:** Only if `holodeck-project-rag` MCP tools are available (check via ToolSearch for `mcp__holodeck-project-rag__project_subsystem_profile`). Skip silently if unavailable.
+**Conditional on MCP availability:** Only if `project-rag` MCP tools are available (check via ToolSearch for `mcp__project-rag__project_subsystem_profile`). Skip silently if unavailable.
 
 When available, call `project_subsystem_profile()` with no arguments (list mode) to discover the project's subsystem map. This returns subsystem names with file counts — enough for the EM to know what's available without loading full profiles.
 
