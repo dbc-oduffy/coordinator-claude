@@ -121,7 +121,7 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
-**Skip silently** if `ToolSearch` does not find any `mcp__holodeck-project-rag__*`
+**Skip silently** if `ToolSearch` does not find any `mcp__project-rag__*`
 tool. This is the same gate pattern used in Step (project-rag block) of
 `session-start.md` — coordinator does not depend on the project-rag plugin; it
 only adapts when the plugin is present. No warning emitted on skip.
@@ -130,12 +130,12 @@ When present:
 
 1. Resolve the registered project root from `~/.claude.json`:
    ```bash
-   python -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); print(d['mcpServers']['holodeck-project-rag']['args'][-1])"
+   python -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); print(d['mcpServers']['project-rag']['args'][-1])"
    ```
    This returns the `--project-root` value passed to the MCP server boot.
 
-2. Locate the holodeck-project-rag plugin's cli.py. The path is recorded in
-   `~/.claude.json` → `mcpServers.holodeck-project-rag.args` (the script path).
+2. Locate the project-rag plugin's cli.py. The path is recorded in
+   `~/.claude.json` → `mcpServers.project-rag.args` (the script path).
    Use the same parse as step 1 to extract it.
 
 3. Invoke the staleness survey:

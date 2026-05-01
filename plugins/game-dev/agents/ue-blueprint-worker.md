@@ -115,7 +115,7 @@ Two extraction scripts produce the **same output schema** as live MCP inspection
 - Output: `bps/batch-NNNN.json` (50 BPs each) + `asset-registry.jsonl` + `referencers.jsonl`.
 - **Best for:** Full project surveys, RAG indexing, any task where you need data from more than ~20 BPs.
 
-### Editor-based extraction (`plugin/holodeck-project-rag/scripts/safe_bp_extract.py`)
+### Editor-based extraction (`project-rag/scripts/safe_bp_extract.py`)
 - Runs via `execute_python_code` inside a live editor session.
 - Checkpointed, one-BP-at-a-time, resumable after editor restarts.
 - **Best for:** Incremental updates when the editor is already open, or when the headless commandlet isn't available.

@@ -37,7 +37,7 @@ This discovers and runs all `validate-*.py` and `check-*.py` scripts by conventi
 
 ### Project-RAG Staleness (conditional)
 
-If `ToolSearch` finds any `mcp__holodeck-project-rag__*` tool, run the
+If `ToolSearch` finds any `mcp__project-rag__*` tool, run the
 staleness-survey script (same invocation as workday-start Step 3.6). If the
 verdict is `stale` or `very-stale`, surface it in the evening report:
 
