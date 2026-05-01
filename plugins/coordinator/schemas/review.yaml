@@ -1,0 +1,15 @@
+schema: review
+applies_to: "tasks/reviews/*.md"
+required:
+  title: string
+  created: iso-date
+  reviewer:
+    type: enum
+    values: [patrik, sid, camelia, pali, fru, zoli]
+  target: string
+  findings_count:
+    type: number
+optional:
+  branch: string
+  commit: string
+  disposition: string
