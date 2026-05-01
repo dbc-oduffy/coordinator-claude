@@ -104,12 +104,43 @@ if [[ ! -d "$SESSION_DIR" ]]; then
     git rev-parse HEAD 2>/dev/null > "${SESSION_DIR}/head_at_start" || echo "unknown" > "${SESSION_DIR}/head_at_start"
     BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     printf '{"session_id":"%s","branch":"%s","pid":"%s","last_activity":"%s","goal":""}\n' \
-      "$SESSION_ID" "$BRANCH" "$$" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "${SESSION_DIR}/meta.json"
+      "$SESSION_ID" "$BRANCH" "$PPID" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "${SESSION_DIR}/meta.json"
   fi
 fi
 
 # Ensure touched.txt exists
 [[ -f "$TOUCHED_FILE" ]] || touch "$TOUCHED_FILE"
+
+# ---------------------------------------------------------------------------
+# W1.0b: Record live $PPID in meta.json so PPID-walk has a live ancestor.
+#
+# cs_init writes $$ (the hook subprocess PID) which is dead by the time
+# coordinator-safe-commit runs. $PPID here is the Bash-tool shell that spawned
+# this hook — a live ancestor that IS on the helper's process chain.
+#
+# Atomic write: write to a tempfile then mv-rename to avoid partial-read races.
+# Uses jq --arg to avoid filter-injection (unlike the pre-existing
+# ".${field}" patterns in coordinator-session.sh:104,119 slated for W6).
+# Falls back to sed if jq is unavailable.
+# ---------------------------------------------------------------------------
+_META_JSON="${SESSION_DIR}/meta.json"
+if [[ -f "$_META_JSON" ]]; then
+  _LIVE_PID="$PPID"
+  _META_TMP="${_META_JSON}.pid.$$"
+  if command -v jq &>/dev/null; then
+    if jq --arg p "$_LIVE_PID" '.pid = $p' "$_META_JSON" > "$_META_TMP" 2>/dev/null; then
+      mv -f "$_META_TMP" "$_META_JSON" 2>/dev/null || rm -f "$_META_TMP"
+    else
+      rm -f "$_META_TMP"
+    fi
+  else
+    # sed fallback — replaces the first "pid" string value in meta.json
+    sed "s/\"pid\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"pid\": \"${_LIVE_PID}\"/" \
+      "$_META_JSON" > "$_META_TMP" 2>/dev/null \
+      && mv -f "$_META_TMP" "$_META_JSON" 2>/dev/null \
+      || rm -f "$_META_TMP"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Normalize file_path to repo-relative.

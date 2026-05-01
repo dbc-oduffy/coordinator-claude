@@ -1,0 +1,22 @@
+schema: worker-run
+applies_to: "tasks/worker-runs/*.md"
+required:
+  title: string
+  created: iso-date
+  worker:
+    type: enum
+    values:
+      - test-evidence-parser
+      - security-audit-worker
+      - dep-cve-auditor
+      - doc-link-checker
+      - bp-test-evidence-parser
+      - perf-trace-classifier
+      - schema-migration-auditor
+  target: string
+  findings_count:
+    type: number
+optional:
+  branch: string
+  commit: string
+  run_command: string
