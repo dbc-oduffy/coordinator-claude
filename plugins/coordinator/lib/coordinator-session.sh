@@ -89,7 +89,7 @@ _cs_iso_to_epoch() {
   local epoch
   epoch=$(date -u -d "$iso" +%s 2>/dev/null) \
     || epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null) \
-    || epoch=$(python3 -c "import datetime; print(int(datetime.datetime.fromisoformat('${iso%Z}').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
+    || epoch=$(python3 -c 'import sys, datetime; iso=sys.argv[1]; iso = iso[:-1] if iso.endswith("Z") else iso; print(int(datetime.datetime.fromisoformat(iso).replace(tzinfo=datetime.timezone.utc).timestamp()))' "$iso" 2>/dev/null) \
     || epoch=0
   echo "$epoch"
 }
@@ -101,8 +101,15 @@ _cs_read_meta_field() {
   local meta="${sdir}/meta.json"
   [[ -f "$meta" ]] || { echo ""; return; }
   if command -v jq &>/dev/null; then
-    jq -r ".${field} // empty" "$meta" 2>/dev/null || true
+    # W6.2: pass field via --arg to jq (no shell interpolation into jq filter).
+    jq --arg f "$field" -r '.[$f] // empty' "$meta" 2>/dev/null || true
   else
+    # W6.4: sed fallback — used only when jq is unavailable. The regex
+    # interpolates ${field} into the pattern; callers MUST ensure $field is a
+    # safe identifier (matching ^[a-zA-Z_][a-zA-Z0-9_]*$). The internal API
+    # only uses literal field names ("pid", "started_at"), never user input.
+    # If a future caller passes user-controlled field names, switch to a
+    # python/awk fallback or hard-fail.
     sed -n "s/.*\"${field}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$meta" | head -1
   fi
 }
@@ -115,10 +122,16 @@ _cs_update_meta_field() {
   local meta="${sdir}/meta.json"
   [[ -f "$meta" ]] || return 1
   if command -v jq &>/dev/null; then
+    # W6.3: pass both field and value via --arg (no shell interpolation into jq filter).
     local tmp
-    tmp=$(jq --arg v "$value" ".${field} = \$v" "$meta" 2>/dev/null) && echo "$tmp" > "$meta"
+    tmp=$(jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$meta" 2>/dev/null) && echo "$tmp" > "$meta"
   else
-    # sed in-place fallback — replaces the first occurrence of "field": "..."
+    # W6.4: sed in-place fallback — used only when jq is unavailable. ${field}
+    # and ${value} are interpolated into the regex/replacement; callers MUST
+    # ensure neither contains regex metacharacters or sed delimiter characters.
+    # The internal API only writes literal field names + sanitized session
+    # values (PIDs, ISO timestamps), never user input. If a future caller
+    # passes user-controlled values, switch to a python/awk fallback.
     sed -i "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${value}\"/" "$meta" 2>/dev/null || true
   fi
 }
@@ -177,6 +190,47 @@ cs_init() {
   "goal": "${goal}"
 }
 METAJSON
+  fi
+
+  return 0
+}
+
+# cs_write_sentinel <session_id>
+#   Atomically write the sentinel file (.current-session-id) so readers never
+#   observe a partial write. Uses tempfile + mv -f (rename is atomic on most
+#   POSIX filesystems). On Windows + Git Bash, antivirus may lock the sentinel
+#   target during the rename window; in that case, fall back to a direct write
+#   and emit a warning so the caller can log the degraded-atomicity path.
+#
+#   W1.4 spec backlink: plan — atomic sentinel writes with locked-file fallback.
+#
+#   Returns 0 on success (including the fallback path). Returns 1 only if the
+#   sessions directory cannot be determined (no git repo).
+cs_write_sentinel() {
+  local sid="${1:?session_id required}"
+  local base
+  base=$(_cs_sessions_dir) || return 1
+
+  local sentinel="${base}/.current-session-id"
+  local tmp="${base}/.current-session-id.${$}"
+
+  # Ensure sessions dir exists
+  mkdir -p "$base"
+
+  # Write to tempfile first, then rename for atomicity
+  if printf '%s\n' "$sid" > "$tmp" 2>/dev/null; then
+    if mv -f "$tmp" "$sentinel" 2>/dev/null; then
+      return 0
+    else
+      # mv failed — likely AV locking on Windows + Git Bash
+      rm -f "$tmp" 2>/dev/null || true
+      echo "[coordinator-session] WARN: sentinel rename failed (target may be AV-locked); used direct write — partial-read race possible" >&2
+      printf '%s\n' "$sid" > "$sentinel" 2>/dev/null || return 0
+    fi
+  else
+    # tempfile write failed — fall back to direct write
+    echo "[coordinator-session] WARN: sentinel rename failed (target may be AV-locked); used direct write — partial-read race possible" >&2
+    printf '%s\n' "$sid" > "$sentinel" 2>/dev/null || return 0
   fi
 
   return 0
@@ -324,15 +378,31 @@ cs_compute_scope() {
   fi
 
   # --- Step 4: Apply subtraction and emit MY_SCOPE ---
+  # W3 (Patrik R1 finding #1): distinguish "another session owns this" from
+  # "stale self-claim" when CLAUDE_SESSION_ID is set but resolution diverged.
+  # Append "(your session=<resolved>)" for disambiguation in the normal case.
   local my_scope=()
+  local env_sid="${CLAUDE_SESSION_ID:-}"
+  local excluded_count=0
   for candidate in "${touched_set[@]:-}"; do
     [[ -z "$candidate" ]] && continue
     if [[ -v "other_claims[$candidate]" ]]; then
-      echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
+      local claim_sid="${other_claims[$candidate]}"
+      if [[ -n "$env_sid" && "$claim_sid" == "$env_sid" ]]; then
+        echo "skipping ${candidate} — stale self-claim from this session (resolved=${sid}, env=${env_sid}) — investigate session ID resolution" >&2
+      else
+        echo "skipping ${candidate} — owned by session ${claim_sid} (your session=${sid})" >&2
+      fi
+      (( excluded_count++ )) || true
     else
       my_scope+=("$candidate")
     fi
   done
+
+  # W3 epilogue: when ≥1 file was excluded, point the user at the right diagnostic.
+  if (( excluded_count > 0 )); then
+    echo "  hint: if your files are being skipped as 'owned by another session' but you wrote them, your session ID resolution is wrong (see ~/.claude/docs/wiki/scoped-safety-commits.md troubleshooting)" >&2
+  fi
 
   # --- Step 5: Orphan detection ---
   for dfile in "${dirty_files[@]:-}"; do

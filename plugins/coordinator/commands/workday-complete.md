@@ -37,7 +37,7 @@ This discovers and runs all `validate-*.py` and `check-*.py` scripts by conventi
 
 ### Project-RAG Staleness (conditional)
 
-If `ToolSearch` finds any `mcp__holodeck-project-rag__*` tool, run the
+If `ToolSearch` finds any `mcp__project-rag__*` tool, run the
 staleness-survey script (same invocation as workday-start Step 3.6). If the
 verdict is `stale` or `very-stale`, surface it in the evening report:
 
@@ -61,6 +61,12 @@ Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count entries in the `#
 ### Step 2: Branch Consolidation
 
 Consolidate all of today's work branches for this machine into one clean branch.
+
+0. **Sync-main invariant** (run before any branch ops):
+   ```bash
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
+   ```
+   If it exits non-zero, report to PM — do not proceed with consolidation until main is synced.
 
 1. **Discover branches:**
    ```bash
@@ -231,6 +237,42 @@ Run a Codex review of the day's diff against main as an independent-model second
    - _"Codex review gate skipped: {reason}. Daily review from Step 3 stands as the sole review."_
 
 4. **Do not block end-of-day on Codex failure.** The daily review already provides strategic and code-level perspective. Codex is additive — a different model family's perspective — not a replacement.
+
+### Step 3.9: Tier Usage Report
+
+Before the final summary, emit the aggregate tier usage across all sessions active today. This closes the W3 telemetry loop and surfaces whether the tiered-context-loading doctrine was followed.
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" -newer "${HOME}/.claude/projects" 2>/dev/null | \
+while read -r f; do cat "$f"; done | \
+python3 -c "
+import json, sys
+
+totals = {'tier1': 0, 'tier2': 0, 'tier3': 0, 'tier4': 0}
+missing_rationale = 0
+sessions = 0
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        data = json.loads(line)
+        c = data.get('counts', {})
+        for k in totals:
+            totals[k] += c.get(k, 0)
+        missing_rationale += sum(1 for d in data.get('tier4_dispatches', []) if not d.get('rationale_present', True))
+        sessions += 1
+    except Exception:
+        pass
+
+if sessions > 0:
+    print(f'Tier usage today ({sessions} sessions): tier1={totals[\"tier1\"]} tier2={totals[\"tier2\"]} tier3={totals[\"tier3\"]} tier4={totals[\"tier4\"]} ({missing_rationale} tier-4 missing rationale)')
+" 2>/dev/null || true
+```
+
+If no tier-usage files exist (telemetry hook not yet active or no tracked sessions today), skip silently.
 
 ### Step 4: Final Summary
 

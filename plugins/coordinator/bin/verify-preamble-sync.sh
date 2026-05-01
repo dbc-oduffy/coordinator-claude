@@ -20,10 +20,11 @@ BEGIN_SENTINEL='<!-- BEGIN project-rag-preamble (synced from snippets/project-ra
 END_SENTINEL='<!-- END project-rag-preamble -->'
 
 # Resolve plugin root: from env var, or relative to this script's location.
+# SCRIPT_DIR is always set (needed by extract_block shim regardless of CLAUDE_PLUGIN_ROOT).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT"
 else
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
@@ -75,15 +76,12 @@ if [ "$MODE" = "--list" ]; then
 fi
 
 # --- extract sentinel block content from a file ---
-# Prints the lines strictly between BEGIN and END sentinels (exclusive).
-# Uses index() in awk for fixed-string matching to avoid regex metacharacter issues.
+# Delegates to sentinel-blocks-cli.js (bin/lib/sentinel-blocks-cli.js) so the extraction
+# logic is shared with verify-calibration-sync.sh and refresh-queries.js — one source of truth.
+# Review: patrik R2 finding 0 — factor shared extraction primitive; replace inlined awk.
 extract_block() {
     local file="$1"
-    awk -v begin="$BEGIN_SENTINEL" -v end="$END_SENTINEL" '
-        index($0, begin) { found=1; next }
-        index($0, end)   { found=0; next }
-        found            { print }
-    ' "$file"
+    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
 }
 
 # Read snippet body: skip the first line (comment header) and any following blank line.

@@ -72,8 +72,16 @@ else
     "$SESSION_ID" "$BRANCH" "$$" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" > "${SESSION_DIR}/meta.json"
 fi
 
-# --- Write the .current-session-id sentinel ---
+# --- Write the .current-session-id sentinel (atomic via cs_write_sentinel) ---
 # This is what coordinator-safe-commit's Priority-2 resolution reads.
-echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
+# cs_write_sentinel uses tempfile + mv -f for atomicity; falls back to direct
+# write with a warning when the rename target is AV-locked (Windows + Git Bash).
+# The lib is already sourced above; on the no-lib path, we fall back to a plain
+# redirect (same behaviour as before this change — the else branch has no lib).
+if declare -f cs_write_sentinel &>/dev/null; then
+  cs_write_sentinel "$SESSION_ID" 2>/dev/null || true
+else
+  echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
+fi
 
 exit 0
