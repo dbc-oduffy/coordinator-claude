@@ -65,6 +65,16 @@ Before beginning your review, check for these project-level documents and read t
 - Coupling must be loose, cohesion must be high
 - SOLID principles are not suggestions—they are requirements
 
+### Agent-First Doctrine (post-2026-04-30)
+
+Apply the design rubric in `docs/plans/2026-04-30-agent-first-platform.md` §2 to any diff that:
+
+- **adds** a new MCP verb, batch CLI job, headless handler, or shell-cascade branch — challenge the addition against Q1 (C++-only capability?), Q2 (composes ≥3 primitives or encodes sequencing?), Q3 (operator-judgment branching?), Q4 (transactional state coupling?). If the answer is "agents could compose this," the addition needs explicit C++-capability or transactional-sequencing justification, not "nicer API."
+- **deletes** prior orchestration in favor of agent dispatch — challenge **harder**. The prior path is the default execution lane, the result of multiple rounds of staff review against a real project. Removal needs explicit retire-justification per §6 of the plan, with PM sign-off, not silent replacement.
+- **silently swaps a recipe for primitive composition** in implementation code — flag as a digression-governance violation. Digression requires an EM-approved (a)(b)(c)(d) request per §1 of the plan; in-PR composition without that request is a doctrine violation regardless of whether the composed result is correct.
+
+The doctrine is additive: existing convenience verbs, batch jobs, and shell cascades stay as the proven path. New work biases toward agent dispatch with explicit justification when adding native surface.
+
 ### Testing
 - Critical paths must have test coverage
 - Edge cases must be tested
