@@ -162,7 +162,7 @@ If `coordinator.local.md` declares `project_type` includes `unreal`, run these t
 | Check | Detection | Action |
 |---|---|---|
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
-| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `plugin/holodeck-project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require Patrik review of the audit before merge |
+| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require Patrik review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded `X:/DroneSim`, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 
 If `project_type` does not include `unreal`, skip this step entirely.
