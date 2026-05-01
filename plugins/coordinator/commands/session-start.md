@@ -51,6 +51,11 @@ Get on the right branch:
    `git checkout {branch}`
 
    If no branch for today (or today's was already merged):
+   Run sync-main invariant first:
+   ```bash
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh --quiet
+   ```
+   If it exits non-zero, report the divergence to the PM before creating the branch.
    Create: `git checkout -b work/{machine}/{date}`
    If name collision: append suffix: `work/{machine}/{date}-2`
 
@@ -186,7 +191,7 @@ After loading, note briefly: _"Loaded holodeck delegation context — Tier 2 (do
 
 ### Project-RAG subsystem context
 
-**Conditional on MCP availability:** Only if `holodeck-project-rag` MCP tools are available (check via ToolSearch for `mcp__holodeck-project-rag__project_subsystem_profile`). Skip silently if unavailable.
+**Conditional on MCP availability:** Only if `project-rag` MCP tools are available (check via ToolSearch for `mcp__project-rag__project_subsystem_profile`). Skip silently if unavailable.
 
 When available, call `project_subsystem_profile()` with no arguments (list mode) to discover the project's subsystem map. This returns subsystem names with file counts — enough for the EM to know what's available without loading full profiles.
 

@@ -14,6 +14,27 @@ When invoked, capture lessons and update plan/project documentation to reflect c
 
 **Design note:** Multiple agents may be running concurrently. This skill closes out ONE agent's session without heavy repo-wide operations that could conflict with other agents.
 
+### Step 0: Tier Usage Report
+
+Before capturing lessons, emit the tier usage summary for this session. This closes the W3 telemetry loop — the PM sees whether the tiered-context-loading doctrine was followed.
+
+```bash
+SESSION_JSON=$(find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" 2>/dev/null | \
+  xargs ls -t 2>/dev/null | head -1)
+if [[ -n "$SESSION_JSON" && -f "$SESSION_JSON" ]]; then
+  python3 -c "
+import json, sys
+data = json.load(open('${SESSION_JSON}'))
+c = data.get('counts', {})
+t4 = data.get('tier4_dispatches', [])
+missing = sum(1 for d in t4 if not d.get('rationale_present', True))
+print(f\"Tier usage this session: tier1={c.get('tier1',0)} tier2={c.get('tier2',0)} tier3={c.get('tier3',0)} tier4={c.get('tier4',0)} ({missing} tier-4 missing rationale)\")
+" 2>/dev/null || true
+fi
+```
+
+If the JSON file doesn't exist (first session, telemetry hook not yet active, or no tracked tools fired), skip silently — do not error.
+
 ### Step 1: Capture Lessons
 
 Read `tasks/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first.

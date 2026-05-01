@@ -17,6 +17,8 @@ When invoked, systematically update all documentation artifacts to match reality
 
 **Execution model:** Phases 1–11b are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
 
+**Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; the doc-maintenance agent does not.
+
 ### What This Does
 
 1. **Detects** project tracker and flags if missing (escalates to PM)
@@ -274,6 +276,22 @@ Run the preamble sync verification script:
 
 **If the script exits 0:** Note in Phase 13 report: "Preamble sync: in sync."
 
+#### Phase 11c: Query Callout Refresh
+
+Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... -->` blocks in tracked markdown files:
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/refresh-queries.sh
+```
+
+**If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 13 report: "Query callouts: N file(s) updated."
+
+**If the script exits non-zero** (parse error or query failure): surface the error to PM with the stderr output. Do NOT abort the rest of `/update-docs` — log the failure and continue.
+
+**If the script reports no changes:** note in the Phase 13 report: "Query callouts: up to date."
+
+**If the script is absent** (not yet deployed): skip silently and note "query callout refresh: script not found — W2 may not be deployed yet."
+
 #### Phase 12: Artifact Distillation (Conditional)
 
 **Skip this phase if `--no-distill` was passed.**
@@ -346,6 +364,9 @@ Present a concise summary:
 
 ### Preamble Sync
 - [In sync / FAILED — diff surfaced to PM / Script not found (W2 not deployed)]
+
+### Query Callouts
+- [Up to date / N file(s) updated / Error — stderr surfaced to PM / Script not found (W2 not deployed)]
 
 ### Distillation
 - [Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]

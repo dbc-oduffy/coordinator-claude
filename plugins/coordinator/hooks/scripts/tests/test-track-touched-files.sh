@@ -150,6 +150,41 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T9: W1.0b — meta.json.pid updated to $PPID (a live ancestor PID) on each fire
+#
+# The hook's $PPID is the calling bash process — which IS alive for the
+# duration of this test. We record the current test-process PID before calling
+# the hook; meta.json.pid must equal that value, and kill -0 must succeed.
+# ---------------------------------------------------------------------------
+rm -rf "$SESSIONS_DIR/$SID"
+
+EXPECTED_PARENT_PID=$$
+make_input "Write" "src/alpha.ts" "$SID" | bash "$HOOK"
+
+if [[ ! -f "$SESSIONS_DIR/$SID/meta.json" ]]; then
+  fail "T9-ppid: meta.json not created"
+else
+  # Extract pid field — use jq if available, else grep+sed
+  if command -v jq &>/dev/null; then
+    RECORDED_PID=$(jq -r '.pid // empty' "$SESSIONS_DIR/$SID/meta.json" 2>/dev/null || true)
+  else
+    RECORDED_PID=$(grep -o '"pid"[[:space:]]*:[[:space:]]*"[^"]*"' "$SESSIONS_DIR/$SID/meta.json" \
+      | sed 's/.*"pid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -1)
+  fi
+
+  if [[ "$RECORDED_PID" == "$EXPECTED_PARENT_PID" ]]; then
+    # Verify the recorded PID is actually alive
+    if kill -0 "$RECORDED_PID" 2>/dev/null; then
+      pass "T9-ppid: meta.json.pid=$RECORDED_PID is live ancestor (kill -0 succeeds)"
+    else
+      fail "T9-ppid: meta.json.pid=$RECORDED_PID is set correctly but kill -0 failed (expected live)"
+    fi
+  else
+    fail "T9-ppid: meta.json.pid=$RECORDED_PID, expected $EXPECTED_PARENT_PID (the test process PID)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$(( PASS + FAIL ))

@@ -1,0 +1,14 @@
+schema: decision
+applies_to: "docs/decisions/*.md"
+required:
+  title: string
+  created: iso-date
+  status:
+    type: enum
+    values: [proposed, accepted, deprecated, superseded]
+  deciders:
+    type: list-of-string
+optional:
+  superseded_by: string
+  context: string
+  driver: string

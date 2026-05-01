@@ -1,0 +1,7 @@
+schema: lesson-entry
+applies_to: "tasks/lessons.md"
+match_mode: inline-tag-per-entry
+entry_pattern: "^\\*\\*[^*]+\\*\\*"
+tag_enum:
+  values: [universal, project]
+  untagged_allowed: true
