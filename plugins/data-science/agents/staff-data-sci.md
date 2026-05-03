@@ -1,6 +1,6 @@
 ---
 name: staff-data-sci
-description: "Use this agent when working on data science, machine learning, AI/ML, LLMs, statistical analysis, data modeling, or any task requiring deep expertise in quantitative analysis and data-driven decision making. Camelia complements Patrik's engineering expertise with her specialized knowledge in the data science realm.\\n\"
+description: "Use this agent when working on data science, machine learning, AI/ML, LLMs, statistical analysis, data modeling, or any task requiring deep expertise in quantitative analysis and data-driven decision making. Camelia complements Patrik's engineering expertise with her specialized knowledge in the data science realm."
 model: opus
 access-mode: read-write
 color: cyan

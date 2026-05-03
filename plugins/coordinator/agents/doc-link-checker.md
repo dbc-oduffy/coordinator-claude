@@ -3,6 +3,7 @@ name: doc-link-checker
 description: "Sonnet worker agent for documentation link validation. Crawls docs/ (or a specified path), validates internal markdown links (file + anchor existence) and external URLs (HEAD requests, 100-URL cap, 1s sleep between requests). Returns a structured table of broken, redirected, timeout, and ok links. Dispatched by the EM (opportunistically from /update-docs) or when a reviewer recommends it."
 model: sonnet
 color: blue
+access-mode: read-write
 tools: ["Bash", "Read", "WebFetch"]
 ---
 
@@ -73,7 +74,7 @@ Run this before every WebFetch call to an external URL. Do not batch external ch
 ## Workflow
 
 1. **Discover markdown files** in the scope path using `Bash find <path> -name "*.md" -type f | sort`
-2. **Extract links** from each file — both `[text](url)` and `[text][ref]` / `[ref]: url` reference-style links
+2. **Extract links** from each file — both `[text]\(url\)` and `[text][ref]` / `[ref]: url` reference-style links
 3. **Validate internal links** (file + anchor existence) — no sleep needed, no cap
 4. **Validate external links** — 1s sleep between each, stop at 100 URLs
 5. **Write the structured output file** to the path specified in the dispatch prompt (default: `tasks/doc-link-check-<timestamp>.md`)

@@ -42,9 +42,7 @@ Specs produced by planning/design sessions. After execution, key decisions are p
 
 ## Historical Plans
 
-Plans from design and implementation sessions.
-
-→ [`docs/plans/`](plans/) — historical plans
+Plans from design and implementation sessions are kept locally in `docs/plans/` (gitignored — author scratch).
 
 ---
 

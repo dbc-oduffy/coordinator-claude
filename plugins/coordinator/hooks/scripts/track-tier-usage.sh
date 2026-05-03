@@ -70,10 +70,40 @@ fi
 [[ -z "$CWD" ]] && CWD="$(pwd 2>/dev/null || echo "unknown")"
 
 # ---------------------------------------------------------------------------
-# Build project slug from cwd — matches coordinator-safe-commit convention.
-# Replace path separators with dashes; strip leading dash.
+# Build project slug from cwd — matches the canonical form in ~/.claude/projects/
+# (e.g. `X--coordinator-claude`, `C--Users-oduffy--claude`).
+#
+# Normalize Windows/MSYS path variants before slug derivation, then collapse all
+# path separators (`/`, `\`, `:`) into single dashes. Without normalization, the
+# leading slash(es) of MSYS form (`/x/path`) or any UNC-ish form (`///path`)
+# survive into the slug as bare leading dashes, producing slugs like
+# `--coordinator-claude` instead of the canonical `X--coordinator-claude`. The
+# orphan tier-usage dirs land in the project working tree at the mangled slug
+# and pollute git status. (issue #23)
 # ---------------------------------------------------------------------------
-PROJECT_SLUG=$(echo "$CWD" | sed 's|[/\\]|-|g' | sed 's|^-||')
+
+# 1. Strip duplicate leading slashes (e.g. `///path` → `/path`).
+while [[ "$CWD" == //* ]]; do
+  CWD="${CWD#/}"
+done
+
+# 2. Lift MSYS form (`/x/...`) to Windows form (`X:/...`) so the drive letter
+#    survives slug derivation.
+if [[ "$CWD" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+  _drive="${BASH_REMATCH[1]}"
+  CWD="${_drive^^}:/${BASH_REMATCH[2]}"
+fi
+
+# 3. Drop any trailing separator so the slug doesn't end in a dash.
+CWD="${CWD%/}"
+CWD="${CWD%\\}"
+
+# 4. Collapse `/`, `\`, `:`, `.` to dashes (matches Claude Code's own
+#    project-dir slug — `.claude` becomes `-claude`, so `C:\Users\oduffy\.claude`
+#    yields `C--Users-oduffy--claude` matching `~/.claude/projects/`); strip a
+#    single leading dash if any survived (defensive — unrooted relative paths
+#    or fallback `pwd` output).
+PROJECT_SLUG=$(echo "$CWD" | sed 's|[/\\:.]|-|g' | sed 's|^-||')
 [[ -z "$PROJECT_SLUG" ]] && PROJECT_SLUG="unknown"
 
 # ---------------------------------------------------------------------------
