@@ -65,20 +65,31 @@ output.push('=== SESSION MEMORY ===');
 output.push('Temporal session history is stored in memory/sessions/. Files: current.md (buffer), daily/*.md (compressed), recent.md (7-14 day rolling). The /remember skill saves a handoff note.');
 output.push('');
 
-// Load memory files in order
+// Load memory files in order. `tail` caps injection size for unbounded
+// accumulator files — the full file stays on disk for /remember to consume,
+// but only the last N blocks land in EM context at boot.
 const filesToLoad = [
   { path: join(sessDir, 'handoff.md'), label: 'handoff (one-shot)', clear: true },
   { path: join(sessDir, `daily/${new Date().toISOString().slice(0, 10)}.md`), label: 'today' },
-  { path: join(sessDir, 'current.md'), label: 'current session buffer' },
+  { path: join(sessDir, 'current.md'), label: 'current session buffer (last 8 entries — full file on disk)', tail: 8 },
   { path: join(sessDir, 'recent.md'), label: 'recent (7-14 days)' },
 ];
 
+// Tail an `## HH:MM | ...`-headered markdown buffer to its last N blocks.
+function tailBlocks(content, n) {
+  const blocks = content.split(/(?=^## )/m).filter(b => b.trim());
+  if (blocks.length <= n) return content;
+  return blocks.slice(-n).join('').trimEnd();
+}
+
 let hasContent = false;
 
-for (const { path, label, clear } of filesToLoad) {
+for (const { path, label, clear, tail } of filesToLoad) {
   if (!existsSync(path)) continue;
-  const content = readFileSync(path, 'utf8').trim();
+  let content = readFileSync(path, 'utf8').trim();
   if (!content) continue;
+
+  if (tail) content = tailBlocks(content, tail);
 
   hasContent = true;
   output.push(`--- ${label} ---`);
