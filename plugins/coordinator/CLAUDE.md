@@ -33,6 +33,8 @@ Dispatches missing this preamble are flagged by the telemetry hook as `rationale
 
 Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief.
 
+**Spec backlinks in code outlive their cited spec.** Comments and module docstrings often reference plans like `docs/plans/2026-XX-XX-<name>.md` that have since been consolidated, archived, or superseded. Before quoting a spec backlink as authority, confirm the file still exists at the cited path — and if not, check `archive/` for the consolidated successor. A stale backlink is a battle-story breadcrumb, not a contract.
+
 ## Live Queries vs. Scaffolded Indices
 
 When the answer is derivable from frontmatter on tracked records, prefer `bin/query-records` over hand-maintained tables. Static scaffolding is for narrative content; queries are for structured records. `/update-docs` regenerates query callouts via `bin/refresh-queries.js`. Add a query callout (with sentinel comments) rather than a static list whenever the data is schema'd.
@@ -67,6 +69,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it. Always pair `blockedBy` with a wake-up in the unblocker's done-protocol.
 
+On apparent infrastructure noise (false billing/auth gate, transient flake) after partial work, `SendMessage` the closed agent before re-dispatching — the runtime resumes from transcript and preserves analysis context.
+
 ## Scouts That Produce File Output — Mandatory DONE-After-Write
 
 When a scout's deliverable is a file on disk (not a chat reply), the dispatch prompt MUST end with:
@@ -79,6 +83,7 @@ After the scout returns, verify the file exists before acting on it. If missing,
 
 - **Write fallback (Sonnet permission errors):** Fall back to `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
 - **Size threshold:** Eyeball file size against the expected order-of-magnitude in the dispatch prompt. A 1-2KB "research doc" is almost always a summary masquerading as the artifact — treat as failure.
+- **Verify the worker's tool surface before instructing `DONE: <path>`.** A borrowed worker (Haiku scout, narrow-tooled subagent) may not have `Write` even when the dispatch assumes it does. Check the agent's tool list at dispatch time — if it's `Read`/`Grep`/`Glob`-only, accept inline return and persist EM-side, or escalate to `general-purpose` Sonnet. Telling a Read-only agent to `Write` then `DONE` produces inline-summary failure that looks identical to "TEXT ONLY" hallucination but isn't.
 
 ### "TEXT ONLY" Hallucination — Disk-First Verification
 
@@ -101,6 +106,8 @@ Files an executor wrote before failure are still present — partial output is t
 2. Diff partial output against the spec — what's done, missing, wrong.
 3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
 
+**Orphan `.tmp.<pid>.<nanos>` files = Edit tool atomic-write crash signature.** Edit writes to a temp file then renames over the target; a crash mid-rename leaves the `.tmp.<pid>.<nanos>` behind with the executor's intended content. Diff against the target before deleting — the temp may be the only copy of work that hasn't landed. Adopt-or-discard, not garbage.
+
 ## Executor Dispatch Mode
 
 Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher (anything that mutates files). Without it, the subagent runs in `default` mode, prompts on every Edit/Write, and auto-denies — no human to answer the prompt.
@@ -112,6 +119,7 @@ Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / en
 - **Persist review output and plan artifacts to disk before acting on them.**
 - **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Skipping the pipeline usually gets reverted. The EM may implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Investigate before planning.** Bug reports and consumer-supplied docs are framing, not ground truth. Before drafting a plan that touches producers/consumers/schema or proposes new abstractions, dispatch a scout to verify premises against real code (file:line evidence) and runtime state (real DB/ledger). Skipping this step is laziness and produces wrong designs.
+- **Pre-dispatch grep on stub-named files.** When a stub names a file by literal path or "create new file X", grep before dispatching — the file often already exists under a longer name with sibling content to extend, not duplicate. Carry verbatim sibling shape into the brief.
 
 ## Self-Improvement Loop
 
@@ -134,6 +142,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 "Most recent handoff" is a facile signal — concurrent sessions across machines produce timestamp-adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. A handoff has one predecessor, not many. Combining predecessors only happens by explicit PM direction. Do not archive other handoffs as "superseded" on your own.
 
+**Concurrent crashed threads get separate handoffs, not a combined recovery handoff.** When two sessions die in the same incident (Claude Code restart, machine reboot, network outage), recover each workstream independently with its own handoff. Recovery-session simultaneity is not workstream identity — combining them buries one workstream's pending state under the other's narrative and makes pickup impossible.
+
 ## Documentation and Knowledge System
 
 - **`docs/README.md`** — master docs index. Maintained by `/update-docs`.
@@ -155,10 +165,12 @@ Never mark a task complete without proving it works — run tests, check logs, d
 
 Default assumption: the code will run on a machine you've never seen — different OS, different drive layout, different project names. Portability is the baseline, not a feature. For any path the code consults: explicit flag → env var → marker auto-discovery (sentinel file, tool-owned data dir) → silent skip (opt-in tools) or hard error with remediation (explicitly invoked tools). A hardcoded local path is acceptable only as a last-resort fallback after the above, and only when its absence wouldn't silently misbehave. Project-scoped tools need a cwd-scope guard so they don't emit output outside their indexed root. Test fixtures and battle-story comments are exempt — the rule targets runtime values consulted on real invocations.
 
+**Language bindings lag the C/C++ API they wrap.** When a Python (or other-language) wrapper around a native library returns silently empty for a feature you can prove exists in the C API — `dir()` on the binding shows the method missing, `help()` lacks the docstring — drop to ctypes against `conf.lib.<fn>` rather than concluding the feature is unimplemented. Cache the binding lookup at module level; propagate any `_tu` / opaque-handle context the wrapper carries on returned objects (the bypass loses framework-level state otherwise). Pattern recurs across libclang, llvm-py, ICU bindings, etc.
+
 ## Review Sequencing
 
 - **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.
-- **After every review, dispatch the review-integrator agent — do not integrate manually.** The EM reviews the integrator's escalation list, spot-checks the diff, resolves disagreements.
+- **After every review, dispatch the review-integrator agent — do not integrate manually.** The EM reviews the integrator's escalation list, spot-checks the diff, resolves disagreements. Applies even to tiny stub edits with all-trivial findings — the calibration block routes integrator behavior, not whether the integrator runs.
 - Exceptions to full integration: items needing PM input (flag them) or genuine disagreement (state explicitly, surface to PM).
 
 ## Synthesis Discipline
@@ -205,7 +217,7 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting 
 - **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
 - **Use `/merge-to-main`** or `/workday-complete` to integrate. Never push directly.
 - **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Two ceremonies are exempt and use `--blanket`: `/session-start` and `/workday-complete` (set `CLAUDE_INVOKING_COMMAND` accordingly). Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`.
-- **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification. Setting `CLAUDE_SESSION_ID` inline (`CLAUDE_SESSION_ID=… safe-commit`) works for single-call use but does not change cross-session resolution behavior — the variable is per-invocation, not session-sticky.
+- **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
 - **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
 - **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start` (consolidate, defer, or archive). See `bin/sync-main.sh` and the workday-start Step 0 contract.
 
