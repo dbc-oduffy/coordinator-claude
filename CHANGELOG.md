@@ -2,6 +2,23 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.7.1] — 2026-05-03
+
+### Theme — Doc refresh
+
+Patch release. README plugin enumeration was stale (still listing 4 plugins and pointing at the retired `deep-research-claude` companion repo); social preview stats were stale; one cross-platform fix and one universal-tier doctrine sync had landed without a release marker.
+
+### Changed
+- **README plugin enumeration** updated to reflect the 7 plugins shipped via `marketplace.json` — `deep-research` and `notebooklm` are bundled (not external companions), and `remember` is now surfaced. Directory tree refreshed with current counts (23 commands, 34 skills, 11 coordinator agents).
+- **Social preview** (`assets/social-preview.{html,png}`) regenerated — 7 plugins, 36 skills, 26 agents, 4 research pipelines.
+- **`plugins/coordinator/.claude-plugin/plugin.json`** bumped 1.6.0 → 1.7.1 (1.7.0 release shipped without a manifest bump).
+
+### Fixed
+- **`hooks/scripts/track-tier-usage.sh`** — normalize MSYS/Git-Bash cwd before slug derivation so the W3 telemetry counter writes to the correct per-repo log on Windows (mirror of `dbc-oduffy/.claude` PR #62).
+
+### Internal
+- Promoted 5 universal-tier lessons from `/workday-start` triage queue (mirror of `dbc-oduffy/.claude` PR #63).
+
 ## [1.7.0] — 2026-05-01
 
 ### Theme — Portable Ideas from Obsidian (W1+W2+W3)
