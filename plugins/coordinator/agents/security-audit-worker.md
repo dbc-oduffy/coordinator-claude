@@ -3,6 +3,7 @@ name: security-audit-worker
 description: "Sonnet worker agent for static security analysis. Scans a diff or file set for path traversal, validation-vs-rewrite traps, command injection, secret leakage, and env-var ingestion. Returns a structured findings table with severity, class, file:line, evidence, and recommended fix. Read-only — never modifies source files. Dispatched by the EM when Patrik names this worker in a Worker Dispatch Recommendations block."
 model: sonnet
 color: red
+access-mode: read-write
 tools: ["Read", "Grep", "Glob", "Bash"]
 ---
 

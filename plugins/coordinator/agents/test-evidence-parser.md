@@ -3,6 +3,7 @@ name: test-evidence-parser
 description: "Sonnet worker agent for test output parsing. Runs a test command, captures stdout/stderr, classifies each failure (real / flake / env / timeout / known-skip), and returns a structured table with evidence excerpts and suggested actions. Pure mechanical analysis — no opinions, no architectural judgments. Dispatched by the EM when Patrik or Sid names this worker in a Worker Dispatch Recommendations block."
 model: sonnet
 color: yellow
+access-mode: read-write
 tools: ["Bash", "Read"]
 ---
 
