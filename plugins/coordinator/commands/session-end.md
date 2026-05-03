@@ -78,14 +78,6 @@ For each new lesson added in Step 1, ask the tier-1 question: **"If a different 
 - **If no (tier-2 / project-specific):** no action beyond the lesson already written.
 - **If nothing new was added in Step 1:** skip this step entirely.
 
-### Step 1.5: Final Session Save
-
-Trigger a final memory save to capture the tail end of this session that hasn't been auto-saved. This ensures the session's last work is recorded even if the JSONL delta hadn't reached the auto-save threshold.
-
-Run: `node ~/.claude/plugins/coordinator-claude/remember/lib/pipeline.js save --force`
-
-If the command fails (node not found, plugin not installed), skip silently — session memory is best-effort, not a blocker.
-
 ### Step 2: Update Plan Documentation
 
 Find and update relevant plan/task documentation to reflect what was completed:

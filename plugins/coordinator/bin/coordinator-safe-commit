@@ -51,11 +51,6 @@ Usage:
   coordinator-safe-commit --blanket "<subject>"
   coordinator-safe-commit --scope-from <handoff.md> "<subject>"
   coordinator-safe-commit --dry-run "<subject>"
-
-Tip: If you're not sure what will be committed, run with --dry-run first.
-     Files being skipped as "owned by another session" but you wrote them?
-     Your session ID resolution is wrong — see
-     ~/.claude/docs/wiki/scoped-safety-commits.md (troubleshooting section).
 USAGE
   exit 1
 }
@@ -114,62 +109,6 @@ fi
 # Session ID resolution
 # ---------------------------------------------------------------------------
 
-# _pid_get_parent <pid>: print the parent PID of <pid>, or "" on failure.
-# Works on Linux (/proc), macOS, and Git Bash on Windows (ps -p ... -o ppid=).
-_pid_get_parent() {
-  local pid="${1:-}"
-  [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]] || return 1
-  local ppid=""
-  # /proc is available on Linux and Git Bash on Windows
-  if [[ -f "/proc/${pid}/status" ]]; then
-    ppid=$(grep -m1 '^PPid:' "/proc/${pid}/status" 2>/dev/null | awk '{print $2}' || true)
-  fi
-  # Fall back to ps (macOS, BSD)
-  if [[ -z "$ppid" ]]; then
-    ppid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ' || true)
-  fi
-  [[ -n "$ppid" && "$ppid" =~ ^[0-9]+$ ]] && echo "$ppid" || return 1
-}
-
-# _ppid_ancestry: print the ancestry chain of PIDs from $PPID upward, one per
-# line, stopping at PID 1 or after at most MAX_DEPTH steps. Used by both the
-# sentinel cross-check (W1.1) and the PPID-walk priority (W1.3).
-# Spec backlink: plan W1.1 sentinel cross-check + W1.3 PPID-walk discovery.
-_ppid_ancestry() {
-  local current="$PPID"
-  local depth=0
-  local max_depth=20
-  while [[ -n "$current" && "$current" =~ ^[0-9]+$ && "$current" -gt 1 && "$depth" -lt "$max_depth" ]]; do
-    echo "$current"
-    current=$(_pid_get_parent "$current" 2>/dev/null || true)
-    (( depth++ )) || true
-  done
-}
-
-# _session_pid_matches_ancestor <sessions_dir> <session_id>
-# Returns 0 if meta.json.pid for the given session is alive AND appears in
-# this process's PPID ancestry chain. Returns 1 otherwise.
-# Used by W1.1 sentinel cross-check.
-_session_pid_matches_ancestor() {
-  local base="${1:?}" sid="${2:?}"
-  local sdir="${base}/${sid}"
-  [[ -d "$sdir" ]] || return 1
-
-  local recorded_pid
-  recorded_pid=$(_cs_read_meta_field "$sdir" "pid")
-  [[ -n "$recorded_pid" && "$recorded_pid" =~ ^[0-9]+$ ]] || return 1
-
-  # Check liveness first (fast exit for dead PIDs)
-  _cs_pid_alive "$recorded_pid" || return 1
-
-  # Check that the recorded PID appears in our PPID ancestry chain
-  local ancestor
-  while IFS= read -r ancestor; do
-    [[ "$ancestor" == "$recorded_pid" ]] && return 0
-  done < <(_ppid_ancestry)
-  return 1
-}
-
 resolve_session_id() {
   # Priority 1: environment variable
   if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
@@ -177,131 +116,26 @@ resolve_session_id() {
     return 0
   fi
 
-  local base
-  base=$(_cs_sessions_dir) || true
-
-  # Priority 1.5: PPID-walk — walk $PPID upward; for each ancestor, check if
-  # any live session's meta.json.pid matches. If exactly one match, use it.
-  # This is the highest-leverage resolution path when CLAUDE_SESSION_ID is unset:
-  # track-touched-files.sh (W1.0b) records a live $PPID on every hook invocation,
-  # giving us a reliable ancestor to find.
-  # Spec backlink: plan W1.3 — PPID-based discovery as priority 1.5.
-  # NO CLI-token fallback: the Bash tool spawns shells without session-identifiable tokens.
-  if [[ -n "$base" && -d "$base" ]]; then
-    local ppid_matched_session=""
-    local ancestry_pids=()
-    # Collect ancestry into an array once to avoid re-walking per session
-    while IFS= read -r ancestor_pid; do
-      ancestry_pids+=("$ancestor_pid")
-    done < <(_ppid_ancestry)
-
-    if [[ ${#ancestry_pids[@]} -gt 0 ]]; then
-      for sdir in "${base}"/*/; do
-        [[ -d "$sdir" ]] || continue
-        local sid
-        sid=$(basename "$sdir")
-        [[ "$sid" == ".archive" ]] && continue
-
-        local recorded_pid
-        recorded_pid=$(_cs_read_meta_field "$sdir" "pid")
-        [[ -n "$recorded_pid" && "$recorded_pid" =~ ^[0-9]+$ ]] || continue
-        _cs_pid_alive "$recorded_pid" || continue
-
-        # Check ancestry match
-        local anc
-        for anc in "${ancestry_pids[@]}"; do
-          if [[ "$anc" == "$recorded_pid" ]]; then
-            if [[ -n "$ppid_matched_session" && "$ppid_matched_session" != "$sid" ]]; then
-              # Multiple sessions match PPID ancestry — cannot disambiguate; fall through
-              ppid_matched_session="__ambiguous__"
-              break 2
-            fi
-            ppid_matched_session="$sid"
-            break
-          fi
-        done
-      done
-    fi
-
-    if [[ -n "$ppid_matched_session" && "$ppid_matched_session" != "__ambiguous__" ]]; then
-      # Check sentinel for disagreement before accepting (W1.1 disagreement rule)
-      local root
-      root=$(_cs_git_root) || true
-      if [[ -n "$root" ]]; then
-        local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
-        if [[ -f "$sentinel" ]]; then
-          local sentinel_sid
-          sentinel_sid=$(cat "$sentinel" 2>/dev/null | tr -d '[:space:]')
-          # Sentinel path-traversal validation (W1.1)
-          if [[ -n "$sentinel_sid" && ! "$sentinel_sid" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "[coordinator-session] WARN: sentinel contains invalid characters — ignoring (possible path-traversal)" >&2
-            sentinel_sid=""
-          fi
-          # Disagreement rule (Patrik finding #4): if sentinel names a different live
-          # session that also has a live PID, hard-fail rather than silently prefer one.
-          if [[ -n "$sentinel_sid" && "$sentinel_sid" != "$ppid_matched_session" ]]; then
-            local sentinel_sdir="${base}/${sentinel_sid}"
-            if [[ -d "$sentinel_sdir" ]]; then
-              local sentinel_pid
-              sentinel_pid=$(_cs_read_meta_field "$sentinel_sdir" "pid")
-              if [[ -n "$sentinel_pid" ]] && _cs_pid_alive "$sentinel_pid"; then
-                echo "ERROR: Session ID resolution conflict — PPID-walk resolves to '${ppid_matched_session}' but sentinel points to '${sentinel_sid}' (also live)." >&2
-                echo "       Cannot safely choose between them. Set CLAUDE_SESSION_ID explicitly, or use the explicit-path fallback:" >&2
-                echo "         git add -- <your-paths>" >&2
-                echo "         git commit -m \"<subject>\"" >&2
-                return 1
-              fi
-            fi
-          fi
-        fi
-      fi
-      echo "$ppid_matched_session"
-      return 0
-    fi
-  fi
-
-  # Priority 2: sentinel file + cross-check against PPID ancestry (W1.1)
-  # The sentinel is read only when PPID-walk found no match or was ambiguous.
-  # Path-traversal validation and ancestry cross-check guard against stale/wrong sentinels.
-  # Spec backlink: plan W1.1 — sentinel cross-check + path-traversal validation.
+  # Priority 2: sentinel file
   local root
   root=$(_cs_git_root) || true
   if [[ -n "$root" ]]; then
     local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
     if [[ -f "$sentinel" ]]; then
       local sid
-      sid=$(cat "$sentinel" 2>/dev/null | tr -d '[:space:]')
-
-      # W1.1: Path-traversal validation — sentinel must match safe identifier pattern
-      if [[ -n "$sid" && ! "$sid" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        echo "[coordinator-session] WARN: sentinel value '${sid}' contains invalid characters (possible path-traversal attack) — treating as untrusted" >&2
-        sid=""
-      fi
-
-      if [[ -n "$sid" && -n "$base" && -d "$base" ]]; then
-        # W1.1: Cross-check — sentinel's session must have a live PID in our ancestry
-        if _session_pid_matches_ancestor "$base" "$sid"; then
-          echo "$sid"
-          return 0
-        else
-          echo "[coordinator-session] WARN: sentinel points to session '${sid}' but its PID is not a live ancestor of this process — treating sentinel as untrusted" >&2
-          # Fall through to Priority 3
-        fi
+      sid=$(cat "$sentinel" | tr -d '[:space:]')
+      if [[ -n "$sid" ]]; then
+        echo "$sid"
+        return 0
       fi
     fi
   fi
 
-  # Priority 3: enumerate live sessions — hard-fail when multiple, accept when exactly one.
-  # Multi-live detection runs here rather than only at fall-through: if PPID-walk found
-  # nothing and sentinel was untrusted, multiple live sessions means we cannot safely
-  # auto-detect. Naming both candidates gives the user actionable information.
-  # Spec backlink: plan W1.2 — multi-live hard-fail moved earlier + both candidates named.
+  # Priority 3: find a session dir whose meta.json PID matches a live process
+  local base
+  base=$(_cs_sessions_dir) || true
   if [[ -z "$base" || ! -d "$base" ]]; then
-    echo "ERROR: No session store found. Set CLAUDE_SESSION_ID or ensure a session was initialized." >&2
-    echo "Fallback: bypass the helper with explicit-path commit:" >&2
-    echo "  git add -- <your-paths>" >&2
-    echo "  git commit -m \"<subject>\"" >&2
-    return 1
+    echo "" ; return 1
   fi
 
   local live_sessions=()
@@ -319,26 +153,19 @@ resolve_session_id() {
   done
 
   if [[ ${#live_sessions[@]} -eq 1 ]]; then
-    # Priority 3a: exactly one live session — safe to auto-detect
     echo "${live_sessions[0]}"
     return 0
   elif [[ ${#live_sessions[@]} -eq 0 ]]; then
-    # Priority 3c: no live sessions found
     echo "ERROR: No live session found. Set CLAUDE_SESSION_ID or ensure a session was initialized." >&2
     echo "Fallback: bypass the helper with explicit-path commit:" >&2
     echo "  git add -- <your-paths>" >&2
     echo "  git commit -m \"<subject>\"" >&2
     return 1
   else
-    # Priority 3b: multiple live sessions — hard-fail naming both candidates
-    local candidate_list
-    candidate_list=$(printf '%s, ' "${live_sessions[@]}")
-    candidate_list="${candidate_list%, }"
-    echo "ERROR: Multiple live sessions found — cannot auto-detect session ID." >&2
-    echo "       Candidates: ${candidate_list}" >&2
-    echo "       Set CLAUDE_SESSION_ID explicitly, or bypass the helper:" >&2
-    echo "         git add -- <your-paths>" >&2
-    echo "         git commit -m \"<subject>\"" >&2
+    echo "ERROR: Multiple live sessions found — cannot auto-detect session ID. Set CLAUDE_SESSION_ID explicitly. Candidates: ${live_sessions[*]}" >&2
+    echo "If session-ownership is misidentifying your work (your files blocked, others' files swept), the safer fallback is to bypass the helper:" >&2
+    echo "  git add -- <your-paths>" >&2
+    echo "  git commit -m \"<subject>\"" >&2
     return 1
   fi
 }
@@ -419,26 +246,9 @@ parse_scope_from_frontmatter() {
 }
 
 # validate_pathspec <pathspec>
-# Returns 0 if the pathspec is safe and git accepts it, 1 if malformed or
-# contains a path-traversal attempt.
-# Spec backlink: plan W2.1 worker-baseline finding #3 — explicit reject for
-# ".." traversal and absolute paths; git ls-files returns empty for out-of-tree
-# paths rather than an error, so the rejection must be explicit here.
+# Returns 0 if git accepts it, 1 if malformed.
 validate_pathspec() {
   local ps="${1:?}"
-
-  # Reject path traversal: any component containing ".." can escape the repo root.
-  if [[ "$ps" == *".."* ]]; then
-    echo "ERROR: pathspec '${ps}' contains '..' (path traversal) — rejected" >&2
-    return 1
-  fi
-
-  # Reject absolute paths: they reference locations outside the working tree.
-  if [[ "$ps" == /* ]]; then
-    echo "ERROR: pathspec '${ps}' is an absolute path — rejected" >&2
-    return 1
-  fi
-
   git ls-files -- "$ps" >/dev/null 2>&1
 }
 
@@ -562,21 +372,16 @@ do_scope_from() {
     fi
   done
 
-  # 4. Expand handoff pathspecs to actual file list, applying one-tier membership
-  # invariant for untracked files.
-  #
-  # One-tier untracked-membership invariant (W2.1, Patrik finding #2):
-  #   - Tracked candidates (git ls-files): admitted unconditionally — they are
-  #     already in repo history and cannot be a concurrent-session footgun.
-  #   - Untracked candidates (git ls-files --others): MUST appear in THIS
-  #     session's touched.txt. If they don't, they are dropped here — before
-  #     the cross-session subtraction step — regardless of whether the pathspec
-  #     is a glob or a literal. A literal like "docs/plans/2026-05-01-mine.md"
-  #     can still collide with another session's untracked file at the same path;
-  #     glob detection alone does not prevent this.
-  # Spec backlink: plan W2.1 — one-tier untracked-membership invariant.
+  # 4. Expand handoff pathspecs to actual file list
+  local handoff_files=()
+  for ps in "${handoff_pathspecs[@]}"; do
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && handoff_files+=("$f")
+    done < <(git ls-files -- "$ps" 2>/dev/null; git ls-files --others --exclude-standard -- "$ps" 2>/dev/null)
+  done
 
-  # Collect my touched.txt first — needed for the membership gate below.
+  # 5. Build MY_SCOPE: (handoff_files ∪ touched.txt) − other_sessions
+  # First get my touched.txt
   local my_touched=()
   local base
   base=$(_cs_sessions_dir) || true
@@ -589,35 +394,9 @@ do_scope_from() {
     fi
   fi
 
-  # Build membership lookup for O(1) checks.
-  declare -A my_touched_set
-  for t in "${my_touched[@]:-}"; do
-    [[ -n "$t" ]] && my_touched_set["$t"]=1
-  done
-
-  local handoff_files=()
-  for ps in "${handoff_pathspecs[@]}"; do
-    # Tracked files: admitted unconditionally.
-    while IFS= read -r f; do
-      [[ -n "$f" ]] && handoff_files+=("$f")
-    done < <(git ls-files -- "$ps" 2>/dev/null)
-
-    # Untracked files: membership gate — must be in this session's touched.txt.
-    while IFS= read -r f; do
-      [[ -n "$f" ]] || continue
-      if [[ -v "my_touched_set[$f]" ]]; then
-        handoff_files+=("$f")
-      else
-        echo "skipping untracked ${f} — not in this session's touched.txt (W2.1 membership gate)" >&2
-      fi
-    done < <(git ls-files --others --exclude-standard -- "$ps" 2>/dev/null)
-  done
-
-  # 5. Build MY_SCOPE: (handoff_files ∪ touched.txt) − other_sessions
-
   # Union: handoff + touched (deduplicated)
   declare -A candidate_map
-  for f in "${handoff_files[@]}" "${my_touched[@]:-}"; do
+  for f in "${handoff_files[@]}" "${my_touched[@]}"; do
     [[ -n "$f" ]] && candidate_map["$f"]=1
   done
 
@@ -640,29 +419,15 @@ do_scope_from() {
   fi
 
   # Subtract other-session claims
-  # W3 (Patrik R1 finding #1): distinguish "another session owns this" from
-  # "stale self-claim" when CLAUDE_SESSION_ID is set but resolution diverged.
-  # Append "(your session=<resolved>)" for disambiguation in the normal case.
   local my_scope=()
-  local env_sid="${CLAUDE_SESSION_ID:-}"
   for candidate in "${!candidate_map[@]}"; do
     if [[ -v "other_claims[$candidate]" ]]; then
       other_excluded+=("$candidate")
-      local claim_sid="${other_claims[$candidate]}"
-      if [[ -n "$env_sid" && "$claim_sid" == "$env_sid" ]]; then
-        echo "skipping ${candidate} — stale self-claim from this session (resolved=${session_id}, env=${env_sid}) — investigate session ID resolution" >&2
-      else
-        echo "skipping ${candidate} — owned by session ${claim_sid} (your session=${session_id})" >&2
-      fi
+      echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
     else
       my_scope+=("$candidate")
     fi
   done
-
-  # W3 epilogue: when ≥1 file was excluded, point the user at the right diagnostic.
-  if [[ ${#other_excluded[@]} -gt 0 ]]; then
-    echo "  hint: if your files are being skipped as 'owned by another session' but you wrote them, your session ID resolution is wrong (see ~/.claude/docs/wiki/scoped-safety-commits.md troubleshooting)" >&2
-  fi
 
   if [[ "${MODE}" == "dry-run" ]]; then
     echo "DRY RUN — would stage:" >&2
@@ -672,26 +437,7 @@ do_scope_from() {
   fi
 
   if [[ ${#my_scope[@]} -eq 0 ]]; then
-    if [[ ${#other_excluded[@]} -gt 0 ]]; then
-      # Every candidate from the handoff scope was claimed by other sessions — stale-claim case.
-      # Collect the distinct session IDs that claimed entries so the user can act on them.
-      declare -A claiming_sessions
-      for excl in "${other_excluded[@]}"; do
-        if [[ -v "other_claims[$excl]" ]]; then
-          claiming_sessions["${other_claims[$excl]}"]=1
-        fi
-      done
-      local claimant_list
-      claimant_list=$(printf '%s ' "${!claiming_sessions[@]}")
-      echo "ERROR: Every file in the handoff scope was claimed by other session(s): ${claimant_list}" >&2
-      echo "       Files excluded: $(printf '%s, ' "${other_excluded[@]}")" >&2
-      echo "       Your session: ${session_id}" >&2
-      echo "       If these files are yours, bypass the helper:" >&2
-      echo "         git add -- <your-paths>" >&2
-      echo "         git commit -m \"<subject>\"" >&2
-    else
-      echo "ERROR: No staged scope detected for this session. Either nothing was touched, or the touch-tracker hook didn't fire. Run with --dry-run to inspect." >&2
-    fi
+    echo "ERROR: No staged scope detected for this session. Either nothing was touched, or the touch-tracker hook didn't fire. Run with --dry-run to inspect." >&2
     exit 1
   fi
 

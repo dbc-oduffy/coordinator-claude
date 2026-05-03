@@ -112,14 +112,6 @@ Check `tasks/handoffs/` for `.md` files (active handoffs). If handoffs exist:
 
 **If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked. `tasks/` contains handoffs and plan docs; `archive/` contains the completion history. `.claude/` contains only platform-managed files (settings, hooks) and need not be tracked.
 
-### Session memory
-
-The remember plugin's SessionStart hook automatically injects temporal memory (what was worked on recently) into the session context. This happens via hook output — no manual action needed here.
-
-If session memory content appears in the hook output (marked with `=== SESSION MEMORY ===`), acknowledge it briefly: _"Session memory loaded — {N} days of history available."_
-
-If no session memory appears, note: _"No session memory available — the remember plugin may not be active."_
-
 ### Action items and roadmap
 
 **Conditional on workday-start:** If `tasks/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.
