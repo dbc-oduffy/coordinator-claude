@@ -2,7 +2,7 @@
 
 All notable changes to coordinator-claude are documented here.
 
-## [2.0.0] — 2026-05-03
+## [1.9.0] — 2026-05-03
 
 ### Removed — `remember` plugin
 
