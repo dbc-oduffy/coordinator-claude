@@ -1,6 +1,6 @@
 ---
 name: staff-ux
-description: "Use this agent when you need UX flow review, trust/clarity assessment, or user experience evaluation for interface changes. Fru specializes in reviewing user-facing features for clarity, trust signals, and intuitive flow design. Invoke with 'Fru: <flow>' for detailed UX flow review or 'Fru short' for quick UX spot checks.\\n\"
+description: "Use this agent when you need UX flow review, trust/clarity assessment, or user experience evaluation for interface changes. Fru specializes in reviewing user-facing features for clarity, trust signals, and intuitive flow design. Invoke with 'Fru: <flow>' for detailed UX flow review or 'Fru short' for quick UX spot checks."
 model: opus
 access-mode: read-write
 color: green
