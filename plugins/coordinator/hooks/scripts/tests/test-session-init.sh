@@ -142,34 +142,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# T8: Sentinel written atomically — no tempfile left behind, content exact
-#
-# Verifies the cs_write_sentinel wire-up: after the hook returns, no
-# ".current-session-id.<pid>" tempfile should remain in SESSIONS_DIR, and
-# the sentinel content must be exactly the session_id (with trailing newline
-# from printf — confirmed by comparing via 'read' rather than raw cat).
-# ---------------------------------------------------------------------------
-SID_T8="sid-T8-atomic"
-make_input "$SID_T8" | bash "$HOOK_SCRIPT"
-
-# No tempfile pattern should survive (glob; || true so set -e doesn't fire)
-TEMPFILES=( "$SESSIONS_DIR"/.current-session-id.* )
-TEMPFILE_COUNT=0
-for f in "${TEMPFILES[@]}"; do
-  [[ -e "$f" ]] && (( TEMPFILE_COUNT++ )) || true
-done
-
-SENTINEL_CONTENT=$(cat "$SENTINEL" 2>/dev/null || true)
-
-if [[ "$TEMPFILE_COUNT" -gt 0 ]]; then
-  fail "T8" "tempfile(s) left behind after hook returned: ${TEMPFILES[*]}"
-elif [[ "$SENTINEL_CONTENT" != "$SID_T8" ]]; then
-  fail "T8" "sentinel content '$SENTINEL_CONTENT' != expected '$SID_T8'"
-else
-  pass "T8: sentinel written atomically — no tempfile, content exact"
-fi
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

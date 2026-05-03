@@ -65,17 +65,6 @@
       ]
     },
     {
-      "name": "remember",
-      "source": "./plugins/remember",
-      "description": "Automatic session memory \u2014 captures what Claude worked on, summarizes via Haiku, injects history at session start. Pure Node.js, cross-platform.",
-      "tags": [
-        "memory",
-        "session-history",
-        "haiku",
-        "hooks"
-      ]
-    },
-    {
       "name": "deep-research",
       "source": "./plugins/deep-research",
       "description": "Multi-agent deep research pipelines \u2014 internet, repo, and structured research with Agent Teams. Now a standalone plugin.",
