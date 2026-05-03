@@ -31,7 +31,11 @@ BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
 HEAD_SHA=$(git rev-parse HEAD)
 ```
 
-**2. Dispatch code-reviewer subagent:**
+**2. Consider docs-checker pre-flight:**
+
+For artifacts that cite external APIs — especially C++ or Unreal Engine code — the EM should consider running the `docs-checker` agent before dispatching the Opus reviewer. docs-checker catches mechanical errors (wrong API name, wrong signature, wrong header) at Sonnet cost, leaving the Opus reviewer free to focus on architecture and design. The skip is an EM call and is silent — no flag needed. Pure prose, in-repo-only references, and trivial in-distribution code don't warrant it. **Skipping docs-checker does NOT mean skipping the review — only the PM may waive a review on an EM plan.** Full decision rules: `docs/wiki/docs-checker-pre-review.md`. Mechanical flow: `commands/review-dispatch.md` Phase 2.7.
+
+**3. Dispatch code-reviewer subagent:**
 
 Use `/review-dispatch` to route to the appropriate named reviewer. Fill the context template at `code-reviewer.md` to provide the review scope.
 
@@ -42,7 +46,7 @@ Use `/review-dispatch` to route to the appropriate named reviewer. Fill the cont
 - `{HEAD_SHA}` - Ending commit
 - `{DESCRIPTION}` - Brief summary
 
-**3. Act on ALL feedback:**
+**4. Act on ALL feedback:**
 - Go through the review line-by-line — every item, every severity
 - Fix Critical, Important, AND Minor issues before proceeding
 - The only reasons to skip an item: (a) it requires PM input, or (b) you genuinely disagree (flag to PM with reasoning)
