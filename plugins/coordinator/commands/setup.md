@@ -44,14 +44,7 @@ Read `~/.claude/settings.json`. If an `env` block exists, check for the key. If 
 
 Note: this takes effect on next Claude Code restart.
 
-### 1c. Session memory (remember plugin)
-
-Check the conversation context for the `=== SESSION MEMORY ===` marker injected by the remember plugin's SessionStart hook.
-
-- If present: ready.
-- If absent: note that the remember plugin provides temporal session memory (what was worked on recently). Optional but recommended. If the user wants it, they can install it from the plugin marketplace.
-
-### 1d. Code statistics tool (scc)
+### 1c. Code statistics tool (scc)
 
 ```bash
 command -v scc 2>/dev/null || command -v "$HOME/bin/scc" 2>/dev/null || echo "not_found"
@@ -60,7 +53,7 @@ command -v scc 2>/dev/null || command -v "$HOME/bin/scc" 2>/dev/null || echo "no
 - If found: ready. Used by the orientation hook for code stats.
 - If not found: optional. Note that `scc` provides code statistics in the session orientation. Install from https://github.com/boyter/scc if desired.
 
-### 1e. Deep research plugin
+### 1d. Deep research plugin
 
 Check if the deep-research plugin is installed:
 
@@ -192,7 +185,6 @@ Present a summary table:
 |-----------------------------|--------|
 | Git repository              | ... |
 | Agent Teams env var         | ... |
-| Session memory (remember)   | ... (optional) |
 | Code stats (scc)            | ... (optional) |
 | Deep research plugin        | ... (optional) |
 | NotebookLM (Pipeline D)     | ... (optional) |

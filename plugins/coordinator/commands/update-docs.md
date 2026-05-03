@@ -15,7 +15,7 @@ When invoked, systematically update all documentation artifacts to match reality
 **Arguments:**
 - `--no-distill` — Skip the artifact distillation check (Phase 12). Use when calling from overnight/unattended workflows (mise-en-place hibernate mode) or when you just want a fast doc sync.
 
-**Execution model:** Phases 1–11b are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
+**Execution model:** Phases 1–11d are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
 
 **Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; the doc-maintenance agent does not.
 
@@ -35,6 +35,7 @@ When invoked, systematically update all documentation artifacts to match reality
 10b. **Logs repomap audit value** (when RAG present and repomap generated as fallback)
 11. **Checks** changed files against architecture atlas — narrative-drift mode on RAG repos, hybrid mode on non-RAG repos (`atlas-integrity-check` skill)
 11b. **Verifies preamble sync** (runs `bin/verify-preamble-sync.sh`; surfaces diff to PM on failure)
+11d. **Sweeps frontmatter-schema drift** (runs `bin/lint-frontmatter.sh --json`; surfaces count + top violators)
 12. **Distills** accumulated artifacts into wiki guides if thresholds are met (`/distill` pipeline, conditional)
 
 ### Execution Workflow
@@ -78,14 +79,6 @@ Determine the current state of the codebase — not "what happened this session"
    git log --oneline -15
    git log --oneline origin/HEAD..HEAD 2>/dev/null  # committed but not pushed
    ```
-
-5. **Session memory cross-reference** (if remember plugin is active):
-   Read `memory/sessions/recent.md` from the project's memory directory (`~/.claude/projects/<slug>/memory/sessions/recent.md`) and cross-reference against the project tracker. Look for:
-   - **Untracked work:** Activity in the temporal log that doesn't correspond to any tracked workstream — potential drift or ad-hoc work that should be captured
-   - **Stale workstreams:** Tracker items with no corresponding activity in the temporal log — may need status updates or deprioritization
-   - **Completed but unrecorded:** Work described as done in the temporal log but still marked in-progress in the tracker
-
-   If mismatches are found, note them for Phase 5 (tracker maintenance). This is a cross-reference, not an action step — the tracker is updated in Phase 5.
 
 #### Phase 2: Update Source Indexes (or Create Them)
 
@@ -292,6 +285,30 @@ Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... --
 
 **If the script is absent** (not yet deployed): skip silently and note "query callout refresh: script not found — W2 may not be deployed yet."
 
+#### Phase 11d: Frontmatter Schema Drift Sweep
+
+The W1 PreToolUse validator runs in WARN mode by default — violations on tracked records surface as `additionalContext` to the authoring agent but do NOT block writes. Without a periodic sweep, accumulated drift rots invisibly. This phase makes the count visible at every `/update-docs` run.
+
+Run the lint as a hard read:
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/lint-frontmatter.sh --json
+```
+
+Parse the JSON. Three behaviors:
+
+1. **`ok: true` (zero violations):** Note in Phase 13 report: *"Frontmatter schema drift: 0 violations."*
+2. **`ok: false` with N violations:**
+   - Group by schema. Identify the top 3 most-violated schemas with their counts.
+   - List up to 5 specific offending files (path + schema name) in the Phase 13 report.
+   - Total count goes in the report headline; full JSON output is logged below the bullet.
+   - Phase 13 wording: *"Frontmatter schema drift: N violations across S schema(s). Top: [schema A] (count), [schema B] (count). Files: [path1, path2, ...]. WARN-mode validator did not block these writes — fix-forward at the listed paths."*
+3. **Script absent or non-zero exit other than 1:** Note "frontmatter drift sweep: script not found / errored — W1 may not be deployed yet" and continue. Do NOT abort the rest of `/update-docs`.
+
+**Do not auto-fix.** This phase reports only. Schema violations frequently encode an intentional decision (e.g., a record predating the schema, or a field deprecation in flight) — the EM and PM judge the right fix per file. The PM-directed escalation path: when daily count remains non-zero for ≥2 consecutive `/update-docs` runs, lift the affected schema's default from WARN → STRICT (`COORDINATOR_SCHEMA_STRICT=1`) or open a debt-triage entry for the bulk-fix.
+
+**Exception:** If a violation is a tradeoff-free correctness fix (typo in a field name, missing required field on a record the EM just authored this session), fix it inline before the Phase 9 commit. Don't let the EM's own fresh dirt accumulate across runs.
+
 #### Phase 12: Artifact Distillation (Conditional)
 
 **Skip this phase if `--no-distill` was passed.**
@@ -367,6 +384,9 @@ Present a concise summary:
 
 ### Query Callouts
 - [Up to date / N file(s) updated / Error — stderr surfaced to PM / Script not found (W2 not deployed)]
+
+### Frontmatter Schema Drift
+- [0 violations / N violations across S schema(s) — top: schema A (count), schema B (count); offending files: path1, path2 … / Script not found (W1 not deployed)]
 
 ### Distillation
 - [Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]

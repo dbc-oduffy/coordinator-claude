@@ -2,6 +2,28 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [2.0.0] — 2026-05-03
+
+### Removed — `remember` plugin
+
+The `remember` plugin (automatic session memory via Haiku-summarized transcripts) is removed. Its Haiku-summarization PostToolUse and SessionStart hooks fired constantly across every session, burning tokens for no measurable workflow benefit beyond what the existing process guardrails already provide:
+
+- Handoffs (`/handoff`, `/pickup`) carry forward what matters between sessions.
+- The orientation cache, lessons file, project tracker, and `tasks/` artifacts cover continuity at the project level.
+- Built-in conversation compaction handles in-session context.
+
+Net effect: `remember` was redundant infrastructure for a problem already solved by discipline. Keeping it costs Haiku spend on every tool call with no signal anyone was reading the resulting `memory/sessions/*.md` files.
+
+### Migration
+
+- The plugin entry in `marketplace.json` is gone. Existing installs should run plugin-uninstall (or just delete the plugin dir).
+- Accumulated `~/.claude/projects/<slug>/memory/sessions/` data dirs can be deleted; nothing reads from them.
+- Five coordinator commands had their `remember`-aware paragraphs removed: `setup`, `session-start`, `session-end`, `update-docs`, `workday-complete`. Each now skips straight to its next step.
+
+### Added (publish tooling)
+
+- `setup/publish.sh` now prunes orphan plugin directories from the target (matching the existing per-file `--delete` semantics). Hidden dirs like `.git` are preserved. Respects `--dry-run`.
+
 ## [1.8.0] — 2026-05-03
 
 ### Theme — docs-checker as suggested pre-flight + inline-edit authority
