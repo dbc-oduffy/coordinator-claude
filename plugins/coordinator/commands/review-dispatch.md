@@ -80,28 +80,45 @@ Before dispatching reviewers, mark the artifact's review status. If the artifact
 
 If the artifact is code (no status header), note the review in the tracker or plan doc that references this work. The point is: if a crash happens mid-review, there's a breadcrumb showing what was being reviewed and by whom.
 
-### Phase 2.7: API Verification (docs-checker, optional)
+### Phase 2.7: API Verification (docs-checker pre-flight)
 
-Before dispatching expensive Opus reviewers, optionally dispatch the **docs-checker** agent (Sonnet) to verify external API references in the artifact. This separates mechanical verification from architectural review — reviewers receive a pre-verified artifact and can skip their own API lookups.
+Before dispatching expensive Opus reviewers, decide whether to run the **docs-checker** agent (Sonnet) as a suggested pre-flight. docs-checker verifies external API references and applies AUTO-FIX-class corrections inline — reviewers receive a pre-verified artifact and can skip mechanical lookups entirely.
 
-**When to run:**
-- Artifact contains UE API references (C++ headers, Blueprint nodes, engine classes)
-- Artifact contains heavy external library usage (SDKs, frameworks)
-- Effort level is Medium or High (skip at Low — not worth the extra dispatch)
+**EM Decision Step — consult the table below before dispatching:**
 
-**When to skip:**
-- Doc-only or test-only changes
-- Pure architectural changes with no API references
-- Low effort reviews
-- `--reviewers` override was specified (PM is directing the pipeline)
+_Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distribution. Re-evaluate when the underlying model changes._
+
+| Language / Domain | Default | EM discretion |
+|---|---|---|
+| **C++ (Unreal Engine, native libraries)** | **Always run.** UE's API surface drifts every release; signatures and module/`.Build.cs` boundaries are easy to hallucinate. | None — run it. |
+| **C++ (non-UE)** | Run unless trivially small. | Skip only when the artifact cites ≤3 stdlib calls and nothing else. |
+| **C# (Unity, .NET)** | EM discretion, bias toward running for Unity package version drift and recent .NET preview features. | Skip for trivial scripts touching only well-known BCL APIs. |
+| **Python** | EM discretion. | Run when the artifact pins library versions or uses uncommon SDKs (Stripe, Anthropic SDK new features, ML libraries). Skip for stdlib-only scripts. |
+| **TypeScript / JavaScript** | EM discretion. | Run when SDK signatures matter (Anthropic, Stripe, AWS SDK v3 vs v2). Skip for routine React/Node code in the training distribution. |
+| **Go, Rust, Swift** | EM discretion. | Bias toward running — fewer training tokens than Python/TS. |
+| **Pure prose** (lessons, postmortems, retros, strategy memos) | Skip. | None — nothing to mechanically verify. |
+| **Plans citing in-repo symbols only** | Skip docs-checker (use project-RAG instead). | None — docs-checker is for external APIs. |
+
+**Heuristic, not law.** The EM applies judgment: scale (1-page stub vs 30-page spec), complexity (3 API calls vs 50), distance from training (UE 5.6 features vs `Array.prototype.map`). When in doubt, run it — it's cheap. **Skip is silent — no flag needed, no justification required.**
+
+**In practice:**
+- **C++/UE artifacts:** run docs-checker.
+- **Other languages:** EM judgment — bias toward running for unfamiliar SDKs and pinned versions; skip for routine in-distribution code.
+- **Pure prose artifacts:** skip — nothing to verify.
 
 **Dispatch:**
 1. Dispatch `docs-checker` agent with the artifact path
-2. Save the verification report to `tasks/review-findings/{timestamp}-docs-checker.md`
-3. If report contains INCORRECT claims: flag to coordinator before proceeding — the artifact may need fixes before review
-4. Pass the report path to Opus reviewers in their dispatch prompt: "A docs-checker verification report is available at [path]. Trust VERIFIED claims — focus your review on architecture and design."
+2. docs-checker applies AUTO-FIX-class corrections inline and writes all edits as a single git-revertible commit
+3. docs-checker emits `tasks/review-findings/{timestamp}-docs-checker-edits.md` (changelog sidecar) and `tasks/review-findings/{timestamp}-docs-checker.md` (verification report)
+4. EM reads the edits sidecar (if any) and includes the following verbatim in the Opus reviewer's dispatch prompt:
+
+   > A docs-checker pre-flight ran on this artifact. AUTO-FIX corrections were applied inline — see [edits sidecar path] for the changelog. UNVERIFIED claims are listed in [report path] for your verification. VERIFIED claims do not need re-checking; focus your review on architecture, approach, and design.
+
+**EM spot-check obligation (mandatory):** After the Opus reviewer completes, the EM diffs the docs-checker commit against the pre-edit artifact for any auto-fix the Opus reviewer did not explicitly endorse. This spot-check is mandatory and time-bounded — read the changelog AND run the diff before marking the review stage done. Rollback is `git revert <docs-checker-commit-sha>` — one command.
 
 **On docs-checker failure:** Proceed to Phase 2.8 and Phase 3 without the report. Reviewers fall back to their own verification. This phase is additive, not blocking.
+
+**Phase 2.8 integrator note:** The review-integrator does NOT review docs-checker auto-fixes — those are pre-applied before the Opus reviewer sees the artifact. The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the review record archived alongside the review findings.
 
 ### Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
 

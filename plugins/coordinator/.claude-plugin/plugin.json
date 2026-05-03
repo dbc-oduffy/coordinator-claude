@@ -1,6 +1,6 @@
 {
   "name": "coordinator",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 23 workflow skills that enforce quality from plan through execution.",
   "author": {
     "name": "Dónal O'Duffy & Claude"
