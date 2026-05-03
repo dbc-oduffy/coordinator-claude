@@ -2,6 +2,27 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.8.0] — 2026-05-03
+
+### Theme — docs-checker as suggested pre-flight + inline-edit authority
+
+Promotes the `docs-checker` Sonnet agent from optional reporting-only to a suggested pre-flight before Opus reviewer dispatch, with authority to apply AUTO-FIX-class corrections inline. Reviewer awareness propagated to all five Opus reviewers via a new sentinel-snippet sync surface, parallel to the existing calibration and project-rag-preamble patterns.
+
+### Added
+- **`docs/wiki/docs-checker-pre-review.md`** — full doctrine page: EM Decision Rules table (always-run for C++/UE; EM judgment elsewhere; freshness-marked against the current model), AUTO-FIX allowlist + hard prohibitions, scope constraint (artifact-only, never referenced files), project-RAG staleness rule, sidecar YAML schema, edit-budget cap, integrator-bypass rollback story.
+- **`plugins/coordinator/snippets/docs-checker-consumption.md`** — canonical consumer-side block (synced into all five Opus reviewer prompts).
+- **`plugins/coordinator/bin/verify-docs-checker-sync.sh`** — sync verifier with `--fix` and `--list` modes; clone of `verify-calibration-sync.sh`.
+- **`plugins/coordinator/CLAUDE.md`** new section "Pre-Review Mechanical Verification" (terse rule + pointer to wiki) + tripwire under "Adding a Convention to the Coordinator System".
+
+### Changed
+- **`plugins/coordinator/agents/docs-checker.md`** — gains `Edit` tool + seven `mcp__project-rag__*` tools, project-RAG bootstrap subsection, expanded scope (in-repo symbols verifiable when project-RAG present), 5-tier verification source hierarchy with explicit staleness handling, new "Inline Auto-Fix Authority" section (allowlist, scope constraint, edit-budget cap, sidecar YAML schema, hard prohibitions, oscillation stuck-detection), removal of "Apply fixes" from "What You Do NOT Do", verification-table `Action` column.
+- **`plugins/coordinator/agents/staff-eng.md`**, **`plugins/game-dev/agents/staff-game-dev.md`**, **`plugins/data-science/agents/staff-data-sci.md`**, **`plugins/web-dev/agents/senior-front-end.md`** — sentinel-block docs-checker-consumption inserted (replaces inline block in staff-eng; new in the others).
+- **`plugins/coordinator/commands/review-dispatch.md`** — Phase 2.7 promoted from optional to suggested pre-flight; embeds the EM Decision Rules table; integrator-bypass note + mandatory EM spot-check after Opus review.
+- **`plugins/coordinator/skills/requesting-code-review/SKILL.md`**, **`plugins/coordinator/skills/requesting-staff-session/SKILL.md`** — pointer to docs-checker pre-flight in review-setup steps.
+
+### Internal
+- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. Patrik R1 (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → Patrik R2 (APPROVED, 0 findings). Plan + reviews preserved at `tasks/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
+
 ## [1.7.1] — 2026-05-03
 
 ### Theme — Doc refresh

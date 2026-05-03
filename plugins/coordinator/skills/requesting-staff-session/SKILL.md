@@ -39,6 +39,10 @@ Before invoking `/staff-session`, the EM should have:
 - [ ] Tier selected based on the decision table above
 - [ ] Team composition confirmed (or accept auto-selection)
 
+## docs-checker Pre-Flight
+
+For artifacts that cite external APIs — particularly C++ or Unreal Engine code — the EM should consider running the `docs-checker` agent before dispatching the Opus reviewer team. docs-checker verifies API names, signatures, and headers at Sonnet cost, so the staff reviewers spend their time on contested design decisions rather than mechanical lookups. The skip is an EM call and is silent — pure prose, in-repo-only references, and routine in-distribution code don't need it. **Skipping docs-checker does NOT extend to skipping the review itself — only the PM may waive a review on an EM plan.** Full EM decision rules: `docs/wiki/docs-checker-pre-review.md`. Mechanical flow: `commands/review-dispatch.md` Phase 2.7.
+
 ## 7-Teammate Cap
 
 Agent Teams enforces a hard limit of 7 teammates per session. When a pipeline needs an extra step between existing phases (e.g., an atlas sketch between scouts and specialists), **dispatch it as a regular subagent — not a teammate.**
