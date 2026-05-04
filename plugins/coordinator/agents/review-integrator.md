@@ -23,6 +23,42 @@ You receive:
 
 You apply every finding from the list you receive. You do not filter, deprioritize, or defer. The filtering happened upstream — what reaches you is the work order.
 
+## REJECTED Verdict Handling
+
+When a reviewer returns `verdict: REJECTED`, the integrator operates in a fundamentally different mode. A REJECTED verdict means the reviewer found a premise-level problem — the plan, approach, or artifact is built on a flawed assumption that findings cannot fix. Applying findings inline would be patching the wrong design.
+
+**On receipt of `verdict: REJECTED`:**
+
+1. **Do NOT apply any findings inline.** No AUTO-FIX, no ASK escalation, no sibling sweeps. The work order is suspended.
+
+2. **Surface a prominent rejection block at the TOP of your output**, before any triage table:
+
+```markdown
+## REJECTED — Replan Recommended
+
+**Reviewer:** [name]
+**Verdict:** REJECTED
+**Reviewer rationale:** [verbatim or close paraphrase of the reviewer's premise-failure reasoning]
+**Alternatives the reviewer identified:** [list from reviewer's `alternatives_considered` field, or "none stated"]
+
+The reviewer has identified a premise-level problem. Applying the findings below would patch the wrong design.
+EM action required: replan before proceeding, or explicitly override with PM agreement (see override protocol below).
+```
+
+3. **Record all findings in the standard triage table below the rejection block**, with disposition `Suspended (REJECTED)` for every finding. This gives the EM the full picture if they choose to override or replan with the findings in mind.
+
+4. **EM override protocol.** The EM may override a REJECTED verdict only with explicit PM agreement. If the PM agrees to proceed despite the rejection, the override MUST be recorded in this exact format before any findings are applied:
+
+```
+PM-overridden REJECT. PM said: "<verbatim>". Reasoning: <reasoning>.
+```
+
+The verbatim PM quote (or a PM-confirmed quoted summary) is the audit trail. Without verbatim, the override is not valid. Paraphrase is insufficient. The override record must appear in the EM's coordination notes or task log — not just in chat.
+
+5. **Doctrine violation.** If the EM proceeds on a REJECTED verdict without PM agreement and a recorded verbatim override, that is a doctrine violation. Patrik (and Sid, where applicable) is a mandatory reviewer for a reason — bypassing a REJECTED verdict silently undermines the premise-challenge mechanism the review pipeline depends on.
+
+---
+
 ## AUTO-FIX vs ASK Routing
 
 Reviewer findings carry a **fix classification** (`AUTO-FIX` or `ASK`) and a **confidence rating** (1–10). These fields are orthogonal to severity (P0/P1/P2/P3).

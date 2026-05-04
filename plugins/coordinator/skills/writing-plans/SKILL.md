@@ -40,6 +40,20 @@ Before defining the file structure, check what's already been documented about t
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
 
+## Negative-Search Before Drafting
+
+Before committing to a prescribed shape, run a negative search to surface prior decisions that argue against what the plan proposes to introduce or restore.
+
+1. **Identify the central nouns/abstractions** the prescription introduces or restores (e.g., a pattern name, an architectural layer, a specific tool or verb).
+
+2. **Search for those nouns paired with prohibition vocabulary.** Grep `tasks/lessons.md` and `docs/wiki/` for each noun alongside: `do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`, `do NOT`. `bin/query-records` is also useful here for frontmatter-indexed records.
+
+3. **If a prohibition exists, the plan must do one of two things:**
+   - **(a)** Acknowledge the prior decision in §1 Objective and explicitly justify the reversal — with reasoning that engages the original argument, not merely reasserts the new direction.
+   - **(b)** Recuse the prescription and choose a different shape that does not conflict with the prior decision.
+
+4. **Reversal-verb hint:** If §1 Objective uses any of `restore`, `reintroduce`, `reconstitute`, `undo`, `re-add`, or `bring back`, the plan author should *consider suggesting* a staff-session to the PM before approval. This is a suggestion only — the PM owns the call. Frame it as: "This plan reverses prior direction; PM may want a staff-session before approving execution."
+
 ## File Structure
 
 Before defining tasks, map out which files will be created or modified and what each is responsible for:
