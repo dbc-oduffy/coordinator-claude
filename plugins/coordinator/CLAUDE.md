@@ -136,7 +136,7 @@ Classify each new lesson **tier-1** (universal across project types) or **tier-2
 - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
 ```
 
-Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is consumed by `/workday-start` and `/workday-complete`; triage when depth ≥ 5 or oldest > 14 days.
+Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is surfaced by `/workday-complete` as a read-only depth nudge (≥5 entries → one-line notice, no action); triage action runs in `/workweek-complete` Step 4 (apply entries, dispatch executors, move to Processed).
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
@@ -228,6 +228,12 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting 
 - **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
 - **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
 - **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start` (consolidate, defer, or archive). See `bin/sync-main.sh` and the workday-start Step 0 contract.
+
+## Workday/Workweek Cadence
+
+Daily and weekly are distinct ceremonies, both PM-invoked but staleness-nudged so the PM knows when each is overdue. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises a structured daily block from existing handoffs and the `/daily-review` summary — it does not re-author content. `/workweek-complete` reads that index as ground truth and does not reconstruct the week from `git log`.
+
+Daily (`/workday-complete`) is a lightweight branch wrap: validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`) is the release ceremony: full docs sweep, ShellCheck, Codex review, improvement-queue triage, scc, version bump, and merge. Staleness is signalled by `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since the last weekly-reset SHA). The improvement-queue triage rule follows the same split: **daily emits a depth nudge only** (≥5 entries → one-line notice in summary, no action); **weekly triggers the triage action** (apply entries, dispatch executors, move to Processed).
 
 ## Core Principles
 

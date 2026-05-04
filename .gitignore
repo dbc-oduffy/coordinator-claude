@@ -2,7 +2,9 @@
 settings.local.json
 
 # Session data (not part of the distribution)
-plans/
+# Anchored to repo root: ephemeral session plans/ at root are ignored,
+# but docs/plans/ (canonical, tracked design history) is not shadowed.
+/plans/
 tasks/
 archive/
 projects/

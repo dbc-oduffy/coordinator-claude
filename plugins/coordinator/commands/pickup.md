@@ -70,6 +70,26 @@ The PM has pointed you at a specific handoff. Read it immediately and proceed to
 
 ---
 
+## Step 2.5: "While You Were Away" Surface (prior-day handoffs only)
+
+After reading the handoff, extract the handoff's date from its filename (`YYYY-MM-DD-*.md`) or its header.
+
+- **Same day (handoff date == today):** straight baton pass — skip this step entirely.
+- **Prior day (handoff date < today):** glob `tasks/week-changelog/*.md`, excluding `HEADER.md`. Filter to daily files whose filename date is strictly after the handoff date. For each matching file, emit one line:
+
+  ```
+  <date> (<hostname>): <Scope field value> — <Plans touched: shipped entries, if any>
+  ```
+
+  Cap the surface at ~10 lines. If more files exist than the cap:
+  > "(N more days — see `tasks/week-changelog/` for the full record)"
+
+  If no daily files exist since the handoff (changelog not yet in use), skip silently.
+
+**Purpose:** ambient context across other workstreams that moved while this workstream was paused. Not a decision gate — just orientation.
+
+---
+
 ## Step 3: Load Context and Run
 
 The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to proceed?" Do NOT summarize the handoff back and wait for approval.
