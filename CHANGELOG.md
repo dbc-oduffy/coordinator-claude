@@ -2,6 +2,56 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [1.10.0] — 2026-05-04 (proposed — PM to confirm before tagging)
+
+Two themes in this release: a workday/workweek cadence split for the coordinator workflow surface, and a layered defense against "shape-correct, premise-wrong" plans across the reviewer pipeline.
+
+### Theme A — Workday/workweek cadence split
+
+`/workday-complete` had grown to 306 lines doing double duty: lightweight daily housekeeping AND release-grade ceremony. Multi-day workstreams don't fit a daily wrap, so the heavy half either got skipped or fired at the wrong cadence. This release splits the cadence into daily and weekly bookends, with a structured `tasks/week-changelog/` ledger acting as a thin index over handoffs (which remain the unit of session continuity).
+
+### Added
+- **`/workweek-start`** (new) — PM-invoked strategic orient at the start of a week. Reads the prior week's changelog, surfaces stalled workstreams, runs an orphan sweep, prompts the PM for 1–3 priorities, and resets-or-updates `tasks/week-changelog/HEADER.md` based on whether a `/workweek-complete` has occurred since the last `/workweek-start`.
+- **`/workweek-complete`** (new) — PM-invoked release-grade close. Reads the week-changelog as canonical record, runs full validation + `/update-docs` + ShellCheck + Codex review + improvement-queue triage + scc snapshot, drafts release notes from changelog + `archive/completed/`, surfaces a version bump, invokes `/merge-to-main`, archives the daily files, and resets the HEADER.
+- **`tasks/week-changelog/`** convention — per-machine daily files (`YYYY-MM-DD-{hostname}.md`) + shared `HEADER.md`. Per-machine layout eliminates concurrent-write conflicts when multiple machines wrap the same calendar day.
+- **`bin/check-weekly-staleness.sh`** — emits `STALE` / `MILD` / `FRESH` / `UNKNOWN` based on days-since-last-weekly + commits-since-last-weekly thresholds (≥5 days AND ≥15 commits = STALE). Consumed by daily nudge and both weekly commands.
+- **`/pickup` "while you were away" surface** — when the named handoff is from a prior day (not a same-day baton pass), surfaces one-line summaries of changelog blocks since the handoff date, capped at ~10 lines. Strengthens the handoff/pickup backbone for multi-workstream weeks.
+- **`docs/wiki/workday-workweek-cadence.md`** — tutorial guide for the new cadence.
+
+### Changed
+- **`/workday-complete`** rewritten (307 → 210 lines). Drops `/update-docs`, scc, ShellCheck, Codex review gate, and improvement-queue triage action — all moved to `/workweek-complete`. Adds: read-only improvement-queue depth nudge (≥5 entries surfaces a one-liner, no triage), changelog append (synthesises today's block from handoffs + `/daily-review` summary, does NOT re-author), staleness check (surfaces "weekly is stale" when thresholds cross). `Validation:` field on the daily block is auto-filled from gate exit codes, never LLM-authored.
+- **`plugins/coordinator/CLAUDE.md`** — new "Workday/Workweek Cadence" doctrine section ("handoffs are the atom, the changelog is the index"); existing improvement-queue triage rule updated to reflect daily-nudge / weekly-action split.
+
+### Migration
+- Existing projects do not need to do anything. `tasks/week-changelog/HEADER.md` is shipped as a seed template; first `/workweek-start` populates it. Until then, `bin/check-weekly-staleness.sh` returns `UNKNOWN` (no nudge fires).
+- Existing `/workday-complete` workflows continue to work — the command does less, but everything it still does was already there.
+- `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
+
+### Design source
+`docs/plans/2026-05-04-workweek-cadence-split.md` (Patrik APPROVED_WITH_NOTES — all findings folded in).
+
+### Theme B — Reviewer premise challenge (layered W1–W5 defense)
+
+Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodeck `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `tasks/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
+
+#### Added
+- **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
+- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `tasks/lessons.md`.
+- **W3 — `staff-eng` (Patrik)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
+- **W4 — `staff-game-dev` (Sid)** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
+- **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
+
+#### Changed
+- Calibration block byte-identical across all reviewers (`verify-calibration-sync` clean).
+
+#### Design source
+`docs/plans/2026-05-04-reviewer-premise-challenge.md` (Patrik APPROVED_WITH_NOTES — all 7 findings integrated).
+
+#### Note
+The `dfdcf8f` commit also carried an early-write probe addition to `plugins/deep-research/agents/repo-specialist.md` — orthogonal to the W1–W5 work but mixed into the same source-side commit and percolated together via `publish.sh`.
+
+---
+
 ## [1.9.0] — 2026-05-03
 
 ### Removed — `remember` plugin

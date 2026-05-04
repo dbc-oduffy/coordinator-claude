@@ -1,306 +1,210 @@
 ---
-description: End-of-day orchestration — update docs, consolidate branches, run health survey
-allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
+description: End-of-day orchestration — validate, consolidate branches, daily review, append to week-changelog
+allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"
 ---
 
 # Workday Complete — End-of-Day Orchestration
 
-Update docs, consolidate work branches, and run a health survey. **Does NOT merge to main.** Merging is a deliberate, supervised act via `/merge-to-main`.
+Lightweight daily wrap: validate, consolidate branches, run the strategic daily review, append to the week-changelog, and surface staleness signals. **Does NOT merge to main.** Heavy ceremony (docs sweep, ShellCheck, Codex, improvement-queue triage) is weekly — see `/workweek-complete`.
 
 ## Design Rationale
 
-Main never changes unsupervised or overnight. No live customers are affected by branch state — the splash damage of waiting for the morning is zero. This builds the right habit for when colleagues exist: main is always clean, always supervised.
+Daily is a branch wrap, not a release ceremony. Handoffs archive at their natural trigger; the tracker is touched when the work touches it. The changelog append converts "weekly EM does archaeology" into "weekly EM reads a structured ledger."
 
-## Instructions
+---
 
-When invoked, run the full end-of-day sequence. If any step fails, stop and report — don't proceed to later steps on a broken foundation.
-
-### Step 1: Run `/update-docs`
-
-Invoke `/update-docs` for full repo-wide maintenance. This commits and pushes to the current branch.
-
-Wait for it to complete before proceeding.
-
-### Step 1.5: Run `/validate`
-
-Run the local CI validation suite to catch issues before branch consolidation:
+## Step 1: `/validate` (blocking gate)
 
 ```bash
 python .github/scripts/run-all-checks.py
 ```
 
-This discovers and runs all `validate-*.py` and `check-*.py` scripts by convention. Projects add their own build checks here (e.g., `check-ue-build.py`, `check-npm-build.py`, `check-pnpm-build.py`) — the runner finds them automatically.
+Capture the exit code — it populates `Validation:` in the changelog block.
 
-- **If all checks pass:** Proceed to Step 2.
-- **If checks fail:** Report the failures. For build failures, stop and fix — don't push broken code. For non-build failures (linting, file sizes), use judgment: fix what's quick, flag the rest in the final summary.
+- **Build failure:** stop and fix.
+- **Non-build failure:** fix what's quick, flag the rest, proceed.
 
-### Project-RAG Staleness (conditional)
+---
 
-If `ToolSearch` finds any `mcp__project-rag__*` tool, run the
-staleness-survey script (same invocation as workday-start Step 3.6). If the
-verdict is `stale` or `very-stale`, surface it in the evening report:
+## Step 2: RAG Staleness Nudge (informational)
 
-> **Project-RAG:** {verdict} — last scanned {age}, {code_commits} commits since.
-> Suggest running `{recommendation_command}` before tomorrow's first session.
+If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. Surface in the final summary only if verdict is `stale` or `very-stale`. Skip silently otherwise.
 
-Skip silently if the gate fails or verdict is `current`/`mild`. Evening surfacing
-is for sessions that need a reindex *before* tomorrow starts; mild staleness can
-wait for morning.
+---
 
-### Step 1.7: Coordinator-Improvement Queue Check
+## Step 3: Branch Consolidation
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count entries in the `## Active queue` section (each line beginning with `- `) and note the date of the oldest entry.
+0. `~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
+1. Discover today's branches: `git branch --list "work/$MACHINE/$TODAY*"` (local + remote).
+2. Merge siblings into current branch. Non-trivial conflicts → report and halt.
+3. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
+4. `git push origin $(git branch --show-current) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
+5. Delete merged sibling branches: `git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d`
 
-- **If ≥ 5 active entries OR oldest entry is > 14 days ago (heuristic — flag for revisit after first organic cycle):** surface a one-liner to the PM in the Final Summary:
-  > "Coordinator-improvement queue has K entries (oldest: YYYY-MM-DD). Triage now or defer to a future session?"
-  The invitation to triage is optional — follow the PM's energy. If they want to triage: read the queue, dispatch a small executor per entry (drawing on the entry's "proposed target"), verify, percolate to X:/coordinator-claude. Move applied entries from `## Active queue` to `## Processed`. If the queue has > 15 entries, treat this as a `/staff-session`-style multi-executor sweep.
-- **If < 5 entries AND all are ≤ 14 days old:** skip silently — no surfacing needed.
-- **If the file does not exist:** skip silently.
+Feature branches are excluded — they are intentionally long-lived.
 
-### Step 2: Branch Consolidation
+---
 
-Consolidate all of today's work branches for this machine into one clean branch.
+## Step 4: Strategic Daily Review
 
-0. **Sync-main invariant** (run before any branch ops):
-   ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
-   ```
-   If it exits non-zero, report to PM — do not proceed with consolidation until main is synced.
+Run `/daily-review`. Produces `archive/daily-summaries/YYYY-MM-DD.md` — feeds the changelog append and the weekly ceremony.
 
-1. **Discover branches:**
-   ```bash
-   MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
-   TODAY=$(date +%Y-%m-%d)
+```bash
+git push origin $(git branch --show-current)
+```
 
-   # Local branches for today
-   git branch --list "work/$MACHINE/$TODAY*"
+---
 
-   # Remote branches for today
-   git branch -r --list "origin/work/$MACHINE/$TODAY*"
-   ```
-
-2. **If multiple branches exist:** Merge them into the current branch:
-   ```bash
-   # For each other branch:
-   git merge <other-branch> -m "consolidate: merge <other-branch> into $(git branch --show-current)"
-   ```
-   If merge conflicts occur: resolve them. If conflicts are non-trivial, report to PM and halt.
-
-3. **Rebase on main:**
-   ```bash
-   git fetch origin main
-   git rebase origin/main
-   ```
-   If rebase conflicts occur: resolve them. This ensures the consolidated branch is up-to-date with main and ready for morning review.
-
-   If rebase fails with non-trivial conflicts:
-   ```bash
-   git rebase --abort
-   ```
-   Fall back to merge:
-   ```bash
-   git merge origin/main -m "merge main into work branch for consolidation"
-   ```
-
-4. **Push the consolidated branch:**
-   ```bash
-   git push origin $(git branch --show-current) --force-with-lease
-   ```
-   Force-with-lease protects against concurrent pushes. If it rejects (another session pushed since our last fetch):
-   ```bash
-   git fetch origin
-   git rebase origin/$(git branch --show-current)
-   git push origin $(git branch --show-current) --force-with-lease
-   ```
-   If the second attempt also fails, report the conflict to the PM — do not force-push without `--force-with-lease`.
-
-5. **Clean up merged branches:**
-   Delete local branches that were merged into the current branch (except the current branch itself):
-   ```bash
-   git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | while read -r branch; do git branch -d "$branch"; done
-   ```
-
-**Feature branches are excluded** — they are intentionally long-lived and not part of end-of-day cleanup.
-
-### Step 3: Strategic Daily Review
-
-Run the strategic daily review of today's work. This produces a daily summary artifact and gets an architectural perspective on the day's decisions — checking for lock-in, missed bridging opportunities, and roadmap alignment.
-
-1. Run `/daily-review`
-2. The command handles: inventory (Haiku scout), work summary (Sonnet analyst), strategic review (Sonnet persona), health ledger update, and committing all artifacts
-3. The daily summary is written to `archive/daily-summaries/YYYY-MM-DD.md` — this feeds `/update-docs`, `/distill`, and the next morning's orientation
-4. Push to remote after daily review completes — results are safe even if machine shuts down:
-   ```bash
-   git push origin $(git branch --show-current)
-   ```
-
-**Note:** `/code-health` (detailed code-level review) is still available on-demand but is no longer the default end-of-day check. Our review-heavy build pipeline already catches code-level issues; end-of-day focuses on strategic alignment.
-
-### Step 3.4: Plugin Validation Suite (blocking gate)
-
-Run the plugin infrastructure test suite to catch marketplace registration errors, missing files, broken hooks, and invalid frontmatter before they cause boot failures. The suite now includes hook-behavior tests (coordinator-safe-commit, verify-preamble-sync, coordinator-auto-push, session-init) that guard against regressions in load-bearing infrastructure:
+## Step 5: Plugin Validation Suite (blocking gate)
 
 ```bash
 node --test ~/.claude/tests/plugins/run.js
 ```
 
-- **If all tests pass:** Report: _"Plugin validation: N tests passed across M plugins."_
-- **If hook-behavior tests fail:** This is a **blocking failure** — stop and report. Hook regressions discovered at workday-close are recoverable; regressions discovered in mid-session are not. Fix the regression before proceeding to Step 4.
-- **If only non-hook tests fail (marketplace, frontmatter, manifest):** Report failures in summary. Flag as actionable for morning. These are structural issues that will cause boot errors but do not block the workday-close git steps.
-- **Calibration-sync informational:** If the `reviewer-calibration sentinel sync` test fails, this is informational unless Borrow #5 has fully landed — note in summary but do not block.
+Capture exit code for the changelog `Validation:` field.
 
-### Step 3.5: Refresh Code Statistics
+- **Hook-behavior failures:** blocking — stop and fix.
+- **Non-hook failures:** report in summary, flag for morning, do not block git steps.
+- **Calibration-sync sentinel:** informational unless Borrow #5 has fully landed.
 
-If `scc` is available (check `scc` then `~/bin/scc`), run a fresh count:
-```bash
-scc --no-complexity --no-cocomo --no-duplicates --sort code
-```
-Include the compact summary (total lines, top 5 languages) in the final summary. This establishes a daily snapshot of project scale. If not installed, note in summary: _"scc not available — install for code stats."_
+---
 
-### Step 3.6: Completed Archive Audit
+## Step 6: Completed Archive Audit
 
-Verify that `archive/completed/YYYY-MM.md` accurately reflects what shipped today. Session-end writes individual entries, but sessions may skip `/session-end`, entries may be vague, or ad-hoc work may slip through.
+1. `git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"` — gather today's commits.
+2. Read `archive/completed/YYYY-MM.md`; find entries under today's heading.
+3. Reconcile: add missing entries, fix inaccurate ones, skip trivial commits.
+4. If `docs/project-tracker.md` exists, verify completed workstreams have updated status.
+5. Report: _"Archive audit: N entries verified, M added, K corrected."_
 
-1. **Gather the day's activity from all sources:**
+---
 
-   **Git commits:**
-   ```bash
-   TODAY=$(date +%Y-%m-%d)
-   git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"
-   ```
-
-2. **Read the current month's archive:** `archive/completed/YYYY-MM.md`. Find entries under today's `## YYYY-MM-DD` heading.
-
-3. **Reconcile commits → archive:** Group related commits into logical work items (same feature/fix = one item). For each work item:
-   - **Present in archive:** Verify the description is accurate and the commit hash is correct. Fix inaccuracies in place.
-   - **Missing from archive:** Append an entry. Use the same format: `- **[Past-tense description]** — [category] | commit: [hash]`
-   - **Trivial commits** (formatting, typos, merge commits, quick-saves): skip — the archive records *what shipped*, not every keystroke.
-
-4. **Reconcile archive → commits:** Check each archive entry for today against the commit log. Flag any entry that doesn't correspond to a real commit — this catches copy-paste errors or entries from a session that was abandoned before committing.
-
-5. **Check tracker alignment:** If `docs/project-tracker.md` exists, verify that any workstream marked as completed today in the archive also has its tracker status updated. Fix mismatches in place.
-
-6. **Report:** Include in the Final Summary:
-   - _"Archive audit: N entries verified, M added, K corrected."_
-   - Or: _"Archive audit: no commits today."_
-
-**Why at end-of-day:** Individual sessions write entries via `/session-end`, but this is the backstop — one authoritative pass across the full day's work. It catches sessions that crashed, skipped session-end, or wrote incomplete entries.
-
-### Step 3.7: ShellCheck Sweep
-
-If `shellcheck` is available, run it across all tracked `.sh` files in the repo:
-```bash
-git ls-files '*.sh' | while read -r f; do
-  tr -d '\r' < "$f" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|$f:|g"
-done
-```
-
-- **If issues found:** Report them and offer to fix. Most shellcheck findings are quick mechanical fixes (quoting, unused variables, POSIX pitfalls). Fix what's straightforward; flag anything that changes behavior for PM review.
-- **If clean:** Report: _"ShellCheck: all .sh files clean."_
-- **If shellcheck not installed:** Note in summary: _"shellcheck not available — install for shell script linting."_
-
-This is end-of-day cleanup — a good time to catch lint that accumulated during rapid development.
-
-### Step 3.8: Codex Review Gate (second-opinion)
-
-Run a Codex review of the day's diff against main as an independent-model second opinion on code quality. This is **on by default** — Codex (GPT-5.4) provides a different model family's perspective on the same changes that the daily review covered. Blind spots may be correlated within a model family; Codex mitigates this by providing an independent sample.
-
-1. **Check diff exists:**
-   ```bash
-   git diff --shortstat origin/main...HEAD
-   ```
-   If no changes exist against main, skip: _"Codex review gate: no diff against main — skipped."_
-
-2. **Run Codex review:**
-   Invoke the `codex-review-gate` skill (reads scope and base from context).
-
-3. **Assess result by exit code:**
-
-   **Exit code 0 (success):** Include Codex findings in the Final Summary. If Codex found issues:
-   - P0/P1 findings: flag to PM in the summary — these should be addressed before merging to main
-   - P2 findings: note in summary, defer to next session
-   - Clean verdict: note in summary as confirmation
-
-   **Non-zero exit code (graceful fallback):** This is expected when Codex credits are limited or the CLI isn't set up. Report the skip reason and continue — the daily review from Step 3 is sufficient on its own:
-   - _"Codex review gate skipped: {reason}. Daily review from Step 3 stands as the sole review."_
-
-4. **Do not block end-of-day on Codex failure.** The daily review already provides strategic and code-level perspective. Codex is additive — a different model family's perspective — not a replacement.
-
-### Step 3.9: Tier Usage Report
-
-Before the final summary, emit the aggregate tier usage across all sessions active today. This closes the W3 telemetry loop and surfaces whether the tiered-context-loading doctrine was followed.
+## Step 7: Tier Usage Report
 
 ```bash
-TODAY=$(date +%Y-%m-%d)
-find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" -newer "${HOME}/.claude/projects" 2>/dev/null | \
+find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" 2>/dev/null | \
 while read -r f; do cat "$f"; done | \
 python3 -c "
 import json, sys
-
 totals = {'tier1': 0, 'tier2': 0, 'tier3': 0, 'tier4': 0}
-missing_rationale = 0
-sessions = 0
-
+missing_rationale = 0; sessions = 0
 for line in sys.stdin:
     line = line.strip()
-    if not line:
-        continue
+    if not line: continue
     try:
         data = json.loads(line)
         c = data.get('counts', {})
-        for k in totals:
-            totals[k] += c.get(k, 0)
+        for k in totals: totals[k] += c.get(k, 0)
         missing_rationale += sum(1 for d in data.get('tier4_dispatches', []) if not d.get('rationale_present', True))
         sessions += 1
-    except Exception:
-        pass
-
+    except Exception: pass
 if sessions > 0:
     print(f'Tier usage today ({sessions} sessions): tier1={totals[\"tier1\"]} tier2={totals[\"tier2\"]} tier3={totals[\"tier3\"]} tier4={totals[\"tier4\"]} ({missing_rationale} tier-4 missing rationale)')
 " 2>/dev/null || true
 ```
 
-If no tier-usage files exist (telemetry hook not yet active or no tracked sessions today), skip silently.
+Skip silently if no tier-usage files exist.
 
-### Step 4: Final Summary
+---
+
+## Step 8: Improvement-Queue Depth Nudge (read-only)
+
+Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count `- ` lines in `## Active queue`.
+
+- **≥ 5 entries:** emit in final summary: _"Coordinator-improvement queue: K entries (oldest: YYYY-MM-DD) — consider `/workweek-complete` to triage."_
+- **Otherwise:** skip silently.
+
+No triage action at daily cadence — triage is weekly.
+
+---
+
+## Step 9: Append to Week-Changelog
+
+```bash
+MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
+TODAY=$(date +%Y-%m-%d)
+CHANGELOG_FILE="tasks/week-changelog/$TODAY-$MACHINE.md"
+```
+
+**Staleness guard:** read `tasks/week-changelog/HEADER.md`. If `Week starting:` is set and today is >14 days past it, emit a hard warning and skip the append:
+> "WARN: HEADER.md is stale (week started >14 days ago). Was `/workweek-complete` skipped?"
+
+**Synthesise the block** from today's handoffs (`tasks/handoffs/YYYY-MM-DD-*.md`) and the `/daily-review` summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` and `Blockers:` from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5 exit codes — it is not LLM-authored prose.
+
+```markdown
+## YYYY-MM-DD — {hostname}
+
+**Branch:** work/{hostname}/YYYY-MM-DD
+**Commits:** N (range: <oldest-sha>..<newest-sha>)
+**Scope:** <one-line summary from $ARGUMENTS or derived from commit subjects>
+**Plans touched:** docs/plans/YYYY-MM-DD-foo.md (status: in-progress|shipped|reverted)
+**Handoffs:** tasks/handoffs/YYYY-MM-DD-foo.md
+**Decisions:** <extracted from today's handoffs — not re-authored>
+**Blockers:** <extracted from handoffs, or "none">
+**Validation:** validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
+**Links:** archive/daily-summaries/YYYY-MM-DD.md, archive/completed/YYYY-MM.md
+```
+
+Commit and push:
+```bash
+git add -- "$CHANGELOG_FILE"
+git commit -m "chore(week-changelog): daily block $TODAY $MACHINE"
+git push origin $(git branch --show-current)
+```
+
+---
+
+## Step 10: Weekly Staleness Check
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/check-weekly-staleness.sh
+```
+
+- **STALE:** _"Weekly is stale: D days, N commits since last `/workweek-complete`. Run it when ready."_
+- **MILD:** _"Weekly cadence: mild staleness. Consider `/workweek-complete` soon."_
+- **FRESH / UNKNOWN:** skip silently.
+
+---
+
+## Step 11: Final Summary
 
 ```
 ## Workday Complete
 
-**Docs updated:** [yes/no, what changed]
-**Validation:** [N checks passed / N failed — describe failures]
-**Branches consolidated:** [N branches merged into current]
-**Branch state:** [branch name], rebased on main, pushed to remote
-**Health survey:** [N findings / clean / skipped]
-**Plugin validation:** [N tests passed / N failures — describe]
-**Code stats:** [total lines / top language breakdown, or "scc not available — install for code stats"]
-**Archive audit:** [N entries verified, M added, K corrected / no commits today]
-**Shell lint:** [N issues found and fixed / clean / shellcheck not available — install for linting]
-**Codex review gate:** [N findings (X P0/P1, Y P2) / clean / skipped: {reason}]
-**Orientation cache:** [refreshed by /update-docs / not present]
-**NOT merged to main** — use `/merge-to-main` when ready (runs test suite first)
+**Validation:** [N checks passed / N failed]
+**Branches consolidated:** [N merged into current]
+**Branch state:** [branch name], rebased on main, pushed
+**Daily review:** [produced archive/daily-summaries/YYYY-MM-DD.md]
+**Plugin validation:** [N tests passed / N failures]
+**Archive audit:** [N verified, M added, K corrected]
+**Week-changelog:** [appended YYYY-MM-DD-{hostname}.md / skipped: reason]
+**Weekly staleness:** [STALE / MILD / FRESH]
+**NOT merged to main** — use `/merge-to-main` when ready
 ```
 
-If `$ARGUMENTS` is provided, include it as a summary line at the top: _"Day summary: {arguments}"_
+If `$ARGUMENTS` is provided, include as a top line: _"Day summary: {arguments}"_
+
+---
 
 ### What This Does NOT Do
 
-- **Merge to main.** Use `/merge-to-main` for that — it runs the test suite first.
-- **Delete the work branch.** It stays alive for morning review.
-- **Auto-push to main.** Main is supervised-only.
-- **Delete handoffs.** Handoffs are archived (moved to `archive/handoffs/`) by `/update-docs`, but never deleted. Only `/distill` may delete handoffs after careful knowledge extraction and PM approval.
+- **Merge to main.** Use `/merge-to-main` — it runs the test suite first.
+- **Run `/update-docs`.** Weekly cadence only — via `/workweek-complete`.
+- **Triage the improvement queue.** Daily depth nudge only; triage is weekly.
+- **Run ShellCheck, Codex review, or scc stats.** All moved to `/workweek-complete`.
+- **Delete the work branch.** Stays alive for morning review.
+- **Delete handoffs.** Never deleted — archived only after `/distill` with PM approval.
 
 ### Concurrent Session Safety
 
-Health files (`tasks/health-ledger.md`, `tasks/health-summary.md`, `tasks/debt-backlog.md`) are global to the project. Only one session should write them — the workday-complete session is inherently single-writer (runs at end of day). Session-start health surface is read-only.
+Per-machine files under `tasks/week-changelog/` eliminate concurrent-write conflicts. HEADER.md is touched only by the two weekly commands (PM-invoked, serial). Health files are global — workday-complete is the single daily writer.
 
-> **Force-with-lease rejection:** Branch consolidation (Step 2) uses `--force-with-lease` which will safely reject if another session pushed to the same branch after our last fetch. If rejection occurs, fetch-rebase-retry once. If that also fails, report to PM.
+> **Force-with-lease rejection (Step 3):** fetch-rebase-retry once. Second failure → report to PM.
 
 ### Relationship to Other Commands
 
-- **`/merge-to-main`** is the separate, deliberate merge skill. Run it in the morning after reviewing the branch.
-- **`/update-docs`** is invoked as Step 1 of this command.
-- **`/daily-review`** is invoked as Step 3 for the strategic daily review.
-- **`/code-health`** is available on-demand for detailed code-level review but no longer the default end-of-day check.
-- **`/codex:review`** is invoked in Step 3.8 for independent-model code review. Graceful fallback if Codex is unavailable or credits are exhausted.
+- **`/merge-to-main`** — deliberate supervised merge; run in the morning.
+- **`/daily-review`** — invoked in Step 4; its output feeds Step 9.
+- **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, Codex, triage, version bump, merge.
+- **`/workweek-start`** — PM-facing weekly orient; sets priorities in HEADER.md.
