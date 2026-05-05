@@ -161,30 +161,26 @@ This step ALWAYS runs — no opt-out. It is the most consumer-visible artifact o
 
 **Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
 
-### Step 1.55: Product-Risk Checklist (user-visible work only)
+### Step 1.55: YK Review (stress-test gate)
 
-If the merge changes user-visible behavior — UI, copy, defaults, error states, permissions, public APIs — walk this checklist before drafting the ship verdict. Skip entirely for internal-only merges (refactors, doc updates, test infra, dep bumps with no surface change).
+Before drafting the ship verdict, dispatch **YK (`agents/vp-product.md`)** as a primary reviewer for any merge that:
 
-**Detection signal:** Step 1.5 release notes contain non-empty **Added** or **Changed** sections that aren't pure-internal. When unsure, run the checklist — it's six questions, not a process.
+- changes user-visible behavior (UI, copy, defaults, error states, permissions, public APIs), **or**
+- touches performance, concurrency, scalability, or extensibility surface, **or**
+- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory YK), **or**
+- the EM proposes an approach where a refactor would plausibly be cheaper than the patch.
 
-| Question | What to check | Surface to PM if... |
-|----------|---------------|---------------------|
-| **Fit to intent** | Does the diff solve the *actual* user problem named in the plan's product objective? | Diff drifts from objective; reviewer findings note "implementation works but feels off" |
-| **UX clarity** | Would a user understand what happened and what to do next? Are empty/loading/error states present? | Missing error states; copy is engineer-voice; flow has a dead-end |
-| **Edge cases with product impact** | Concurrent users, malformed input, permission boundary cases, partial failures — what happens? | Any product-relevant edge case is silently mishandled |
-| **Support burden** | Could this create customer confusion or operational load? | New surface lacks docs; failure mode is hard to diagnose from logs alone |
-| **Trust/safety/privacy** | Could users be surprised? Is data exposed beyond what they'd expect? Audit log adequate? | Defaults expose more than the user opted into; sensitive data widens scope |
-| **Scope discipline** | Did the implementation overbuild, underbuild, or drift from the plan? | Drift from the plan's Non-Goals; refactor scope crept beyond what was approved |
+Skip YK entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
 
-**Output** — three lines for the PR body:
+YK's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
+
+**Output** — append YK's verdict line to the PR body:
 
 ```markdown
-**Product-risk lens:** [pass | needs-PM-attention] — [one-sentence rationale, or "n/a, internal merge"]
+**YK verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
 ```
 
-If `needs-PM-attention`, list the specific concern(s) and a recommendation. The PM decides whether to merge anyway, hold, or fix forward in a follow-up.
-
-This is not a separate review — it's a checklist the EM walks before declaring ship-ready. Findings that are tradeoff-free correctness fixes (typos, wrong copy) get fixed inline; findings that are product judgment (how aggressive should validation be?) surface to the PM.
+If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply YK's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with YK on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
 
 ### Step 1.56: Demo Path (user-visible work only)
 
@@ -243,11 +239,11 @@ BRANCH=$(git branch --show-current)
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# PR body = ship verdict (Step 1.57) + product-risk line (Step 1.55) + release notes
+# PR body = ship verdict (Step 1.57) + YK verdict (Step 1.55, when run) + release notes
 # (Step 1.5, including Demo Path from Step 1.56) + commit log appendix
 BODY="$(cat <<EOF
 $SHIP_VERDICT_LINE_FROM_STEP_1_57
-$PRODUCT_RISK_LINE_FROM_STEP_1_55_OR_EMPTY
+$YK_VERDICT_LINE_FROM_STEP_1_55_OR_EMPTY
 
 $RELEASE_NOTES_FROM_STEP_1_5
 
