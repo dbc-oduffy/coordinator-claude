@@ -7,6 +7,37 @@ All notable changes to coordinator-claude are documented here.
 ### Changed
 - **`codex-review-gate` is now an opt-in add-on.** The skill ships inside the coordinator plugin but is stripped from the install unless the user passes `--enable-codex` (or answers `y` at the new interactive prompt). Default installs no longer reference Codex from `/workweek-complete`, `/workday-complete`, or `/bug-sweep` summaries. `/bug-sweep --codex-verify` and the workweek Codex step both gate on skill presence — when absent, they skip silently and omit the line from their reports rather than printing _"skipped"_. Rationale: Codex was hassle for our setup and the integration was creating noise in routine reports; consumers who run Codex still have the on-ramp via the install flag.
 
+## [1.11.0] — 2026-05-05 (proposed — PM to confirm before tagging)
+
+PM-native positioning rewrite, scope-mode and DoR/DoD doctrine, a new primary reviewer (YK), ship-verdict and demo-path gates in `/merge-to-main`, and a publicly-readable evolution doc set. Coordinator plugin bumps 1.0.0 → 1.1.0; the rest of the plugin set is unchanged.
+
+### Theme — PM-native operating layer
+
+The repo has always implemented a PM-EM split, but the README and surrounding doctrine framed it as "a Claude Code productivity framework." This release sharpens the framing: a *PM-native operating layer for AI engineering work* — turning product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions, while keeping the PM technical enough to spot when something looks wrong. The framing acknowledges higher-altitude (fully non-technical PM) operation as future work, not current default; the current sweet spot is a technical-evaluating PM.
+
+### Added
+
+- **YK reviewer** (`plugins/coordinator/agents/vp-product.md`) — new primary reviewer, VP of Product (they/them), with software-engineering instincts. Stress-tests engineering choices: shape (concurrency model, sync vs. async, polling vs. event-driven, abstraction altitude), refactor-vs-patch calibration when AI execution makes refactors cheap, the dumb questions experienced engineers skip ("why single-threaded when threading is 30 lines?"), YAGNI-vs-laziness distinction, and "have you considered a different shape?" alternatives. Distinct from Patrik (code quality) and Zolí (Patrik backstop). Synced calibration block; `bin/verify-calibration-sync.sh` consumer list updated.
+- **Scope modes in `writing-plans` skill** — required header field with explicit rules per mode: prototype, production-patch, feature, architecture, spike. Routes review depth and the evidence bar.
+- **Acceptance Criteria + Non-Goals as required plan-header sections** — ends "done means whatever the agent says it means."
+- **Definition of Ready gate** in `writing-plans` (pre-drafting) and **Definition of Done gate** in `verification-before-completion` (pre-merge).
+- **Ship verdict** in `merging-to-main` Step 1.57 — every merge stages a verdict (ship / ship-behind-flag / hold / split / spike-only) for PR body and PM confirmation.
+- **Demo Path** in `merging-to-main` Step 1.56 — for user-visible work, append demonstrable steps to the release notes.
+- **"YK Pre-Flight" in `writing-plans`** — anticipate YK's questions during plan drafting. The spectre of YK review keeps the planner honest, so most actual YK reviews are belt-and-suspenders backstops rather than gatekeepers catching laziness that should have been caught earlier.
+- **`docs/evolution/` doc set** — README + 6 chapters: origin, handoffs-over-compaction, personas-as-ergonomics (the honest negative-result story), investigation-funnel, failure-modes (12-mode taxonomy with detection signals + prevention rules + recovery moves), what-we-rejected (the taste chapter, including external-review proposals declined with reasoning). The publish-repo answer to "evidence ledger" — outside readers evaluating the system see that the model has been pressure-tested and learns from failure.
+
+### Changed
+
+- **README rewritten around PM-native thesis.** New lede framing, "What This Is *Not*" section to head off miscategorization, commands reorganized around 5 flows (build a feature, fix a bug, resume work, autonomous sprint, architecture change). Inventory table demoted to collapsed appendix.
+- **Coordinator CLAUDE.md gains "Challenging the PM" doctrine** — explicit pushback triggers (request doesn't serve stated objective; change is larger than PM realizes; request hides a product decision; cheaper experiment available; scope expanding; acceptance criteria missing or unverifiable; PM asking to ship despite insufficient evidence).
+- **Coordinator CLAUDE.md gains "PM Escalation Triggers — Ask vs. Don't Ask"** — explicit list cutting the ambiguity between EM implementation discretion and PM product authority.
+- **Reviewer-calibration tripwire** updated — consumer list now includes `agents/vp-product.md`.
+
+### Plugin versions
+
+- `coordinator`: 1.0.0 → 1.1.0 (substantive doctrine and reviewer additions)
+- All other plugins: unchanged.
+
 ## [1.10.0] — 2026-05-04 (proposed — PM to confirm before tagging)
 
 Two themes in this release: a workday/workweek cadence split for the coordinator workflow surface, and a layered defense against "shape-correct, premise-wrong" plans across the reviewer pipeline.
