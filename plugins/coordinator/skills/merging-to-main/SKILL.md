@@ -161,6 +161,67 @@ This step ALWAYS runs — no opt-out. It is the most consumer-visible artifact o
 
 **Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
 
+### Step 1.55: Product-Risk Checklist (user-visible work only)
+
+If the merge changes user-visible behavior — UI, copy, defaults, error states, permissions, public APIs — walk this checklist before drafting the ship verdict. Skip entirely for internal-only merges (refactors, doc updates, test infra, dep bumps with no surface change).
+
+**Detection signal:** Step 1.5 release notes contain non-empty **Added** or **Changed** sections that aren't pure-internal. When unsure, run the checklist — it's six questions, not a process.
+
+| Question | What to check | Surface to PM if... |
+|----------|---------------|---------------------|
+| **Fit to intent** | Does the diff solve the *actual* user problem named in the plan's product objective? | Diff drifts from objective; reviewer findings note "implementation works but feels off" |
+| **UX clarity** | Would a user understand what happened and what to do next? Are empty/loading/error states present? | Missing error states; copy is engineer-voice; flow has a dead-end |
+| **Edge cases with product impact** | Concurrent users, malformed input, permission boundary cases, partial failures — what happens? | Any product-relevant edge case is silently mishandled |
+| **Support burden** | Could this create customer confusion or operational load? | New surface lacks docs; failure mode is hard to diagnose from logs alone |
+| **Trust/safety/privacy** | Could users be surprised? Is data exposed beyond what they'd expect? Audit log adequate? | Defaults expose more than the user opted into; sensitive data widens scope |
+| **Scope discipline** | Did the implementation overbuild, underbuild, or drift from the plan? | Drift from the plan's Non-Goals; refactor scope crept beyond what was approved |
+
+**Output** — three lines for the PR body:
+
+```markdown
+**Product-risk lens:** [pass | needs-PM-attention] — [one-sentence rationale, or "n/a, internal merge"]
+```
+
+If `needs-PM-attention`, list the specific concern(s) and a recommendation. The PM decides whether to merge anyway, hold, or fix forward in a follow-up.
+
+This is not a separate review — it's a checklist the EM walks before declaring ship-ready. Findings that are tradeoff-free correctness fixes (typos, wrong copy) get fixed inline; findings that are product judgment (how aggressive should validation be?) surface to the PM.
+
+### Step 1.56: Demo Path (user-visible work only)
+
+For the same user-visible merges, append a **Demo Path** section to the release notes from Step 1.5:
+
+```markdown
+### Demo Path
+
+**Setup:** [commands, seed data, environment]
+**Steps:**
+1. [user action]
+2. [user action]
+3. [observe result]
+**Expected:** [what should happen]
+**Known limitations:** [what *not* to claim from this demo]
+```
+
+This goes into the PR body alongside the standard release notes. For internal merges, omit. The point is to make every user-visible increment demonstrable — not to add ceremony.
+
+### Step 1.57: Ship Verdict (every merge)
+
+Before creating the PR, the EM stages a one-line ship verdict for the PR body:
+
+```markdown
+**Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
+```
+
+| Verdict | Meaning |
+|---------|---------|
+| **ship** | Acceptance criteria satisfied (or explicitly waived); evidence supports merge to main; no blocking concerns |
+| **ship-behind-flag** | Code is ready, but rollout should be gated (feature flag, percentage rollout, opt-in). Name the flag |
+| **hold** | Don't merge yet — specific concern remains. Name it |
+| **split** | This branch contains two changes that should land separately. Name them and recommend split-then-merge |
+| **spike-only** | Code is informative but not for production. Document findings, don't merge to main |
+
+The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
+
 ### Step 1.6: UE-specific check items (project_type: unreal)
 
 If `coordinator.local.md` declares `project_type` includes `unreal`, run these three additional checks after the main release-readiness steps. The coord-claude steps run first; this UE addendum runs after.
@@ -182,8 +243,12 @@ BRANCH=$(git branch --show-current)
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# PR body = release notes from Step 1.5 + commit log appendix
+# PR body = ship verdict (Step 1.57) + product-risk line (Step 1.55) + release notes
+# (Step 1.5, including Demo Path from Step 1.56) + commit log appendix
 BODY="$(cat <<EOF
+$SHIP_VERDICT_LINE_FROM_STEP_1_57
+$PRODUCT_RISK_LINE_FROM_STEP_1_55_OR_EMPTY
+
 $RELEASE_NOTES_FROM_STEP_1_5
 
 ---
