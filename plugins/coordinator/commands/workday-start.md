@@ -75,7 +75,7 @@ If the file does not exist or the queue is empty, skip silently. The threshold i
 
 ## Step 1.6: Scheduled Rechecks
 
-Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project lesson-triage cadence per `coordinator:lesson-triage`), `tasks/lessons-trim-removal-due-*.md` (one-shot deprecation removals), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
 
 For each marker found:
 - **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
