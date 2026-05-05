@@ -38,12 +38,13 @@ fi
 MODE="${1:-verify}"
 
 # --- hardcoded consumer list ---
-# These are the 6 live reviewer prompt files that carry the calibration sentinel.
+# These are the live reviewer prompt files that carry the calibration sentinel.
 # PLUGIN_ROOT resolves to the coordinator plugin dir (e.g. ~/.claude/plugins/coordinator-claude/coordinator).
 # Sibling plugins are one level up: $PLUGIN_ROOT/../game-dev, $PLUGIN_ROOT/../data-science, etc.
 # The holodeck coordinator copy is listed for completeness; if the file does not exist it is skipped.
 HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/agents/staff-eng.md"
+    "$PLUGIN_ROOT/agents/vp-product.md"
     "$PLUGIN_ROOT/../../claude-unreal-holodeck/coordinator/agents/staff-eng.md"
     "$PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md"
     "$PLUGIN_ROOT/../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"

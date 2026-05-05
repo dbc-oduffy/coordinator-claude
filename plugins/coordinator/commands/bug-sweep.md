@@ -16,7 +16,7 @@ Sweep the codebase for bug patterns, fix everything AI-fixable in-session, defer
 
 `$ARGUMENTS` is an optional path to scope the sweep. If omitted, the full codebase is scanned.
 
-`--codex-verify` — after fixes are committed, run a Codex review on the diff as a second-opinion check from a different model family. Optional; off by default. Requires Codex CLI installed and authenticated (`/codex:setup`).
+`--codex-verify` — after fixes are committed, run a Codex review on the diff as a second-opinion check from a different model family. **Opt-in add-on, off by default.** Requires the bundled `codex-review-gate` skill (added via `setup/install.sh --enable-codex`) AND the external Codex CLI installed and authenticated (`/codex:setup`). If `--codex-verify` is passed but the skill is not installed, report _"--codex-verify ignored: codex-review-gate skill not installed (re-run setup with --enable-codex)"_ and proceed without the verification step.
 
 Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase][, with Codex verification]."
 
@@ -140,7 +140,7 @@ Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_V
 
 ### Step 2.2: Capture Pre-Fix Baseline
 
-If `--codex-verify` was passed, capture the current HEAD before any fixes are applied:
+If `--codex-verify` was passed AND the `codex-review-gate` skill is installed, capture the current HEAD before any fixes are applied:
 
 ```bash
 PRE_FIX_REF=$(git rev-parse HEAD)
@@ -218,15 +218,18 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    **Blocked items:** [list with "why blocked" for each, or "none"]
    **Docs verification (Phase 3.5):** [clean / N incorrect API claims in fixes reverted / skipped: not C++/UE and no external APIs touched]
    **Track C API sweep:** [N INCORRECT API findings fixed, N suspicious-UNVERIFIED flagged / skipped: `DOCS_VERIFY` not set for this stack]
+   <!-- include only when --codex-verify was passed AND codex-review-gate skill is installed -->
    **Codex second opinion:** [N findings / clean / skipped: {reason} / not requested]
    ```
 
 4. **Clean scratch:** `rm -rf tasks/scratch/bug-sweep/{run-id}/`
    Only delete after commit succeeds. If Phase 2/3 agents failed, scratch contains Phase 1 findings for recovery.
 
-## Phase 4.5: Codex Verification (optional — `--codex-verify` only)
+## Phase 4.5: Codex Verification (optional — `--codex-verify` only, opt-in add-on)
 
-If `--codex-verify` was passed, run an independent-model review of the fixes via the Codex plugin. This gives a second opinion from a different model family (GPT-5.4) on whether the fixes are correct.
+**Skip this entire phase unless BOTH `--codex-verify` was passed AND the `codex-review-gate` skill is installed.** If `--codex-verify` was passed but the skill is missing, the user was already told at Phase 0 announcement; proceed to Pattern Library without writing a `Codex second opinion:` line in the report.
+
+If both conditions hold, run an independent-model review of the fixes via the Codex plugin. This gives a second opinion from a different model family (GPT-5.4) on whether the fixes are correct.
 
 1. **Run Codex review:**
    Invoke `/codex:rescue` with: "Review the diff between {PRE_FIX_REF} and HEAD for code quality issues, bugs, and security vulnerabilities. Focus on P0/P1 findings. Return structured findings."
@@ -241,10 +244,12 @@ If `--codex-verify` was passed, run an independent-model review of the fixes via
    **Codex second opinion:** [N findings / clean / skipped: {reason}]
    ```
 
-If `--codex-verify` was not passed, add to the report:
+If `--codex-verify` was not passed AND the `codex-review-gate` skill IS installed, add to the report:
 ```
 **Codex second opinion:** not requested
 ```
+
+If the skill is not installed at all, omit the `Codex second opinion:` line entirely from the report — default installs never mention Codex.
 
 ## Pattern Library, Cost Profile, Failure Modes
 

@@ -1,12 +1,20 @@
 # coordinator-claude
 
-A Claude Code plugin that runs your projects like a real dev team — you're PM, Claude is EM.
+**A PM-native operating layer for AI engineering work.** A Claude Code plugin that turns product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions. You're PM. Claude is EM. You stay technical enough to spot when something's wrong; the EM handles the rest.
 
 ## Who This Is For
 
 You don't need to write code. You need to know enough to evaluate it — to spot when something smells wrong, to ask the right questions, to set direction. Amjad Masad (Replit's founder) [opined](https://youtu.be/PlDeqGQZ0CQ) that people who *don't* program may actually be better positioned for the LLM-coding world: they won't micromanage implementation. This plugin leans into that. It gives Claude standing authority to make engineering decisions — how to build, who to delegate to, when to refactor — while you hold product authority: what to build, what to cut, what ships. Just like an EM-PM dynamic.
 
-This isn't a collection of prompt tricks. It's a trust model with routines — session orientation, plan review, multi-source code review, structured handoffs, daily flows — that map to how real engineering teams operate. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
+This isn't a collection of prompt tricks. It's a **decision architecture**: routines (session orientation, plan review, multi-source code review, structured handoffs, daily flows) plus authority boundaries (EM owns implementation, PM owns scope/ship) plus reviewer personas that push back. It maps to how real engineering teams operate. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
+
+## What This Is *Not*
+
+- **Not another agent framework.** Claude Code already has subagents, plugins, skills, hooks, and MCP. This sits *on top of* that infrastructure — it doesn't compete with it.
+- **Not a PRD-to-code pipeline.** Product intent is captured inside plan mode and acceptance criteria, not in a separate PRD funnel.
+- **Not an autonomous coding agent.** The PM is in the loop on scope, tradeoffs, and ship decisions by design. Autonomous modes (`/mise-en-place`, `/autonomous`) exist for execution sprints, not for product authority.
+- **Not a developer productivity tool.** The target user evaluates engineering work — they don't write it. If you want to be more productive at writing code yourself, you want vanilla Claude Code; this is for managing AI engineering work, not doing it.
+- **Not aimed at the fully non-technical PM** (yet). The current sweet spot is a *technical-evaluating* PM — someone who reads diffs, watches for code smell, and recognizes odd choices. A higher-altitude "I trust the EM and only review outcomes" mode is plausible for simpler projects with strong guardrails, but it's an aspiration, not a current default. Complex codebases require a PM who can tell when something looks wrong.
 
 ## Quick Start
 
@@ -54,7 +62,24 @@ The EM handles most of this automatically. Your key moves:
 
 That's it for daily use. Everything else — delegation, review routing, doc maintenance, context pressure management — either happens automatically or is suggested for your use.
 
-## All Commands
+## Flows
+
+Don't memorize commands; learn five flows. Most of what the system does, you'll touch through one of these.
+
+**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (the VP-of-Product reviewer) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
+
+**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via `coordinator:systematic-debugging` → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge.
+
+**Flow 3 — Resume work.** `/session-start` (or auto-fired hook) loads orientation, lessons, and pending handoffs → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
+
+**Flow 4 — Autonomous sprint.** `/mise-en-place` gathers ready work, builds a compaction-proof flight recorder, and executes through the backlog without stopping. `/autonomous` suppresses handoff nudges when you want it to push through context pressure.
+
+**Flow 5 — Architecture change.** `/staff-session plan` (multi-perspective debate) → migration plan with rollback → architecture mode review → implementation → verification → architecture atlas update via `/update-docs`.
+
+**Closing the day:** `/workday-complete` validates, syncs, runs the daily review, and merges. `/workweek-complete` is the larger weekly ceremony with version bump and release notes.
+
+<details>
+<summary><strong>All Commands (appendix)</strong></summary>
 
 | Command | Purpose | Why It Exists |
 |---------|---------|---------------|
@@ -77,6 +102,8 @@ That's it for daily use. Everything else — delegation, review routing, doc mai
 | `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
 | `/generate-repomap` | Generate ranked repo map | Context injection for LLM navigation |
 | `/distill` | Extract knowledge from session artifacts | Turn plans and handoffs into evergreen wiki docs |
+
+</details>
 
 <details>
 <summary><strong>How this maps to real teams</strong></summary>
@@ -109,7 +136,7 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 **Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the bundled [deep-research](plugins/deep-research/) pipelines (internet, repo, structured, NotebookLM).
 
-**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI runs as a parallel execution runtime via `codex:*` skills — a second-opinion channel and independent implementation path.
+**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI integration is available as an opt-in add-on (`setup/install.sh --enable-codex` plus the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin) for a second-opinion channel and independent implementation path; default installs omit it.
 
 See [docs/architecture.md](docs/architecture.md) for the full model. For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 

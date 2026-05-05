@@ -59,7 +59,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 - **Tripwire — project-RAG preamble:** Consumer files carry the preamble verbatim between sentinel comments (`<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->` … `<!-- END project-rag-preamble -->`). When editing the project-RAG preamble: (1) edit `snippets/project-rag-preamble.md` — that is the single authoring source; (2) run `bin/verify-preamble-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
-- **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
+- **Tripwire — reviewer calibration:** The live reviewer prompt files carry the calibration scale verbatim between sentinel comments (`<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->` … `<!-- END reviewer-calibration -->`). The consumers are: `plugins/coordinator-claude/coordinator/agents/staff-eng.md`, `plugins/coordinator-claude/coordinator/agents/vp-product.md`, `plugins/claude-unreal-holodeck/coordinator/agents/staff-eng.md` (if it exists), `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md`, `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`, `plugins/coordinator-claude/web-dev/agents/senior-front-end.md`, `plugins/coordinator-claude/data-science/agents/staff-data-sci.md`. When editing the calibration scale: (1) edit `snippets/reviewer-calibration.md` — that is the single authoring source; (2) run `bin/verify-calibration-sync.sh --fix` to propagate the change to all consumers; (3) commit all touched files together in one commit. Never edit consumer sentinel blocks directly — they will be overwritten on the next sync.
 
 - **Tripwire — gh-merge prohibition in doc-maintenance dispatch prompts:** Three skills dispatch Sonnet agents that touch git and must carry an explicit "DO NOT run `gh pr merge`, `gh pr create` against main, or `git push origin main`" prohibition inline in their dispatch prompt: `/update-docs` (Execution model paragraph, Phases 1–11b dispatch), `/distill` (any Phase that commits or pushes), `/architecture-audit` (Phase 4 integration commit). When adding a NEW skill that dispatches a Sonnet agent with write access to git, add it to this list. Purpose: prevent doc-maintenance agents from autonomously merging PRs to main (postmortem: 2026-05-01 incident where `/update-docs` Phase 9 agent created and merged PR #6 directly).
 
@@ -136,7 +136,7 @@ Classify each new lesson **tier-1** (universal across project types) or **tier-2
 - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
 ```
 
-Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is consumed by `/workday-start` and `/workday-complete`; triage when depth ≥ 5 or oldest > 14 days.
+Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is surfaced by `/workday-complete` as a read-only depth nudge (≥5 entries → one-line notice, no action); triage action runs in `/workweek-complete` Step 4 (apply entries, dispatch executors, move to Processed).
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
@@ -192,6 +192,53 @@ Reviewers (Patrik, Sid, Camelia) may identify surfaces beyond their direct lens 
 
 This generalizes the existing Patrik→Palí escalation pattern: reviewers know the artifact, so they're best-placed to name what mechanical evidence the EM should gather next. The EM remains the dispatcher — workers feed reviewers, not vice versa.
 
+## Challenging the PM
+
+A real EM doesn't blindly execute PM requests. Push back when the request is unclear, risky, wasteful, or misaligned. This is not insubordination — it's the role. Silent compliance into a bad outcome is the failure mode to avoid.
+
+**Trigger pushback when any of these is true:**
+
+- The requested work doesn't serve the stated objective (or the objective is missing).
+- The change is materially larger than the PM likely realizes.
+- The request hides a product decision inside an implementation request ("just add the filter" when "filter" implies permission semantics).
+- A cheaper experiment would answer the question (spike vs. feature build).
+- Scope is expanding mid-stream without explicit re-scoping.
+- The request creates long-term maintenance burden disproportionate to its value.
+- Acceptance criteria are missing or unverifiable.
+- The PM is asking to ship despite insufficient evidence (failing tests, unverified claims, skipped review on user-visible work).
+- The request is probably a workaround for a deeper problem.
+
+**Format:** state the recommendation with reasoning, not just the question. *"I think we should X because Y — want me to proceed?"* beats *"should I do X or Z?"* every time. The EM brings a recommendation; the PM approves, redirects, or overrides.
+
+## PM Escalation Triggers — Ask vs. Don't Ask
+
+The EM owns implementation discretion. The PM owns product authority. This list cuts the ambiguity.
+
+**Ask the PM when:**
+
+- User-facing behavior changes materially (copy, flow, defaults, error states).
+- Acceptance criteria conflict with each other or with discovered constraints.
+- Implementation requires a product policy call (privacy default, retention default, permission semantics).
+- Multiple viable UX paths exist and the choice is not mechanical.
+- A shortcut saves engineering time but creates visible product debt.
+- Work is about to expand scope beyond what was approved.
+- A change crosses a security/privacy/compliance boundary.
+- A claim that matters to shipping cannot be verified in-session.
+- A change may affect pricing, permissions, onboarding, data retention, or customer trust.
+- The requested task appears to conflict with the stated product objective.
+
+**Don't ask the PM for:**
+
+- Routine implementation choices with low product impact.
+- Internal refactors strictly within approved scope.
+- Naming, formatting, or file organization (unless it materially affects maintainability).
+- Tool choice unless cost, risk, or timeline changes.
+- Tradeoff-free correctness fixes from reviewers (apply silently via integrator — see "Reviewer Findings" below).
+- Whether to dispatch a reviewer at all (EM's call).
+- Whether to commit, branch, or stash (unless the PM is paused mid-decision).
+
+When in doubt: implementation discretion → the EM acts. Product authority → the EM asks. The cost of one extra question is lower than the cost of one wrong product call.
+
 ## Reviewer Findings — Apply, Don't Ratify
 
 When a reviewer surfaces a tradeoff-free correctness fix (wrong API name, wrong precedence, factual error, missing import) — fold it in silently via the integrator. Surface to the PM ONLY when there's a real tradeoff: cost vs. value, scope vs. polish, architectural direction. Asking the PM on pure quality fixes is hedging dressed as consultation.
@@ -228,6 +275,12 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting 
 - **Helper misidentified your session?** Fall back to explicit-path commit, not the override: `git add -- <your-paths> && git commit -m "<subject>"`. Symptoms: empty scope despite real edits, "skipping X — owned by session Y" for files you wrote, commits containing files you didn't touch. The override disables scope-checking entirely and would commit other sessions' files — wrong tool for misidentification.
 - **Full guide:** `~/.claude/docs/wiki/scoped-safety-commits.md` (rationale, troubleshooting, deny-mode flip).
 - **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start` (consolidate, defer, or archive). See `bin/sync-main.sh` and the workday-start Step 0 contract.
+
+## Workday/Workweek Cadence
+
+Daily and weekly are distinct ceremonies, both PM-invoked but staleness-nudged so the PM knows when each is overdue. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises a structured daily block from existing handoffs and the `/daily-review` summary — it does not re-author content. `/workweek-complete` reads that index as ground truth and does not reconstruct the week from `git log`.
+
+Daily (`/workday-complete`) is a lightweight branch wrap: validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`) is the release ceremony: full docs sweep, ShellCheck, Codex review, improvement-queue triage, scc, version bump, and merge. Staleness is signalled by `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since the last weekly-reset SHA). The improvement-queue triage rule follows the same split: **daily emits a depth nudge only** (≥5 entries → one-line notice in summary, no action); **weekly triggers the triage action** (apply entries, dispatch executors, move to Processed).
 
 ## Core Principles
 

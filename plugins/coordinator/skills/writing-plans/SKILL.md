@@ -20,6 +20,52 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
 
+## Scope Mode (required header field)
+
+Every plan declares one scope mode. The mode shapes review depth, acceptable tradeoffs, and what counts as "done." Don't skip — pick one before drafting tasks.
+
+| Mode | Use when | Rules | Evidence bar |
+|------|----------|-------|--------------|
+| **prototype** | Learning, demo, throwaway | Mark shortcuts; prefer reversible changes; no broad refactors unless forced | Demo path + known-limitations list |
+| **production-patch** | Small safe fix, bug | Minimal diff; no opportunistic refactors; preserve existing behavior unless explicitly changed | Targeted tests + reviewer + low blast radius |
+| **feature** | User-visible work | Acceptance criteria required; demo path required; product-risk review required | Acceptance criteria satisfied or explicitly waived |
+| **architecture** | Structural/cross-cutting change | Alternatives considered; migration + rollback plan; blast-radius analysis; staff-session likely | Tests + architectural review + risk ledger |
+| **spike** | Discovery, "is this feasible?" | Throwaway code allowed; answer the learning question; do not polish unless asked | Findings + recommendation + next step |
+
+If you can't pick confidently, the scope is under-specified — push back to the PM (see "Definition of Ready" below) before drafting tasks.
+
+## YK Pre-Flight (anticipate the stress test)
+
+YK reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* They run as a primary reviewer at merge time on user-visible work, perf/concurrency-touching changes, and patches in patch-accumulating areas. See `agents/vp-product.md` for the full lens.
+
+**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a YK finding. Fix it at the plan stage, not at merge.
+
+While drafting, walk the YK questions against your own plan **before** you save it:
+
+- Is the *shape* of the solution right? (data flow, concurrency model, sync/async, declarative vs. imperative, abstraction altitude)
+- For any choice that defaults to single-threaded / single-process / serial / synchronous: is that defensible, or is it the path of least drafting effort?
+- For any "we'll add X later" — is that legitimate YAGNI, or is the system silently degrading without X (slow, lossy, fragile)?
+- For any patch in an area with prior patches: would a refactor be cheaper in the long run? With AI execution this is hours, not weeks.
+- What 1–3 alternative shapes did you consider before picking this one? Name them in a `## Alternatives Considered` section.
+
+**The point is not to write a YK simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of Patrik's review keeps engineers writing better code in the first pass. If every plan reaches YK and gets `APPROVED_WITH_NOTES`, the system is working as designed: the actual YK dispatch is a belt-and-suspenders backstop, not a gatekeeper catching laziness that should have been caught earlier.
+
+If a YK question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
+
+## Definition of Ready (pre-drafting gate)
+
+Before writing tasks, confirm each item or explicitly waive it. If multiple are missing, recommend brainstorming or a spike instead of a plan.
+
+- [ ] **Product objective** is one clear sentence.
+- [ ] **User/stakeholder** is identified (who benefits, who's affected).
+- [ ] **Acceptance criteria** are testable.
+- [ ] **Non-goals** are explicit (what this *won't* do, to head off scope creep).
+- [ ] **Scope mode** is selected (see table above).
+- [ ] **Open product decisions** are resolved or intentionally deferred — not hidden inside an implementation request.
+- [ ] **Verification method** is known (tests? manual demo? both?).
+
+If two or more checkboxes can't be filled honestly, the plan isn't ready. Surface to the PM with a specific ask, not a draft full of TBDs.
+
 ## Domain Language
 
 Read `CONTEXT.md` if present at the project root; if absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms throughout the plan — and for any term on the `_Avoid_:` lists, substitute the canonical term silently. If the plan introduces a new domain term that will recur across sessions, append it to `CONTEXT.md` as part of the plan-writing pass.
@@ -87,12 +133,29 @@ This structure informs task decomposition — each task should produce self-cont
 
 **Status:** Pending review
 
+**Scope mode:** [prototype | production-patch | feature | architecture | spike]
+
 **Architecture:** [2-3 sentences about approach]
 
 **Tech Stack:** [Key technologies/libraries]
 
+## Acceptance Criteria
+
+- [ ] [Testable criterion 1]
+- [ ] [Testable criterion 2]
+- [ ] [Testable criterion 3]
+
+## Non-Goals
+
+- [Explicitly out of scope — heads off mid-stream scope creep]
+
 ---
 ```
+
+**Why these fields are required:**
+- **Scope mode** routes review depth and the evidence bar. Reviewers and `/merge-to-main` read it.
+- **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it."
+- **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
 
 The `Status:` field is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. See ARCHITECTURE.md § "The Write-Ahead Status Protocol" for the full state machine.
 

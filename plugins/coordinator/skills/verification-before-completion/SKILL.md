@@ -199,6 +199,21 @@ Out-of-scope edits are common failure modes: test file deletions, unrelated refa
 
 See `commands/delegate-execution.md` → "Scope-Conformance Check" for the dispatch-prompt clause that enforces this on the executor side.
 
+## Definition of Done (acceptance gate before declaring completion)
+
+For any plan with declared acceptance criteria, "done" means more than green tests. Before claiming completion or moving to merge:
+
+- [ ] Every **acceptance criterion** is satisfied (or explicitly waived in writing with PM acknowledgement).
+- [ ] Tests/checks ran and the output is captured (link or excerpt — not "trust me").
+- [ ] If user-visible: **manual demo path verified** — you actually walked the steps, not just inferred from green tests.
+- [ ] If user-visible OR if scope is patch-where-refactor-might-be-cheaper: **YK** (`agents/vp-product.md`) has been dispatched and findings are integrated. YK verdict line is staged for the PR body.
+- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional).
+- [ ] **Known limitations** are documented — what *isn't* covered, what edge cases were deferred.
+- [ ] **Rollback or mitigation** is named — if this turns out wrong in production, what's the recovery move?
+- [ ] **Ship verdict** is staged for the PM (see `coordinator:merging-to-main`).
+
+This is the bridge between engineering output and PM confidence. "The agent says it's done" is not the gate; this is.
+
 ## The Bottom Line
 
 **No shortcuts for verification.**
