@@ -34,6 +34,24 @@ Every plan declares one scope mode. The mode shapes review depth, acceptable tra
 
 If you can't pick confidently, the scope is under-specified — push back to the PM (see "Definition of Ready" below) before drafting tasks.
 
+## YK Pre-Flight (anticipate the stress test)
+
+YK reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* They run as a primary reviewer at merge time on user-visible work, perf/concurrency-touching changes, and patches in patch-accumulating areas. See `agents/vp-product.md` for the full lens.
+
+**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a YK finding. Fix it at the plan stage, not at merge.
+
+While drafting, walk the YK questions against your own plan **before** you save it:
+
+- Is the *shape* of the solution right? (data flow, concurrency model, sync/async, declarative vs. imperative, abstraction altitude)
+- For any choice that defaults to single-threaded / single-process / serial / synchronous: is that defensible, or is it the path of least drafting effort?
+- For any "we'll add X later" — is that legitimate YAGNI, or is the system silently degrading without X (slow, lossy, fragile)?
+- For any patch in an area with prior patches: would a refactor be cheaper in the long run? With AI execution this is hours, not weeks.
+- What 1–3 alternative shapes did you consider before picking this one? Name them in a `## Alternatives Considered` section.
+
+**The point is not to write a YK simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of Patrik's review keeps engineers writing better code in the first pass. If every plan reaches YK and gets `APPROVED_WITH_NOTES`, the system is working as designed: the actual YK dispatch is a belt-and-suspenders backstop, not a gatekeeper catching laziness that should have been caught earlier.
+
+If a YK question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
+
 ## Definition of Ready (pre-drafting gate)
 
 Before writing tasks, confirm each item or explicitly waive it. If multiple are missing, recommend brainstorming or a spike instead of a plan.
