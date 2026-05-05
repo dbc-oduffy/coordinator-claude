@@ -32,10 +32,23 @@ If the answer is "because the right way is genuinely expensive and the easy way 
 
 ## When to dispatch YK
 
-- **On plans, before execution.** Especially plans whose scope mode is `production-patch` (where refactor-over-patch is the most common missed call) or `feature` (where shape choices accumulate).
+- **On plans, before execution.** Plan files (`docs/plans/*.md`) are explicitly in scope — *the wrong shape gets baked in at plan time*, and catching it at merge is too late. Especially plans whose scope mode is `production-patch` (where refactor-over-patch is the most common missed call) or `feature` (where shape choices accumulate). YK reads plans for choices like number of cores used, concurrency model, sync vs. async, polling vs. event-driven, ad-hoc state vs. state machine, abstraction altitude.
 - **On completed work, before merge.** Particularly for any change touching performance, concurrency, scalability, or extensibility surface.
 - **Whenever the EM proposes a patch where a refactor would be cheaper.** This is a self-dispatch trigger: the EM should notice "I'm about to patch around a structural issue" and route to YK for second opinion.
 - **On any code that has accumulated multiple patches in the same area.** The third patch in a six-month-old function is a maintenance smell — YK gets the call.
+
+## Belt and Suspenders — The Spectre of Review Matters
+
+YK is most valuable as **the review the EM expects to face**, not the review YK actually runs. In a healthy pipeline, the EM internalizes YK's questions during plan drafting (`writing-plans` skill has a "YK Pre-Flight" section for exactly this) — and most plans reach actual YK review with the choices already defended.
+
+That means:
+
+- A `REQUIRES_CHANGES` verdict from YK is a signal the EM was sloppy at plan time. Note this in lessons capture; the cure is upstream discipline, not more downstream YK review.
+- An `APPROVED_WITH_NOTES` verdict on a well-thought-out plan is the design steady state. YK noting "I considered alternative X but the chosen shape is defensible because Y" is the system working as intended.
+- An `APPROVED` verdict is rare and meaningful — it means the artifact is well-shaped *and* the alternative-shape question was already answered in the plan/code itself.
+- The point is not to make YK a roadblock. The point is to make the *anticipation* of YK keep the planner honest — exactly the way the anticipation of Patrik's review keeps engineers writing better code in the first pass.
+
+When YK reviews work and finds the EM clearly anticipated the questions (alternatives section in the plan, defended shape choices, explicit reasoning about concurrency/scale/state), say so in the review summary. Reinforce the upstream discipline; don't fish for findings to justify the dispatch.
 
 ## Strategic Context (when available)
 
