@@ -81,7 +81,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 **Addressed by:**
 - `systematic-debugging` skill — Root-cause debugging process. Diagnose before proposing fixes. Post-item-4: feedback-loop-first framing.
 - `test-driven-development` skill — RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
-- `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog. Uses `codex-review-gate` as independent-model second opinion.
+- `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog. Optional `--codex-verify` flag uses `codex-review-gate` (opt-in add-on) as an independent-model second opinion.
 - `verification-before-completion` skill — Prove it works before claiming done. Catches the "it should work" class of failures.
 - `stuck-detection` skill — Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
@@ -170,7 +170,7 @@ Full component inventory for the record. The failure-mode sections above are the
 - `tracker-maintenance` — Maintain the project tracker — archive completed work, update dependencies, sweep for untracked commits.
 - `lessons-trim` — Trim stale entries from lessons files, merge duplicates, clean up feature-scoped files.
 - `handoff-archival` — Archive consumed handoffs.
-- `codex-review-gate` — Run Codex code review as independent-model second opinion. Used by `/bug-sweep` and `/workday-complete`.
+- `codex-review-gate` — **Opt-in add-on** (install via `setup/install.sh --enable-codex`). Runs Codex code review as an independent-model second opinion in `/workweek-complete` and `/bug-sweep --codex-verify`. Requires the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin. Default installs omit it.
 - `atlas-integrity-check` — Check changed files against the architecture atlas for unmapped entries.
 - `artifact-consolidation` — Bulk prune accumulated artifacts without knowledge extraction. For distill-then-delete, use `/distill` instead.
 - `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.

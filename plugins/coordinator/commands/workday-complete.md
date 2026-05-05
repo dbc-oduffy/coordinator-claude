@@ -6,7 +6,7 @@ argument-hint: "[optional summary of the day]"
 
 # Workday Complete — End-of-Day Orchestration
 
-Lightweight daily wrap: validate, consolidate branches, run the strategic daily review, append to the week-changelog, and surface staleness signals. **Does NOT merge to main.** Heavy ceremony (docs sweep, ShellCheck, Codex, improvement-queue triage) is weekly — see `/workweek-complete`.
+Lightweight daily wrap: validate, consolidate branches, run the strategic daily review, append to the week-changelog, and surface staleness signals. **Does NOT merge to main.** Heavy ceremony (docs sweep, ShellCheck, improvement-queue triage, optional Codex review when the `codex-review-gate` skill is installed) is weekly — see `/workweek-complete`.
 
 ## Design Rationale
 
@@ -192,7 +192,7 @@ If `$ARGUMENTS` is provided, include as a top line: _"Day summary: {arguments}"_
 - **Merge to main.** Use `/merge-to-main` — it runs the test suite first.
 - **Run `/update-docs`.** Weekly cadence only — via `/workweek-complete`.
 - **Triage the improvement queue.** Daily depth nudge only; triage is weekly.
-- **Run ShellCheck, Codex review, or scc stats.** All moved to `/workweek-complete`.
+- **Run ShellCheck, scc stats, or (if installed) the Codex review gate.** All moved to `/workweek-complete`.
 - **Delete the work branch.** Stays alive for morning review.
 - **Delete handoffs.** Never deleted — archived only after `/distill` with PM approval.
 
@@ -206,5 +206,5 @@ Per-machine files under `tasks/week-changelog/` eliminate concurrent-write confl
 
 - **`/merge-to-main`** — deliberate supervised merge; run in the morning.
 - **`/daily-review`** — invoked in Step 4; its output feeds Step 9.
-- **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, Codex, triage, version bump, merge.
+- **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, triage, version bump, merge (plus Codex review when the `codex-review-gate` skill is installed).
 - **`/workweek-start`** — PM-facing weekly orient; sets priorities in HEADER.md.
