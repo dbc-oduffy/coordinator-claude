@@ -158,21 +158,33 @@ Autonomous-execution commands background everything by default. EM holds the wav
 ## Self-Improvement Loop
 
 - `tasks/lessons.md` records patterns the workflow keeps hitting. Bold title + 1-2 sentence rule, max 3 lines per entry.
-- **Periodic trim** via `lessons-trim` when the file exceeds ~50 entries or ~175 lines. Migrate evicted entries to wiki guides.
+- **Lessons are change-requests, not file-bloat.** Each entry potentially routes to a doctrine edit, agent prompt edit, hook/script edit, wiki guide, project-structural change, re-tag, or discard. Process via `coordinator:lesson-triage` — see "Triage cadence" below.
 - **Null-result audits fold the rule into the producer skill,** not just the audit report.
 - **External-review proposals: cumulative-effect + duplication audit before adopting any individual recommendation.**
 - **Codify a stable pattern before running new instances under it** — extract on trigger, let next instances benefit.
 - **Fight-the-hook is an anti-pattern.** Strip once, commit, file paper-trail bug, surface to PM.
 
+### Triage cadence
+
+`coordinator:lesson-triage` is the unified surface for processing lessons files (replaces `lessons-trim` — alias shim retained until 2026-05-26).
+
+- **Project-local mode** runs in `/update-docs` Phase 6 per project (auto-applies dedupe / wiki-append / retag / discard within bounds; surfaces structural changes to PM).
+- **Cross-project mode** is PM-invoked from `~/.claude` central, ~21-day cadence (PM-gated per record; produces a routing manifest grouped by destination repo + change_kind).
+- **Recheck mode** fires from `tasks/lesson-triage-recheck-due-*.md` markers via `/workday-start`; auto-extends if delta is small, escalates to cross-project otherwise.
+
+The change-kind taxonomy (closed enum: `doctrine-edit`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer`, `project-structural`, `retag-local`, `strip-local`, `discard`) is defined in `skills/lesson-triage/SKILL.md` — that's the doctrine for what a lesson can route to.
+
 ### Capturing Lessons That Should Promote
 
-Classify each new lesson **tier-1** (universal across project types) or **tier-2** (project-specific). If tier-1: tag `[universal]` in `tasks/lessons.md`, then append to `~/.claude/tasks/coordinator-improvement-queue.md`:
+Classify each new lesson by the routing-schema `scope` field: **universal** (tier-1, applies across project types), **project** (tier-2, repo-specific), or **wiki-only** (battle story worth preserving but not doctrine).
+
+If `universal`: tag `[universal]` in `tasks/lessons.md`, then append to `~/.claude/tasks/coordinator-improvement-queue.md`:
 
 ```
 - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
 ```
 
-Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is surfaced by `/workday-complete` as a read-only depth nudge (≥5 entries → one-line notice, no action); triage action runs in `/workweek-complete` Step 4 (apply entries, dispatch executors, move to Processed).
+Test: "If a different project type also used the coordinator pipeline, would this rule apply?" Queue is surfaced by `/workday-complete` as a read-only depth nudge (≥5 entries → one-line notice, no action); triage action runs in `/workweek-complete` Step 4 (apply entries, dispatch executors, move to Processed). Cross-project `lesson-triage` runs convert queued entries into routing-manifest records during synthesis.
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
