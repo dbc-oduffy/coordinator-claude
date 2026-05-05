@@ -66,7 +66,7 @@ That's it for daily use. Everything else — delegation, review routing, doc mai
 
 Don't memorize commands; learn five flows. Most of what the system does, you'll touch through one of these.
 
-**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → `/merge-to-main` runs a product-risk checklist for user-visible work, produces a ship verdict, and you decide.
+**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (the VP-of-Product reviewer) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via `coordinator:systematic-debugging` → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge.
 
