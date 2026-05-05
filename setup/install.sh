@@ -120,6 +120,10 @@ NON_INTERACTIVE=false
 PLUGINS_ARG=""
 # Optional add-on overrides: "" = ask (or skip in non-interactive), true/false = explicit.
 NOTEBOOKLM_OPT=""
+# codex-review-gate skill is bundled inside the coordinator plugin but is an
+# opt-in add-on. The skill wraps the external openai/codex-plugin-cc — most
+# users don't run Codex, so default installs strip the skill out post-copy.
+CODEX_OPT=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -128,6 +132,8 @@ for arg in "$@"; do
     --plugins)         shift; PLUGINS_ARG="$1" ;;
     --install-notebooklm) NOTEBOOKLM_OPT=true ;;
     --no-notebooklm)      NOTEBOOKLM_OPT=false ;;
+    --enable-codex)       CODEX_OPT=true ;;
+    --no-codex)           CODEX_OPT=false ;;
     -h|--help)
       cat <<'USAGE'
 Usage: setup/install.sh [OPTIONS]
@@ -137,6 +143,9 @@ Usage: setup/install.sh [OPTIONS]
                           (coordinator always included).
   --install-notebooklm    Opt in to the NotebookLM add-on (npm-sourced).
   --no-notebooklm         Skip the NotebookLM add-on prompt.
+  --enable-codex          Opt in to the codex-review-gate skill (requires
+                          the external openai/codex-plugin-cc plugin).
+  --no-codex              Skip the codex-review-gate prompt.
   -h, --help              Show this help.
 USAGE
       exit 0
@@ -382,10 +391,66 @@ select_plugins() {
   # else: non-interactive with no --plugins arg => use defaults (already set)
 
   prompt_optional_addons
+  prompt_codex_addon
 }
 
 # Track whether NotebookLM was opted in (for the install summary).
 NOTEBOOKLM_INSTALLED=false
+
+# Track whether codex-review-gate was opted in (for the install summary +
+# post-copy strip step in copy_plugins).
+CODEX_INSTALLED=false
+
+# Prompt for the codex-review-gate skill. Unlike notebooklm this is not a
+# separate plugin — the skill ships inside the coordinator plugin and is
+# stripped out of the install if not opted in. Resolution order mirrors
+# prompt_optional_addons: explicit flag → non-interactive default off → TTY
+# prompt → no-TTY default off.
+prompt_codex_addon() {
+  if [[ "$CODEX_OPT" == true ]]; then
+    CODEX_INSTALLED=true
+    echo "codex-review-gate skill: enabled (--enable-codex)"
+    echo ""
+    return 0
+  fi
+  if [[ "$CODEX_OPT" == false ]]; then
+    CODEX_INSTALLED=false
+    echo "codex-review-gate skill: skipped (--no-codex)"
+    echo ""
+    return 0
+  fi
+
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    CODEX_INSTALLED=false
+    echo "codex-review-gate skill: skipped (non-interactive default)."
+    echo "  Re-run with --enable-codex to add it later."
+    echo ""
+    return 0
+  fi
+
+  if [[ -t 0 ]]; then
+    echo ""
+    echo "Optional add-on:"
+    echo "  codex-review-gate — Run Codex (openai/codex-plugin-cc) as an"
+    echo "  independent-model second-opinion review in /workweek-complete and"
+    echo "  /bug-sweep --codex-verify. Requires the codex-plugin-cc plugin"
+    echo "  installed and the Codex CLI authenticated separately."
+    read -r -p "Install the codex-review-gate skill? [y/N]: " codex_choice
+    codex_choice="${codex_choice:-N}"
+    if [[ "$codex_choice" =~ ^[Yy]$ ]]; then
+      CODEX_INSTALLED=true
+    else
+      CODEX_INSTALLED=false
+      echo "Skipped. Re-run setup or pass --enable-codex to add it later."
+    fi
+    echo ""
+  else
+    CODEX_INSTALLED=false
+    echo "codex-review-gate skill: skipped (no TTY for prompt)."
+    echo "  Re-run with --enable-codex to add it later."
+    echo ""
+  fi
+}
 
 # Prompt for opt-in add-ons. Currently: notebooklm.
 #
@@ -553,6 +618,19 @@ copy_plugins() {
 
     cp -r "$src" "$dest"
     echo "  OK: $name"
+
+    # codex-review-gate is bundled inside the coordinator plugin but is an
+    # opt-in add-on (it wraps the external openai/codex-plugin-cc). Strip it
+    # from the install when the user didn't opt in — this keeps the default
+    # /workweek-complete and /bug-sweep flows free of Codex steps without
+    # requiring command-file variants.
+    if [[ "$name" == "coordinator" && "$CODEX_INSTALLED" != true ]]; then
+      local codex_skill="$dest/skills/codex-review-gate"
+      if [[ -d "$codex_skill" ]]; then
+        rm -rf "$codex_skill"
+        echo "  STRIPPED: coordinator/skills/codex-review-gate (opt in via --enable-codex)"
+      fi
+    fi
   done
 
   # Copy marketplace manifest (required for Claude Code to discover plugins)
@@ -972,6 +1050,14 @@ print_summary() {
     fi
     echo ""
   fi
+
+  if [[ "$CODEX_INSTALLED" == true ]]; then
+    echo "codex-review-gate skill: installed"
+    echo "  Requires openai/codex-plugin-cc + 'codex login' to actually run."
+  else
+    echo "codex-review-gate skill: skipped (re-run with --enable-codex to add)"
+  fi
+  echo ""
 
   echo "Next step: restart Claude Code, then run /session-start to verify plugins loaded."
   echo ""

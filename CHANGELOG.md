@@ -2,6 +2,92 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [Unreleased]
+
+### Changed
+- **`codex-review-gate` is now an opt-in add-on.** The skill ships inside the coordinator plugin but is stripped from the install unless the user passes `--enable-codex` (or answers `y` at the new interactive prompt). Default installs no longer reference Codex from `/workweek-complete`, `/workday-complete`, or `/bug-sweep` summaries. `/bug-sweep --codex-verify` and the workweek Codex step both gate on skill presence — when absent, they skip silently and omit the line from their reports rather than printing _"skipped"_. Rationale: Codex was hassle for our setup and the integration was creating noise in routine reports; consumers who run Codex still have the on-ramp via the install flag.
+
+## [1.11.0] — 2026-05-05 (proposed — PM to confirm before tagging)
+
+PM-native positioning rewrite, scope-mode and DoR/DoD doctrine, a new primary reviewer (YK), ship-verdict and demo-path gates in `/merge-to-main`, and a publicly-readable evolution doc set. Coordinator plugin bumps 1.0.0 → 1.1.0; the rest of the plugin set is unchanged.
+
+### Theme — PM-native operating layer
+
+The repo has always implemented a PM-EM split, but the README and surrounding doctrine framed it as "a Claude Code productivity framework." This release sharpens the framing: a *PM-native operating layer for AI engineering work* — turning product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions, while keeping the PM technical enough to spot when something looks wrong. The framing acknowledges higher-altitude (fully non-technical PM) operation as future work, not current default; the current sweet spot is a technical-evaluating PM.
+
+### Added
+
+- **YK reviewer** (`plugins/coordinator/agents/vp-product.md`) — new primary reviewer, VP of Product (they/them), with software-engineering instincts. Stress-tests engineering choices: shape (concurrency model, sync vs. async, polling vs. event-driven, abstraction altitude), refactor-vs-patch calibration when AI execution makes refactors cheap, the dumb questions experienced engineers skip ("why single-threaded when threading is 30 lines?"), YAGNI-vs-laziness distinction, and "have you considered a different shape?" alternatives. Distinct from Patrik (code quality) and Zolí (Patrik backstop). Synced calibration block; `bin/verify-calibration-sync.sh` consumer list updated.
+- **Scope modes in `writing-plans` skill** — required header field with explicit rules per mode: prototype, production-patch, feature, architecture, spike. Routes review depth and the evidence bar.
+- **Acceptance Criteria + Non-Goals as required plan-header sections** — ends "done means whatever the agent says it means."
+- **Definition of Ready gate** in `writing-plans` (pre-drafting) and **Definition of Done gate** in `verification-before-completion` (pre-merge).
+- **Ship verdict** in `merging-to-main` Step 1.57 — every merge stages a verdict (ship / ship-behind-flag / hold / split / spike-only) for PR body and PM confirmation.
+- **Demo Path** in `merging-to-main` Step 1.56 — for user-visible work, append demonstrable steps to the release notes.
+- **"YK Pre-Flight" in `writing-plans`** — anticipate YK's questions during plan drafting. The spectre of YK review keeps the planner honest, so most actual YK reviews are belt-and-suspenders backstops rather than gatekeepers catching laziness that should have been caught earlier.
+- **`docs/evolution/` doc set** — README + 6 chapters: origin, handoffs-over-compaction, personas-as-ergonomics (the honest negative-result story), investigation-funnel, failure-modes (12-mode taxonomy with detection signals + prevention rules + recovery moves), what-we-rejected (the taste chapter, including external-review proposals declined with reasoning). The publish-repo answer to "evidence ledger" — outside readers evaluating the system see that the model has been pressure-tested and learns from failure.
+
+### Changed
+
+- **README rewritten around PM-native thesis.** New lede framing, "What This Is *Not*" section to head off miscategorization, commands reorganized around 5 flows (build a feature, fix a bug, resume work, autonomous sprint, architecture change). Inventory table demoted to collapsed appendix.
+- **Coordinator CLAUDE.md gains "Challenging the PM" doctrine** — explicit pushback triggers (request doesn't serve stated objective; change is larger than PM realizes; request hides a product decision; cheaper experiment available; scope expanding; acceptance criteria missing or unverifiable; PM asking to ship despite insufficient evidence).
+- **Coordinator CLAUDE.md gains "PM Escalation Triggers — Ask vs. Don't Ask"** — explicit list cutting the ambiguity between EM implementation discretion and PM product authority.
+- **Reviewer-calibration tripwire** updated — consumer list now includes `agents/vp-product.md`.
+
+### Plugin versions
+
+- `coordinator`: 1.0.0 → 1.1.0 (substantive doctrine and reviewer additions)
+- All other plugins: unchanged.
+
+## [1.10.0] — 2026-05-04 (proposed — PM to confirm before tagging)
+
+Two themes in this release: a workday/workweek cadence split for the coordinator workflow surface, and a layered defense against "shape-correct, premise-wrong" plans across the reviewer pipeline.
+
+### Theme A — Workday/workweek cadence split
+
+`/workday-complete` had grown to 306 lines doing double duty: lightweight daily housekeeping AND release-grade ceremony. Multi-day workstreams don't fit a daily wrap, so the heavy half either got skipped or fired at the wrong cadence. This release splits the cadence into daily and weekly bookends, with a structured `tasks/week-changelog/` ledger acting as a thin index over handoffs (which remain the unit of session continuity).
+
+### Added
+- **`/workweek-start`** (new) — PM-invoked strategic orient at the start of a week. Reads the prior week's changelog, surfaces stalled workstreams, runs an orphan sweep, prompts the PM for 1–3 priorities, and resets-or-updates `tasks/week-changelog/HEADER.md` based on whether a `/workweek-complete` has occurred since the last `/workweek-start`.
+- **`/workweek-complete`** (new) — PM-invoked release-grade close. Reads the week-changelog as canonical record, runs full validation + `/update-docs` + ShellCheck + Codex review + improvement-queue triage + scc snapshot, drafts release notes from changelog + `archive/completed/`, surfaces a version bump, invokes `/merge-to-main`, archives the daily files, and resets the HEADER.
+- **`tasks/week-changelog/`** convention — per-machine daily files (`YYYY-MM-DD-{hostname}.md`) + shared `HEADER.md`. Per-machine layout eliminates concurrent-write conflicts when multiple machines wrap the same calendar day.
+- **`bin/check-weekly-staleness.sh`** — emits `STALE` / `MILD` / `FRESH` / `UNKNOWN` based on days-since-last-weekly + commits-since-last-weekly thresholds (≥5 days AND ≥15 commits = STALE). Consumed by daily nudge and both weekly commands.
+- **`/pickup` "while you were away" surface** — when the named handoff is from a prior day (not a same-day baton pass), surfaces one-line summaries of changelog blocks since the handoff date, capped at ~10 lines. Strengthens the handoff/pickup backbone for multi-workstream weeks.
+- **`docs/wiki/workday-workweek-cadence.md`** — tutorial guide for the new cadence.
+
+### Changed
+- **`/workday-complete`** rewritten (307 → 210 lines). Drops `/update-docs`, scc, ShellCheck, Codex review gate, and improvement-queue triage action — all moved to `/workweek-complete`. Adds: read-only improvement-queue depth nudge (≥5 entries surfaces a one-liner, no triage), changelog append (synthesises today's block from handoffs + `/daily-review` summary, does NOT re-author), staleness check (surfaces "weekly is stale" when thresholds cross). `Validation:` field on the daily block is auto-filled from gate exit codes, never LLM-authored.
+- **`plugins/coordinator/CLAUDE.md`** — new "Workday/Workweek Cadence" doctrine section ("handoffs are the atom, the changelog is the index"); existing improvement-queue triage rule updated to reflect daily-nudge / weekly-action split.
+
+### Migration
+- Existing projects do not need to do anything. `tasks/week-changelog/HEADER.md` is shipped as a seed template; first `/workweek-start` populates it. Until then, `bin/check-weekly-staleness.sh` returns `UNKNOWN` (no nudge fires).
+- Existing `/workday-complete` workflows continue to work — the command does less, but everything it still does was already there.
+- `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
+
+### Design source
+`docs/plans/2026-05-04-workweek-cadence-split.md` (Patrik APPROVED_WITH_NOTES — all findings folded in).
+
+### Theme B — Reviewer premise challenge (layered W1–W5 defense)
+
+Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodeck `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `tasks/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
+
+#### Added
+- **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
+- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `tasks/lessons.md`.
+- **W3 — `staff-eng` (Patrik)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
+- **W4 — `staff-game-dev` (Sid)** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
+- **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
+
+#### Changed
+- Calibration block byte-identical across all reviewers (`verify-calibration-sync` clean).
+
+#### Design source
+`docs/plans/2026-05-04-reviewer-premise-challenge.md` (Patrik APPROVED_WITH_NOTES — all 7 findings integrated).
+
+#### Note
+The `dfdcf8f` commit also carried an early-write probe addition to `plugins/deep-research/agents/repo-specialist.md` — orthogonal to the W1–W5 work but mixed into the same source-side commit and percolated together via `publish.sh`.
+
+---
+
 ## [1.9.0] — 2026-05-03
 
 ### Removed — `remember` plugin
