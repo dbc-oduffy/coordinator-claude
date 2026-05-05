@@ -109,7 +109,7 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 **Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the bundled [deep-research](plugins/deep-research/) pipelines (internet, repo, structured, NotebookLM).
 
-**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI runs as a parallel execution runtime via `codex:*` skills — a second-opinion channel and independent implementation path.
+**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI integration is available as an opt-in add-on (`setup/install.sh --enable-codex` plus the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin) for a second-opinion channel and independent implementation path; default installs omit it.
 
 See [docs/architecture.md](docs/architecture.md) for the full model. For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 

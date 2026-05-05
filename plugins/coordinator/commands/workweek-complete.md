@@ -6,7 +6,7 @@ argument-hint: ""
 
 # Workweek Complete — Weekly Release Ceremony
 
-PM-invoked, release-grade close. Reads the week-changelog as the canonical record of what shipped — does NOT reconstruct the week from `git log`. Heavy steps dropped from `/workday-complete` live here: `/update-docs`, ShellCheck, Codex review, improvement-queue triage, scc, version bump, and merge.
+PM-invoked, release-grade close. Reads the week-changelog as the canonical record of what shipped — does NOT reconstruct the week from `git log`. Heavy steps dropped from `/workday-complete` live here: `/update-docs`, ShellCheck, optional Codex review (only if the `codex-review-gate` skill is installed), improvement-queue triage, scc, version bump, and merge.
 
 **Design contract:** the week-changelog is the ledger. The weekly ceremony reads it, validates against it, and archives it. Release notes are drafted from it, not re-derived.
 
@@ -96,7 +96,11 @@ done
 
 ---
 
-## Step 7: Codex Review Gate (second-opinion)
+## Step 7: Codex Review Gate (second-opinion, opt-in)
+
+**Skip this entire step unless the `codex-review-gate` skill is installed.** The skill is an opt-in add-on (re-run `setup/install.sh --enable-codex` to add it). When the skill is absent, omit the `Codex review:` line from the Step 15 summary entirely — do not write _"skipped"_ or any other placeholder.
+
+If the skill IS installed:
 
 ```bash
 git diff --shortstat origin/main...HEAD
@@ -209,6 +213,7 @@ git push origin $(git branch --show-current)
 **Improvement queue:** [K entries processed / no triage needed]
 **Code stats:** [summary or "scc not available"]
 **ShellCheck:** [clean / N issues fixed]
+<!-- include only when codex-review-gate skill is installed -->
 **Codex review:** [N findings / clean / skipped: reason]
 **Tracker:** [N workstreams updated]
 **Merged to main:** [yes — PR #N / blocked: reason]

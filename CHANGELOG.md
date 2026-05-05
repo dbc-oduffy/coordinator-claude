@@ -2,6 +2,11 @@
 
 All notable changes to coordinator-claude are documented here.
 
+## [Unreleased]
+
+### Changed
+- **`codex-review-gate` is now an opt-in add-on.** The skill ships inside the coordinator plugin but is stripped from the install unless the user passes `--enable-codex` (or answers `y` at the new interactive prompt). Default installs no longer reference Codex from `/workweek-complete`, `/workday-complete`, or `/bug-sweep` summaries. `/bug-sweep --codex-verify` and the workweek Codex step both gate on skill presence — when absent, they skip silently and omit the line from their reports rather than printing _"skipped"_. Rationale: Codex was hassle for our setup and the integration was creating noise in routine reports; consumers who run Codex still have the on-ramp via the install flag.
+
 ## [1.10.0] — 2026-05-04 (proposed — PM to confirm before tagging)
 
 Two themes in this release: a workday/workweek cadence split for the coordinator workflow surface, and a layered defense against "shape-correct, premise-wrong" plans across the reviewer pipeline.
