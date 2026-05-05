@@ -205,6 +205,62 @@ describe('validateFrontmatter — handoff', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateFrontmatter — plan schema (status enum incl. superseded)
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — plan', () => {
+  const planSchema = SCHEMAS['plan'];
+
+  it('valid plan with status: superseded and superseded_by passes', () => {
+    const fm = {
+      title: 'multi-uplugin build pipeline',
+      created: '2026-05-04',
+      author: 'em',
+      status: 'superseded',
+      superseded_by: 'docs/plans/2026-05-04-multi-uplugin-build-pipeline.md',
+    };
+    const result = validateFrontmatter(fm, planSchema);
+    assert.ok(result.ok, `Expected ok, got errors: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('valid plan with status: deferred passes', () => {
+    const fm = {
+      title: 'backlog plan parked for now',
+      created: '2026-05-04',
+      author: 'em',
+      status: 'deferred',
+    };
+    const result = validateFrontmatter(fm, planSchema);
+    assert.ok(result.ok);
+  });
+
+  it('valid plan with status: abandoned still passes', () => {
+    const fm = {
+      title: 'uplugin modules restore',
+      created: '2026-05-03',
+      author: 'em',
+      status: 'abandoned',
+    };
+    const result = validateFrontmatter(fm, planSchema);
+    assert.ok(result.ok);
+  });
+
+  it('invalid status enum fails', () => {
+    const fm = {
+      title: 'foo',
+      created: '2026-05-04',
+      author: 'em',
+      status: 'cancelled',
+    };
+    const result = validateFrontmatter(fm, planSchema);
+    assert.equal(result.ok, false);
+    const err = result.errors.find(e => e.field === 'status');
+    assert.ok(err);
+    assert.match(err.hint, /superseded/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateFrontmatter — decision schema (list-of-string)
 // ---------------------------------------------------------------------------
 

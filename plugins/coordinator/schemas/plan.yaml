@@ -6,8 +6,9 @@ required:
   author: string
   status:
     type: enum
-    values: [draft, reviewed, approved, executing, shipped, abandoned]
+    values: [draft, reviewed, approved, executing, deferred, shipped, abandoned, superseded]
 optional:
   branch: string
   reviewer: string
   source: string
+  superseded_by: string

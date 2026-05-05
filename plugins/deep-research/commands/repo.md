@@ -294,6 +294,37 @@ TaskUpdate(taskId: "{specialist-id}", owner: "chunk-{letter}")
 
 **Dispatch all 4 specialists in a single message (parallel).**
 
+## Step 5.5 — Scout Completion Gate
+
+Scouts can hit the documented "TEXT-ONLY" hallucination (see `coordinator/CLAUDE.md` § "TEXT ONLY" Hallucination — Disk-First Verification): they go idle without ever calling Write, leaving specialists blocked on inventories that don't exist. This step verifies scout output landed before the EM is freed (or, in `--deepest` mode, before atlas sketch dispatches).
+
+Wait until both scout tasks report `completed` status, both scouts emit `idle_notification`, or ~6 minutes have elapsed since spawn (whichever comes first). Then verify disk:
+
+```bash
+ls -la {scratch-dir}/A-inventory.md {scratch-dir}/B-inventory.md {scratch-dir}/C-inventory.md {scratch-dir}/D-inventory.md 2>&1
+wc -l {scratch-dir}/[A-D]-inventory.md 2>&1
+```
+
+**All 4 files exist with substantive content (>30 lines each):** Scouts succeeded. Proceed — default mode → Step 6 (EM Freed); `--deepest` → Phase B (Atlas Sketch).
+
+**0–3 files exist, or files are stubs (<10 lines):** Scout failure (TEXT-ONLY hallucination or partial idle). Recover by stubbing the missing inventories yourself — this is the documented workaround, not a redispatch:
+
+1. **Write stub inventories** for each missing chunk at the expected path. A stub is a structured file list pulled from `scope.md`'s chunk definitions, prefixed with:
+   ```markdown
+   > **Stub inventory** — written by EM after scout failure (TEXT-ONLY hallucination).
+   > Treat as a file list. Self-discover via Glob/Read; do not assume coverage is exhaustive.
+   ```
+   List the chunk's directories/files from `scope.md`. If `--compare`, include the chunk's domain keywords as comparison hints.
+
+2. **Mark scout tasks completed:** `TaskUpdate(taskId: "{scout-N-id}", status: "completed")` — clears the `blockedBy` gate on specialists and (if `--deepest`) atlas-sketch.
+
+3. **Wake the blocked teammates** — `blockedBy` is a gate, not a trigger. `SendMessage` to each specialist (and `atlas-sketch` if `--deepest`):
+   > "Scout idled before producing the inventory at `{path}` — EM wrote a stub. You are unblocked. The stub is a file list, not a structured inventory; treat it accordingly and Read/Glob the named files yourself."
+
+4. **Note the recovery in scope.md** so the synthesizer's advisory captures the degraded run: append a `## Recovery Notes` section listing which inventories were stubbed.
+
+After recovery, proceed to Step 6 (or Phase B if `--deepest`). The EM may judge whether to redispatch a scout — there is no doctrine for or against it; weigh transcript drift versus inventory quality.
+
 ## Step 6 — EM Is Freed
 
 After spawning all teammates (including specialists), announce:
