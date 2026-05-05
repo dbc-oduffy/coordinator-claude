@@ -1,7 +1,7 @@
 # PM-Native Positioning & Doctrine Plan
 
 **Date:** 2026-05-05
-**Status:** Drafted, awaiting PM review
+**Status:** Complete — shipped 2026-05-05 in coordinator-claude PR #28 (1.11.0). All five phases landed: README rewrite, doctrine extensions (Challenging the PM, escalation triggers, scope modes, DoR/DoD), YK reviewer, ship verdict + demo path, evolution doc set. Mirrored to Claude Prime via PR #64.
 **Source:** `coordinator_claude_deep_recommendations.md` (external review, 2026-05-05) — triaged with skepticism, not adopted wholesale.
 
 ## Premise
