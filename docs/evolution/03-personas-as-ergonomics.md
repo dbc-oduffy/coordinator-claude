@@ -4,7 +4,7 @@
 
 ## What we wanted to be true
 
-The intuition was tempting: a richer reviewer prompt — "Patrik is a Slovak staff engineer with 15 years of C++ experience and exacting standards" — should produce better reviews than a bare "review this code for bugs." The model should *role-play* expertise and find things a generic reviewer would miss.
+The intuition was tempting: a richer reviewer prompt — "Patrik (architecture reviewer) is a Slovak staff engineer with 15 years of C++ experience and exacting standards" — should produce better reviews than a bare "review this code for bugs." The model should *role-play* expertise and find things a generic reviewer would miss.
 
 We ran a controlled experiment to test this. 400 paired observations across 10 TypeScript/JavaScript files with 32 seeded defects, scored mechanically against ground truth. The full results are in [the persona experiment artifact](../research/2026-03-26-persona-experiment-results.md).
 
@@ -18,7 +18,7 @@ That was not the result we expected. We thought richer prompting should help. It
 
 Two reasons.
 
-**First, ergonomics for the human user.** "Patrik flagged this" is more memorable and parseable than "the staff engineer review of this artifact returned the following findings." The PM remembers Patrik. The PM does not remember the staff engineer. When seven reviewers exist (Patrik, Sid, Camelia, Palí, Fru, Zolí, YK), names are how the human keeps them straight. The personas earn their keep on the human-comprehension side, not the reviewer-quality side.
+**First, ergonomics for the human user.** "Patrik flagged this" is more memorable and parseable than "the staff engineer review of this artifact returned the following findings." The PM remembers Patrik. The PM does not remember the staff engineer. When seven reviewers exist — Patrik (architecture reviewer), Sid (game-dev reviewer), Camelia (data-science reviewer), Palí (frontend reviewer), Fru (UX flow reviewer), Zolí (ambition advocate / Patrik backstop), YK (VP-of-Product reviewer / scope challenger) — names are how the human keeps them straight. The personas earn their keep on the human-comprehension side, not the reviewer-quality side.
 
 **Second, the personas don't *cost* anything that the calibration block doesn't fix.** The false-positive bump in the experiment came from over-aggressive prompting — "assume the code has defects, a review finding no issues is almost certainly incomplete." We replaced that pressure with a confidence calibration scale (1–10) and an AUTO-FIX/ASK fix classification, applied to every finding. The integrator filters low-confidence findings out before they reach the EM. That mechanism — not the persona richness — is what controls false positives.
 

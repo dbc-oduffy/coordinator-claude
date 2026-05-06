@@ -238,3 +238,7 @@ Two-layer breadcrumbs:
 2. **Stub document** — agent marks its own status as first action
 
 With both layers, crash state is unambiguous. See `plugins/coordinator/ARCHITECTURE.md` for the full state machine.
+
+## Contracts
+
+For the testable claims each agent role makes — and the hook, script, or doctrine section that enforces each one — see [`docs/contracts.md`](contracts.md). That document is an index of cross-links; this document covers the conceptual model.
