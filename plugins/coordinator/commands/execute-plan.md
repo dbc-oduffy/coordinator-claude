@@ -10,7 +10,7 @@ Run a PM-approved implementation plan to completion without stopping for permiss
 
 **Core principle:** Write-ahead every task (both plan document on disk AND task list via TaskUpdate), execute autonomously, stop only when your judgment says the plan itself is in trouble — not when a task is merely hard.
 
-**When to use `/delegate-execution` instead:** If the plan contains enriched stubs with known file paths, exact line numbers, and code sketches, dispatch Sonnet executors via `/delegate-execution` — execution is cheap when the blueprint is complete. Use `/execute-plan` for plans that require EM-level judgment, have accumulated conversation context, or are mid-size with straightforward steps that don't need separate executor dispatch.
+**When to use the executor-dispatch procedure instead:** If the plan contains enriched stubs with known file paths, exact line numbers, and code sketches, dispatch Sonnet executors per `docs/wiki/delegate-execution.md` — execution is cheap when the blueprint is complete. Use `/execute-plan` for plans that require EM-level judgment, have accumulated conversation context, or are mid-size with straightforward steps that don't need separate executor dispatch.
 
 ---
 
@@ -123,8 +123,8 @@ Invoke the `coordinator:finishing-a-development-branch` skill. Follow it exactly
 
 ## Relationship to Other Commands
 
-- **`/delegate-execution`** — use this instead when the plan consists of enriched stubs with exact code sketches, file paths, and line numbers. Executor dispatch is cheaper for well-specified mechanical work. `/execute-plan` is for EM-level execution where conversation context or judgment matters.
-- **`/enrich-and-review`** — should be run before `/delegate-execution`; not required before `/execute-plan` (plans that route here are typically less chunked).
+- **Executor dispatch (`docs/wiki/delegate-execution.md`)** — use this instead when the plan consists of enriched stubs with exact code sketches, file paths, and line numbers. Executor dispatch is cheaper for well-specified mechanical work. `/execute-plan` is for EM-level execution where conversation context or judgment matters.
+- **`/enrich-and-review`** — should be run before executor dispatch; not required before `/execute-plan` (plans that route here are typically less chunked).
 - **`/review-dispatch`** — optional post-execution quality pass on the implemented work. If the plan called for it, route through `/review-dispatch` before invoking the finishing skill.
 - **`coordinator:writing-plans`** — creates the plan that this command executes. A plan produced by that skill is the ideal input here.
 - **`coordinator:finishing-a-development-branch`** — always invoked at the end of this command. Not optional.

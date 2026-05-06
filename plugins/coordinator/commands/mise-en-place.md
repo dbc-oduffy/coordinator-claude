@@ -1,20 +1,16 @@
 ---
-description: Autonomous backlog execution — gathers all ready work items, builds a compaction-proof flight recorder, executes sequentially without stopping for input, then tails with /update-docs (or /update-docs + hibernate in overnight mode)
+description: Autonomous backlog execution — gathers all ready work items, builds a compaction-proof flight recorder, executes sequentially without stopping for input. Tail is per-item commits + push only; PM runs /update-docs / /workday-complete separately when ready.
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "[--hibernate]"
 ---
 
 # Mise-en-Place — Autonomous Backlog Execution
 
-Everything in its place before the fire gets lit. This command front-loads all context gathering and sequencing into a compaction-proof flight recorder, then executes the full backlog in a straight shot without stopping for input. The PM authorized the run when they invoked this command.
-
-**Core principle:** Prep all context, sequence all items, build the flight recorder — then execute without interruption. Once Phase 5 begins, the EM never pauses to ask a question, offer a choice, or wait for a response. The anti-stall rule is not optional: if execution stalls mid-run, the tail phase (hibernate) never triggers, leaving the machine running indefinitely.
-
-**Autonomous-to-completion.** "Mise-en-place" means the PM has authorized the entire run — including the messy parts. Rate-limits, crashed agents, partial commits, recovery re-dispatches, concurrent-session staging conflicts — all routine. The EM drives the run to Phase 6 tail. The only legitimate stops are genuine product/scope questions the PM has unique information on, or the structural-failure cases listed under "When to Stop." Asking an EM whether to finish already-authorized, tractable, scoped, roadmap-aligned work is a failure of the role.
+Everything in its place before the fire gets lit. Front-load context and sequencing into a compaction-proof flight recorder, then execute the full backlog in a straight shot without stopping. PM authorization is implicit in invocation — that includes the messy parts (rate-limits, crashed agents, partial commits, recovery re-dispatches, concurrent-session staging conflicts). Once Phase 5 begins, the EM never pauses to ask, offer a choice, or wait for a response; the only legitimate stops are genuine product/scope questions only the PM can answer, or the structural-failure cases under "When to Stop." Asking whether to finish already-authorized work is a failure of the role; stalling mid-run prevents the hibernate tail from triggering.
 
 **Announce at start:** "Running /mise-en-place — prepping flight recorder, then straight shot through the backlog."
 
-**What mise IS NOT:** Mise is not "plan-as-you-go autonomy." It is not a license to live-assemble specs, research contracts that downstream items will consume, or run a "foundations wave" whose output becomes reference material for later waves. Those activities require EM judgment, reviewer dispatch, and PM alignment — they are session-EM territory, not autonomous-execution territory. The coordinator system optimizes for first-pass correctness: planning happens deeply BEFORE the run, so executors only type. If you find yourself sequencing a wave that produces decisions other waves depend on, you are not ready for mise — you are ready for a planning session.
+**What mise IS NOT:** Not "plan-as-you-go autonomy." Not a license to live-assemble specs, research downstream contracts, or run a "foundations wave" whose output becomes reference material for later waves. Those need EM judgment, reviewer dispatch, and PM alignment — session-EM territory. Mise optimizes for first-pass correctness: deep planning BEFORE the run, executors only type. A wave producing decisions other waves depend on means you are not ready for mise — you are ready for a planning session.
 
 ## Arguments
 
@@ -22,10 +18,10 @@ Parse `$ARGUMENTS` for the tail mode:
 
 | Trigger | Mode | Tail action |
 |---------|------|-------------|
-| No arguments, or no hibernate keyword | **Standard** (default) | `/update-docs` — sync docs, commit, push to branch |
-| `--hibernate`, or keywords: "overnight", "hibernate", "shutdown", "go to bed" | **Hibernate** | `/update-docs` + push + hibernate PC |
+| No arguments, or no explicit hibernate phrase | **Standard** (default) | per-item commits + push only (no /update-docs) |
+| `--hibernate` flag, or unambiguous phrases: "hibernate", "shut down", "power off" | **Hibernate** | verify push, then hibernate PC (no /update-docs) |
 
-**Default to standard.** If the PM didn't specify hibernate, run standard and move on. Do not ask — the PM can invoke `/workday-complete` separately afterward.
+**Default to standard.** Hibernate requires unmistakable explicit consent — the `--hibernate` flag or one of the phrases above. Soft signals like "overnight", "it's late", "go to bed", or "shutdown when done" do NOT authorize hibernate; treat as standard and let the PM invoke `/workday-complete` separately. Do not ask — when in doubt, run standard.
 
 ## Instructions
 
@@ -35,7 +31,7 @@ Follow all phases in order. The pipeline definition at `pipelines/mise-en-place/
 
 **Bypass condition.** If the session was opened from a handoff (or the PM's invocation explicitly references one) and that handoff states the queued items have already been gated as mise-ready, **skip Phase 0 entirely** and proceed to Phase 1. The bypass is valid when the handoff names the items in scope and asserts mise-readiness in unambiguous terms (e.g., "items A, B, C are mise-grade — proceed straight to dispatch", "Phase 0 verified", "ready for /mise"). Re-running the gate after a verified handoff is wasted context — large backlogs can blow the EM's window on stub reading alone, which is the exact failure mode the bypass exists to prevent. If the bypass applies, announce it explicitly: "Phase 0 bypassed — handoff at <path> verified mise-readiness for [items]. Proceeding to Phase 1." If you are uncertain whether the handoff covers all queued items, do NOT bypass — run the full gate.
 
-**Otherwise, run this gate before Phase 1 inventory and before announcing the run.** If any candidate item fails the gate, do NOT proceed with /mise. Report the disqualifying items to the PM and recommend the appropriate alternative (planning session, /enrich-and-review, /staff-session, /execute-plan, or interactive /delegate-execution).
+**Otherwise, run this gate before Phase 1 inventory and before announcing the run.** If any candidate item fails the gate, do NOT proceed with /mise. Report the disqualifying items to the PM and recommend the appropriate alternative (planning session, /enrich-and-review, /staff-session, /execute-plan, or interactive executor dispatch per `docs/wiki/delegate-execution.md`).
 
 A mise-grade item meets ALL of the following:
 
@@ -67,7 +63,7 @@ The following items are not mise-grade:
   reference material for later waves. → Run as a planning task; mise the
   consumers afterward.
 - 3A-9 (MCP-authoring stub, requires live UE editor) — not executor work.
-  → Dispatch interactively via /delegate-execution with the relevant domain agent.
+  → Dispatch interactively per `docs/wiki/delegate-execution.md` with the relevant domain agent.
 
 Recommend: split the foundations work out, complete it in a session, then
 re-invoke /mise on the remaining mechanical items.
@@ -137,7 +133,7 @@ Create tasks with this structure:
 1. **Goal task** — titled with the full scope of the run, including:
    - What items are being executed (full list with identifiers)
    - That this is a mise-en-place straight shot
-   - The tail mode: standard (`/update-docs`) or hibernate (`/update-docs` + hibernate)
+   - The tail mode: standard (per-item commits only) or hibernate (push + hibernate)
 
 2. **Per-item tasks** — one for each work item, with:
    - Item identifier and file path to spec
@@ -148,8 +144,8 @@ Create tasks with this structure:
    - Status: `pending`
 
 3. **Tail tasks** (based on mode):
-   - **Standard:** "Run /update-docs" — `pending`
-   - **Hibernate:** "Run /update-docs" — `pending`, then "Hibernate PC" — `pending`
+   - **Standard:** (no tail task — wave gates already commit + push per item)
+   - **Hibernate:** "Verify all pushes succeeded" — `pending`, then "Hibernate PC" — `pending`
 
 **The flight recorder must contain enough context to resume cold.** After compaction, you may have lost the conversation but the task list survives. Write it like a handoff to a stranger.
 
@@ -169,8 +165,8 @@ Output this plan to the PM, then IMMEDIATELY begin Phase 5. Do NOT wait for a re
 [... or "Wave 1 (sequential): [items] — all items overlap on [file]"]
 
 **Risks:** [any dependency or risk notes]
-**Tail:** /update-docs — straight shot, work stays on branch.
-[or: /update-docs + hibernate — overnight run, work stays on branch.]
+**Tail:** per-item commits + push — work stays on branch. PM runs /update-docs separately when ready.
+[or: verify push + hibernate — overnight run, work stays on branch.]
 
 **Estimated scope:** [rough sense of the run — "3 small items + 1 medium" etc.]
 
@@ -187,7 +183,7 @@ echo "mise-en-place" > /tmp/autonomous-run-${SESSION_ID}
 ```
 This tells the hook to emit informational-only context pressure messages (no handoff recommendation). The sentinel is cleaned up in Phase 6.
 
-**Bandwidth rule:** Executors are backgrounded by default in /mise — not just for parallel waves, but always. This is stricter than `/delegate-execution`, which lets the EM run executors inline. In /mise the EM is steering many items; pulling each executor's transcript into context burns the window before the run finishes. Single-item waves still background — accept the dispatch overhead.
+**Bandwidth rule:** Executors are backgrounded by default in /mise — not just for parallel waves, but always. This is stricter than the standard executor-dispatch procedure (`docs/wiki/delegate-execution.md`), which lets the EM run executors inline. In /mise the EM is steering many items; pulling each executor's transcript into context burns the window before the run finishes. Single-item waves still background — accept the dispatch overhead.
 
 The executor does its own verification and commit. The EM consumes only a brief on-disk DONE summary, not the executor's full transcript. This is the structural bandwidth fix: the EM holds the wave map and the DONE-summary paths, nothing more.
 
@@ -215,6 +211,8 @@ The executor does its own verification and commit. The EM consumes only a brief 
    - **Mark complete + tracker sweep:** On PASS, update task via TaskUpdate. **Re-run the canonical tracker sweep** — update every match to reflect completion. If the executor ran its own sweep, verify; fix gaps.
 
 3. **Wave gate:** ALL items in a wave must complete before the next wave begins. This is the serialization point that guarantees later-wave items see earlier-wave changes.
+   - **Poll `git branch --show-current` between waves.** Concurrent sessions can flip your branch mid-mise; if the branch changed, halt and reconcile before firing the next wave.
+   - **Recovery commits do NOT advance the chain.** A patch that recovers from a crash, infra blip, or partial executor failure is not a chain-advance signal — re-arm the wave gate explicitly before dispatching the next wave.
 
 4. **Brief status update between waves:** "Wave N complete ([items]). Firing wave N+1 ([items])." Output-only — never frame as a question, never wait for a response. Never output:
    - "Want me to fire those now?" — Just fire them.
@@ -223,35 +221,32 @@ The executor does its own verification and commit. The EM consumes only a brief 
 
 **Single-item waves** (forced sequential due to file overlap or dependencies) execute inline — dispatch overhead isn't worth it for one item. Follow the same write-ahead → execute → verify → commit → mark-complete cycle.
 
-**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `/delegate-execution` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
+**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `docs/wiki/delegate-execution.md` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
 
 **No worktrees.** All executors operate on the same worktree. The file-disjoint constraint from Phase 2 is the coordination mechanism. Do not use `isolation: "worktree"` on any executor dispatch.
 
 ### Phase 6: Tail — Close Out the Run
 
-After all waves are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then run the final tracker sweep before the tail action:
+After all waves are executed and verified, mark all item tasks `completed` via TaskUpdate, clean up the autonomous-run sentinel, then run the final tracker sweep:
 
 ```bash
 rm -f /tmp/autonomous-run-${SESSION_ID}
 ```
 
-**Final tracker sweep (mandatory before tail):**
-Before invoking `/update-docs`, verify that ALL canonical trackers reflect the run's outcomes. This is the EM's backstop — especially critical because nobody is watching during autonomous runs:
+**Final tracker sweep (mandatory):**
+Verify that ALL canonical trackers reflect the run's outcomes — this is the EM's backstop, especially critical because nobody is watching during autonomous runs:
 1. Grep each completed item's codename across `docs/project-tracker.md`, `tasks/*/todo.md`, `ROADMAP.md`, and any dispatch trackers
 2. Confirm every completed item shows as done/checked in every tracker that references it
 3. Confirm every in-progress or blocked item shows its current state
-4. Fix any gaps — executors may have crashed before completing their sweep, or the EM's own inline execution may have skipped it under time pressure
-5. Commit tracker fixes (if any) before proceeding to `/update-docs`
-
-This sweep is the difference between "work got done" and "the project knows work got done." `/update-docs` will cascade tactical completions upward via tracker-maintenance, but only if the tactical trackers are accurate.
+4. Fix any gaps — executors may have crashed before completing their sweep
+5. Commit tracker fixes (if any) via `coordinator-safe-commit`
 
 **Standard (default):**
-1. Invoke `/update-docs` — sync documentation, commit, push to branch
-2. Done. The PM can invoke `/workday-complete` separately when ready to merge.
+1. Done. Per-wave commits already pushed. The PM runs `/update-docs` (and later `/workday-complete` or `/merge-to-main`) separately when ready to integrate. Rationale: `/update-docs` now absorbs the tracker-maintenance, handoff-archival, and atlas-integrity-check subroutines inline, making it a heavier operation than it was when /mise tailed it automatically. PM-gated invocation is the right shape.
 
 **Hibernate:**
-1. Invoke `/update-docs --no-distill` — sync documentation, commit, push to branch. Skip distillation in overnight mode — it requires PM approval and nobody is home.
-2. Verify push succeeded (work must be on remote before hibernating)
+1. Verify push: `git log origin/$(git branch --show-current)..HEAD 2>/dev/null` should be empty for all session work
+2. If unpushed commits remain, push explicitly. If push fails, do NOT hibernate — stop and report.
 3. Hibernate the machine:
 
 ```bash
@@ -264,13 +259,11 @@ systemctl hibernate
 
 Hibernate over shutdown: same zero power draw, but the machine resumes to its prior state instead of cold-booting.
 
-**If `/update-docs` fails in hibernate mode:** Hibernate anyway. Item-level commits from Phase 5 already preserved the work. Doc sync is nice-to-have; power conservation is the priority. The PM can run `/update-docs` after wake.
-
 ## Safety Boundaries
 
 - **Never merge to main.** Work stays on branch. The PM merges interactively after review, using `/merge-to-main` or `/workday-complete`.
 - **Never use worktrees.** All executors operate on the same worktree. File-disjoint wave scheduling is the coordination mechanism. Worktree creation + merge overhead exceeds the time saved at agent execution speed.
-- **Never hibernate without explicit PM request.** Hibernate mode is opt-in only — detected from `$ARGUMENTS`, never escalated unilaterally.
+- **Never hibernate without explicit PM request.** Hibernate mode is opt-in only, requires unmistakable consent (`--hibernate` flag or "hibernate"/"shut down"/"power off"), and is never escalated from soft signals like "overnight" or "it's late".
 - **Never escalate tail mode.** Standard → hibernate is the PM's call. Do not suggest it, do not ask about it.
 - **Hibernate is always safe on early stop.** If hibernate mode was invoked and the run must stop early, hibernate anyway. Incomplete work on a branch + hibernated machine is strictly better than incomplete work + machine running all night.
 - **Commit after every item.** Crash insurance. Applies to dispatched executors too — their work is not done until it is committed.
@@ -312,16 +305,14 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 | Verification fails structurally | Stop early, commit progress |
 | Dispatched executor returns BLOCKED | Diagnose — if spec-fixable, update stub and re-dispatch; if architectural, stop early and report |
 | Executor writes outside its file footprint | Bug in Phase 2 analysis — revert the out-of-bounds changes, re-analyze the overlap, adjust wave assignments, and re-execute |
-| `/update-docs` fails in standard mode | Report the failure, leave work on branch |
-| `/update-docs` fails in hibernate mode | Hibernate anyway — item commits already pushed |
 | Push fails before hibernate | Do NOT hibernate — work must be on remote first. Stop and report. |
 | Context compacted mid-run | Read goal task and per-item tasks via TaskList/TaskGet to re-orient; check `metadata.tried_and_abandoned`; continue from `in_progress` item |
 
 ## Relationship to Other Commands
 
-- **`/delegate-execution`** — used within Phase 5 for dispatching executor agents; its Phase 2 model selection rubric governs dispatch decisions
+- **Executor dispatch (`docs/wiki/delegate-execution.md`)** — used within Phase 5 for dispatching executor agents; its Phase 2 model selection rubric governs dispatch decisions
 - **coordinator:dispatching-parallel-agents** — parallel dispatch patterns (file-disjoint constraint, same-worktree coordination)
-- **`/update-docs`** — the tail action in both modes; invoked at Phase 6
+- **`/update-docs`** — NO LONGER auto-invoked. PM runs separately after `/mise` completes.
 - **`/workday-complete`** — what the PM runs afterward (interactively) if they want end-of-day consolidation and health survey
 - **`/merge-to-main`** — what the PM runs when ready to merge the branch; never invoked from this command
 - **`pipelines/mise-en-place/PIPELINE.md`** — the pipeline definition this command executes; consult it for full nuance on any phase
