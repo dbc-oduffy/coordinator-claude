@@ -2,6 +2,8 @@
 
 > **The rule.** In any project's main checkout, the active branch is **either** today's `work/{machine}/{YYYY-MM-DD}` **or** `main` (read-only). Nothing else. Real-time enforcement; no `/workday-complete`-time cleanup.
 
+> **The shape.** The daily branch is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
+
 ## Why
 
 Postmortem source: `X:/project-rag/archive/2026-05-05_branch-sprawl-postmortem.md`.
