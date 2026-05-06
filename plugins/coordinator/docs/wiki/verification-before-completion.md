@@ -1,7 +1,11 @@
 ---
-name: verification-before-completion
-description: "Use before claiming work complete, fixed, or passing — requires running verification commands and confirming output; evidence before assertions."
-version: 1.0.0
+title: Verification before completion
+created: 2026-05-06
+type: doctrine
+related:
+  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - docs/wiki/delegate-execution.md
+  - docs/wiki/round-trip-contract-tests.md
 ---
 
 # Verification Before Completion

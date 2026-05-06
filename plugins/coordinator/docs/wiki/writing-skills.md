@@ -124,7 +124,7 @@ details to `--help`. Cross-reference rather than duplicate. Compress examples ru
 with `wc -w`.
 
 **Cross-referencing other skills** — name only with explicit requirement marker:
-- `**REQUIRED BACKGROUND:** Use coordinator:test-driven-development`
+- `**REQUIRED BACKGROUND:** see docs/wiki/test-driven-development.md`
 - Do NOT use `@skills/...` syntax — it force-loads files immediately, burning context.
 
 ### Flowcharts

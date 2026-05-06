@@ -1,7 +1,11 @@
 ---
-name: dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
-version: 1.0.0
+title: Dispatching parallel agents
+created: 2026-05-06
+type: doctrine
+related:
+  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - docs/wiki/delegate-execution.md
+  - plugins/coordinator-claude/coordinator/commands/mise-en-place.md
 ---
 
 # Dispatching Parallel Agents
@@ -295,5 +299,3 @@ After agents return:
 2. **Check for conflicts** - Did agents edit same code?
 3. **Run full suite** - Verify all fixes work together
 4. **Spot check** - Agents can make systematic errors
-
-<!-- Review: Patrik — removed duplicate Real-World Impact section (detailed version at lines 162-185) -->
