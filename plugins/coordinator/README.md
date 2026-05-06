@@ -78,7 +78,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 *An agent identifies a symptom and patches it. The root cause stays in place. Two sessions later, a variant of the same bug appears. The patch list grows; the underlying issue doesn't.*
 
 **Addressed by:**
-- `systematic-debugging` skill — Root-cause debugging process. Diagnose before proposing fixes. Post-item-4: feedback-loop-first framing.
+- Systematic debugging — see `docs/wiki/systematic-debugging.md`. Root-cause debugging process. Diagnose before proposing fixes. Feedback-loop-first framing across four phases.
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
 - `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
 - Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming done. Catches the "it should work" class of failures.
@@ -138,7 +138,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 **Development Process:**
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced.
-- `systematic-debugging` — Root-cause debugging process.
+- Systematic debugging — see `docs/wiki/systematic-debugging.md`. Root-cause debugging process.
 - Dispatching parallel agents — see `docs/wiki/dispatching-parallel-agents.md`. Dispatch independent tasks in parallel; concurrency budget + worktree doctrine.
 - Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
 

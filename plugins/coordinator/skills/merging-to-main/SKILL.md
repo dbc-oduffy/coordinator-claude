@@ -279,7 +279,7 @@ This blocks until all checks complete.
 - **If "no checks reported"** (exit code 1 with that message): this means the repo has
   no CI configured. Treat as a pass and proceed to Step 4.
 - **If checks fail:** report which checks failed. Do NOT merge. Stop and report:
-  _"CI failed on {check}. Fix the issue and re-run `/merge-to-main`, or investigate with `coordinator:systematic-debugging`."_
+  _"CI failed on {check}. Fix the issue and re-run `/merge-to-main`, or investigate with the four-phase root-cause process at `docs/wiki/systematic-debugging.md`."_
 
 ### Step 4: Merge
 
