@@ -1,6 +1,6 @@
 ---
 name: systematic-debugging
-description: "This skill should be used when encountering any bug, test failure, or unexpected behavior — before proposing fixes. Triggers on: 'something is broken', 'test is failing', 'unexpected behavior', 'debug this'."
+description: "Use before proposing any fix — root-cause investigation first. Triggers on bug/test failure/unexpected behavior, debug this, something is broken."
 version: 1.0.0
 ---
 
@@ -168,6 +168,10 @@ Prefer the cheapest direct read of the system's source-of-truth over reasoning f
 - **Trust the original log, not the derived timing claim.** Cross-reference the upstream/server-side log directly rather than trusting timing inferences from downstream. A "client timeout" hypothesis from the Node side may actually be game-thread blockage from the editor side; fixing the wrong layer wastes a session.
 
 **The unifying check before any fix:** "What's the cheapest read of the system that would directly confirm or refute my hypothesis?" If <5 minutes, do it before writing fix code.
+
+**Test data degeneracy ≠ checker bug.** When a checker flags inputs your test fixture provided, fix the inputs or extend the whitelist inline. Don't blame the checker for catching what you fed it.
+
+**Iteration-debugging signal is failure-mode shift, not failure count.** Same failure count with a different failure class is progress; track the class, not the integer.
 
 ## Supporting Techniques
 

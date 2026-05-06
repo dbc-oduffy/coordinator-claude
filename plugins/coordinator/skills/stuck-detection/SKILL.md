@@ -1,6 +1,7 @@
 ---
 name: stuck-detection
 description: "This skill should be used when detecting repetitive actions, oscillating between approaches, or stalling without progress — the three stuck patterns. Referenced by agent prompts for self-monitoring."
+description-budget: 225
 version: 1.0.0
 ---
 

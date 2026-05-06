@@ -1,6 +1,7 @@
 ---
 name: consolidate-git
-description: Use when the repo has multiple stale branches that need cleaning up — inventories all branches, absorbs unique commits into the current branch, deletes stale branches, and merges to main. This skill should be used when the user asks to "clean up branches", "consolidate branches", "consolidate git", "merge all branches", or mentions stale/old branches that need cleanup.
+description-budget: 250
+description: "Cleans up branch sprawl: inventories all branches, absorbs unique commits, deletes stale, merges to main. Triggers on consolidate branches, clean up branches, stale branches cleanup, merge all branches."
 version: 1.0.0
 ---
 

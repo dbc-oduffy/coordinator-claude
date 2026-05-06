@@ -1,6 +1,6 @@
 ---
 name: learn-lessons
-description: "Process lessons.md files: classify entries, route to queues/wiki/doctrine, detect recurrence, archive discards. Three modes: local, central, recheck."
+description: "Processes tasks/lessons.md as doctrine change-requests. 3 modes: local, central, recheck. Triggers on triage/trim/process lessons, promote universals."
 version: 1.0.0
 ---
 

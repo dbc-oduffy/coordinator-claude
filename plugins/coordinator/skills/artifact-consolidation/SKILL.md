@@ -1,10 +1,12 @@
 ---
 name: artifact-consolidation
-description: "Use when artifact directories are bloated, during periodic maintenance, or when disk usage from session debris is excessive. Prunes and consolidates accumulated session artifacts — plans/, archive/handoffs/, stale task dirs. Supports dry-run mode. Standalone invocation only — not part of /update-docs."
-version: 1.0.0
+description: "Prunes accumulated session artifacts (plans/, archive/handoffs/, stale task dirs). Use when artifact directories are bloated. Supports dry-run."
+version: 1.0.1
 ---
 
 # Artifact Consolidation
+
+> **Negative-spec — consumed markers:** This skill moves and deletes files. It does NOT write `<!-- consumed: YYYY-MM-DD -->` markers to any handoff file. That marker is `/pickup`'s exclusive responsibility (`coordinator/commands/pickup.md:130`). Active handoffs in `tasks/handoffs/` are outside this skill's scope entirely — chain-aware archival is ``/update-docs`'s archival phase (see `pipelines/update-docs/handoff-archival.md`)`'s job, not this skill's.
 
 ## Overview
 
@@ -21,7 +23,7 @@ Session-based workflows generate artifacts: plan files, handoff archives, featur
 | `plans/` | Session plan files (`*.md`) | Delete plans older than 14 days with no open references |
 | `archive/handoffs/` | Consumed handoff files | Keep the most recent 10; delete the rest |
 | `tasks/*/` | Feature task directories | Delete dirs where all items are `[x]` completed and the feature branch is merged |
-| `tasks/handoffs/` | Active handoffs | Chain-aware archival (handled by `handoff-archival`); this skill does NOT touch active handoffs |
+| `tasks/handoffs/` | Active handoffs | Chain-aware archival (handled by ``/update-docs`'s archival phase (see `pipelines/update-docs/handoff-archival.md`)`); this skill does NOT touch active handoffs |
 
 ## Steps
 
