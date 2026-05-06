@@ -152,6 +152,7 @@ if [[ -n "$SESSION_ID" ]]; then
               other_id=$(basename "$other_sdir")
               [[ "$other_id" == "$SESSION_ID" ]] && continue
               [[ "$other_id" == ".archive" ]] && continue
+              [[ "$other_id" == ".agents" ]] && continue
               if [[ -f "${other_sdir}/touched.txt" ]] && grep -qxF "$staged_file" "${other_sdir}/touched.txt" 2>/dev/null; then
                 OWNER_SESSION="$other_id"
                 break
@@ -227,5 +228,12 @@ if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; t
 
   exit 0
 fi
+
+# --- Check 6: MOVED ---
+# Branch discipline at commit time was Check 6 in this file. It has been
+# consolidated into block-off-daily-branch.sh (see `commit` arm of the
+# subcommand parser). One hook for branch discipline (create/switch/commit);
+# this hook handles commit-content validation only (Checks 1-5 above).
+# Review: patrik F11.
 
 exit 0
