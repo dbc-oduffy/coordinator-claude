@@ -14,8 +14,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `/handoff` — Snapshot session state to disk before context pressure hits. Includes goal, decisions, tried-and-abandoned, next steps.
 - `/pickup` — Resume from a handoff with full orientation before continuing. Never cold-start.
 - `/session-start` — Full session orientation: triage handoffs, surface staleness, choose work. Invoke when the opening is vague or strategic.
-- `tasks/lessons.md` + `lessons-trim` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Trim when file exceeds ~50 entries.
-- `handoff-archival` skill — Periodic cleanup of consumed handoffs.
+- `tasks/lessons.md` + `coordinator:learn-lessons` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Processed via `/update-docs` Phase 6.
 - `/workday-start` / `/workday-complete` — Full-day framing: morning triage and evening consolidation.
 
 ---
@@ -54,7 +53,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 
 **Addressed by:**
 - Synthesis Discipline (coordinator CLAUDE.md) — Synthesizers assess, fill, and frame. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25–33pp), nuanced facts (+19–21pp), cross-topic relationships (+42pp).
-- Pipeline C v2.1 (`/structured-research`) — Hard file-existence gate, CONTESTED change type for unresolved peer challenges, adversarial verifier dynamics, forced reflection after each source fetch.
+- Pipeline C v2.1 (`/research --mode=structured`) — Hard file-existence gate, CONTESTED change type for unresolved peer challenges, adversarial verifier dynamics, forced reflection after each source fetch.
 - `/distill` — 6-phase pipeline: Haiku scans → Haiku QG → Sonnet synthesis → Opus assembly → PM gate → apply+delete. Synthesis of session artifacts into evergreen wiki guides.
 - `deep-research` skill / `/deep-research` — Multi-source investigation. Pipeline A (internet), Pipeline B (codebase), Pipeline C (structured schema research), Pipeline D (NotebookLM media).
 
@@ -70,7 +69,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `debt-triage` skill — Review and prioritize the technical debt backlog. EM-PM conversation, not a dispatched agent. Keeps PM aligned on what's accumulating.
 - `/code-health` — Night-shift code health review: scan recent commits, dispatch reviewer, apply findings, update health ledger.
 - `weekly-architecture-audit` / `deep-architecture-audit` skills — Structured audit protocols with health ledger templates.
-- `atlas-integrity-check` skill — Check changed files against the architecture atlas for unmapped entries.
+- atlas-integrity-check routine — Check changed files against the architecture atlas for unmapped entries. Runs inline in `/update-docs` Phase 11 (see `pipelines/update-docs/atlas-integrity-check.md`).
 
 ---
 
@@ -81,7 +80,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 **Addressed by:**
 - `systematic-debugging` skill — Root-cause debugging process. Diagnose before proposing fixes. Post-item-4: feedback-loop-first framing.
 - `test-driven-development` skill — RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
-- `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog. Optional `--codex-verify` flag uses `codex-review-gate` (opt-in add-on) as an independent-model second opinion.
+- `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
 - `verification-before-completion` skill — Prove it works before claiming done. Catches the "it should work" class of failures.
 - `stuck-detection` skill — Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
@@ -102,7 +101,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (23)
+### Commands (22)
 
 | Command | Purpose |
 |---------|---------|
@@ -119,8 +118,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/review-dispatch` | Route artifacts to the right reviewer |
 | `/generate-repomap` | Generate a ranked repository map for LLM context injection |
 | `/mise-en-place` | Autonomous backlog execution — gather ready items, execute without stopping |
-| `/deep-research` | Deep research pipeline — internet sources (Pipeline A) or codebase (Pipeline B) |
-| `/structured-research` | Batch research across multiple subjects with repeating structure and output schema |
+| `/research` | Deep research pipeline — `--mode=web` (Pipeline A), `--mode=repo` (Pipeline B), `--mode=structured` (Pipeline C) |
 | `/architecture-audit` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
 | `/architecture-rotation` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
@@ -130,7 +128,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (25+)
+### Skills (18+)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -150,14 +148,12 @@ Full component inventory for the record. The failure-mode sections above are the
 - `receiving-code-review` — How to receive and act on review feedback.
 
 **Git & Branching:**
-- `using-git-worktrees` — Isolated workspaces per feature.
 - `finishing-a-development-branch` — Complete development, PR, merge.
 - `merging-to-main` — PR creation, CI gating, merge, cleanup.
 - `consolidate-git` — Branch cleanup: absorb unique commits from stale branches, delete them, merge to main.
 
 **Writing & Meta:**
 - `writing-skills` — TDD applied to skill/documentation authoring.
-- `skill-discovery` — Find and use skills. SUBAGENT-STOP gate, instruction priority hierarchy.
 - `validate` — Run all CI validation checks locally.
 
 **Health & Maintenance:**
@@ -167,11 +163,6 @@ Full component inventory for the record. The failure-mode sections above are the
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
 - `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
-- `tracker-maintenance` — Maintain the project tracker — archive completed work, update dependencies, sweep for untracked commits.
-- `lessons-trim` — Trim stale entries from lessons files, merge duplicates, clean up feature-scoped files.
-- `handoff-archival` — Archive consumed handoffs.
-- `codex-review-gate` — **Opt-in add-on** (install via `setup/install.sh --enable-codex`). Runs Codex code review as an independent-model second opinion in `/workweek-complete` and `/bug-sweep --codex-verify`. Requires the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin. Default installs omit it.
-- `atlas-integrity-check` — Check changed files against the architecture atlas for unmapped entries.
 - `artifact-consolidation` — Bulk prune accumulated artifacts without knowledge extraction. For distill-then-delete, use `/distill` instead.
 - `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.
 

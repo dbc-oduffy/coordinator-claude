@@ -14,6 +14,33 @@ Daily is a branch wrap, not a release ceremony. Handoffs archive at their natura
 
 ---
 
+## Step 0: Pre-stage Validator Suite (blocking gate)
+
+Run all pre-stage validators before any staging or git operations. These validators must pass before the workday-complete ceremony proceeds. A failure here means something in the codebase is out of spec — fix it before committing.
+
+### 0a: UE override drift check
+
+```bash
+# verify-ue-overrides.sh created by Phase B; if not yet present, skip 0a and run Phase B first
+${CLAUDE_PLUGIN_ROOT}/bin/verify-ue-overrides.sh
+```
+
+- **Exit 0:** all known UE-context dirs carry the expected override — proceed.
+- **Exit 1:** one or more dirs are missing the UE plugin override. Run `${CLAUDE_PLUGIN_ROOT}/bin/claude-ue-bootstrap.sh <dir>` for each flagged dir, then re-run the check before continuing.
+
+### 0b: Skill description length check
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh
+```
+
+- **Exit 0:** all skill descriptions are within their per-skill budget (see `description-budget:` frontmatter field, or ≤175 PM-gated, or ≤150 default) — proceed.
+- **Exit 1:** one or more skill descriptions exceed the limit. Fix the failing SKILL.md file(s) before proceeding. Do NOT continue to Step 1 until this passes.
+
+Both validators must exit 0. A partial pass (one OK, one failing) still blocks.
+
+---
+
 ## Step 1: `/validate` (blocking gate)
 
 ```bash
@@ -21,12 +48,6 @@ python .github/scripts/run-all-checks.py
 ```
 
 Capture the exit code — it populates `Validation:` in the changelog block.
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/bin/verify-ue-overrides.sh || echo "WARN: UE override check failed — see output above; re-run ~/.claude/bin/claude-ue-bootstrap.sh on flagged dirs"
-```
-
-UE override check is **non-blocking** (uses `||` not `&&`) — a missing override in a named UE dir is a setup drift issue, not a build failure. The warning surfaces in the final summary.
 
 - **Build failure:** stop and fix.
 - **Non-build failure:** fix what's quick, flag the rest, proceed.
