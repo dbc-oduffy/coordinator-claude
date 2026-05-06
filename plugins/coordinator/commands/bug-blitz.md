@@ -29,8 +29,8 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 
 1. **Verify backlog exists.** `tasks/bug-backlog.md` must exist. If absent, halt and recommend `/bug-sweep` to populate it. Bug-blitz operates on existing backlog only.
 2. **Generate run ID.** Format: `YYYY-MM-DD-HHhMM`. Scratch dir: `tasks/scratch/bug-blitz/{run-id}/`.
-3. **Daily-branch check.** Confirm `git branch --show-current` matches `work/{machine}/{YYYY-MM-DD}`. If not, halt and report. Bug-blitz commits via `coordinator-safe-commit` and must run on the daily branch. **Note: `/bug-blitz` is fail-closed-only on daily-branch (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the daily branch under any circumstance.
-4. **Capture branch name.** `export BLITZ_BRANCH=$(git branch --show-current)`. Pass `--expected-branch "$BLITZ_BRANCH"` to every `coordinator-safe-commit` call in this run to guard against concurrent-session branch flips.
+3. **Daily-branch check.** Confirm `git branch --show-current` matches `work/{machine}/{YYYY-MM-DD}`. If not, halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on the daily branch. **Note: `/bug-blitz` is fail-closed-only on daily-branch (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the daily branch under any circumstance.
+4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
 5. **Read backlog header** to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
 
 ## Phase 1: Verify + Triage (parallel Haiku per chunk)
@@ -159,7 +159,9 @@ Tail: backlog updated with commit SHAs + spinoff paths. No /update-docs invoked.
 
 If `--dry-run`, stop here.
 
-## Phase 3: Execute Waves (Sonnet executors, parallel, backgrounded)
+## Phase 3: Execute Waves (Sonnet executors edit; EM serializes commits)
+
+**Commit doctrine — single committer, explicit-path, fused add+commit.** Parallel executors that each call a commit helper produce two failure modes empirically observed in the 2026-05-06-22h42 smoke run: (a) **concurrent-commit absorption** — N near-simultaneous `git commit` calls bundle each other's staged work into the first commit, leaving N-1 commit messages orphaned; (b) **scope sweep** — `coordinator-safe-commit` consulted touched-files in long-lived sessions and absorbed unrelated dirty work from other workstreams into the bug-blitz commits. Both defects are eliminated by: executors edit-and-report only (no commit), EM serializes commits at the wave gate using `git reset && git add -- <paths from DONE> && git commit` fused into a single Bash call. No helper invocation; explicit paths only; one committer at a time.
 
 For each wave:
 
@@ -169,30 +171,37 @@ For each wave:
    - The full backlog entry (severity, file:line, description, recommended fix)
    - **P0/P1 verification gate (verbatim):** *"Before writing any fix: read the cited file:line and confirm the bug pattern is present in the current code. If the pattern is absent or has materially changed, STOP and report `BLOCKED: pattern-not-as-described` with what you actually found. Do not 'fix anyway' based on the description."*
    - **Footprint constraint:** *"You MUST NOT modify any file outside this footprint: [list]. If you discover you need to, STOP and report `BLOCKED: footprint-overflow`."*
-   - **Self-verify-and-commit constraint** (executors self-commit — EM is verifier-and-advance only, not commit author):
-     > After your edit: (1) re-read the cited code and confirm the bug pattern is gone; (2) run any local tests under the same directory as the modified file — if tests fail, revert and report `BLOCKED: regression`; (3) stage your changed paths explicitly (`git add -- <paths>` — never `git add -A`) and commit using `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --expected-branch <BLITZ_BRANCH> "<item-id>: <one-line description>"`. The post-commit hook pushes automatically.
-   - **DONE summary:** Write to `tasks/scratch/bug-blitz/{run-id}/{item-id}.done.md` with: status (`DONE` | `BLOCKED: <reason>`), commit SHA, files touched, before/after snippets, verification result. Reply `DONE: <path>` only.
+   - **Edit-and-report constraint (executors do NOT commit):**
+     > After your edit: (1) re-read the cited code and confirm the bug pattern is gone; (2) run any local tests under the same directory as the modified file — if tests fail, revert your edit (`git checkout -- <paths>` is fine here because executors leave the working tree unstaged and the EM has no concurrent unstaged work for this item) and report `BLOCKED: regression`. **Do NOT stage and do NOT commit. Leave changes unstaged in the working tree** — the EM stages and commits each item serially at the wave gate. Helper invocation (`coordinator-safe-commit`) is forbidden in executor scope: empirically (smoke 2026-05-06-22h42) it produced concurrent-commit absorption and scope sweep.
+   - **DONE summary:** Write to `tasks/scratch/bug-blitz/{run-id}/{item-id}.done.md` with: `status` (`DONE` | `BLOCKED: <reason>`), `files: [explicit paths]` (newline-separated, exactly the paths the EM should `git add --` — no globs, no parent dirs), `before` snippet, `after` snippet, `verified` result. Do NOT include a commit SHA — committing is the EM's job. Reply `DONE: <path>` only.
 
-   <!-- Review: Patrik F8 — executors self-commit per item (matches /mise-en-place pattern); EM at wave gate is verifier-and-advance only, not commit author. Wave aggregation uses git log over wave window, not commit-message structure. -->
+   <!-- Review: 2026-05-06-22h42 smoke run — defect 1 (concurrent-commit absorption) + defect 2 (scope sweep) traced to executor self-commit via coordinator-safe-commit. Reverted Patrik F8 in favor of EM-serial commit at wave gate; per-item commit cadence preserved (still one commit per backlog item) but funneled through a single committer. -->
    <!-- Review: Patrik F10 — disk-first verification preamble inlined into executor dispatch prompt. -->
 
 2. **Process completions on arrival.** Read each DONE summary (only). Do NOT pull executor transcripts.
 
-3. **Dispatch Haiku verifier per DONE.** `run_in_background: true`, on-disk verdict. Verifier reads the DONE summary + diff (`git show <sha>`) + cited code; confirms bug pattern is gone, no out-of-footprint changes, tests pass. Verdict: `PASS` | `PATTERN-STILL-PRESENT` | `FOOTPRINT-VIOLATION` | `REGRESSION`. Path: `tasks/scratch/bug-blitz/{run-id}/{item-id}.verify.md`.
+3. **Dispatch Haiku verifier per DONE.** `run_in_background: true`, on-disk verdict. Verifier reads the DONE summary + the unstaged diff for the item's `files` (`git diff -- <paths>`) + cited code; confirms bug pattern is gone, no out-of-footprint changes, tests pass. Verdict: `PASS` | `PATTERN-STILL-PRESENT` | `FOOTPRINT-VIOLATION` | `REGRESSION`. Path: `tasks/scratch/bug-blitz/{run-id}/{item-id}.verify.md`.
 
-4. **Wave gate — advance + incremental backlog update.** When all wave verifiers return:
-   - **Poll `git branch --show-current` BEFORE any wave-gate action.** If branch flipped (concurrent session), halt and reconcile before proceeding.
-   - For PASS items: append resolved-section rows for this wave's fixed items to `tasks/bug-backlog.md` (see Phase 4 for the final-rewrite format — use the same format here but only for this wave's items). This is incremental: each wave writes its own resolved rows immediately on PASS, rather than accumulating everything for a single end-of-run rewrite. The Phase 4 rewrite only updates header counts.
-   - For BLOCKED / non-PASS items: revert the executor's writes via `git stash push -u -m "bug-blitz revert: <item-id>" -- <paths>` (NOT `git checkout -- <paths>` — concurrent sessions may have unstaged work in those paths that checkout would silently destroy). Update the backlog entry with `resolution: re-attempted-{date}: <reason>`, leave in backlog.
+4. **Wave gate — EM serial commit + incremental backlog update.** When all wave verifiers return:
+   - **Poll `git branch --show-current` BEFORE any wave-gate action.** If it does not equal `$BLITZ_BRANCH`, halt and reconcile before proceeding.
+   - **For each PASS item, in deterministic order (sorted by item ID), the EM serially commits the item.** Single Bash call per item to fuse stage+commit and avoid sibling-session windows:
+     ```bash
+     git reset && \
+       git add -- <paths from DONE.files> && \
+       git -c gpg.program=... commit -m "<item-id>: <one-line description>"
+     ```
+     The leading `git reset` clears any sibling-session staging so only this item's paths land. Use plain `git commit` (not `coordinator-safe-commit`) — the helper's touched-files heuristic is what produced the smoke-run scope sweep. The auto-push hook fires on commit; capture the resulting SHA from `git rev-parse HEAD` and write it back to the DONE summary as `commit: <sha>`. Re-confirm `git branch --show-current == $BLITZ_BRANCH` before each commit; halt the wave if it flipped mid-loop.
+   - For PASS items: after commit succeeds, append resolved-section rows for this wave's fixed items to `tasks/bug-backlog.md` (see Phase 4 for the final-rewrite format — use the same format here but only for this wave's items). This is incremental: each wave writes its own resolved rows immediately on PASS, rather than accumulating everything for a single end-of-run rewrite. The Phase 4 rewrite only updates header counts.
+   - **Backlog update is also EM-serial**, fused into a single `git add -- tasks/bug-backlog.md && git commit` after all wave PASS items are committed. Subject: `bug-blitz {run-id}: wave N backlog update`.
+   - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update the backlog entry with `resolution: re-attempted-{date}: <reason>`, leave in backlog.
    - Update flight-recorder tasks to `completed`.
 
-   <!-- Review: Patrik F2 — git stash instead of git checkout for reversions; checkout destroys concurrent-session unstaged work. -->
-   <!-- Review: Patrik F4 — poll git branch --show-current BEFORE the wave gate, not after. Branch is captured at Phase 0 and passed to coordinator-safe-commit as --expected-branch; wave gate re-confirms. -->
+   <!-- Review: Patrik F4 — poll git branch --show-current BEFORE each commit at the wave gate. Branch is captured at Phase 0 as $BLITZ_BRANCH; EM re-checks before every commit (per-item granularity, not per-wave, because the loop spans many seconds). -->
    <!-- Review: Patrik F5 — incremental per-wave backlog updates, not a single end-of-run rewrite. Last-write-wins hazard remains if concurrent bug-blitzes run simultaneously; do not run concurrent bug-blitzes. -->
 
 5. **Brief status, no question.** "Wave N complete (X fixed, Y blocked). Firing wave N+1."
 
-**Single-item waves execute the same way** — overhead of background dispatch is small and consistent shape simplifies recovery.
+**Single-item waves execute the same way** — overhead of background dispatch is small and consistent shape simplifies recovery. The EM-serial commit pattern is unchanged for single-item waves (one commit by EM, one commit for backlog update).
 
 ## Phase 4: Update Backlog + Report
 
@@ -204,7 +213,7 @@ After all waves complete:
    - Adds `## Spun off (this run)` section with each spinoff: ID, handoff path (if not yet present).
    - Adds `## Resolved (silent fixes detected)` if any `already-fixed` items (if not yet present).
    **Note: last-write-wins hazard.** If two bug-blitz runs overlap, the second run's Phase 4 rewrite will overwrite the first. Do NOT run concurrent bug-blitzes.
-2. **Commit the backlog update** as the final wave: `bug-blitz {run-id}: update backlog` (use `--expected-branch "$BLITZ_BRANCH"`).
+2. **Commit the backlog update** as the final wave (EM-serial, single Bash call): `git reset && git add -- tasks/bug-backlog.md && git commit -m "bug-blitz {run-id}: update backlog"`. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
 3. **Clean scratch.** Run cleanup only after backlog commit succeeds:
    ```bash
    rm -rf tasks/scratch/bug-blitz/{run-id}/ 2>/dev/null || { echo "Warning: scratch cleanup failed — tasks/scratch/bug-blitz/{run-id}/ may need manual removal. Not failing the run." ; }
