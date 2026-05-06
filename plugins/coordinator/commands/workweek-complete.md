@@ -82,6 +82,8 @@ If not triggered: note in summary — _"Improvement queue: K entries, oldest YYY
 
 **Write-time discipline (Patrik F6):** When appending a NEW entry to either queue (central or per-project), ALWAYS write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent). This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`.
 
+**Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
+
 ---
 
 ## Step 5: scc Snapshot
