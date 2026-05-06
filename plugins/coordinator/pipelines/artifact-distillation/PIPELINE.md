@@ -17,15 +17,15 @@ Session workflows generate artifacts that accumulate indefinitely. The knowledge
 - During periodic maintenance
 - When starting a new project phase and you want to crystallize learnings from the last one
 
-**Not for:** Quick cleanups without wiki investment (use `coordinator:artifact-consolidation`), single-document review, or active-session handoffs.
+**Not for:** Quick cleanups without wiki investment (handled by `/update-docs` Phase 8b — `pipelines/update-docs/artifact-pruning.md`), single-document review, or active-session handoffs.
 
 ---
 
-## Relationship to artifact-consolidation
+## Relationship to /update-docs Phase 8b (artifact-pruning)
 
-`artifact-consolidation` = prune without extracting (count → classify → delete). Remains available for repos that just want to clean up.
+`/update-docs` Phase 8b = prune without extracting (count → classify → delete). Runs unconditionally on every `/update-docs` invocation under conservative thresholds. Replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06). See `pipelines/update-docs/artifact-pruning.md`.
 
-`/distill` = extract knowledge into wiki, then delete source material. Supersedes artifact-consolidation for the distill-then-delete workflow. Use `artifact-consolidation` when there's no wiki to maintain; use `/distill` when you want the knowledge before discarding the source.
+`/distill` = extract knowledge into wiki, then delete source material. Runs upstream of Phase 8b conceptually: knowledge extraction first, raw bulk pruning second. Use `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk cleanup.
 
 ---
 

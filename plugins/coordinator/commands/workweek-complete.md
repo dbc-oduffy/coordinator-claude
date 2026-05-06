@@ -86,6 +86,22 @@ If not triggered: note in summary — _"Improvement queue: K entries, oldest YYY
 
 ---
 
+## Step 4b: Install OOM Reproducer Freshness Check
+
+If `bin/check-install-reproducer-fresh.sh` exists in the repo root:
+
+```bash
+bash bin/check-install-reproducer-fresh.sh
+```
+
+- **Exit 0 (marker fresh, < 24h):** Print notice; no test run; proceed to Step 5.
+- **Exit 0 (test ran and passed):** Print pass notice; proceed to Step 5.
+- **Exit 1 (test failed):** Halt and report. Do NOT proceed to Step 5 (scc), Step 6 (ShellCheck), or beyond until either the OOM reproducer passes or PM grants `--force` bypass.
+
+This check is informational when the marker is fresh; it is a **blocking gate** only when the test is actually run and fails.
+
+---
+
 ## Step 5: scc Snapshot
 
 If `scc` is available (`which scc` or `~/bin/scc`):
@@ -170,19 +186,13 @@ Invoke `/merge-to-main` only after PM has confirmed release notes (Step 9) and v
 
 ---
 
-## Step 12: Artifact Consolidation
-
-Invoke `coordinator:artifact-consolidation` on shipped plans and consumed handoffs from this week. This moves finalised artifacts into archive and updates the docs index.
-
----
-
-## Step 13: Health Survey
+## Step 12: Health Survey
 
 Run the full health survey if available (e.g., `/health` or equivalent). Record output in `tasks/health-ledger.md` under today's date.
 
 ---
 
-## Step 14: Reset Week-Changelog
+## Step 13: Reset Week-Changelog
 
 Archive and reset the week's state:
 
@@ -212,7 +222,7 @@ git push origin $(git branch --show-current)
 
 ---
 
-## Step 15: Final Summary
+## Step 14: Final Summary
 
 ```
 ## Workweek Complete
@@ -247,5 +257,6 @@ git push origin $(git branch --show-current)
 - **`/workday-complete`** — daily wrap; feeds the changelog this command reads.
 - **`/workweek-start`** — weekly orient; detects the HEADER reset done in Step 13 and re-inits cleanly.
 - **`/merge-to-main`** — invoked in Step 11; not duplicated.
+- **Artifact pruning** — formerly Step 12 (`coordinator:artifact-consolidation`); absorbed into `/update-docs` Phase 8b 2026-05-06. Step 3's `/update-docs` invocation now handles it.
 - **`/update-docs`** — invoked in Step 3; not duplicated.
 - **`bin/check-weekly-staleness.sh`** — the informational script surfaced by `/workday-complete` to nudge PM toward this command.
