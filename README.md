@@ -29,6 +29,14 @@ after I restart Claude Code.
 
 Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/project-onboarding` bootstraps tracking infrastructure in your project.
 
+**Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the installer changes, what it does not do, audit commands, and exact uninstall steps.
+
+## Compatibility
+
+| coordinator-claude | Claude Code | OS tested | Notes |
+|--------------------|-------------|-----------|-------|
+| v1.9.0 | tested with Claude Code 2026-05-06 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh` |
+
 ## How a Session Works
 
 Most tools hand you a bag of commands and wish you luck. This system has *routines* — things that happen automatically because they should always happen, woven into the session lifecycle so you don't have to remember them.
@@ -66,7 +74,7 @@ That's it for daily use. Everything else — delegation, review routing, doc mai
 
 Don't memorize commands; learn five flows. Most of what the system does, you'll touch through one of these.
 
-**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (the VP-of-Product reviewer) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
+**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (VP-of-Product reviewer / scope challenger — personas can be renamed via [`setup/rename-personas.sh`](setup/rename-personas.sh)) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via `coordinator:systematic-debugging` → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge.
 
@@ -77,6 +85,18 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 **Flow 5 — Architecture change.** `/staff-session plan` (multi-perspective debate) → migration plan with rollback → architecture mode review → implementation → verification → architecture atlas update via `/update-docs`.
 
 **Closing the day:** `/workday-complete` validates, syncs, runs the daily review, and merges. `/workweek-complete` is the larger weekly ceremony with version bump and release notes.
+
+## How heavy is the workflow?
+
+The system scales — a typo fix is a two-word instruction; a system rewrite is a multi-agent pipeline. Here are three representative tiers:
+
+| Tier | Skill / command | Reviewer | Wall time |
+|------|-----------------|----------|-----------|
+| **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
+| **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → Zolí (ambition advocate / Patrik (architecture reviewer) backstop) (sequential) | 30 min – 2 hrs |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/delegate-execution` | Full sequential chain + PM ship verdict | Half day+ |
+
+See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the full tier table, reviewer routing guide, and flow diagrams.
 
 <details>
 <summary><strong>All Commands (appendix)</strong></summary>
@@ -138,7 +158,7 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 **Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI integration is available as an opt-in add-on (`setup/install.sh --enable-codex` plus the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin) for a second-opinion channel and independent implementation path; default installs omit it.
 
-See [docs/architecture.md](docs/architecture.md) for the full model. For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
+See [docs/architecture.md](docs/architecture.md) for the full model. For the testable claims — what each agent role promises and which hook or script enforces each promise — see [docs/contracts.md](docs/contracts.md). For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 
 </details>
 
@@ -158,7 +178,7 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 
 ## Customization
 
-- **Rename personas.** `bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"` renames display names across all plugin files.
+- **Rename personas.** `bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"` renames display names across all plugin files. Current defaults: Patrik (architecture reviewer), Zolí (ambition advocate / Patrik backstop), Sid (game-dev reviewer), Palí (frontend reviewer), Fru (UX flow reviewer), Camelia (data-science reviewer), YK (VP-of-Product reviewer / scope challenger).
 - **Create your own domain reviewer.** The game-dev plugin is a reference implementation — same structure for any specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
@@ -187,9 +207,9 @@ coordinator-claude/
 │   │   └── skills/             # 34 skills (planning, review, debugging, TDD, etc.)
 │   ├── deep-research/          # Pipelines A/B/C + 6 research agents
 │   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
-│   ├── game-dev/               # Unreal Engine specialist (Sid + Blueprint inspector agents)
-│   ├── web-dev/                # Front-end + UX flow reviewers (Palí, Fru)
-│   ├── data-science/           # ML, statistics reviewer (Camelia)
+│   ├── game-dev/               # Unreal Engine specialist (Sid, game-dev reviewer + Blueprint inspector agents)
+│   ├── web-dev/                # Front-end + UX flow reviewers (Palí, frontend reviewer; Fru, UX flow reviewer)
+│   ├── data-science/           # ML, statistics reviewer (Camelia, data-science reviewer)
 │   └── remember/               # Temporal session memory
 ├── docs/                       # Architecture, customization, research
 ├── setup/                      # Installer

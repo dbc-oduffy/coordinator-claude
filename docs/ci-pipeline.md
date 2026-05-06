@@ -110,3 +110,23 @@ gh api repos/{owner}/{repo}/rulesets \
 }
 EOF
 ```
+
+## Release Tag Procedure
+
+### When to promote a PROPOSED block to a release
+
+CHANGELOG entries are initially drafted with a `— PROPOSED` marker (e.g., `## [1.10.0] — 2026-05-06 (proposed — PM to confirm before tagging)`) to signal that the work is complete on a branch but not yet merged to `main`. The block becomes the actual release entry at merge time.
+
+**The PROPOSED marker is stripped — and the tag is created — as part of `/merge-to-main`**, not before. Stripping the marker early (while still on a branch) is a false signal: it implies shipping has occurred when the branch hasn't landed yet.
+
+### Who confirms
+
+The PM confirms the release version before `/merge-to-main` runs. The EM proposes the bump level (patch / minor / major) based on the change surface; the PM has final say.
+
+### How the tag is created
+
+`/merge-to-main` Step 7 runs `git tag vX.Y.Z` on the merge commit after the branch lands on `main`. **Do not run `git tag` manually on a branch tip** — tags belong on `main` commits.
+
+### Cautionary footnote — the v2.0.0 misstep
+
+In an earlier session, a `v2.0.0` tag was created on a `work/*` branch tip before the PR merged. The tag pointed at a commit that was not on `main`, creating a permanent mismatch between the published tag and the actual release commit. The lesson: tag creation is strictly a post-merge action in `/merge-to-main`, never a pre-merge step.

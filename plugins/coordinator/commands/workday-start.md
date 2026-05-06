@@ -22,6 +22,8 @@ If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the
 
 If already on today's branch, skip branch creation. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
 
+**Inline override required:** every `git checkout` and `git merge` in Step 0 that touches an off-daily branch must be prefixed with `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook will deny these operations without the inline override. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure with overrides. <!-- Review: patrik F1 -->
+
 **Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
 
 ### Step 0 conflict handling — Branch Reconciliation Decision
@@ -55,27 +57,54 @@ Read all files in `tasks/handoffs/`. For each:
 
 1. **Check age** — filename includes timestamp (`YYYY-MM-DD_HHMMSS_sessionid.md`)
 2. **Check branch activity** — is the handoff's referenced branch still active? Any commits since the handoff was written?
-3. **Categorize** each handoff:
+3. **Split first on `kind:`** — read frontmatter and route:
+   - **Spinoffs** (`kind: spinoff`) — fork awaiting pickup; treat separately. Subcategorize by age:
+     - **Fresh** (< 14 days since `created:`): list normally.
+     - **Stale** (≥ 14 days un-picked-up — adjust threshold inline if it proves wrong): flag with a heads-up nudge: _"Spinoff [filename] has sat un-picked-up for [N] days — pick up, escalate, or close out?"_
+   - **Continuation handoffs** (no `kind:`, or `kind: session-handoff`) — apply the existing categorization below.
+4. **Categorize each continuation handoff:**
    - **Active** — has recent branch activity, or references open/in-progress work
    - **Aging** — older, no branch activity, but not explicitly consumed
    - **Likely consumed** — work appears in the completed archive (cross-reference below)
-4. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
-5. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
-6. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.** Per-handoff: (a) `git log --oneline --since="<handoff-date>" --all` and scan subjects for matching pending items; (b) Read referenced plan/stub `**Status:**` fields; (c) drop confirmed-closed items from the actionable list, note as "verified-closed since handoff" in the report. Empirical baseline: 30–60% of inherited items are already closed. **Full procedure + rationale (surface-only / cross-reference / git-reconcile):** see `pipelines/workday-start-internals.md` § Step 1.
+5. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
+6. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
+7. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.** Per-handoff (applies equally to spinoffs and continuations): (a) `git log --oneline --since="<handoff-date>" --all` and scan subjects for matching pending items; (b) Read referenced plan/stub `**Status:**` fields; (c) drop confirmed-closed items from the actionable list, note as "verified-closed since handoff" in the report. Empirical baseline: 30–60% of inherited items are already closed. **Full procedure + rationale (surface-only / cross-reference / git-reconcile):** see `pipelines/workday-start-internals.md` § Step 1.
 
-7. **Report:** "N active handoffs. M aging (no recent activity). K appear already completed per archive — ask PM about archival. [X items across handoffs verified-closed by git reconciliation.]"
+8. **Report:** "N continuation handoffs (M aging, K likely-consumed). S spinoffs awaiting pickup (T stale, ≥14 days). [X items verified-closed by git reconciliation.]" Omit the spinoffs clause entirely if S=0.
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). If the file has **≥ 5 active entries** OR the **oldest entry is > 14 days old**, surface a one-liner to the PM in the Morning Briefing:
+Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries where `recurring:` ≥ 3 AND `resolution: pending`.
 
-_"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD). Triage now?"_
+Also read the local `tasks/improvement-queue.md` (if it exists in the current repo). Count its `## Active queue` entries.
 
-If the file does not exist or the queue is empty, skip silently. The threshold is a heuristic starting point — calibrate based on actual queue velocity after the first organic triage cycle.
+**If the combined queue is notable (any of the below):**
+- Central queue ≥ 5 active entries, OR
+- Oldest entry > 14 days old, OR
+- Any entry has `recurring: ≥3` AND `resolution: pending`, OR
+- Local queue has ≥ 1 active entry
+
+Surface in the Morning Briefing. The EM decides whether to advocate based on depth — this is judgment, not a threshold trigger. Examples:
+
+- Light: _"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD)."_
+- Deep: _"Improvement queue is at [K] central + [L] local. [N] items have recurring ≥ 3 — urgency for those to become structural fixes is building. Want to dedicate some time today to clearing some?"_
+
+If the file does not exist or both queues are empty, skip silently.
+
+## Step 1.55: Bug Backlog Depth Check
+
+Read `tasks/bug-backlog.md` (if it exists). Count table rows in the P1 and P2 sections, stopping before any `## Resolved` section. Exclude header rows and separator lines — count only data rows.
+
+If the combined P1+P2 open count is ≥ 10, surface in the Morning Briefing. The EM advocates based on depth:
+
+- Moderate (10–19): _"Bug backlog has [N] open P1/P2 items. `/bug-blitz` can grind these down autonomously."_
+- Heavy (≥ 20): _"Bug backlog is at [N] open P1/P2 items — grinding pressure is building. Worth dedicating a session to `/bug-blitz` before it compounds."_
+
+If the file does not exist, or the P1+P2 count is < 10, skip silently.
 
 ## Step 1.6: Scheduled Rechecks
 
-Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project learn-lessons cadence per `coordinator:learn-lessons`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
 
 For each marker found:
 - **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
@@ -186,31 +215,26 @@ the recommendation manually after `/workday-start` completes.
 
 ## Step 4: Priority Alignment
 
-Surface the project's current state and help align on today's focus:
+Run the deterministic priority script and let it frame the opening surface:
 
-1. Read `docs/project-tracker.md` (if exists):
-   - Active workstreams and their statuses
-   - Items that are Ready or Executing
-   - Blocked items and their blockers
-2. Read `ACTION-ITEMS.md` or equivalent (if exists):
-   - Outstanding action items
-3. Read `tasks/health-ledger.md` (if exists):
-   - Systems at ACTION/CRITICAL status
-   - Overdue audits
-4. Read `tasks/bug-backlog.md` (if exists):
-   - Open bug count and severity distribution
-5. Read `tasks/debt-backlog.md` (if exists):
-   - Open debt count
-6. Read `tasks/architecture-atlas/systems-index.md` (if exists):
-   - Number of mapped systems
-   - Any systems with `last_mapped` date >90 days ago (stale)
-   - If file doesn't exist: note "no atlas" for the report
-7. **Reconcile active work against completed archive:** Read `archive/completed/YYYY-MM.md` (current month + previous month if within first 7 days). Cross-reference:
-   - **Tracker items** marked Ready/Executing/In Progress → do any match completed archive entries? If so, flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
-   - **Action items** still listed as open → do any match completed entries? Flag the same way.
-   - **Bug/debt backlog items** still open → do any match entries in the archive marked as fixes?
-   - This is a **fuzzy match on names/descriptions**, not an exact ID join. When unsure, flag as "possible match — verify" rather than auto-resolving.
-   - Report mismatches in the Morning Briefing under a new **Alignment Check** section.
+```bash
+bash plugins/coordinator-claude/coordinator/bin/whats-next.sh
+```
+
+The script emits three sections: improvement-queue head (top 5 entries),
+`docs/project-tracker.md` rows with status Ready or Executing, and open
+handoffs (filename + line-1 heading). Use the output as-is — do not
+reconstruct it from prose. Frame the output for the PM in the Morning
+Briefing under § Priority Suggestions.
+
+**Reconcile active work against completed archive:** Read
+`archive/completed/YYYY-MM.md` (current month + previous month if within
+first 7 days). Cross-reference tracker Ready/Executing items and open
+handoffs against the completed archive:
+- **Tracker items** marked Ready/Executing → do any match completed archive entries? Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
+- **Open handoffs** → do any appear in the archive as shipped? Flag the same way.
+- This is a **fuzzy match on names/descriptions**, not an exact ID join. When unsure, flag as "possible match — verify" rather than auto-resolving.
+- Report mismatches in the Morning Briefing under a new **Alignment Check** section.
 
 ## Step 5: Morning Briefing
 
@@ -239,6 +263,13 @@ Check for optional tools that enhance the pipeline. Surface missing ones as inst
 - **shellcheck** (shell linting): Check `shellcheck` on PATH. If missing: _"shellcheck not installed — .sh files won't be linted on commit. Install: `winget install koalaman.shellcheck`."_
 
 If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for missing tools — don't repeat if already installed.
+
+### Handoffs
+- **Continuation:** [N active, M aging, K likely-consumed]
+- **Spinoffs awaiting pickup:** [list each: filename — title — age — workstream]
+  _(Omit this bullet if no spinoffs exist.)_
+- **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
+  _(Omit this bullet if no stale spinoffs exist.)_
 
 ### Alignment Check
 - [N mismatches found between active trackers and completed archive / all aligned]
@@ -271,6 +302,8 @@ YYYY-MM-DD
 ## Step 5.5: Write Orientation Cache
 
 Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects in subsequent sessions instead of raw repomap/DIRECTORY content. Sections: Key Documentation (from `docs/README.md`), Structure (top 15 from repomap), Navigation (from DIRECTORY.md), Code Statistics (`scc` if available), Health Snapshot, Doc Inventory, Staleness markers, Yesterday's Strategic Review (from `archive/daily-summaries/`). Frontmatter: `generated_by`, `generated_at`, `git_head_at_generation`. Skip if `tasks/` doesn't exist.
+
+The Health Snapshot includes handoff state mirroring the Step 1 split: one line for continuation handoffs, a separate line for spinoffs (`Spinoffs: N awaiting pickup (T stale)`). Omit the spinoffs line if N=0.
 
 **Full content derivation per section:** see `pipelines/workday-start-internals.md` § Step 5.5.
 

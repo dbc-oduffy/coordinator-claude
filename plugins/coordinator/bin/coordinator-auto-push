@@ -17,9 +17,12 @@ set -uo pipefail
 
 BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
 
-# Only push on work/* or feature/* branches, never main
+# Only push on work/* branches — feature/* removed because block-off-daily-branch.sh
+# now denies feature/* creation; leaving it in auto-push would propagate any branches
+# that slip through via COORDINATOR_OVERRIDE_BRANCH. Doctrine: work/* only.
+# Review: patrik F12 (auto-push tightening) + c474ee1 follow-up.
 case "$BRANCH" in
-  work/*|feature/*) ;;
+  work/*) ;;
   *) exit 0 ;;
 esac
 

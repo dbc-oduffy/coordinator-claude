@@ -6,7 +6,7 @@ Web development domain plugin for the Dónal + Claude agent hierarchy. Enable fo
 
 **Agents:** senior-front-end (Opus) — front-end systems, design tokens, CSS architecture; staff-ux (Opus) — UX flows, trust/clarity assessment
 
-**Routing:** Registers Palí for front-end signals and Fru for UX signals. Palí and Fru backstop each other within this plugin; both can escalate to Patrik (coordinator) for architectural concerns.
+**Routing:** Registers Palí (frontend reviewer) for front-end signals and Fru (UX flow reviewer) for UX signals. Palí and Fru backstop each other within this plugin; both can escalate to Patrik (architecture reviewer) for architectural concerns.
 
 ## Authors
 

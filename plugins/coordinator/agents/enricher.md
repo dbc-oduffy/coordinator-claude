@@ -64,7 +64,7 @@ You operate in three sub-phases. Run Phase 0 first (always). Run Survey if exter
 
 ### Stuck Detection
 
-Self-monitor for stuck patterns — see coordinator:stuck-detection skill. If you detect repetition (same Grep/Glob returning no results 3+ times for the same query), oscillation, or analysis paralysis, stop and follow the recovery protocol. Report as BLOCKED with the stuck pattern as the blocker type.
+Self-monitor for stuck patterns — see `docs/wiki/stuck-detection.md` for the pattern catalog and recovery protocol. If you detect repetition (same Grep/Glob returning no results 3+ times for the same query), oscillation, or analysis paralysis, stop and follow the recovery protocol. Report as BLOCKED with the stuck pattern as the blocker type.
 
 Enricher-specific pattern: If you've searched for a file/symbol 3+ different ways and found nothing, it probably doesn't exist. State that finding and move on rather than continuing to search.
 

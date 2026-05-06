@@ -6,7 +6,7 @@ argument-hint: ""
 
 # Workweek Complete — Weekly Release Ceremony
 
-PM-invoked, release-grade close. Reads the week-changelog as the canonical record of what shipped — does NOT reconstruct the week from `git log`. Heavy steps dropped from `/workday-complete` live here: `/update-docs`, ShellCheck, optional Codex review (only if the `codex-review-gate` skill is installed), improvement-queue triage, scc, version bump, and merge.
+PM-invoked, release-grade close. Reads the week-changelog as the canonical record of what shipped — does NOT reconstruct the week from `git log`. Heavy steps dropped from `/workday-complete` live here: `/update-docs`, ShellCheck, improvement-queue triage, scc, version bump, and merge.
 
 **Design contract:** the week-changelog is the ledger. The weekly ceremony reads it, validates against it, and archives it. Release notes are drafted from it, not re-derived.
 
@@ -55,17 +55,52 @@ Wait for completion before proceeding.
 
 ## Step 4: Improvement-Queue Triage
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count `- ` lines in `## Active queue`; note the oldest entry date.
+Read `~/.claude/tasks/coordinator-improvement-queue.md`. For each `- ` entry in `## Active queue`,
+parse the following fields:
+- **Main line:** `- YYYY-MM-DD | <source-repo> | <source-file>:<line> | <summary> | proposed target: <target>`
+- **`recurring:` field** (sub-line, indented two spaces): integer count of recurrence increments.
+- **`resolution:` field** (sub-line, indented two spaces): one of `pending`, `in_progress`, `resolved <date> <commit>`.
 
-**Triage triggers (either condition):** ≥ 5 active entries OR oldest entry is > 14 days ago.
+Note the oldest entry date and total active count.
+
+**Triage triggers (any condition):**
+- ≥ 5 active entries, OR
+- Oldest entry is > 14 days ago, OR
+- Any entry has `recurring: ≥3` AND `resolution: pending` (recurring-without-action threshold).
 
 If triggered:
 1. Read the queue entries.
-2. For each entry, dispatch a small executor per the entry's `proposed target` field.
-3. Verify applied entries, then move them from `## Active queue` to `## Processed`.
-4. If > 15 entries, treat as a `/staff-session`-style multi-executor sweep.
+2. **Prioritize recurring-without-action items first** (any with `recurring: ≥3` and `resolution: pending`).
+3. For each prioritized entry, dispatch a small executor per the `proposed target` field.
+4. Verify applied entries; update their `resolution:` field to `resolved YYYY-MM-DD <commit>`.
+5. Move fully resolved entries from `## Active queue` to `## Processed` (preserve the `## Active queue` header — do not rename it).
+6. If > 15 total entries to triage, treat as a `/staff-session`-style multi-executor sweep.
 
-If not triggered: note in summary — _"Improvement queue: K entries, all ≤ 14 days — no triage needed."_
+If not triggered: note in summary — _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
+
+**Parser tolerance (Patrik F15):** The parser MUST treat absent `recurring:` as `0` and absent `resolution:` as `pending`. This handles both pre-migration entries (when the migration was skipped due to absent PM gate) AND new entries appended without the sub-lines (defensive). The triage threshold "`recurring: ≥3 AND resolution: pending`" applies to entries with explicit values; entries without sub-lines effectively count as `recurring: 0, resolution: pending` and never trigger the threshold. This is correct semantics — entries the migration didn't touch shouldn't trigger triage on their own.
+
+**Write-time discipline (Patrik F6):** When appending a NEW entry to either queue (central or per-project), ALWAYS write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent). This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`.
+
+**Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
+
+**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables (exclude the `## Resolved` section and any resolved/closed rows). If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
+
+---
+
+## Step 4b: Install OOM Reproducer Freshness Check
+
+If `bin/check-install-reproducer-fresh.sh` exists in the repo root:
+
+```bash
+bash bin/check-install-reproducer-fresh.sh
+```
+
+- **Exit 0 (marker fresh, < 24h):** Print notice; no test run; proceed to Step 5.
+- **Exit 0 (test ran and passed):** Print pass notice; proceed to Step 5.
+- **Exit 1 (test failed):** Halt and report. Do NOT proceed to Step 5 (scc), Step 6 (ShellCheck), or beyond until either the OOM reproducer passes or PM grants `--force` bypass.
+
+This check is informational when the marker is fresh; it is a **blocking gate** only when the test is actually run and fails.
 
 ---
 
@@ -96,23 +131,19 @@ done
 
 ---
 
-## Step 7: Codex Review Gate (second-opinion, opt-in)
+## Step 7: Parallel Code-Review Gate
 
-**Skip this entire step unless the `codex-review-gate` skill is installed.** The skill is an opt-in add-on (re-run `setup/install.sh --enable-codex` to add it). When the skill is absent, omit the `Codex review:` line from the Step 15 summary entirely — do not write _"skipped"_ or any other placeholder.
+After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
 
-If the skill IS installed:
+Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (Patrik + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict.
 
-```bash
-git diff --shortstat origin/main...HEAD
-```
+- **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
+- **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
+- **OK:** proceed silently; verdict line still goes into the release-notes draft for the record.
 
-If no diff against main: _"Codex review gate: no diff against main — skipped."_
+**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip Patrik on doc-only weeks; skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
 
-Otherwise invoke the `codex-review-gate` skill. Assess by exit code:
-- **Exit 0:** include findings in summary. P0/P1 → flag to PM before merge. P2 → note and defer.
-- **Non-zero (graceful fallback):** _"Codex review gate skipped: {reason}."_
-
-Do not block the weekly on Codex failure — the daily reviews already provide strategic perspective.
+**Plan:** `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`.
 
 ---
 
@@ -157,19 +188,13 @@ Invoke `/merge-to-main` only after PM has confirmed release notes (Step 9) and v
 
 ---
 
-## Step 12: Artifact Consolidation
-
-Invoke `coordinator:artifact-consolidation` on shipped plans and consumed handoffs from this week. This moves finalised artifacts into archive and updates the docs index.
-
----
-
-## Step 13: Health Survey
+## Step 12: Health Survey
 
 Run the full health survey if available (e.g., `/health` or equivalent). Record output in `tasks/health-ledger.md` under today's date.
 
 ---
 
-## Step 14: Reset Week-Changelog
+## Step 13: Reset Week-Changelog
 
 Archive and reset the week's state:
 
@@ -199,7 +224,7 @@ git push origin $(git branch --show-current)
 
 ---
 
-## Step 15: Final Summary
+## Step 14: Final Summary
 
 ```
 ## Workweek Complete
@@ -211,10 +236,10 @@ git push origin $(git branch --show-current)
 **Validation:** [pass / failures described]
 **Docs updated:** [/update-docs completed]
 **Improvement queue:** [K entries processed / no triage needed]
+**Bug backlog:** [N open P1/P2 items — /bug-blitz proposed/deferred/not needed / file absent]
 **Code stats:** [summary or "scc not available"]
 **ShellCheck:** [clean / N issues fixed]
-<!-- include only when codex-review-gate skill is installed -->
-**Codex review:** [N findings / clean / skipped: reason]
+**Code-review gate:** [BLOCKED|WARN|OK] — convergent: N — patrik / security / deps / tests summary
 **Tracker:** [N workstreams updated]
 **Merged to main:** [yes — PR #N / blocked: reason]
 **Week-changelog:** archived to archive/week-changelogs/<week-starting>/, HEADER.md reset
@@ -233,7 +258,8 @@ git push origin $(git branch --show-current)
 ### Relationship to Other Commands
 
 - **`/workday-complete`** — daily wrap; feeds the changelog this command reads.
-- **`/workweek-start`** — weekly orient; detects the HEADER reset done in Step 14 and re-inits cleanly.
+- **`/workweek-start`** — weekly orient; detects the HEADER reset done in Step 13 and re-inits cleanly.
 - **`/merge-to-main`** — invoked in Step 11; not duplicated.
+- **Artifact pruning** — formerly Step 12 (`coordinator:artifact-consolidation`); absorbed into `/update-docs` Phase 8b 2026-05-06. Step 3's `/update-docs` invocation now handles it.
 - **`/update-docs`** — invoked in Step 3; not duplicated.
 - **`bin/check-weekly-staleness.sh`** — the informational script surfaced by `/workday-complete` to nudge PM toward this command.
