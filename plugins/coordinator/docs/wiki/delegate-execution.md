@@ -5,7 +5,7 @@ type: doctrine
 related:
   - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
   - plugins/coordinator-claude/coordinator/agents/executor.md
-  - plugins/coordinator-claude/coordinator/skills/dispatching-parallel-agents/SKILL.md
+  - docs/wiki/dispatching-parallel-agents.md
   - plugins/coordinator-claude/coordinator/commands/review-dispatch.md
   - plugins/coordinator-claude/coordinator/commands/enrich-and-review.md
 ---
