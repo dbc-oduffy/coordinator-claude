@@ -31,8 +31,38 @@ The install script handles:
 - JSON registration (`known_marketplaces.json`, `installed_plugins.json`, `settings.json`)
 - Platform detection (macOS, Linux, Windows/Git Bash, WSL)
 
-Use `--non-interactive` for unattended installs (installs coordinator + deep-research + web-dev + data-science).
-Use `--plugins coordinator,game-dev` to specify an explicit plugin list.
+#### Quick Start with profiles
+
+Use `--profile` for the most common install configurations:
+
+```bash
+# Minimal: coordinator workflow only — no domain reviewers
+bash setup/install.sh --profile core --non-interactive
+
+# Standard: coordinator + web-dev + data-science reviewers (recommended for most teams)
+bash setup/install.sh --profile standard --non-interactive
+
+# Full: all plugins including deep-research and game-dev
+bash setup/install.sh --profile full --non-interactive
+```
+
+| Profile | Plugins installed | When to use |
+|---------|------------------|-------------|
+| `core` | `coordinator` | Minimal footprint; add reviewers later |
+| `standard` | `coordinator`, `web-dev`, `data-science` | Most web/backend teams; excludes deep-research (requires Agent Teams flag) |
+| `full` | `coordinator`, `deep-research`, `web-dev`, `data-science`, `game-dev` | Full feature set; requires Claude Pro/Team for Agent Teams |
+
+> **Note:** `standard` deliberately excludes `deep-research` because it dispatches Agent Teams, which requires an experimental Claude Code flag most users don't have enabled yet. Opt in via `--profile full` or explicit `--plugins` when you're ready.
+
+#### Fine-grained control
+
+For custom plugin selections, use `--plugins` directly:
+
+```bash
+bash setup/install.sh --plugins coordinator,game-dev --non-interactive
+```
+
+Use `--non-interactive` for unattended installs.
 
 ### Persona Customization
 

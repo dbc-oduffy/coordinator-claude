@@ -1,6 +1,7 @@
 ---
 name: merging-to-main
 description: Use when work on a branch is ready to merge to main — drafts release notes, creates PR, waits for CI, merges, cleans up. Always emits release-notes (even for tiny merges) so downstream consumers can see what changed.
+description-budget: 225
 argument-hint: "[--force]"
 version: 1.1.0
 ---
@@ -33,11 +34,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    - `/validate` skill (all projects with CI)
    - Project-specific test commands from `CLAUDE.md` or `package.json`
 
-3. **Run the project test suite.** If tests pass: proceed to Step 1.
-
-3. **If tests fail:** Alert the PM and halt:
-   _"Test suite failed before merge. Fix the failures first, or use `/merge-to-main --force` to bypass the test gate for hotfixes."_
-   Do NOT proceed to PR creation.
+3. **Run the project test suite.** If tests pass: proceed to Step 1. If tests fail: alert the PM and halt — _"Test suite failed before merge. Fix the failures first, or use `/merge-to-main --force` to bypass the test gate for hotfixes."_ Do NOT proceed to PR creation.
 
 4. **`--force` escape hatch:** If `$ARGUMENTS` contains `--force`:
    - Skip the test suite entirely
@@ -69,11 +66,16 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    }
    # Determine branch name using git-workflow conventions
    BRANCH="work/$(hostname | tr '[:upper:]' '[:lower:]')/$(date +%Y-%m-%d)"
-   git checkout -b "$BRANCH"
+   # Review: patrik F1 — inline override required; block-off-daily-branch.sh hook
+   # would deny git checkout -b and git checkout here without it.
+   COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 create recovery branch" \
+     git checkout -b "$BRANCH"
    git push origin "$BRANCH" --set-upstream
    # Reset local main back to origin
-   git checkout main && git reset --hard origin/main
-   git checkout "$BRANCH"
+   COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 checkout main for reset" \
+     git checkout main && git reset --hard origin/main
+   COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 return to work branch" \
+     git checkout "$BRANCH"
    ```
    Then proceed to step 3 on the new branch.
 
@@ -89,11 +91,50 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    git push origin $(git branch --show-current) --set-upstream
    ```
 
-### Step 1.5: Draft Release Notes (mandatory, every merge)
+### Step 1.5: Build PR Body (mandatory, every merge)
 
-Every merge to `main` gets a release-notes summary — even small ones (`v4.1.422`-style patch granularity). The reasoning: with LLM authoring overhead near-zero, omitting consumer-facing notes is a cost we impose on downstream readers (other agents, future-you, marketplace consumers, anyone pulling the publish repo). Don't do that.
+Every merge to `main` produces a PR body composed of four parts: ship verdict, YK verdict (when applicable), release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
 
-This step ALWAYS runs — no opt-out. It is the most consumer-visible artifact of the merge.
+**Part 1 — Ship Verdict (every merge)**
+
+Before creating the PR, the EM stages a one-line ship verdict for the PR body:
+
+```markdown
+**Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
+```
+
+| Verdict | Meaning |
+|---------|---------|
+| **ship** | Acceptance criteria satisfied (or explicitly waived); evidence supports merge to main; no blocking concerns |
+| **ship-behind-flag** | Code is ready, but rollout should be gated (feature flag, percentage rollout, opt-in). Name the flag |
+| **hold** | Don't merge yet — specific concern remains. Name it |
+| **split** | This branch contains two changes that should land separately. Name them and recommend split-then-merge |
+| **spike-only** | Code is informative but not for production. Document findings, don't merge to main |
+
+The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
+
+**Part 2 — YK Review (user-visible, perf/concurrency, third-patch-in-six-months, or refactor-cheaper-than-patch)**
+
+Dispatch **YK (`agents/vp-product.md`)** as a primary reviewer for any merge that:
+
+- changes user-visible behavior (UI, copy, defaults, error states, permissions, public APIs), **or**
+- touches performance, concurrency, scalability, or extensibility surface, **or**
+- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory YK), **or**
+- the EM proposes an approach where a refactor would plausibly be cheaper than the patch.
+
+Skip YK entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
+
+YK's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
+
+**Output** — append YK's verdict line to the PR body:
+
+```markdown
+**YK verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
+```
+
+If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply YK's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with YK on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
+
+**Part 3 — Release Notes (every merge)**
 
 1. **Inventory the merge:**
    ```bash
@@ -161,30 +202,9 @@ This step ALWAYS runs — no opt-out. It is the most consumer-visible artifact o
 
 **Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
 
-### Step 1.55: YK Review (stress-test gate)
+**Part 4 — Demo Path (user-visible only)**
 
-Before drafting the ship verdict, dispatch **YK (`agents/vp-product.md`)** as a primary reviewer for any merge that:
-
-- changes user-visible behavior (UI, copy, defaults, error states, permissions, public APIs), **or**
-- touches performance, concurrency, scalability, or extensibility surface, **or**
-- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory YK), **or**
-- the EM proposes an approach where a refactor would plausibly be cheaper than the patch.
-
-Skip YK entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
-
-YK's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
-
-**Output** — append YK's verdict line to the PR body:
-
-```markdown
-**YK verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
-```
-
-If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply YK's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with YK on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
-
-### Step 1.56: Demo Path (user-visible work only)
-
-For the same user-visible merges, append a **Demo Path** section to the release notes from Step 1.5:
+For user-visible merges, append a **Demo Path** section to the PR body:
 
 ```markdown
 ### Demo Path
@@ -198,25 +218,9 @@ For the same user-visible merges, append a **Demo Path** section to the release 
 **Known limitations:** [what *not* to claim from this demo]
 ```
 
-This goes into the PR body alongside the standard release notes. For internal merges, omit. The point is to make every user-visible increment demonstrable — not to add ceremony.
+For internal merges, omit. The point is to make every user-visible increment demonstrable — not to add ceremony.
 
-### Step 1.57: Ship Verdict (every merge)
-
-Before creating the PR, the EM stages a one-line ship verdict for the PR body:
-
-```markdown
-**Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
-```
-
-| Verdict | Meaning |
-|---------|---------|
-| **ship** | Acceptance criteria satisfied (or explicitly waived); evidence supports merge to main; no blocking concerns |
-| **ship-behind-flag** | Code is ready, but rollout should be gated (feature flag, percentage rollout, opt-in). Name the flag |
-| **hold** | Don't merge yet — specific concern remains. Name it |
-| **split** | This branch contains two changes that should land separately. Name them and recommend split-then-merge |
-| **spike-only** | Code is informative but not for production. Document findings, don't merge to main |
-
-The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
+The composed PR body is what flows into Step 2's `gh pr create --body`.
 
 ### Step 1.6: UE-specific check items (project_type: unreal)
 
@@ -239,13 +243,12 @@ BRANCH=$(git branch --show-current)
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# PR body = ship verdict (Step 1.57) + YK verdict (Step 1.55, when run) + release notes
-# (Step 1.5, including Demo Path from Step 1.56) + commit log appendix
+# PR body = ship verdict + YK verdict (when run) + release notes + demo path (Step 1.5 Parts 1–4)
 BODY="$(cat <<EOF
-$SHIP_VERDICT_LINE_FROM_STEP_1_57
-$YK_VERDICT_LINE_FROM_STEP_1_55_OR_EMPTY
+$SHIP_VERDICT
+$YK_VERDICT
 
-$RELEASE_NOTES_FROM_STEP_1_5
+$RELEASE_NOTES
 
 ---
 
@@ -276,7 +279,7 @@ This blocks until all checks complete.
 - **If "no checks reported"** (exit code 1 with that message): this means the repo has
   no CI configured. Treat as a pass and proceed to Step 4.
 - **If checks fail:** report which checks failed. Do NOT merge. Stop and report:
-  _"CI failed on {check}. Fix the issue and re-run `/merge-to-main`, or investigate with `coordinator:systematic-debugging`."_
+  _"CI failed on {check}. Fix the issue and re-run `/merge-to-main`, or investigate with the four-phase root-cause process at `docs/wiki/systematic-debugging.md`."_
 
 ### Step 4: Merge
 
@@ -354,7 +357,9 @@ After the merge completes — especially when merge conflicts were resolved or w
 ### Step 5: Local Cleanup
 
 ```bash
-git checkout main
+# Review: patrik F1 — inline override required; switching to main is off-daily.
+COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 5 checkout main post-merge" \
+  git checkout main
 git pull origin main
 git branch -d <branch>  # local branch delete
 ```
@@ -381,22 +386,11 @@ If any output: include in the report and recommend: _"Multiple work branches in 
 
 ## Red Flags
 
-**Never:**
-- Squash commits (we want the breadcrumb trail)
-- Push directly to main (use PRs)
+**Never:** squash commits (we want the breadcrumb trail); push directly to main.
 
-**Use judgment:**
-- CI failures are advisory — review them, but they don't block merge
-- Force push is allowed by the ruleset if needed
+**Use judgment:** CI failures are advisory — review them, but they don't block merge. Force push is allowed by the ruleset if needed.
 
-**Always:**
-- Draft release notes (Step 1.5) — every merge, even patch-level
-- Verify remote is synced before creating PR
-- Wait for all CI checks to complete
-- Use merge commits to preserve history
-- Clean up branch after successful merge
-
-**Why release-notes-on-every-merge:** With LLM authoring overhead near-zero, omitting consumer notes is a cost imposed on downstream readers. Other agents reading the publish repos, future-you scanning history, marketplace consumers pulling updates — all benefit. The "humans don't bother for small stuff" pattern doesn't apply here; we have the cycles to be more cognizant.
+**Concurrent-writer caveat:** When `/merge-to-main` runs alongside an active concurrent writer (orphan-promotion handoff, parallel session), cap commit sweeps at ~6 and accept a moving target. Don't loop trying to converge.
 
 ## Integration
 
@@ -405,4 +399,4 @@ If any output: include in the report and recommend: _"Multiple work branches in 
 - Invoked directly by PM/EM when ready to merge (no longer called by /workday-complete)
 
 **Pairs with:**
-- **coordinator:using-git-worktrees** — cleans up worktree after merge
+- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.

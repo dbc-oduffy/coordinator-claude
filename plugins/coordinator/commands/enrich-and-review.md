@@ -157,4 +157,4 @@ Report the final state:
 - How many stubs were enriched
 - How many were reviewed and by whom
 - Any outstanding flags or PM decisions needed
-- Which stubs are now ready for `/delegate-execution`
+- Which stubs are now ready for executor dispatch (per `docs/wiki/delegate-execution.md`)

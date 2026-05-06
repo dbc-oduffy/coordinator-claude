@@ -44,6 +44,10 @@ Specs produced by planning/design sessions. After execution, key decisions are p
 
 Plans from design and implementation sessions are kept locally in `docs/plans/` (gitignored — author scratch).
 
+| Plan | Date | Status |
+|------|------|--------|
+| [executor-touched-files visibility + executor-commit branch drift fix](plans/2026-05-05-executor-touched-branch-pin.md) | 2026-05-05 | Patrik APPROVED with 8 findings integrated |
+
 ---
 
 *Last updated: 2026-04-10. Maintained by `/update-docs`.*

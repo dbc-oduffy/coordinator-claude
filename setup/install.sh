@@ -58,6 +58,7 @@ PLUGIN_REGISTRY=(
   "coordinator|on|local|Core pipeline and workflow skills (always enabled)"
   "web-dev|on|local|Palí + Fru reviewers"
   "data-science|on|local|Camelia reviewer"
+  "deep-research|on|local|Multi-agent deep research pipelines (web/repo/structured)"
   "game-dev|off|local|Sid reviewer (Unreal Engine)"
   "notebooklm|optional|npm|Media research via NotebookLM (npm-sourced add-on)"
   "remember|on|local|Automatic session memory"
@@ -118,6 +119,7 @@ native_path() {
 
 NON_INTERACTIVE=false
 PLUGINS_ARG=""
+PROFILE_ARG=""
 # Optional add-on overrides: "" = ask (or skip in non-interactive), true/false = explicit.
 NOTEBOOKLM_OPT=""
 # codex-review-gate skill is bundled inside the coordinator plugin but is an
@@ -130,6 +132,8 @@ for arg in "$@"; do
     --non-interactive) NON_INTERACTIVE=true ;;
     --plugins=*)       PLUGINS_ARG="${arg#--plugins=}" ;;
     --plugins)         shift; PLUGINS_ARG="$1" ;;
+    --profile=*)       PROFILE_ARG="${arg#--profile=}" ;;
+    --profile)         shift; PROFILE_ARG="$1" ;;
     --install-notebooklm) NOTEBOOKLM_OPT=true ;;
     --no-notebooklm)      NOTEBOOKLM_OPT=false ;;
     --enable-codex)       CODEX_OPT=true ;;
@@ -138,9 +142,18 @@ for arg in "$@"; do
       cat <<'USAGE'
 Usage: setup/install.sh [OPTIONS]
 
+  --profile NAME          Install a preset plugin bundle (mutually exclusive
+                          with --plugins):
+                            core      coordinator only — minimal footprint
+                            standard  coordinator, web-dev, data-science
+                                      (excludes deep-research; opt in via
+                                      --profile full or explicit --plugins)
+                            full      coordinator, deep-research, web-dev,
+                                      data-science, game-dev
   --non-interactive       Skip prompts; install default-on plugins only.
   --plugins LIST          Comma-separated list of plugins to install
-                          (coordinator always included).
+                          (coordinator always included). Use --profile for
+                          common presets; --plugins for fine-grained control.
   --install-notebooklm    Opt in to the NotebookLM add-on (npm-sourced).
   --no-notebooklm         Skip the NotebookLM add-on prompt.
   --enable-codex          Opt in to the codex-review-gate skill (requires
@@ -152,6 +165,47 @@ USAGE
       ;;
   esac
 done
+
+# ---------------------------------------------------------------------------
+# --profile alias resolution
+# ---------------------------------------------------------------------------
+# --profile is a thin alias over --plugins. Resolve it first so the rest of
+# the script only needs to reason about PLUGINS_ARG.
+#
+# Profiles are pinned (not computed dynamically) — "full" enumerates every
+# locally-installable plugin explicitly so future registry additions don't
+# silently expand it.
+if [[ -n "$PROFILE_ARG" ]]; then
+  if [[ -n "$PLUGINS_ARG" ]]; then
+    echo "ERROR: --profile and --plugins are mutually exclusive."
+    echo "       Use --profile for preset bundles or --plugins for a custom list."
+    exit 1
+  fi
+  case "$PROFILE_ARG" in
+    core)
+      # Minimal footprint: coordinator pipeline only.
+      PLUGINS_ARG="coordinator"
+      ;;
+    standard)
+      # Common default for most users. Excludes deep-research because it
+      # dispatches Agent Teams — opt in deliberately via --profile full or
+      # --plugins coordinator,deep-research,...
+      PLUGINS_ARG="coordinator,web-dev,data-science"
+      ;;
+    full)
+      # All locally-installable plugins. Pinned explicitly — do not change to
+      # "all default-on" or a dynamic expansion.
+      PLUGINS_ARG="coordinator,deep-research,web-dev,data-science,game-dev"
+      ;;
+    *)
+      echo "ERROR: Unknown profile '$PROFILE_ARG'."
+      echo "       Valid profiles: core, standard, full"
+      exit 1
+      ;;
+  esac
+  echo "Profile '$PROFILE_ARG' resolved to --plugins $PLUGINS_ARG"
+  echo ""
+fi
 
 # ---------------------------------------------------------------------------
 # Prerequisites

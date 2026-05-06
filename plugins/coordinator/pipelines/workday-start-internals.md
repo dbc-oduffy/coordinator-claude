@@ -19,13 +19,16 @@ Ensure all work today happens on a proper work branch and consolidate any linger
    Use the same `{machine}` from step 1 — scopes consolidation to this user/machine. Collaborators' `work/{their-machine}/*` branches are never touched. Exclude today's branch from the result list.
 
 4. **Create or checkout today's branch:**
-   - New: `git checkout -b work/{machine}/{YYYY-MM-DD}`
-   - Existing: `git checkout work/{machine}/{YYYY-MM-DD}`
+   - New: `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create daily" git checkout -b work/{machine}/{YYYY-MM-DD}`
+   - Existing: `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 checkout daily" git checkout work/{machine}/{YYYY-MM-DD}`
    - Name collides with an already-merged branch: `work/{machine}/{YYYY-MM-DD}-2`
+   <!-- Review: patrik F1 — block-off-daily-branch.sh would deny these without the inline override. -->
 
 5. **Consolidate open branches** — for each branch from step 3:
    ```bash
-   git merge {branch-name} --no-ff -m "consolidate {branch-name} into today's work branch"
+   # Review: patrik F1 — inline override required; consolidation switches to stale branches.
+   COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 consolidate {branch-name}" \
+     git merge {branch-name} --no-ff -m "consolidate {branch-name} into today's work branch"
    ```
    - Clean merge: continue.
    - Conflict: **stop immediately.** `git merge --abort`. Report: _"Merge conflict consolidating {branch-name} — manual resolution required. Continuing workday-start without consolidating this branch."_ Do not attempt automatic resolution.
