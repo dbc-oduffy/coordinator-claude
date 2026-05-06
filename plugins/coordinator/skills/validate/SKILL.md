@@ -1,6 +1,7 @@
 ---
 name: validate
 description: Use when about to commit, before /merge-to-main, before /workday-complete, or when the user asks to validate the repo state. Runs all CI validation checks locally.
+description-budget: 175
 version: 1.0.0
 ---
 
