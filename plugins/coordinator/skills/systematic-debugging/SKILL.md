@@ -103,7 +103,7 @@ If you cannot state the prediction — the hypothesis is a vibe. Discard it or s
 
 ### Phase 4: Implementation
 
-1. **Create a failing test case.** Simplest reproduction. Automated if possible. MUST have before fixing. Use `coordinator:test-driven-development`.
+1. **Create a failing test case.** Simplest reproduction. Automated if possible. MUST have before fixing. Apply `docs/wiki/test-driven-development.md`.
 2. **Implement a single fix.** Address the root cause. ONE change. No "while I'm here" improvements.
 3. **Verify fix.** Test passes? Other tests still pass? Issue actually resolved?
 4. **If fix doesn't work — STOP.** Count attempts: <3 → return to Phase 1 with new info. ≥3 → question architecture (step 5). Don't attempt fix #4 without architectural discussion.
@@ -180,7 +180,7 @@ In this directory:
 - `defense-in-depth.md` — validation at multiple layers post-root-cause
 - `condition-based-waiting.md` — replace arbitrary timeouts with condition polling
 
-**Related skills:** `coordinator:test-driven-development` (Phase 4 step 1), `coordinator:verification-before-completion`.
+**Related doctrine:** `docs/wiki/test-driven-development.md` (Phase 4 step 1), `docs/wiki/verification-before-completion.md`.
 
 ## Real-World Impact
 

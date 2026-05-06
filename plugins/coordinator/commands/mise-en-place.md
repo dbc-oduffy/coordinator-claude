@@ -311,7 +311,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 ## Relationship to Other Commands
 
 - **Executor dispatch (`docs/wiki/delegate-execution.md`)** — used within Phase 5 for dispatching executor agents; its Phase 2 model selection rubric governs dispatch decisions
-- **coordinator:dispatching-parallel-agents** — parallel dispatch patterns (file-disjoint constraint, same-worktree coordination)
+- **`docs/wiki/dispatching-parallel-agents.md`** — parallel dispatch patterns (file-disjoint constraint, same-worktree coordination)
 - **`/update-docs`** — NO LONGER auto-invoked. PM runs separately after `/mise` completes.
 - **`/workday-complete`** — what the PM runs afterward (interactively) if they want end-of-day consolidation and health survey
 - **`/merge-to-main`** — what the PM runs when ready to merge the branch; never invoked from this command
