@@ -84,6 +84,8 @@ If not triggered: note in summary — _"Improvement queue: K entries, oldest YYY
 
 **Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
 
+**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables (exclude the `## Resolved` section and any resolved/closed rows). If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
+
 ---
 
 ## Step 4b: Install OOM Reproducer Freshness Check
@@ -234,6 +236,7 @@ git push origin $(git branch --show-current)
 **Validation:** [pass / failures described]
 **Docs updated:** [/update-docs completed]
 **Improvement queue:** [K entries processed / no triage needed]
+**Bug backlog:** [N open P1/P2 items — /bug-blitz proposed/deferred/not needed / file absent]
 **Code stats:** [summary or "scc not available"]
 **ShellCheck:** [clean / N issues fixed]
 **Code-review gate:** [BLOCKED|WARN|OK] — convergent: N — patrik / security / deps / tests summary
