@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: Use when implementation is complete, all tests pass, and you need to decide how to integrate the work - guides completion of development work by presenting structured options for merge, PR, or cleanup
+description: "Use when implementation is complete and tests pass — presents structured options for merge, PR, or cleanup to integrate the work."
 version: 1.0.0
 ---
 
@@ -190,8 +190,8 @@ git worktree remove <worktree-path>
 
 **Called by:**
 <!-- Review: Patrik — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
-- **/delegate-execution** — After all tasks complete
+- **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
-- **coordinator:using-git-worktrees** - Cleans up worktree created by that skill
+- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.

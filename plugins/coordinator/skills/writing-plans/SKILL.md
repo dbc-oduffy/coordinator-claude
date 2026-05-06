@@ -1,6 +1,7 @@
 ---
 name: writing-plans
 description: "This skill should be used when requirements are clear and the task needs decomposition into executable chunks — before touching code. Triggers on: 'write a plan', 'break this down', 'plan the implementation'."
+description-budget: 225
 version: 1.0.0
 ---
 
@@ -66,6 +67,20 @@ Before writing tasks, confirm each item or explicitly waive it. If multiple are 
 
 If two or more checkboxes can't be filled honestly, the plan isn't ready. Surface to the PM with a specific ask, not a draft full of TBDs.
 
+**Plans default to decisions, not questions.** Reviewer-facing questions in the plan body indicate undelegated decisions the author had context to make. Decide; surface only the genuine tradeoffs.
+
+## Pre-dispatch confidence checklist
+
+Before dispatching a build-task agent or entering plan mode for a non-trivial feature, walk through these five gates. Any "no" demands more investigation, not bigger agent dispatch. NOT a numeric score — the checklist is the gate.
+
+1. **No duplicate.** Have I greped for an existing implementation under nearby paths? **(See `Negative-Search Before Drafting` below for the formal greppable procedure.)**
+2. **Architecture-compatible.** Does the proposed approach use existing project conventions (tech stack from CLAUDE.md, patterns from atlas)? If introducing a new dependency, is the rationale in the plan? **(See `Codebase Research (before file mapping)` above for the survey discipline.)**
+3. **Official docs read.** For any external API the plan calls into, have I read the actual signature — not relied on training memory?
+4. **Reference impl seen.** For any nontrivial pattern, can I point to a working implementation (OSS or in our codebase) that demonstrates it? **(See `Codebase Research (before file mapping)` above.)**
+5. **Root cause known (bugs only).** For bug fixes, do I have evidence the diagnosis is correct, not just plausible?
+
+Five greens → dispatch. Any red → loop back to investigation tier 1-3 or escalate to PM.
+
 ## Domain Language
 
 Read `CONTEXT.md` if present at the project root; if absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms throughout the plan — and for any term on the `_Avoid_:` lists, substitute the canonical term silently. If the plan introduces a new domain term that will recur across sessions, append it to `CONTEXT.md` as part of the plan-writing pass.
@@ -86,6 +101,10 @@ Before defining the file structure, check what's already been documented about t
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
 
+**Substrate-verification at plan time.** Verify substrate facts (file paths, framework names, helper APIs, line numbers) via `ls`/`grep` while authoring — not at completion. Two minutes of disk verification prevents the substrate-fact errors reviewers will catch on R1.
+
+**Periodic baselines drift — instruct read-current-and-increment, not match-spec.** When a stub names a count, version, or baseline ("bump from 55 to 56"), absolute values rot between enrichment and execution. Phrase as "read current value and increment" so the math survives the gap.
+
 ## Negative-Search Before Drafting
 
 Before committing to a prescribed shape, run a negative search to surface prior decisions that argue against what the plan proposes to introduce or restore.
@@ -99,6 +118,8 @@ Before committing to a prescribed shape, run a negative search to surface prior 
    - **(b)** Recuse the prescription and choose a different shape that does not conflict with the prior decision.
 
 4. **Reversal-verb hint:** If §1 Objective uses any of `restore`, `reintroduce`, `reconstitute`, `undo`, `re-add`, or `bring back`, the plan author should *consider suggesting* a staff-session to the PM before approval. This is a suggestion only — the PM owns the call. Frame it as: "This plan reverses prior direction; PM may want a staff-session before approving execution."
+
+5. **External-doctrine proposals — independent location-challenge.** When a peer audit or external review recommends a fix, never adopt the proposed *location* uncritically — proposals frame fixes from where they noticed the problem, which is rarely the cheapest place to apply them. Run an independent location-challenge before drafting: would an upstream surface (producer skill, hook, dispatch template) prevent the class of problem more cheaply than the proposed downstream patch?
 
 ## File Structure
 
@@ -261,6 +282,20 @@ When a plan step dispatches a teammate agent that needs MCP tools, use graduated
 
 **Graduated resolution order:** `select:exact` → `+prefix` keyword fallback → graceful failure message. Any teammate prompt that names an MCP tool should follow this pattern; hardcoding a single prefix is a silent failure waiting for the next spawn context change.
 
+### (e) No fallback escape hatches in stubs
+
+Python-fallback / "if MCP missing, use Python" / "if X unavailable, fall back to Y" clauses are a structural fault — under firefight pressure executors pick the fallback every time, bypassing the canonical surface precisely when it most needs exercising. Fix is structural, not prose: remove the clause; convert the "missing verb" branch into an explicit Step 0 prerequisite that fails loudly.
+
+**Doc-doctrine corollary:** Don't advertise the escape hatch in the README or stub preamble. When a primary path and a fallback both exist, the entry-point promotes one path only; the fallback file lives on disk but isn't surfaced.
+
+### (f) Concurrency-safe file design
+
+When a plan proposes shared-file appends across N machines or sessions, prefer **per-machine paths** over "atomic per-block append" merge logic — the latter is a euphemism for "PM resolves merges at daily wrap." Per-machine files sidestep the conflict class entirely.
+
+### (g) File-overlap analysis before parallel dispatch
+
+Plans that claim "fully independent files" still need EM-side file-overlap analysis before parallel executor dispatch. Trust-but-verify: a 30-second cross-check against the plan's file lists prevents two executors from racing the same file under independence assumptions.
+
 
 ## Lessons Learned
 
@@ -298,14 +333,14 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 
 **"Plan reviewed and saved to `docs/plans/<filename>.md`. Two execution options:**
 
-**1. Executor-Driven (this session)** - I dispatch Executor agents per task via `/delegate-execution`, code review via `/review-dispatch` between tasks, fast iteration
+**1. Executor-Driven (this session)** - I dispatch Executor agents per task following `docs/wiki/delegate-execution.md`, code review via `/review-dispatch` between tasks, fast iteration
 
 **2. Parallel Session (separate)** - Open new session and run /execute-plan, batch execution with checkpoints
 
 **Which approach?"**
 
 **If Executor-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use `/delegate-execution` to dispatch Executor agents
+- **REQUIRED PROCEDURE:** Follow `docs/wiki/delegate-execution.md` to dispatch Executor agents
 - Stay in this session
 - Fresh Executor agent per task + code review via `/review-dispatch`
 

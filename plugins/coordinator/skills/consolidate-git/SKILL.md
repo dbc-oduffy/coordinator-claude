@@ -1,6 +1,7 @@
 ---
 name: consolidate-git
-description: Use when the repo has multiple stale branches that need cleaning up — inventories all branches, absorbs unique commits into the current branch, deletes stale branches, and merges to main. This skill should be used when the user asks to "clean up branches", "consolidate branches", "consolidate git", "merge all branches", or mentions stale/old branches that need cleanup.
+description-budget: 250
+description: "Cleans up branch sprawl: inventories all branches, absorbs unique commits, deletes stale, merges to main. Triggers on consolidate branches, clean up branches, stale branches cleanup, merge all branches."
 version: 1.0.0
 ---
 
@@ -84,9 +85,19 @@ Categorize the result:
 For each stale branch with unique commits:
 
 1. **Inspect the commits** — `git show --stat <commit>` to understand what changed
-2. **Choose absorption strategy:**
-   - **Cherry-pick** (default for 1-3 commits): `git cherry-pick <commit> --no-edit`
-   - **Merge** (for branches with many commits): `git merge <stale-branch> --no-edit`
+2. **Choose absorption strategy (inline override required on each git op that touches off-daily branches):**
+   - **Cherry-pick** (default for 1-3 commits):
+     ```bash
+     # Review: patrik F1 — inline override required; cherry-pick from stale branches
+     # is an off-daily operation caught by block-off-daily-branch.sh.
+     COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="consolidate-git step 3 cherry-pick from <stale-branch>" \
+       git cherry-pick <commit> --no-edit
+     ```
+   - **Merge** (for branches with many commits):
+     ```bash
+     COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="consolidate-git step 3 merge <stale-branch>" \
+       git merge <stale-branch> --no-edit
+     ```
 3. **If conflicts arise:**
    - Inspect the conflicting files — determine if the current branch already supersedes the change
    - If superseded: abort (`git cherry-pick --abort` or `git merge --abort`) and skip — note this in the report

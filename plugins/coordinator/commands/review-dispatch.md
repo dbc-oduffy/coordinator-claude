@@ -120,6 +120,44 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **Phase 2.8 integrator note:** The review-integrator does NOT review docs-checker auto-fixes — those are pre-applied before the Opus reviewer sees the artifact. The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the review record archived alongside the review findings.
 
+### Phase 2.7b: Prior-Art Verification (prior-art-checker pre-flight)
+
+**The prior-art-checker is a recall pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
+
+Before dispatching expensive Opus reviewers, decide whether to run the **prior-art-checker** agent (Sonnet) as a suggested pre-flight. While docs-checker verifies factual claims about external APIs, prior-art-checker cross-references the plan's claims against **what we've already learned** — project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Reviewers receive a sidecar showing where the plan conflicts with prior art, where it should cite established patterns, and where it touches unprecedented ground.
+
+**EM Decision Step — when to run:**
+
+| Artifact type | Default | EM discretion |
+|---|---|---|
+| **Plan documents** (`docs/plans/*.md`, `~/.claude/plans/*.md`) | **Run by default.** Plans are the artifact this agent was designed for. | Skip only when the plan is a single-file mechanical bug-fix with no architectural decision. |
+| **Enriched stubs with architectural decisions** | Run if any chunk introduces a new pattern, new agent, new convention, or modifies cross-cutting doctrine. | Skip for stubs that are purely mechanical execution of a previously-checked plan. |
+| **Code review (no plan artifact)** | Skip. | Run when a PR/diff lacks a plan but introduces a new pattern or convention worth checking against doctrine. |
+| **Pure prose** (lessons, postmortems, retros, strategy memos) | Skip. | None — no claim surface to cross-reference. |
+| **Trivial single-file edits** | Skip. | None — overhead exceeds the benefit. |
+
+**Heuristic, not law.** When the plan reverses a prior decision, ALWAYS run — that is exactly the case where prior art most matters (per `coordinator/CLAUDE.md` "Premise-pass before regenerating torn-down structure"). When in doubt, run it; the agent is cheap and the alternative is silent doctrine decay.
+
+**Skip is silent.** No flag needed, no justification required. EM judgment.
+
+**Dispatch:**
+1. Dispatch `prior-art-checker` agent with the plan path.
+2. prior-art-checker reads project wikis, global wikis, lessons, and the improvement queue; cross-references the plan; writes a sidecar at `<plan-path>.prior-art-check.md`.
+3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
+4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed, fold prior art into the plan, or escalate to PM.
+   - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
+   - **WARN:** EM dispositions each conflict (fold-in, override-and-document, or PM consult). For overrides, append a one-line entry to the plan's "Considered alternatives" section. Include the sidecar in the Opus reviewer dispatch.
+   - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
+5. Include the following verbatim in the Opus reviewer's dispatch prompt:
+
+   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
+
+**On prior-art-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. Reviewers fall back to their own doctrine recall (which is the pre-2026-05-06 baseline). This phase is additive, not blocking.
+
+**The prior-art-checker is a feedback loop on wiki quality.** Repeated false-positive conflicts on a wiki entry are signal — surface to PM as a candidate for wiki revision (the wiki may be outdated, vague, or wrong). This is the recall side of the capture-recall loop; without it, captured wikis decay silently.
+
+**Phase 2.7b integrator note:** The review-integrator does NOT process prior-art-check findings directly — those are EM-dispositioned before the Opus reviewer sees the plan. The integrator continues to handle Opus reviewer findings as today. The prior-art-check sidecar is part of the review record archived alongside the review findings.
+
 ### Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
 
 Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to verify the artifact is well-formed and worth reviewing. This catches broken artifacts before they waste the most expensive tokens in the system.
@@ -232,4 +270,4 @@ Then summarize:
 
 - **`/enrich-and-review`** invokes this command's logic during Phase 5
 - For lightweight code quality checks, dispatch a Sonnet-level subagent directly rather than the full review-dispatch pipeline
-- **`/delegate-execution`** follows after review-dispatch approves artifacts for execution
+- Executor dispatch (`docs/wiki/delegate-execution.md`) follows after review-dispatch approves artifacts for execution

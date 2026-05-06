@@ -25,16 +25,16 @@ When invoked, systematically update all documentation artifacts to match reality
 2. **Refreshes** source indexes / directory docs if source files changed
 3. **Updates** plan documents to reflect completed/changed work
 4. **Syncs** MEMORY.md with new patterns, decisions, or status changes
-5. **Maintains** the unified project tracker (`tracker-maintenance` skill) — marks completion, archives shipped work, updates dependencies
-6. **Trims** lessons files (`lessons-trim` skill)
+5. **Maintains** the unified project tracker (inlined; was `tracker-maintenance` skill — see `pipelines/update-docs/`) — marks completion, archives shipped work, updates dependencies
+6. **Processes** lessons files (inlined via `/learn-lessons --mode=local`)
 7. **Updates** CLAUDE.md if architecture or conventions changed (rare)
-8. **Archives** old handoffs (`handoff-archival` skill)
+8. **Archives** old handoffs (inlined; see `pipelines/update-docs/`)
 9. **Commits** all doc changes and verifies remote sync
 9b. **Regenerates repomap** (RAG-gated: primary when no RAG, fallback when RAG stale, skipped when RAG fresh)
 10. **Refreshes** orientation cache if present
 10b. **Logs repomap audit value** (when RAG present and repomap generated as fallback)
-11. **Checks** changed files against architecture atlas — narrative-drift mode on RAG repos, hybrid mode on non-RAG repos (`atlas-integrity-check` skill)
-11b. **Verifies preamble sync** (runs `bin/verify-preamble-sync.sh`; surfaces diff to PM on failure)
+11. **Checks** changed files against architecture atlas — narrative-drift mode on RAG repos, hybrid mode on non-RAG repos (inlined; see `pipelines/update-docs/`)
+11b. **Verifies snippet sync** (runs every `plugins/*/bin/verify-*-sync.sh`; surfaces diff to PM on failure)
 11d. **Sweeps frontmatter-schema drift** (runs `bin/lint-frontmatter.sh --json`; surfaces count + top violators)
 12. **Distills** accumulated artifacts into wiki guides if thresholds are met (`/distill` pipeline, conditional)
 
@@ -166,11 +166,11 @@ Read the project's MEMORY.md (at `~/.claude/projects/<project-key>/memory/MEMORY
 
 **If `tracker_missing` flag was set in Phase 1, skip this phase.**
 
-Execute the `tracker-maintenance` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/tracker-maintenance/SKILL.md` and follow all steps exactly.
+Inline the tracker-maintenance routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/tracker-maintenance.md` and follow all steps exactly.
 
 #### Phase 6: Trim Lessons Files
 
-Execute the `lessons-trim` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/lessons-trim/SKILL.md` and follow all steps exactly.
+Invoke `/learn-lessons --mode=local` directly. (`lesson-triage` was renamed to `learn-lessons` in Phase E — no alias shim.)
 
 #### Phase 7: Update CLAUDE.md (Rare)
 
@@ -183,7 +183,13 @@ Only update CLAUDE.md if:
 
 #### Phase 8: Archive Old Handoffs
 
-Execute the `handoff-archival` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/handoff-archival/SKILL.md` and follow all steps exactly.
+Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/handoff-archival.md` and follow all steps exactly.
+
+#### Phase 8b: Prune Accumulated Artifacts
+
+Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the pipeline only deletes when accumulated artifacts cross the threshold lines documented there. The safety commit it takes makes any deletion `git revert`-able as a single operation.
+
+This phase replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06). `/distill` continues to handle distill-then-delete (extract knowledge into wiki before deleting source) and runs upstream of this phase conceptually.
 
 #### Phase 9: Commit + Verify Remote
 
@@ -247,7 +253,7 @@ Do NOT retire the repomap automatically. The PM decides.
 
 #### Phase 11: Architecture Atlas Integrity Check
 
-Execute the `atlas-integrity-check` skill. Read the skill at `${CLAUDE_PLUGIN_ROOT}/skills/atlas-integrity-check/SKILL.md` and follow all steps exactly.
+Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/atlas-integrity-check.md` and follow all steps exactly.
 
 **RAG-gating note:** When `RAG_PRESENT`, the atlas-integrity-check skill has been repurposed toward narrative-drift detection (not file-coverage enumeration). The skill handles this internally based on RAG state — no special flag needed here.
 
@@ -255,19 +261,40 @@ Execute the `atlas-integrity-check` skill. Read the skill at `${CLAUDE_PLUGIN_RO
 
 **Quarterly atlas re-read reminder (Camelia F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
 
-#### Phase 11b: Preamble Sync Check
+#### Phase 11b: Snippet Sync Check
 
-Run the preamble sync verification script:
+Run every snippet-sync verifier across all installed plugins. The glob covers current verifiers (preamble, calibration, docs-checker, prior-art, text-only, default-routing) and any future ones added under the same `bin/verify-*-sync.sh` convention.
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/verify-preamble-sync.sh
+set +e
+fail=0
+for verifier in ~/.claude/plugins/*/*/bin/verify-*-sync.sh; do
+  [ -x "$verifier" ] || continue
+  echo "=== $verifier ==="
+  "$verifier" || fail=1
+done
+exit $fail
 ```
 
-**If the script exits non-zero:** Surface to PM with the diff output — do NOT auto-fix. The EM should investigate which consumer drifted from the canonical snippet. Example escalation: *"Preamble sync check failed — one or more agent/skill files have drifted from `snippets/project-rag-preamble.md`. Diff attached. Which file was intentionally changed?"*
+(The `plugins/*/*/bin/` glob covers all known homes today — `coordinator-claude/coordinator/bin/` and `claude-unreal-holodeck/holodeck-control/bin/` — and any future plugin that follows the `bin/verify-*-sync.sh` convention. New verifiers are picked up automatically.)
 
-**If the script is absent** (not yet installed): skip silently and note "preamble sync check: script not found — W2 may not be deployed yet."
+**If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. The EM should investigate which consumer drifted from its canonical snippet. Example escalation: *"Snippet sync check failed in `verify-default-routing-sync.sh` — one or more consumers drifted from `snippets/default-routing.md`. Diff attached. Which file was intentionally changed?"*
 
-**If the script exits 0:** Note in Phase 13 report: "Preamble sync: in sync."
+**If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
+
+#### Phase 11g: Plugin-bundled wiki sync
+
+Mirror dev-side wiki files cited from plugin files into the plugin-bundled `docs/wiki/` so marketplace consumers can resolve them. Source-of-truth is `~/.claude/docs/wiki/`; sync target is `plugins/coordinator-claude/coordinator/docs/wiki/`. Wiki names are auto-discovered by grepping plugin files for `docs/wiki/<name>.md` references.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/sync-plugin-wiki.sh
+```
+
+**If the script reports synced files:** include the updated/created files under `plugins/coordinator-claude/coordinator/docs/wiki/` in the Phase 9 commit. Log in the Phase 13 report: "Plugin-bundled wiki: N file(s) synced."
+
+**If the script reports WARN:** a wiki name is referenced by a plugin file but absent from dev-side. Doc-link health (Phase 11e via `doc-link-checker`) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+
+**Doctrine:** plugin-doctrine wikis live inside the plugin (`<plugin-root>/docs/wiki/`); see `coordinator/CLAUDE.md` § Documentation and Knowledge System → Plugin-bundled wikis. The `/distill` and demote-to-wiki workflows MUST place plugin-doctrine wiki bodies in the dev-side authoring tree (`~/.claude/docs/wiki/`); this phase mirrors them downstream.
 
 #### Phase 11c: Query Callout Refresh
 
@@ -282,8 +309,6 @@ Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... --
 **If the script exits non-zero** (parse error or query failure): surface the error to PM with the stderr output. Do NOT abort the rest of `/update-docs` — log the failure and continue.
 
 **If the script reports no changes:** note in the Phase 13 report: "Query callouts: up to date."
-
-**If the script is absent** (not yet deployed): skip silently and note "query callout refresh: script not found — W2 may not be deployed yet."
 
 #### Phase 11d: Frontmatter Schema Drift Sweep
 
@@ -303,11 +328,58 @@ Parse the JSON. Three behaviors:
    - List up to 5 specific offending files (path + schema name) in the Phase 13 report.
    - Total count goes in the report headline; full JSON output is logged below the bullet.
    - Phase 13 wording: *"Frontmatter schema drift: N violations across S schema(s). Top: [schema A] (count), [schema B] (count). Files: [path1, path2, ...]. WARN-mode validator did not block these writes — fix-forward at the listed paths."*
-3. **Script absent or non-zero exit other than 1:** Note "frontmatter drift sweep: script not found / errored — W1 may not be deployed yet" and continue. Do NOT abort the rest of `/update-docs`.
+3. **Non-zero exit other than 1:** Note "frontmatter drift sweep: errored, stderr attached" in the Phase 13 report and continue. Do NOT abort the rest of `/update-docs`.
 
 **Do not auto-fix.** This phase reports only. Schema violations frequently encode an intentional decision (e.g., a record predating the schema, or a field deprecation in flight) — the EM and PM judge the right fix per file. The PM-directed escalation path: when daily count remains non-zero for ≥2 consecutive `/update-docs` runs, lift the affected schema's default from WARN → STRICT (`COORDINATOR_SCHEMA_STRICT=1`) or open a debt-triage entry for the bulk-fix.
 
 **Exception:** If a violation is a tradeoff-free correctness fix (typo in a field name, missing required field on a record the EM just authored this session), fix it inline before the Phase 9 commit. Don't let the EM's own fresh dirt accumulate across runs.
+
+#### Phase 11e: Doc-link health check (plugin assets)
+
+Dispatch the `doc-link-checker` agent with the following prompt. The agent returns a `DONE: <actual-path>` reply.
+
+After the worker returns, read the report and surface counts in the Phase 13 rollup:
+- Broken-link count (rows with `status: broken`)
+- Anchor-missing count (rows with `status: anchor-missing`)
+- Report path (so PM can read findings)
+- Skip-cap notice if external-URL cap was hit
+
+If the dispatch returns zero broken/anchor-missing items: report "Plugin doc-link health: clean."
+
+The phase does NOT halt `/update-docs` on findings. Findings are informational; remediation is a separate workstream (queue entry or session-bound fix).
+
+**Dispatch prompt for doc-link-checker:**
+
+```
+Tier 1-3 attempted: tier 1 (architecture atlas / wiki) and tier 2 (project-RAG / query-records) do not validate markdown link health; tier 3 (grep) cannot resolve anchor existence; insufficient because mechanical link validation across 150+ plugin assets requires a worker with rate-limited WebFetch and anchor-resolution logic.
+
+You are the doc-link-checker. Your scope for this dispatch:
+
+Scope path: `plugins/`
+File filter: `{skills,agents,commands}/*.md` (all 7 plugins; recursive into plugin subdirectories)
+
+Validate every internal markdown link (file existence + anchor existence) and every external URL (HEAD with redirect-follow, 1s sleep between requests, 100-URL cap). Use your standard output contract.
+
+Write the report to your default path: `tasks/doc-link-check-<timestamp>.md` (substitute your own timestamp; do NOT use the literal string "<timestamp>").
+
+DO NOT run `gh pr merge`, `gh pr create` against main, or `git push origin main`.
+
+Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+```
+
+#### Phase 11f: Parallel-review lens-orthogonality check
+
+Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh`. The script asserts the four reviewers named in the parallel-code-review skill's lens-domain manifest (`skills/parallel-code-review/SKILL.md`) exist as agent files and have non-overlapping `lens_domain` values. Fails non-zero if any reviewer is missing or two share a domain.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh
+```
+
+**On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. The carve-out in `coordinator/CLAUDE.md` § Review Sequencing requires orthogonal lenses; a collision means a future reviewer was added with overlap and the carve-out's preconditions no longer hold. Resolution is to either rename the colliding lens domain in the manifest or reconsider whether the new reviewer belongs in the parallel pool.
+
+**On zero exit:** Report "Parallel-review lens-orthogonality: clean."
+
+This phase is informational like 11e; does NOT halt `/update-docs`.
 
 #### Phase 12: Artifact Distillation (Conditional)
 
@@ -365,6 +437,12 @@ Present a concise summary:
 
 ### Handoffs Archived
 - [N moved from tasks/handoffs/ → archive/handoffs/ / No handoffs to clean up]
+
+### Artifact Pruning (Phase 8b)
+- [Pruned N plans, M archived handoffs, K task dirs (safety commit <sha>) / Nothing crossed threshold — no-op]
+
+### Plugin Doc-Link Health
+- [Clean / N broken, M anchor-missing — see <report-path> / Skipped — N external URLs over 100-cap]
 
 ### Completion Archive
 - [N items archived from tracker to archive/completed/YYYY-MM.md / No completed items to archive]
