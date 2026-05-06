@@ -29,6 +29,14 @@ after I restart Claude Code.
 
 Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/project-onboarding` bootstraps tracking infrastructure in your project.
 
+**Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the installer changes, what it does not do, audit commands, and exact uninstall steps.
+
+## Compatibility
+
+| coordinator-claude | Claude Code | OS tested | Notes |
+|--------------------|-------------|-----------|-------|
+| v1.9.0 | tested with Claude Code 2026-05-06 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh` |
+
 ## How a Session Works
 
 Most tools hand you a bag of commands and wish you luck. This system has *routines* — things that happen automatically because they should always happen, woven into the session lifecycle so you don't have to remember them.
@@ -77,6 +85,18 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 **Flow 5 — Architecture change.** `/staff-session plan` (multi-perspective debate) → migration plan with rollback → architecture mode review → implementation → verification → architecture atlas update via `/update-docs`.
 
 **Closing the day:** `/workday-complete` validates, syncs, runs the daily review, and merges. `/workweek-complete` is the larger weekly ceremony with version bump and release notes.
+
+## How heavy is the workflow?
+
+The system scales — a typo fix is a two-word instruction; a system rewrite is a multi-agent pipeline. Here are three representative tiers:
+
+| Tier | Skill / command | Reviewer | Wall time |
+|------|-----------------|----------|-----------|
+| **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
+| **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → Zolí (sequential) | 30 min – 2 hrs |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/delegate-execution` | Full sequential chain + PM ship verdict | Half day+ |
+
+See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the full tier table, reviewer routing guide, and flow diagrams.
 
 <details>
 <summary><strong>All Commands (appendix)</strong></summary>
