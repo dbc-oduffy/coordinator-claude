@@ -74,15 +74,26 @@ Read all files in `tasks/handoffs/`. For each:
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). If the file has **≥ 5 active entries** OR the **oldest entry is > 14 days old**, surface a one-liner to the PM in the Morning Briefing:
+Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries where `recurring:` ≥ 3 AND `resolution: pending`.
 
-_"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD). Triage now?"_
+Also read the local `tasks/improvement-queue.md` (if it exists in the current repo). Count its `## Active queue` entries.
 
-If the file does not exist or the queue is empty, skip silently. The threshold is a heuristic starting point — calibrate based on actual queue velocity after the first organic triage cycle.
+**If the combined queue is notable (any of the below):**
+- Central queue ≥ 5 active entries, OR
+- Oldest entry > 14 days old, OR
+- Any entry has `recurring: ≥3` AND `resolution: pending`, OR
+- Local queue has ≥ 1 active entry
+
+Surface in the Morning Briefing. The EM decides whether to advocate based on depth — this is judgment, not a threshold trigger. Examples:
+
+- Light: _"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD)."_
+- Deep: _"Improvement queue is at [K] central + [L] local. [N] items have recurring ≥ 3 — urgency for those to become structural fixes is building. Want to dedicate some time today to clearing some?"_
+
+If the file does not exist or both queues are empty, skip silently.
 
 ## Step 1.6: Scheduled Rechecks
 
-Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project lesson-triage cadence per `coordinator:lesson-triage`), `tasks/lessons-trim-removal-due-*.md` (one-shot deprecation removals), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
+Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project learn-lessons cadence per `coordinator:learn-lessons`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
 
 For each marker found:
 - **If today's date ≥ due date**, surface to the PM in the Morning Briefing's Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
