@@ -79,9 +79,9 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 
 **Addressed by:**
 - `systematic-debugging` skill — Root-cause debugging process. Diagnose before proposing fixes. Post-item-4: feedback-loop-first framing.
-- `test-driven-development` skill — RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
+- Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
 - `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
-- `verification-before-completion` skill — Prove it works before claiming done. Catches the "it should work" class of failures.
+- Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming done. Catches the "it should work" class of failures.
 - `stuck-detection` skill — Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
 
@@ -133,13 +133,13 @@ Full component inventory for the record. The failure-mode sections above are the
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `writing-plans` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
 - `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers the executor-dispatch procedure (`docs/wiki/delegate-execution.md`) in coordinator sessions.
-- `verification-before-completion` — Prove it works before claiming it's done.
+- Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming it's done.
 - `deep-research` — Multi-source investigation of repos or topics.
 
 **Development Process:**
-- `test-driven-development` — RED-GREEN-REFACTOR cycle, strictly enforced.
+- Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced.
 - `systematic-debugging` — Root-cause debugging process.
-- `dispatching-parallel-agents` — Dispatch independent tasks in parallel.
+- Dispatching parallel agents — see `docs/wiki/dispatching-parallel-agents.md`. Dispatch independent tasks in parallel; concurrency budget + worktree doctrine.
 - `stuck-detection` — Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
 
 **Code Review:**
