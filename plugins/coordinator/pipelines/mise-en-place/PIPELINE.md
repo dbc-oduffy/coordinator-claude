@@ -61,7 +61,7 @@ The EM must REJECT a /mise run if any candidate item exhibits these patterns:
 - Items aren't scoped yet — use `coordinator:writing-plans` or `coordinator:brainstorming` first.
 - Iterative PM judgment expected throughout.
 
-**If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, /review-dispatch, /staff-session, /delegate-execution). The PM decides whether to pull the failed items or defer the mise.
+**If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, /review-dispatch, /staff-session, executor dispatch per `docs/wiki/delegate-execution.md`). The PM decides whether to pull the failed items or defer the mise.
 
 ## The Process
 
@@ -185,7 +185,7 @@ This tells the hook to emit informational-only context pressure messages (no han
 
 **Single-item waves** (forced sequential due to file overlap or dependencies) execute inline — dispatch overhead isn't worth it for one item. Follow the same write-ahead → execute → verify → commit → mark-complete cycle.
 
-**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `/delegate-execution` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
+**Dispatch model:** Enriched specs with code sketches are blueprints — Sonnet follows them; Opus judgment was already spent during enrichment+review. See `docs/wiki/delegate-execution.md` Phase 2 for the full model selection rubric. The coordinator's job during execution is verification and wave gating, not typing code.
 
 ### Phase 6: Tail — Close Out the Run
 
@@ -256,11 +256,11 @@ Apply the same judgment as `/execute-plan`:
 
 **Required workflow skills:**
 - **`/execute-plan`** — Pattern for executing individual plan items
-- **coordinator:verification-before-completion** — Evidence before claims on each item
+- **`docs/wiki/verification-before-completion.md`** — Evidence before claims on each item
 - **`/update-docs`** — Tail action after all items complete (both modes)
 
 **Optional workflow skills:**
-- **coordinator:dispatching-parallel-agents** — Parallel dispatch patterns (file-disjoint constraint, same-worktree)
+- **`docs/wiki/dispatching-parallel-agents.md`** — Parallel dispatch patterns (file-disjoint constraint, same-worktree)
 
 **Called by:** PM directly — whether they're watching, stepping away, or wrapping up for the day
 

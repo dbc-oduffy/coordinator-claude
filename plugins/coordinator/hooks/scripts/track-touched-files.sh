@@ -69,6 +69,21 @@ _tmp="${INPUT#*\"session_id\":\"}"
 SESSION_ID="${_tmp%%\"*}"
 [[ -z "$SESSION_ID" ]] && exit 0
 
+# Extract agent_id (snake_case, top-level — subagent fires only).
+# Issue A (archive/specs/2026-05-05-issue-a-agent-id-linkage.md): when the firing
+# session is a subagent, write the file path to .agents/<agent_id>/touched.txt
+# in addition to the session-keyed touched.txt. Top-level EM fires don't have
+# agent_id; they skip this block at zero overhead.
+AGENT_ID=""
+if [[ "$INPUT" == *'"agent_id"'* ]]; then
+  _tmp2="${INPUT#*\"agent_id\":\"}"
+  AGENT_ID="${_tmp2%%\"*}"
+  # Format guard: lowercase hex, 12+ chars (Probe 0.1 captured 17-char hex).
+  if [[ ! "$AGENT_ID" =~ ^[a-f0-9]{12,}$ ]]; then
+    AGENT_ID=""
+  fi
+fi
+
 # Extract file_path (inside tool_input object)
 if [[ "$INPUT" != *'"file_path"'* ]]; then
   exit 0
@@ -90,7 +105,7 @@ TOUCHED_FILE="${SESSION_DIR}/touched.txt"
 # Initialize session dir on first touch (slow path — fires once per session).
 # ---------------------------------------------------------------------------
 if [[ ! -d "$SESSION_DIR" ]]; then
-  LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-session.sh"
+  LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
   [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
   if [[ -f "$LIB_PATH" ]]; then
     # shellcheck source=/dev/null
@@ -137,6 +152,21 @@ if grep -qxF "$FILE_PATH_NORM" "$TOUCHED_FILE" 2>/dev/null; then
 fi
 
 echo "$FILE_PATH_NORM" >> "$TOUCHED_FILE"
+
+# Issue A: parallel agent-keyed write (only for subagent fires).
+# .agents/<agent_id>/touched.txt provides the agent-id linkage that the
+# coordinator-safe-commit helper unions into scope at commit time.
+if [[ -n "$AGENT_ID" ]]; then
+  AGENT_DIR="${GIT_ROOT}/.git/coordinator-sessions/.agents/${AGENT_ID}"
+  AGENT_TOUCHED="${AGENT_DIR}/touched.txt"
+  [[ -d "$AGENT_DIR" ]] || mkdir -p "$AGENT_DIR" 2>/dev/null
+  [[ -f "$AGENT_TOUCHED" ]] || touch "$AGENT_TOUCHED" 2>/dev/null
+  # Concurrent-fire race: same characteristics as session-keyed touched.txt —
+  # grep-then-append is not atomic; dedup happens on read at commit time.
+  if ! grep -qxF "$FILE_PATH_NORM" "$AGENT_TOUCHED" 2>/dev/null; then
+    echo "$FILE_PATH_NORM" >> "$AGENT_TOUCHED"
+  fi
+fi
 
 # Note: meta.json last_activity is NOT updated here (costs ~36ms on Windows).
 # Activity is updated by cs_touch when called from the commit helper at commit time.

@@ -6,11 +6,38 @@ argument-hint: "[optional summary of the day]"
 
 # Workday Complete — End-of-Day Orchestration
 
-Lightweight daily wrap: validate, consolidate branches, run the strategic daily review, append to the week-changelog, and surface staleness signals. **Does NOT merge to main.** Heavy ceremony (docs sweep, ShellCheck, improvement-queue triage, optional Codex review when the `codex-review-gate` skill is installed) is weekly — see `/workweek-complete`.
+Lightweight daily wrap: validate, consolidate branches, run the strategic daily review, append to the week-changelog, and surface staleness signals. **Does NOT merge to main.** Heavy ceremony (docs sweep, ShellCheck, improvement-queue triage) is weekly — see `/workweek-complete`.
 
 ## Design Rationale
 
 Daily is a branch wrap, not a release ceremony. Handoffs archive at their natural trigger; the tracker is touched when the work touches it. The changelog append converts "weekly EM does archaeology" into "weekly EM reads a structured ledger."
+
+---
+
+## Step 0: Pre-stage Validator Suite (blocking gate)
+
+Run all pre-stage validators before any staging or git operations. These validators must pass before the workday-complete ceremony proceeds. A failure here means something in the codebase is out of spec — fix it before committing.
+
+### 0a: UE override drift check
+
+```bash
+# verify-ue-overrides.sh created by Phase B; if not yet present, skip 0a and run Phase B first
+${CLAUDE_PLUGIN_ROOT}/bin/verify-ue-overrides.sh
+```
+
+- **Exit 0:** all known UE-context dirs carry the expected override — proceed.
+- **Exit 1:** one or more dirs are missing the UE plugin override. Run `${CLAUDE_PLUGIN_ROOT}/bin/claude-ue-bootstrap.sh <dir>` for each flagged dir, then re-run the check before continuing.
+
+### 0b: Skill description length check
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh
+```
+
+- **Exit 0:** all skill descriptions are within their per-skill budget (see `description-budget:` frontmatter field, or ≤175 PM-gated, or ≤150 default) — proceed.
+- **Exit 1:** one or more skill descriptions exceed the limit. Fix the failing SKILL.md file(s) before proceeding. Do NOT continue to Step 1 until this passes.
+
+Both validators must exit 0. A partial pass (one OK, one failing) still blocks.
 
 ---
 
@@ -192,7 +219,7 @@ If `$ARGUMENTS` is provided, include as a top line: _"Day summary: {arguments}"_
 - **Merge to main.** Use `/merge-to-main` — it runs the test suite first.
 - **Run `/update-docs`.** Weekly cadence only — via `/workweek-complete`.
 - **Triage the improvement queue.** Daily depth nudge only; triage is weekly.
-- **Run ShellCheck, scc stats, or (if installed) the Codex review gate.** All moved to `/workweek-complete`.
+- **Run ShellCheck or scc stats.** All moved to `/workweek-complete`.
 - **Delete the work branch.** Stays alive for morning review.
 - **Delete handoffs.** Never deleted — archived only after `/distill` with PM approval.
 
@@ -206,5 +233,5 @@ Per-machine files under `tasks/week-changelog/` eliminate concurrent-write confl
 
 - **`/merge-to-main`** — deliberate supervised merge; run in the morning.
 - **`/daily-review`** — invoked in Step 4; its output feeds Step 9.
-- **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, triage, version bump, merge (plus Codex review when the `codex-review-gate` skill is installed).
+- **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, triage, version bump, merge.
 - **`/workweek-start`** — PM-facing weekly orient; sets priorities in HEADER.md.
