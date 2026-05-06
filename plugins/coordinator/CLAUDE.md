@@ -55,12 +55,14 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
 
+**Tripwire call-shape coverage.** When writing a static-grep tripwire, enumerate every concrete call shape the pattern takes: literal string, array form, kwarg-split, here-doc. A tripwire that matches only the literal form will never fire on the array or kwarg variants used in real code.
+
 **Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`. default-routing consumers: ue-asset-author, ue-cinematic-animator, ue-gameplay-engineer, ue-infra-engineer, ue-virtual-production, ue-world-builder, ue-project-orchestrator (7 files in holodeck-control/agents/), ue-editor-control (1 file in holodeck-control/skills/).
 
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
 - **Patrik UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
-- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
+- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place` and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
 - **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded. Implementation: `coordinator:parallel-code-review` (`skills/parallel-code-review/SKILL.md`); plan: `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`. Surface: `/workweek-complete` Step 7 (NOT `/merge-to-main`, NOT `/workday-complete`).
@@ -75,6 +77,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
     - `/merge-to-main` (`skills/merging-to-main/SKILL.md`)
     - `/consolidate-git` (`skills/consolidate-git/SKILL.md`)
   - When adding a new off-daily skill: list it in (d) AND set the override inline in the skill body.
+  - **`/bug-blitz` is fail-closed-only** — it does NOT set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the daily branch. No override mode. Listed here for completeness so readers know the omission is intentional, not an oversight.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -100,6 +103,8 @@ When a scout's deliverable is a file on disk (not a chat reply), the dispatch pr
 
 - **Haiku bypasses 1M-context billing gates** that block Sonnet/Opus subagent dispatch.
 - **Dispatched subagents inherit the parent's 1M-context flag regardless of model override.** Plan token budgets accordingly.
+- **Investigation dispatches require an explicit out-of-scope block.** Every scout/investigation prompt must include verbatim: "Do NOT modify files, commit, or push. Read-only." CLAUDE.md is invisible to subagents; without this, scouts will overreach.
+- **All write-capable autonomous skill dispatches must carry a destructive-action prohibition.** If a new autonomous skill can write files, commit, or trigger network actions, add it to the Tripwires § Destructive-action prohibition list and include an inline "Out-of-scope actions" block in the dispatch prompt.
 
 ## Roster Doctrine
 
@@ -110,7 +115,7 @@ When a scout's deliverable is a file on disk (not a chat reply), the dispatch pr
 
 Files written before failure persist — partial output is the common case. When an executor fails:
 
-1. `git status` against expected scope; check each file present and non-trivial.
+1. `git status` against expected scope; check each file present and non-trivial. If the executor reported specific commits, verify attribution via `git show --stat <sha>` — executor reports can fabricate commit attribution. Chat summary is hypothesis; git log is authoritative.
 2. Diff partial output against the spec.
 3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
 
@@ -119,6 +124,8 @@ Files written before failure persist — partial output is the common case. When
 ## Executor Dispatch Mode
 
 Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher (anything that mutates files). Without it, the subagent runs in `default` mode, prompts on every Edit/Write, and auto-denies.
+
+**Treat executor 'Open questions' / 'Outstanding questions' sections as same-session blocking gaps, not deferral options — they gate completion alongside failing tests.**
 
 ## Autonomous Run Bandwidth
 
@@ -130,9 +137,12 @@ Autonomous-execution commands background everything by default. EM holds the wav
 
 ## Plan-First Workflow
 
-Enter plan mode when the task carries **decision weight** — architectural choices, ambiguous scope, multiple viable approaches. STOP and re-plan when something goes sideways. Persist review output and plan artifacts to disk before acting.
+→ Procedure: walk `coordinator:plan` (decision-tree skill). Surviving doctrine bullets below are linked by that skill's branches and remain canonical here.
 
-**The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
+- **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
+- **Persist review output and plan artifacts to disk before acting.**
+- **STOP and re-plan when something goes sideways.**
+- **Don't import human-effort timelines; implement and iterate over deliberate and defer.** Full doctrine in global `~/.claude/CLAUDE.md` § Operating Assumptions.
 
 ### Pre-Dispatch Verification
 
@@ -140,6 +150,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 
 - **Investigate before planning.** Bug reports and consumer docs are framing, not ground truth. For plans touching producers/consumers/schema, dispatch a scout to verify premises against real code (file:line evidence). Plans claiming "fully independent files" still need EM file-overlap analysis before parallel dispatch.
 - **Verify file paths, framework names, helper APIs against disk at plan-write time.** Plans citing "Jest" when the harness is `node:test`, or `npm test` when the script is `bun run test`, fail at the first executor invocation.
+- **Grep seams, don't invent them.** API seams and module boundaries cited in plans must be confirmed by grep, not inferred from doc counts. Triage tables must be Read per-file; grep counts are not a substitute for reading the file.
 - **Grep existing surface before scaffolding agent-facing files** — duplicate-creation collisions hide under longer existing names.
 - **Spec instructions are not authoritative on call-site count.** "Bump constant X"/"rename helper Y" needs a grep over usages before declaring scope.
 - **Paginated grep results truncate enumeration claims.** When a plan asserts "N files match X", run grep with `head_limit:0` or count-mode and quote the exact command in the plan. Default `head_limit:100` silently caps and a 12-file enumeration looks like 10.
@@ -161,7 +172,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 `coordinator:learn-lessons` is the unified surface (renamed from `lesson-triage` 2026-05-06; no alias shim).
 
 - **`local` mode** runs in `/update-docs` Phase 6 (auto-applies discard/wiki-append/retag/dedupe within bounds; surfaces structural changes to PM).
-- **`central` mode** is PM-invoked from `~/.claude` central, ~21-day cadence; produces a routing manifest + review doc grouped by destination repo + change_kind.
+- **`central` mode** is PM-invoked from `~/.claude` central, ~21-day cadence; produces a routing manifest + review doc grouped by destination repo + change_kind. This is the cross-repo mining mechanism — per-project local mode cannot see systemic patterns that only emerge in aggregate.
 - **`recheck` mode** fires from `tasks/lesson-triage-recheck-due-*.md` markers via `/workday-start`.
 
 Change-kind taxonomy (closed enum) lives in `plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md`.
@@ -248,6 +259,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 - **Guards match conditions, not containers.** Substring-on-path filters and state-proxy liveness checks reject legitimate cases alongside the targeted failure.
 - **Test-design discipline:** `docs/wiki/test-design-discipline.md`.
 - **Cleanup / sweep / migration hazards:** `docs/wiki/cleanup-sweep-hazards.md`.
+- **Fan-out OOM reproducers need four-dimension assertions** (peak RSS, commit count, concurrent-session count, wall-clock time). Single-dimension tests miss the interaction failure modes. Full strategy: `docs/wiki/oom-reproducer-strategy.md`.
 
 ## Review Sequencing
 
@@ -256,7 +268,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 - **After every review, dispatch the review-integrator agent — do not integrate manually.** EM reviews the integrator's escalation list, spot-checks the diff. Applies even to tiny edits with all-trivial findings.
 - Exceptions to full integration: items needing PM input or genuine disagreement.
 - **Cross-session reviews converge on one canonical artifact.** When superseding, dispatch integrator with loser's findings + winner-target.
-- **Parallel enrichment needs unified seam review.**
+- **Parallel enrichment needs unified seam review** — see `docs/wiki/parallel-enrichment-seam-review.md`.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
 
@@ -323,7 +335,7 @@ Default operating reality is multiple EM sessions sharing a working tree, not a 
 
 - **One branch per machine per day, always.** Active branch in the main checkout is **either** `work/{machine}/{YYYY-MM-DD}` (today's daily) **or** `main` (read-only, PR-only). No `feature/*`, no `hotfix/*`, no ad-hoc siblings. Park WIP by committing on the daily or `git stash push -u -m "<subject>"` *without* changing branches. Worktrees forbidden. Enforcement: `block-off-daily-branch.sh` PreToolUse (includes commit-time Check 6, consolidated from `validate-commit.sh` per Patrik F11). Override (logged): `COORDINATOR_OVERRIDE_BRANCH=1`. Use `/merge-to-main` or `/workday-complete` to integrate; never push to `main` directly. Full context: `docs/wiki/daily-branch-discipline.md`.
 - **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
-- **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `bin/coordinator-safe-commit "<subject>"`. `/session-start` and `/workday-complete` exempt via `--blanket`. Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`. Guide: `~/.claude/docs/wiki/scoped-safety-commits.md`.
+- **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `bin/coordinator-safe-commit "<subject>"`. `/session-start` and `/workday-complete` exempt via `--blanket`. Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`. Guide: `~/.claude/docs/wiki/scoped-safety-commits.md`. (failure mode: silent sibling-commit, not rebase-recoverable)
 - **Helper misidentified your session?** Fall back to explicit-path commit (`git reset && git add -- <paths> && git commit`), not the override — override would commit other sessions' files.
 - **`git commit --only -- <paths>` is unsafe under concurrent EMs.** It resets sibling sessions' staged work. Use `git add -- <paths>` then plain `git commit`.
 - **`git commit -- <pathspec>` silently drops `git rm --cached` removals.** Use `git add -- <paths> && git commit` (no pathspec on commit).
