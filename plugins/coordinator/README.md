@@ -27,7 +27,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `coordinator:plan` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
-- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik (architecture reviewer).
+- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
 - Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
 
@@ -42,7 +42,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
 - Backstop pattern — Zoli (ambition advocate) challenges conservative Patrik recommendations. Mandatory for high-effort reviews.
-- `requesting-code-review` skill + `docs/wiki/receiving-code-review.md` — Codified protocol for preparation, routing, and applying feedback.
+- `coordinator:review-code` skill (code reviews) + `coordinator:review` skill (plan reviews) + `docs/wiki/receiving-code-review.md` — Codified decision-tree skills for preparation, routing, and applying feedback.
 - Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
 
 ---
@@ -81,6 +81,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - Systematic debugging — see `docs/wiki/systematic-debugging.md`. Root-cause debugging process. Diagnose before proposing fixes. Feedback-loop-first framing across four phases.
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
 - `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
+- `/bug-blitz` — Autonomous bug-backlog grinder: verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items to handoffs; pair with `/bug-sweep` (which builds `tasks/bug-backlog.md`).
 - Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming done. Catches the "it should work" class of failures.
 - Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
@@ -101,7 +102,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (22)
+### Commands (23)
 
 | Command | Purpose |
 |---------|---------|
@@ -122,6 +123,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/architecture-rotation` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
+| `/bug-blitz` | Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`) |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
 | `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
@@ -143,7 +145,8 @@ Full component inventory for the record. The failure-mode sections above are the
 - Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
 
 **Code Review:**
-- `requesting-code-review` — Request review via `/review-dispatch`.
+- `coordinator:review-code` — Code reviews (diffs, PRs, post-implementation). Decision-tree skill: outgoing (pre-flight + dispatch) and incoming (triage + integrate).
+- `coordinator:review` — Plan reviews (sibling super-skill).
 - Receiving code review — see `docs/wiki/receiving-code-review.md`.
 
 **Git & Branching:**
@@ -162,6 +165,7 @@ Full component inventory for the record. The failure-mode sections above are the
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
 - `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
+- `bug-blitz` — Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`).
 - `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.
 
 ### Hooks
@@ -227,7 +231,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (Patrik (architecture reviewer), Zolí (ambition advocate / Patrik backstop), Sid (game-dev reviewer), Palí (frontend reviewer), Fru (UX flow reviewer), Camelia (data-science reviewer)) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (Patrik, Zolí, Sid, Palí, Fru, Camelia) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.

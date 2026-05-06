@@ -272,11 +272,9 @@ In all cases: commit completed waves, update backlog with current state, write a
 
 ## Surface Integration
 
-<!-- Review: Patrik F9 — discovery surfaces that should reference /bug-blitz. Marked TODO — do not implement in this pass; each requires its own session. -->
+`/bug-blitz` is wired into the discovery surfaces (smoke run 2026-05-06-22h42 follow-up):
 
-The following surfaces need updating to integrate `/bug-blitz` into the workflow. Each is a TODO for a follow-up session:
-
-- **TODO: `/session-start` advocacy** — when `tasks/bug-backlog.md` has ≥10 open items, `/session-start` should offer `/bug-blitz` as a backlog-grinding option alongside improvement-queue work.
-- **TODO: `/workday-start` nudge** — similar to `/session-start`; surface `/bug-blitz` when bug-backlog depth is high (≥10 open items).
-- **TODO: `/workweek-complete` Step 4 extension** — improvement-queue triage in Step 4 should also check `tasks/bug-backlog.md` depth, alongside the improvement queue.
-- **TODO: Coordinator README** — `/bug-blitz` should be listed alongside `/bug-sweep`, `/mise-en-place`, and the other autonomous execution commands.
+- **`/session-start`** — "work the backlog" framing advocates `/bug-blitz` when `tasks/bug-backlog.md` exists with ≥10 open P1+P2 items.
+- **`/workday-start`** — Step 1.55 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
+- **`/workweek-complete` Step 4** — bug-backlog depth check joins the improvement-queue triage gate; ≥10 open proposes a blitz, otherwise summarised.
+- **Coordinator README** — listed adjacent to `/bug-sweep` in the commands table, failure-modes section, and skills section.
