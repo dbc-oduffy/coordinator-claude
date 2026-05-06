@@ -8,13 +8,19 @@
 # Wired into /workday-complete Step 1 (validate phase). Run manually at any
 # time to surface stale or deleted overrides.
 #
-# Requirements: jq must be on PATH.
+# Requirements: jq OR node on PATH.
 set -e
-command -v jq >/dev/null 2>&1 || {
-  echo "ERROR: jq not on PATH — verify-ue-overrides.sh requires jq" >&2
-  echo "Install: choco install jq / scoop install jq / apt-get install jq" >&2
+if command -v jq >/dev/null 2>&1; then
+  read_key() { jq -r ".enabledPlugins[\"$2\"] // \"missing\"" "$1"; }
+elif command -v node >/dev/null 2>&1; then
+  read_key() {
+    node -e "const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(String((j.enabledPlugins||{})[process.argv[2]]??'missing'))" "$1" "$2"
+  }
+else
+  echo "ERROR: neither jq nor node on PATH — verify-ue-overrides.sh needs one" >&2
+  echo "Install: choco install jq / scoop install jq / apt-get install jq (or install node)" >&2
   exit 1
-}
+fi
 
 NAMED_DIRS="/x/DroneSim /x/project-rag /x/claude-unreal-holodeck $HOME/.claude"
 EXPECTED_KEYS=(
@@ -37,7 +43,7 @@ for dir in $NAMED_DIRS; do
     continue
   fi
   for key in "${EXPECTED_KEYS[@]}"; do
-    val=$(jq -r ".enabledPlugins[\"$key\"] // \"missing\"" "$SETTINGS")
+    val=$(read_key "$SETTINGS" "$key")
     if [[ "$val" != "true" ]]; then
       echo "WRONG: $SETTINGS [$key] = $val (expected true)" >&2
       FAIL=1

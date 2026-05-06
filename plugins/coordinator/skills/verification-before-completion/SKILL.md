@@ -1,6 +1,6 @@
 ---
 name: verification-before-completion
-description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
+description: "Use before claiming work complete, fixed, or passing — requires running verification commands and confirming output; evidence before assertions."
 version: 1.0.0
 ---
 
@@ -60,6 +60,21 @@ Skip any step = lying, not verifying
 - Thinking "just this once"
 - Tired and wanting work over
 - **ANY wording implying success without having run verification**
+
+## Tripwire phrases (warn-only)
+
+These are the recurring concrete instances of the categorical rules in Red Flags - STOP above. Each phrase, when it appears without adjacent evidence, is a tripwire — not a banned word.
+
+When you catch yourself (or a subagent's reply) using any of these, demand the missing evidence before accepting:
+
+- "Tests pass" — show the output
+- "Everything works" — name the verification path
+- "Implementation complete" — list exit-criteria with checks against each
+- "Probably works" / "Should work" — either it's verified or it isn't
+- "Builds clean" — show the build log
+- "No errors" — show the run trace
+
+These aren't bans on the words. They're tripwires: when the words appear without adjacent evidence, the claim is unsupported. The discipline is "evidence before assertions, always" — these phrases are common locations where that discipline lapses.
 
 ## Rationalization Prevention
 

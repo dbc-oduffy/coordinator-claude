@@ -1,6 +1,7 @@
 ---
 name: merging-to-main
 description: Use when work on a branch is ready to merge to main — drafts release notes, creates PR, waits for CI, merges, cleans up. Always emits release-notes (even for tiny merges) so downstream consumers can see what changed.
+description-budget: 225
 argument-hint: "[--force]"
 version: 1.1.0
 ---
@@ -398,4 +399,4 @@ If any output: include in the report and recommend: _"Multiple work branches in 
 - Invoked directly by PM/EM when ready to merge (no longer called by /workday-complete)
 
 **Pairs with:**
-- **coordinator:using-git-worktrees** — cleans up worktree after merge
+- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.
