@@ -82,7 +82,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
 - `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
 - Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming done. Catches the "it should work" class of failures.
-- `stuck-detection` skill — Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
+- Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
 
 ---
@@ -140,7 +140,7 @@ Full component inventory for the record. The failure-mode sections above are the
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced.
 - `systematic-debugging` — Root-cause debugging process.
 - Dispatching parallel agents — see `docs/wiki/dispatching-parallel-agents.md`. Dispatch independent tasks in parallel; concurrency budget + worktree doctrine.
-- `stuck-detection` — Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
+- Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
 
 **Code Review:**
 - `requesting-code-review` — Request review via `/review-dispatch`.
