@@ -333,14 +333,14 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 
 **"Plan reviewed and saved to `docs/plans/<filename>.md`. Two execution options:**
 
-**1. Executor-Driven (this session)** - I dispatch Executor agents per task via `/delegate-execution`, code review via `/review-dispatch` between tasks, fast iteration
+**1. Executor-Driven (this session)** - I dispatch Executor agents per task following `docs/wiki/delegate-execution.md`, code review via `/review-dispatch` between tasks, fast iteration
 
 **2. Parallel Session (separate)** - Open new session and run /execute-plan, batch execution with checkpoints
 
 **Which approach?"**
 
 **If Executor-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use `/delegate-execution` to dispatch Executor agents
+- **REQUIRED PROCEDURE:** Follow `docs/wiki/delegate-execution.md` to dispatch Executor agents
 - Stay in this session
 - Fresh Executor agent per task + code review via `/review-dispatch`
 

@@ -1,16 +1,24 @@
 ---
-name: receiving-code-review
-description: "Use when receiving code review feedback before implementing suggestions. Requires technical verification, not performative agreement."
-version: 1.0.0
+title: Receiving code review
+created: 2026-05-06
+type: doctrine
+related:
+  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator-claude/coordinator/snippets/reviewer-calibration.md
+  - plugins/coordinator-claude/coordinator/agents/review-integrator.md
+  - docs/wiki/docs-checker-pre-review.md
+  - docs/wiki/prior-art-checker.md
 ---
 
-# Code Review Reception
+# Receiving Code Review
 
 ## Overview
 
 Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
+
+The mechanical implementation lives in `snippets/reviewer-calibration.md` (synced into every reviewer prompt) and the review-integrator agent. This wiki carries the human-facing reception doctrine: how the EM (and the PM) treat review output.
 
 ## The Response Pattern
 
@@ -53,8 +61,8 @@ WHY: Items may be related. Partial understanding = wrong implementation.
 the PM: "Fix 1-6"
 You understand 1,2,3,6. Unclear on 4,5.
 
-❌ WRONG: Implement 1,2,3,6 now, ask about 4,5 later
-✅ RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceeding."
+WRONG: Implement 1,2,3,6 now, ask about 4,5 later
+RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceeding."
 ```
 
 ## Source-Specific Handling
@@ -117,7 +125,7 @@ IF conflicts with the PM's prior decisions:
   Stop and discuss with the PM first
 ```
 
-**the PM's rule:** "External feedback - be skeptical, but check carefully"
+**The PM's rule:** "External feedback - be skeptical, but check carefully"
 
 ## YAGNI Check for "Professional" Features
 
@@ -129,7 +137,7 @@ IF reviewer suggests "implementing properly":
   IF used: Then implement properly
 ```
 
-**the PM's rule:** "You and reviewer both report to me. If we don't need this feature, don't add it."
+**The PM's rule:** "You and reviewer both report to me. If we don't need this feature, don't add it."
 
 ## Implementation Order
 
@@ -166,15 +174,15 @@ Push back when:
 
 When feedback IS correct:
 ```
-✅ "Fixed. [Brief description of what changed]"
-✅ "Good catch - [specific issue]. Fixed in [location]."
-✅ [Just fix it and show in the code]
+"Fixed. [Brief description of what changed]"
+"Good catch - [specific issue]. Fixed in [location]."
+[Just fix it and show in the code]
 
-❌ "You're absolutely right!"
-❌ "Great point!"
-❌ "Thanks for catching that!"
-❌ "Thanks for [anything]"
-❌ ANY gratitude expression
+NOT: "You're absolutely right!"
+NOT: "Great point!"
+NOT: "Thanks for catching that!"
+NOT: "Thanks for [anything]"
+NOT: ANY gratitude expression
 ```
 
 **Why no thanks:** Actions speak. Just fix it. The code itself shows you heard the feedback.
@@ -185,12 +193,12 @@ When feedback IS correct:
 
 If you pushed back and were wrong:
 ```
-✅ "You were right - I checked [X] and it does [Y]. Implementing now."
-✅ "Verified this and you're correct. My initial understanding was wrong because [reason]. Fixing."
+"You were right - I checked [X] and it does [Y]. Implementing now."
+"Verified this and you're correct. My initial understanding was wrong because [reason]. Fixing."
 
-❌ Long apology
-❌ Defending why you pushed back
-❌ Over-explaining
+NOT: long apology
+NOT: defending why you pushed back
+NOT: over-explaining
 ```
 
 State the correction factually and move on.
@@ -212,26 +220,26 @@ State the correction factually and move on.
 **Performative Agreement (Bad):**
 ```
 Reviewer: "Remove legacy code"
-❌ "You're absolutely right! Let me remove that..."
+"You're absolutely right! Let me remove that..."
 ```
 
 **Technical Verification (Good):**
 ```
 Reviewer: "Remove legacy code"
-✅ "Checking... build target is 10.15+, this API needs 13+. Need legacy for backward compat. Current impl has wrong bundle ID - fix it or drop pre-13 support?"
+"Checking... build target is 10.15+, this API needs 13+. Need legacy for backward compat. Current impl has wrong bundle ID - fix it or drop pre-13 support?"
 ```
 
 **YAGNI (Good):**
 ```
 Reviewer: "Implement proper metrics tracking with database, date filters, CSV export"
-✅ "Grepped codebase - nothing calls this endpoint. Remove it (YAGNI)? Or is there usage I'm missing?"
+"Grepped codebase - nothing calls this endpoint. Remove it (YAGNI)? Or is there usage I'm missing?"
 ```
 
 **Unclear Item (Good):**
 ```
 the PM: "Fix items 1-6"
 You understand 1,2,3,6. Unclear on 4,5.
-✅ "Understand 1,2,3,6. Need clarification on 4 and 5 before implementing."
+"Understand 1,2,3,6. Need clarification on 4 and 5 before implementing."
 ```
 
 ## GitHub Thread Replies

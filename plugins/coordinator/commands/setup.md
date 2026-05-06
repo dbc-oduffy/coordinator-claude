@@ -204,6 +204,17 @@ Present a summary table:
 - `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
 ```
 
+### Plugin-bundled doctrine wikis
+
+After install, the coordinator plugin ships its operating doctrine as wiki guides at `<plugin-install-path>/docs/wiki/`. Skim a few to see how the EM operates:
+
+- `delegate-execution.md` — how the EM dispatches Sonnet executors against enriched specs.
+- `receiving-code-review.md` — how the EM processes review feedback (no performative agreement; triage tables; verify-then-implement).
+- `daily-branch-discipline.md` — one branch per machine per day, never branch off main mid-session.
+- `tiered-context-loading.md` — how the EM picks between Tier 1 (curated) ↔ Tier 4 (Sonnet scout) for codebase questions.
+
+These wikis are referenced from plugin files (CLAUDE.md, skills, commands) and travel with the plugin install — they update atomically with `claude plugin update coordinator`.
+
 If any **required** items are missing (git), note them prominently.
 If any **recommended** items are missing (Agent Teams, CLAUDE.md import), list concrete next steps.
 
