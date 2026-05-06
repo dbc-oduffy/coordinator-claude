@@ -1,5 +1,5 @@
 ---
-description: "Distill accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (docs/wiki/, docs/decisions/); trim + archive canonical specs to archive/specs/; delete scaffolding. Extract knowledge and preserve provenance before pruning — the pipeline that bridges artifact-consolidation and wiki maintenance."
+description: "Distill accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (docs/wiki/, docs/decisions/); trim + archive canonical specs to archive/specs/; delete scaffolding. Extract knowledge and preserve provenance before pruning — runs upstream of /update-docs Phase 8b raw artifact pruning."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--dry-run] [--no-delete] [path]"
 ---
@@ -22,7 +22,7 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 
 **Announce at start:** "I'm running `/distill` to extract knowledge from [N artifacts / artifacts in path] into wiki documents."
 
-**For bulk pruning without knowledge extraction, use `coordinator:artifact-consolidation` instead.**
+**For bulk pruning without knowledge extraction:** that lives in `/update-docs` Phase 8b (`pipelines/update-docs/artifact-pruning.md`) — runs unconditionally on every `/update-docs` invocation under conservative thresholds. `/distill` extracts knowledge into wiki *before* the source material gets pruned. Use `/distill` when you want the knowledge before discarding the source; rely on `/update-docs` Phase 8b for the raw cleanup.
 
 ---
 
@@ -188,6 +188,10 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 - Intra-spec references inside the archived spec itself pointing to sibling stubs that were just deleted (second pass on the trimmed spec after archival)
 
 **Tooling:** `ripgrep --multiline --multiline-dotall` covering file types `md, json, yaml, yml, ps1, sh, py, ts, js, txt`. Scan: `.claude/`, `tasks/`, `docs/`, `archive/`, plugin dirs, repo root configs.
+
+**Pre-deletion active-reference check.** Before `rm -rf` any `tasks/<dir>/`, grep references first; shipped-status alone does not mean unreferenced. Halt deletion on any live cite.
+
+**Anchor the link-heal regex around path boundaries.** Sed-style rewrites over-rewrite `original_path:` and other frontmatter fields where the literal old path is semantically correct; anchor the pattern or restore frontmatter post-sweep.
 <!-- Review: Patrik R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
 
 **Heal-log:** Under a `## Manual Review` section in `tasks/distillation-log.md`, write EVERY unmatched-but-suspicious hit — anything containing `docs/plans/`, `tasks/<feature>/stubs/`, or the deleted-path basenames — for EM eyeball. The EM reviews the Manual Review section before declaring the run complete.
@@ -236,6 +240,8 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 | Command | When to use |
 |---------|-------------|
 | `/distill` | Extract knowledge into wiki docs, trim + archive canonical specs, delete scaffolding |
-| `coordinator:artifact-consolidation` | Bulk prune without knowledge extraction — count, classify, delete |
+| `/update-docs` Phase 8b | Bulk prune without knowledge extraction — runs unconditionally under conservative thresholds (`pipelines/update-docs/artifact-pruning.md`) |
 
-`artifact-consolidation` remains available for repos that want to clean up without wiki investment. `/distill` supersedes it for the distill-then-delete workflow.
+The two are complementary: `/distill` extracts knowledge into wiki *before* source material is discarded; `/update-docs` Phase 8b performs the raw cleanup. Run `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk pruning.
+
+_Update 2026-05-06:_ The standalone `coordinator:artifact-consolidation` skill was absorbed into `/update-docs` Phase 8b. Existing references should point at `pipelines/update-docs/artifact-pruning.md`.

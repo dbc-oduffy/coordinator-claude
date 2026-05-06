@@ -185,6 +185,12 @@ Only update CLAUDE.md if:
 
 Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/handoff-archival.md` and follow all steps exactly.
 
+#### Phase 8b: Prune Accumulated Artifacts
+
+Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the pipeline only deletes when accumulated artifacts cross the threshold lines documented there. The safety commit it takes makes any deletion `git revert`-able as a single operation.
+
+This phase replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06). `/distill` continues to handle distill-then-delete (extract knowledge into wiki before deleting source) and runs upstream of this phase conceptually.
+
 #### Phase 9: Commit + Verify Remote
 
 1. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "docs maintenance"`
@@ -257,7 +263,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 #### Phase 11b: Snippet Sync Check
 
-Run every snippet-sync verifier across all installed plugins. The glob covers current verifiers (preamble, calibration, docs-checker, text-only, default-routing) and any future ones added under the same `bin/verify-*-sync.sh` convention.
+Run every snippet-sync verifier across all installed plugins. The glob covers current verifiers (preamble, calibration, docs-checker, prior-art, text-only, default-routing) and any future ones added under the same `bin/verify-*-sync.sh` convention.
 
 ```bash
 set +e
@@ -275,6 +281,20 @@ exit $fail
 **If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. The EM should investigate which consumer drifted from its canonical snippet. Example escalation: *"Snippet sync check failed in `verify-default-routing-sync.sh` — one or more consumers drifted from `snippets/default-routing.md`. Diff attached. Which file was intentionally changed?"*
 
 **If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
+
+#### Phase 11g: Plugin-bundled wiki sync
+
+Mirror dev-side wiki files cited from plugin files into the plugin-bundled `docs/wiki/` so marketplace consumers can resolve them. Source-of-truth is `~/.claude/docs/wiki/`; sync target is `plugins/coordinator-claude/coordinator/docs/wiki/`. Wiki names are auto-discovered by grepping plugin files for `docs/wiki/<name>.md` references.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/sync-plugin-wiki.sh
+```
+
+**If the script reports synced files:** include the updated/created files under `plugins/coordinator-claude/coordinator/docs/wiki/` in the Phase 9 commit. Log in the Phase 13 report: "Plugin-bundled wiki: N file(s) synced."
+
+**If the script reports WARN:** a wiki name is referenced by a plugin file but absent from dev-side. Doc-link health (Phase 11e via `doc-link-checker`) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+
+**Doctrine:** plugin-doctrine wikis live inside the plugin (`<plugin-root>/docs/wiki/`); see `coordinator/CLAUDE.md` § Documentation and Knowledge System → Plugin-bundled wikis. The `/distill` and demote-to-wiki workflows MUST place plugin-doctrine wiki bodies in the dev-side authoring tree (`~/.claude/docs/wiki/`); this phase mirrors them downstream.
 
 #### Phase 11c: Query Callout Refresh
 
@@ -417,6 +437,9 @@ Present a concise summary:
 
 ### Handoffs Archived
 - [N moved from tasks/handoffs/ → archive/handoffs/ / No handoffs to clean up]
+
+### Artifact Pruning (Phase 8b)
+- [Pruned N plans, M archived handoffs, K task dirs (safety commit <sha>) / Nothing crossed threshold — no-op]
 
 ### Plugin Doc-Link Health
 - [Clean / N broken, M anchor-missing — see <report-path> / Skipped — N external URLs over 100-cap]
