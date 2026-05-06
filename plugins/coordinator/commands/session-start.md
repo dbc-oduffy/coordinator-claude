@@ -229,7 +229,8 @@ Choose work and load task-specific context.
 3. **Reviewing code** — Code review of recent changes
 4. **Research / exploration** — No ceremony, just start
 5. **Maintenance** — Daily health check, weekly audit, or debt triage
-6. **Other** — Something else (describe it)
+6. **Work the backlog** — Improvement queues, deferred items, recurring lessons. Central queue: `~/.claude/tasks/coordinator-improvement-queue.md`; local queue: `tasks/improvement-queue.md`. Surface current depth when framing this option (e.g., "Central: 17 entries, 3 with recurring ≥ 3. Local: 2 entries. Want to tackle some of these?").
+7. **Other** — Something else (describe it)
 
 If `$ARGUMENTS` is provided, use it to identify the task directly and skip the menu.
 

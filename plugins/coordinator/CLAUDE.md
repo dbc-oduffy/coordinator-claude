@@ -29,7 +29,7 @@ Delegated agents (enrichers, reviewers, executors) have narrower scope and may s
 
 **Spec backlinks outlive their cited spec.** Plans cited in code (`docs/plans/...`) often get consolidated/archived. Confirm the file exists at the cited path before quoting as authority; check `archive/` for the successor.
 
-**Investigation funnel rules.** Build error stream is the contract (compat docs under-report drift 2-3×). Premise-pass before research when a plan reverses a prior decision. Grep every writer of a path before codifying its role. Runtime contract change → grep every assertion before declaring done.
+**Investigation funnel rules.** Build error stream is the contract (compat docs under-report drift 2-3×). Grep every writer of a path before codifying its role. Runtime contract change → grep every assertion before declaring done.
 
 ### Verifying Handoff Premises
 
@@ -55,7 +55,7 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
 
-**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `text-only-recovery-preamble`.
+**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `text-only-recovery-preamble`, `default-routing`. default-routing consumers: ue-asset-author, ue-cinematic-animator, ue-gameplay-engineer, ue-infra-engineer, ue-virtual-production, ue-world-builder, ue-project-orchestrator (7 files in holodeck-control/agents/), ue-editor-control (1 file in holodeck-control/skills/).
 
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
@@ -63,7 +63,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 - **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place` and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
-- **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded.
+- **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded. Implementation: `coordinator:parallel-code-review` (`skills/parallel-code-review/SKILL.md`); plan: `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`. Surface: `/workweek-complete` Step 7 (NOT `/merge-to-main`, NOT `/workday-complete`).
+- **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no skill/agent/hook reads programmatically. Adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 - **Daily-branch discipline:** four contact-points must stay in sync:
   - (a) **Hook:** `hooks/scripts/block-off-daily-branch.sh` — PreToolUse Bash hook; blocks create/switch/rename/stash-branch/worktree-add/commit. Shared lib: `lib/coordinator-daily-branch.sh`. Override: `COORDINATOR_OVERRIDE_BRANCH=1` (logs session + command + reason).
   - (b) **Check 6 location:** commit-time discipline is in `block-off-daily-branch.sh` (`commit` arm). Removed from `validate-commit.sh` (Patrik F11). `validate-commit.sh` Checks 1-5 remain for commit-content validation.
@@ -80,23 +81,19 @@ A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the b
 
 On apparent infrastructure noise (false billing/auth gate, transient flake) after partial work, `SendMessage` the closed agent before re-dispatching — the runtime resumes from transcript and preserves analysis context.
 
-## Scouts That Produce File Output — Mandatory DONE-After-Write
+## Scouts and Disk-First Verification
 
-When a scout's deliverable is a file on disk, the dispatch prompt MUST end with:
+When a scout's deliverable is a file on disk (not a chat reply), the dispatch prompt MUST end with:
 
 > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 
-Verify the file exists before acting on it. If missing, recover via `SendMessage` (preserves analysis) — do not redispatch from scratch. **Exception:** `Explore` is read-only and cannot Write; the EM persists its output. Use `general-purpose` when on-disk delivery is required.
+**Disk is the only reliable signal.** ~30% of Haiku and ~10% of Sonnet dispatches under heavy parallel load hallucinate a "TEXT ONLY — tool calls will be REJECTED" constraint and dump deliverables inline. The constraint does not exist. Poll files, not chat; verify with `ls`/size before accepting `DONE`.
 
-## Verifying Scout Deliverables
-
-- **Write fallback (Sonnet permission errors):** `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
-- **Size threshold:** A 1-2KB file where order-of-magnitude larger was expected = summary masquerading as deliverable; treat as failure.
-- **Verify the worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`) produce inline-summary failures that look like TEXT-ONLY hallucination but aren't — accept inline + persist EM-side, or escalate to `general-purpose`.
-
-### "TEXT ONLY" Hallucination — Disk-First Verification
-
-Under heavy parallel load, dispatched agents (Haiku more than Sonnet) hallucinate a non-existent "TEXT ONLY — tool calls will be REJECTED" constraint and dump deliverables inline. **Disk is the only reliable signal** — poll files, not chat; verify with `ls`/size before accepting `DONE`. On failure, re-dispatch with the recovery preamble (`snippets/text-only-recovery-preamble.md`). For >5 parallel on-disk fan-outs, inline the preamble in the original dispatch prompt — dispatch-prompt-only has empirically failed.
+- **Recovery:** on confirmed failure, re-dispatch with the recovery preamble (`snippets/text-only-recovery-preamble.md`); for >5 parallel on-disk-deliverable fan-outs, inline the preamble in the original dispatch prompt — dispatch-prompt-only has empirically failed.
+- **Resume vs. redispatch:** if the scout returned partial work or hit a transient error, `SendMessage` the closed agent — the runtime resumes from transcript and preserves analysis context. Never redispatch from scratch over partial work — that pattern empirically loses analysis context and reproduces the original failure.
+- **Write fallback (Sonnet permission errors):** Fall back to `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
+- **Size threshold:** A 1–2KB file where the brief expected an order-of-magnitude larger artifact = summary masquerading as deliverable; treat as failure.
+- **Verify the worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`) produce inline-summary "failures" that look like TEXT-ONLY hallucination but aren't — accept inline and persist EM-side, or escalate to `general-purpose` Sonnet. Note: `Explore` is read-only and cannot Write; the EM persists Explore output.
 
 ## Subagent Dispatch
 
@@ -152,7 +149,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 ## Self-Improvement Loop
 
 - `tasks/lessons.md` records patterns the workflow keeps hitting. Bold title + 1-2 sentence rule, max 3 lines per entry.
-- **Lessons are change-requests, not file-bloat.** Each entry routes to a doctrine edit, agent prompt edit, hook/script edit, wiki guide, structural change, retag, or discard. Process via `coordinator:lesson-triage`.
+- **Lessons are change-requests, not file-bloat.** Each entry routes to a doctrine edit, agent prompt edit, hook/script edit, wiki guide, structural change, retag, or discard. Process via `coordinator:learn-lessons`.
 - **Null-result audits fold the rule into the producer skill,** not just the audit report.
 - **External-review proposals: cumulative-effect + duplication audit before adopting any individual recommendation.**
 - **Codify a stable pattern before running new instances under it.**
@@ -160,13 +157,31 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 
 ### Triage cadence
 
-`coordinator:lesson-triage` is the unified surface (replaces `lessons-trim`; alias retained until 2026-05-26).
+`coordinator:learn-lessons` is the unified surface (renamed from `lesson-triage` 2026-05-06; no alias shim).
 
-- **Project-local mode** runs in `/update-docs` Phase 6 (auto-applies dedupe/wiki-append/retag/discard within bounds; surfaces structural changes).
-- **Cross-project mode** is PM-invoked from `~/.claude` central, ~21-day cadence; produces a routing manifest grouped by destination repo + change_kind.
-- **Recheck mode** fires from `tasks/lesson-triage-recheck-due-*.md` markers via `/workday-start`.
+- **`local` mode** runs in `/update-docs` Phase 6 (auto-applies discard/wiki-append/retag/dedupe within bounds; surfaces structural changes to PM).
+- **`central` mode** is PM-invoked from `~/.claude` central, ~21-day cadence; produces a routing manifest + review doc grouped by destination repo + change_kind.
+- **`recheck` mode** fires from `tasks/lesson-triage-recheck-due-*.md` markers via `/workday-start`.
 
-Change-kind taxonomy (closed enum) lives in `plugins/coordinator-claude/coordinator/skills/lesson-triage/SKILL.md`.
+Change-kind taxonomy (closed enum) lives in `plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md`.
+
+### Improvement Queue
+
+Two-tier improvement queue for actionable lessons:
+
+- **Central:** `~/.claude/tasks/coordinator-improvement-queue.md` — universal patterns worth promoting into coordinator doctrine.
+- **Per-project:** `tasks/improvement-queue.md` — project-structural items (wiki entries, hook bugs, agent prompt edits, scaffolding refactors). Created lazily by `learn-lessons` on first local-mode run (create-if-absent; never overwrite).
+
+**Schema** (both queues share):
+```
+- YYYY-MM-DD | <source-repo or self> | <source-file>:<line> | <one-line lesson> | proposed target: <target>
+  recurring: 0
+  resolution: pending | in_progress | resolved YYYY-MM-DD <commit>
+```
+
+**Surfacing:** The queue is part of the backlog. `/session-start` offers "work the backlog" with queue depth informing the framing. `/workday-start` lets the EM advocate "queue is deep — want to clear some today?" when warranted (judgment, not threshold). `/workweek-complete` Step 4 is the weekly triage gate.
+
+**Recurrence pressure:** When `learn-lessons` increments a `recurring:` counter, it reports the affected items at end of run. When `recurring: ≥3` AND `resolution: pending`, the item surfaces in the `/workweek-complete` Step 4 triage regardless of age.
 
 ### Capturing Lessons That Should Promote
 
@@ -174,9 +189,11 @@ Classify by routing-schema `scope`: **universal** / **project** / **wiki-only**.
 
 ```
 - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
+  recurring: 0
+  resolution: pending
 ```
 
-Test: "If a different project type also used the coordinator pipeline, would this rule apply?" `/workday-complete` emits a depth nudge (≥5 entries → notice, no action); `/workweek-complete` Step 4 triggers triage action.
+Test: "If a different project type also used the coordinator pipeline, would this rule apply?" `/workday-complete` emits a depth nudge (≥5 entries → notice, no action); `/workweek-complete` Step 4 triggers triage action (including for entries with `recurring: ≥3` AND `resolution: pending`).
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
@@ -232,6 +249,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 ## Review Sequencing
 
 - **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.
+- **Exception — merge-gate code review on frozen diff:** When all of (a) the artifact is a frozen diff at a merge boundary, (b) all reviewers are orthogonal lenses (no shared lens-overlap), and (c) a synthesizer with strict no-rewrite contract assesses the combined output, reviewers MAY run in parallel. The convergence guarantee replaces the sequential cross-pollination guarantee. Plan/stub/doc review remains sequential.
 - **After every review, dispatch the review-integrator agent — do not integrate manually.** EM reviews the integrator's escalation list, spot-checks the diff. Applies even to tiny edits with all-trivial findings.
 - Exceptions to full integration: items needing PM input or genuine disagreement.
 - **Cross-session reviews converge on one canonical artifact.** When superseding, dispatch integrator with loser's findings + winner-target.
@@ -249,31 +267,28 @@ Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line
 
 ## Challenging the PM
 
-A real EM doesn't blindly execute PM requests. Push back when unclear, risky, wasteful, or misaligned — silent compliance into a bad outcome is the failure mode.
+EM owns implementation discretion; PM owns product authority. **When in doubt: implementation discretion → EM acts. Product authority → EM asks.** A real EM doesn't blindly execute PM requests — the three subsections below are facets of that one rule.
 
-**Trigger pushback when:** the work doesn't serve the stated objective; the change is materially larger than the PM likely realizes; the request hides a product decision inside an implementation request; a cheaper experiment would answer the question; scope is expanding without re-scoping; acceptance criteria are missing or unverifiable; PM is asking to ship despite insufficient evidence; the request is probably a workaround for a deeper problem.
+### Push back when
 
-**Format:** *"I think we should X because Y — want me to proceed?"* beats *"should I do X or Z?"*
+A real EM doesn't blindly execute PM requests. Push back when the work doesn't serve the stated objective; the change is materially larger than the PM likely realizes; the request hides a product decision inside an implementation request; a cheaper experiment would answer the question; scope is expanding or acceptance criteria are missing/unverifiable; the PM is asking to ship despite insufficient evidence; or the request is probably a workaround for a deeper problem.
 
-## PM Escalation Triggers — Ask vs. Don't Ask
+**Format:** state the recommendation with reasoning. *"I think we should X because Y — want me to proceed?"* beats *"should I do X or Z?"*
 
-EM owns implementation discretion. PM owns product authority.
+### Ask the PM when (escalation triggers)
 
-**Ask the PM when:** user-facing behavior changes materially; acceptance criteria conflict; implementation requires a product policy call (privacy/retention/permission defaults); multiple viable UX paths exist and the choice isn't mechanical; a shortcut creates visible product debt; scope expands beyond approved; a change crosses security/privacy/compliance boundary; a shipping-relevant claim can't be verified in-session; a change affects pricing/permissions/onboarding/retention/customer trust; the task appears to conflict with stated objective.
+User-facing behavior changes materially; acceptance criteria conflict; implementation requires a product policy call (privacy/retention/permission defaults); multiple viable UX paths exist and the choice isn't mechanical; a shortcut creates visible product debt; a change crosses security/privacy/compliance boundary; a shipping-relevant claim can't be verified in-session; a change affects pricing/permissions/onboarding/retention/customer trust.
 
 **Don't ask for:** routine implementation choices, internal refactors within scope, naming/formatting/organization, tool choice (unless cost/risk/timeline shifts), tradeoff-free reviewer fixes (apply via integrator), whether to dispatch a reviewer, whether to commit/branch/stash.
 
-When in doubt: implementation discretion → EM acts. Product authority → EM asks.
-
-## Reviewer Findings — Apply, Don't Ratify
+### Reviewer findings — apply, don't ratify
 
 Tradeoff-free correctness fixes (wrong API name, wrong precedence, factual error, missing import) fold in silently via the integrator. Surface to PM ONLY when there's a real tradeoff (cost vs. value, scope vs. polish, architectural direction). Asking on pure quality fixes is hedging dressed as consultation.
 
-**Exception — math, algebra, precedence:** Single-agent symbolic-reasoning findings require verification before applying.
+- **Exception — math, algebra, precedence:** Single-agent symbolic-reasoning findings require verification before applying.
+- **Known blindspot — reserved-word identifier collisions in PRAGMA/DDL:** reviewers + dry-runs miss these; double-quote runtime-supplied identifiers as a default.
 
-**Known blindspot — reserved-word identifier collisions in PRAGMA/DDL.** Reviewers + dry-runs miss these; double-quote runtime-supplied identifiers as a default.
-
-Mechanical implementation lives in `snippets/reviewer-calibration.md` (Confidence Calibration + Fix Classification blocks synced into every reviewer). Integrator routes by score+classification without EM involvement for clear-cut fixes.
+Mechanical implementation lives in `snippets/reviewer-calibration.md` (the `## Confidence Calibration` + `## Fix Classification` blocks synced into every reviewer prompt). Integrator routes by score+classification without EM involvement for clear-cut fixes.
 
 ## Pre-Review Mechanical Verification
 
@@ -322,7 +337,7 @@ Default operating reality is multiple EM sessions sharing a working tree, not a 
 
 Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises from existing handoffs and `/daily-review` — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
 
-Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, Codex review, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, move to Processed).
+Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, move to Processed).
 
 ## Core Principles
 
