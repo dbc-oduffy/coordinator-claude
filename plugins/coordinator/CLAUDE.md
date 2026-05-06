@@ -55,7 +55,7 @@ Subagents see only their dispatch prompt — project and global CLAUDE.md are in
 
 Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
 
-**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `text-only-recovery-preamble`, `default-routing`. default-routing consumers: ue-asset-author, ue-cinematic-animator, ue-gameplay-engineer, ue-infra-engineer, ue-virtual-production, ue-world-builder, ue-project-orchestrator (7 files in holodeck-control/agents/), ue-editor-control (1 file in holodeck-control/skills/).
+**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`. default-routing consumers: ue-asset-author, ue-cinematic-animator, ue-gameplay-engineer, ue-infra-engineer, ue-virtual-production, ue-world-builder, ue-project-orchestrator (7 files in holodeck-control/agents/), ue-editor-control (1 file in holodeck-control/skills/).
 
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
@@ -64,6 +64,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place` and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
 - **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded. Implementation: `coordinator:parallel-code-review` (`skills/parallel-code-review/SKILL.md`); plan: `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`. Surface: `/workweek-complete` Step 7 (NOT `/merge-to-main`, NOT `/workday-complete`).
+- **Prior-art-checker pre-flight:** Sonnet recall agent that cross-references a plan against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Output is a sidecar at `<plan-path>.prior-art-check.md` with Conflicts / Compatible-but-relevant / Silent buckets. Implementation: `agents/prior-art-checker.md`; consumption snippet: `snippets/prior-art-check-consumption.md` (synced via `bin/verify-prior-art-sync.sh` to the same 5 Opus reviewers as docs-checker). Surface: `commands/review-dispatch.md` Phase 2.7b. Doctrine: `docs/wiki/prior-art-checker.md`. The agent makes captured wikis worth writing — without recall, capture decays.
 - **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no skill/agent/hook reads programmatically. Adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 - **Daily-branch discipline:** four contact-points must stay in sync:
   - (a) **Hook:** `hooks/scripts/block-off-daily-branch.sh` — PreToolUse Bash hook; blocks create/switch/rename/stash-branch/worktree-add/commit. Shared lib: `lib/coordinator-daily-branch.sh`. Override: `COORDINATOR_OVERRIDE_BRANCH=1` (logs session + command + reason).
@@ -224,6 +225,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 **CLAUDE.md is a link index, not a content store.** Entry-point docs (CLAUDE.md, `docs/README.md`, plugin READMEs) load into every session — chars cost more there. When a section grows past a one-paragraph summary, extract to wiki/decision/plan and link. "Inline so it can be grepped" is an anti-pattern; greppability lives in the linked page.
 
+**Plugin-bundled wikis.** When a plugin (coordinator, deep-research, holodeck-control, etc.) cites a wiki guide from one of its own files (CLAUDE.md, skills, commands, agents, snippets), the wiki MUST live inside the plugin at `<plugin-root>/docs/wiki/<name>.md`. Plugin-internal references use `docs/wiki/<name>.md` interpreted **relative to the plugin root** — the path inside the plugin install. Project-level wikis (codebase atlas, project-tracker context, codebase-specific patterns) stay in the consumer's `~/.claude/docs/wiki/` and are not cited from plugin files. The plugin-bundled wiki travels with the plugin install so marketplace consumers see what plugin files reference; consumer-side `~/.claude/docs/wiki/` is project-local authoring. Demote pattern (delete the command/skill body, point at the wiki) MUST place the new wiki under the plugin's bundled `docs/wiki/`, not the consumer's. Sync from dev-side authoring tree → plugin-bundled tree happens via `bin/sync-plugin-wiki.sh` during `/update-docs`.
+
 ## Verification Before Done
 
 Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. Verify agent output before proceeding (empty results, truncation, format).
@@ -292,7 +295,12 @@ Mechanical implementation lives in `snippets/reviewer-calibration.md` (the `## C
 
 ## Pre-Review Mechanical Verification
 
-Before dispatching an Opus reviewer, the EM may run `docs-checker` (Sonnet) as pre-flight. AUTO-FIX authority for low-judgment corrections, sidecar-logged, surfaced to the Opus reviewer's dispatch prompt. Full doctrine: `docs/wiki/docs-checker-pre-review.md`.
+Before dispatching an Opus reviewer, the EM may run two Sonnet pre-flights:
+
+- **`docs-checker`** — verifies external API claims against authoritative sources (Context7, LSP, project-RAG). AUTO-FIX authority for low-judgment corrections, sidecar-logged, surfaced to the Opus reviewer's dispatch prompt. Full doctrine: `docs/wiki/docs-checker-pre-review.md`.
+- **`prior-art-checker`** — cross-references plan claims against the coordinator's accumulated prior art (project wikis, global wikis, `tasks/lessons.md`, central improvement queue). REPORT-ONLY (no auto-fix); emits a sidecar with three buckets — Conflicts, Compatible-but-relevant, Silent — and a verdict. EM dispositions conflicts before dispatching the Opus reviewer; BLOCKED-SURFACE-TO-PM verdicts halt review pending PM call. Full doctrine: `docs/wiki/prior-art-checker.md`.
+
+The two pre-flights answer different questions: `docs-checker` asks "are the external API claims factually correct?"; `prior-art-checker` asks "have we already established something relevant about this?" Both can run on the same artifact; they are not substitutes. Together they discharge mechanical verification so Opus reviewers focus on architecture.
 
 ## Convergence as Confidence
 
