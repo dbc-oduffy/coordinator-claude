@@ -14,7 +14,7 @@ Use `/review-dispatch` to route to named reviewers (Patrik, Palí, Sid, Camelia,
 
 **Mandatory:**
 <!-- Review: Patrik — ghost reference to deleted workflow -->
-- After each task in /delegate-execution workflow
+- After each task in the executor-dispatch workflow (`docs/wiki/delegate-execution.md`)
 - After completing major feature
 - Before merge to main
 
@@ -97,6 +97,8 @@ You: [Fix progress indicators]
 - Review when stuck
 
 ## Matching Review Tier to Plan Complexity
+
+**For PLAN reviews, this table now lives at `coordinator:review` (Branch A.2). The table below is preserved for the future `coordinator:review-code` super-skill (code-review tier matching).**
 
 **Match review tier to plan complexity, not plan importance.**
 

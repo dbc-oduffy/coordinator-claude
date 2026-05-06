@@ -212,7 +212,7 @@ Before staging any executor output: (1) run `git diff --stat` to enumerate chang
 
 Out-of-scope edits are common failure modes: test file deletions, unrelated refactors, autonomous commits the executor made despite instructions. The check is mechanical and must happen before the coordinator reads the diff semantically.
 
-See `commands/delegate-execution.md` → "Scope-Conformance Check" for the dispatch-prompt clause that enforces this on the executor side.
+See `docs/wiki/delegate-execution.md` → "Scope-Conformance Check" for the dispatch-prompt clause that enforces this on the executor side.
 
 ## Definition of Done (acceptance gate before declaring completion)
 

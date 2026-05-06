@@ -190,7 +190,7 @@ git worktree remove <worktree-path>
 
 **Called by:**
 <!-- Review: Patrik — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
-- **/delegate-execution** — After all tasks complete
+- **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
