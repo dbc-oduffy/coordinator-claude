@@ -25,7 +25,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 
 **Addressed by:**
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
-- `writing-plans` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
+- `coordinator:plan` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
 - Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
@@ -131,7 +131,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
-- `writing-plans` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
+- `coordinator:plan` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
 - `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers the executor-dispatch procedure (`docs/wiki/delegate-execution.md`) in coordinator sessions.
 - Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming it's done.
 - `deep-research` — Multi-source investigation of repos or topics.
@@ -162,7 +162,6 @@ Full component inventory for the record. The failure-mode sections above are the
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
 - `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
-- `artifact-consolidation` — Bulk prune accumulated artifacts without knowledge extraction. For distill-then-delete, use `/distill` instead.
 - `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.
 
 ### Hooks
@@ -221,7 +220,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 - **`/distill` command:** New 6-phase pipeline that extracts knowledge from accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (`docs/wiki/`, `docs/decisions/`), then deletes the source material. Haiku scans → Haiku QG → Sonnet synthesis → Opus assembly → PM approval → apply+delete.
 - **`/update-docs` chaining:** Phase 12 added — auto-fires `/distill` when artifact count ≥50 or last distillation >14 days ago. PM gate in `/distill` Phase 4 provides the approval checkpoint. `--no-distill` flag to skip.
 - **Mise-en-place guard:** Hibernate mode passes `--no-distill` to avoid blocking on PM approval overnight.
-- **`artifact-consolidation` relationship:** Consolidation remains for bulk pruning without extraction. `/distill` supersedes it for the distill-then-delete workflow.
+- **`artifact-consolidation` relationship:** Bulk pruning without extraction. `/distill` supersedes it for the distill-then-delete workflow. _(Update 2026-05-06: `artifact-consolidation` skill was absorbed into `/update-docs` Phase 8b. `/distill` continues to handle distill-then-delete; raw bulk pruning now runs unconditionally in every `/update-docs` invocation under conservative thresholds.)_
 
 ### v1.3.0 (March 2026) — Squad Expansion
 
