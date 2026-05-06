@@ -1,18 +1,18 @@
 ---
-description: Dispatch enriched stubs to executor agents
-allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
-argument-hint: "[stub-ids|directory-path|'all']"
+title: /delegate-execution procedure
+created: 2026-05-06
+type: doctrine
+related:
+  - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
+  - plugins/coordinator-claude/coordinator/agents/executor.md
+  - plugins/coordinator-claude/coordinator/skills/dispatching-parallel-agents/SKILL.md
+  - plugins/coordinator-claude/coordinator/commands/review-dispatch.md
+  - plugins/coordinator-claude/coordinator/commands/enrich-and-review.md
 ---
 
-# Delegate Execution — Dispatch Enriched Stubs to Executor Agents
+# /delegate-execution — Dispatch Enriched Stubs to Executor Agents
 
-Hand enriched, reviewed stub specifications to executor agents for implementation, selecting the appropriate model (Sonnet or Opus) based on stub complexity.
-
-<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time. Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're investigating — not a different project on the same machine. If your target codebase doesn't have a project-rag index (no `Saved/ProjectRag/` marker at its root, no `--project-root` argument pointing at it in the MCP config), skip this preamble entirely and use grep/Explore.
-
-**If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
-<!-- END project-rag-preamble -->
+Hand enriched, reviewed stub specifications to executor agents for implementation, selecting the appropriate model (Sonnet or Opus) based on stub complexity. The slash-command `/delegate-execution` exists as a thin entry-point; this wiki carries the enforceable procedure.
 
 ## Instructions
 
@@ -251,7 +251,7 @@ Before staging any executor output:
 
 > Modify ONLY the files listed in scope. Do not commit. Do not delete or modify tests unless explicitly listed.
 
-See `skills/verification-before-completion/SKILL.md` → "Scope-Conformance Check After Executor Returns" for the coordinator-side mechanical check.
+See `docs/wiki/verification-before-completion.md` (or the active equivalent) → "Scope-Conformance Check After Executor Returns" for the coordinator-side mechanical check.
 
 ### Phase 4: Final Verification
 

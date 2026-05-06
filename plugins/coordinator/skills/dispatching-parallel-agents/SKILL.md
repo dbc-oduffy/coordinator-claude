@@ -41,7 +41,7 @@ This applies to:
 - Enricher agents (10-15 min each)
 - Executor agents (5-15 min each)
 - Research scouts and verifiers (Haiku/Sonnet phases within pipelines)
-- Top-level orchestrator agents (structured-research, architecture-audit)
+- Top-level orchestrator agents (research --mode=structured, architecture-audit)
 - Code health reviewers
 
 **Exceptions** (keep foreground):
@@ -75,6 +75,8 @@ digraph when_to_use {
 - Multiple subsystems broken independently
 - Each problem can be understood without context from others
 - No shared state between investigations
+- Mechanical drift cleanup across many single-file edits — narrow per-file briefs run ~5x faster than serial.
+- Surgical follow-ups to a novel cluster — full ceremony on the novel item, direct dispatch on the rest with explicit file-scope partitioning.
 
 **Don't use when:**
 - Failures are related (fix one might fix others)
@@ -89,7 +91,7 @@ digraph when_to_use {
 - **Disjoint file sets → parallel, same worktree.** Agents write to different files; the filesystem is the coordination mechanism. No merge ceremony needed.
 - **Overlapping files → sequential, same worktree.** Run agents one after another so each sees the previous agent's changes. This is almost always cheaper than worktree creation + merge conflict resolution at agent execution speed.
 - **Overlapping files with different insertion points** (e.g., appending to different sections of the same file) → still sequential. "Theoretically non-conflicting" edits in the same file are fragile; sequential execution eliminates the risk for negligible time cost.
-- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → use worktrees via `coordinator:using-git-worktrees`.
+- **True branch isolation needed** (different base branches, separate PRs, long-lived parallel features) → worktrees are forbidden; use sequential execution on the daily branch instead.
 
 **Why not worktrees by default?** Worktrees solve a human-scale problem: needing days of isolation on parallel features. At agent execution speed, the merge overhead (branch creation, conflict resolution, integration verification) exceeds the time saved by parallelism. Sequential execution on overlapping files is almost always the cheaper path.
 
@@ -172,6 +174,12 @@ Return: Summary of what you found and what you fixed.
 **❌ Vague output:** "Fix it" - you don't know what changed
 **✅ Specific:** "Return summary of root cause and changes"
 
+**❌ Verb-style mechanical brief:** "Read file A, then Write the same content to file B"
+**✅ Shell idiom:** "Run `cp A B`" — bulk file ops belong in shell, not Read+Write verbs.
+
+**❌ Hidden shared API:** parallel waves edit callers of an unwritten helper, surfacing as footprint violations
+**✅ Promote shared API to predecessor wave:** land the shared surface before fanning out callers.
+
 ## When NOT to Use
 
 **Related failures:** Fixing one might fix others — investigate together first
@@ -232,9 +240,9 @@ For chunks that are too large for any single executor but have natural seam boun
 **When NOT to use this — use a single Sonnet executor instead:**
 - The stub is small enough for one executor (the common case)
 - The system is tightly coupled but the enriched spec has exact code sketches — a single Sonnet can follow a well-specified blueprint regardless of coupling
-- If the spec is genuinely incomplete, fix the spec first or have the EM handle it directly — don't dispatch an Opus executor (see `/delegate-execution` Phase 2 rubric)
+- If the spec is genuinely incomplete, fix the spec first or have the EM handle it directly — don't dispatch an Opus executor (see `docs/wiki/delegate-execution.md` Phase 2 rubric)
 
-See `/delegate-execution` Phase 2 for the full model selection rubric.
+See `docs/wiki/delegate-execution.md` Phase 2 for the full model selection rubric.
 
 ## Key Benefits
 
@@ -242,6 +250,43 @@ See `/delegate-execution` Phase 2 for the full model selection rubric.
 2. **Focus** - Each agent has narrow scope, less context to track
 3. **Independence** - Agents don't interfere with each other
 4. **Speed** - 3 problems solved in time of 1
+
+## Dispatch-Prompt Convention: `expected_branch`
+
+When dispatching an executor that will commit, the EM **must** capture the active branch
+at dispatch time and inject it into the prompt. This is the input that feeds the helper-
+level deterministic gate (`coordinator-safe-commit --expected-branch <name>`) — the only
+thing that fails closed if the branch flips mid-dispatch.
+
+**EM-side** (at dispatch authoring):
+
+```bash
+# Capture current branch at dispatch time
+EXPECTED_BRANCH=$(git branch --show-current)
+
+# Include in the prompt body verbatim
+prompt="""
+... (your task brief) ...
+
+expected_branch: ${EXPECTED_BRANCH}
+"""
+```
+
+**Executor-side** (Standing Order in `agents/executor.md`): if the dispatch prompt
+includes `expected_branch: <name>`, pass `--expected-branch <name>` to every
+`coordinator-safe-commit` invocation in this dispatch. The helper aborts before staging
+on mismatch (current vs expected) — load-bearing deterministic gate, not LLM-side
+discipline.
+
+**Why:** the working tree is shared across concurrent EM sessions and (per `One branch
+per machine per day, always` policy) sibling sessions can flip the active branch via
+`/workday-start`. Without `--expected-branch`, an executor's commits land on whatever
+branch is active at commit time — which may not be the branch the dispatching EM
+intended. The helper flag is the deterministic gate; doctrine alone is insufficient
+because executors are LLM agents and prose instructions can be dropped under context
+pressure.
+
+Source plan: `archive/specs/2026-05-05-issue-b-expected-branch-flag.md`.
 
 ## Verification
 

@@ -27,7 +27,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `writing-plans` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
-- `/delegate-execution` — Dispatch enriched stubs to executors. Spec compliance check before routing to Patrik.
+- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
 - Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
 
@@ -42,7 +42,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
 - Backstop pattern — Zoli (ambition advocate) challenges conservative Patrik recommendations. Mandatory for high-effort reviews.
-- `requesting-code-review` / `receiving-code-review` skills — Codified protocol for preparation, routing, and applying feedback.
+- `requesting-code-review` skill + `docs/wiki/receiving-code-review.md` — Codified protocol for preparation, routing, and applying feedback.
 - Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
 
 ---
@@ -112,7 +112,6 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
 | `/workday-complete` | End-of-day — update docs, consolidate branches, run health survey |
 | `/update-docs` | Repo-wide documentation maintenance and sync (auto-chains `/distill` when thresholds met) |
-| `/delegate-execution` | Dispatch enriched stubs to executor agents |
 | `/execute-plan` | Execute a PM-approved implementation plan in the coordinator session |
 | `/enrich-and-review` | Run enrichment pipeline on chunk directories |
 | `/review-dispatch` | Route artifacts to the right reviewer |
@@ -133,7 +132,7 @@ Full component inventory for the record. The failure-mode sections above are the
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `writing-plans` — Decompose designs into executable tasks. Scope checking, file structure mapping, TDD-oriented granularity.
-- `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers `/delegate-execution` in coordinator sessions.
+- `executing-plans` — Execute plans task-by-task with review checkpoints. Prefers the executor-dispatch procedure (`docs/wiki/delegate-execution.md`) in coordinator sessions.
 - `verification-before-completion` — Prove it works before claiming it's done.
 - `deep-research` — Multi-source investigation of repos or topics.
 
@@ -145,7 +144,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 **Code Review:**
 - `requesting-code-review` — Request review via `/review-dispatch`.
-- `receiving-code-review` — How to receive and act on review feedback.
+- Receiving code review — see `docs/wiki/receiving-code-review.md`.
 
 **Git & Branching:**
 - `finishing-a-development-branch` — Complete development, PR, merge.
@@ -153,7 +152,7 @@ Full component inventory for the record. The failure-mode sections above are the
 - `consolidate-git` — Branch cleanup: absorb unique commits from stale branches, delete them, merge to main.
 
 **Writing & Meta:**
-- `writing-skills` — TDD applied to skill/documentation authoring.
+- Writing skills — see `docs/wiki/writing-skills.md`. TDD applied to skill/documentation authoring.
 - `validate` — Run all CI validation checks locally.
 
 **Health & Maintenance:**
@@ -228,7 +227,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
-- **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and delegate-execution (Phase 3). The EM now verifies rather than types.
+- **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
 - **Reviewer self-checks:** All 6 reviewers (Patrik, Zolí, Sid, Palí, Fru, Camelia) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
