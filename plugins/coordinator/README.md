@@ -27,7 +27,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `coordinator:plan` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
-- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
+- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik (architecture reviewer).
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
 - Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
 
@@ -227,7 +227,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (Patrik, Zolí, Sid, Palí, Fru, Camelia) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (Patrik (architecture reviewer), Zolí (ambition advocate / Patrik backstop), Sid (game-dev reviewer), Palí (frontend reviewer), Fru (UX flow reviewer), Camelia (data-science reviewer)) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.
