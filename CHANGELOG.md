@@ -4,6 +4,19 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+Post-v1.10.0 polish landed on the same day.
+
+### Added
+- ISSUE_TEMPLATEs (command_request, docs_improvement, install_problem, reviewer_request) and an `evals/` stub (W6 of author-feedback roadmap).
+- Role-first reviewer presentation + a contracts index (W4 of author-feedback roadmap).
+- `/bug-blitz` surface integration into `/session-start`, `/workday-start`, `/workweek-complete`, and the README.
+
+### Changed
+- Bug-blitz now performs EM-serial commits at the wave gate (percolated from dev).
+
+### Fixed
+- `setup/install.sh --profile full` no longer warns: `deep-research` added to `PLUGIN_REGISTRY`.
+
 ## [1.10.0] — 2026-05-06
 
 Four themes in this release: workday/workweek cadence split, layered reviewer-premise-challenge defense, PM-native operating layer reframe, and Codex opt-in add-on. Coordinator plugin bumps 1.0.0 → 1.1.0; the rest of the plugin set is unchanged.
