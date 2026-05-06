@@ -331,7 +331,7 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting,
 
 ## Concurrent-EM Git Operations
 
-Default operating reality is multiple EM sessions sharing a working tree, not a single-tenant index.
+Default operating reality is multiple EM sessions sharing a working tree. **The daily branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination.
 
 - **One branch per machine per day, always.** Active branch in the main checkout is **either** `work/{machine}/{YYYY-MM-DD}` (today's daily) **or** `main` (read-only, PR-only). No `feature/*`, no `hotfix/*`, no ad-hoc siblings. Park WIP by committing on the daily or `git stash push -u -m "<subject>"` *without* changing branches. Worktrees forbidden. Enforcement: `block-off-daily-branch.sh` PreToolUse (includes commit-time Check 6, consolidated from `validate-commit.sh` per Patrik F11). Override (logged): `COORDINATOR_OVERRIDE_BRANCH=1`. Use `/merge-to-main` or `/workday-complete` to integrate; never push to `main` directly. Full context: `docs/wiki/daily-branch-discipline.md`.
 - **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
