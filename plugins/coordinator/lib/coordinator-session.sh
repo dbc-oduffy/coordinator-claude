@@ -168,15 +168,28 @@ cs_init() {
     _cs_update_meta_field "$sdir" "last_activity" "$now"
     _cs_update_meta_field "$sdir" "branch" "$branch"
   else
-    cat > "${sdir}/meta.json" <<METAJSON
+    if command -v jq >/dev/null 2>&1; then
+      jq -n \
+        --arg sid "$sid" \
+        --arg branch "$branch" \
+        --arg pid "$pid" \
+        --arg now "$now" \
+        --arg goal "$goal" \
+        '{session_id: $sid, branch: $branch, pid: $pid, last_activity: $now, goal: $goal}' \
+        > "${sdir}/meta.json"
+    else
+      local goal_escaped="${goal//\\/\\\\}"
+      goal_escaped="${goal_escaped//\"/\\\"}"
+      cat > "${sdir}/meta.json" <<METAJSON
 {
   "session_id": "${sid}",
   "branch": "${branch}",
   "pid": "${pid}",
   "last_activity": "${now}",
-  "goal": "${goal}"
+  "goal": "${goal_escaped}"
 }
 METAJSON
+    fi
   fi
 
   return 0
@@ -314,6 +327,7 @@ cs_compute_scope() {
       other_id=$(basename "$other_sdir")
       [[ "$other_id" == "$sid" ]] && continue
       [[ "$other_id" == ".archive" ]] && continue
+      [[ "$other_id" == ".agents" ]] && continue
 
       if [[ -f "${other_sdir}/touched.txt" ]]; then
         while IFS= read -r opath; do
@@ -405,6 +419,7 @@ cs_reap_stale() {
     local sid
     sid=$(basename "$sdir")
     [[ "$sid" == ".archive" ]] && continue
+    [[ "$sid" == ".agents" ]] && continue
 
     # Condition 1: inactive_for > 24h
     local last_activity_iso last_activity_epoch
@@ -452,6 +467,7 @@ cs_active_sessions() {
     local sid
     sid=$(basename "$sdir")
     [[ "$sid" == ".archive" ]] && continue
+    [[ "$sid" == ".agents" ]] && continue
     found=true
 
     local pid last_activity_iso last_activity_epoch elapsed_sec elapsed_label
@@ -484,4 +500,77 @@ cs_active_sessions() {
   if [[ "$found" == false ]]; then
     echo "(no active sessions)"
   fi
+}
+
+# cs_live_session_ids
+#   Print one live (PID-alive AND <30 min last-activity) session id per line.
+#   No formatting, no headers. Structured-data sibling of cs_active_sessions.
+#   Consumed by coordinator-safe-commit's agent-id-union candidate-set build
+#   (Issue A, archive/specs/2026-05-05-issue-a-agent-id-linkage.md).
+#
+# Liveness criterion mirrored in cs_active_sessions (lines 477-481 above);
+# keep in sync. Future consolidation: extract _cs_is_session_live private
+# helper (Patrik v3 finding 3, deferred — out of scope for Issue A).
+cs_live_session_ids() {
+  local base
+  base=$(_cs_sessions_dir) || return 0
+  [[ -d "$base" ]] || return 0
+  local now_epoch
+  now_epoch=$(_cs_now_epoch)
+  local thirty_min=$(( 30 * 60 ))
+  for sdir in "${base}"/*/; do
+    [[ -d "$sdir" ]] || continue
+    local sid
+    sid=$(basename "$sdir")
+    [[ "$sid" == ".archive" ]] && continue
+    [[ "$sid" == ".agents" ]] && continue
+
+    local pid last_iso last_epoch elapsed
+    pid=$(_cs_read_meta_field "$sdir" "pid")
+    last_iso=$(_cs_read_meta_field "$sdir" "last_activity")
+    last_epoch=$(_cs_iso_to_epoch "$last_iso")
+    elapsed=$(( now_epoch - last_epoch ))
+
+    if _cs_pid_alive "$pid" && [[ "$elapsed" -lt "$thirty_min" ]]; then
+      echo "$sid"
+    fi
+  done
+}
+
+# cs_reap_agents
+#   Companion to cs_reap_stale: archives .agents/<aid>/ subdirs whose
+#   touched.txt mtime is older than 24h. Bounds the agent-id index from
+#   unbounded growth.
+#
+# Issue A, archive/specs/2026-05-05-issue-a-agent-id-linkage.md.
+cs_reap_agents() {
+  local base
+  base=$(_cs_sessions_dir) || return 0
+  local agents_base="${base}/.agents"
+  [[ -d "$agents_base" ]] || return 0
+  local now_epoch
+  now_epoch=$(_cs_now_epoch)
+  local threshold=$(( 24 * 3600 ))
+  local archive_root="${base}/.archive"
+  mkdir -p "$archive_root" 2>/dev/null
+  for adir in "$agents_base"/*/; do
+    [[ -d "$adir" ]] || continue
+    local touched="${adir}touched.txt"
+    if [[ ! -f "$touched" ]]; then
+      rmdir "$adir" 2>/dev/null
+      continue
+    fi
+    local mtime
+    mtime=$(_cs_mtime_epoch "$touched")
+    if [[ $(( now_epoch - mtime )) -gt "$threshold" ]]; then
+      local aid
+      aid=$(basename "$adir")
+      local target="${archive_root}/_agents-${aid}-$(date +%Y%m%d 2>/dev/null || echo unknown)"
+      if mv "$adir" "$target" 2>/dev/null; then
+        echo "reaped agent ${aid}"
+      else
+        rm -rf "$adir" 2>/dev/null
+      fi
+    fi
+  done
 }
