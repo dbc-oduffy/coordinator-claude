@@ -1,6 +1,7 @@
 ---
 name: project-onboarding
 description: "Use when starting work in a new project repository, when /update-docs reports tracker_missing, or when a marketplace user runs the coordinator plugin for the first time."
+description-budget: 175
 version: 1.0.0
 ---
 
@@ -56,6 +57,8 @@ This is the correct exit — a distribution repo's CLAUDE.md is a template for d
 
 Report what exists and what needs to be created before proceeding.
 
+**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
+
 ### Phase 2: ASK — PM Input (3 Questions)
 
 Present all three questions together to minimize back-and-forth:
@@ -63,6 +66,8 @@ Present all three questions together to minimize back-and-forth:
 > I need three things to set up this project:
 >
 > **1. Project name** — short name for headers and references (e.g., "Geneva MVP", "DroneSim")
+>
+> _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
 >    - `game-dev` — Unreal Engine, Blueprint/C++, Sid reviewer
@@ -120,6 +125,8 @@ Write the processed template to `CLAUDE.md` at the project root.
 
 **Important:** The template has `<!-- Fill in -->` comments — these are prompts for the PM to complete, not for the skill to guess at. Leave them as-is.
 
+**Runtime conventions section:** populate the `## Runtime conventions` section bullets from the Phase 1 marker-scan output — one bullet per detected stack line. If the script reported "no known stack markers", replace the placeholder bullets with `- <!-- no runtime markers detected; PM to fill -->`. Do not edit other `<!-- Fill in -->` placeholders.
+
 #### 3b. docs/project-tracker.md (if missing)
 
 Use `templates/tracker.md.template`:
@@ -150,7 +157,7 @@ If PM said "stubs": create one placeholder workstream:
 
 Do NOT create this file during onboarding. It has no meaningful day-1 content — it is a header and a comment until the first real lesson is captured. Creating it empty trains agents to ignore the directory.
 
-**Create on first use:** `coordinator:session-end` creates `tasks/lessons.md` (using `templates/lessons.md.template`) the first time a lesson is captured, if the file does not already exist. `coordinator:lessons-trim` also skips gracefully when the file is absent.
+**Create on first use:** `coordinator:session-end` creates `tasks/lessons.md` (using `templates/lessons.md.template`) the first time a lesson is captured, if the file does not already exist. `coordinator:learn-lessons` also handles a missing file gracefully.
 
 #### 3d. docs/README.md (if missing)
 

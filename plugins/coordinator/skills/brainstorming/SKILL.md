@@ -1,6 +1,7 @@
 ---
 name: brainstorming
 description: "Use when the PM asks for a new feature or capability, or you're about to enter plan mode without a clear spec. Also use when requirements are vague, ambiguous, or span multiple subsystems that need decomposition."
+description-budget: 225
 version: 1.0.0
 ---
 

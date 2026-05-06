@@ -1,22 +1,36 @@
 ---
 name: requesting-staff-session
-description: "Use when the PM asks for staff input on a plan or review, when the EM needs multi-perspective planning or critique, or when deciding between /staff-session and /review-dispatch. Guides tier selection, team composition, and scoping."
-version: 1.0.0
+description: "PM-GATED — only invoke on explicit PM authorization. Guides tier selection, team composition, and scoping. Never auto-recommend or invoke from a subagent."
+version: 1.1.0
 ---
 
 # Requesting a Staff Session
 
-Use `/staff-session` when the work benefits from **multi-perspective debate** — not just one reviewer's opinion, but positions challenged and refined by peers.
+`/staff-session` is **PM-gated** — only the PM may authorize it. The EM does not propose staff sessions for routine workflow changes, doctrine tweaks, single-skill edits, or small process changes; for those, use `/review-dispatch` with one reviewer.
 
-## When to Use Each Tier
+The bar for even *asking* the PM whether a staff session is warranted: the work is genuinely architectural — cross-system design, irreversible structural choice, multi-domain tradeoff with real cost in being wrong. If you're tempted to recommend one for a one-afternoon process change, you're miscalibrated; do the lighter thing instead.
 
-| Situation | Tier | Why |
-|-----------|------|-----|
-| Quick sanity check on a plan or code | **Lightweight** → falls through to `/review-dispatch` | One smart reviewer is enough for gut-checks |
-| Planning or reviewing where two perspectives would catch different things | **Standard** (2 debaters + Zolí synthesizer) | The default — two domain experts debate, Zolí synthesizes with ambition lens |
-| Cross-cutting work touching multiple domains (UI + backend, game + infra) | **Full** (3-5 debaters + Zolí synthesizer) | Each domain expert brings irreplaceable lens; Zolí resolves contested topics |
-| Post-execution code review | **Don't use staff session** — use `/review-dispatch` | Post-execution reviews are sequential by design (evolved artifact) |
-| Per-stub reviews during enrichment | **Don't use staff session** — use single reviewer | Too heavy for individual stubs |
+When the PM has authorized a session, this skill guides tier selection, team composition, and scoping.
+
+## Multi-Perspective Debate vs. Single-Reviewer Dispatch
+
+`/staff-session` exists for work that benefits from **multi-perspective debate** — not just one reviewer's opinion, but positions challenged and refined by peers. Most reviews don't need that.
+
+## When Staff Session Is the Right Tool
+
+The default for any review is `/review-dispatch` with one reviewer. Staff session is the exception, not the menu.
+
+| Situation | Right tool | Why |
+|-----------|------------|-----|
+| Quick sanity check on a plan or code | `/review-dispatch` (single reviewer) | One smart reviewer is enough for gut-checks; this is NOT a staff-session situation |
+| Routine workflow / doctrine / process change | `/review-dispatch` (single reviewer) | Reversible, low blast radius — single perspective is correct |
+| Single-skill or single-command edit | `/review-dispatch` (single reviewer) | Scoped artifact; one expert lens fits |
+| Post-execution code review | `/review-dispatch` | Sequential by design (evolved artifact) |
+| Per-stub reviews during enrichment | single reviewer | Too heavy for individual stubs |
+| Genuinely architectural decision crossing two domains, with real cost in being wrong | **Standard** staff session (2 debaters + Zolí) — *PM authorization required* | Two domain experts debate, Zolí synthesizes |
+| Cross-cutting work touching three+ domains where each lens is irreplaceable | **Full** staff session (3-5 debaters + Zolí) — *PM authorization required* | Each domain expert brings a lens no other can substitute |
+
+If you can't articulate why a single reviewer would miss something a panel would catch, you don't need a staff session.
 
 ## When to Use Plan Mode vs Review Mode
 
