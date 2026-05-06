@@ -91,6 +91,17 @@ Surface in the Morning Briefing. The EM decides whether to advocate based on dep
 
 If the file does not exist or both queues are empty, skip silently.
 
+## Step 1.55: Bug Backlog Depth Check
+
+Read `tasks/bug-backlog.md` (if it exists). Count table rows in the P1 and P2 sections, stopping before any `## Resolved` section. Exclude header rows and separator lines — count only data rows.
+
+If the combined P1+P2 open count is ≥ 10, surface in the Morning Briefing. The EM advocates based on depth:
+
+- Moderate (10–19): _"Bug backlog has [N] open P1/P2 items. `/bug-blitz` can grind these down autonomously."_
+- Heavy (≥ 20): _"Bug backlog is at [N] open P1/P2 items — grinding pressure is building. Worth dedicating a session to `/bug-blitz` before it compounds."_
+
+If the file does not exist, or the P1+P2 count is < 10, skip silently.
+
 ## Step 1.6: Scheduled Rechecks
 
 Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project learn-lessons cadence per `coordinator:learn-lessons`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
