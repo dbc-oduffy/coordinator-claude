@@ -11,7 +11,7 @@ spec_backlink: docs/plans/2026-05-06-review-super-skill.md
 
 **Trigger:** EM has a plan / design doc / RFC ready for review (outgoing), OR a plan-review's findings have landed and need processing (incoming).
 
-**When NOT to use:** Code / diff / PR review → `coordinator:review-code` (TBD). Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-drafting (plan not finished) → keep writing. Stuck pattern → `coordinator:stuck-detection`. Pure mechanical citation check with no Opus → run `docs-checker` directly.
+**When NOT to use:** Code / diff / PR review → `coordinator:review-code` (TBD). Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-drafting (plan not finished) → keep writing. Stuck pattern → see `docs/wiki/stuck-detection.md`. Pure mechanical citation check with no Opus → run `docs-checker` directly.
 
 ---
 
@@ -56,6 +56,8 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
 
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
   → No review needed; commit and proceed.
+- _PM has explicitly waived review on a non-trivial plan?_ ("ship it", "skip review", "straight to execution")
+  → Exit; this skill does not run. Log the waiver in the plan frontmatter (`review: skipped per PM direction YYYY-MM-DD`).
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
 
