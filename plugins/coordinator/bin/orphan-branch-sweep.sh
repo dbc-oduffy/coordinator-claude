@@ -251,7 +251,43 @@ if prs:
       unmerged=$(git rev-list --count "${tip_sha}" ^main 2>/dev/null || echo 0)
     fi
     if [[ "${unmerged}" -gt 0 ]]; then
-      severity="CRITICAL"
+      # Daily-branch carry-forward check: under the work/{machine}/{date}
+      # discipline, a merged PR closes the day, but the branch often keeps
+      # accruing commits that get carried forward through subsequent daily
+      # branches (work/.../2026-05-04 → 2026-05-05 → 2026-05-06 → ...). If
+      # the tip is an ancestor of any other live work/* or feature/* branch
+      # (or HEAD), the work is not orphaned — it'll reach main on the next
+      # merge of the descendant branch.
+      carried_forward=0
+      head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+      if [[ -n "$head_sha" && "$head_sha" != "$tip_sha" ]]; then
+        if git merge-base --is-ancestor "$tip_sha" "$head_sha" 2>/dev/null; then
+          carried_forward=1
+        fi
+      fi
+      if [[ $carried_forward -eq 0 ]]; then
+        for other in "${!seen_branches[@]}"; do
+          [[ "$other" == "$branch" ]] && continue
+          other_tip=""
+          if git rev-parse "refs/heads/${other}" &>/dev/null; then
+            other_tip=$(git rev-parse "refs/heads/${other}")
+          elif git rev-parse "refs/remotes/origin/${other}" &>/dev/null; then
+            other_tip=$(git rev-parse "refs/remotes/origin/${other}")
+          fi
+          [[ -z "$other_tip" || "$other_tip" == "$tip_sha" ]] && continue
+          if git merge-base --is-ancestor "$tip_sha" "$other_tip" 2>/dev/null; then
+            carried_forward=1
+            break
+          fi
+        done
+      fi
+      if [[ $carried_forward -eq 1 ]]; then
+        # Carried forward into a descendant branch — not orphaned.
+        # orphan_after_merge stays in JSON for forensics.
+        severity="OK"
+      else
+        severity="CRITICAL"
+      fi
     else
       # Stale-cache false positive — branch is fully merged into main.
       # Downgrade to OK; orphan_after_merge stays in the JSON for forensics.
