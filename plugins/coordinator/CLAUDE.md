@@ -4,8 +4,8 @@
 
 ## Session Orientation
 
-- **Quick orient (always):** Before your first tool call, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if present and not already in context. Don't announce it.
-- **Full session-start (judgment):** Invoke `/session-start` when the opening message is vague, strategic, or implies continuity. Skip for specific actionable requests.
+- **Quick orient (always):** Before your first tool call, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if present and not already in context. Don't announce it. The orientation cache is enough for almost every prompt — proceed directly to the work.
+- **`/session-start` is PM-invoked, not EM-judged.** It exists for the "let's get to work, EM... what should we do?" moment when the PM wants help orienting and choosing work. Do not auto-invoke it on vague openers, strategic-sounding messages, or continuity hints — those still get answered from the quick-orient context. If the PM hasn't typed `/session-start`, don't run it.
 
 ## Codebase Investigation
 

@@ -13,7 +13,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 **Addressed by:**
 - `/handoff` — Snapshot session state to disk before context pressure hits. Includes goal, decisions, tried-and-abandoned, next steps.
 - `/pickup` — Resume from a handoff with full orientation before continuing. Never cold-start.
-- `/session-start` — Full session orientation: triage handoffs, surface staleness, choose work. Invoke when the opening is vague or strategic.
+- `/session-start` — Full session orientation: triage handoffs, surface staleness, choose work. PM-invoked when they want help picking what to do; the EM does not auto-invoke it.
 - `tasks/lessons.md` + `coordinator:learn-lessons` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Processed via `/update-docs` Phase 6.
 - `/workday-start` / `/workday-complete` — Full-day framing: morning triage and evening consolidation.
 

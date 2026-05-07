@@ -215,38 +215,6 @@ git push origin $(git branch --show-current)
 
 ---
 
-## Step 10.5: Preemptive Branch Rename (optional — P1, defer-acceptable)
-
-<!-- Phase 4: optional end-of-day prompt to rename the branch forward to tomorrow's suffix
-     so tomorrow's first commit doesn't trigger a /workday-start rename prompt.
-     Uses the same atomic-rename-with-rollback procedure as /workday-start Phase 3. -->
-
-**When to offer:** if the active branch's start-date ≠ today AND the PM has indicated intent
-to continue the current workstream tomorrow. Judgment call — prompt only if this looks like
-an active ongoing session rather than a wrapped-up day.
-
-**Prompt:**
-> "Active branch is `work/{machine}/{suffix}` and today is {today}. Want me to rename it to
-> `work/{machine}/{suffix}to{tomorrow-DD}` preemptively so tomorrow's first commit doesn't
-> trigger a rename prompt? [y/N]"
-
-Default **N** — skipping is fine. The `/workday-start` rename flow handles it tomorrow.
-
-**If PM confirms (y):**
-1. Compute tomorrow's date: `TOMORROW=$(date -d '+1 day' +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)`
-2. Compute new suffix via `cs_format_span_suffix <start-date> <tomorrow>` (or inline).
-3. Atomic rename with rollback (same procedure as `/workday-start` Phase 3 Check 3):
-   ```bash
-   COORDINATOR_OVERRIDE_BRANCH=1 git branch -m <old> <new>
-   git push --atomic origin <new>:<new> :<old>
-   # On push failure: COORDINATOR_OVERRIDE_BRANCH=1 git branch -m <new> <old>; report error; do not leave renamed.
-   ```
-4. Report: _"Branch renamed to `work/{machine}/{new-suffix}`."_
-
-If PM declines or step is skipped, proceed to Step 11.
-
----
-
 ## Step 11: Final Summary
 
 ```
