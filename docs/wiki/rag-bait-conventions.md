@@ -73,7 +73,7 @@ getters/setters, dunder methods with no branching logic.
 **What:** One sentence. Domain vocabulary. Explain what this function *is for*, not how it
 works internally.
 
-**Why this pattern has the highest retrieval-recall leverage (per Camelia F1):** Chunkers
+**Why this pattern has the highest retrieval-recall leverage (per the Data Science Reviewer (`data-science:staff-data-sci`) F1):** Chunkers
 split on function boundaries. Without a purpose line, the chunk that represents a function
 embeds primarily on syntactic signal — variable names, control-flow keywords — and ranks
 poorly against natural-language queries like "how does the enricher pick its agent?".

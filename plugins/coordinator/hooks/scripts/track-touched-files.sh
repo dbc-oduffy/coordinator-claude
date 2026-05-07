@@ -5,7 +5,7 @@
 # matcher). Records the modified file path into the per-session touch list at
 # .git/coordinator-sessions/<session_id>/touched.txt.
 #
-# Design notes (per Patrik P0-3):
+# Design notes (per Staff Engineer P0-3):
 #   - Bash tool calls are NOT parsed — mtime fallback at commit time handles
 #     Bash-driven edits. Parsing arbitrary shell for write effects is unsound.
 #   - Hook matcher in hooks.json already restricts to edit tools. This script
@@ -134,24 +134,62 @@ FILE_PATH_NORM="$FILE_PATH"
 if [[ "$FILE_PATH" == /* || "$FILE_PATH" == [A-Za-z]:* ]]; then
   REL=$(git ls-files --full-name -- "$FILE_PATH" 2>/dev/null | head -1)
   if [[ -z "$REL" ]]; then
-    REL=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
-          "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) \
-      || REL=$(python -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
-          "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) \
-      || REL=""
+    # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
+    LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
+    [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    # shellcheck source=/dev/null
+    [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
+    if [[ -n "$PYTHON_BIN" ]]; then
+      REL=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
+            "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) || REL=""
+    else
+      REL=""
+    fi
   fi
   [[ -n "$REL" ]] && FILE_PATH_NORM="$REL"
 fi
 
 # ---------------------------------------------------------------------------
-# Dedup append: only write if not already in touched.txt.
-# grep -qxF: O(n) on file size, fast for typical small lists.
+# Atomic dedup-append helper.
+# Delegates to cs_atomic_dedup_append in lib/coordinator-session.sh.
+#
+# Spec backlink: plans/safe-commit-fixes.md § Phase 3a
+# Prior implementation (mktemp+sort+mv) had a lost-update race under N
+# concurrent writers with distinct paths: each writer read-then-overwrote,
+# so the last mv silently dropped earlier merges. Replaced with append-only
+# writes — see cs_atomic_dedup_append for the full rationale and contract.
+#
+# lib may already be sourced (warm path: sourced above in the session-init
+# block). If not, source it now. If missing entirely, fall back to the
+# direct append-only idiom so the hook never blocks tool calls.
 # ---------------------------------------------------------------------------
-if grep -qxF "$FILE_PATH_NORM" "$TOUCHED_FILE" 2>/dev/null; then
-  exit 0
-fi
+_atomic_dedup_append() {
+  local target_file="$1"
+  local new_entry="$2"
 
-echo "$FILE_PATH_NORM" >> "$TOUCHED_FILE"
+  # Source lib if cs_atomic_dedup_append is not yet in scope.
+  if ! declare -f cs_atomic_dedup_append &>/dev/null; then
+    local _lib
+    _lib="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+    if [[ -f "$_lib" ]]; then
+      # shellcheck source=/dev/null
+      source "$_lib"
+    fi
+  fi
+
+  if declare -f cs_atomic_dedup_append &>/dev/null; then
+    cs_atomic_dedup_append "$target_file" "$new_entry"
+  else
+    # Lib missing — inline the append-only fallback (same contract).
+    grep -qxF "$new_entry" "$target_file" 2>/dev/null && return 0
+    printf '%s\n' "$new_entry" >> "$target_file" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# Session-keyed dedup-append.
+_atomic_dedup_append "$TOUCHED_FILE" "$FILE_PATH_NORM"
 
 # Issue A: parallel agent-keyed write (only for subagent fires).
 # .agents/<agent_id>/touched.txt provides the agent-id linkage that the
@@ -161,11 +199,7 @@ if [[ -n "$AGENT_ID" ]]; then
   AGENT_TOUCHED="${AGENT_DIR}/touched.txt"
   [[ -d "$AGENT_DIR" ]] || mkdir -p "$AGENT_DIR" 2>/dev/null
   [[ -f "$AGENT_TOUCHED" ]] || touch "$AGENT_TOUCHED" 2>/dev/null
-  # Concurrent-fire race: same characteristics as session-keyed touched.txt —
-  # grep-then-append is not atomic; dedup happens on read at commit time.
-  if ! grep -qxF "$FILE_PATH_NORM" "$AGENT_TOUCHED" 2>/dev/null; then
-    echo "$FILE_PATH_NORM" >> "$AGENT_TOUCHED"
-  fi
+  _atomic_dedup_append "$AGENT_TOUCHED" "$FILE_PATH_NORM"
 fi
 
 # Note: meta.json last_activity is NOT updated here (costs ~36ms on Windows).

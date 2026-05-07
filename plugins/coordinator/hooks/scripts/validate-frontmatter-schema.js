@@ -3,7 +3,7 @@
  * validate-frontmatter-schema.js — PreToolUse hook that surfaces frontmatter-schema
  * violations to the agent before a Write/Edit/MultiEdit lands on a tracked-record file.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W1/Validator
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1/Validator
  *
  * Default mode is WARN: emits the violation as additionalContext so the agent sees
  * the schema gripe but the write still proceeds. Strict mode (COORDINATOR_SCHEMA_STRICT=1)

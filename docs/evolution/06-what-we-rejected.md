@@ -14,7 +14,7 @@ The pattern across most of these: each individual proposal is plausible. Cumulat
 
 **Why we declined.** The pieces already exist in surfaces that *work*. Handoffs carry session state. PR descriptions carry release notes and ship verdicts. `docs/decisions/` carries decision records. Adding a third place that must stay in sync with the others is the kind of bookkeeping that decays fastest — and silently. A ledger that drifts from the actual git history is worse than no ledger.
 
-**What we did instead.** Strengthened the existing surfaces. The merging-to-main skill now produces a ship verdict, a YK verdict, and a demo path inline in the PR body. The verification-before-completion gate names what evidence must exist before "done" is claimed. Evidence is distributed across the surfaces that already exist and stay current.
+**What we did instead.** Strengthened the existing surfaces. The merging-to-main skill now produces a ship verdict, a VP-Product Reviewer (`coordinator:vp-product`) verdict, and a demo path inline in the PR body. The verification-before-completion gate names what evidence must exist before "done" is claimed. Evidence is distributed across the surfaces that already exist and stay current.
 
 **For the publish repo specifically:** the [evolution doc set](README.md) is the externally-facing version of "evidence." Outside readers evaluating the system don't need a per-feature ledger — they need to see that the model has been pressure-tested and learns from failure. The evolution chapters do that.
 
@@ -114,7 +114,7 @@ The publish repo aspiration to support a fully non-technical PM (described as fu
 
 **Why we declined.** The external review proposed these commands while *simultaneously* warning against command explosion — and didn't notice the contradiction. Each command alone is plausible; eleven together is a different system. The point of having a small command surface is that users remember what's available; expanding the surface defeats the property.
 
-**What we did instead.** Folded the real value into existing surfaces. Acceptance criteria → `writing-plans` skill (header field). Scope mode → `writing-plans` skill (header field). Product-risk review → YK reviewer dispatched from `merging-to-main`. Demo contract → `merging-to-main` Step 1.56. Ship recommendation → `merging-to-main` Step 1.57. Challenge → "Challenging the PM" doctrine block in `coordinator/CLAUDE.md`. Evidence ledger, decision log, PM cockpit, altitude commands → declined per their own sections above.
+**What we did instead.** Folded the real value into existing surfaces. Acceptance criteria → `writing-plans` skill (header field). Scope mode → `writing-plans` skill (header field). Product-risk review → the VP-Product Reviewer dispatched from `merging-to-main`. Demo contract → `merging-to-main` Step 1.56. Ship recommendation → `merging-to-main` Step 1.57. Challenge → "Challenging the PM" doctrine block in `coordinator/CLAUDE.md`. Evidence ledger, decision log, PM cockpit, altitude commands → declined per their own sections above.
 
 The cumulative effect: zero new commands, real value captured.
 

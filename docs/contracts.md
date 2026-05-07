@@ -25,6 +25,12 @@ This is not a restatement — read the linked source for the rule itself.
   [`plugins/coordinator/CLAUDE.md` § Concurrent-EM Git Operations](../plugins/coordinator/CLAUDE.md#concurrent-em-git-operations)
 - Presents ship/no-ship verdicts with evidence before merging →
   [`plugins/coordinator/skills/merging-to-main/SKILL.md` § The Process](../plugins/coordinator/skills/merging-to-main/SKILL.md#the-process)
+- Trigger word "plan" mechanically invokes the plan super-skill — never `Write` direct to disk →
+  [`plugins/coordinator/CLAUDE.md` § Plan-First Workflow](../plugins/coordinator/CLAUDE.md#plan-first-workflow) +
+  [`plugins/coordinator/skills/plan/SKILL.md`](../plugins/coordinator/skills/plan/SKILL.md)
+- Plans pass through prior-art recall before Opus review →
+  [`plugins/coordinator/agents/prior-art-checker.md`](../plugins/coordinator/agents/prior-art-checker.md) +
+  [`plugins/coordinator/docs/wiki/prior-art-checker.md`](../plugins/coordinator/docs/wiki/prior-art-checker.md)
 
 ## Executor contract
 

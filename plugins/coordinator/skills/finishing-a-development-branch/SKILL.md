@@ -130,7 +130,7 @@ Deletes the branch (local + remote) and removes the worktree if applicable (Step
 
 ### Step 5: Cleanup Worktree
 
-<!-- Review: Patrik — Option 2 keeps worktree active; contradicted the quick reference table -->
+<!-- Review: the Staff Engineer — Option 2 keeps worktree active; contradicted the quick reference table -->
 **For Options 1 and 4:**
 
 Check if in worktree:
@@ -189,9 +189,9 @@ git worktree remove <worktree-path>
 ## Integration
 
 **Called by:**
-<!-- Review: Patrik — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
+<!-- Review: the Staff Engineer — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
 - **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
-- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.
+- No worktrees — worktrees are forbidden. Use the active workstream branch for WIP parking.

@@ -113,8 +113,8 @@ TIER=""
 SUBAGENT_TYPE=""
 RATIONALE_PRESENT="false"
 
-# Tier 2: mcp__*project-rag*__* calls
-if [[ "$TOOL_NAME" == mcp__*project-rag*__* || "$TOOL_NAME" == mcp__*project_rag*__* ]]; then
+# Tier 2: mcp__project-rag__* and mcp__project_rag__* calls (anchored-segment; no leading wildcard)
+if [[ "$TOOL_NAME" == mcp__project-rag__* || "$TOOL_NAME" == mcp__project_rag__* ]]; then
   TIER="tier2"
 fi
 

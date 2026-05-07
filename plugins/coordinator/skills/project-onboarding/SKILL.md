@@ -1,6 +1,6 @@
 ---
 name: project-onboarding
-description: "Use when starting work in a new project repository, when /update-docs reports tracker_missing, or when a marketplace user runs the coordinator plugin for the first time."
+description: "Use when starting in a new project repo, when /update-docs reports tracker_missing, or on first coordinator-plugin run."
 description-budget: 175
 version: 1.0.0
 ---
@@ -70,9 +70,9 @@ Present all three questions together to minimize back-and-forth:
 > _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
->    - `game-dev` — Unreal Engine, Blueprint/C++, Sid reviewer
->    - `web-dev` — Web frameworks, Palí + Fru reviewers
->    - `data-science` — Notebooks, pipelines, Camelia reviewer
+>    - `game-dev` — Unreal Engine, Blueprint/C++, the Game Dev Reviewer (`game-dev:staff-game-dev`)
+>    - `web-dev` — Web frameworks, the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`)
+>    - `data-science` — Notebooks, pipelines, the Data Science Reviewer (`data-science:staff-data-sci`)
 >    - `general` — Standard conventions only
 >
 > **3. Initial workstreams** (1-3) — what are you working on? For each:

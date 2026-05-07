@@ -1,13 +1,18 @@
 #!/bin/bash
 # PreToolUse hook: Blocks branch creation/switch operations that would put the
-# main checkout on anything other than today's daily branch or main.
-# Also blocks git commit on off-daily branches (defence-in-depth; was Check 6
-# in validate-commit.sh, consolidated here by Patrik F11 review).
+# main checkout on anything other than an allowed workstream branch or main.
 #
-# Doctrine: coordinator/CLAUDE.md § Concurrent-EM Git Operations —
-# "Branch naming: work/{machine}/{YYYY-MM-DD}, always. One branch per machine
-# per day per project. main is read-only (PR-only); no other branches in the
-# main checkout."
+# Spec backlink: docs/plans/2026-05-07-daily-branch-doctrine-rethink.md (Phase 2)
+#
+# The hook polices branch *shape*, not branch *date*. Allowed workstream branches:
+#   work/{machine}/{date-or-span}   (e.g. work/striker/2026-05-07 or work/striker/2026-05-06to07)
+#   main                            (read-only, PR-only)
+# Policy oracle is cs_is_allowed_branch in coordinator-daily-branch.sh.
+#
+# Commit-time branch enforcement (formerly Check 6, consolidated here by Staff Engineer F11)
+# was REMOVED 2026-05-07 per PM call. See docs/wiki/daily-branch-discipline.md.
+# The orphan-branch-creation prevention (checkout -b, branch -m, stash branch,
+# worktree add, --orphan) remains unchanged.
 #
 # Postmortem source: 2026-05-05 X:/project-rag branch-sprawl & orphan-stashes
 # (checkout -b feature/X + stash + checkout - produces empty branches and
@@ -16,10 +21,10 @@
 #
 # Escape hatch: COORDINATOR_OVERRIDE_BRANCH=1 (logged). Used by /workday-start,
 # /merge-to-main, /consolidate-git, and any other skill that legitimately needs
-# to operate off-daily.
+# to operate off-branch.
 #
 # Shared lib: coordinator/lib/coordinator-daily-branch.sh
-#   cs_compute_machine, cs_compute_today_daily_lc, cs_is_allowed_branch
+#   cs_compute_machine, cs_is_allowed_branch
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "..." }, "session_id": "..." }
@@ -45,16 +50,28 @@ else
 fi
 
 # Honor escape hatch before any work.
-# Log override with full context so the audit log is useful.
+# Two override surfaces (logged identically):
+#   (a) shell-env: COORDINATOR_OVERRIDE_BRANCH=1 exported into the hook's env
+#       (Claude Code propagates exported env vars; rare in EM workflows)
+#   (b) inline: `COORDINATOR_OVERRIDE_BRANCH=1 <command>` prefix on the user's
+#       command — captured in $COMMAND because PreToolUse hooks see the literal
+#       string before bash evaluates it. Required because inline env-var
+#       prefixes do NOT propagate into the hook subprocess (the hook is a
+#       child of Claude Code, not of the user's bash command).
 # Review: patrik F12 — mirror deny log shape: session + command + reason.
-if [[ "${COORDINATOR_OVERRIDE_BRANCH:-0}" == "1" ]]; then
+INLINE_OVERRIDE=0
+if [[ "$COMMAND" =~ (^|[[:space:]\;\&])COORDINATOR_OVERRIDE_BRANCH=1([[:space:]]|$) ]]; then
+  INLINE_OVERRIDE=1
+fi
+if [[ "${COORDINATOR_OVERRIDE_BRANCH:-0}" == "1" ]] || [[ "$INLINE_OVERRIDE" == "1" ]]; then
   GIT_ROOT_FOR_LOG=$(git rev-parse --show-toplevel 2>/dev/null || true)
   if [[ -n "$GIT_ROOT_FOR_LOG" ]]; then
     LOG_DIR="$GIT_ROOT_FOR_LOG/.git/coordinator-sessions/_branch-overrides"
     mkdir -p "$LOG_DIR" 2>/dev/null || true
     TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
     REASON="${COORDINATOR_OVERRIDE_BRANCH_REASON:-unspecified}"
-    echo "${TS} | OVERRIDE | session=${SESSION_ID} | command=${COMMAND} | reason=${REASON}" \
+    SOURCE=$([[ "$INLINE_OVERRIDE" == "1" ]] && echo "inline" || echo "env")
+    echo "${TS} | OVERRIDE(${SOURCE}) | session=${SESSION_ID} | command=${COMMAND} | reason=${REASON}" \
       >> "$LOG_DIR/overrides.log" 2>/dev/null || true
   fi
   exit 0
@@ -65,12 +82,15 @@ fi
 
 # Cheap gate — only inspect if command contains a branch-mutating git form.
 # Covers: checkout/switch (create & switch), branch -m/-M/--move/-c/-C/--copy
-# (rename/copy), stash branch, worktree add, git commit (Check 6 — commit on
-# off-daily branch), and git -C / --git-dir cross-repo forms.
+# (rename/copy), stash branch, worktree add, and git -C / --git-dir cross-repo
+# forms ONLY when followed by a mutating subcommand.
+# Note: 'commit' is intentionally absent — commit-time branch enforcement was
+# decommissioned 2026-05-07 per PM call (plan Phase 2).
 # False positives cause extra parsing below; false negatives are policy gaps.
-# Review: patrik F7/F8 — extended to include --move, --copy, -c, -C, -M; F11
-# — added commit; F4/F5 — added git -C / --git-dir patterns.
-if ! echo "$COMMAND" | grep -qE '(\bgit[[:space:]]+(checkout|switch|branch([[:space:]]+(-m|-M|-c|-C|--move|--copy|--force-create-branch))?|stash[[:space:]]+branch|worktree[[:space:]]+add|commit)\b|\bgit[[:space:]]+(-C[[:space:]]|--git-dir|--work-tree))'; then
+# Review: patrik F7/F8 — extended to include --move, --copy, -c, -C, -M;
+# F4/F5 — added git -C / --git-dir patterns; BS-2026-05-06-002 — tightened
+# git -C / --git-dir gate to mutating subcommands only.
+if ! echo "$COMMAND" | grep -qE '(\bgit[[:space:]]+(checkout|switch|branch([[:space:]]+(-m|-M|-c|-C|--move|--copy|--force-create-branch))?|stash[[:space:]]+branch|worktree[[:space:]]+add)\b|\bgit[[:space:]]+(-C[[:space:]]|--git-dir[=[:space:]]|--work-tree[=[:space:]])[^|;&]*\b(checkout|switch|branch|stash[[:space:]]+branch|worktree[[:space:]]+add)\b)'; then
   exit 0
 fi
 
@@ -85,7 +105,7 @@ case "$GIT_DIR" in
   *worktrees/*) exit 0 ;;
 esac
 
-# --- Load shared lib for MACHINE/TODAY/is_allowed_branch ---
+# --- Load shared lib for MACHINE/is_allowed_branch ---
 # Review: patrik F10 — extracted shared helpers to coordinator-daily-branch.sh
 # to avoid duplication between this hook and validate-commit.sh.
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-daily-branch.sh"
@@ -97,36 +117,84 @@ if [[ -f "$LIB_PATH" ]]; then
   source "$LIB_PATH"
 else
   # Fallback: inline the helpers if lib is missing (should not happen in normal install).
+  # Mirrors coordinator-daily-branch.sh — keep in sync if lib changes.
   cs_compute_machine() {
-    if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then echo "$COORDINATOR_MACHINE"; return; fi
-    if [[ -n "${COMPUTERNAME:-}" ]]; then echo "$COMPUTERNAME"; return; fi
-    if command -v hostname &>/dev/null; then local h; h=$(hostname 2>/dev/null | sed 's/\..*//'
-); [[ -n "$h" ]] && echo "$h" && return; fi
-    echo "${HOSTNAME:-unknown}"
+    local m
+    if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then m="$COORDINATOR_MACHINE"
+    elif [[ -n "${COMPUTERNAME:-}" ]]; then m="$COMPUTERNAME"
+    elif command -v hostname &>/dev/null; then m=$(hostname 2>/dev/null | sed 's/\..*//')
+    else m="${HOSTNAME:-unknown}"
+    fi
+    echo "${m:-unknown}" | tr '[:upper:]' '[:lower:]'
   }
-  cs_compute_today_daily_lc() {
-    local machine today
-    machine=$(cs_compute_machine); today=$(date +%Y-%m-%d)
-    echo "work/${machine}/${today}" | tr '[:upper:]' '[:lower:]'
+  cs_parse_branch_span() {
+    local name="$1"
+    local lc
+    lc=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+    if ! echo "$lc" | grep -qE '^work/[^/]+/[0-9]{4}-[0-9]{2}-[0-9]{2}(to[0-9]{2})?$'; then return 1; fi
+    local date_part
+    date_part=$(echo "$lc" | sed 's|^work/[^/]*/||')
+    local sy sm sd
+    sy="${date_part:0:4}"; sm="${date_part:5:2}"; sd="${date_part:8:2}"
+    if (( 10#$sm < 1 || 10#$sm > 12 )); then return 1; fi
+    if (( 10#$sd < 1 || 10#$sd > 31 )); then return 1; fi
+    if echo "$date_part" | grep -qE 'to[0-9]{2}$'; then
+      local ed
+      ed=$(echo "$date_part" | sed 's/.*to//')
+      local ey em
+      if (( 10#$ed < 10#$sd )); then
+        if (( 10#$sm == 12 )); then ey=$(( 10#$sy + 1 )); em="01"
+        else ey="$sy"; em=$(printf '%02d' $(( 10#$sm + 1 ))); fi
+      else ey="$sy"; em="$sm"; fi
+      echo "${sy}-${sm}-${sd} ${ey}-${em}-${ed}"
+    else
+      echo "${sy}-${sm}-${sd} ${sy}-${sm}-${sd}"
+    fi
+    return 0
   }
   cs_is_allowed_branch() {
-    local lc daily_lc
+    local lc
     lc=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-    daily_lc=$(cs_compute_today_daily_lc)
-    [[ "$lc" == "main" ]] && return 0; [[ "$lc" == "$daily_lc" ]] && return 0; return 1
+    [[ "$lc" == "main" ]] && return 0
+    cs_parse_branch_span "$lc" > /dev/null 2>&1 && return 0
+    return 1
+  }
+  cs_is_canonical_branch() {
+    local name="$1"
+    cs_is_allowed_branch "$name" || return 1
+    local lc
+    lc=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+    [[ "$name" == "$lc" ]]
   }
 fi
 
 # Local aliases for readability in this script.
 MACHINE=$(cs_compute_machine)
-TODAY=$(date +%Y-%m-%d)
-DAILY_LC=$(cs_compute_today_daily_lc)
 
 # --- Helpers ---
 
 # is_allowed_branch <name> — delegates to shared lib cs_is_allowed_branch.
+# Used by switch-to-existing arms (allows mixed-case so the migration script can
+# switch into a non-canonical branch and rename it).
 is_allowed_branch() {
   cs_is_allowed_branch "$1"
+}
+
+# is_canonical_branch <name> — delegates to shared lib cs_is_canonical_branch.
+# Used by branch-CREATION arms (checkout -b/-B, switch -c/-C, branch -m/-c,
+# stash branch, --orphan). Fail-closed on mixed-case to prevent the HEAD
+# vs on-disk canonical-case mismatch class on Windows.
+is_canonical_branch() {
+  cs_is_canonical_branch "$1"
+}
+
+# emit_canonical_hint <name> — if name is allowed-shape but non-canonical,
+# echo the canonical form for inclusion in a deny-message. Empty string otherwise.
+emit_canonical_hint() {
+  local name="$1"
+  cs_is_allowed_branch "$name" || { echo ""; return; }
+  cs_is_canonical_branch "$name" && { echo ""; return; }
+  echo "$name" | tr '[:upper:]' '[:lower:]'
 }
 
 # is_local_branch <name> — true iff refs/heads/<name> exists.
@@ -149,16 +217,25 @@ emit_deny() {
   fi
 
   local full_reason
-  full_reason="BLOCKED: off-daily branch operation."$'\n\n'
+  full_reason="BLOCKED: off-workstream branch operation."$'\n\n'
   full_reason+="  Command: ${COMMAND}"$'\n'
   full_reason+="  Target:  ${target}"$'\n'
-  full_reason+="  Allowed: work/${MACHINE}/${TODAY} (today's daily) or main (read-only)"$'\n\n'
+  full_reason+="  Allowed: work/${MACHINE}/{date-or-span} or main (read-only)"$'\n\n'
   full_reason+="${reason}"$'\n\n'
+  # Case-canonical hint: if target is shape-valid but non-canonical, suggest the
+  # lowercase form. Prevents the HEAD vs on-disk case-mismatch class on Windows
+  # (autopush silent-failure root cause, 2026-05-07).
+  local canonical_hint
+  canonical_hint=$(emit_canonical_hint "$target")
+  if [[ -n "$canonical_hint" ]]; then
+    full_reason+="Canonical form: ${canonical_hint}"$'\n'
+    full_reason+="  Try: git checkout -b ${canonical_hint}"$'\n\n'
+  fi
   full_reason+="To park WIP without a sibling branch:"$'\n'
-  full_reason+="  • commit on the daily (intentionally messy commits are fine on work/*)"$'\n'
+  full_reason+="  • commit on the active workstream branch (intentionally messy commits are fine on work/*)"$'\n'
   full_reason+="  • git stash push -u -m \"<subject>\" (do NOT change branches first)"$'\n\n'
   full_reason+="Override: COORDINATOR_OVERRIDE_BRANCH=1 (logged). Use only inside skills"$'\n'
-  full_reason+="that legitimately need off-daily ops (/workday-start, /merge-to-main, /consolidate-git)."
+  full_reason+="that legitimately need off-branch ops (/workday-start, /merge-to-main, /consolidate-git)."
 
   if command -v jq &>/dev/null; then
     jq -nc --arg reason "$full_reason" '{
@@ -209,8 +286,13 @@ fi
 # Use bash word splitting on the original command. Intentional: preserves shell
 # semantics for our purposes. Quoted branch names with spaces are a non-concern
 # (git refnames cannot contain spaces).
+# set -f disables glob expansion so metacharacters in COMMAND (*/?/[...]) are
+# not expanded during tokenisation — without it, a branch name like "fix/*"
+# would be subject to pathname expansion before the array is built.
 # shellcheck disable=SC2206
+set -f
 TOKENS=( $COMMAND )
+set +f
 
 # strip_quotes <token> — remove surrounding single or double quotes.
 # Review: patrik F2 — TOKENS=( $COMMAND ) embeds surrounding quotes in each
@@ -285,15 +367,16 @@ while (( i < n )); do
                 ;;
               --orphan)
                 # Review: patrik F3 — --orphan <name> creates a real branch ref.
-                # Check the name; allow only if it matches today's daily or main.
+                # Check the name; allow only if it's a canonical workstream branch.
+                # Creation arm: canonical-case oracle (case-fragile push prevention).
                 orphan_name=$(strip_quotes "${TOKENS[$((j+1))]:-}")
                 if [[ -z "$orphan_name" ]]; then
                   emit_deny "--orphan requires a branch name." "--orphan (no name)"
                 fi
-                if is_allowed_branch "$orphan_name"; then
+                if is_canonical_branch "$orphan_name"; then
                   exit 0
                 fi
-                emit_deny "--orphan '$orphan_name' creates an off-daily branch ref." "$orphan_name"
+                emit_deny "--orphan '$orphan_name' creates an off-daily or non-canonical-case branch ref." "$orphan_name"
                 ;;
               -)
                 # Switch to previous branch — resolve and validate.
@@ -327,10 +410,11 @@ while (( i < n )); do
           done
 
           if [[ -n "$create_target" ]]; then
-            if is_allowed_branch "$create_target"; then
+            # Creation arm: canonical-case oracle (case-fragile push prevention).
+            if is_canonical_branch "$create_target"; then
               exit 0
             fi
-            emit_deny "Creating off-daily branch '$create_target' is forbidden." "$create_target"
+            emit_deny "Creating off-daily or non-canonical-case branch '$create_target' is forbidden." "$create_target"
           fi
 
           if [[ -n "$switch_target" ]]; then
@@ -377,8 +461,9 @@ while (( i < n )); do
                 ;;
             esac
           done
-          if [[ "$has_create_flag" == "1" && -n "$new" ]] && ! is_allowed_branch "$new"; then
-            emit_deny "Renaming/copying branch to off-daily name '$new' is forbidden." "$new"
+          # Creation arm (rename/copy materialises a new ref): canonical-case oracle.
+          if [[ "$has_create_flag" == "1" && -n "$new" ]] && ! is_canonical_branch "$new"; then
+            emit_deny "Renaming/copying branch to off-daily or non-canonical-case name '$new' is forbidden." "$new"
           fi
           exit 0
           ;;
@@ -386,8 +471,9 @@ while (( i < n )); do
           # Form: git stash branch <name> [<stash>]
           if [[ "${TOKENS[$((i+2))]:-}" == "branch" ]]; then
             new=$(strip_quotes "${TOKENS[$((i+3))]:-}")
-            if [[ -n "$new" ]] && ! is_allowed_branch "$new"; then
-              emit_deny "Materialising stash onto off-daily branch '$new' is forbidden." "$new"
+            # Creation arm: canonical-case oracle.
+            if [[ -n "$new" ]] && ! is_canonical_branch "$new"; then
+              emit_deny "Materialising stash onto off-daily or non-canonical-case branch '$new' is forbidden." "$new"
             fi
           fi
           exit 0
@@ -400,51 +486,9 @@ while (( i < n )); do
           fi
           exit 0
           ;;
-        commit)
-          # Review: patrik F11 — Check 6 (defence-in-depth at commit time) consolidated
-          # here from validate-commit.sh. One hook for branch discipline (creation,
-          # switch, commit); one hook for commit-content validation (validate-commit.sh
-          # checks 1-5). Catches the "session inherited a stale-day branch" case.
-          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-          if [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "HEAD" ]]; then
-            CURRENT_LC=$(echo "$CURRENT_BRANCH" | tr '[:upper:]' '[:lower:]')
-            if [[ "$CURRENT_LC" != "$DAILY_LC" ]]; then
-              REASON_C6="BLOCKED: commit on off-daily branch."$'\n\n'
-              REASON_C6+="  Current branch: ${CURRENT_BRANCH}"$'\n'
-              REASON_C6+="  Today's daily:  work/${MACHINE}/${TODAY}"$'\n\n'
-              REASON_C6+="The coordinator doctrine requires commits to land on today's daily branch."$'\n'
-              if [[ "$CURRENT_LC" == "main" ]]; then
-                REASON_C6+="main is PR-only; never commit directly."$'\n'
-              elif echo "$CURRENT_BRANCH" | grep -qE '^work/[^/]+/[0-9]{4}-[0-9]{2}-[0-9]{2}'; then
-                REASON_C6+="If this branch is yesterday's daily or older, run /workday-start to roll forward."$'\n'
-                REASON_C6+="If you've crossed midnight in a long session, run /workday-start to roll the daily forward."$'\n'
-              else
-                REASON_C6+="If you've crossed midnight in a long session, run /workday-start to roll the daily forward."$'\n'
-              fi
-              REASON_C6+=$'\n'
-              REASON_C6+="Override: COORDINATOR_OVERRIDE_BRANCH=1 (logged). Use only inside skills"$'\n'
-              REASON_C6+="that legitimately commit off-daily (/workday-start, /merge-to-main, /consolidate-git)."
-
-              if command -v jq &>/dev/null; then
-                jq -nc --arg reason "$REASON_C6" '{
-                  hookSpecificOutput: {
-                    hookEventName: "PreToolUse",
-                    permissionDecision: "deny",
-                    permissionDecisionReason: $reason
-                  }
-                }'
-              else
-                ESC_C6=${REASON_C6//\\/\\\\}
-                ESC_C6=${ESC_C6//\"/\\\"}
-                ESC_C6=${ESC_C6//$'\n'/\\n}
-                printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$ESC_C6"
-              fi
-              exit 0
-            fi
-          fi
-          # On correct branch — allow.
-          exit 0
-          ;;
+        # commit) arm intentionally absent — commit-time branch enforcement
+        # decommissioned 2026-05-07 per PM call. See plan Phase 2 and
+        # docs/wiki/daily-branch-discipline.md.
       esac
       ;;
   esac

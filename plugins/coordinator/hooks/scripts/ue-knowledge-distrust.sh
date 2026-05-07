@@ -18,6 +18,9 @@
 # loads lean defaults — close and re-open Claude Code after this hook runs.
 # See docs/wiki/per-project-plugin-gating.md for full details.
 
+# Plugin root derived from script location (hooks/scripts/ → ../../).
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 # Shallow search — maxdepth 3 covers typical project layouts without scanning
 # deep engine/plugin trees. -print -quit exits on first match for speed.
 UPROJECT=$(find . -maxdepth 3 -name '*.uproject' -print -quit 2>/dev/null)
@@ -45,7 +48,7 @@ elif [[ -f "$SETTINGS" ]] && jq -e '.enabledPlugins["holodeck-control@claude-unr
 elif [[ ! -f "$SETTINGS" ]] || ! jq -e '.enabledPlugins["holodeck-control@claude-unreal-holodeck"] == true' "$SETTINGS" >/dev/null 2>&1; then
   # Either no settings.json, or settings.json exists but lacks the UE override.
   # Run the bootstrap script to populate / merge the override.
-  "${CLAUDE_PLUGIN_ROOT}/bin/claude-ue-bootstrap.sh" "$(pwd)" >&2
+  "${PLUGIN_ROOT}/bin/claude-ue-bootstrap.sh" "$(pwd)" >&2
   echo "UE override written — close and re-open Claude Code to load UE plugins (current session uses lean defaults)" >&2
 fi
 
