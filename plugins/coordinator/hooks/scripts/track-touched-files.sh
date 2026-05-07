@@ -134,53 +134,58 @@ FILE_PATH_NORM="$FILE_PATH"
 if [[ "$FILE_PATH" == /* || "$FILE_PATH" == [A-Za-z]:* ]]; then
   REL=$(git ls-files --full-name -- "$FILE_PATH" 2>/dev/null | head -1)
   if [[ -z "$REL" ]]; then
-    REL=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
-          "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) \
-      || REL=$(python -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
-          "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) \
-      || REL=""
+    # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
+    LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
+    [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    # shellcheck source=/dev/null
+    [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
+    if [[ -n "$PYTHON_BIN" ]]; then
+      REL=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import os,sys; print(os.path.relpath(sys.argv[1],sys.argv[2]).replace(os.sep,'/'))" \
+            "$FILE_PATH" "$GIT_ROOT" 2>/dev/null) || REL=""
+    else
+      REL=""
+    fi
   fi
   [[ -n "$REL" ]] && FILE_PATH_NORM="$REL"
 fi
 
 # ---------------------------------------------------------------------------
 # Atomic dedup-append helper.
-# flock(1) is not available on Windows Git Bash; we use a portable
-# mktemp-adjacent + sort-dedup + mv pattern instead:
-#   1. Read existing entries (if any).
-#   2. Check whether our path is already present — fast-exit if so.
-#   3. Write the new candidate to a sibling temp file (atomic on same FS).
-#   4. Merge existing + candidate, dedup, write to another temp file.
-#   5. mv (atomic rename) into place.
-# Concurrent races collapse to at-most-once: the last mv wins and the
-# dedup pass in step 4 prevents doubles regardless of interleaving.
-# Dedup-on-read at commit time remains the final correctness backstop.
+# Delegates to cs_atomic_dedup_append in lib/coordinator-session.sh.
+#
+# Spec backlink: plans/safe-commit-fixes.md § Phase 3a
+# Prior implementation (mktemp+sort+mv) had a lost-update race under N
+# concurrent writers with distinct paths: each writer read-then-overwrote,
+# so the last mv silently dropped earlier merges. Replaced with append-only
+# writes — see cs_atomic_dedup_append for the full rationale and contract.
+#
+# lib may already be sourced (warm path: sourced above in the session-init
+# block). If not, source it now. If missing entirely, fall back to the
+# direct append-only idiom so the hook never blocks tool calls.
 # ---------------------------------------------------------------------------
 _atomic_dedup_append() {
   local target_file="$1"
   local new_entry="$2"
-  local target_dir
-  target_dir="$(dirname "$target_file")"
 
-  # Fast-exit: already present (non-atomic read is fine — false negative
-  # just falls through to the merge step which will dedup).
-  if grep -qxF "$new_entry" "$target_file" 2>/dev/null; then
-    return 0
+  # Source lib if cs_atomic_dedup_append is not yet in scope.
+  if ! declare -f cs_atomic_dedup_append &>/dev/null; then
+    local _lib
+    _lib="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+    if [[ -f "$_lib" ]]; then
+      # shellcheck source=/dev/null
+      source "$_lib"
+    fi
   fi
 
-  # Write candidate to a sibling temp file (same filesystem → mv is atomic).
-  local tmp_new tmp_merged
-  tmp_new=$(mktemp "${target_dir}/.ttf-new.XXXXXX" 2>/dev/null) || return 0
-  tmp_merged=$(mktemp "${target_dir}/.ttf-mrg.XXXXXX" 2>/dev/null) || { rm -f "$tmp_new"; return 0; }
-
-  printf '%s\n' "$new_entry" > "$tmp_new"
-
-  # Merge: existing (may be empty/absent) + new candidate → dedup → merged.
-  { cat "$target_file" 2>/dev/null; cat "$tmp_new"; } \
-    | sort -u > "$tmp_merged" 2>/dev/null || true
-
-  mv "$tmp_merged" "$target_file" 2>/dev/null || true
-  rm -f "$tmp_new" "$tmp_merged" 2>/dev/null || true
+  if declare -f cs_atomic_dedup_append &>/dev/null; then
+    cs_atomic_dedup_append "$target_file" "$new_entry"
+  else
+    # Lib missing — inline the append-only fallback (same contract).
+    grep -qxF "$new_entry" "$target_file" 2>/dev/null && return 0
+    printf '%s\n' "$new_entry" >> "$target_file" 2>/dev/null || true
+  fi
+  return 0
 }
 
 # Session-keyed dedup-append.
