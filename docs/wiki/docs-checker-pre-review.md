@@ -113,11 +113,11 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 
 The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Sid variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer (`coordinator:staff-eng`))
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer (`game-dev:staff-game-dev`))
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer (`data-science:staff-data-sci`))
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer (`web-dev:senior-front-end`))
+- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 

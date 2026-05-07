@@ -2,7 +2,7 @@
 /**
  * sentinel-blocks.test.js — node:test suite for sentinel-blocks.js
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W2
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2
  */
 
 const { test } = require('node:test');

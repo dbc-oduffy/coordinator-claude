@@ -103,10 +103,10 @@ test -f coordinator.local.md && echo "exists" || echo "missing"
 
 > What type of project is this? This controls which domain specialists are available for routing.
 >
-> - **general** — Software project (Patrik for code review, standard workflow)
-> - **unreal** — Unreal Engine project (adds Sid, Blueprint agents, holodeck tools)
-> - **web** — Web project (adds Palí for front-end review, Fru for UX)
-> - **data-science** — ML/data project (adds Camelia for data science review)
+> - **general** — Software project (the Staff Engineer for code review, standard workflow)
+> - **unreal** — Unreal Engine project (adds the Game Dev Reviewer, Blueprint agents, holodeck tools)
+> - **web** — Web project (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
+> - **data-science** — ML/data project (adds the Data Science Reviewer for data science review)
 > - **meta** — Coordinator infrastructure itself (full EM delegation model)
 > - **Custom** — Specify your own (comma-separated for multiple types, e.g. "unreal, data-science")
 
@@ -149,28 +149,28 @@ Check if `tasks/lessons.md` exists. If not, create it:
 
 ---
 
-## 3. Optional: Persona Customization
+## 3. Optional: Persona Naming
 
 After the core setup, ask once:
 
-> The coordinator includes named reviewer personas (Patrik, Sid, Camelia, Palí, Fru, Zolí). Would you like to customize their names?
+> The coordinator ships with role-based reviewer labels (the Staff Engineer, the Game Dev Reviewer, etc.). Some people find it easier to think of them as named collaborators — would you like to give them names? You can pick now, do it later via `setup/name-personas.sh`, or skip entirely. (Default: skip — they remain role labels.)
 >
-> - **Keep defaults** — Use the built-in persona names
-> - **Customize** — Choose your own names for the reviewers
+> - **Skip** — Keep the built-in role labels (default)
+> - **Name them** — Choose your own names for the reviewer roles
 
-If the user wants to customize, note that they can run the rename script:
+If the user wants to name them, note that they can run the naming script:
 
 ```bash
-bash ~/.claude/plugins/coordinator-claude/setup/rename-personas.sh OldName "NewName"
+bash ~/.claude/plugins/coordinator-claude/setup/name-personas.sh "the Staff Engineer" "Alex"
 ```
 
 Or from the repo clone:
 
 ```bash
-bash setup/rename-personas.sh --dry-run Patrik "Alex" Sid "Jordan"
+bash setup/name-personas.sh --dry-run "the Staff Engineer" "Alex" "the Game Dev Reviewer" "Jordan"
 ```
 
-This is a one-time cosmetic choice. Skip if `--check-only`.
+This is a one-time optional choice. Skip if `--check-only`.
 
 ---
 

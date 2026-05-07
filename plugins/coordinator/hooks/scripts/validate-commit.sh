@@ -26,8 +26,31 @@ else
   COMMAND=$(echo "$INPUT" | sed -n 's/.*"command"\s*:\s*"\([^"]*\)".*/\1/p' | head -1)
 fi
 
-# Fast exit: only process git commit commands
-if ! echo "$COMMAND" | grep -qE '^git[[:space:]]+commit'; then
+# Fast exit: only process git commit commands.
+# Fast path: command starts with "git commit" (most common case, <1ms).
+# Slow path: tokenize on shell separators (;, &&, ||) and test each
+# subcommand's leading word pair — catches chained forms like:
+#   git status && git commit -m "..."
+#   cd foo && git commit -m "..."
+# Each token is stripped of leading whitespace before testing so that
+# "git commit" must appear as the first two words of a subcommand, not
+# anywhere inside a quoted string or a longer word (e.g. git commits).
+_contains_git_commit=0
+if echo "$COMMAND" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
+  _contains_git_commit=1
+else
+  # Split on &&, ||, ; — replace each with a newline, then test each line.
+  _normalized=$(printf '%s' "$COMMAND" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g')
+  while IFS= read -r _token; do
+    # Strip leading whitespace from token
+    _token="${_token#"${_token%%[! ]*}"}"
+    if echo "$_token" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
+      _contains_git_commit=1
+      break
+    fi
+  done <<< "$_normalized"
+fi
+if [[ "$_contains_git_commit" -eq 0 ]]; then
   exit 0
 fi
 
@@ -57,18 +80,16 @@ fi
 # --- Check 2: JSON validity in data/ and evaluation/ ---
 JSON_FILES=$(echo "$STAGED" | grep -E '^(data|evaluation)/.*\.json$' || true)
 if [[ -n "$JSON_FILES" ]]; then
-  PYTHON_CMD=""
-  for cmd in python python3 py; do
-    if command -v "$cmd" &>/dev/null; then
-      PYTHON_CMD="$cmd"
-      break
-    fi
-  done
+  # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
+  LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
+  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+  # shellcheck source=/dev/null
+  [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 
-  if [[ -n "$PYTHON_CMD" ]]; then
+  if [[ -n "$PYTHON_BIN" ]]; then
     while IFS= read -r file; do
       if [[ -f "$file" ]]; then
-        if ! "$PYTHON_CMD" -m json.tool "$file" > /dev/null 2>&1; then
+        if ! "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -m json.tool "$file" > /dev/null 2>&1; then
           WARNINGS="${WARNINGS}\nJSON: $file is not valid JSON"
         fi
       fi
@@ -83,7 +104,7 @@ SH_FILES=$(echo "$STAGED" | grep -E '\.sh$' || true)
 if [[ -n "$SH_FILES" ]] && command -v shellcheck &>/dev/null; then
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
-      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|- $file:|g" || true)
+      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|${file}:|g" || true)
       if [[ -n "$SC_OUT" ]]; then
         WARNINGS="${WARNINGS}\nSHELLCHECK: $file has issues:\n${SC_OUT}"
       fi
@@ -182,6 +203,68 @@ if [[ -n "$SESSION_ID" ]]; then
   fi
 fi
 
+# --- Check 7: CLAUDE.md char budget ---
+# Claude Code shows a perf warning when any auto-loaded CLAUDE.md exceeds 40K chars.
+# Soft threshold (38K, warn) and hard threshold (40K, block) on staged CLAUDE.md files.
+# Override: COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET=1 (emergency only; logged).
+CLAUDEMD_FILES=$(echo "$STAGED" | grep -E '(^|/)CLAUDE\.md$' || true)
+CLAUDEMD_HARD_VIOLATION=""
+CLAUDEMD_SOFT_NAMES=""
+CLAUDEMD_SOFT_LIMIT=38000
+CLAUDEMD_HARD_LIMIT=40000
+
+if [[ -n "$CLAUDEMD_FILES" ]]; then
+  while IFS= read -r _cf; do
+    [[ -z "$_cf" ]] && continue
+    # Use the staged blob (what would actually land), not the worktree file.
+    _csize=$(git show ":${_cf}" 2>/dev/null | wc -c | tr -d ' ')
+    [[ -z "$_csize" || "$_csize" -eq 0 ]] && continue
+    if [[ "$_csize" -gt "$CLAUDEMD_HARD_LIMIT" ]]; then
+      CLAUDEMD_HARD_VIOLATION="${CLAUDEMD_HARD_VIOLATION}"$'\n'"  ${_cf} = ${_csize} chars (limit ${CLAUDEMD_HARD_LIMIT})"
+    elif [[ "$_csize" -gt "$CLAUDEMD_SOFT_LIMIT" ]]; then
+      CLAUDEMD_SOFT_NAMES="${CLAUDEMD_SOFT_NAMES}"$'\n'"  ${_cf} = ${_csize} chars (soft ${CLAUDEMD_SOFT_LIMIT}; hard ${CLAUDEMD_HARD_LIMIT})"
+    fi
+  done <<< "$CLAUDEMD_FILES"
+fi
+
+if [[ -n "$CLAUDEMD_SOFT_NAMES" ]]; then
+  WARNINGS="${WARNINGS}\nCLAUDEMD-BUDGET (soft):${CLAUDEMD_SOFT_NAMES}\n  → Approaching 40K perf warning. Demote a section to docs/wiki/ before the next addition."
+fi
+
+# Hard violation: emit JSON deny on stdout, print warnings to stderr, exit 0.
+if [[ -n "$CLAUDEMD_HARD_VIOLATION" && "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET:-0}" != "1" ]]; then
+  if [[ -n "$WARNINGS" ]]; then
+    echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+  fi
+  REASON="BLOCKED: staged CLAUDE.md exceeds 40K char limit (Claude Code perf warning threshold):${CLAUDEMD_HARD_VIOLATION}"$'\n\n'
+  REASON+="Trim before committing: demote a section to docs/wiki/ and replace with a pointer."$'\n'
+  REASON+="Emergency override (logged): COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET=1"
+
+  if command -v jq &>/dev/null; then
+    jq -nc --arg reason "$REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+  else
+    ESC_REASON=${REASON//\\/\\\\}
+    ESC_REASON=${ESC_REASON//\"/\\\"}
+    ESC_REASON=${ESC_REASON//$'\n'/\\n}
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$ESC_REASON"
+  fi
+  exit 0
+fi
+
+if [[ -n "$CLAUDEMD_HARD_VIOLATION" && "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET:-0}" == "1" ]]; then
+  GIT_ROOT_LOG=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  OVERRIDE_LOG="${GIT_ROOT_LOG:-.}/.git/coordinator-sessions/${SESSION_ID:-no-session}/overrides.log"
+  mkdir -p "$(dirname "$OVERRIDE_LOG")" 2>/dev/null || true
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | ${SESSION_ID:-no-session} | OVERRIDE-CLAUDEMD-BUDGET |$(echo -e "$CLAUDEMD_HARD_VIOLATION" | tr '\n' ' ')" >> "$OVERRIDE_LOG" 2>/dev/null || true
+  WARNINGS="${WARNINGS}\nCLAUDEMD-BUDGET (override):${CLAUDEMD_HARD_VIOLATION}"
+fi
+
 # Print warnings (non-blocking) and always allow commit
 if [[ -n "$WARNINGS" ]]; then
   echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
@@ -229,11 +312,12 @@ if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; t
   exit 0
 fi
 
-# --- Check 6: MOVED ---
-# Branch discipline at commit time was Check 6 in this file. It has been
-# consolidated into block-off-daily-branch.sh (see `commit` arm of the
-# subcommand parser). One hook for branch discipline (create/switch/commit);
-# this hook handles commit-content validation only (Checks 1-5 above).
-# Review: patrik F11.
+# --- Check 6: FULLY DECOMMISSIONED ---
+# Branch discipline at commit time was Check 6 in this file. It was temporarily
+# consolidated into block-off-daily-branch.sh (`commit` arm) by Staff Engineer F11.
+# That commit arm has now been deleted entirely (2026-05-07, per PM call) —
+# the hook no longer enforces branch-date at commit time at all.
+# See docs/plans/2026-05-07-daily-branch-doctrine-rethink.md Phase 2.
+# This hook handles commit-content validation only (Checks 1-5 above).
 
 exit 0

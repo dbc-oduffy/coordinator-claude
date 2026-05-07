@@ -1,6 +1,6 @@
 ---
 name: merging-to-main
-description: Use when work on a branch is ready to merge to main — drafts release notes, creates PR, waits for CI, merges, cleans up. Always emits release-notes (even for tiny merges) so downstream consumers can see what changed.
+description: Use when a branch is ready to merge to main. Drafts release notes, creates PR, waits for CI, merges, cleans up.
 description-budget: 225
 argument-hint: "[--force]"
 version: 1.1.0
@@ -84,16 +84,17 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 3. **Verify remote is up-to-date:**
    ```bash
-   git log origin/$(git branch --show-current)..HEAD 2>/dev/null
+   _BR=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+   git log origin/"$_BR"..HEAD 2>/dev/null
    ```
    If unpushed commits exist, push explicitly:
    ```bash
-   git push origin $(git branch --show-current) --set-upstream
+   git push origin "$_BR" --set-upstream
    ```
 
 ### Step 1.5: Build PR Body (mandatory, every merge)
 
-Every merge to `main` produces a PR body composed of four parts: ship verdict, YK verdict (when applicable), release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
+Every merge to `main` produces a PR body composed of four parts: ship verdict, VP-Product verdict (when applicable), release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
 
 **Part 1 — Ship Verdict (every merge)**
 
@@ -113,26 +114,26 @@ Before creating the PR, the EM stages a one-line ship verdict for the PR body:
 
 The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
 
-**Part 2 — YK Review (user-visible, perf/concurrency, third-patch-in-six-months, or refactor-cheaper-than-patch)**
+**Part 2 — VP-Product Reviewer Review (user-visible, perf/concurrency, third-patch-in-six-months, or refactor-cheaper-than-patch)**
 
-Dispatch **YK (`agents/vp-product.md`)** as a primary reviewer for any merge that:
+Dispatch **the VP-Product Reviewer (`coordinator:vp-product`, `agents/vp-product.md`)** as a primary reviewer for any merge that:
 
 - changes user-visible behavior (UI, copy, defaults, error states, permissions, public APIs), **or**
 - touches performance, concurrency, scalability, or extensibility surface, **or**
-- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory YK), **or**
+- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory VP-Product Reviewer), **or**
 - the EM proposes an approach where a refactor would plausibly be cheaper than the patch.
 
-Skip YK entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
+Skip the VP-Product Reviewer entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
 
-YK's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
+The VP-Product Reviewer's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
 
-**Output** — append YK's verdict line to the PR body:
+**Output** — append the VP-Product Reviewer's verdict line to the PR body:
 
 ```markdown
-**YK verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
+**VP-Product verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
 ```
 
-If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply YK's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with YK on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
+If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply the VP-Product Reviewer's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with the VP-Product Reviewer on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
 
 **Part 3 — Release Notes (every merge)**
 
@@ -229,7 +230,7 @@ If `coordinator.local.md` declares `project_type` includes `unreal`, run these t
 | Check | Detection | Action |
 |---|---|---|
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
-| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require Patrik review of the audit before merge |
+| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded `X:/DroneSim`, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 
 If `project_type` does not include `unreal`, skip this step entirely.
@@ -237,16 +238,16 @@ If `project_type` does not include `unreal`, skip this step entirely.
 ### Step 2: Create PR
 
 ```bash
-BRANCH=$(git branch --show-current)
+BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 
 # Title based on branch type
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# PR body = ship verdict + YK verdict (when run) + release notes + demo path (Step 1.5 Parts 1–4)
+# PR body = ship verdict + VP-Product Reviewer verdict (when run) + release notes + demo path (Step 1.5 Parts 1–4)
 BODY="$(cat <<EOF
 $SHIP_VERDICT
-$YK_VERDICT
+$VP_PRODUCT_VERDICT
 
 $RELEASE_NOTES
 
@@ -330,7 +331,7 @@ Auto-recover — do NOT stop or ask:
 ```bash
 git fetch origin main
 git merge origin/main -m "merge main into work branch"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 gh pr merge <pr-number> --merge --delete-branch  # retry
 ```
 

@@ -11,7 +11,7 @@ PLUGINS_ROOT = pathlib.Path("plugins")
 #   ### Commands (18)
 #   ### Skills (20)
 #   ### Agents (6)
-# Review: Patrik — old regex \((\d+)\) required digits immediately inside parens,
+# Review: the Staff Engineer — old regex \((\d+)\) required digits immediately inside parens,
 # but README has e.g. "(18, all user-invocable via /)" — comma after digits broke match.
 COUNT_RE = re.compile(r"^#{1,3}\s+(\w+).*\((\d+)\b", re.MULTILINE)
 
