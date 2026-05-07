@@ -33,8 +33,8 @@ Session workflows generate artifacts that accumulate indefinitely. The knowledge
 
 ```
 Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
-  → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 3 (Opus, single)
-  → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + delete)
+  → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 2.5 (Sonnet ×K, judgment-mining)
+  → Phase 3 (Opus, single) → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + delete)
 ```
 
 **Phases MUST run sequentially.** Each phase's output shapes the next phase's prompts. Do not begin the next phase until all agents in the current phase have completed and their scratch files verified.
@@ -189,6 +189,130 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 ---
 
+## Phase 2.5: Judgment Mining (Sonnet, parallel by topic-cluster)
+
+<!-- spec-backlink: docs/plans/2026-05-07-codebase-judgment-mining.md § D1, D2, D5–D8 -->
+
+**Model:** Sonnet. **Dispatch:** One agent per topic-cluster, all simultaneously.
+
+**Strict-sequencing gate:** All Phase 2 topic-cluster agents MUST complete and their scratch files verified before Phase 2.5 begins. Phase 2.5 MUST complete before Phase 3 dispatches.
+
+**Purpose:** Mine the run's reviewer sidecars for cross-spec convergence patterns — findings that recur across ≥N distinct plans on similar codebase shapes (default `N=3`, overridable via `--min-convergence=N`). Findings that converge above threshold are emitted as `judgment-proposals` for Phase 3 review and eventual wiki promotion into `docs/wiki/codebase-judgment/`.
+
+**Read-only orchestrator boundary:** Phase 2.5 dispatches no nested sub-agents. It is one Sonnet call per topic-cluster, fanned out by the coordinator.
+
+### Input corpus
+
+For each plan in the run's scope, the coordinator collects:
+
+- **Live sidecars** — all reviewer sidecar files of the form `<plan>.{patrik,sid,camelia,palí,fru}-rN.md` present on disk at Phase 2.5 start time. These files have already been annotated with `disposition:` fields by the review-integrator (per D7) before Phase 5 deletes them.
+- **Historical sidecars via `git show`** — if any existing `docs/wiki/codebase-judgment/<topic>.md` entry lists `source_findings[*].sha` refs, those SHAs point to sidecars that were deleted from the working tree by a prior Phase 5 run. Phase 2.5 resolves them via `git show <sha>:<sidecar-path>` ONLY during initial topic-cluster creation, not during the update path (per D8).
+
+**SHA-resolution and Phase 5 timing note:** Reviewer sidecars are deleted by Phase 5 of each `/distill` run. The `source_findings[*].sha` provenance field in each judgment entry captures the git SHA of the sidecar at commit time, ensuring `git show <sha>:<path>` resolves even after the live file is gone. Phase 2.5 must run before Phase 5 of the same run — the strict-sequencing gate above enforces this.
+
+### Finding eligibility
+
+Only architectural reviewer findings are eligible for convergence counting. A finding is **ineligible** if it is:
+
+- Mechanical in nature (missing trailing newline, wrong indent, formatting fix)
+- A docs-checker-class finding (wrong import path, stale API signature, incorrect function name)
+- Annotated `disposition: escalated-disagree` in the sidecar — these are findings the integrator actively rejected; including them would let rejected verdicts accumulate into promoted wiki entries
+
+Eligible finding types: architectural recommendations, pattern requirements, anti-pattern prohibitions, design constraints flagged as recurring by the reviewer.
+
+### Shape-matching
+
+Two findings shape-match iff both conditions hold:
+
+1. **Claim-topic (noun) is equivalent** — the subject of the finding refers to the same codebase concept (e.g. "staging command", "fallback clause", "parallel dispatch"). Equivalence is semantic, not lexical — "scoped staging" and "git add scoping" are the same topic.
+2. **Verdict-direction (polarity) matches** — both findings carry the same directive polarity: `forbid` / `require` / `prefer` / `avoid`.
+
+See the worked examples in `agent-prompts.md` Phase 2.5 template for concrete matched and non-matched pairs.
+
+### Update path (existing judgment entries)
+
+When `docs/wiki/codebase-judgment/<topic>.md` already exists:
+
+- A single new live finding that shape-matches the existing topic key increments `convergence_count` by 1 and appends a new entry to `source_findings`.
+- Phase 2.5 does **NOT** re-`git show` prior `source_findings[*].sha` refs for re-shape-matching. The existing topic key is the join. Re-mining historical SHAs is wasteful and creates churn risk if shape-match heuristics evolve.
+- The update path fires even when only one new matching finding is found — single-finding increments are valid.
+
+### Convergence threshold
+
+`MIN_CONVERGENCE` defaults to 3. Pass `--min-convergence=N` to `/distill` to override for the run. Phase 2.5 emits a proposal only when:
+
+- **New topic:** the finding cluster reaches `convergence_count >= MIN_CONVERGENCE` across distinct plans (one finding per plan maximum — multiple findings from the same plan count as one).
+- **Existing topic:** any single new live finding that shape-matches the topic triggers an update (threshold already met at prior promotion).
+
+### Output
+
+Phase 2.5 writes a single proposals file to scratch:
+
+**Path:** `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`
+
+**Format per proposal:**
+
+```markdown
+## Proposal: <topic-slug>
+
+**Topic:** <claim-topic noun>
+**Verdict direction:** forbid | require | prefer | avoid
+**Convergence count:** N
+**Action:** new-entry | increment-existing
+
+### Source findings
+
+| Sidecar | Plan | Reviewer | Finding ID | SHA |
+|---------|------|----------|------------|-----|
+| <path>  | <plan-path> | patrik/sid/camelia/palí/fru | <id-or-line-ref> | <git-sha> |
+
+### Proposed wiki content
+
+<!-- Full proposed `docs/wiki/codebase-judgment/<topic-slug>.md` body for new entries,
+     or a one-line increment note for existing entries. -->
+
+---
+```
+
+### Frontmatter schema for promoted entries
+
+Each new `docs/wiki/codebase-judgment/<topic>.md` carries (per D5):
+
+```yaml
+---
+judgment_provenance:
+  kind: codebase-judgment
+  convergence_count: N
+  source_findings:
+    - sidecar: <path>
+      plan: <plan-path>
+      reviewer: patrik | sid | camelia | palí | fru
+      finding_id: <id-or-line-ref>
+      sha: <git-sha-of-sidecar>
+  promoted: <YYYY-MM-DD>
+  last_refreshed: <YYYY-MM-DD>
+---
+```
+
+**Key:** `judgment_provenance:` (NOT `provenance:` — that key is taken by Phase 5b's archived-spec schema, which uses a list-of-objects shape incompatible with this schema).
+
+### Dispatch instructions
+
+**DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 2.5: Judgment Mining Prompt** verbatim. Fill in:
+- `[TOPIC_CLUSTER]` — the claim-topic noun for this cluster
+- `[VERDICT_DIRECTION]` — forbid | require | prefer | avoid
+- `[LIVE_SIDECAR_PATHS]` — list of live sidecar file paths for this cluster
+- `[EXISTING_JUDGMENT_ENTRY]` — full path + content of `docs/wiki/codebase-judgment/<topic>.md` if it exists, or `"NONE"` for new topics
+- `[MIN_CONVERGENCE]` — the threshold value for this run (default: 3)
+- `[RUN_ID]` — the run ID from Phase 0
+- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md` (all agents append to the same file; coordinator merges after fan-out)
+
+Instruct each agent in its prompt to use Read, Write, Glob, and Bash (for `git show` SHA resolution). Dispatch with `run_in_background: true`.
+
+**Scratch verification:** Before proceeding to Phase 3, verify `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md` exists. If no proposals were emitted (zero convergence), create an empty proposals file with a `## No proposals — corpus below threshold` header so Phase 3 can proceed with a known-good input.
+
+---
+
 ## Phase 3: Cross-Reference Assembly (Opus or decomposed Sonnet)
 
 **Default:** Opus single agent. **If >200 nuggets or >5 topic clusters:** decompose into 2 parallel Sonnet sub-tasks: (a) deduplicate decision records + cross-reference check, (b) produce deletion manifest. The coordinator assembles the final output.
@@ -254,6 +378,7 @@ Present to PM:
    Required procedure for each deletion-manifest entry:
    - Build the deletion list as **`*.md` only** — no recursive directory globs.
    - Per directory entry: `git ls-files '<dir>/*.md' '<dir>/**/*.md'` then `git rm` only those.
+   - **Column-anchor extraction (mandatory).** When extracting paths from a deletion-manifest table, anchor on the column position — never substring-grep the markdown body. Loose grep sweeps paths the scout *referenced* (cross-references, "see also" mentions) into the deletion list. Use `awk -F'|' '{print $2}'` (or equivalent column extractor) on the manifest rows; fail closed when any cell does not parse as a single relative path. See `snippets/deletion-list-hygiene.md`.
    - **Pre-commit audit gate:** `git status --porcelain | awk '$1=="D"' | grep -v '\.md$'` MUST return empty. If it returns ANY paths, abort the deletion commit, restore the unintended deletions (`git restore --staged --worktree <path>`), and report to PM. Non-`.md` deletions are never silently accepted, even if the deletion manifest names them.
    - Research outputs (`docs/research/`, `~/docs/research/`), NotebookLM artifacts (`*-claims.json`, `*-summary.md`, anything under `tasks/notebooklm-*/`), and Pipeline C structured outputs are **never deleted** by `/distill` regardless of manifest contents — these were marked PRESERVE/PROMOTE at Phase 0 and are corpus, not debris.
 
@@ -293,6 +418,10 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Delta operation references non-existent heading | Phase 3 Opus flags these as errors rather than guessing — surface for coordinator review |
 | Deleting active handoff references | Phase 0 reads `tasks/handoffs/` for active context — those files are read-only, never batched |
 | Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Opus does not expand them. |
+| Phase 2.5 promotes mechanical findings | Agent prompt explicitly excludes mechanical / docs-checker-class findings; only architectural reviewer findings are eligible. Review agent-prompts.md Phase 2.5 template if false positives appear. |
+| Phase 2.5 counts multiple findings from same plan as N convergences | Each plan contributes at most one count toward convergence, regardless of how many findings from that plan shape-match. One plan = one count. |
+| Phase 2.5 re-mines historical SHAs on update path | Update path uses the topic key as the join — it does NOT call `git show` on prior `source_findings[*].sha` refs. Only new live findings trigger SHA lookup on initial corpus creation. |
+| Phase 2.5 proposals file missing before Phase 3 | If zero proposals emitted, write an empty `judgment-proposals.md` with a `## No proposals — corpus below threshold` header so Phase 3 can proceed. |
 | Artifacts distilled twice | Distillation log (`docs/wiki/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
 | PM skips approval and deletion runs | "Wait for explicit approval" is unconditional — no timeout, no auto-proceed |
 | Scratch file missing after agent completes | Verify with `ls`; re-dispatch once; skip batch on second failure — don't stall the pipeline |
