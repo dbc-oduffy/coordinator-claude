@@ -229,7 +229,7 @@ change; do not strip until the central commit SHA exists.
 ### Per-record apply dispatch
 
 - `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` →
-  write focused plan, dispatch Patrik for review, integrator on findings, executor.
+  write focused plan, dispatch the Staff Engineer for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
 - `wiki-append`, `retag-local`, `memory-pointer`, `discard` → direct executor or EM edit.
 - `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
@@ -238,7 +238,7 @@ change; do not strip until the central commit SHA exists.
 
 ## Phase 6 — Per-Project Improvement Queue
 
-<!-- Review: Patrik F6 — added explicit write-time discipline for new entries to both queues -->
+<!-- Review: the Staff Engineer F6 — added explicit write-time discipline for new entries to both queues -->
 
 **Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.
@@ -254,8 +254,6 @@ Project-structural improvements queued by `/learn-lessons`. Consumed by `/workwe
 `  resolution: pending`
 
 ## Active queue
-
-## Processed
 ```
 
 **When appending a NEW entry to either queue (central or per-project), write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent).** This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`. Do not append bare single-line entries — the schema requires all three lines.

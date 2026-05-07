@@ -69,9 +69,9 @@ This preserves deliberate disables (e.g., a third-party UE repo where UE plugins
 
 Exits 0 on success; exits 1 with diagnostic output on failure (e.g., someone ran `rm -rf .claude/` in a named UE dir). On failure, re-run the bootstrap for the flagged dir.
 
-## Lean-Session Routing — Sid Unavailability
+## Lean-Session Routing — Game Dev Reviewer Unavailability
 
-Sid (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `game-dev` plugin. In a lean session, Sid is not available. Patrik's routing note in `coordinator/agents/staff-eng.md` provides conditional guidance: if a UE-context session is available, recommend Sid; otherwise surface to PM with a request to relaunch in a UE-context dir.
+The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `game-dev` plugin. In a lean session, the Game Dev Reviewer is not available. The Staff Engineer's routing note in `coordinator/agents/staff-eng.md` provides conditional guidance: if a UE-context session is available, recommend the Game Dev Reviewer; otherwise surface to PM with a request to relaunch in a UE-context dir.
 
 ## Files Involved
 
@@ -83,7 +83,7 @@ Sid (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `g
 | `~/.claude/bin/verify-ue-overrides.sh` | Drift verifier for known UE-context dirs |
 | `coordinator/hooks/scripts/ue-knowledge-distrust.sh` | SessionStart hook — auto-bootstraps on `.uproject` detection |
 | `coordinator/commands/workday-complete.md` | Calls `verify-ue-overrides.sh` in Step 1 validate phase |
-| `coordinator/agents/staff-eng.md` | Carries lean-session routing note for Sid |
+| `coordinator/agents/staff-eng.md` | Carries lean-session routing note for the Game Dev Reviewer |
 
 ## What Disappeared (vs. the Original Launcher Design)
 

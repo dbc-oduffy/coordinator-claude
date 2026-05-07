@@ -52,10 +52,10 @@ Select the reviewer based on what changed:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | Sid |
-| Frontend / UI | Palí |
-| Data / ML / science | Camelia |
-| Mixed, backend, or architecture | Patrik |
+| Game dev / Unreal Engine | the Game Dev Reviewer (`game-dev:staff-game-dev`) |
+| Frontend / UI | the Front-End Reviewer (`web-dev:senior-front-end`) |
+| Data / ML / science | the Data Science Reviewer (`data-science:staff-data-sci`) |
+| Mixed, backend, or architecture | the Staff Engineer (`coordinator:staff-eng`) |
 
 If multiple domains are present, route to the dominant one (most files changed / most critical path).
 

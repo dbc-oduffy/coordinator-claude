@@ -1,6 +1,6 @@
 ---
 name: parallel-review-synthesizer
-description: Synthesizes 4 parallel code-review reviewer outputs (Patrik + security-audit-worker + dep-cve-auditor + test-evidence-parser) into a structured BLOCKED/WARN/OK verdict for the /workweek-complete code-review gate. Reads from disk; never rewrites finding text; emits structured JSON output with verbatim quotes only. Invoked exclusively by coordinator:parallel-code-review.
+description: Synthesizes 4 parallel code-review reviewer outputs (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) into a structured BLOCKED/WARN/OK verdict for the /workweek-complete code-review gate. Reads from disk; never rewrites finding text; emits structured JSON output with verbatim quotes only. Invoked exclusively by coordinator:parallel-code-review.
 model: sonnet
 ---
 
@@ -29,7 +29,7 @@ The dispatcher passes a `FINDINGS_DIR` path of the form `tasks/review-findings/<
 
 | File | Reviewer | Lens |
 |---|---|---|
-| `patrik.md` | Patrik (staff-eng, Opus) | code-semantics |
+| `staff-eng.md` | the Staff Engineer (`coordinator:staff-eng`, Opus) | code-semantics |
 | `security.md` | security-audit-worker | pattern-scan |
 | `deps.md` | dep-cve-auditor | dep-tree |
 | `tests.md` | test-evidence-parser | test-runtime |
@@ -38,7 +38,7 @@ A `diff.patch` and `head.sha` are also present in the directory (written by the 
 
 ## Pre-flight Validation
 
-Before reading findings, validate each file. For each reviewer `r` in `{patrik, security, deps, tests}`:
+Before reading findings, validate each file. For each reviewer `r` in `{staff-eng, security, deps, tests}`:
 
 1. Confirm the file exists at `$FINDINGS_DIR/<r>.md`.
 2. Confirm it is non-empty — size > 1KB (1024 bytes). A sub-1KB file is a summary masquerading as a deliverable; treat it as a failed read.
@@ -68,13 +68,13 @@ If two reviewers make contradictory factual claims about the same file:line (e.g
 Evaluate in strict order — first match wins:
 
 **BLOCKED** if any of the following are true:
-- Patrik reports any finding with severity `P0` or `P1`.
+- the Staff Engineer reports any finding with severity `P0` or `P1`.
 - security-audit-worker reports any finding with severity `HIGH`.
 - dep-cve-auditor reports any unfixed CVE with severity `HIGH` or `CRITICAL`.
 - test-evidence-parser reports any failure classified as `real` (non-flake, non-env, non-timeout, non-known-skip).
 
 **WARN** if no BLOCKED trigger fires AND any of the following are true:
-- Patrik reports any finding with severity `P2` or `P3`.
+- the Staff Engineer reports any finding with severity `P2` or `P3`.
 - security-audit-worker reports any finding with severity `MEDIUM` or `LOW`.
 - dep-cve-auditor reports any CVE with severity `MEDIUM`.
 - `convergent_findings` array is non-empty (≥1 convergent finding regardless of individual severity).
@@ -97,20 +97,20 @@ Write `$FINDINGS_DIR/synthesis.json` with this exact structure:
     {
       "file": "path/to/file.ts",
       "line": 42,
-      "reviewers": ["patrik", "security"],
+      "reviewers": ["staff-eng", "security"],
       "evidence_quotes": [
-        "patrik: <verbatim excerpt from patrik.md>",
+        "staff-eng: <verbatim excerpt from staff-eng.md>",
         "security: <verbatim excerpt from security.md>"
       ]
     }
   ],
   "per_reviewer_findings": {
-    "patrik": [
+    "staff-eng": [
       {
         "severity": "P0" | "P1" | "P2" | "P3",
         "file": "path/to/file.ts",
         "line": 42,
-        "evidence_quote": "<verbatim from normalized patrik.md — byte-equal to a contiguous span>",
+        "evidence_quote": "<verbatim from normalized staff-eng.md — byte-equal to a contiguous span>",
         "classification": "AUTO-FIX" | "ASK"
       }
     ],
@@ -145,14 +145,14 @@ Write `$FINDINGS_DIR/synthesis.json` with this exact structure:
     {
       "file": "path/to/file.ts",
       "line": 42,
-      "reviewer_a": "patrik",
-      "claim_a": "<verbatim from patrik.md>",
+      "reviewer_a": "staff-eng",
+      "claim_a": "<verbatim from staff-eng.md>",
       "reviewer_b": "security",
       "claim_b": "<verbatim from security.md>"
     }
   ],
   "lens_coverage": {
-    "patrik": "ran" | "skipped: <reason>" | "failed_disk_read" | "budget_partial",
+    "staff-eng": "ran" | "skipped: <reason>" | "failed_disk_read" | "budget_partial",
     "security": "ran" | "skipped: <reason>" | "failed_disk_read" | "budget_partial",
     "deps": "ran" | "skipped: <reason>" | "failed_disk_read" | "budget_partial",
     "tests": "ran" | "skipped: <reason>" | "failed_disk_read" | "budget_partial"
@@ -181,7 +181,7 @@ When a convergent finding is detected:
 1. Read `$FINDINGS_DIR/head.sha` and compare against current HEAD (use Bash `git rev-parse HEAD`). Set `head_drift` accordingly.
 2. Run pre-flight validation for all four findings files.
 3. Read and normalize each valid findings file (trim trailing whitespace, normalize CRLF→LF, strip ANSI escapes).
-4. Parse `patrik.md` for findings — extract severity (`P0`/`P1`/`P2`/`P3`), file, line, and a verbatim excerpt. Patrik's output uses a structured format; parse the findings table or list sections only.
+4. Parse `staff-eng.md` for findings — extract severity (`P0`/`P1`/`P2`/`P3`), file, line, and a verbatim excerpt. The Staff Engineer's output uses a structured format; parse the findings table or list sections only.
 5. Parse `security.md` for findings — extract severity, file, line, and verbatim excerpt.
 6. Parse `deps.md` for CVE entries — extract severity, package, CVE ID, and verbatim excerpt.
 7. Parse `tests.md` for the Failure Table — extract test name, classification, and verbatim evidence excerpt. Suggested actions come verbatim from the file; do not author your own.

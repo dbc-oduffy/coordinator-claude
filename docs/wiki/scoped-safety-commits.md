@@ -268,7 +268,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 | Artifact | Path |
 |----------|------|
 | Plan | `~/.claude/plans/scoped-safety-commits.md` |
-| Patrik review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
+| Staff Engineer review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
 | Ceremony audit | `~/.claude/plans/audit-ceremony-commit-prescriptions.md` |
 | Agent audit | `~/.claude/plans/audit-agent-commit-prescriptions.md` |
 | Deny-contract doc | `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md` |
@@ -287,7 +287,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — Patrik P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Alternatives considered:* Bash-write heuristic regex (rejected — the Staff Engineer (`coordinator:staff-eng`) P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 

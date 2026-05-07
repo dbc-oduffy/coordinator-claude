@@ -37,12 +37,12 @@ The filter criterion is `severity != "nitpick"` — not prose-based filtering.
 
 1. Read the artifact (file, directory of stubs, or diff)
 2. Determine the nature of the work by looking for signals:
-   - Game dev / Unreal / DroneSim references → Sid route
-   - Architectural changes, new subsystems, new abstractions → Patrik route
-   - Front-end, CSS, UI components, tokens, design system → Palí route
-   - ML/AI pipeline, model serving, RAG, data science → Camelia route
-   - UX flow, user-facing feature, trust/clarity → Fru route
-   - Cross-cutting changes (many files, new patterns) → Patrik route
+   - Game dev / Unreal / DroneSim references → Game Dev Reviewer route
+   - Architectural changes, new subsystems, new abstractions → Staff Engineer route
+   - Front-end, CSS, UI components, tokens, design system → Front-End Reviewer route
+   - ML/AI pipeline, model serving, RAG, data science → Data Science Reviewer route
+   - UX flow, user-facing feature, trust/clarity → UX Reviewer route
+   - Cross-cutting changes (many files, new patterns) → Staff Engineer route
    - Multiple signals → use the strongest signal for Reviewer 1, secondary for Reviewer 2
 3. Report the routing decision before dispatching
 
@@ -60,15 +60,15 @@ Reference composite table (assembled at dispatch time from discovery):
 
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
-| Game dev / Unreal / DroneSim | Sid | Patrik | Medium → Medium |
-| Architectural change, new subsystem | Patrik | (backstop: Zolí) | High |
-| Front-end, CSS, UI components | Palí | (backstop: Fru) | Medium |
-| Front-end + architecture | Palí | Patrik | Medium → High |
-| ML/AI pipeline, model serving, RAG | Camelia | Patrik | High → High |
-| UX flow, user-facing feature | Fru | (backstop: Patrik) | Low → Medium |
-| Cross-cutting (many files, new pattern) | Patrik | (backstop: Zolí) | High |
-| Major DroneSim feature / new game mode | Sid | Patrik | High → High |
-| Other / unmatched | Patrik | (none) | Medium |
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer (`game-dev:staff-game-dev`) | the Staff Engineer (`coordinator:staff-eng`) | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: the Ambition Advocate (`coordinator:ambition-advocate`)) | High |
+| Front-end, CSS, UI components | the Front-End Reviewer (`web-dev:senior-front-end`) | (backstop: the UX Reviewer (`web-dev:staff-ux`)) | Medium |
+| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer (`data-science:staff-data-sci`) | the Staff Engineer | High → High |
+| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
+| Other / unmatched | the Staff Engineer | (none) | Medium |
 
 ### Phase 2.5: Write-Ahead Status Update
 
