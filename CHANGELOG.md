@@ -55,7 +55,7 @@ For out-of-tree skills failing the description-length validator:
 
 Decision-tree super-skills replace prose skills for plan / review / review-code. A skill is a router with named branches: A triage / B substrate / C compose-or-work / Exit handoff. The EM walks branches by condition, not by reading prose. Long-form doctrine lives in `docs/wiki/writing-plans.md` and `docs/wiki/receiving-code-review.md` where it belongs as reference, not procedure.
 
-Includes a plan-trigger-binding doctrine fix: `CLAUDE.md` § Plan-First Workflow now binds the trigger word "plan" mechanically to `Skill(coordinator:plan)` — writing a plan body to disk via `Write` without first invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → Patrik → integrator chain at Exit.
+Includes a plan-trigger-binding doctrine fix: `CLAUDE.md` § Plan-First Workflow now binds the trigger word "plan" mechanically to `Skill(coordinator:plan)` — writing a plan body to disk via `Write` without first invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → the Staff Engineer (`coordinator:staff-eng`) → integrator chain at Exit.
 
 ### Theme B — Loop-closure (bug-blitz / learn-lessons / dogfood)
 
@@ -114,7 +114,7 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 - `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
 
 ### Design source
-`docs/plans/2026-05-04-workweek-cadence-split.md` (Patrik APPROVED_WITH_NOTES — all findings folded in).
+`docs/plans/2026-05-04-workweek-cadence-split.md` (the Staff Engineer APPROVED_WITH_NOTES — all findings folded in).
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
 
@@ -123,15 +123,15 @@ Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodec
 #### Added
 - **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
 - **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `tasks/lessons.md`.
-- **W3 — `staff-eng` (Patrik)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
-- **W4 — `staff-game-dev` (Sid)** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
+- **W3 — `staff-eng` (the Staff Engineer)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
+- **W4 — `staff-game-dev` (the Game Dev Reviewer (`game-dev:staff-game-dev`))** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
 - **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
 
 #### Changed
 - Calibration block byte-identical across all reviewers (`verify-calibration-sync` clean).
 
 #### Design source
-`docs/plans/2026-05-04-reviewer-premise-challenge.md` (Patrik APPROVED_WITH_NOTES — all 7 findings integrated).
+`docs/plans/2026-05-04-reviewer-premise-challenge.md` (the Staff Engineer APPROVED_WITH_NOTES — all 7 findings integrated).
 
 #### Note
 The `dfdcf8f` commit also carried an early-write probe addition to `plugins/deep-research/agents/repo-specialist.md` — orthogonal to the W1–W5 work but mixed into the same source-side commit and percolated together via `publish.sh`.
@@ -141,20 +141,20 @@ The `dfdcf8f` commit also carried an early-write probe addition to `plugins/deep
 The repo has always implemented a PM-EM split, but the README and surrounding doctrine framed it as "a Claude Code productivity framework." This release sharpens the framing: a *PM-native operating layer for AI engineering work* — turning product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions, while keeping the PM technical enough to spot when something looks wrong. The framing acknowledges higher-altitude (fully non-technical PM) operation as future work, not current default; the current sweet spot is a technical-evaluating PM.
 
 #### Added
-- **YK reviewer** (`plugins/coordinator/agents/vp-product.md`) — new primary reviewer, VP of Product (they/them), with software-engineering instincts. Stress-tests engineering choices: shape (concurrency model, sync vs. async, polling vs. event-driven, abstraction altitude), refactor-vs-patch calibration when AI execution makes refactors cheap, the dumb questions experienced engineers skip ("why single-threaded when threading is 30 lines?"), YAGNI-vs-laziness distinction, and "have you considered a different shape?" alternatives. Distinct from Patrik (code quality) and Zolí (Patrik backstop). Synced calibration block; `bin/verify-calibration-sync.sh` consumer list updated.
+- **the VP-Product Reviewer** (`plugins/coordinator/agents/vp-product.md`) — new primary reviewer (`coordinator:vp-product`), VP of Product (they/them), with software-engineering instincts. Stress-tests engineering choices: shape (concurrency model, sync vs. async, polling vs. event-driven, abstraction altitude), refactor-vs-patch calibration when AI execution makes refactors cheap, the dumb questions experienced engineers skip ("why single-threaded when threading is 30 lines?"), YAGNI-vs-laziness distinction, and "have you considered a different shape?" alternatives. Distinct from the Staff Engineer (code quality) and the Ambition Advocate (`coordinator:ambition-advocate`) (Staff Engineer backstop). Synced calibration block; `bin/verify-calibration-sync.sh` consumer list updated.
 - **Scope modes in `writing-plans` skill** — required header field with explicit rules per mode: prototype, production-patch, feature, architecture, spike. Routes review depth and the evidence bar.
 - **Acceptance Criteria + Non-Goals as required plan-header sections** — ends "done means whatever the agent says it means."
 - **Definition of Ready gate** in `writing-plans` (pre-drafting) and **Definition of Done gate** in `verification-before-completion` (pre-merge).
 - **Ship verdict** in `merging-to-main` Step 1.57 — every merge stages a verdict (ship / ship-behind-flag / hold / split / spike-only) for PR body and PM confirmation.
 - **Demo Path** in `merging-to-main` Step 1.56 — for user-visible work, append demonstrable steps to the release notes.
-- **"YK Pre-Flight" in `writing-plans`** — anticipate YK's questions during plan drafting. The spectre of YK review keeps the planner honest, so most actual YK reviews are belt-and-suspenders backstops rather than gatekeepers catching laziness that should have been caught earlier.
+- **"VP-Product Reviewer Pre-Flight" in `writing-plans`** — anticipate the VP-Product Reviewer's questions during plan drafting. The spectre of that review keeps the planner honest, so most actual VP-Product reviews are belt-and-suspenders backstops rather than gatekeepers catching laziness that should have been caught earlier.
 - **`docs/evolution/` doc set** — README + 6 chapters: origin, handoffs-over-compaction, personas-as-ergonomics (the honest negative-result story), investigation-funnel, failure-modes (12-mode taxonomy with detection signals + prevention rules + recovery moves), what-we-rejected (the taste chapter, including external-review proposals declined with reasoning). The publish-repo answer to "evidence ledger" — outside readers evaluating the system see that the model has been pressure-tested and learns from failure.
 
 #### Changed
 - **README rewritten around PM-native thesis.** New lede framing, "What This Is *Not*" section to head off miscategorization, commands reorganized around 5 flows (build a feature, fix a bug, resume work, autonomous sprint, architecture change). Inventory table demoted to collapsed appendix.
 - **Coordinator CLAUDE.md gains "Challenging the PM" doctrine** — explicit pushback triggers (request doesn't serve stated objective; change is larger than PM realizes; request hides a product decision; cheaper experiment available; scope expanding; acceptance criteria missing or unverifiable; PM asking to ship despite insufficient evidence).
 - **Coordinator CLAUDE.md gains "PM Escalation Triggers — Ask vs. Don't Ask"** — explicit list cutting the ambiguity between EM implementation discretion and PM product authority.
-- **Reviewer-calibration tripwire** updated — consumer list now includes `agents/vp-product.md`.
+- **Reviewer-calibration tripwire** updated — consumer list now includes `agents/vp-product.md` (the VP-Product Reviewer).
 
 ### Theme D — Codex opt-in add-on
 
@@ -203,12 +203,12 @@ Promotes the `docs-checker` Sonnet agent from optional reporting-only to a sugge
 
 ### Changed
 - **`plugins/coordinator/agents/docs-checker.md`** — gains `Edit` tool + seven `mcp__project-rag__*` tools, project-RAG bootstrap subsection, expanded scope (in-repo symbols verifiable when project-RAG present), 5-tier verification source hierarchy with explicit staleness handling, new "Inline Auto-Fix Authority" section (allowlist, scope constraint, edit-budget cap, sidecar YAML schema, hard prohibitions, oscillation stuck-detection), removal of "Apply fixes" from "What You Do NOT Do", verification-table `Action` column.
-- **`plugins/coordinator/agents/staff-eng.md`**, **`plugins/game-dev/agents/staff-game-dev.md`**, **`plugins/data-science/agents/staff-data-sci.md`**, **`plugins/web-dev/agents/senior-front-end.md`** — sentinel-block docs-checker-consumption inserted (replaces inline block in staff-eng; new in the others).
+- **`plugins/coordinator/agents/staff-eng.md`** (the Staff Engineer), **`plugins/game-dev/agents/staff-game-dev.md`** (the Game Dev Reviewer), **`plugins/data-science/agents/staff-data-sci.md`** (the Data Science Reviewer (`data-science:staff-data-sci`)), **`plugins/web-dev/agents/senior-front-end.md`** (the Front-End Reviewer (`web-dev:senior-front-end`)) — sentinel-block docs-checker-consumption inserted (replaces inline block in staff-eng; new in the others).
 - **`plugins/coordinator/commands/review-dispatch.md`** — Phase 2.7 promoted from optional to suggested pre-flight; embeds the EM Decision Rules table; integrator-bypass note + mandatory EM spot-check after Opus review.
 - **`plugins/coordinator/skills/requesting-code-review/SKILL.md`**, **`plugins/coordinator/skills/requesting-staff-session/SKILL.md`** — pointer to docs-checker pre-flight in review-setup steps.
 
 ### Internal
-- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. Patrik R1 (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → Patrik R2 (APPROVED, 0 findings). Plan + reviews preserved at `tasks/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
+- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `tasks/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
 
 ## [1.7.1] — 2026-05-03
 
@@ -291,10 +291,10 @@ A run of small, related changes converging on one principle: the code we ship ru
 ## [1.4.0] — 2026-04-29
 
 ### Added
-- **Project-RAG readiness (W1–W6)** — generic project-RAG detection hook (cross-platform), single-source preamble snippet with sentinel-fenced inline distribution to 8 consumers + `verify-preamble-sync.sh`, `docs/wiki/rag-bait-conventions.md` (4 patterns including function-level purpose lines), executor RAG-bait stanza, Patrik generic project-RAG block alongside the UE block.
-- **Reviewer-routed workers** — four Sonnet workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) named in reviewer findings; EM dispatches. Generalizes the Patrik→Palí escalation pattern.
+- **Project-RAG readiness (W1–W6)** — generic project-RAG detection hook (cross-platform), single-source preamble snippet with sentinel-fenced inline distribution to 8 consumers + `verify-preamble-sync.sh`, `docs/wiki/rag-bait-conventions.md` (4 patterns including function-level purpose lines), executor RAG-bait stanza, Staff Engineer generic project-RAG block alongside the UE block.
+- **Reviewer-routed workers** — four Sonnet workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) named in reviewer findings; EM dispatches. Generalizes the Staff Engineer → Front-End Reviewer escalation pattern.
 - **Mandatory release notes on every merge** — `merging-to-main` Step 1.5 always runs. Detects `CHANGELOG.md`, groups by Added/Changed/Fixed/Deps/Internal, suggests version bump (advisory).
-- **Holodeck overlay Phase 1** — Patrik UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
+- **Holodeck overlay Phase 1** — Staff Engineer UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
 
 ### Changed
 - **`/distill` reframed** — trim+archive specs (not delete), allowlist/denylist rubric, mandatory re-homing, Decision Rationale extraction, schema-pinned distillation log, broader link-heal sweep, negative-AC set-diff token check.
@@ -356,7 +356,7 @@ Archived handoffs contain valuable architectural knowledge that was being treate
 - **New `codex-review-gate` skill** wraps the Codex plugin's `/codex:review` command with graceful error handling and structured result reporting. Codex (GPT-5.4) provides a different model family's perspective on code changes, catching issues that intra-family reviewers may share blind spots on.
 - **`/workday-complete` Step 3.8 — on by default.** The day's full diff against main is reviewed by Codex as a second opinion alongside the existing daily review. Falls back gracefully if Codex CLI is not installed, not authenticated, or credits are exhausted — the existing daily review from Step 3 stands alone when Codex is unavailable. Designed for users on limited ChatGPT plans: one bounded review per end-of-day, not continuous.
 - **`/bug-sweep --codex-verify` — opt-in flag.** After Claude's sweep identifies and fixes bugs, Codex reviews the fix diff for regressions or issues that Claude's own reviewers might miss. Captures a pre-fix baseline ref in Phase 2 for precise diff scoping. Codex findings go to the backlog for PM triage, not auto-fix.
-- **Why a different model family matters.** Our existing reviewer pipeline (Patrik, Sid, Camelia, Pali) provides thorough domain-specific review, but all reviewers share Claude's model family. Blind spots may be correlated — if Claude misses a pattern, its reviewer personas are more likely to miss it too. Codex mitigates this by providing an independent sample from a different training lineage. The integration is additive (never blocking) and token-conscious (validation of diffs, not codebase discovery).
+- **Why a different model family matters.** Our existing reviewer pipeline (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer) provides thorough domain-specific review, but all reviewers share Claude's model family. Blind spots may be correlated — if Claude misses a pattern, its reviewer personas are more likely to miss it too. Codex mitigates this by providing an independent sample from a different training lineage. The integration is additive (never blocking) and token-conscious (validation of diffs, not codebase discovery).
 - **Requirements:** [openai-codex plugin](https://github.com/openai/codex-plugin-cc) installed, Codex CLI authenticated (`codex login`). No Codex API key needed — runs through the CLI.
 
 ## [1.1.1] — 2026-04-01

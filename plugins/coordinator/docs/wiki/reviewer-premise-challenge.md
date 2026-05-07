@@ -20,7 +20,7 @@ distilled_run: 2026-05-06-13h00
 
 1. **W1 — Negative-search rule** in the `writing-plans` SKILL (plan author).
 2. **W2 — Counter-evidence pass** in `repo-specialist` (research stage).
-3. **W3 — Patrik Pass 0** premise review (reviewer stage).
+3. **W3 — Staff Engineer Pass 0** premise review (reviewer stage).
 4. **W4 — Reversal-verb suggested staff-session escalation** (PM-discretion).
 5. **W5 — review-integrator REJECTED handling** (integration stage).
 
@@ -46,23 +46,23 @@ After the positive analysis, search for prior-decision artifacts arguing AGAINST
 
 Output field: `counter_evidence: [{file, line, quote, relevance}]` or `none_found`. **Specialists do not adjudicate — they surface.**
 
-### W3 — Patrik Pass 0 fields
+### W3 — Staff Engineer Pass 0 fields
 
-Three new fields in Patrik's [reviewer output](reviewer-output-schema.md):
+Three new fields in the Staff Engineer's [reviewer output](reviewer-output-schema.md):
 
 - `premise_review`: `clean | needs-justification | refuted`.
-- `alternatives_considered`: 0-3 high-level shapes Patrik names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
+- `alternatives_considered`: 0-3 high-level shapes the Staff Engineer names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
 - `planning_quality`: one sentence max, only when a specific structural signal is present (zero alternatives, no negative-search, single-source).
 
 A new verdict — `REJECTED` — fires only when premise is `refuted`.
 
 ### W3 hard guardrails (verbatim)
 
-- Patrik does NOT investigate alternatives.
-- Patrik does NOT pick winners.
-- Patrik does NOT run a planning session.
+- The Staff Engineer does NOT investigate alternatives.
+- The Staff Engineer does NOT pick winners.
+- The Staff Engineer does NOT run a planning session.
 - "I haven't gone deep on this" framing mandatory.
-- Patrik does NOT rank or compare alternatives — list flat, no comparative judgments.
+- The Staff Engineer does NOT rank or compare alternatives — list flat, no comparative judgments.
 
 ### W5 — review-integrator REJECTED handling
 
@@ -84,8 +84,8 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 
 ## Gotchas
 
-- **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required Patrik to judge alternatives he's explicitly not investigated — contradicting the W3 "naming is high-level only" guardrail.
-- **Camelia / Palí / Fru Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
+- **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required the Staff Engineer to judge alternatives not explicitly investigated — contradicting the W3 "naming is high-level only" guardrail.
+- **Data Science / Front-End / UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
 - **Calibration block schema unchanged.** Premise-challenge fields live in reviewer system prompts, not in the synced calibration block — the calibration block stays focused on confidence + AUTO-FIX/ASK routing.
 
 ## Reference

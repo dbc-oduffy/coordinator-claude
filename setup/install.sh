@@ -125,6 +125,9 @@ NOTEBOOKLM_OPT=""
 # opt-in add-on. The skill wraps the external openai/codex-plugin-cc — most
 # users don't run Codex, so default installs strip the skill out post-copy.
 CODEX_OPT=""
+# Naming add-on: optional persona-naming prompt at end of install.
+# "" = ask in TTY (default skip); true = force prompt-yes; false = force skip.
+NAMING_OPT=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -137,6 +140,8 @@ for arg in "$@"; do
     --no-notebooklm)      NOTEBOOKLM_OPT=false ;;
     --enable-codex)       CODEX_OPT=true ;;
     --no-codex)           CODEX_OPT=false ;;
+    --name-personas)      NAMING_OPT=true ;;
+    --no-naming)          NAMING_OPT=false ;;
     -h|--help)
       cat <<'USAGE'
 Usage: setup/install.sh [OPTIONS]
@@ -158,6 +163,10 @@ Usage: setup/install.sh [OPTIONS]
   --enable-codex          Opt in to the codex-review-gate skill (requires
                           the external openai/codex-plugin-cc plugin).
   --no-codex              Skip the codex-review-gate prompt.
+  --name-personas         Force-prompt for persona naming at end of install
+                          (even in non-interactive mode, where it is
+                          otherwise skipped).
+  --no-naming             Skip the persona-naming prompt entirely.
   -h, --help              Show this help.
 USAGE
       exit 0
@@ -503,6 +512,94 @@ prompt_codex_addon() {
     echo "  Re-run with --enable-codex to add it later."
     echo ""
   fi
+}
+
+# Prompt for optional persona naming. The publish repo ships nameless
+# (role-distinct reviewers referred to by articulated role labels: "the Staff
+# Engineer", "the Game Dev Reviewer", etc.). Some users find names easier to
+# think with — this prompt offers the binding once at install time.
+#
+# Resolution order mirrors prompt_codex_addon:
+#   1. --no-naming → skip silently.
+#   2. --name-personas → force-prompt path (even in non-interactive).
+#   3. NON_INTERACTIVE → skip silently (no prompt, no output).
+#   4. No TTY → skip silently.
+#   5. TTY → suggest, three responses (yes / later / skip), default skip.
+#
+# This prompt is a *suggestion*, never a prescription. The default state is
+# nameless. The publish repo never assumes the user wants names.
+prompt_naming_addon() {
+  if [[ "$NAMING_OPT" == false ]]; then
+    return 0
+  fi
+
+  if [[ "$NAMING_OPT" != true && "$NON_INTERACTIVE" == true ]]; then
+    return 0
+  fi
+
+  if [[ "$NAMING_OPT" != true && ! -t 0 ]]; then
+    return 0
+  fi
+
+  local naming_script
+  naming_script="$(dirname "${BASH_SOURCE[0]}")/name-personas.sh"
+
+  echo ""
+  echo "Optional: persona naming"
+  echo "  You'll be working with seven role-distinct reviewer agents (the Staff Engineer,"
+  echo "  the Game Dev Reviewer, etc.). Some people find it easier to think of them as"
+  echo "  named collaborators — others prefer role labels alone. Naming is optional."
+  echo ""
+  read -r -p "Name your reviewers now? [y/later/N]: " naming_choice
+  naming_choice="${naming_choice:-N}"
+
+  case "$naming_choice" in
+    [Yy]|[Yy][Ee][Ss])
+      if [[ ! -x "$naming_script" ]]; then
+        echo "  Could not find $naming_script — run it manually whenever you'd like."
+        echo ""
+        return 0
+      fi
+      echo ""
+      echo "  Naming flow: enter a name for each role, or press Enter to keep the role label as-is."
+      echo ""
+      local -a naming_args=()
+      local -a roles=(
+        "the Staff Engineer"
+        "the Ambition Advocate"
+        "the VP-Product Reviewer"
+        "the Game Dev Reviewer"
+        "the Front-End Reviewer"
+        "the UX Reviewer"
+        "the Data Science Reviewer"
+      )
+      for role in "${roles[@]}"; do
+        read -r -p "  Name for ${role}? (Enter to skip): " chosen_name
+        if [[ -n "$chosen_name" ]]; then
+          naming_args+=("$role" "$chosen_name")
+        fi
+      done
+      if (( ${#naming_args[@]} == 0 )); then
+        echo ""
+        echo "  No names entered — leaving role labels in place."
+        echo "  Run setup/name-personas.sh whenever you'd like."
+        echo ""
+      else
+        echo ""
+        echo "  Binding names via setup/name-personas.sh..."
+        echo ""
+        bash "$naming_script" "${naming_args[@]}"
+      fi
+      ;;
+    [Ll]|[Ll][Aa][Tt][Ee][Rr])
+      echo "  Run setup/name-personas.sh whenever you'd like."
+      echo ""
+      ;;
+    *)
+      echo "  Skipped. Reviewers remain role-distinct under their role labels."
+      echo ""
+      ;;
+  esac
 }
 
 # Prompt for opt-in add-ons. Currently: notebooklm.
@@ -1167,6 +1264,7 @@ main() {
 
   validate_installation
   print_summary
+  prompt_naming_addon
 }
 
 main

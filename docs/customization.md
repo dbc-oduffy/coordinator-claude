@@ -2,47 +2,48 @@
 
 coordinator-claude is designed to be adapted. This guide covers the main customization paths.
 
-## Renaming Personas
+## Naming Reviewer Roles
 
-The personas (Patrik, Zolí, Sid, Palí, Fru, Camelia, YK) are names for convenience. The behavioral descriptions are what actually matter. You can rename them to anything.
+The system ships with role-based labels (the Staff Engineer, the Ambition Advocate, etc.). The behavioral descriptions are what actually matter. Naming is optional — if you find it easier to think of reviewers by personal names, run the naming script once at install time.
 
-### Automated Rename
+### Automated Naming (optional)
 
 ```bash
-bash setup/rename-personas.sh [--dry-run] OLD NEW [OLD NEW ...]
+bash setup/name-personas.sh [--dry-run] ROLE NAME [ROLE NAME ...]
 
 # Examples:
-bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"
-bash setup/rename-personas.sh --dry-run Camelia "DataBot"
+bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"
+bash setup/name-personas.sh --dry-run "the Data Science Reviewer" "DataBot"
 ```
 
-The script renames two layers for each OLD → NEW pair:
-1. **Display names** in prose (e.g., "Patrik" → "Alex" in system prompts and docs)
-2. **Invocation slugs** (e.g., `patrik` → `alex` in `--members`, mapping tables, position filenames, `active_reviewers`)
+The script binds names to role labels across all plugin files:
+1. **Display names** in prose (e.g., "the Staff Engineer" → "Alex" in system prompts and docs)
 
-Slugs are auto-derived: lowercase + strip accents (Zolí → zoli, Palí → pali).
+Slugs are auto-derived: lowercase + strip articles and accents.
 
 What it does NOT touch:
 - Agent filenames (`staff-eng.md`, `staff-game-dev.md`, etc.) — these are role-based infrastructure
 - YAML `name:` fields — same reason
 - `subagent_type` dispatch keys (`coordinator:staff-eng`, etc.) — infrastructure layer
 
-### Persona Registry
+### Reviewer Roles
 
-| Persona | Plugin | Agent File | Role |
-|---------|--------|-----------|------|
-| Patrik | coordinator | `agents/staff-eng.md` | Code quality, architecture |
-| Zolí | coordinator | `agents/ambition-advocate.md` | Ambition backstop to Patrik |
-| Sid | game-dev | `agents/staff-game-dev.md` | Game dev, Unreal Engine |
-| Palí | web-dev | `agents/senior-front-end.md` | Frontend, design systems |
-| Fru | web-dev | `agents/staff-ux.md` | UX flow, trust signals |
-| Camelia | data-science | `agents/staff-data-sci.md` | ML, data science, statistics |
-| YK | coordinator | `agents/vp-product.md` | VP-of-Product / scope challenger; refactor-vs-patch backstop |
+The publish repo ships with seven role-distinct reviewers. Names are optional — applied at install time via `setup/name-personas.sh` if the user opts in.
 
-### Manual Rename
+| Role label | Subagent slug | Plugin | Agent file | Focus |
+|---|---|---|---|---|
+| the Staff Engineer | `coordinator:staff-eng` | coordinator | `agents/staff-eng.md` | Code quality, architecture |
+| the Ambition Advocate | `coordinator:ambition-advocate` | coordinator | `agents/ambition-advocate.md` | Backstop to the Staff Engineer (challenges conservative calls) |
+| the VP-Product Reviewer | `coordinator:vp-product` | coordinator | `agents/vp-product.md` | Scope challenger; refactor-vs-patch backstop |
+| the Game Dev Reviewer | `game-dev:staff-game-dev` | game-dev | `agents/staff-game-dev.md` | Game dev, Unreal Engine |
+| the Front-End Reviewer | `web-dev:senior-front-end` | web-dev | `agents/senior-front-end.md` | Frontend, design systems |
+| the UX Reviewer | `web-dev:staff-ux` | web-dev | `agents/staff-ux.md` | UX flow, trust signals |
+| the Data Science Reviewer | `data-science:staff-data-sci` | data-science | `agents/staff-data-sci.md` | ML, data science, statistics |
 
-If you prefer to rename manually:
-1. Find references: `grep -r "OldName" plugins/`
+### Manual Naming
+
+If you prefer to name reviewers manually:
+1. Find references: `grep -r "the Staff Engineer" plugins/`
 2. Replace in prose only — skip YAML frontmatter blocks
 3. Do NOT rename filenames (they are technical identifiers)
 
@@ -116,7 +117,7 @@ This review is conducted as [Name], [description of persona and expertise].
 
 ## Backstop Protocol
 
-**Backstop partner:** Patrik
+**Backstop partner:** the Staff Engineer (`coordinator:staff-eng`)
 **Backstop question:** "Is this architecturally sound?"
 ```
 
@@ -131,7 +132,7 @@ This review is conducted as [Name], [description of persona and expertise].
 - **Signals:** [comma-separated list of signals that trigger this reviewer]
 - **Model:** opus
 - **Effort:** Medium
-- **Backstop:** Patrik (coordinator plugin — universal reviewer)
+- **Backstop:** the Staff Engineer (`coordinator:staff-eng`) (coordinator plugin — universal reviewer)
 - **Agent file:** `agents/my-reviewer.md`
 ```
 
@@ -221,9 +222,9 @@ project_type: web
 ```yaml
 ---
 active_reviewers:
-  - patrik
-  - pali
-  - fru
+  - staff-eng
+  - senior-front-end
+  - staff-ux
 ---
 ```
 

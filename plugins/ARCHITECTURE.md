@@ -30,16 +30,16 @@ A research subagent that surveys codebases, traces dependencies, and fills in th
 
 | Reviewer | Domain | Focus |
 |----------|--------|-------|
-| **Patrik** | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
-| **Zolí** | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to Patrik, never as a primary reviewer. |
-| **Sid** | Game development, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches UE documentation rather than guessing. |
-| **Palí** | Front-end architecture | Design system adherence, token validation, component patterns, CSS architecture. Pragmatic — "close enough" to design specs is often correct when it means using standard utilities. |
-| **Fru** | UX flow review | Trust signals, clarity assessment, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
-| **Camelia** | Data science, ML/AI | Statistical validity, ML methodology, data quality, experimental design. Complements Patrik's engineering lens with quantitative expertise. |
+| **the Staff Engineer** (`coordinator:staff-eng`) | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
+| **the Ambition Advocate** (`coordinator:ambition-advocate`) | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to the Staff Engineer, never as a primary reviewer. |
+| **the Game Dev Reviewer** (`game-dev:staff-game-dev`) | Game development, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches UE documentation rather than guessing. |
+| **the Front-End Reviewer** (`web-dev:senior-front-end`) | Front-end architecture | Design system adherence, token validation, component patterns, CSS architecture. Pragmatic — "close enough" to design specs is often correct when it means using standard utilities. |
+| **the UX Reviewer** (`web-dev:staff-ux`) | UX flow review | Trust signals, clarity assessment, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
+| **the Data Science Reviewer** (`data-science:staff-data-sci`) | Data science, ML/AI | Statistical validity, ML methodology, data quality, experimental design. Complements the Staff Engineer's engineering lens with quantitative expertise. |
 
 ### Why Named Roles?
 
-The human names are ergonomic shorthand — saying "Patrik" is faster than "staff-eng with the code quality focus." What matters is the domain focus and review checklist each role carries. The value comes from coverage specialization, not identity.
+Role labels ("the Staff Engineer", "the Game Dev Reviewer") carry the domain focus directly. What matters is the domain focus and review checklist each role carries. The value comes from coverage specialization, not identity.
 
 ## The Pipeline
 
@@ -60,9 +60,9 @@ The human names are ergonomic shorthand — saying "Patrik" is faster than "staf
            |
   [Spec Compliance Check]    Coordinator: did executor build what the stub specified?
            |
-    [Code Quality Review]    Agent: Patrik (+ domain reviewer if applicable)
+    [Code Quality Review]    Agent: the Staff Engineer (+ domain reviewer if applicable)
            |
-   [Ambition Backstop]       Agent: Zoli challenges conservative recommendations (optional)
+   [Ambition Backstop]       Agent: the Ambition Advocate challenges conservative recommendations (optional)
            |
       [Ship / Merge]         Skill: finish branch, create PR, merge
 ```
@@ -83,7 +83,7 @@ The pipeline optimizes for **correctness over speed**. In AI-assisted developmen
 
 ### Staff Sessions (Agent Teams-Based Planning and Review)
 
-The `/staff-session` command introduces a parallel-debate alternative to the sequential pipeline. Instead of the coordinator writing a plan and passing it through reviewers one at a time, staff engineers (persona agents) work as an Agent Teams team — debating simultaneously, challenging each other's positions, and converging on a consensus output.
+The `/staff-session` command introduces a parallel-debate alternative to the sequential pipeline. Instead of the coordinator writing a plan and passing it through reviewers one at a time, role-based reviewer agents work as an Agent Teams team — debating simultaneously, challenging each other's positions, and converging on a consensus output.
 
 **Two genres:**
 - **Plan mode** — Staff engineers craft a detailed plan from PM/EM objectives. Replaces both the EM-authored plan and the plan-review gate.
@@ -154,11 +154,11 @@ The catalog is the primer; the CLAUDE.md files are the deep reference. Both are 
 
 The review dispatch system uses a **composable routing table**:
 
-1. The coordinator plugin defines universal reviewers (Patrik, Zoli) in its `routing.md`
-2. Each enabled domain plugin contributes a routing fragment (e.g., game-dev registers Sid)
+1. The coordinator plugin defines universal reviewers (the Staff Engineer, the Ambition Advocate) in its `routing.md`
+2. Each enabled domain plugin contributes a routing fragment (e.g., game-dev registers the Game Dev Reviewer)
 3. At dispatch time, `/review-dispatch` merges all fragments into a composite table
 4. The changed code's signals (front-end? game logic? architecture?) determine which reviewer gets it
-5. If no domain reviewer matches, Patrik handles it (universal fallback)
+5. If no domain reviewer matches, the Staff Engineer handles it (universal fallback)
 
 This is extensible — adding a new domain (e.g., mobile-dev) means creating a new plugin with a routing fragment and an agent definition. The coordinator doesn't need to change.
 
@@ -168,8 +168,8 @@ For post-execution code review and per-stub enrichment reviews:
 
 1. Domain specialist reviews first (if signal matches)
 2. Coordinator incorporates feedback
-3. Patrik catches regressions (generalist pass)
-4. Zoli challenges conservatism (backstop, when warranted)
+3. The Staff Engineer catches regressions (generalist pass)
+4. The Ambition Advocate challenges conservatism (backstop, when warranted)
 
 This mirrors how real teams work: the domain expert reviews for correctness, then a senior generalist reviews for quality and architecture.
 
@@ -212,8 +212,8 @@ Modularity. Game dev agents and MCP servers shouldn't load when working on a web
 **Why disable Superpowers and absorb selectively?**
 Superpowers is a general-purpose skill framework. We wanted named agents, a specific review pipeline, and the First Officer organizational model. Rather than fight Superpowers' defaults, we absorbed the valuable parts (workflow skills, design guidance) and built our own orchestration layer.
 
-**Why named reviewers instead of generic "review this code"?**
-Reproducibility. "Patrik, review this" produces consistently different output than "review this code." Named characters with written mandates create stable perspectives that the human can learn to predict and trust.
+**Why role-distinct reviewers instead of generic "review this code"?**
+Reproducibility. "Staff Engineer, review this" produces consistently different output than "review this code." Role-distinct reviewers with written mandates create stable perspectives that the human can learn to predict and trust.
 
 **Why Sonnet for executors, Opus for reviewers?**
 Executors follow specs — speed and cost matter more than judgment. Reviewers make judgment calls — depth of analysis matters more than speed. Match the model to the cognitive demands.
