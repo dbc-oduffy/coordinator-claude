@@ -102,7 +102,7 @@ note which approach the synthesis adopted and why.}
 
 ### Steps
 
-{Detailed step-by-step implementation plan in writing-plans format}
+{Detailed step-by-step implementation plan in plan format per `docs/wiki/writing-plans.md`}
 
 ## Dissent Notes
 

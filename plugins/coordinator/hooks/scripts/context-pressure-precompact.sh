@@ -42,7 +42,8 @@ PRE_SIZE=""
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
   PRE_SIZE=$(stat -c '%s' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%z' "$TRANSCRIPT_PATH" 2>/dev/null || true)
 fi
-echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}"
+echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}" || \
+  echo "[precompact] sentinel write failed; advisory may be missed" >&2
 
 # --- Write state snapshot (best-effort, wrapped in subshell) ---
 # Per-section budgets prevent any single section from blowing the 100-line cap.
@@ -89,11 +90,12 @@ echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}"
 
     echo ""
     echo "## Active Plans"
+    GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
     # shellcheck disable=SC2086
-    ls tasks/*/todo.md 2>/dev/null | head -10 || echo "(none)"
+    ls "${GIT_ROOT}/tasks/"*/todo.md 2>/dev/null | head -10 || echo "(none)"
 
     echo ""
     echo "## Handoffs"
-    ls tasks/handoffs/*.md 2>/dev/null | head -5 || echo "(none)"
+    ls "${GIT_ROOT}/tasks/handoffs/"*.md 2>/dev/null | head -5 || echo "(none)"
   } | head -100 > "$STATE_FILE"
 ) 2>/dev/null || true

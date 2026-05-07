@@ -76,4 +76,34 @@ fi
 # This is what coordinator-safe-commit's Priority-2 resolution reads.
 echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
 
+# --- Auto-stamp tripwire (spec backlink: docs/plans/2026-05-05-handoff-auto-stamp-fix.md Phase 3) ---
+# Two detection rules, both non-blocking (exit 0). Purpose: surface cases where a
+# handoff in tasks/handoffs/ has been stamped with a consumed marker it should not
+# carry. Rule 1 catches post-convention-adoption failures (pickup_ready:true + marker);
+# Rule 2 catches the original 2026-05-05 incident pattern (marker + mtime < 1h).
+if [ -d "${GIT_ROOT}/tasks/handoffs" ]; then
+  for f in "${GIT_ROOT}/tasks/handoffs/"*.md; do
+    [ -f "$f" ] || continue
+
+    # Rule 1: handoff has BOTH pickup_ready:true AND a consumed marker
+    # (fresh handoff that got stamped despite the frontmatter opt-out)
+    if grep -q "^pickup_ready: true" "$f" 2>/dev/null && \
+       grep -q "<!-- consumed:" "$f" 2>/dev/null; then
+      echo "WARNING AUTO-STAMP TRIPWIRE (Rule 1): $f has both pickup_ready:true and a consumed marker — investigate" >&2
+    fi
+
+    # Rule 2: handoff has a consumed marker AND was modified within the last hour
+    # "consumed within 1h of creation" is a strong signal of a misfired stamp —
+    # a real pickup-then-work-then-handoff cycle in <1h is rare.
+    if grep -q "<!-- consumed:" "$f" 2>/dev/null; then
+      file_mtime=$(_cs_mtime_epoch "$f" 2>/dev/null || echo 0)
+      now=$(date +%s)
+      age=$(( now - file_mtime ))
+      if [ "$age" -lt 3600 ]; then
+        echo "WARNING AUTO-STAMP TRIPWIRE (Rule 2): $f has a consumed marker and is less than 1h old — investigate (misfired stamp?)" >&2
+      fi
+    fi
+  done
+fi
+
 exit 0

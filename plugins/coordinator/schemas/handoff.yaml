@@ -14,3 +14,19 @@ optional:
   consumed_at: iso-date
   session_goal: string
   machine: string
+  # Spinoff-handoff convention (see commands/spinoff.md). A handoff written mid-session
+  # by the current EM addressed to a future picking-up EM, describing a workstream the
+  # current session does NOT intend to execute. Distinct from /handoff (end-of-session
+  # continuation) and from a queue entry (one-line note vs. self-contained spec).
+  kind:
+    type: enum
+    values: [session-handoff, spinoff]
+  # Required-by-convention on spinoffs: replaces the predecessor link as the audit
+  # trail back to origin. Free-form one-liner.
+  authoring_session: string
+  # Required-by-convention on spinoffs: short slug grouping related forks.
+  workstream: string
+  # Optional on any handoff. Git pathspec syntax.
+  scope: list-of-string
+  # Set on fresh spinoffs / orphan-promotions; cleared by /pickup on genuine resume.
+  pickup_ready: string

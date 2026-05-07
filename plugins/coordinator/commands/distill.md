@@ -1,5 +1,5 @@
 ---
-description: "Distill accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (docs/wiki/, docs/decisions/); trim + archive canonical specs to archive/specs/; delete scaffolding. Extract knowledge and preserve provenance before pruning — runs upstream of /update-docs Phase 8b raw artifact pruning."
+description: "Distill session artifacts into evergreen wiki + decisions; trim + archive canonical specs; delete scaffolding. Upstream of /update-docs pruning."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--dry-run] [--no-delete] [path]"
 ---

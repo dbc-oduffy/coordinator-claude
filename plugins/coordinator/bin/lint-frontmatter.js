@@ -6,7 +6,7 @@
  * Purpose: hard-fail belt for CI / /validate / /workday-complete. Any tracked record
  * that fails its schema is surfaced here; exits non-zero if any violations exist.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W1 Hard-fail Gate
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1 Hard-fail Gate
  *
  * Usage:
  *   node bin/lint-frontmatter.js [--root <path>] [--schema <name>] [--list-schemas] [--json]
@@ -16,10 +16,14 @@
  *   --schema <name>    Only check one schema by name.
  *   --list-schemas     Print schema names + globs and exit 0.
  *   --json             Emit JSON output: {ok, violations: [{file, schema, errors}]}.
+ *   --lint-existing    Surface latent dirt informationally — list files whose
+ *                      frontmatter currently fails the schema, severity-prefixed,
+ *                      then exit 0 (non-blocking). Use to find pre-existing
+ *                      violations before they bite a neighboring-line edit.
  *
  * Exit codes:
- *   0  — all files valid (or --list-schemas)
- *   1  — one or more violations found
+ *   0  — all files valid, --list-schemas, or --lint-existing (informational)
+ *   1  — one or more violations found (default mode only)
  *   2  — usage/configuration error
  */
 
@@ -39,13 +43,14 @@ const {
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { root: null, schema: null, listSchemas: false, json: false };
+  const args = { root: null, schema: null, listSchemas: false, json: false, lintExisting: false };
   for (let i = 2; i < argv.length; i++) {
     switch (argv[i]) {
       case '--root':       args.root = argv[++i]; break;
       case '--schema':     args.schema = argv[++i]; break;
       case '--list-schemas': args.listSchemas = true; break;
       case '--json':       args.json = true; break;
+      case '--lint-existing': args.lintExisting = true; break;
       default:
         process.stderr.write(`Unknown argument: ${argv[i]}\n`);
         process.exit(2);
@@ -201,6 +206,25 @@ function main() {
   // Output
   if (args.json) {
     process.stdout.write(JSON.stringify({ ok: violations.length === 0, violations }, null, 2) + '\n');
+  } else if (args.lintExisting) {
+    // Informational mode: severity-prefixed list of latent dirt, exit 0.
+    if (violations.length === 0) {
+      process.stdout.write(`lint-frontmatter --lint-existing: no latent violations (root: ${repoRoot})\n`);
+    } else {
+      process.stdout.write(`lint-frontmatter --lint-existing: ${violations.length} file(s) with pre-existing dirt (root: ${repoRoot})\n`);
+      process.stdout.write(`(informational — these will block neighboring-line edits if STRICT mode is active)\n\n`);
+      for (const v of violations) {
+        // Severity heuristic: missing frontmatter on a schema'd file = WARN;
+        // bad enum / bad tag / type mismatch = INFO.
+        const isMissingFm = v.errors.some(e => /missing frontmatter|no YAML frontmatter/i.test(e.error || ''));
+        const sev = isMissingFm ? 'WARN' : 'INFO';
+        process.stdout.write(`  [${sev}] ${v.file}  [${v.schema}]\n`);
+        for (const e of v.errors) {
+          const loc = e.line ? `:${e.line}` : '';
+          process.stdout.write(`    - ${e.field}${loc}: ${e.error}\n`);
+        }
+      }
+    }
   } else {
     if (violations.length === 0) {
       process.stdout.write(`lint-frontmatter: all files valid (root: ${repoRoot})\n`);
@@ -219,6 +243,8 @@ function main() {
     }
   }
 
+  // --lint-existing is informational: always exit 0.
+  if (args.lintExisting) process.exit(0);
   process.exit(violations.length > 0 ? 1 : 0);
 }
 

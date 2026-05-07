@@ -219,7 +219,7 @@ Archive and reset the week's state:
 ```bash
 git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/
 git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog vX.Y.Z"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

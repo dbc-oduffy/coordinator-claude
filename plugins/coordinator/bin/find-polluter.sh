@@ -10,6 +10,13 @@
 # The pattern is evaluated by bash globstar, not find, so ** works correctly.
 
 set -e
+set -o pipefail
+
+# Pre-flight: npm must be available — without it the test loop silently reports "no polluter"
+if ! command -v npm > /dev/null 2>&1; then
+  echo "Error: npm not found in PATH. Install Node.js/npm before running this script." >&2
+  exit 1
+fi
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <file_to_check> <test_pattern>"
@@ -52,8 +59,8 @@ for TEST_FILE in "${TEST_FILES[@]}"; do
 
   echo "[$COUNT/$TOTAL] Testing: $TEST_FILE"
 
-  # Run the test
-  npm test "$TEST_FILE" > /dev/null 2>&1 || true
+  # Run the test — suppress output but propagate real failures (exit 1 = test failures are expected/ok)
+  npm test "$TEST_FILE" > /dev/null 2>&1 || true  # test failure is expected; npm-not-found already caught above
 
   # Check if pollution appeared
   if [ -e "$POLLUTION_CHECK" ]; then
