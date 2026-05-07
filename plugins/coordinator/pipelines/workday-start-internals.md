@@ -58,20 +58,15 @@ git push -u origin "work/${MACHINE}/${TODAY}"
 Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.5 (consolidation)**.
 
 **Check 4 — Midnight-rename (runs last):**
-Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0 (should prompt). This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
+Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0. This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
 
-Prompt PM:
+Run the rename procedure below silently (no prompt — engineering housekeeping, not a product call). Emit a one-line notice in the Morning Briefing:
 ```
-Branch `$CURRENT` is still active and you've crossed midnight.
-Rename to `work/$MACHINE/$(cs_format_span_suffix "$(cs_parse_branch_span "$CURRENT" | awk '{print $1}')" "$TODAY")` to reflect the span? [Y/n]
+Renamed $OLD → $NEW (crossed midnight)
 ```
-
-- **PM answers Y (default, one keystroke):** run the rename procedure below.
-- **PM answers n:** leave the branch unchanged. Do NOT create a sibling `work/${MACHINE}/${TODAY}`. The PM has explicitly declined. Proceed to Step 0.5 on the current branch as-is.
+PM can revert via `git branch -m` if they object.
 
 ### Step 0.4 — Rename procedure (Patrik F5 — atomic, reversible)
-
-Only reached when PM answers Y to the midnight-rename prompt.
 
 ```bash
 OLD=$(git branch --show-current)
