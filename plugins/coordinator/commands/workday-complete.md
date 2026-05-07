@@ -84,7 +84,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
    ```
 3. Merge siblings into current branch. Non-trivial conflicts → report and halt.
 4. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
-5. `git push origin $(git branch --show-current) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
+5. `git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
 6. Delete merged sibling branches:
    ```bash
    git branch --merged | grep -iE "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d
@@ -99,7 +99,7 @@ Feature branches are excluded — they are intentionally long-lived.
 Run `/daily-review`. Produces `archive/daily-summaries/YYYY-MM-DD.md` — feeds the changelog append and the weekly ceremony.
 
 ```bash
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---
@@ -198,7 +198,7 @@ Commit and push:
 ```bash
 git add -- "$CHANGELOG_FILE"
 git commit -m "chore(week-changelog): daily block $TODAY $MACHINE"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

@@ -122,6 +122,11 @@ cs_parse_branch_span() {
 # work/{machine}/{date-or-span} that parses via cs_parse_branch_span (case-insensitive).
 # There is no "today's daily" check — the hook polices branch shape, not date.
 #
+# This is the SHAPE oracle — case-insensitive by design so remediation paths
+# (rename prompts, migration scripts) can recognise mixed-case input as
+# "valid shape, wrong case" and fix it. For creation-time canonical-case
+# enforcement use cs_is_canonical_branch instead.
+#
 # Negative spec: rejects feature/foo, work/striker/feature-X, hotfix/*, etc.
 cs_is_allowed_branch() {
   local name="$1"
@@ -130,6 +135,30 @@ cs_is_allowed_branch() {
   [[ "$lc" == "main" ]] && return 0
   cs_parse_branch_span "$lc" > /dev/null 2>&1 && return 0
   return 1
+}
+
+# cs_is_canonical_branch <name>
+# Returns 0 iff <name> is allowed AND already in canonical (lowercase) form.
+# This is the CREATION oracle — used by the hook to fail closed when a new
+# work/* ref would land on disk in non-canonical case. Distinct from
+# cs_is_allowed_branch because remediation paths need to recognise mixed-case
+# input in order to fix it; this oracle rejects mixed-case so the hook can
+# block its creation in the first place.
+#
+# Why creation-time: on Windows's case-insensitive FS, a mixed-case ref
+# created via `git checkout -b work/STRIKER/...` lands on disk as
+# `refs/heads/work/striker/...` (lowercase) but `.git/HEAD` stores the
+# literal mixed-case text. `git branch --show-current` returns the stored
+# case, and `git push origin <that>` fails ref lookup case-sensitively
+# against the canonical form. The runtime canonicalization in
+# coordinator-auto-push (commit 6fa4d58) and the doctrine snippet sweep
+# (commit 40a2736) work around the symptom; this oracle prevents the cause.
+cs_is_canonical_branch() {
+  local name="$1"
+  cs_is_allowed_branch "$name" || return 1
+  local lc
+  lc=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+  [[ "$name" == "$lc" ]]
 }
 
 # cs_format_span_suffix <start-date> <today>
