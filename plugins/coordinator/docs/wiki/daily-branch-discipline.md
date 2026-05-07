@@ -107,21 +107,19 @@ Mapped to the postmortem patterns:
 |---|---|---|
 | Pattern 2 — checkout-stash-checkback anti-pattern | PreToolUse hook | Denies the `checkout -b feature/X` at step 1 |
 | Pattern 3 — orphan stashes outlive deleted branches | Eliminated structurally | If non-workstream branches never exist, stashes can't reference them |
-| Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` rename prompt | Prompts to rename `work/striker/2026-05-06` → `work/striker/2026-05-06to07`; no commit block |
+| Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` auto-rename | Silently renames `work/striker/2026-05-06` → `work/striker/2026-05-06to07` and notes it in the Morning Briefing; no commit block |
 | Pattern 4 — speculative `feature/<topic>-<date>` naming from planning prose | PreToolUse hook | The branch can't be created, so the cosmetic naming has nowhere to land |
 
 ## Midnight crossings
 
 Sessions that span midnight are normal and expected. The hook polices branch *shape*, not branch *date* — there is no commit block after midnight, and no grace window concept.
 
-**What happens at midnight:** nothing automatic. The session continues committing on `work/striker/2026-05-06` (or whatever the active branch is). The first interaction with `/workday-start` after midnight triggers the rename prompt.
+**What happens at midnight:** nothing automatic. The session continues committing on `work/striker/2026-05-06` (or whatever the active branch is). The first `/workday-start` after midnight performs the rename automatically.
 
-**Span-aware rename flow:** when `/workday-start` detects that the active branch's start-date is yesterday and there were commits within the last 24h, it prompts:
-> "Branch `work/striker/2026-05-06` is still active and you've crossed midnight. Rename to `work/striker/2026-05-06to07` to reflect the span? [Y/n]"
+**Span-aware rename flow:** when `/workday-start` detects that the active branch's start-date is yesterday (or earlier) and there were commits within the last 48h, it renames silently — no prompt — and emits a one-line notice in the Morning Briefing:
+> "Renamed `work/striker/2026-05-06` → `work/striker/2026-05-06to07` (crossed midnight)"
 
-Default Y; one keystroke. The rename is atomic (`git push --atomic origin <new>:<new> :<old>`) with local rollback on remote failure.
-
-**If PM declines the rename:** the branch stays named `work/striker/2026-05-06` and continues to be an allowed workstream branch — `cs_is_allowed_branch` accepts it. No sibling is created.
+This is engineering housekeeping under the EM's remit, not a product call; the EM does not ask. PM can revert via `git branch -m` if they object. The rename is atomic (`git push --atomic origin <new>:<new> :<old>`) with local rollback on remote failure.
 
 **Preemptive rename:** `/workday-complete` Step 10.5 offers to rename forward preemptively (e.g. to `2026-05-06to07`) before the session ends, so tomorrow's first commit doesn't trigger the prompt. Optional; default off.
 
