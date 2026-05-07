@@ -1,6 +1,7 @@
 ---
 name: dogfood
 description: Smoke-driven fix-through loop — invoke a newly-built thing (skill, script, pipeline, install process) and fix bugs until it works or gets replanned. Binary outcome only: converge or switch gears.
+description-budget: 250
 triggers:
   - /dogfood
   - dogfood <target>
