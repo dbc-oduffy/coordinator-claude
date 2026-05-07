@@ -178,7 +178,7 @@ The taxonomy below is the scar tissue. Each failure mode includes detection sign
 
 **Prevention:**
 - *Definition of Ready is mandatory pre-drafting gate.* Plans without product objective, acceptance criteria, non-goals, scope mode, and verification method get pushed back, not drafted.
-- *YK reviewer.* Specifically scoped to catch YAGNI-as-laziness and force defenses of choices. See `agents/vp-product.md`.
+- *VP-Product Reviewer (`coordinator:vp-product`).* Specifically scoped to catch YAGNI-as-laziness and force defenses of choices. See `agents/vp-product.md`.
 
 **Recovery:**
 - Refuse to ship the under-specified work. Push back to brainstorming or spike. The plan that ships ambiguity *as if* it were specified is worse than no plan.

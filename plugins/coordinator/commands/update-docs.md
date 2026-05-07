@@ -259,7 +259,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it again in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (Camelia F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
+**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -394,6 +394,28 @@ Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-li
 **On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)."
 
 This phase is informational like 11e/11f; does NOT halt `/update-docs`.
+
+#### Phase 11i: Prune resolved-state bloat from queues
+
+Spec backlink: `docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5`
+
+Strip resolved-state bloat (resolved entries and `## Processed` / `## Resolved*` sections) from the three queue files. Belt-and-suspenders in case legacy writes drift back to the resolved pattern.
+
+```bash
+for queue in tasks/coordinator-improvement-queue.md tasks/improvement-queue.md tasks/bug-backlog.md; do
+  [[ -f "$queue" ]] || continue
+  before=$(wc -l < "$queue")
+  ~/.claude/plugins/coordinator-claude/coordinator/bin/prune-resolved-queue-entries.sh "$queue"
+  after=$(wc -l < "$queue")
+  echo "Pruned $((before - after)) lines from $queue"
+done
+```
+
+**On non-zero exit:** Surface the file path and line from the pruner's error output to the PM — do NOT skip. The pruner fails loud on unexpected structure and must not be bypassed.
+
+**On zero exit with lines pruned:** Commit the diff as part of the docs-maintenance commit (or a separate `chore(queues): prune resolved-state bloat` commit if the diff is large). Report pruned line counts in the update-docs summary.
+
+**On zero exit with no lines pruned:** Note in the report: "Queue prune: clean (no resolved bloat found)."
 
 #### Phase 12: Artifact Distillation (Conditional)
 

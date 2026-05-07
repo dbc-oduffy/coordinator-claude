@@ -34,7 +34,7 @@ The installer prints a summary at the end. Read it. If it reports validation err
 
 ### Plugin selection — what to recommend
 
-Default `on`: `coordinator`, `web-dev`, `data-science`, `remember`. Default `off`: `game-dev` (Unreal Engine — only enable if the user works on UE projects). `notebooklm` is an opt-in add-on that requires Node 18+ and is prompted separately.
+Default `on`: `coordinator`, `web-dev`, `data-science`, `remember`. Default `off`: `game-dev` (Unreal Engine specialist — only enable if the user works on UE projects). `notebooklm` is an opt-in add-on that requires Node 18+ and is prompted separately.
 
 If the user gave you any signal about their project type (web, ML, game, Unreal), pick accordingly. Otherwise ask once, briefly, before running the installer.
 
@@ -80,8 +80,8 @@ The installer prints "restart Claude Code, then run /session-start." Override th
 
 ## Optional follow-ups to mention
 
-- **Rename personas** if the user wants different names for reviewers: `bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"`. Display-only — agent behaviour is unchanged.
-- **Per-project config**: `.claude/coordinator.local.md` with `project_type: web|data-science|game|pure-docs` controls which domain reviewers activate. Without it, only the universal reviewers (Patrik, Zolí) run.
+- **Name your reviewers (optional)** if the user wants personal names for role labels: `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"`. Display-only — agent behaviour is unchanged.
+- **Per-project config**: `.claude/coordinator.local.md` with `project_type: web|data-science|game|pure-docs` controls which domain reviewers activate. Without it, only the universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`)) run.
 - **Plugin cache out of sync** after editing plugin source: `bash setup/dev-sync.sh`. Rare for end users — relevant if the user is contributing to the plugins themselves.
 
 ## Failure modes to watch for

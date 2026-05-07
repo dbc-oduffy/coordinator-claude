@@ -6,7 +6,7 @@ Data science domain plugin for the Dónal + Claude agent hierarchy. Enable when 
 
 **Agents:** staff-data-sci (Opus) — ML/AI, statistics, data modeling, feature engineering
 
-**Routing:** Registers Camelia (data-science reviewer) for data/ML signals with Patrik (architecture reviewer) as backstop.
+**Routing:** Registers the Data Science Reviewer (`data-science:staff-data-sci`) for data/ML signals with the Staff Engineer (`coordinator:staff-eng`) as backstop.
 
 ## Authors
 

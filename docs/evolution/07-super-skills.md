@@ -15,9 +15,9 @@ For *load-bearing* skills, prose failed. Plan-writing was the worst case. "Plan"
 1. Triage — is this actually plan-shaped, or is the right answer a thirty-second edit?
 2. Substrate verification — paths, framework names, helper APIs grepped against disk before drafting
 3. Composition — the four PM doctrinal lenses (acceptance criteria, non-goals, scope mode, definition of ready)
-4. Exit — prior-art-checker → Patrik → integrator chain
+4. Exit — prior-art-checker → the Staff Engineer (`coordinator:staff-eng`) → integrator chain
 
-When that procedure lived as prose inside `coordinator:writing-plans`, the EM read it, internalized "yeah I know how to write a plan," and wrote a plan body straight to disk via the `Write` tool — bypassing every gate. The skill loaded; the procedure didn't run. By the time anyone noticed, the plan had been reviewed by Patrik against unverified substrate, the prior-art-checker had never been dispatched, and the four lenses had been satisfied in vibes rather than fields.
+When that procedure lived as prose inside `coordinator:writing-plans`, the EM read it, internalized "yeah I know how to write a plan," and wrote a plan body straight to disk via the `Write` tool — bypassing every gate. The skill loaded; the procedure didn't run. By the time anyone noticed, the plan had been reviewed by the Staff Engineer against unverified substrate, the prior-art-checker had never been dispatched, and the four lenses had been satisfied in vibes rather than fields.
 
 This wasn't a one-off. It was structural. Procedure-as-prose is procedure that gets skimmed.
 
@@ -28,7 +28,7 @@ A super-skill isn't a longer skill. It's a different *shape*: a decision-tree ro
 - **Branch A — Triage.** Is this plan-shaped? If no → exit to a thirty-second edit. If yes → continue. Triage lives *inside* the skill, not in the EM's pre-skill judgment, because the failure mode the skill exists to prevent is the EM judging "this doesn't need a skill" and skipping it.
 - **Branch B — Substrate.** Verify paths, framework names, helper APIs against disk. Produce a substrate-verified context block.
 - **Branch C — Compose.** Walk the four PM lenses. Each lens is a structured field, not a paragraph.
-- **Exit — Handoff.** Dispatch the prior-art-checker pre-flight, then Patrik, then the integrator. The skill exits to a chain, not to "now write the plan."
+- **Exit — Handoff.** Dispatch the prior-art-checker pre-flight, then the Staff Engineer, then the integrator. The skill exits to a chain, not to "now write the plan."
 
 Long-form doctrine — the *why* behind each branch — moved to `docs/wiki/writing-plans.md`. Reference material lives in wikis. Procedure lives in skills. Conflating them produced the prose skills that got skimmed.
 

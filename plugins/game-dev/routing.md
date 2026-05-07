@@ -2,11 +2,11 @@
 
 ## Reviewers
 
-### Sid (staff-game-dev)
+### the Game Dev Reviewer (`game-dev:staff-game-dev`)
 - **Signals:** Game dev, Unreal Engine, DroneSim, gameplay mechanics, UE5 systems, Blueprint, C++ game code, character movement, replication, GAS
 - **Model:** opus
 - **Effort:** Medium (escalates to High for major features / new game modes)
-- **Backstop:** Patrik (coordinator plugin — universal reviewer)
+- **Backstop:** the Staff Engineer (`coordinator:staff-eng`) — universal reviewer
 - **Agent file:** `agents/staff-game-dev.md`
 
 ### Blueprint Inspector (ue-blueprint-inspector)
@@ -17,5 +17,5 @@
 - **Agent files:** `agents/ue-blueprint-inspector.md` (coordinator), `agents/ue-blueprint-worker.md` (worker)
 
 ## Project-Local Pairings
-- DroneSim: Sid primary, Patrik backstop (default)
-- claude-unreal-holodeck: Sid + Camelia (if data-science plugin enabled) + Patrik
+- DroneSim: the Game Dev Reviewer primary, the Staff Engineer backstop (default)
+- claude-unreal-holodeck: the Game Dev Reviewer + the Data Science Reviewer (if data-science plugin enabled) + the Staff Engineer

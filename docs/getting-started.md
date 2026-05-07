@@ -58,15 +58,15 @@ bash setup/install.sh --plugins coordinator,game-dev --non-interactive
 
 Use `--non-interactive` for unattended installs.
 
-### Persona Customization
+### Naming Reviewers (optional)
 
-After installation, you can rename the reviewer personas:
+After installation, you can optionally bind personal names to role labels:
 
 ```bash
-bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"
+bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"
 ```
 
-This renames display names in prose — agent behavior is defined by descriptions, not names. See [docs/customization.md](customization.md) for details.
+This replaces role labels in prose with your chosen names — agent behavior is defined by descriptions, not names. See [docs/customization.md](customization.md) for the full role table and details.
 
 <details>
 <summary>Manual Installation</summary>
@@ -237,21 +237,21 @@ project_type: web
 ```
 
 Valid `project_type` values:
-- `web` — activates Palí (frontend) + Fru (UX) reviewers
-- `data-science` — activates Camelia (ML/data) reviewer
-- `game` — activates Sid (Unreal Engine) reviewer
+- `web` — activates the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`)
+- `data-science` — activates the Data Science Reviewer (`data-science:staff-data-sci`)
+- `game` — activates the Game Dev Reviewer (`game-dev:staff-game-dev`)
 - `pure-docs` — documentation projects, coordinator only
 
-Without a config file, the coordinator defaults to core-only mode — Patrik (architecture/code-quality), Zolí (Patrik backstop), and YK (VP-of-Product / scope challenger) as universal reviewers.
+Without a config file, the coordinator defaults to core-only mode — the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`), and the VP-Product Reviewer (`coordinator:vp-product`) as universal reviewers.
 
 You can also explicitly list reviewers:
 
 ```yaml
 ---
 active_reviewers:
-  - patrik
-  - sid
-  - camelia
+  - staff-eng
+  - staff-game-dev
+  - staff-data-sci
 ---
 ```
 
