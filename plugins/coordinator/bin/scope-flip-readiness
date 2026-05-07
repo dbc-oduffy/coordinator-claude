@@ -30,6 +30,11 @@
 
 set -euo pipefail
 
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+  printf 'ERROR: %s requires bash 4+ (current: %s). Install bash via Homebrew: brew install bash\n' "$0" "$BASH_VERSION" >&2
+  exit 1
+fi
+
 OUTPUT_JSON=0
 
 for arg in "$@"; do

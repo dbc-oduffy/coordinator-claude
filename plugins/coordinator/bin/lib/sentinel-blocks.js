@@ -2,7 +2,7 @@
 /**
  * sentinel-blocks.js — Extract and replace sentinel-delimited blocks in markdown content.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Sentinel-Block Primitives)
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Sentinel-Block Primitives)
  *
  * Exports:
  *   extractBlock(content, beginMarker, endMarker) → {block, before, after} | null

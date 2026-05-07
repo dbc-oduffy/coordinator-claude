@@ -1,5 +1,5 @@
 ---
-description: Autonomous backlog execution — gathers all ready work items, builds a compaction-proof flight recorder, executes sequentially without stopping for input. Tail is per-item commits + push only; PM runs /update-docs / /workday-complete separately when ready.
+description: Autonomous backlog execution — gathers ready items, builds compaction-proof flight recorder, runs sequentially. Per-item commits + push.
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "[--hibernate]"
 ---

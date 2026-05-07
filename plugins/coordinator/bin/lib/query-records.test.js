@@ -2,7 +2,7 @@
 /**
  * query-records.test.js — Tests for query-records.js argument parsing and core logic.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W2
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2
  *
  * Run with: node --test bin/lib/query-records.test.js
  */

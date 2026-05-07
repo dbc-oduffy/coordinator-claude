@@ -58,7 +58,7 @@ The EM must REJECT a /mise run if any candidate item exhibits these patterns:
 - Items requiring `manage_*` MCP tools in a live editor — those need an interactive EM-driven flow.
 - Research/brainstorming stubs whose output is "a decision."
 - Only one item — use `/execute-plan` directly.
-- Items aren't scoped yet — use `coordinator:writing-plans` or `coordinator:brainstorming` first.
+- Items aren't scoped yet — use `coordinator:plan` or `coordinator:brainstorming` first.
 - Iterative PM judgment expected throughout.
 
 **If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, /review-dispatch, /staff-session, executor dispatch per `docs/wiki/delegate-execution.md`). The PM decides whether to pull the failed items or defer the mise.
@@ -265,5 +265,5 @@ Apply the same judgment as `/execute-plan`:
 **Called by:** PM directly — whether they're watching, stepping away, or wrapping up for the day
 
 **Pairs with:**
-- **coordinator:writing-plans** — Creates the scoped items this skill executes
+- **coordinator:plan** — Creates the scoped items this skill executes
 - **`/session-start`** — Often follows session-start when the PM reviews the backlog and decides to straight-shot it
