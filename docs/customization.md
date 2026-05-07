@@ -42,10 +42,15 @@ The publish repo ships with seven role-distinct reviewers. Names are optional �
 
 ### Manual Naming
 
-If you prefer to name reviewers manually:
-1. Find references: `grep -r "the Staff Engineer" plugins/`
-2. Replace in prose only — skip YAML frontmatter blocks
-3. Do NOT rename filenames (they are technical identifiers)
+If you'd rather hand-edit (one role at a time, or with a pattern the script doesn't cover):
+
+1. Find every occurrence of the articulated role label — the leading article is the sentinel that distinguishes a role reference from generic prose:
+   ```bash
+   grep -rn "the Staff Engineer" plugins/ docs/customization.md
+   grep -rn "The Staff Engineer" plugins/ docs/customization.md   # sentence-initial
+   ```
+2. Replace the label with your chosen name in prose. The unarticulated form `Staff Engineer` (no leading article) appears in generic prose like "a senior staff engineer with exacting standards" — leave those alone; they're not role references.
+3. Don't touch agent filenames (`staff-eng.md`, `staff-game-dev.md`, …), YAML `name:` fields, or `subagent_type:` dispatch keys (`coordinator:staff-eng`, …). All three are infrastructure and stay role-based even after you've named the persona.
 
 ## Adding Domain Plugins
 
