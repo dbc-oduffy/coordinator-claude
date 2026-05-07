@@ -172,8 +172,10 @@ Schema (both queues):
 ```
 - YYYY-MM-DD | <source-repo or self> | <file>:<line> | <one-line> | proposed target: <target>
   recurring: 0
-  resolution: pending | in_progress | resolved YYYY-MM-DD <commit>
+  resolution: pending | in_progress
 ```
+
+On resolution, delete the entry. The commit subject names the closed entry; `git log -- <queue-file>` is the audit trail.
 
 Surfacing: `/session-start` offers backlog work with queue depth in framing. `/workday-complete` emits depth nudge only (≥5 → notice). `/workweek-complete` Step 4 is the weekly triage gate (also triggers when `recurring: ≥3` AND `resolution: pending`).
 
@@ -311,7 +313,7 @@ Default operating reality is multiple EM sessions sharing a working tree. **The 
 
 Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises from existing handoffs and `/daily-review` — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
 
-Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, move to Processed).
+Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, delete the resolved entries; commit subject names them).
 
 ## Core Principles
 
