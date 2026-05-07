@@ -10,6 +10,20 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 **Announce at start:** "I'm running workday-start to prepare the day's context."
 
+## Step -1: Session Reaper
+
+Run the session reaper before any other work to bound stale-session accumulation. Capture stdout to a log file; do not echo the reaped-session lines into the Morning Briefing prose.
+
+```bash
+REAP_LOG=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-reap-sessions 2>/dev/null)
+if [[ -n "$REAP_LOG" ]]; then
+  mkdir -p ~/.claude/logs
+  printf '%s  %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$REAP_LOG" >> ~/.claude/logs/coordinator-reap.log
+fi
+```
+
+If the wrapper exits non-zero (lib not found), continue — the reaper is operational hygiene, not a gate.
+
 ## Step 0: Branch Setup
 
 Ensure work happens on an active workstream branch (`work/{machine}/{date-or-span}`, machine always lowercase) and consolidate lingering open branches from previous days. The goal is no longer "create today's daily" — it is "ensure today is within the active branch's span, rename forward if not."
@@ -184,6 +198,36 @@ Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typi
 
 **Do NOT auto-fix.** The EM should investigate which consumer drifted and why before applying `--fix`. A drift may indicate an intentional local edit that needs to be merged back into the canonical snippet rather than simply overwritten.
 
+## Step 1.8: Auto-Push Failure Surface
+
+Silent `coordinator-auto-push` failures (e.g. case-mismatched branch refs on Windows; expired credentials; SSH agent unreachable) accumulate in `.git/push-failures.log` without any visible signal until the next manual push. This step makes them visible the next morning, not 75 minutes later.
+
+```bash
+LOG=".git/push-failures.log"
+if [[ -s "$LOG" ]]; then
+  TOTAL=$(wc -l < "$LOG" | tr -d ' ')
+  RECENT_24H=$(awk -v cutoff="$(date -d '24 hours ago' -Iseconds 2>/dev/null || date -v-1d -Iseconds 2>/dev/null)" \
+    '$0 >= "[" cutoff' "$LOG" | wc -l | tr -d ' ')
+  LAST_LINE=$(tail -1 "$LOG")
+fi
+```
+
+**Surface in the Morning Briefing under a new `### Auto-Push Health` section if any of:**
+- `RECENT_24H ≥ 1` (fresh failure since yesterday — almost always actionable)
+- `TOTAL ≥ 5` (chronic backlog)
+
+Format:
+```
+### Auto-Push Health
+- [N] failures in last 24h (total log: [M] lines). Most recent: [LAST_LINE].
+- Investigate before opening new work — silent push failures usually indicate a credential/branch-case/agent issue that will keep firing on every commit.
+- Cleanup after fix: `> .git/push-failures.log` (truncate; do not delete the file — the helper appends in-place).
+```
+
+**If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently — the log is either empty or carries old, already-resolved entries.
+
+**Cross-repo extension (deferred):** the handoff that drove this section calls for scanning *all* coordinator-tracked repos, but no registry of tracked repos exists yet. V1 checks the current repo only. If a registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
+
 ## Step 2: Doc Freshness
 
 Check if documentation is stale relative to recent code changes:
@@ -339,6 +383,11 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 _(Omit this section entirely if orphan-branch-sweep.sh produced no WARNING or CRITICAL output.)_
 - **CRITICAL:** [branch] — PR #N merged, [M] commits added after merge. Investigate before new work.
 - **WARNING:** [branch] — no PR, [N] commits, branch date [YYYY-MM-DD]. Open a PR or consolidate.
+
+### Auto-Push Health
+_(Omit this section entirely if Step 1.8 found `RECENT_24H == 0` AND `TOTAL < 5`.)_
+- [N] failures in last 24h (total log: [M] lines). Most recent: [last log line].
+- Investigate before opening new work — silent push failures usually indicate a credential/branch-case/agent issue that will keep firing on every commit.
 
 ### Priority Suggestions
 Based on project state:

@@ -198,6 +198,44 @@ test_is_denied_work_striker_feature() {
 }
 
 # ---------------------------------------------------------------------------
+# cs_is_canonical_branch — strict (creation-time) oracle for HEAD-vs-on-disk
+# case-mismatch prevention. See lib comment for rationale.
+# ---------------------------------------------------------------------------
+
+test_is_canonical_main() {
+  assert_returns "main is canonical" 0 cs_is_canonical_branch "main"
+}
+
+test_is_canonical_lowercase_single_day() {
+  assert_returns "lowercase single-day canonical" 0 cs_is_canonical_branch "work/striker/2026-05-07"
+}
+
+test_is_canonical_lowercase_span() {
+  assert_returns "lowercase span canonical" 0 cs_is_canonical_branch "work/striker/2026-05-07to08"
+}
+
+test_is_not_canonical_uppercase_machine() {
+  assert_returns "uppercase machine NOT canonical" 1 cs_is_canonical_branch "work/STRIKER/2026-05-07"
+}
+
+test_is_not_canonical_mixed_machine() {
+  assert_returns "mixed-case machine NOT canonical" 1 cs_is_canonical_branch "work/Striker/2026-05-07"
+}
+
+test_is_not_canonical_uppercase_span_suffix() {
+  assert_returns "uppercase TO suffix NOT canonical" 1 cs_is_canonical_branch "work/striker/2026-05-07TO08"
+}
+
+test_is_not_canonical_uppercase_span_machine() {
+  assert_returns "uppercase machine in span NOT canonical" 1 cs_is_canonical_branch "work/STRIKER/2026-05-07to08"
+}
+
+test_is_not_canonical_feature_foo() {
+  # Not allowed at all → not canonical either.
+  assert_returns "feature/foo NOT canonical" 1 cs_is_canonical_branch "feature/foo"
+}
+
+# ---------------------------------------------------------------------------
 # cs_format_span_suffix
 # ---------------------------------------------------------------------------
 
@@ -320,6 +358,15 @@ run_test "cs_is_allowed_branch: span" test_is_allowed_span
 run_test "cs_is_allowed_branch: legacy uppercase (AC-10)" test_is_allowed_legacy_uppercase
 run_test "cs_is_allowed_branch: rejects feature/foo" test_is_denied_feature_foo
 run_test "cs_is_allowed_branch: rejects work/striker/feature-X" test_is_denied_work_striker_feature
+
+run_test "cs_is_canonical_branch: main" test_is_canonical_main
+run_test "cs_is_canonical_branch: lowercase single-day" test_is_canonical_lowercase_single_day
+run_test "cs_is_canonical_branch: lowercase span" test_is_canonical_lowercase_span
+run_test "cs_is_canonical_branch: uppercase machine NOT canonical" test_is_not_canonical_uppercase_machine
+run_test "cs_is_canonical_branch: mixed-case machine NOT canonical" test_is_not_canonical_mixed_machine
+run_test "cs_is_canonical_branch: uppercase TO suffix NOT canonical" test_is_not_canonical_uppercase_span_suffix
+run_test "cs_is_canonical_branch: uppercase machine in span NOT canonical" test_is_not_canonical_uppercase_span_machine
+run_test "cs_is_canonical_branch: feature/foo NOT canonical" test_is_not_canonical_feature_foo
 
 run_test "cs_format_span_suffix: same-day" test_format_same_day
 run_test "cs_format_span_suffix: next-day" test_format_next_day
