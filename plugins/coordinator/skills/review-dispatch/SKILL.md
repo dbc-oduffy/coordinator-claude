@@ -1,5 +1,6 @@
 ---
 description: Route artifacts to the right reviewer
+disable-model-invocation: true
 allowed-tools: ["Read", "Grep", "Glob", "Agent"]
 argument-hint: "[file-path|'plan'|'code'|'stubs'] [--reviewers 'name1,name2'] [--problems-only]"
 ---

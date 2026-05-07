@@ -1,5 +1,6 @@
 ---
 description: Save session state for next session handoff
+disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
