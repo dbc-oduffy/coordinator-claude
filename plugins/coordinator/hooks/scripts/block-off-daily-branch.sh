@@ -9,7 +9,7 @@
 #   main                            (read-only, PR-only)
 # Policy oracle is cs_is_allowed_branch in coordinator-daily-branch.sh.
 #
-# Commit-time branch enforcement (formerly Check 6, consolidated here by Patrik F11)
+# Commit-time branch enforcement (formerly Check 6, consolidated here by Staff Engineer F11)
 # was REMOVED 2026-05-07 per PM call. See docs/wiki/daily-branch-discipline.md.
 # The orphan-branch-creation prevention (checkout -b, branch -m, stash branch,
 # worktree add, --orphan) remains unchanged.
