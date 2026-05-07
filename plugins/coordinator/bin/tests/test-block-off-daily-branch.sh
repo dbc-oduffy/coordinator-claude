@@ -135,6 +135,43 @@ test_switch_c_span_branch_allowed() {
 }
 
 # ---------------------------------------------------------------------------
+# Canonical-case creation enforcement (HEAD vs on-disk case-mismatch prevention,
+# 2026-05-07 spinoff). Branch CREATION arms must reject mixed-case work/* names
+# even though they parse as allowed shape; SWITCH-TO-EXISTING arms keep
+# accepting them so the migration script can rename them.
+# ---------------------------------------------------------------------------
+
+test_checkout_b_mixed_case_machine_denied() {
+  local output
+  output=$(pipe_hook '{"tool_name":"Bash","tool_input":{"command":"git checkout -b work/STRIKER/2026-05-07"},"session_id":"smoke"}')
+  assert_deny "git checkout -b work/STRIKER/2026-05-07 denied (non-canonical case)" "$output" || return 1
+  # Hint check: deny message should propose the canonical form.
+  if ! echo "$output" | grep -q 'Canonical form'; then
+    echo "    Expected: deny output to include 'Canonical form' hint" >&2
+    echo "    Got: $output" >&2
+    return 1
+  fi
+}
+
+test_checkout_b_canonical_lowercase_allowed() {
+  local output
+  output=$(pipe_hook '{"tool_name":"Bash","tool_input":{"command":"git checkout -b work/striker/2026-05-07"},"session_id":"smoke"}')
+  assert_no_deny "git checkout -b work/striker/2026-05-07 allowed" "$output"
+}
+
+test_checkout_b_mixed_case_span_denied() {
+  local output
+  output=$(pipe_hook '{"tool_name":"Bash","tool_input":{"command":"git checkout -b work/STRIKER/2026-05-07to08"},"session_id":"smoke"}')
+  assert_deny "git checkout -b work/STRIKER/2026-05-07to08 denied" "$output"
+}
+
+test_branch_m_to_mixed_case_denied() {
+  local output
+  output=$(pipe_hook '{"tool_name":"Bash","tool_input":{"command":"git branch -m work/striker/2026-05-07 work/STRIKER/2026-05-07"},"session_id":"smoke"}')
+  assert_deny "git branch -m to mixed-case denied" "$output"
+}
+
+# ---------------------------------------------------------------------------
 # AC-10: case-insensitive legacy tolerance
 # ---------------------------------------------------------------------------
 
@@ -180,6 +217,25 @@ test_override_bypasses_feature_branch() {
   assert_no_deny "override bypasses feature/X deny" "$output"
 }
 
+# Inline-prefix override — required because env-var prefixes don't propagate
+# from the user's bash command into the hook's env (the hook is a child of
+# Claude Code, not of the user's shell). The hook parses $COMMAND for the
+# literal prefix and treats it equivalently to the env-var override.
+test_inline_override_bypasses_feature_branch() {
+  local output
+  output=$(echo '{"tool_name":"Bash","tool_input":{"command":"COORDINATOR_OVERRIDE_BRANCH=1 git checkout -b feature/inline-override-test"},"session_id":"smoke"}' \
+    | bash "$HOOK" 2>/dev/null || true)
+  assert_no_deny "inline override bypasses feature/X deny" "$output"
+}
+
+# Inline override with a paired REASON env var — common real-world shape.
+test_inline_override_with_reason_bypasses() {
+  local output
+  output=$(echo '{"tool_name":"Bash","tool_input":{"command":"COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON=spec-test git stash branch foo"},"session_id":"smoke"}' \
+    | bash "$HOOK" 2>/dev/null || true)
+  assert_no_deny "inline override with reason bypasses deny" "$output"
+}
+
 # ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
@@ -198,6 +254,11 @@ run_test "AC-3: git branch -m feature/renamed denied" test_branch_m_feature_deni
 run_test "AC-4: git checkout -b span branch allowed" test_checkout_b_span_branch_allowed
 run_test "AC-4: git switch -c span branch allowed" test_switch_c_span_branch_allowed
 
+run_test "canonical-case: git checkout -b mixed-case machine denied" test_checkout_b_mixed_case_machine_denied
+run_test "canonical-case: git checkout -b lowercase canonical allowed" test_checkout_b_canonical_lowercase_allowed
+run_test "canonical-case: git checkout -b mixed-case span denied" test_checkout_b_mixed_case_span_denied
+run_test "canonical-case: git branch -m to mixed-case denied" test_branch_m_to_mixed_case_denied
+
 run_test "AC-10: git checkout legacy uppercase branch allowed" test_checkout_legacy_uppercase_branch_allowed
 
 run_test "sanity: non-git command passes" test_non_git_command_passes
@@ -205,6 +266,8 @@ run_test "sanity: git log passes" test_git_log_passes
 run_test "sanity: git status passes" test_git_status_passes
 
 run_test "override: COORDINATOR_OVERRIDE_BRANCH=1 bypasses deny" test_override_bypasses_feature_branch
+run_test "override: inline COORDINATOR_OVERRIDE_BRANCH=1 prefix bypasses deny" test_inline_override_bypasses_feature_branch
+run_test "override: inline override with REASON bypasses deny" test_inline_override_with_reason_bypasses
 
 echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
