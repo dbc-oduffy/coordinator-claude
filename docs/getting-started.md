@@ -290,5 +290,5 @@ rm -rf ~/.claude/plugins/cache/coordinator-claude
 - Read [docs/architecture.md](architecture.md) to understand how the system works
 - Read [docs/customization.md](customization.md) to learn how to adapt personas and add skills
 - Try `/review-dispatch` to route code to a reviewer
-- Try `/deep-research` for multi-agent codebase or internet research
-- Try `/delegate-execution` to dispatch an executor agent on a well-specified task
+- Try `/research` for multi-agent codebase or internet research (deep-research plugin)
+- Try `/execute-plan` to run a PM-approved plan directly in-session
