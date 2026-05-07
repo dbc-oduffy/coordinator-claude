@@ -89,8 +89,18 @@ _cs_iso_to_epoch() {
   local epoch
   epoch=$(date -u -d "$iso" +%s 2>/dev/null) \
     || epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$iso" +%s 2>/dev/null) \
-    || epoch=$(python3 -c "import datetime; print(int(datetime.datetime.fromisoformat('${iso%Z}').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
     || epoch=0
+  if [[ "$epoch" == 0 ]]; then
+    # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
+    local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    # shellcheck source=/dev/null
+    [[ -f "$_lib" ]] && source "$_lib"
+    if [[ -n "$PYTHON_BIN" ]]; then
+      epoch=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import datetime; print(int(datetime.datetime.fromisoformat('${iso%Z}').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
+        || epoch=0
+    fi
+  fi
   echo "$epoch"
 }
 
@@ -226,11 +236,17 @@ cs_touch() {
       local root
       root=$(_cs_git_root)
       if [[ -n "$root" ]]; then
-        rel=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]).replace(os.sep,'/'))" \
-              "$fpath" "$root" 2>/dev/null) \
-          || rel=$(python -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]).replace(os.sep,'/'))" \
-              "$fpath" "$root" 2>/dev/null) \
-          || rel=""
+        # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
+        local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
+        [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+        # shellcheck source=/dev/null
+        [[ -f "$_lib" ]] && source "$_lib"
+        if [[ -n "$PYTHON_BIN" ]]; then
+          rel=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]).replace(os.sep,'/'))" \
+                "$fpath" "$root" 2>/dev/null) || rel=""
+        else
+          rel=""
+        fi
       fi
     fi
     # Fall back to as-is if normalization failed
@@ -538,6 +554,49 @@ cs_live_session_ids() {
       echo "$sid"
     fi
   done
+}
+
+# cs_atomic_dedup_append <touched-file> <new-entry>
+#   Append new-entry to touched-file only if it is not already present.
+#
+# Spec backlink: plans/safe-commit-fixes.md § Phase 3a
+#
+# Fix for lost-update race (T21): the prior mktemp+sort+mv pattern let N
+# concurrent writers each read-then-overwrite, so the last mv won and
+# earlier merges were silently dropped (distinct-path writers lost).
+#
+# Replacement: append-only write.
+#   1. Fast-exit if already present (cheap grep, non-atomic — a false negative
+#      just falls through; the append is idempotent at consumption via sort -u).
+#   2. printf '%s\n' >> touched-file   — single-line append < PIPE_BUF (4096).
+#      On POSIX, single short writes to O_APPEND files are atomic.
+#      On Windows NTFS (Git Bash), file-append writes are serialized by the FS
+#      driver; concurrent appends interleave correctly and do not corrupt.
+#
+# Duplicates can still appear if two writers both pass the fast-exit before
+# either appends (the window is tiny but non-zero). Dedup-on-read at
+# consumption time is the correctness backstop: coordinator-safe-commit builds
+# a dict from the array, which collapses duplicates automatically, AND the
+# sort -u pass below guarantees the file stays clean after first read.
+#
+# Silent-failure contract: returns 0 on any error so the hook never blocks
+# tool calls (advisory hook). No mktemp, no mv, no flock — nothing that can
+# fail silently on cross-drive or Windows paths.
+cs_atomic_dedup_append() {
+  local touched="${1:?touched-file required}"
+  local entry="${2:?new-entry required}"
+
+  # Fast-exit: already present (non-atomic read is fine — false negative just
+  # falls through to the append, where a duplicate may land; cleaned at next
+  # consumption-time sort -u).
+  if grep -qxF "$entry" "$touched" 2>/dev/null; then
+    return 0
+  fi
+
+  # Append-only write — atomic for single short lines on POSIX + Windows NTFS.
+  printf '%s\n' "$entry" >> "$touched" 2>/dev/null || return 0
+
+  return 0
 }
 
 # cs_reap_agents
