@@ -23,7 +23,7 @@
 #
 # Usage: name-personas.sh [--dry-run] ROLE NAME [ROLE NAME ...]
 # Example:
-#   name-personas.sh "the Staff Engineer" "Patrik" "the Game Dev Reviewer" "Sid"
+#   name-personas.sh "the Staff Engineer" "Alex" "the Game Dev Reviewer" "Jordan"
 
 set -euo pipefail
 
@@ -88,7 +88,7 @@ fi
 if (( $# % 2 != 0 )); then
   echo "Error: arguments after [--dry-run] must be ROLE NAME pairs." >&2
   echo "Usage: $(basename "$0") [--dry-run] ROLE NAME [ROLE NAME ...]" >&2
-  echo "Example: $(basename "$0") \"the Staff Engineer\" \"Patrik\" \"the Game Dev Reviewer\" \"Sid\"" >&2
+  echo "Example: $(basename "$0") \"the Staff Engineer\" \"Alex\" \"the Game Dev Reviewer\" \"Jordan\"" >&2
   exit 1
 fi
 

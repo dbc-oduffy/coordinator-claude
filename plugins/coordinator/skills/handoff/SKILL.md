@@ -1,5 +1,5 @@
 ---
-description: Save session state for next session handoff
+description: "Save session state for a successor mid-workstream. Not for shipped/complete work — see Step 0."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
@@ -22,6 +22,35 @@ When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each
 **Design note:** Multiple agents may be running concurrently. This skill preserves ONE agent's work without assuming exclusive repo access.
 
 **CRITICAL: Write the handoff file FIRST, before commits or anything else.** Handoffs are typically invoked when the session is near compaction. If you do git operations first, you risk losing the conversation context that makes the handoff valuable. Get the knowledge out of your head and onto disk immediately.
+
+## Step 0: Successor-work check
+
+Before writing anything, run this binary gate. It takes 30 seconds and prevents polluting `tasks/handoffs/` with end-of-session housekeeping that no successor will pick up.
+
+### NO-tests — any one of these → STOP, do not write a handoff
+
+- The workstream's next action is `/merge-to-main`, or the terminal PR is already merged with no follow-up commits expected.
+- The work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
+- All in-flight chunks of the active plan have landed and the plan doc is marked complete.
+
+### YES-tests — only consulted if all NO-tests fail
+
+- In-progress edits not yet at a stopping point, AND a successor session must resume them.
+- A plan in flight with remaining unexecuted chunks (not chunks that just landed in this session).
+- Open blockers requiring PM input that arrived after-hours.
+- A Claude Code restart imminent AND work in flight that the post-restart session must resume.
+- PR open with reviewer feedback expected or unaddressed (iteration round counts as in-progress).
+
+### If a NO-test trips → STOP
+
+The right artifact is one of:
+- `/workday-complete` — end-of-day ceremony; daily-review entry lands in `tasks/week-changelog/`
+- Commit-and-stop — for mid-day completion of a workstream that's already merged or PR-ready
+- `/session-end` — if lessons need capture but no successor brief is needed
+
+### If at least one YES-test fires AND no NO-test trips → continue to Step 1
+
+*Handoffs are mid-stream baton-passes, not end-of-session ceremony. Shipped ≠ handed-off.*
 
 ### Workflow
 
