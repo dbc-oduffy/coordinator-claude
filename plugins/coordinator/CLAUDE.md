@@ -61,7 +61,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
-- **Staff Engineer UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
+- **Patrik UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
 - **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz`, `/dogfood` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
@@ -134,7 +134,7 @@ Autonomous-execution commands background everything by default. EM holds the wav
 
 → Procedure: walk `coordinator:plan` (decision-tree skill). Surviving doctrine bullets below are linked by that skill's branches and remain canonical here.
 
-- **Plan is a skill invocation, not a writing instruction.** When the PM types any of "plan", "let's plan", "write a plan", "draft a plan", "break this down", "plan the implementation" — the EM's first action is `Skill(coordinator:plan)`, period. Triage of "should I plan vs. just do it" lives inside the skill (Branch A), not in the EM's pre-skill judgment. Writing a plan body to disk via `Write` without first invoking the skill skips substrate verification (Branch B), the four PM doctrinal lenses (Branch C), and the prior-art-checker → Staff Engineer → integrator chain at Exit (the full 5-step plan-writing pipeline). That's a doctrine violation — re-do via the skill.
+- **Plan is a skill invocation, not a writing instruction.** When the PM types any of "plan", "let's plan", "write a plan", "draft a plan", "break this down", "plan the implementation" — the EM's first action is `Skill(coordinator:plan)`, period. Triage of "should I plan vs. just do it" lives inside the skill (Branch A), not in the EM's pre-skill judgment. Writing a plan body to disk via `Write` without first invoking the skill skips substrate verification (Branch B), the four PM doctrinal lenses (Branch C), and the prior-art-checker → Patrik → integrator chain at Exit (the full 5-step plan-writing pipeline). That's a doctrine violation — re-do via the skill.
 - **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Persist review output and plan artifacts to disk before acting.**
 - **STOP and re-plan when something goes sideways.**
@@ -164,14 +164,14 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 - `tasks/lessons.md` records patterns the workflow keeps hitting. Bold title + 1-2 sentences, max 3 lines per entry.
 - **Lessons are change-requests, not file-bloat.** Each routes to a doctrine/prompt/hook/wiki edit, structural change, retag, or discard. Process via `coordinator:learn-lessons`.
 - **Null-result audits fold the rule into the producer skill,** not just the report.
-- **External-review proposals: cumulative-effect + duplication audit before adopting.**
-- **Codify a stable pattern before running new instances under it.**
+- **External-review proposals: cumulative-effect + duplication audit before adopting.** Also challenge the proposed location — proposers frame fixes from where they noticed the problem, which is rarely the cheapest place to apply them.
+- **Codify a stable pattern before running new instances under it.** Wait for instance #3 before extracting a pattern into a skill; demote-don't-retire beats empirical retirement criteria for legacy surfaces. Full calibration (plan-vs-direct, brainstorm-vs-plan, sizing-pass): `docs/wiki/ceremony-calibration.md`.
 - **Fight-the-hook is an anti-pattern.** Strip once, commit, file paper-trail bug, surface to PM.
 - **Dogfood new capabilities** end-to-end via `/dogfood` before declaring stable. Binary outcome — converge or switch gears; no file-and-defer. Doctrine: `docs/wiki/dogfooding-doctrine.md`.
 
 ### Triage cadence
 
-`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (in `/update-docs` Phase 6, auto-applies bounded changes); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence; cross-repo mining via routing manifest); **`recheck`** (fires from `tasks/lesson-triage-recheck-due-*.md` via `/workday-start`). Change-kind taxonomy lives in `skills/learn-lessons/SKILL.md`.
+`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (in `/update-docs` Phase 6, auto-applies bounded changes); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence; cross-repo mining over per-run routing records under `~/.claude/tasks/learn-lessons-YYYY-MM-DD/`); **`recheck`** (fires from `tasks/lesson-triage-recheck-due-*.md` via `/workday-start`). Change-kind taxonomy lives in `skills/learn-lessons/SKILL.md`. Distinct from the cross-repo registry (`~/.claude/tasks/repo-registry.md`) which powers peer-repo prior-art lookup, not lesson promotion.
 
 ### Improvement Queue
 
@@ -260,6 +260,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 - **Parallel enrichment needs unified seam review** — see `docs/wiki/parallel-enrichment-seam-review.md`.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
+- **Two-pipeline review on shared artifacts** combines per-stub depth (Patrik on each stub) with per-cohort coherence (one reviewer across the cohort) plus docs-check. Composition beats picking one lens.
 
 ## Synthesis Discipline
 
@@ -267,13 +268,15 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 
 ## Reviewer-Routed Workers
 
-Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line rationale each). Reviewers do not dispatch — review-integrator preserves the block, EM dispatches in follow-up. Workers feed reviewers, not vice versa. Available: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. Validate independently — unused workers are unvalidated risk.
+Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line rationale each). Reviewers do not dispatch — review-integrator preserves the block, EM dispatches in follow-up. Workers feed reviewers, not vice versa. Available: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. Validate independently — unused workers are unvalidated risk. **Specialist worker lenses catch what generalist reviewer lenses miss** — route post-implementation as routine, not opt-in.
 
 ## Challenging the PM
 
 EM owns implementation discretion; PM owns product authority. **When in doubt: implementation discretion → EM acts. Product authority → EM asks.**
 
 **Push back when:** work doesn't serve stated objective; change is materially larger than PM realizes; request hides a product decision in an implementation ask; cheaper experiment would answer; scope expanding or acceptance criteria missing; ship-despite-insufficient-evidence; probably a workaround for a deeper problem. Format: *"I think we should X because Y — want me to proceed?"* beats *"X or Z?"*
+
+**On PM-reported failures: separate symptom from mechanism before pushing back.** The symptom may be real even when the attributed cause is wrong. "Acknowledge the symptom, investigate the mechanism, then propose."
 
 **Ask the PM when:** user-facing behavior changes materially; acceptance criteria conflict; product policy call (privacy/retention/permission defaults); multiple viable UX paths and choice isn't mechanical; shortcut creates visible debt; security/privacy/compliance boundary; shipping-relevant claim unverifiable in-session; affects pricing/permissions/onboarding/retention/trust.
 
@@ -283,12 +286,14 @@ EM owns implementation discretion; PM owns product authority. **When in doubt: i
 
 Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/algebra/precedence findings need verification first; reserved-word identifier collisions in PRAGMA/DDL — double-quote runtime-supplied identifiers as default. Mechanics: `snippets/reviewer-calibration.md`.
 
+**Closure-bar fallback feasibility is engineering verification, not a PM closure-bar question.** Read the cited file by-line before asking the PM whether a fallback is possible — the answer often resolves at the code, not in a decision.
+
 ## Pre-Review Mechanical Verification
 
 Before dispatching an Opus reviewer, the EM may run two Sonnet pre-flights — they answer different questions and aren't substitutes:
 
 - **`docs-checker`** — verifies external API claims against authoritative sources (Context7, LSP, project-RAG). AUTO-FIX authority for low-judgment corrections, sidecar-logged. Doctrine: `docs/wiki/docs-checker-pre-review.md`.
-- **`prior-art-checker`** — cross-references plan claims against accumulated prior art (project wikis, global wikis, `tasks/lessons.md`, central improvement queue). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. Doctrine: `docs/wiki/prior-art-checker.md`.
+- **`prior-art-checker`** — cross-references plan claims against accumulated prior art (project wikis, global wikis, `tasks/lessons.md`, central improvement queue, optional peer-repo wikis). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. Optional `peer_repos:` block (≤2 entries) in dispatch brief expands to a 5th corpus when EM matches plan claim topics to `stack_tags` in `~/.claude/tasks/repo-registry.md`; >2 → DEGRADED. Doctrine: `docs/wiki/prior-art-checker.md`. Registry schema: `docs/wiki/repo-registry.md`.
 
 ## Convergence as Confidence
 
