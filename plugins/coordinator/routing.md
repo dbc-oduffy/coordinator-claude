@@ -2,7 +2,7 @@
 
 ## Discovery Protocol
 
-<!-- Review: patrik — anchor implementation reference to prevent silent staleness -->
+<!-- Review: staff-eng — anchor implementation reference to prevent silent staleness -->
 **Implementation:** `/review-dispatch` command. This document describes the algorithm; the command implements it.
 
 At dispatch time, `/review-dispatch` assembles a composite routing table:
@@ -16,14 +16,14 @@ Domain plugins register reviewers by providing a `routing.md` file at the plugin
 
 ## Universal Reviewers
 
-### Patrik (staff-eng)
+### the Staff Engineer (`coordinator:staff-eng`)
 - **Signals:** Architectural change, new subsystem, cross-cutting (many files, new pattern), backend, security, other/unmatched
 - **Model:** opus
 - **Effort:** Medium (escalates to High for architectural changes)
-- **Backstop:** Zolí
+- **Backstop:** the Ambition Advocate
 - **Agent file:** `agents/staff-eng.md`
 
-### Zolí (ambition-advocate)
+### the Ambition Advocate (`coordinator:ambition-advocate`)
 - **Signals:** N/A — backstop only, never primary
 - **Model:** opus
 - **Effort:** Medium
@@ -33,14 +33,14 @@ Domain plugins register reviewers by providing a `routing.md` file at the plugin
 
 ## Fallback Rule
 
-Any signal that does not match a domain plugin's routing fragment routes to **Patrik** at **Medium** effort.
+Any signal that does not match a domain plugin's routing fragment routes to **the Staff Engineer** at **Medium** effort.
 
 ## Sequential Review Protocol
 
 1. Domain specialist reviews first (if signal matches a domain plugin)
 2. Coordinator incorporates feedback
-3. Generalist (Patrik) catches regressions (if effort >= Medium)
-4. Backstop challenges conservatism (if effort >= High, or Coordinator judges it warranted)
+3. The Staff Engineer catches regressions (if effort >= Medium)
+4. The Ambition Advocate challenges conservatism (if effort >= High, or Coordinator judges it warranted)
 
 ## Routing Fragment Format
 
@@ -62,8 +62,8 @@ Per-project config in `coordinator.local.md`:
       - unreal               # values: unreal | game-docs | web | data-science | meta
       - data-science
     active_reviewers:        # optional explicit override
-      - patrik
-      - sid
+      - staff-eng
+      - staff-game-dev
     ---
 
 Single values are also accepted for backwards compatibility:
@@ -72,7 +72,7 @@ Single values are also accepted for backwards compatibility:
     project_type: web
     ---
 
-If no `.local.md` exists, default to core-only (Patrik + Zolí).
+If no `.local.md` exists, default to core-only (the Staff Engineer + the Ambition Advocate).
 
 ## Effort Calibration
 
@@ -85,7 +85,7 @@ The EM selects effort level based on change scope. These are defaults — the EM
 | Architectural / new subsystem / cross-cutting | High | Domain + generalist + mandatory backstop |
 | Maintenance/audit findings (already structured) | Medium | Domain reviewer only |
 | Test-only changes | Low | 1 reviewer |
-| Doc-only changes | Low | Patrik only |
+| Doc-only changes | Low | the Staff Engineer only |
 
 ## Skip Conditions
 
@@ -96,19 +96,19 @@ Not every change needs the full review pipeline:
 
 ## Backstop Reconciliation Protocol
 
-When the backstop (Zolí) returns findings after a primary review (Patrik or domain reviewer):
+When the backstop (the Ambition Advocate) returns findings after a primary review (the Staff Engineer or domain reviewer):
 
-- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. Zolí's agreement is noted but requires no action.
-- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use Zolí's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
+- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. The Ambition Advocate's agreement is noted but requires no action.
+- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use the Ambition Advocate's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
 - **BACKSTOP_OVERRIDES:** Coordinator surfaces both perspectives to PM and blocks until resolved. Overrides are rare — "ship heading for iceberg" territory.
 
-The review-integrator should never receive findings where Patrik and Zolí disagree without the coordinator having resolved the disagreement first.
+The review-integrator should never receive findings where the Staff Engineer and the Ambition Advocate disagree without the coordinator having resolved the disagreement first.
 
 ## Post-Review Synthesis (when 2+ reviewers ran)
 
 When an artifact has been through 2 or more reviewers, the coordinator produces a brief synthesis before proceeding:
 
-1. **Read all review outputs** — the domain reviewer's findings, Patrik's findings, and the backstop's challenges
+1. **Read all review outputs** — the domain reviewer's findings, the Staff Engineer's findings, and the backstop's challenges
 2. **Identify cross-cutting patterns** — findings that multiple reviewers flagged independently (reinforcing signal), or areas where reviewers disagree (requires judgment)
 3. **Flag coverage gaps** — use each reviewer's coverage declaration to identify areas NO reviewer examined
 4. **Produce a synthesis note** (3-5 bullets):

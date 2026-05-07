@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # orphan-branch-sweep.sh — enumerate suspect work/feature branches across the current repo
 #
-# Spec backlink: docs/plans/2026-05-01-orphan-branch-prevention.md § 1.1
+# Spec backlink: archive/specs/2026-05-01-orphan-branch-prevention.md § 1.1
 #
 # Purpose: read-only scan of user-owned work/* and feature/* branches. For each
 # qualifying branch, determines whether it has commits that post-date a merged PR
@@ -12,6 +12,8 @@
 # diagnostic. It does NOT archive, delete, or rename any branch.
 
 set -euo pipefail
+
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -96,10 +98,12 @@ collect_branches() {
     branch=$(echo "$line" | sed 's|^[[:space:]]*||; s|^origin/||; s|^remotes/origin/||')
     [[ -z "$branch" ]] && continue
     [[ "$branch" == "HEAD" ]] && continue
-    # only work/* and feature/* branches
+    # only work/* and feature/* branches (case-insensitive — legacy work/STRIKER/... must match)
+    shopt -s nocasematch
     if [[ "$branch" =~ ^(work|feature)/ ]]; then
       seen_branches["$branch"]=1
     fi
+    shopt -u nocasematch
   done <<< "$raw_list"
 }
 
@@ -194,21 +198,21 @@ for branch in "${!seen_branches[@]}"; do
       --json number,state,mergedAt,mergeCommit 2>/dev/null || true)
     if [[ -n "$pr_raw" && "$pr_raw" != "[]" ]]; then
       # Pick the most recent (last item in array is typically newest)
-      pr_number=$(echo "$pr_raw" | python3 -c "
+      pr_number=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
 import json,sys
 prs=json.load(sys.stdin)
 if prs:
     p=prs[-1]
     print(p.get('number',''))
 " 2>/dev/null || true)
-      pr_state=$(echo "$pr_raw" | python3 -c "
+      pr_state=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
 import json,sys
 prs=json.load(sys.stdin)
 if prs:
     p=prs[-1]
     print(p.get('state',''))
 " 2>/dev/null || true)
-      pr_merged_at=$(echo "$pr_raw" | python3 -c "
+      pr_merged_at=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
 import json,sys
 prs=json.load(sys.stdin)
 if prs:
@@ -234,23 +238,68 @@ if prs:
   severity="OK"
 
   if [[ "$pr_state" == "MERGED" && $orphan_after_merge -gt 0 ]]; then
-    severity="CRITICAL"
-  elif [[ "$pr_state" != "MERGED" && $ahead -gt 0 ]]; then
-    # Extract date from branch name if present (work/machine/YYYY-MM-DD pattern)
-    branch_date=""
-    if [[ "$branch" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
-      branch_date="${BASH_REMATCH[1]}"
+    # Re-verify against the live ref-graph before raising CRITICAL.
+    # The orphan_after_merge count is timestamp-derived (git log --after) and
+    # lags the live graph: after a fast-forward merge or a delete-only
+    # operation, the cache/timestamp pass still sees commits that the
+    # ref-graph reports as fully merged. Cross-check with rev-list against
+    # main — if no commits remain unmerged, the branch is not orphaned.
+    unmerged=0
+    if git rev-parse origin/main &>/dev/null 2>&1; then
+      unmerged=$(git rev-list --count "${tip_sha}" ^origin/main 2>/dev/null || echo 0)
+    elif git rev-parse main &>/dev/null 2>&1; then
+      unmerged=$(git rev-list --count "${tip_sha}" ^main 2>/dev/null || echo 0)
     fi
-
-    branch_age_days=0
-    if [[ -n "$branch_date" ]]; then
-      branch_ts=$(date -d "$branch_date" +%s 2>/dev/null || \
-                  python3 -c "import datetime; print(int(datetime.datetime.strptime('$branch_date','%Y-%m-%d').timestamp()))" 2>/dev/null || \
-                  echo "0")
-      if [[ $branch_ts -gt 0 ]]; then
-        branch_age_days=$(( (NOW - branch_ts) / 86400 ))
+    if [[ "${unmerged}" -gt 0 ]]; then
+      # Daily-branch carry-forward check: under the work/{machine}/{date}
+      # discipline, a merged PR closes the day, but the branch often keeps
+      # accruing commits that get carried forward through subsequent daily
+      # branches (work/.../2026-05-04 → 2026-05-05 → 2026-05-06 → ...). If
+      # the tip is an ancestor of any other live work/* or feature/* branch
+      # (or HEAD), the work is not orphaned — it'll reach main on the next
+      # merge of the descendant branch.
+      carried_forward=0
+      head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+      if [[ -n "$head_sha" && "$head_sha" != "$tip_sha" ]]; then
+        if git merge-base --is-ancestor "$tip_sha" "$head_sha" 2>/dev/null; then
+          carried_forward=1
+        fi
       fi
+      if [[ $carried_forward -eq 0 ]]; then
+        for other in "${!seen_branches[@]}"; do
+          [[ "$other" == "$branch" ]] && continue
+          other_tip=""
+          if git rev-parse "refs/heads/${other}" &>/dev/null; then
+            other_tip=$(git rev-parse "refs/heads/${other}")
+          elif git rev-parse "refs/remotes/origin/${other}" &>/dev/null; then
+            other_tip=$(git rev-parse "refs/remotes/origin/${other}")
+          fi
+          [[ -z "$other_tip" || "$other_tip" == "$tip_sha" ]] && continue
+          if git merge-base --is-ancestor "$tip_sha" "$other_tip" 2>/dev/null; then
+            carried_forward=1
+            break
+          fi
+        done
+      fi
+      if [[ $carried_forward -eq 1 ]]; then
+        # Carried forward into a descendant branch — not orphaned.
+        # orphan_after_merge stays in JSON for forensics.
+        severity="OK"
+      else
+        severity="CRITICAL"
+      fi
+    else
+      # Stale-cache false positive — branch is fully merged into main.
+      # Downgrade to OK; orphan_after_merge stays in the JSON for forensics.
+      severity="OK"
     fi
+  elif [[ "$pr_state" != "MERGED" && $ahead -gt 0 ]]; then
+    # Use last-commit time (tip_ct, already computed above) for age rather than
+    # parsing the branch-name start-date. This prevents false-positive WARNING
+    # noise on legitimate active span branches like work/striker/2026-05-01to07
+    # where the start-date is days old but the branch is still actively committed.
+    # (Staff Engineer R1 F6 — promoted from anti-scope "verify only" to explicit fix.)
+    branch_age_days=$(( age_secs / 86400 ))
 
     if [[ $branch_age_days -ge 2 || $age_h -gt 36 ]]; then
       severity="WARNING"

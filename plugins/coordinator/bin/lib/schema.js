@@ -2,7 +2,7 @@
 /**
  * schema.js — frontmatter schema loader and validator for coordinator tracked records.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W1
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1
  *
  * Exports:
  *   loadSchemas(schemasDir)        → { [name]: schema, _byGlob: [{glob, schemaName}] }
@@ -361,6 +361,62 @@ function checkType(field, value, type) {
 }
 
 /**
+ * Strip inline backtick code-spans and markdown link text from a single line so
+ * downstream tag-detection regexes don't trip on bracket-tokens that live
+ * inside code spans (e.g. `claude-opus-4-7[1m]`, `arr[0]`) or inside the
+ * `[text]` portion of a `[text](url)` link.
+ *
+ * Code-span semantics follow CommonMark: a backtick run of length N opens a
+ * span that closes on the next backtick run of identical length N. This makes
+ * the strip robust against mixed nesting like ``weird`code``, which a
+ * non-greedy single/double-backtick regex pair mis-handles.
+ */
+function stripCodeSpansAndLinks(line) {
+  let out = '';
+  let i = 0;
+  const n = line.length;
+  while (i < n) {
+    const c = line[i];
+    if (c === '`') {
+      // Measure opening backtick run length
+      let runLen = 0;
+      while (i + runLen < n && line[i + runLen] === '`') runLen++;
+      // Search for a closing run of identical length
+      let j = i + runLen;
+      let closeAt = -1;
+      while (j < n) {
+        if (line[j] === '`') {
+          let k = 0;
+          while (j + k < n && line[j + k] === '`') k++;
+          if (k === runLen) {
+            closeAt = j;
+            break;
+          }
+          j += k; // skip past run of different length and keep searching
+        } else {
+          j++;
+        }
+      }
+      if (closeAt === -1) {
+        // No matching close — emit the unmatched backticks literally and continue
+        out += ' '.repeat(runLen);
+        i += runLen;
+      } else {
+        // Replace the entire span (including the delimiters) with whitespace
+        out += ' '.repeat(closeAt + runLen - i);
+        i = closeAt + runLen;
+      }
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  // Now strip markdown link text: [text](url) → keep (url) part out so the
+  // bracketed text doesn't register as a tag.
+  return out.replace(/\[[^\]]*\]\([^)]*\)/g, ' ');
+}
+
+/**
  * Validate a lessons.md file against the lesson-entry schema.
  * Each **bold-title** entry may carry a [universal] or [project] tag.
  * Unknown tags (not in tag_enum.values) are rejected; untagged entries are allowed.
@@ -382,13 +438,14 @@ function validateLessonsFile(content, lessonSchema) {
   const entryRe = /^\s*[-*]?\s*\*\*[^*]+\*\*/;
   // Match tags like [universal] or [project] within a line
   const tagRe = /\[([^\]]+)\]/g;
-  // Strip inline code spans (`...`) and markdown link text (`[text](url)`) before
-  // tag-matching so model-ID literals like `claude-opus-4-7[1m]` and link text
-  // like `[some link](url)` aren't mistaken for tags. Code-span match is
-  // non-greedy and tolerant of doubled backticks; link-text strip removes the
-  // bracketed portion of `[…](…)` constructs.
-  const stripNoise = (s) =>
-    s.replace(/``[^`]*``/g, ' ').replace(/`[^`]*`/g, ' ').replace(/\[[^\]]*\]\([^)]*\)/g, ' ');
+  // Strip inline code spans and markdown link text before tag-matching so
+  // model-ID literals like `claude-opus-4-7[1m]`, array-ish prose like
+  // `arr[0]`, and link text like `[some link](url)` are not mistaken for
+  // tags. The code-span scanner walks the line character-by-character and
+  // matches CommonMark-style runs: an opening backtick run of length N closes
+  // on the next backtick run of identical length N. This handles nested /
+  // mixed runs (e.g. ``weird`code``) that simple non-greedy regexes mis-strip.
+  const stripNoise = (s) => stripCodeSpansAndLinks(s);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -441,4 +498,5 @@ module.exports = {
   // Exported for testing
   _parseYaml: parseYaml,
   _matchGlob: matchGlob,
+  _stripCodeSpansAndLinks: stripCodeSpansAndLinks,
 };

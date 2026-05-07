@@ -9,7 +9,7 @@ import pathlib
 PLUGINS_ROOT = pathlib.Path("plugins")
 
 # Matches script paths after bash/sh/python/python3/node invocations, skipping flags.
-# Review: Patrik — skip flags (e.g. `bash -e script.sh`) so we capture the script path, not the flag.
+# Review: the Staff Engineer — skip flags (e.g. `bash -e script.sh`) so we capture the script path, not the flag.
 SCRIPT_PATH_RE = re.compile(r'(?:bash|sh|python3?|node)\s+(?:-\w+\s+)*(\S+)')
 
 def resolve_script_path(command: str, plugin_dir: pathlib.Path) -> list[pathlib.Path]:

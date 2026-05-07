@@ -72,15 +72,15 @@ If triggered:
 1. Read the queue entries.
 2. **Prioritize recurring-without-action items first** (any with `recurring: ≥3` and `resolution: pending`).
 3. For each prioritized entry, dispatch a small executor per the `proposed target` field.
-4. Verify applied entries; update their `resolution:` field to `resolved YYYY-MM-DD <commit>`.
-5. Move fully resolved entries from `## Active queue` to `## Processed` (preserve the `## Active queue` header — do not rename it).
+4. Verify applied entries; delete the resolved entries from the queue.
+5. Commit subject names each closed entry (`workweek triage: closed <id-or-summary>, <id-or-summary>`).
 6. If > 15 total entries to triage, treat as a `/staff-session`-style multi-executor sweep.
 
 If not triggered: note in summary — _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
 
-**Parser tolerance (Patrik F15):** The parser MUST treat absent `recurring:` as `0` and absent `resolution:` as `pending`. This handles both pre-migration entries (when the migration was skipped due to absent PM gate) AND new entries appended without the sub-lines (defensive). The triage threshold "`recurring: ≥3 AND resolution: pending`" applies to entries with explicit values; entries without sub-lines effectively count as `recurring: 0, resolution: pending` and never trigger the threshold. This is correct semantics — entries the migration didn't touch shouldn't trigger triage on their own.
+**Parser tolerance (the Staff Engineer F15):** The parser MUST treat absent `recurring:` as `0` and absent `resolution:` as `pending`. This handles both pre-migration entries (when the migration was skipped due to absent PM gate) AND new entries appended without the sub-lines (defensive). The triage threshold "`recurring: ≥3 AND resolution: pending`" applies to entries with explicit values; entries without sub-lines effectively count as `recurring: 0, resolution: pending` and never trigger the threshold. This is correct semantics — entries the migration didn't touch shouldn't trigger triage on their own.
 
-**Write-time discipline (Patrik F6):** When appending a NEW entry to either queue (central or per-project), ALWAYS write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent). This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`.
+**Write-time discipline (the Staff Engineer F6):** When appending a NEW entry to either queue (central or per-project), ALWAYS write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent). This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`.
 
 **Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
 
@@ -135,13 +135,13 @@ done
 
 After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
 
-Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (Patrik + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict.
+Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict.
 
 - **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
 - **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
 - **OK:** proceed silently; verdict line still goes into the release-notes draft for the record.
 
-**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip Patrik on doc-only weeks; skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
+**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip the Staff Engineer on doc-only weeks; skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
 
 **Plan:** `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`.
 
@@ -219,7 +219,7 @@ Archive and reset the week's state:
 ```bash
 git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/
 git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog vX.Y.Z"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

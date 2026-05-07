@@ -16,6 +16,13 @@
 
 set -euo pipefail
 
+# Portable Python resolver: prefer python3, fall back to python (Windows ships no python3).
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ]; then
+    echo "ERROR: neither python3 nor python found on PATH" >&2
+    exit 2
+fi
+
 BEGIN_SENTINEL='<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->'
 END_SENTINEL='<!-- END project-rag-preamble -->'
 
@@ -118,7 +125,7 @@ while IFS= read -r consumer; do
         if [ "$MODE" = "--fix" ]; then
             # Replace content between sentinels with the snippet body.
             # Python is the most reliable cross-platform tool for multi-line string replacement.
-            python3 - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF'
+            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF'
 import sys, pathlib
 
 fpath = pathlib.Path(sys.argv[1])

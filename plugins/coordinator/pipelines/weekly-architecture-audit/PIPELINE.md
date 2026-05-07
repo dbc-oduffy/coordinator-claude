@@ -62,11 +62,11 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 
 **Systems ≤10 files — direct Opus dispatch:**
 
-1. Identify the system's domain (game dev → Sid, frontend → Palí, ML → Camelia, other → Patrik)
+1. Identify the system's domain (game dev → the Game Dev Reviewer, frontend → the Front-End Reviewer, ML → the Data Science Reviewer, other → the Staff Engineer)
 2. Dispatch reviewer with full system scope — all files in the system
 3. Include the atlas page as context (if it exists, per Step 2.5)
 4. Reviewer grades the system and adds/updates the grade on the atlas page
-5. High effort means backstop is mandatory (Patrik for domain reviewers, Zolí for Patrik)
+5. High effort means backstop is mandatory (the Staff Engineer for domain reviewers, the Ambition Advocate for the Staff Engineer)
 
 **Systems >10 files — Haiku→Sonnet pre-digestion:**
 
@@ -78,7 +78,7 @@ Check the system's **live file count** at dispatch time — do not use the atlas
    **Scratch verification:** Before dispatching Opus reviewer, verify Sonnet scratch files exist. Re-dispatch once on failure.
 4. **Dispatch domain reviewer (Opus)** with **summarized Sonnet findings (read from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase2-sonnet.md`)** — reviewer brings judgment and cross-cutting insight, not file-reading labor. Do NOT send raw files to the domain reviewer.
 5. Reviewer grades the system and adds/updates the grade on the atlas page
-6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: Patrik for domain reviewers, Zolí for Patrik.
+6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Ambition Advocate for the Staff Engineer.
 
 **Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to the backstop dispatch.
 
@@ -106,9 +106,9 @@ For findings that represent real debt:
 
 **Backlog overflow nag:** If the backlog exceeds 20 open items, apply the escalating nag below. This is a passive nag — not a gate. The audit still completes; the nag is appended to the Step 7 report.
 
-- **>20 items:** _"Debt backlog has N open items. Patrik notes with mild concern that the backlog is growing. Consider running `/debt-triage`."_
-- **>30 items:** _"Debt backlog has N open items. Patrik is visibly disappointed. A quality system that accumulates 30+ unreviewed debt items is not practicing what it preaches. Run `/debt-triage` before this audit adds more."_
-- **>40 items:** _"Debt backlog has N open items. Patrik has put down his coffee. He is staring at you. Forty items means the debt governance system has failed its own invariants. Running `/debt-triage` is no longer a suggestion — it is the next action. Do it now."_
+- **>20 items:** _"Debt backlog has N open items. The Staff Engineer notes with mild concern that the backlog is growing. Consider running `/debt-triage`."_
+- **>30 items:** _"Debt backlog has N open items. The Staff Engineer is visibly disappointed. A quality system that accumulates 30+ unreviewed debt items is not practicing what it preaches. Run `/debt-triage` before this audit adds more."_
+- **>40 items:** _"Debt backlog has N open items. The Staff Engineer has put down their coffee. They are staring at you. Forty items means the debt governance system has failed its own invariants. Running `/debt-triage` is no longer a suggestion — it is the next action. Do it now."_
 
 ### Step 6: Update Health Ledger
 

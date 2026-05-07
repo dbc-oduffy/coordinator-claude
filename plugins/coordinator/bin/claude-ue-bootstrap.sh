@@ -17,6 +17,16 @@ PROJECT="${1:-$(pwd)}"
 SETTINGS="$PROJECT/.claude/settings.json"
 mkdir -p "$PROJECT/.claude"
 
+# to_native: translate MSYS-style paths (/x/foo) to native Windows form (X:\foo)
+# for tools (node, jq) that don't understand the MSYS prefix. No-op on non-MSYS.
+to_native() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    echo "$1"
+  fi
+}
+
 # Fast path: no existing settings.json — write via here-doc, no jq needed
 if [[ ! -f "$SETTINGS" ]]; then
   TMP="$SETTINGS.tmp.$$"
@@ -26,6 +36,7 @@ if [[ ! -f "$SETTINGS" ]]; then
     "holodeck-control@claude-unreal-holodeck": true,
     "holodeck-docs@claude-unreal-holodeck": true,
     "holodeck@claude-unreal-holodeck": true,
+    "game-dev@claude-unreal-holodeck": true,
     "game-dev@coordinator-claude": true
   }
 }
@@ -35,27 +46,62 @@ ENDJSON
   exit 0
 fi
 
-# Merge path: existing settings.json present — jq required
-command -v jq >/dev/null 2>&1 || {
-  echo "WARNING: jq not on PATH — cannot merge with existing $SETTINGS" >&2
-  echo "Install jq via: chocolatey (choco install jq), scoop (scoop install jq), or apt (apt-get install jq)" >&2
-  exit 0
-}
+# Merge path: existing settings.json present — prefer jq, fall back to node.
+EXPECTED_KEYS=(
+  "holodeck-control@claude-unreal-holodeck"
+  "holodeck-docs@claude-unreal-holodeck"
+  "holodeck@claude-unreal-holodeck"
+  "game-dev@claude-unreal-holodeck"
+  "game-dev@coordinator-claude"
+)
+SETTINGS_NATIVE="$(to_native "$SETTINGS")"
 
-OVERRIDE='{
-  "enabledPlugins": {
-    "holodeck-control@claude-unreal-holodeck": true,
-    "holodeck-docs@claude-unreal-holodeck": true,
-    "holodeck@claude-unreal-holodeck": true,
-    "game-dev@coordinator-claude": true
-  }
-}'
-
-if jq -e '.enabledPlugins["holodeck-control@claude-unreal-holodeck"] == true' "$SETTINGS" >/dev/null 2>&1; then
-  echo "$SETTINGS already carries UE override — no change"
+if command -v jq >/dev/null 2>&1; then
+  OVERRIDE='{
+    "enabledPlugins": {
+      "holodeck-control@claude-unreal-holodeck": true,
+      "holodeck-docs@claude-unreal-holodeck": true,
+      "holodeck@claude-unreal-holodeck": true,
+      "game-dev@claude-unreal-holodeck": true,
+      "game-dev@coordinator-claude": true
+    }
+  }'
+  if jq -e '
+    .enabledPlugins["holodeck-control@claude-unreal-holodeck"] == true
+    and .enabledPlugins["holodeck-docs@claude-unreal-holodeck"] == true
+    and .enabledPlugins["holodeck@claude-unreal-holodeck"] == true
+    and .enabledPlugins["game-dev@claude-unreal-holodeck"] == true
+    and .enabledPlugins["game-dev@coordinator-claude"] == true
+  ' "$SETTINGS" >/dev/null 2>&1; then
+    echo "$SETTINGS already carries UE override — no change"
+    exit 0
+  fi
+  TMP="$SETTINGS.tmp.$$"
+  jq --argjson new "$OVERRIDE" '. * $new' "$SETTINGS" > "$TMP"
+  mv -f "$TMP" "$SETTINGS"
+  echo "merged UE override into $SETTINGS (via jq)"
   exit 0
 fi
-TMP="$SETTINGS.tmp.$$"
-jq --argjson new "$OVERRIDE" '. * $new' "$SETTINGS" > "$TMP"
-mv -f "$TMP" "$SETTINGS"
-echo "merged UE override into $SETTINGS"
+
+if command -v node >/dev/null 2>&1; then
+  KEYS_JOINED="$(IFS=,; echo "${EXPECTED_KEYS[*]}")"
+  node -e '
+    const fs = require("fs");
+    const path = process.argv[1];
+    const keys = process.argv[2].split(",");
+    const j = JSON.parse(fs.readFileSync(path, "utf8"));
+    j.enabledPlugins = j.enabledPlugins || {};
+    let changed = false;
+    for (const k of keys) {
+      if (j.enabledPlugins[k] !== true) { j.enabledPlugins[k] = true; changed = true; }
+    }
+    if (!changed) { console.log("already carries UE override — no change"); process.exit(0); }
+    fs.writeFileSync(path, JSON.stringify(j, null, 2) + "\n", "utf8");
+    console.log("merged UE override (via node)");
+  ' "$SETTINGS_NATIVE" "$KEYS_JOINED"
+  exit 0
+fi
+
+echo "ERROR: neither jq nor node on PATH — cannot merge with existing $SETTINGS" >&2
+echo "Install jq (choco install jq / scoop install jq / apt-get install jq) or node." >&2
+exit 1

@@ -66,7 +66,7 @@ Before responding to the user's opening message, silently read `tasks/orientatio
 - Flight recorder (TaskCreate): create IMMEDIATELY when a goal is set
 - Research 2+ queries → delegate to Explore/Enricher agents
 - Code implementation → delegate to Executor agents
-- Reviews → /review-dispatch (Patrik + Zolí apply to infrastructure code too)
+- Reviews → /review-dispatch (the Staff Engineer + the Ambition Advocate apply to infrastructure code too)
 - 2+ independent tasks → parallel dispatch
 - Write-ahead status: update Status fields BEFORE starting work, not after
 - Agent outputs → write to disk immediately, verify before proceeding
@@ -83,7 +83,7 @@ Before responding to the user's opening message, silently read `tasks/orientatio
 Available for complex work:
 - /review-dispatch — route artifacts to domain + architecture reviewers
 - /enrich-and-review — enrich specs with codebase research
-- /delegate-execution — dispatch executor agents for implementation
+- For executor dispatch, follow docs/wiki/delegate-execution.md
 Use these when they add value. For direct requests, just do the work.
 EOF
 
