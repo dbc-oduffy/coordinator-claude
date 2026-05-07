@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NonInteractive -File ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.ps1 2>/dev/null || bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.sh",
+            "command": "pwsh -NonInteractive -WindowStyle Hidden -File ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.ps1 2>/dev/null || bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect.sh",
             "timeout": 5,
             "async": false
           }
