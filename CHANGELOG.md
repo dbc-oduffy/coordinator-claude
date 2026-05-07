@@ -4,18 +4,86 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
-Post-v1.10.0 polish landed on the same day.
+## [2.0.0] — 2026-05-07
 
-### Added
-- ISSUE_TEMPLATEs (command_request, docs_improvement, install_problem, reviewer_request) and an `evals/` stub (W6 of author-feedback roadmap).
-- Role-first reviewer presentation + a contracts index (W4 of author-feedback roadmap).
-- `/bug-blitz` surface integration into `/session-start`, `/workday-start`, `/workweek-complete`, and the README.
+**This is a major release.** Three skill renames, one branch-naming change, and a new validator gate make this incompatible with v1.x consumers. See **Breaking Changes** and **Migration** below.
 
-### Changed
-- Bug-blitz now performs EM-serial commits at the wave gate (percolated from dev).
+Five themes:
+- A — Super-skill pattern (`coordinator:plan` / `coordinator:review` / `coordinator:review-code` as decision-tree super-skills)
+- B — Loop-closure (`/bug-blitz`, `coordinator:learn-lessons`, `/dogfood` fully integrated into discovery surfaces)
+- C — Daily-branch span-aware refactor (silent midnight rename; `work/{m}/{date}to{dd}` format)
+- D — Bug-sweep 2026-05-06 (19 targeted fixes in `bin/`, `hooks/`, `lib/`)
+- E — Doctrine consolidation (CLAUDE.md tightening, snippet-system maturation, prior-art-checker pre-flight)
+
+### Breaking Changes
+
+- **`coordinator:writing-plans` → `coordinator:plan`.** Skill body refactored from prose to decision-tree super-skill (Branch A triage / B substrate / C compose / Exit). Long-form doctrine extracted to `docs/wiki/writing-plans.md`. Existing `Skill(coordinator:writing-plans)` invocations break.
+- **`coordinator:requesting-code-review` → `coordinator:review-code`.** Same super-skill refactor. `/requesting-code-review` slash command no longer exists.
+- **`coordinator:using-git-worktrees` removed.** Doctrine carried by `CLAUDE.md` § Concurrent-EM Git Operations bullet 1 ("Worktrees forbidden") — no separate wiki page.
+- **Daily-branch naming: `work/{machine}/{date}` → `work/{machine}/{span}`.** Span format carries dates across days for multi-day workstreams; midnight rename is silent. Validated regex from `lib/coordinator-daily-branch.sh`: `^work/[^/]+/[0-9]{4}-[0-9]{2}-[0-9]{2}(to[0-9]{2})?$`. Span branches look like `work/STRIKER/2026-05-04to07` — suffix is the trailing day-of-month only, separator is a literal `to`. External tooling that parsed the date suffix must handle date-or-span shape.
+- **`description-budget` validator hard CI gate.** Skills with descriptions exceeding 150 chars (175 PM-gated) need explicit `description-budget: <N>` frontmatter exemption. `/workday-complete` Step 0b blocks on failure.
+
+### Migration
+
+For consumers with custom commands or skills that invoke renamed coordinator skills:
+
+```diff
+- Skill(coordinator:writing-plans)
++ Skill(coordinator:plan)
+
+- Skill(coordinator:requesting-code-review)
++ Skill(coordinator:review-code)
+```
+
+For automation that parsed daily-branch names:
+
+```bash
+# Old: only date-suffix branches
+[[ "$branch" =~ ^work/[^/]+/(20[0-9]{2}-[0-9]{2}-[0-9]{2})$ ]]
+
+# New: date OR span — span is YYYY-MM-DD with optional `to<DD>` suffix
+[[ "$branch" =~ ^work/[^/]+/([0-9]{4}-[0-9]{2}-[0-9]{2}(to[0-9]{2})?)$ ]]
+```
+
+For out-of-tree skills failing the description-length validator:
+
+```diff
++ description-budget: 400
+```
+
+### Theme A — Super-skill pattern
+
+Decision-tree super-skills replace prose skills for plan / review / review-code. A skill is a router with named branches: A triage / B substrate / C compose-or-work / Exit handoff. The EM walks branches by condition, not by reading prose. Long-form doctrine lives in `docs/wiki/writing-plans.md` and `docs/wiki/receiving-code-review.md` where it belongs as reference, not procedure.
+
+Includes a plan-trigger-binding doctrine fix: `CLAUDE.md` § Plan-First Workflow now binds the trigger word "plan" mechanically to `Skill(coordinator:plan)` — writing a plan body to disk via `Write` without first invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → Patrik → integrator chain at Exit.
+
+### Theme B — Loop-closure (bug-blitz / learn-lessons / dogfood)
+
+- **`/bug-blitz`** — autonomous bug-backlog grinder, EM-serial commits at wave gates, integrated into `/session-start`, `/workday-start`, `/workweek-complete` Step 4, and README.
+- **`coordinator:learn-lessons`** — unified surface (renamed from `lessons-trim`) covering local-mode / central-mode / recheck-mode lesson triage. Closed Phase 6 + R-code integration.
+- **`/dogfood`** — smoke-driven fix-through super-skill, three-tier gate. Binary outcome: converge or switch gears, no defer.
+
+### Theme C — Daily-branch span-aware refactor
+
+Span-aware branch-naming with silent midnight rename. New shared lib `lib/coordinator-daily-branch.sh`. Hook `block-off-daily-branch.sh` simplified (no more commit-time date enforcement). Skills with inline overrides (`/workday-start`, `/merge-to-main`, `/consolidate-git`) updated. Doctrine in `docs/wiki/daily-branch-discipline.md`.
+
+### Theme D — Bug-sweep 2026-05-06 (19 fixes)
+
+Targeted fixes in `bin/`, `hooks/`, `lib/` from the 2026-05-06 sweep. Highlights: hash-set lookup in `coordinator-safe-commit do_scoped` (BS-012); atomic mktemp+mv in learn-lessons-config-update (BS-014); cross-platform mtime helper (BS-022); GIT_ROOT in context-pressure-precompact (BS-027); validate-commit chained-invocation detection (BS-019); set -f TOKENS array guard (BS-023). Full set: BS-2026-05-06-{004,007,010-017,019-027}.
+
+### Theme E — Doctrine consolidation
+
+CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inline enumerations collapsed to one-liners + links to authoritative wikis). Snippet-system maturation: 6 verify-sync scripts (`prior-art`, `docs-checker`, `default-routing`, `text-only-recovery`, `reviewer-calibration`, `project-rag-preamble`). Prior-art-checker pre-flight agent integrated into `/review-dispatch` Phase 2.7b — Sonnet recall over project wikis + global wikis + lessons + improvement queue, sidecar at `<plan-path>.prior-art-check.md`. Description-length validator (`bin/check-description-length.sh`) added with `description-budget` exemption frontmatter. New wikis: `dogfooding-doctrine.md`, `tiered-context-loading.md`, `prior-art-checker.md`, `docs-checker-pre-review.md`, `oom-reproducer-strategy.md`, `parallel-enrichment-seam-review.md`, `reviewer-routed-workers.md`, `round-trip-contract-tests.md`, `scoped-safety-commits.md`, `cleanup-sweep-hazards.md`, `claude-code-platform-gotchas.md`, `plugin-extraction-and-distribution.md`, `per-project-plugin-gating.md`, `holodeck-for-your-ue-project.md`, `rag-bait-conventions.md`, `reviewer-premise-challenge.md`.
+
+### Also Added
+- ISSUE_TEMPLATEs (command_request, docs_improvement, install_problem, reviewer_request) and `evals/` stub (W6 author-feedback roadmap).
+- Role-first reviewer presentation + contracts index (W4 author-feedback roadmap).
+- 13 user-typed commands migrated `commands/<n>.md` → `skills/<n>/SKILL.md` for bare-form slash invocation (pickup, handoff, spinoff, execute-plan, daily-review, code-health, architecture-rotation, enrich-and-review, bug-sweep, generate-repomap, staff-session, review-dispatch, session-start, session-end). Auto-runners stayed in `commands/` by design.
 
 ### Fixed
 - `setup/install.sh --profile full` no longer warns: `deep-research` added to `PLUGIN_REGISTRY`.
+- Windows console-flash regression: `coordinator-auto-push` and `hooks.json` SessionStart pwsh now invoked with `-WindowStyle Hidden`. Tripwire `bin/verify-no-powershell-flash.sh` greps shell + hook JSON.
+- `git branch --show-current` Windows case-fragility: `coordinator-auto-push` canonicalizes via `git for-each-ref` before push, eliminating mixed-case daily-branch push failures.
 
 ## [1.10.0] — 2026-05-06
 
