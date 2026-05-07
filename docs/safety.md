@@ -16,7 +16,7 @@ The installer copies local plugin directories from the repo into your Claude use
 ~/.claude/plugins/coordinator-claude/<plugin-name>/
 ```
 
-Default-on plugins copied: `coordinator`, `web-dev`, `data-science`, `remember`. Optional plugins (`game-dev`) require interactive selection or `--plugins game-dev`. The `notebooklm` add-on is npm-sourced and is *not* copied — it is registered via the marketplace manifest only.
+Default-on plugins copied: `coordinator`, `web-dev`, `data-science`, `deep-research`. Optional plugins (`game-dev`) require interactive selection or `--plugins game-dev`. The `notebooklm` add-on is npm-sourced and is *not* copied — it is registered via the marketplace manifest only.
 
 If a plugin directory already exists at the destination, the installer backs it up before overwriting:
 
@@ -121,7 +121,7 @@ Run these commands to inspect what the installer wrote. All commands read existi
 ls ~/.claude/plugins/coordinator-claude/
 ```
 
-Expected output: one subdirectory per installed plugin (`coordinator`, `web-dev`, `data-science`, `remember`, and optionally `game-dev`), plus a `.claude-plugin/` directory.
+Expected output: one subdirectory per installed plugin (`coordinator`, `web-dev`, `data-science`, `deep-research`, and optionally `game-dev`), plus a `.claude-plugin/` directory.
 
 ### Inspect the marketplace manifest
 

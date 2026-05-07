@@ -9,12 +9,6 @@ This guide is for humans who want to drive the install themselves or read what's
 - Python 3 (for the install script's JSON handling)
 - [jq](https://jqlang.github.io/jq/) — used by hook scripts for JSON parsing (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`). Basic hooks degrade gracefully without it.
 
-### Optional: Temporal Memory
-
-The [remember plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official` marketplace) adds automatic session-by-session memory — Haiku summarizes what happened in rolling daily/weekly/archive files under `.remember/`. The coordinator's `/update-docs` and `/workday-complete` commands integrate with it when present (cross-referencing activity against the project tracker, enriching the completed archive audit). Without it, those steps are silently skipped — no core functionality depends on it.
-
-To install: `claude plugin install remember` from the `claude-plugins-official` marketplace. On Windows, run `bash setup/patch-remember-plugin.sh` after installing to fix path resolution for the plugin-cache layout.
-
 ## Installation
 
 ### Automated (recommended)
@@ -248,7 +242,7 @@ Valid `project_type` values:
 - `game` — activates Sid (Unreal Engine) reviewer
 - `pure-docs` — documentation projects, coordinator only
 
-Without a config file, the coordinator defaults to core-only mode (Patrik + Zolí universal reviewers).
+Without a config file, the coordinator defaults to core-only mode — Patrik (architecture/code-quality), Zolí (Patrik backstop), and YK (VP-of-Product / scope challenger) as universal reviewers.
 
 You can also explicitly list reviewers:
 
