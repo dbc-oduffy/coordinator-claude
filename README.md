@@ -74,7 +74,7 @@ That's it for daily use. Everything else — delegation, review routing, doc mai
 
 Don't memorize commands; learn five flows. Most of what the system does, you'll touch through one of these.
 
-**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (VP-of-Product reviewer / scope challenger — personas can be renamed via [`setup/rename-personas.sh`](setup/rename-personas.sh)) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
+**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (VP-of-Product reviewer / scope challenger — personas can be renamed via [`setup/rename-personas.sh`](setup/rename-personas.sh)) stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](plugins/coordinator/docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
@@ -94,7 +94,7 @@ The system scales — a typo fix is a two-word instruction; a system rewrite is 
 |------|-----------------|----------|-----------|
 | **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
 | **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → Zolí (ambition advocate / Patrik (architecture reviewer) backstop) (sequential) | 30 min – 2 hrs |
-| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/delegate-execution` | Full sequential chain + PM ship verdict | Half day+ |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](plugins/coordinator/docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
 
 See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the full tier table, reviewer routing guide, and flow diagrams.
 
@@ -116,7 +116,6 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | `/workweek-complete` | Release-grade weekly close | Full validation, version bump, parallel code review, merge to main |
 | `/review-dispatch` | Route an artifact to the right reviewer | Domain expert → generalist, sequential with fix gates |
 | `/execute-plan` | Execute a PM-approved plan | Direct implementation without re-planning |
-| `/delegate-execution` | Dispatch enriched stubs to executor agents | Parallel agent execution for chunked work |
 | `/update-docs` | Repo-wide documentation maintenance | 11-phase pipeline that fights doc staleness |
 | `/daily-review` | Strategic daily review | Inventory today's work, get architectural perspective |
 | `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
