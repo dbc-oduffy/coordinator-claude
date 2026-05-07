@@ -15,7 +15,7 @@ When invoked, systematically update all documentation artifacts to match reality
 **Arguments:**
 - `--no-distill` — Skip the artifact distillation check (Phase 12). Use when calling from overnight/unattended workflows (mise-en-place hibernate mode) or when you just want a fast doc sync.
 
-**Execution model:** Phases 1–11d are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
+**Execution model:** Phases 1–11d are mechanical maintenance work. Dispatch them to a **Sonnet agent** via the Agent tool (`model: "sonnet"`). The coordinator (you) handles Phase 0 (branch guard), Phase 12 (distillation check), Phase 13 (report), Phase 14 (registry refresh — cwd-gated to `~/.claude`), and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly — it does not bounce back to the coordinator.
 
 **Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; the doc-maintenance agent does not.
 
@@ -37,6 +37,8 @@ When invoked, systematically update all documentation artifacts to match reality
 11b. **Verifies snippet sync** (runs every `plugins/*/bin/verify-*-sync.sh`; surfaces diff to PM on failure)
 11d. **Sweeps frontmatter-schema drift** (runs `bin/lint-frontmatter.sh --json`; surfaces count + top violators)
 12. **Distills** accumulated artifacts into wiki guides if thresholds are met (`/distill` pipeline, conditional)
+13. **Reports** summary of all phases
+14. **Refreshes** the cross-repo registry (cwd-gated: only fires when invoked from `~/.claude`)
 
 ### Execution Workflow
 
@@ -150,17 +152,30 @@ For each plan doc that relates to work reflected in the current codebase:
 
 #### Phase 4: Update Memory
 
-Read the project's MEMORY.md (at `~/.claude/projects/<project-key>/memory/MEMORY.md`) and update if:
+**MEMORY.md is a pointer index, not a state mirror.** Cross-session pointers — PM decisions, behavioral feedback, external-system pointers, project-context not derivable from code. NEVER phase status, file catalogs, completion logs, architectural decisions inline, or system health stats.
 
-1. **Phase/milestone status changed** — e.g., a phase was completed
-2. **New patterns established** — e.g., a new coding pattern was introduced
-3. **New key files** — e.g., a new core utility was created
-4. **New gotchas discovered** — e.g., a framework pitfall was encountered
+Read the project's MEMORY.md (at `~/.claude/projects/<project-key>/memory/MEMORY.md`) and update only if a new entry fits one of these shapes:
 
-**Do NOT update MEMORY.md for:**
-- Session-specific details (what was discussed, temporary state)
-- Speculative conclusions from reading a single file
-- Information that duplicates CLAUDE.md
+1. **PM decision pointer** — link to `project_<topic>.md` capturing a product/scope call not derivable from code
+2. **Behavioral feedback for the assistant** — `feedback_<topic>.md` correcting or confirming a working pattern
+3. **External-system pointer** — links to other repos, MCP server registrations, data dirs, dashboards
+4. **Project-context pointer** — repo conventions, sister-repo paths, top-level strategic framing not in CLAUDE.md
+
+**Do NOT add to MEMORY.md** (these are violations regardless of how they're phrased):
+
+- **Phase/milestone status** ("Phase 2 Complete on 2026-04-XX") → belongs in `git log`, plan archives, `CHANGELOG.md`, `docs/project-tracker.md`
+- **Completion logs** ("X shipped on date Y, commits Z, W") → git log is authoritative
+- **Key Files tables** mirroring `DIRECTORY.md` / `docs/README.md` → those are the source of truth
+- **Architectural decisions inline** ("C++ drives logic, BP drives pixels") → DR or wiki, with a one-line MEMORY.md pointer if cross-cutting
+- **System health stats** ("789 tests passing, 27 systems in atlas") → CI / atlas / debt-backlog are authoritative; counts rot
+- **Active priorities / task lists** → `tasks/`, project tracker
+- **Information that duplicates CLAUDE.md or coordinator universal doctrine** — pointer is fine, restated rule is bloat
+- **Session-specific details** — what was discussed, temporary state
+- **Speculative conclusions** from reading a single file
+
+**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it. Promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with one-line pointers to the authoritative file.
+
+**For lessons-style content** (assistant behavior corrections, anti-patterns) — those route via `/learn-lessons` to `tasks/lessons.md`, not MEMORY.md.
 
 #### Phase 5: Maintain Project Tracker + Archive Completed Work
 
@@ -259,7 +274,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it again in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
+**Quarterly atlas re-read reminder (Camelia F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -507,9 +522,48 @@ Present a concise summary:
 
 ### Pushed to Remote
 - [yes — branch name / no — reason]
+
+### Cross-Repo Registry (Phase 14, central-only)
+- [N candidates surfaced for tagging / All known repos verified / N entries marked unreachable / Skipped — not running from ~/.claude]
 ```
 
 **Flag to PM:** Explicitly note the push so they can verify nothing breaks for other consumers.
+
+#### Phase 14: Cross-Repo Registry Refresh (cwd-gated, EM-only)
+
+**Skip this phase entirely if `pwd` does not resolve to `~/.claude` (i.e., `$HOME/.claude` or `c:/users/oduffy/.claude` on Windows).** This phase exists for the central coordinator repo only — per-project `/update-docs` runs are no-ops here. Skip with one-line log: *"Phase 14: skipped — not running from ~/.claude."*
+
+**This phase is EM-only.** The doc-maintenance Sonnet agent does NOT execute Phase 14 (same pattern as Phase 12). The EM runs it inline after the agent reports back. If the agent reaches Phase 14 in error, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
+
+**Purpose:** Maintain `~/.claude/tasks/repo-registry.md` — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: [`docs/wiki/repo-registry.md`](../../../docs/wiki/repo-registry.md).
+
+**Steps:**
+
+1. **Decode Claude Code invocation history.** Run `${CLAUDE_PLUGIN_ROOT}/bin/decode-claude-projects-dir.sh`. Output is tab-separated `shortname<TAB>candidate-path<TAB>encoded-dir`. The decoder is heuristic; treat output as candidates, not authoritative paths.
+
+2. **Diff against active registry block.** Read the `<!-- BEGIN repo-registry --> ... <!-- END repo-registry -->` block in `~/.claude/tasks/repo-registry.md`. For each decoded candidate:
+   - **Already in active block (by `shortname`)** → no-op for this candidate.
+   - **Not in active block** → append to `<!-- BEGIN repo-registry-candidates --> ... <!-- END repo-registry-candidates -->` block with `status: needs-pm-review`, `goals: []`, `stack_tags: []`, `relationships: []`, `last_verified: <today>`. Skip if already in candidates block.
+
+3. **Staleness check on existing entries.** For each repo in the active block:
+   - `ls "${path}"` (or equivalent reachability check). If reachable → update `last_verified: <today>`.
+   - If unreachable → flip `status: unreachable` (do NOT delete; repo may be on a disconnected drive).
+   - If currently `unreachable` and now reachable → flip back to `active` and log the transition.
+
+4. **Surface counts to PM.** End-of-phase output (count-only, no per-entry detail):
+   - `N candidates surfaced for tagging` (if any new candidates)
+   - `M entries marked unreachable` (if any flipped to unreachable this run)
+   - `K entries restored to active` (if any flipped back from unreachable)
+   - `R entries refreshed last_verified`
+
+5. **Commit.** Edits to `~/.claude/tasks/repo-registry.md` go in the same Phase 9 commit cycle (the EM-side commit, not the doc-maintenance agent's). Use `coordinator-safe-commit "registry refresh: N candidates, M unreachable"` or fall back to explicit-path staging.
+
+**Failure modes:**
+- Decoder returns zero candidates → log warning, continue with staleness check only.
+- Registry file missing → create from template (Schema heading + empty active block + empty candidates block); log `"Phase 14: registry file created from scratch"`.
+- Sentinel block markers missing or malformed → surface to PM, do NOT auto-repair.
+
+**Out of scope for V1:** auto-promoting candidates (PM curates `goals` + `stack_tags` + `relationships`), pruning dormant entries (PM judges in `/workweek-complete`), inferring stack tags from manifest files.
 
 ### Style Guidelines
 
