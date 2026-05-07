@@ -50,16 +50,28 @@ else
 fi
 
 # Honor escape hatch before any work.
-# Log override with full context so the audit log is useful.
+# Two override surfaces (logged identically):
+#   (a) shell-env: COORDINATOR_OVERRIDE_BRANCH=1 exported into the hook's env
+#       (Claude Code propagates exported env vars; rare in EM workflows)
+#   (b) inline: `COORDINATOR_OVERRIDE_BRANCH=1 <command>` prefix on the user's
+#       command — captured in $COMMAND because PreToolUse hooks see the literal
+#       string before bash evaluates it. Required because inline env-var
+#       prefixes do NOT propagate into the hook subprocess (the hook is a
+#       child of Claude Code, not of the user's bash command).
 # Review: patrik F12 — mirror deny log shape: session + command + reason.
-if [[ "${COORDINATOR_OVERRIDE_BRANCH:-0}" == "1" ]]; then
+INLINE_OVERRIDE=0
+if [[ "$COMMAND" =~ (^|[[:space:]\;\&])COORDINATOR_OVERRIDE_BRANCH=1([[:space:]]|$) ]]; then
+  INLINE_OVERRIDE=1
+fi
+if [[ "${COORDINATOR_OVERRIDE_BRANCH:-0}" == "1" ]] || [[ "$INLINE_OVERRIDE" == "1" ]]; then
   GIT_ROOT_FOR_LOG=$(git rev-parse --show-toplevel 2>/dev/null || true)
   if [[ -n "$GIT_ROOT_FOR_LOG" ]]; then
     LOG_DIR="$GIT_ROOT_FOR_LOG/.git/coordinator-sessions/_branch-overrides"
     mkdir -p "$LOG_DIR" 2>/dev/null || true
     TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
     REASON="${COORDINATOR_OVERRIDE_BRANCH_REASON:-unspecified}"
-    echo "${TS} | OVERRIDE | session=${SESSION_ID} | command=${COMMAND} | reason=${REASON}" \
+    SOURCE=$([[ "$INLINE_OVERRIDE" == "1" ]] && echo "inline" || echo "env")
+    echo "${TS} | OVERRIDE(${SOURCE}) | session=${SESSION_ID} | command=${COMMAND} | reason=${REASON}" \
       >> "$LOG_DIR/overrides.log" 2>/dev/null || true
   fi
   exit 0
@@ -147,6 +159,13 @@ else
     cs_parse_branch_span "$lc" > /dev/null 2>&1 && return 0
     return 1
   }
+  cs_is_canonical_branch() {
+    local name="$1"
+    cs_is_allowed_branch "$name" || return 1
+    local lc
+    lc=$(echo "$name" | tr '[:upper:]' '[:lower:]')
+    [[ "$name" == "$lc" ]]
+  }
 fi
 
 # Local aliases for readability in this script.
@@ -155,8 +174,27 @@ MACHINE=$(cs_compute_machine)
 # --- Helpers ---
 
 # is_allowed_branch <name> — delegates to shared lib cs_is_allowed_branch.
+# Used by switch-to-existing arms (allows mixed-case so the migration script can
+# switch into a non-canonical branch and rename it).
 is_allowed_branch() {
   cs_is_allowed_branch "$1"
+}
+
+# is_canonical_branch <name> — delegates to shared lib cs_is_canonical_branch.
+# Used by branch-CREATION arms (checkout -b/-B, switch -c/-C, branch -m/-c,
+# stash branch, --orphan). Fail-closed on mixed-case to prevent the HEAD
+# vs on-disk canonical-case mismatch class on Windows.
+is_canonical_branch() {
+  cs_is_canonical_branch "$1"
+}
+
+# emit_canonical_hint <name> — if name is allowed-shape but non-canonical,
+# echo the canonical form for inclusion in a deny-message. Empty string otherwise.
+emit_canonical_hint() {
+  local name="$1"
+  cs_is_allowed_branch "$name" || { echo ""; return; }
+  cs_is_canonical_branch "$name" && { echo ""; return; }
+  echo "$name" | tr '[:upper:]' '[:lower:]'
 }
 
 # is_local_branch <name> — true iff refs/heads/<name> exists.
@@ -184,6 +222,15 @@ emit_deny() {
   full_reason+="  Target:  ${target}"$'\n'
   full_reason+="  Allowed: work/${MACHINE}/{date-or-span} or main (read-only)"$'\n\n'
   full_reason+="${reason}"$'\n\n'
+  # Case-canonical hint: if target is shape-valid but non-canonical, suggest the
+  # lowercase form. Prevents the HEAD vs on-disk case-mismatch class on Windows
+  # (autopush silent-failure root cause, 2026-05-07).
+  local canonical_hint
+  canonical_hint=$(emit_canonical_hint "$target")
+  if [[ -n "$canonical_hint" ]]; then
+    full_reason+="Canonical form: ${canonical_hint}"$'\n'
+    full_reason+="  Try: git checkout -b ${canonical_hint}"$'\n\n'
+  fi
   full_reason+="To park WIP without a sibling branch:"$'\n'
   full_reason+="  • commit on the active workstream branch (intentionally messy commits are fine on work/*)"$'\n'
   full_reason+="  • git stash push -u -m \"<subject>\" (do NOT change branches first)"$'\n\n'
@@ -320,15 +367,16 @@ while (( i < n )); do
                 ;;
               --orphan)
                 # Review: patrik F3 — --orphan <name> creates a real branch ref.
-                # Check the name; allow only if it matches today's daily or main.
+                # Check the name; allow only if it's a canonical workstream branch.
+                # Creation arm: canonical-case oracle (case-fragile push prevention).
                 orphan_name=$(strip_quotes "${TOKENS[$((j+1))]:-}")
                 if [[ -z "$orphan_name" ]]; then
                   emit_deny "--orphan requires a branch name." "--orphan (no name)"
                 fi
-                if is_allowed_branch "$orphan_name"; then
+                if is_canonical_branch "$orphan_name"; then
                   exit 0
                 fi
-                emit_deny "--orphan '$orphan_name' creates an off-daily branch ref." "$orphan_name"
+                emit_deny "--orphan '$orphan_name' creates an off-daily or non-canonical-case branch ref." "$orphan_name"
                 ;;
               -)
                 # Switch to previous branch — resolve and validate.
@@ -362,10 +410,11 @@ while (( i < n )); do
           done
 
           if [[ -n "$create_target" ]]; then
-            if is_allowed_branch "$create_target"; then
+            # Creation arm: canonical-case oracle (case-fragile push prevention).
+            if is_canonical_branch "$create_target"; then
               exit 0
             fi
-            emit_deny "Creating off-daily branch '$create_target' is forbidden." "$create_target"
+            emit_deny "Creating off-daily or non-canonical-case branch '$create_target' is forbidden." "$create_target"
           fi
 
           if [[ -n "$switch_target" ]]; then
@@ -412,8 +461,9 @@ while (( i < n )); do
                 ;;
             esac
           done
-          if [[ "$has_create_flag" == "1" && -n "$new" ]] && ! is_allowed_branch "$new"; then
-            emit_deny "Renaming/copying branch to off-daily name '$new' is forbidden." "$new"
+          # Creation arm (rename/copy materialises a new ref): canonical-case oracle.
+          if [[ "$has_create_flag" == "1" && -n "$new" ]] && ! is_canonical_branch "$new"; then
+            emit_deny "Renaming/copying branch to off-daily or non-canonical-case name '$new' is forbidden." "$new"
           fi
           exit 0
           ;;
@@ -421,8 +471,9 @@ while (( i < n )); do
           # Form: git stash branch <name> [<stash>]
           if [[ "${TOKENS[$((i+2))]:-}" == "branch" ]]; then
             new=$(strip_quotes "${TOKENS[$((i+3))]:-}")
-            if [[ -n "$new" ]] && ! is_allowed_branch "$new"; then
-              emit_deny "Materialising stash onto off-daily branch '$new' is forbidden." "$new"
+            # Creation arm: canonical-case oracle.
+            if [[ -n "$new" ]] && ! is_canonical_branch "$new"; then
+              emit_deny "Materialising stash onto off-daily or non-canonical-case branch '$new' is forbidden." "$new"
             fi
           fi
           exit 0
