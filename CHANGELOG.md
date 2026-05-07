@@ -85,6 +85,9 @@ CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inl
 - Windows console-flash regression: `coordinator-auto-push` and `hooks.json` SessionStart pwsh now invoked with `-WindowStyle Hidden`. Tripwire `bin/verify-no-powershell-flash.sh` greps shell + hook JSON.
 - `git branch --show-current` Windows case-fragility: `coordinator-auto-push` canonicalizes via `git for-each-ref` before push, eliminating mixed-case daily-branch push failures.
 
+### Removed
+- **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale chapter: [`docs/evolution/08-loop-closure.md`](docs/evolution/08-loop-closure.md). Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/getting-started.md`, `docs/agent-install.md`, `docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and `docs/plans/2026-04-01-registry-submission-readiness.md` left intact as historical record.
+
 ## [1.10.0] — 2026-05-06
 
 Four themes in this release: workday/workweek cadence split, layered reviewer-premise-challenge defense, PM-native operating layer reframe, and Codex opt-in add-on. Coordinator plugin bumps 1.0.0 → 1.1.0; the rest of the plugin set is unchanged.

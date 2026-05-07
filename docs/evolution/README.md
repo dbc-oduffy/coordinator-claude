@@ -14,6 +14,8 @@ It's also a credibility ledger. If you're evaluating whether to adopt this plugi
 4. **[Investigation funnel](04-investigation-funnel.md).** Why we built tiered context loading and stopped reaching for Sonnet scouts as the default investigation tool.
 5. **[Failure modes](05-failure-modes.md).** A taxonomy of how AI engineering work goes wrong, with detection signals and recovery moves. The thing this project gets paid in is operational scar tissue.
 6. **[What we rejected](06-what-we-rejected.md).** Choices we declined — including from external review — and the reasoning. Taste, not just enthusiasm.
+7. **[Super-skills](07-super-skills.md).** Why most skills are prose, why the load-bearing ones can't be, and the decision-tree super-skill pattern that ships in v2.0.0. The plan-trigger-binding doctrine fix.
+8. **[Loop-closure](08-loop-closure.md).** Recording isn't learning. The lessons.md fraud-of-promise, why `/distill` wikis weren't enough, and how v2.0.0 turned passive scar tissue into an active planning input. The case for this system as a process-rigorous, EM-PM-paired approach to agentic engineering — the v2.0.0 thesis chapter.
 
 ## Voice
 

@@ -83,7 +83,6 @@ The installer prints "restart Claude Code, then run /session-start." Override th
 - **Rename personas** if the user wants different names for reviewers: `bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"`. Display-only — agent behaviour is unchanged.
 - **Per-project config**: `.claude/coordinator.local.md` with `project_type: web|data-science|game|pure-docs` controls which domain reviewers activate. Without it, only the universal reviewers (Patrik, Zolí) run.
 - **Plugin cache out of sync** after editing plugin source: `bash setup/dev-sync.sh`. Rare for end users — relevant if the user is contributing to the plugins themselves.
-- **`remember` plugin on Windows** needs `bash setup/patch-remember-plugin.sh` after install if path resolution fails.
 
 ## Failure modes to watch for
 

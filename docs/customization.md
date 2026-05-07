@@ -4,7 +4,7 @@ coordinator-claude is designed to be adapted. This guide covers the main customi
 
 ## Renaming Personas
 
-The personas (Patrik, Zolí, Sid, Palí, Fru, Camelia) are names for convenience. The behavioral descriptions are what actually matter. You can rename them to anything.
+The personas (Patrik, Zolí, Sid, Palí, Fru, Camelia, YK) are names for convenience. The behavioral descriptions are what actually matter. You can rename them to anything.
 
 ### Automated Rename
 
@@ -37,6 +37,7 @@ What it does NOT touch:
 | Palí | web-dev | `agents/senior-front-end.md` | Frontend, design systems |
 | Fru | web-dev | `agents/staff-ux.md` | UX flow, trust signals |
 | Camelia | data-science | `agents/staff-data-sci.md` | ML, data science, statistics |
+| YK | coordinator | `agents/vp-product.md` | VP-of-Product / scope challenger; refactor-vs-patch backstop |
 
 ### Manual Rename
 
@@ -162,15 +163,15 @@ Add to `~/.claude/plugins/installed_plugins.json`:
 
 ## Writing New Skills
 
-Skills are codified behavioral protocols. The `coordinator:writing-skills` skill guides you through creating one with TDD principles.
+Skills are codified behavioral protocols. Reference: [`docs/wiki/writing-skills.md`](../plugins/coordinator/docs/wiki/writing-skills.md) for conventions; [`docs/evolution/07-super-skills.md`](evolution/07-super-skills.md) for when to write a prose skill versus a decision-tree super-skill.
 
 ### What a Skill Is
 
 A skill is a SKILL.md file in `plugins/coordinator/skills/{skill-name}/` with:
-- YAML frontmatter: `name` and `description` fields
+- YAML frontmatter: `name` and `description` fields (description ≤150 chars, or ≤175 with PM gate; longer requires explicit `description-budget: <N>` exemption — enforced by `bin/check-description-length.sh`, hard-gated in `/workday-complete` Step 0b)
 - The behavioral protocol: step-by-step instructions for how to approach the work
 
-Skills are loaded into context when the skill-discovery system identifies them as relevant. They're followed like a pilot follows a checklist — not internalized and improvised from.
+Skills are loaded into context when the skill-discovery system identifies them as relevant. They're followed like a pilot follows a checklist — not internalized and improvised from. **Load-bearing skills** (the ones where skipping a step has expensive downstream consequences — plan, review, review-code) use the **super-skill shape**: a decision-tree router with named branches (triage / substrate / compose / exit), with long-form rationale moved out to a wiki page. Most skills stay prose.
 
 ### Skill File Template
 
