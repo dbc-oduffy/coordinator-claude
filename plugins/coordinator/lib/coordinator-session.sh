@@ -118,8 +118,11 @@ _cs_update_meta_field() {
     local tmp
     tmp=$(jq --arg v "$value" ".${field} = \$v" "$meta" 2>/dev/null) && echo "$tmp" > "$meta"
   else
-    # sed in-place fallback — replaces the first occurrence of "field": "..."
-    sed -i "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${value}\"/" "$meta" 2>/dev/null || true
+    # sed tempfile fallback — portable across BSD/macOS and GNU sed
+    local _tmp
+    _tmp=$(mktemp) && \
+      sed "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${value}\"/" "$meta" > "$_tmp" 2>/dev/null && \
+      mv "$_tmp" "$meta" || { rm -f "$_tmp"; true; }
   fi
 }
 

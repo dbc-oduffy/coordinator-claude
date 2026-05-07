@@ -83,7 +83,7 @@ Before responding to the user's opening message, silently read `tasks/orientatio
 Available for complex work:
 - /review-dispatch — route artifacts to domain + architecture reviewers
 - /enrich-and-review — enrich specs with codebase research
-- /delegate-execution — dispatch executor agents for implementation
+- For executor dispatch, follow docs/wiki/delegate-execution.md
 Use these when they add value. For direct requests, just do the work.
 EOF
 

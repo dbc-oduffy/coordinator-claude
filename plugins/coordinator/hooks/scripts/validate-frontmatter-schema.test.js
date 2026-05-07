@@ -3,7 +3,7 @@
  * validate-frontmatter-schema.test.js — integration tests for the PreToolUse
  * frontmatter validator hook.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W1/Validator/Tests
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1/Validator/Tests
  *
  * Each test spawns the hook script as a subprocess with stdin piped JSON and
  * asserts stdout / exit code. This mirrors exactly how the Claude runtime
@@ -26,11 +26,19 @@ const HOOK_SCRIPT = path.join(__dirname, 'validate-frontmatter-schema.js');
 /**
  * Spawn the hook with the given payload (object → JSON string piped to stdin).
  * Returns { stdout, stderr, exitCode }.
+ *
+ * Tests that assert on permissionDecision: 'deny' need the hook running in
+ * strict mode (the default mode is warn, which emits additionalContext rather
+ * than deny). Pass { strict: true } to flip COORDINATOR_SCHEMA_STRICT=1 in the
+ * child env.
  */
-function runHook(payload) {
+function runHook(payload, opts = {}) {
   return new Promise((resolve, reject) => {
+    const env = { ...process.env };
+    if (opts.strict) env.COORDINATOR_SCHEMA_STRICT = '1';
     const child = spawn(process.execPath, [HOOK_SCRIPT], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env,
     });
 
     let stdout = '';
@@ -130,7 +138,7 @@ describe('validate-frontmatter-schema hook', () => {
       '# Body',
     ].join('\n');
 
-    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
     assert.equal(exitCode, 0, 'should exit 0');
     assert.ok(stdout.length > 0, 'should emit deny JSON');
 
@@ -157,7 +165,7 @@ describe('validate-frontmatter-schema hook', () => {
       '# Plan',
     ].join('\n');
 
-    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
     assert.equal(exitCode, 0, 'should exit 0');
     assert.ok(stdout.length > 0, 'should emit deny JSON');
 
@@ -210,7 +218,7 @@ describe('validate-frontmatter-schema hook', () => {
     const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-no-fm.md');
     const content = '# No frontmatter here at all\n\nJust regular markdown.';
 
-    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
     assert.equal(exitCode, 0, 'should exit 0');
     assert.ok(stdout.length > 0, 'should emit deny JSON');
 
@@ -238,7 +246,7 @@ describe('validate-frontmatter-schema hook', () => {
       '  Some detail here.',
     ].join('\n');
 
-    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
     assert.equal(exitCode, 0, 'should exit 0');
     assert.ok(stdout.length > 0, 'should emit deny JSON for bad tag');
 
@@ -289,6 +297,90 @@ describe('validate-frontmatter-schema hook', () => {
 
     assert.equal(result.exitCode, 0, 'should exit 0 on malformed input');
     assert.equal(result.stdout, '', 'should emit nothing on malformed input');
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression — model-ID literal in inline backticks must NOT register as a
+  // tag. Repro for the P1 bug where `claude-opus-4-7[1m]` blocked subsequent
+  // edits with a schema error because the strip-noise pass missed it.
+  // -------------------------------------------------------------------------
+  test('Regression — model-ID in single backticks is not a tag', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const content = [
+      '# Lessons',
+      '',
+      '- **Model lesson [universal]** — the model is `claude-opus-4-7[1m]` for tasks.',
+      '  Detail line.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `model-ID in backticks must not trigger validation, got: ${stdout}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression — array-ish prose like `arr[0]` inside a code span must NOT
+  // register as a tag.
+  // -------------------------------------------------------------------------
+  test('Regression — array-ish prose in code span is not a tag', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const content = [
+      '# Lessons',
+      '',
+      '- **Indexing lesson [project]** — when we read `arr[0]` we expect element zero.',
+      '  Indexing is zero-based.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `array-ish prose in code span must not trigger validation, got: ${stdout}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression — mixed/nested backtick runs (e.g. ``weird`code`` containing a
+  // single backtick inside a double-backtick span) must still strip cleanly.
+  // -------------------------------------------------------------------------
+  test('Regression — mixed nested backticks strip cleanly', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const content = [
+      '# Lessons',
+      '',
+      '- **Nested lesson [universal]** — see ``weird`code`` and `arr[0]` together.',
+      '  Both should be stripped.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `nested backticks must strip cleanly, got: ${stdout}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression — legitimate [universal] / [project] tags still detected
+  // alongside code-span dirt on the same line.
+  // -------------------------------------------------------------------------
+  test('Regression — legitimate tag still detected alongside code-span dirt', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const content = [
+      '# Lessons',
+      '',
+      '- **Bad tag with code [whatever]** — uses model `claude-opus-4-7[1m]`.',
+      '  This [whatever] tag is invalid; the [1m] in backticks is not a tag.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.ok(stdout.length > 0, 'should still detect the legitimate bad tag');
+    const parsed = JSON.parse(stdout);
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, 'deny');
+    const reason = parsed.hookSpecificOutput.permissionDecisionReason;
+    assert.ok(
+      reason.includes('whatever'),
+      `reason should mention bad tag "whatever", got: ${reason}`
+    );
+    assert.ok(
+      !reason.includes('1m'),
+      `reason must NOT mention "1m" (model-ID inside backticks), got: ${reason}`
+    );
   });
 
   // -------------------------------------------------------------------------

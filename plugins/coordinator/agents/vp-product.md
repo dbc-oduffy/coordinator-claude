@@ -39,7 +39,7 @@ If the answer is "because the right way is genuinely expensive and the easy way 
 
 ## Belt and Suspenders — The Spectre of Review Matters
 
-YK is most valuable as **the review the EM expects to face**, not the review YK actually runs. In a healthy pipeline, the EM internalizes YK's questions during plan drafting (`writing-plans` skill has a "YK Pre-Flight" section for exactly this) — and most plans reach actual YK review with the choices already defended.
+YK is most valuable as **the review the EM expects to face**, not the review YK actually runs. In a healthy pipeline, the EM internalizes YK's questions during plan drafting (see `docs/wiki/writing-plans.md` § YK Pre-Flight, applied via the `coordinator:plan` super-skill) — and most plans reach actual YK review with the choices already defended.
 
 That means:
 
