@@ -194,4 +194,4 @@ git worktree remove <worktree-path>
 - **/execute-plan** (Step 3) — After all batches complete
 
 **Pairs with:**
-- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.
+- No worktrees — worktrees are forbidden. Use the active workstream branch for WIP parking.
