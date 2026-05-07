@@ -1,20 +1,20 @@
 ---
 name: brainstorming
-description: "Use when the PM asks for a new feature or capability, or you're about to enter plan mode without a clear spec. Also use when requirements are vague, ambiguous, or span multiple subsystems that need decomposition."
+description: "Use for new feature requests, vague/ambiguous requirements, or multi-subsystem decomposition before plan mode."
 description-budget: 225
 version: 1.0.0
 ---
 
 # Brainstorming
 
-Turn the PM's intent into a design spec through collaborative dialogue. The PM decides what to build; the EM shapes feasibility, flags constraints, and proposes approaches. The output is a committed spec that feeds directly into `coordinator:writing-plans`.
+Turn the PM's intent into a design spec through collaborative dialogue. The PM decides what to build; the EM shapes feasibility, flags constraints, and proposes approaches. The output is a committed spec that feeds directly into `coordinator:plan`.
 
 **Announce at start:** "Using brainstorming to explore the design before we plan implementation."
 
 <HARD-GATE>
-Once brainstorming has started, do NOT invoke any implementation skill, write any code, scaffold any project, or dispatch any executor until the spec is written and PM-approved. The only exit from brainstorming is a completed spec that transitions to `coordinator:writing-plans`.
+Once brainstorming has started, do NOT invoke any implementation skill, write any code, scaffold any project, or dispatch any executor until the spec is written and PM-approved. The only exit from brainstorming is a completed spec that transitions to `coordinator:plan`.
 
-This gate is about finishing what you started. If the PM arrived with a clear spec, the EM can skip brainstorming entirely and go straight to writing-plans. But once you've started the design conversation, see it through.
+This gate is about finishing what you started. If the PM arrived with a clear spec, the EM can skip brainstorming entirely and go straight to `coordinator:plan`. But once you've started the design conversation, see it through.
 </HARD-GATE>
 
 ## Rationalization Resistance
@@ -44,7 +44,7 @@ digraph brainstorming {
     "Write spec" [shape=box];
     "Self-review" [shape=box];
     "PM reviews spec" [shape=diamond];
-    "Invoke writing-plans" [shape=doublecircle];
+    "Invoke coordinator:plan" [shape=doublecircle];
 
     "Explore project context" -> "Clarify intent with PM";
     "Clarify intent with PM" -> "More questions?";
@@ -62,11 +62,11 @@ digraph brainstorming {
     "Write spec" -> "Self-review";
     "Self-review" -> "PM reviews spec";
     "PM reviews spec" -> "Write spec" [label="changes"];
-    "PM reviews spec" -> "Invoke writing-plans" [label="approved"];
+    "PM reviews spec" -> "Invoke coordinator:plan" [label="approved"];
 }
 ```
 
-**Terminal state:** The ONLY next step after brainstorming is `coordinator:writing-plans`. No other skill.
+**Terminal state:** The ONLY next step after brainstorming is `coordinator:plan`. No other skill.
 
 ## Understanding Intent
 
@@ -194,4 +194,4 @@ Wait for PM response. If changes requested, apply them and re-run self-review. O
 
 Once the PM approves the spec:
 
-**REQUIRED SUB-SKILL:** Invoke `coordinator:writing-plans` to create the implementation plan. The spec file is the input. Do NOT invoke any other skill — `coordinator:writing-plans` is the only valid next step.
+**REQUIRED SUB-SKILL:** Invoke `coordinator:plan` to create the implementation plan. The spec file is the input. Do NOT invoke any other skill — `coordinator:plan` is the only valid next step.

@@ -1,6 +1,5 @@
 ---
 description: Orient session — preflight, load context, choose work
-disable-model-invocation: true
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[task-description]"
 ---

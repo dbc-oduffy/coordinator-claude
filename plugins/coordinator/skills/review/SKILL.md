@@ -1,6 +1,6 @@
 ---
 name: review
-description: Use when a plan / design doc / RFC is ready for review or when plan-review findings have landed. Branches: outgoing (pre-flight + dispatch) and incoming (triage + integrate).
+description: Use when a plan / design doc / RFC is ready for review or plan-review findings have landed.
 version: 1.0.0
 spec_backlink: docs/plans/2026-05-06-review-super-skill.md
 ---
@@ -43,7 +43,7 @@ _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumptio
 
 ### A.2 — Reviewer selection and dispatch
 
-**Matching review tier to plan complexity** (extracted from `coordinator:requesting-code-review` — see stub note at that skill):
+**Matching review tier to plan complexity** (table absorbed from the deleted `coordinator:requesting-code-review` skill; the code-reviews tier-matching counterpart lives in `coordinator:review-code` Branch A.2):
 
 Match tier to complexity, not importance. Routing every "important" plan to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
@@ -87,7 +87,7 @@ Walk each finding against the triage table below — it lands in exactly one row
   Plan reviews skew heavily toward this row — most plan findings are about *what to build*, not *how it's coded*.
   - _(i) YAGNI / scope-trim argument from reviewer?_ → **Always escalation, never auto-trim.** Even framed as tradeoff-free, YAGNI is a product decision. Surface to PM. _See CLAUDE.md § Challenging the PM._
   - _(ii) Refactor-over-patch signal?_ → Refactor is the default when AI is the implementer. Surface to PM with refactor proposal. _See CLAUDE.md § Core Principles ('Do the right thing, not the easy thing')._
-  - _(iii) Build-vs-defer call?_ → Always PM. Never EM-unilateral. _See CLAUDE.md § PM Calls — Ask, Don't Assume._
+  - _(iii) Build-vs-defer call?_ → Always PM. Never EM-unilateral. _See CLAUDE.md § Challenging the PM ¶ Ask the PM when._
 
 - _Multiple findings collectively suggest the plan needs a structural refactor (not just patches)?_
   → Do NOT integrate piecemeal. Surface to PM with a refactor proposal — the aggregate signal is the finding.

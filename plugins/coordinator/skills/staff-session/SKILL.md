@@ -1,6 +1,5 @@
 ---
-description: "Staff session — Agent Teams-based collaborative planning and review. Two modes: plan (craft detailed plan from objectives) and review (critique existing artifact). Configurable tiers: lightweight (single reviewer), standard (2 debaters + synthesizer), full (3-5 debaters + synthesizer)."
-disable-model-invocation: true
+description: "PM-GATED: ask first; never from subagent. Agent Teams collaborative planning/review for architectural decisions only. Modes: plan, review."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli,...\"] <input>"
 ---
@@ -207,7 +206,7 @@ When you receive a notification that the synthesizer task is complete:
 1. Read the output at `{output-path}`. Verify it has substantive content (not just headers or a stub).
 
 2. Mode-specific verification:
-   - **Plan mode:** Verify the plan has an `## Implementation Plan` section with tasks, files, and steps in `writing-plans` format. Verify `**Review:** Staff session ({participants}) — debated and synthesized. Ready for enrichment.` is present.
+   - **Plan mode:** Verify the plan has an `## Implementation Plan` section with tasks, files, and steps in plan format (per `docs/wiki/writing-plans.md`). Verify `**Review:** Staff session ({participants}) — debated and synthesized. Ready for enrichment.` is present.
    - **Review mode:** Verify findings are structured with severities and persona attributions. Verify a `## Verdict` line is present.
 
 3. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it.

@@ -1,6 +1,6 @@
 ---
 name: merging-to-main
-description: Use when work on a branch is ready to merge to main — drafts release notes, creates PR, waits for CI, merges, cleans up. Always emits release-notes (even for tiny merges) so downstream consumers can see what changed.
+description: Use when a branch is ready to merge to main. Drafts release notes, creates PR, waits for CI, merges, cleans up.
 description-budget: 225
 argument-hint: "[--force]"
 version: 1.1.0
@@ -84,11 +84,12 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 3. **Verify remote is up-to-date:**
    ```bash
-   git log origin/$(git branch --show-current)..HEAD 2>/dev/null
+   _BR=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+   git log origin/"$_BR"..HEAD 2>/dev/null
    ```
    If unpushed commits exist, push explicitly:
    ```bash
-   git push origin $(git branch --show-current) --set-upstream
+   git push origin "$_BR" --set-upstream
    ```
 
 ### Step 1.5: Build PR Body (mandatory, every merge)
@@ -237,7 +238,7 @@ If `project_type` does not include `unreal`, skip this step entirely.
 ### Step 2: Create PR
 
 ```bash
-BRANCH=$(git branch --show-current)
+BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 
 # Title based on branch type
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
@@ -330,7 +331,7 @@ Auto-recover — do NOT stop or ask:
 ```bash
 git fetch origin main
 git merge origin/main -m "merge main into work branch"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 gh pr merge <pr-number> --merge --delete-branch  # retry
 ```
 

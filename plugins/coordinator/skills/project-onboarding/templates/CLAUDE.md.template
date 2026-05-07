@@ -48,6 +48,13 @@
 - **Test:** <!-- how to run tests -->
 - **Lint:** <!-- linting command if any -->
 
+## Runtime conventions
+
+<!-- Auto-populated from bin/detect-project-runtime.sh on first scaffold. PM should review and edit. -->
+
+- <!-- runtime line -->
+- <!-- runtime line -->
+
 ## Architecture
 
 <!-- Brief description of project structure — key directories, main entry points, dependency flow -->
