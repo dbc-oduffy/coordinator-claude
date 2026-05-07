@@ -1,6 +1,5 @@
 ---
 description: Save session state for next session handoff
-disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
@@ -8,6 +7,8 @@ argument-hint: "[optional context]"
 # Session Handoff — Save State for Next Session
 
 Capture the current session state so future sessions (or other agents) can pick up seamlessly.
+
+> **Continuation vs. fork.** This skill writes a *continuation* handoff — work the current session was doing that someone (often you, next session) will resume. To carve off a *different* mid-session topic for someone else to pick up cold, use `/spinoff` instead — that produces `kind: spinoff`, `predecessor: none` handoffs, designed for fork rather than continuation.
 
 ## Instructions
 
@@ -43,6 +44,12 @@ workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
 scope:                              # git pathspec syntax — files this workstream owns
   - path/to/file.md
   - dir/with/files/**
+pickup_ready: true                  # OPTIONAL: set on orphan-promotions and other fresh
+                                    # handoffs whose predecessor is already archived.
+                                    # Signals to /pickup and /update-docs archival that this
+                                    # handoff is fresh and must NOT be stamped or
+                                    # auto-archived. Remove (or set false) when an actual
+                                    # /pickup occurs and work genuinely resumes.
 ---
 
 # Session Handoff — [DATE]
@@ -121,6 +128,8 @@ These four rules apply specifically to `## Recommended Next Steps` and `## In-Pr
 **Cascading unresolved items (only when there IS a predecessor):** When this session genuinely continues a predecessor, check its `## Recommended Next Steps` and `## Carried Forward` sections for items this session did NOT complete. Any unresolved items **must** be carried forward into the new handoff's `## Carried Forward` section — they don't disappear just because a session ended. Each carried item retains its origin annotation (e.g., `_(carried from 2026-03-20_100000_abc123.md)_`) so the full lineage is visible. Items leave the cascade only when: (1) completed by a session (moved to `## What Was Accomplished`), or (2) explicitly dismissed by the PM. A session cannot silently drop a carried item.
 
 **Chain archival (only the explicit predecessor):** Because the cascade ensures all unresolved obligations flow into the new handoff, the **explicit** predecessor can be safely archived after a continuation. Move *only* that predecessor to `archive/handoffs/` (create the directory if needed). Do not sweep other adjacent handoffs in `tasks/handoffs/` — they belong to other workstreams or other sessions and are not yours to archive.
+
+> **Negative-spec — no consumed markers written here.** Moving the predecessor to `archive/handoffs/` is a file move, not a marker operation. The `<!-- consumed: YYYY-MM-DD -->` marker is `/pickup`'s exclusive responsibility (`coordinator/commands/pickup.md:130`). This step never writes that marker — to any file, in any circumstance.
 
 #### Step 2: Capture Lessons
 

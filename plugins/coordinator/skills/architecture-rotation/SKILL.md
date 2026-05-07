@@ -1,6 +1,5 @@
 ---
 description: Run the weekly architecture audit rotation — score systems, audit the highest-priority target, apply findings, and update the health ledger
-disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[system-name]"
 ---

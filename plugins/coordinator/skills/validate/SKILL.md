@@ -1,6 +1,6 @@
 ---
 name: validate
-description: Use when about to commit, before /merge-to-main, before /workday-complete, or when the user asks to validate the repo state. Runs all CI validation checks locally.
+description: Use before commit, /merge-to-main, /workday-complete, or to validate repo state. Runs CI checks locally.
 description-budget: 175
 version: 1.0.0
 ---
