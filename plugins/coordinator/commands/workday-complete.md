@@ -62,12 +62,33 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 
 ## Step 3: Branch Consolidation
 
+<!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
+     legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
 0. `~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
-1. Discover today's branches: `git branch --list "work/$MACHINE/$TODAY*"` (local + remote).
-2. Merge siblings into current branch. Non-trivial conflicts → report and halt.
-3. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
-4. `git push origin $(git branch --show-current) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
-5. Delete merged sibling branches: `git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d`
+1. Recompute machine name lowercase for this step (Patrik F2 — do not rely on inherited shell scope):
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   _LIB="$HOME/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+   if [[ -f "$_LIB" ]]; then
+     # shellcheck source=/dev/null
+     source "$_LIB"
+     MACHINE=$(cs_compute_machine)
+   else
+     MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
+   fi
+   ```
+2. Discover active workstream branches — case-insensitive to catch both legacy `work/STRIKER/...` and
+   new `work/striker/...` branches, as well as span-form `work/striker/2026-05-06to07`:
+   ```bash
+   git branch --list | grep -iE "^\*? *work/$MACHINE/$TODAY"
+   ```
+3. Merge siblings into current branch. Non-trivial conflicts → report and halt.
+4. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
+5. `git push origin $(git branch --show-current) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
+6. Delete merged sibling branches:
+   ```bash
+   git branch --merged | grep -iE "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d
+   ```
 
 Feature branches are excluded — they are intentionally long-lived.
 
@@ -191,6 +212,38 @@ git push origin $(git branch --show-current)
 - **STALE:** _"Weekly is stale: D days, N commits since last `/workweek-complete`. Run it when ready."_
 - **MILD:** _"Weekly cadence: mild staleness. Consider `/workweek-complete` soon."_
 - **FRESH / UNKNOWN:** skip silently.
+
+---
+
+## Step 10.5: Preemptive Branch Rename (optional — P1, defer-acceptable)
+
+<!-- Phase 4: optional end-of-day prompt to rename the branch forward to tomorrow's suffix
+     so tomorrow's first commit doesn't trigger a /workday-start rename prompt.
+     Uses the same atomic-rename-with-rollback procedure as /workday-start Phase 3. -->
+
+**When to offer:** if the active branch's start-date ≠ today AND the PM has indicated intent
+to continue the current workstream tomorrow. Judgment call — prompt only if this looks like
+an active ongoing session rather than a wrapped-up day.
+
+**Prompt:**
+> "Active branch is `work/{machine}/{suffix}` and today is {today}. Want me to rename it to
+> `work/{machine}/{suffix}to{tomorrow-DD}` preemptively so tomorrow's first commit doesn't
+> trigger a rename prompt? [y/N]"
+
+Default **N** — skipping is fine. The `/workday-start` rename flow handles it tomorrow.
+
+**If PM confirms (y):**
+1. Compute tomorrow's date: `TOMORROW=$(date -d '+1 day' +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)`
+2. Compute new suffix via `cs_format_span_suffix <start-date> <tomorrow>` (or inline).
+3. Atomic rename with rollback (same procedure as `/workday-start` Phase 3 Check 3):
+   ```bash
+   COORDINATOR_OVERRIDE_BRANCH=1 git branch -m <old> <new>
+   git push --atomic origin <new>:<new> :<old>
+   # On push failure: COORDINATOR_OVERRIDE_BRANCH=1 git branch -m <new> <old>; report error; do not leave renamed.
+   ```
+4. Report: _"Branch renamed to `work/{machine}/{new-suffix}`."_
+
+If PM declines or step is skipped, proceed to Step 11.
 
 ---
 

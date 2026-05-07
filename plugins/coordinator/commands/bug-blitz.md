@@ -29,7 +29,7 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 
 1. **Verify backlog exists.** `tasks/bug-backlog.md` must exist. If absent, halt and recommend `/bug-sweep` to populate it. Bug-blitz operates on existing backlog only.
 2. **Generate run ID.** Format: `YYYY-MM-DD-HHhMM`. Scratch dir: `tasks/scratch/bug-blitz/{run-id}/`.
-3. **Daily-branch check.** Confirm `git branch --show-current` matches `work/{machine}/{YYYY-MM-DD}`. If not, halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on the daily branch. **Note: `/bug-blitz` is fail-closed-only on daily-branch (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the daily branch under any circumstance.
+3. **Active workstream branch check.** Confirm `git branch --show-current` is an allowed workstream branch: `work/{machine}/{date-or-span}` (span names like `work/striker/2026-05-06to07` are accepted; both uppercase and lowercase machine segments are accepted). If not an allowed branch (e.g. on `feature/X` or bare topic branch), halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on an active workstream branch. **Note: `/bug-blitz` is fail-closed-only (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the active workstream branch under any circumstance.
 4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
 5. **Read backlog header** to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
 
@@ -245,7 +245,7 @@ After all waves complete:
 | Situation | Action |
 |-----------|--------|
 | `tasks/bug-backlog.md` missing | Halt Phase 0; recommend `/bug-sweep` first |
-| Off daily branch | Halt Phase 0 |
+| Off active workstream branch (not `work/{machine}/{date-or-span}`) | Halt Phase 0 |
 | Phase 1 chunk Haiku returns text-only (no file written) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure, EM persists agent's inline output |
 | Executor reports `BLOCKED: pattern-not-as-described` | Update backlog with revised description; do NOT fix anyway |
 | Executor reports `BLOCKED: footprint-overflow` | Revert; reclassify item as `big`, auto-spinoff |
@@ -255,7 +255,7 @@ After all waves complete:
 
 ## When to Stop Early
 
-- Daily-branch flip + concurrent-session conflict that can't be resolved without PM input
+- Active workstream branch flip + concurrent-session conflict that can't be resolved without PM input
 - 3+ consecutive verifier `PATTERN-STILL-PRESENT` verdicts (suggests Phase 1 verification was unreliable; halt and re-verify)
 - Executor reports across multiple items reveal a systemic backlog-quality issue (e.g., file:line citations are stale across many items — backlog itself needs refresh)
 - File-disjointness analysis was wrong and waves are stepping on each other

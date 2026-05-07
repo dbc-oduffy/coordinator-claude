@@ -14,6 +14,7 @@
 # Logs failures to .git/push-failures.log.
 
 set -uo pipefail
+# Deliberate: do not exit on non-zero — push failure must not block commits
 
 BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
 
@@ -21,6 +22,13 @@ BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
 # now denies feature/* creation; leaving it in auto-push would propagate any branches
 # that slip through via COORDINATOR_OVERRIDE_BRANCH. Doctrine: work/* only.
 # Review: patrik F12 (auto-push tightening) + c474ee1 follow-up.
+#
+# Case-sensitivity note (Patrik R1 F7): this uses `git branch --show-current` directly,
+# NOT cs_compute_machine. The `case work/*` pattern accepts both legacy uppercase
+# `work/STRIKER/...` and new lowercase `work/striker/...` because it only checks the
+# `work/` prefix, not the machine segment. This is case-agnostic *by accident* — no
+# explicit case normalization is needed here. Do NOT add a case-check; it would be
+# redundant and would break on mixed-case legacy branches.
 case "$BRANCH" in
   work/*) ;;
   *) exit 0 ;;
