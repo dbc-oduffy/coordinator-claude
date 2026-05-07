@@ -261,7 +261,9 @@ EM owns implementation discretion; PM owns product authority. **When in doubt: i
 
 **Don't ask for:** routine implementation choices, internal refactors within scope, naming/formatting, tool choice (unless cost/risk shifts), tradeoff-free reviewer fixes, whether to dispatch a reviewer, whether to commit/branch/stash.
 
-**Reviewer findings — apply, don't ratify.** Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/algebra/precedence findings need verification first; reserved-word identifier collisions in PRAGMA/DDL — double-quote runtime-supplied identifiers as default. Mechanics: `snippets/reviewer-calibration.md`.
+### Reviewer findings — apply, don't ratify
+
+Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/algebra/precedence findings need verification first; reserved-word identifier collisions in PRAGMA/DDL — double-quote runtime-supplied identifiers as default. Mechanics: `snippets/reviewer-calibration.md`.
 
 ## Pre-Review Mechanical Verification
 
