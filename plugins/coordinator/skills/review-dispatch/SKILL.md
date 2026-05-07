@@ -158,6 +158,49 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Phase 2.7b integrator note:** The review-integrator does NOT process prior-art-check findings directly — those are EM-dispositioned before the Opus reviewer sees the plan. The integrator continues to handle Opus reviewer findings as today. The prior-art-check sidecar is part of the review record archived alongside the review findings.
 
+### Phase 2.7c: External Pattern Verification (external-pattern-checker, opt-in)
+
+**The external-pattern-checker is a triage pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed as ad-hoc context in the Opus reviewer's dispatch prompt.**
+
+Before dispatching expensive Opus reviewers, decide whether to run the **external-pattern-checker** agent (Sonnet) as an opt-in pre-flight. Where docs-checker verifies facts and prior-art-checker recalls internal doctrine, external-pattern-checker asks a different question: *"Is there enough external signal on this topic that we should dispatch deeper research before the Opus reviewer sees this plan?"*
+
+**This phase is opt-in only and is skipped silently for ~95% of plans.** There is no default-on behavior.
+
+**EM Decision Step — the two-condition trigger gate:**
+
+| Condition | Requirement |
+|---|---|
+| **A** | prior-art-checker returned `Silent` on ≥ 1 **architecturally-loaded** claim — meaning the claim involves a new abstraction, protocol, or doctrine surface (not a constant bump, test fix, or rename) |
+| **B** | The plan is `scope_mode: architecture` or `scope_mode: feature` AND the topic is one the project has struggled with, evidenced by ≥ 2 entries in `tasks/lessons.md` or `coordinator-improvement-queue.md` sharing a noun-phrase from the plan's central abstractions, OR ≥ 1 archived handoff in `archive/handoffs/` whose body matches the same noun-phrase AND contains "reverted" / "abandoned" / "rolled back" |
+
+**Both A and B must hold.** If either condition is absent, skip this phase silently — no flag, no justification. PM can also authorize a direct invocation ("run external-pattern-check on this plan") which bypasses the gate.
+
+**This phase always runs AFTER Phase 2.7b (prior-art-checker).** It reads the prior-art sidecar as input; dispatching it before prior-art-checker runs produces an automatic SCOPE-MISMATCH abstain.
+
+**Dispatch (when both conditions hold):**
+1. Dispatch `external-pattern-checker` agent with the plan path and the prior-art sidecar path.
+2. The agent reads the prior-art sidecar, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at `<plan-path>.external-pattern.md`.
+3. Sidecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
+4. **EM reads the sidecar before dispatching the Opus reviewer.** The verdict determines next steps:
+   - **RESEARCH-RECOMMENDED:** EM dispatches the recommended `general-purpose` web scout or `/deep-research` as a separate decision before the Opus review. Include the sidecar path in the Opus reviewer prompt.
+   - **LIGHT-CONTEXT-AVAILABLE or CAUTIONARY-NOTE:** Fold the relevant `Light Context Surfaced` / `Cautionary Note` sections as a one-paragraph briefing into the Opus reviewer dispatch prompt.
+   - **NO-EXTERNAL-SIGNAL:** Proceed to Phase 2.8. No fold-in needed.
+   - **DEGRADED:** Treat as no signal — proceed as if the phase did not run.
+   - **SCOPE-MISMATCH:** The trigger conditions were not met (the agent determined this itself). Note the reason and proceed.
+
+**Mandatory fold-confirmation (auditable consumption — per plan disposition D1):**
+
+In the same dispatch turn where you proceed to Phase 2.8 / Phase 3, you MUST include verbatim either:
+
+> (a) A one-paragraph briefing copied from the sidecar's `Light Context Surfaced` / `Cautionary Note` buckets (included in the Opus reviewer's dispatch prompt), OR
+> (b) "external-pattern-check ran; no fold needed (verdict: NO-EXTERNAL-SIGNAL)."
+
+This makes consumption auditable. Silent omission of the sidecar with no confirmation is not permitted.
+
+**On external-pattern-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. This phase is additive, not blocking.
+
+**Note on vocabulary:** external-pattern-checker uses its own bucket vocabulary (`Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`). These are distinct from prior-art-checker's vocabulary (`Conflicts`, `Compatible-but-relevant`, `Silent`). Do not conflate them in reviewer prompts or EM notes. Full doctrine: `docs/wiki/external-pattern-checker.md`.
+
 ### Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
 
 Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to verify the artifact is well-formed and worth reviewing. This catches broken artifacts before they waste the most expensive tokens in the system.
