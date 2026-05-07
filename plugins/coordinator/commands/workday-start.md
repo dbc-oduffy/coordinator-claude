@@ -58,7 +58,7 @@ If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the
 
 4. **Midnight-rename (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → run the rename procedure below silently and emit a one-line notice in the Morning Briefing (`Renamed work/striker/2026-05-06 → work/striker/2026-05-06to07 (crossed midnight)`). Do NOT prompt — this is engineering housekeeping, not a product call. The PM can revert via `git branch -m` if they object.
 
-**Rename procedure (Patrik F5 — atomic, reversible):**
+**Rename procedure (the Staff Engineer F5 — atomic, reversible):**
 ```bash
 OLD=$(git branch --show-current)
 MACHINE=$(cs_compute_machine)

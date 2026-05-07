@@ -27,7 +27,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `coordinator:plan` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
-- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
+- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to the Staff Engineer.
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
 - Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
 
@@ -41,7 +41,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `/review-dispatch` — Route artifacts to the right reviewer based on change signals (code, architecture, domain). Includes effort calibration, skip conditions, and EM override guidance.
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
-- Backstop pattern — Zoli (ambition advocate) challenges conservative Patrik recommendations. Mandatory for high-effort reviews.
+- Backstop pattern — the Ambition Advocate (`coordinator:ambition-advocate`) challenges conservative Staff Engineer recommendations. Mandatory for high-effort reviews.
 - `coordinator:review-code` skill (code reviews) + `coordinator:review` skill (plan reviews) + `docs/wiki/receiving-code-review.md` — Codified decision-tree skills for preparation, routing, and applying feedback.
 - Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
 
@@ -99,8 +99,8 @@ Full component inventory for the record. The failure-mode sections above are the
 | **enricher** | Sonnet | Research agent — surveys codebases, traces deps, fills in stub details |
 | **executor** | Sonnet | Implementation agent — follows specs precisely, reports DONE/DONE_WITH_CONCERNS/BLOCKED |
 | **review-integrator** | Opus | Applies reviewer findings to artifacts with annotations, escalates disagreements |
-| **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
-| **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
+| **staff-eng** | Opus | The Staff Engineer (`coordinator:staff-eng`) — rigorous review of code, plans, architecture, documentation |
+| **ambition-advocate** | Opus | The Ambition Advocate (`coordinator:ambition-advocate`) — backstop reviewer, challenges conservative recommendations, never a primary reviewer |
 
 ### Commands (23)
 
@@ -181,7 +181,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 The coordinator defines the routing framework that domain plugins extend:
 
-1. This plugin's `routing.md` defines universal reviewers (Patrik, Zoli) and the routing algorithm
+1. This plugin's `routing.md` defines universal reviewers (the Staff Engineer, the Ambition Advocate) and the routing algorithm
 2. Domain plugins contribute routing fragments via their own `routing.md` files
 3. At dispatch time, `/review-dispatch` merges all fragments into a composite routing table
 4. Signals from changed code determine which reviewer handles the review
@@ -198,7 +198,7 @@ project_type: unreal    # unreal | game-docs | web | pure-docs
 ---
 ```
 
-Default (no config): core-only (Patrik + Zoli).
+Default (no config): core-only (the Staff Engineer + the Ambition Advocate).
 
 ---
 
@@ -231,7 +231,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (Patrik, Zolí, Sid, Palí, Fru, Camelia) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, the Ambition Advocate, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.
@@ -257,7 +257,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 - **Brainstorming:** Scope assessment before detailed questions; design-for-isolation principles; existing-codebase awareness
 - **Writing-plans:** Scope check (decompose multi-system specs); file structure mapping before task decomposition
 - **Executor:** New status protocol (DONE/DONE_WITH_CONCERNS replacing COMPLETED; NEEDS_CONTEXT split from NEEDS_COORDINATOR); expanded self-review with judgment checks; code organization awareness; expanded escalation encouragement
-- **Delegate-execution:** Spec compliance check — coordinator verifies executor fidelity before routing to Patrik
+- **Delegate-execution:** Spec compliance check — coordinator verifies executor fidelity before routing to the Staff Engineer
 - **Skill-discovery:** SUBAGENT-STOP gate; instruction priority hierarchy
 - **Executing-plans:** Delegate-execution preference note for coordinator sessions
 

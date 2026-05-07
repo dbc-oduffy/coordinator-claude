@@ -21,7 +21,7 @@ Run `sync-main.sh` first; abort if it exits non-zero. Never create or rename bra
 ### Step 0.2 — Determine machine and today's date
 
 ```bash
-MACHINE=$(cs_compute_machine)   # always lowercase (Patrik F11; lib Phase 1)
+MACHINE=$(cs_compute_machine)   # always lowercase (Staff Engineer F11; lib Phase 1)
 TODAY=$(date +%Y-%m-%d)
 CURRENT=$(git branch --show-current)
 ```
@@ -66,7 +66,7 @@ Renamed $OLD → $NEW (crossed midnight)
 ```
 PM can revert via `git branch -m` if they object.
 
-### Step 0.4 — Rename procedure (Patrik F5 — atomic, reversible)
+### Step 0.4 — Rename procedure (Staff Engineer F5 — atomic, reversible)
 
 ```bash
 OLD=$(git branch --show-current)

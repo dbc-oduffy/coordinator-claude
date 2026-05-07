@@ -84,7 +84,7 @@ _Condition: plan body drafted, saved to `docs/plans/YYYY-MM-DD-<slug>.md`, ready
 
 → Walk `coordinator:review` Branch A. That skill's Branch A.2 carries the auto-skip terminals (genuinely-trivial, PM-waived); this skill always exits there — seam exhaustiveness is provable from that skill's body.
 
-**The full plan-writing pipeline is:** (1) substrate verification (Branch B above), (2) body composition with the four PM doctrinal lenses (Branch C above), (3) prior-art-checker via `coordinator:review` (skip only with an EM-justified rationale in the dispatch comment), (4) Patrik review, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline; "I'll just write the plan and skip review" is the failure mode this skill exists to prevent.
+**The full plan-writing pipeline is:** (1) substrate verification (Branch B above), (2) body composition with the four PM doctrinal lenses (Branch C above), (3) prior-art-checker via `coordinator:review` (skip only with an EM-justified rationale in the dispatch comment), (4) the Staff Engineer review, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline; "I'll just write the plan and skip review" is the failure mode this skill exists to prevent.
 
 <!-- Per docs/plans/2026-05-06-plan-super-skill.md F1 (PM lean b): coordinator:review Branch A.2 carries the auto-skip terminals. Renamed from "Branch D" to "Exit" per walk-through gap §2 — a one-row branch is shape-dishonest; this is a handoff, not a decision. -->
 

@@ -26,7 +26,7 @@ Three independent checks. Each fires or skips on its own condition; multiple can
 **Check 1 — TDD compliance (self-check, no agent)**
 
 - _Code introduces new behavior (feature, fix, refactor that changes externally observable behavior)?_
-  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a Patrik finding.
+  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a Staff Engineer finding.
   _See `docs/wiki/test-driven-development.md` § Verification Checklist._
 - _Code is config-only / doc-only / generated code?_
   → Skip TDD self-check.
@@ -53,8 +53,8 @@ Match tier to complexity, not importance. Routing every "important" diff to a st
 
 | Situation | Correct tier |
 |---|---|
-| Single-subsystem code change (one feature, one bug fix, one refactor) | `/review-dispatch <range> code` → one reviewer (auto-detects domain). For known-target single-reviewer cases (e.g., obvious Patrik or Sid match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; `/review-dispatch` is preferred for routing intelligence. |
-| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | `/review-dispatch <range> code --reviewers "<domain>,patrik"` → two sequential reviewers |
+| Single-subsystem code change (one feature, one bug fix, one refactor) | `/review-dispatch <range> code` → one reviewer (auto-detects domain). For known-target single-reviewer cases (e.g., obvious Staff Engineer or Game Dev Reviewer match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; `/review-dispatch` is preferred for routing intelligence. |
+| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | `/review-dispatch <range> code --reviewers "<domain>,staff-eng"` → two sequential reviewers |
 | Contested architectural code change with ≥2 valid implementations AND PM authorized | `/staff-session` review-mode |
 | "This is important, I want it done right" | `/review-dispatch <range> code` → one reviewer |
 | Code touches auth, security, billing — high stakes but clear approach | `/review-dispatch <range> code` → one reviewer |

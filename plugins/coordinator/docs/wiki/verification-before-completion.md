@@ -225,7 +225,7 @@ For any plan with declared acceptance criteria, "done" means more than green tes
 - [ ] Every **acceptance criterion** is satisfied (or explicitly waived in writing with PM acknowledgement).
 - [ ] Tests/checks ran and the output is captured (link or excerpt — not "trust me").
 - [ ] If user-visible: **manual demo path verified** — you actually walked the steps, not just inferred from green tests.
-- [ ] If user-visible OR if scope is patch-where-refactor-might-be-cheaper: **YK** (`agents/vp-product.md`) has been dispatched and findings are integrated. YK verdict line is staged for the PR body.
+- [ ] If user-visible OR if scope is patch-where-refactor-might-be-cheaper: **the VP-Product Reviewer** (`coordinator:vp-product`) has been dispatched and findings are integrated. VP-Product verdict line is staged for the PR body.
 - [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional).
 - [ ] **Known limitations** are documented — what *isn't* covered, what edge cases were deferred.
 - [ ] **Rollback or mitigation** is named — if this turns out wrong in production, what's the recovery move?

@@ -117,11 +117,11 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 The reviewer-side consumption block is synced via `plugins/coordinator-claude/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Sid variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer (`coordinator:staff-eng`))
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer (`game-dev:staff-game-dev`))
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer (`data-science:staff-data-sci`))
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer (`web-dev:senior-front-end`))
+- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 

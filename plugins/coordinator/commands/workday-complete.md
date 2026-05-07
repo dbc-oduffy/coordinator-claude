@@ -65,7 +65,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 <!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
      legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
 0. `~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
-1. Recompute machine name lowercase for this step (Patrik F2 — do not rely on inherited shell scope):
+1. Recompute machine name lowercase for this step (the Staff Engineer F2 — do not rely on inherited shell scope):
    ```bash
    TODAY=$(date +%Y-%m-%d)
    _LIB="$HOME/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
