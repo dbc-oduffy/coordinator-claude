@@ -16,7 +16,7 @@ related:
 
 ## What is prior-art-checker?
 
-prior-art-checker is a Sonnet-tier agent that cross-references a plan artifact against the coordinator's accumulated prior art before the artifact reaches an Opus reviewer. It reads the plan, enumerates its claim surface, then searches four corpora — project wikis (`docs/wiki/`), global wikis (`~/.claude/docs/wiki/`), `tasks/lessons.md`, and the central improvement queue — and reports each claim as **Conflict**, **Compatible-but-relevant**, or **Silent**.
+prior-art-checker is a Sonnet-tier agent that cross-references a plan artifact against the coordinator's accumulated prior art before the artifact reaches an Opus reviewer. It reads the plan, enumerates its claim surface, then searches four corpora — project wikis (`docs/wiki/` recursively, including subdirectories `marketplace/`, `opensource/`, `competitors/`, and `codebase-judgment/`), global wikis (`~/.claude/docs/wiki/`), `tasks/lessons.md`, and the central improvement queue — and reports each claim as **Conflict**, **Compatible-but-relevant**, or **Silent**.
 
 The output is a sidecar at `<plan-path>.prior-art-check.md`. The agent makes no judgments and applies no fixes; it surfaces matches with verbatim quotes for the EM to disposition.
 
@@ -26,7 +26,7 @@ The result: Opus reviewers receive a plan that has already been cross-referenced
 
 The coordinator system captures lessons via `tasks/lessons.md` → `learn-lessons` → `docs/wiki/` and the central improvement queue. **Capture is mature; recall was broken.**
 
-Wikis sat in `docs/wiki/` (~30 files at writing) without being part of any EM's default context. The EM rarely read them at plan time. Lessons promoted to wikis silently decayed because nothing in the workflow reached for them. The fix was not more wikis — it was a process loop that consults them automatically.
+Wikis sat in `docs/wiki/` without being part of any EM's default context. The EM rarely read them at plan time. Lessons promoted to wikis silently decayed because nothing in the workflow reached for them. The fix was not more wikis — it was a process loop that consults them automatically.
 
 prior-art-checker is the recall side of the loop. Without it, captured wikis are storage; with it, captured wikis become live doctrine that shapes plans before they ship.
 
@@ -117,11 +117,11 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 The reviewer-side consumption block is synced via `plugins/coordinator-claude/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
+- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Sid variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 
@@ -138,4 +138,4 @@ The prior-art-checker is mechanical, not judgmental. It can over-match (false-fl
 
 ## Cost target
 
-Aim for under 10K tokens per plan check. The corpus is bounded (~30 project wikis + ~30 global wikis + lessons + queue). RAG-over-wikis is a phase-2 optimization; for now, full-text reads of relevant entries is the contract.
+Aim for under 10K tokens per plan check. The corpus is bounded (project wikis across all `docs/wiki/` subdirectories — currently ~57 files including `codebase-judgment/` entries — plus global wikis, lessons, and queue). RAG-over-wikis is a phase-2 optimization; for now, full-text reads of relevant entries is the contract.
