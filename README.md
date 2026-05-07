@@ -1,12 +1,12 @@
 # coordinator-claude
 
-**A PM-native operating layer for AI engineering work.** A Claude Code plugin that turns product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions. You're PM. Claude is EM. You stay technical enough to spot when something's wrong; the EM handles the rest.
+**A PM-native operating layer for AI engineering work.** An opinionated Claude Code plugin that turns product intent into scoped plans, delegated implementation, evidence, and ship/no-ship decisions. You're PM. Claude is EM. You stay technical enough to spot when something's wrong; the EM handles the rest.
 
 ## Who This Is For
 
 You don't need to write code. You need to know enough to evaluate it — to spot when something smells wrong, to ask the right questions, to set direction. Amjad Masad (Replit's founder) [opined](https://youtu.be/PlDeqGQZ0CQ) that people who *don't* program may actually be better positioned for the LLM-coding world: they won't micromanage implementation. This plugin leans into that. It gives Claude standing authority to make engineering decisions — how to build, who to delegate to, when to refactor — while you hold product authority: what to build, what to cut, what ships. Just like an EM-PM dynamic.
 
-This isn't a collection of prompt tricks. It's a **decision architecture**: routines (session orientation, plan review, multi-source code review, structured handoffs, daily flows) plus authority boundaries (EM owns implementation, PM owns scope/ship) plus reviewer personas that push back. It maps to how real engineering teams operate. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
+This isn't a collection of prompt tricks. It's a **decision architecture**: routines (session orientation, plan review, multi-source code review, structured handoffs, daily flows) plus authority boundaries (EM owns implementation, PM owns scope/ship) plus reviewer personas that push back with fix-gates between them. Reviews are meaningful — blocking findings, not theatre. And the system actively reads its own accumulated wikis and lessons before drafting new plans (`prior-art-checker` pre-flight, `/learn-lessons` triage), so the scar tissue from past decisions informs the next one rather than sitting in a write-only memory file. It maps to how PM-EM collaboration actually feels in a real engineering team. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
 
 ## What This Is *Not*
 
@@ -35,7 +35,7 @@ Claude clones the repo, runs the installer, validates the result, and tells you 
 
 | coordinator-claude | Claude Code | OS tested | Notes |
 |--------------------|-------------|-----------|-------|
-| v1.9.0 | tested with Claude Code 2026-05-06 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh` |
+| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
 
 ## How a Session Works
 
@@ -43,7 +43,7 @@ Most tools hand you a bag of commands and wish you luck. This system has *routin
 
 **Starting up.** When Claude opens a supported project, a `SessionStart` hook fires automatically — loading the current branch, pending handoffs, lessons from past sessions, project vitals, and an orientation cache. No cold start. Claude lands in the middle of the context window where performance is strongest, with forward-looking state already loaded. This is deliberate: research shows LLMs degrade toward the end of their context and, to a lesser extent, at the beginning ([Liu et al. 2023, "Lost in the Middle"](https://arxiv.org/abs/2307.03172)). The orientation hook front-loads context so the working session occupies the optimal window.
 
-**Planning.** You describe what you want. Claude enters plan mode — but the plan isn't just written and executed. You review it. In a real dev team, the PM doesn't just say "build auth" and disappear; they review the spec, push back on scope, ask about edge cases. That's what happens here. For bigger decisions, `/staff-session` spawns persona-based engineers who independently develop positions and debate to consensus — like pulling your tech lead and director of engineering into a room.
+**Planning.** You describe what you want. Claude enters plan mode — but the plan isn't just written and executed. You review it. In a real dev team, the PM doesn't just say "build auth" and disappear; they review the spec, push back on scope, ask about edge cases. That's what happens here. The `coordinator:plan` skill is a decision-tree super-skill (triage → substrate → compose → exit) that mechanically binds the trigger word "plan" to the full pipeline: the prior-art-checker pre-flight cross-references the plan against accumulated wikis, lessons, and improvement queues to surface conflicts *before* an Opus reviewer touches it; Patrik then reviews; the integrator applies findings. For bigger decisions, `/staff-session` spawns persona-based engineers who independently develop positions and debate to consensus — like pulling your tech lead and director of engineering into a room.
 
 **Building.** Claude delegates to Sonnet subagents for implementation — cheaper, faster, fresh context. A `PreToolUse` hook nudges Claude away from doing implementation work directly, because the orchestrator's context is too valuable to spend on writing code. This is the same principle as a real EM: you don't want your engineering manager writing production code when they should be coordinating.
 
@@ -76,7 +76,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **YK** (VP-of-Product reviewer / scope challenger — personas can be renamed via [`setup/rename-personas.sh`](setup/rename-personas.sh)) stress-tests the choice → `/merge-to-main` produces a ship verdict and you decide.
 
-**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via `coordinator:systematic-debugging` → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge.
+**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](plugins/coordinator/docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
 **Flow 3 — Resume work.** `/session-start` (or auto-fired hook) loads orientation, lessons, and pending handoffs → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
@@ -111,13 +111,18 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | `/mise-en-place` | Autonomous backlog execution | Front-load all context, then execute without interruption |
 | `/autonomous` | Toggle autonomous mode | Trust escalation — suppress handoff nudges |
 | `/workday-start` | Morning orientation and triage | Surface staleness, align priorities, suggest work |
-| `/workday-complete` | End-of-day wrap-up | Update docs, merge to main, optionally hibernate |
+| `/workday-complete` | End-of-day wrap-up | Daily housekeeping: validate, consolidate, append week-changelog |
+| `/workweek-start` | Strategic weekly orient | Surface last week's results, set this week's priorities |
+| `/workweek-complete` | Release-grade weekly close | Full validation, version bump, parallel code review, merge to main |
 | `/review-dispatch` | Route an artifact to the right reviewer | Domain expert → generalist, sequential with fix gates |
 | `/execute-plan` | Execute a PM-approved plan | Direct implementation without re-planning |
 | `/delegate-execution` | Dispatch enriched stubs to executor agents | Parallel agent execution for chunked work |
 | `/update-docs` | Repo-wide documentation maintenance | 11-phase pipeline that fights doc staleness |
 | `/daily-review` | Strategic daily review | Inventory today's work, get architectural perspective |
 | `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
+| `/bug-blitz` | Autonomous bug-backlog grinder | Wave-based execution with EM-serial commits at each gate |
+| `/dogfood` | Smoke-driven fix-through loop | Binary outcome: converge on a working capability or switch gears |
+| `/learn-lessons` | Triage `tasks/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
 | `/code-health` | Night-shift code health review | Scan today's commits, dispatch reviewer, apply findings |
 | `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
 | `/generate-repomap` | Generate ranked repo map | Context injection for LLM navigation |
@@ -172,7 +177,6 @@ See [docs/architecture.md](docs/architecture.md) for the full model. For the tes
 | **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
-| **[remember](plugins/remember/)** | Lightweight session-memory skill (`memory/sessions/`) | Always (cheap, complements `/handoff`) |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
@@ -209,8 +213,7 @@ coordinator-claude/
 │   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
 │   ├── game-dev/               # Unreal Engine specialist (Sid, game-dev reviewer + Blueprint inspector agents)
 │   ├── web-dev/                # Front-end + UX flow reviewers (Palí, frontend reviewer; Fru, UX flow reviewer)
-│   ├── data-science/           # ML, statistics reviewer (Camelia, data-science reviewer)
-│   └── remember/               # Temporal session memory
+│   └── data-science/           # ML, statistics reviewer (Camelia, data-science reviewer)
 ├── docs/                       # Architecture, customization, research
 ├── setup/                      # Installer
 └── assets/                     # Social preview

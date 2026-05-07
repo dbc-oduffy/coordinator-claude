@@ -61,7 +61,6 @@ PLUGIN_REGISTRY=(
   "deep-research|on|local|Multi-agent deep research pipelines (web/repo/structured)"
   "game-dev|off|local|Sid reviewer (Unreal Engine)"
   "notebooklm|optional|npm|Media research via NotebookLM (npm-sourced add-on)"
-  "remember|on|local|Automatic session memory"
 )
 
 # ---------------------------------------------------------------------------
