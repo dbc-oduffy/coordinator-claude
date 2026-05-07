@@ -62,7 +62,8 @@ esac
 if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
   # Route through PowerShell so Windows OpenSSH + 1Password agent pipe is used.
   # Quote the repo path; -C handles spaces. -NonInteractive prevents UI prompts.
-  if ! powershell.exe -NonInteractive -NoProfile -Command \
+  # -WindowStyle Hidden suppresses the brief blue console flash on every commit.
+  if ! powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
        "git -C '$REPO_ROOT' push origin '$BRANCH' --set-upstream" \
        >/dev/null 2>&1; then
     log_failure "powershell ssh push"
