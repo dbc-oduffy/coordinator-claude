@@ -135,7 +135,7 @@ git merge {branch-name} --no-ff -m "consolidate {branch-name} into active workst
 ### Step 0.6 — Push and report
 
 ```bash
-git push -u origin "$(git branch --show-current)"
+git push -u origin "$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)"
 ```
 
 Report:
