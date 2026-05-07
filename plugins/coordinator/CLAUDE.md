@@ -62,8 +62,8 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
 - **Patrik UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
-- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
-- **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place` and any sibling autonomous skill.
+- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz`, `/dogfood` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
+- **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
 - **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded. Implementation: `coordinator:parallel-code-review` (`skills/parallel-code-review/SKILL.md`); plan: `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`. Surface: `/workweek-complete` Step 7 (NOT `/merge-to-main`, NOT `/workday-complete`).
 - **Prior-art-checker pre-flight:** Sonnet recall agent that cross-references a plan against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Output is a sidecar at `<plan-path>.prior-art-check.md` with Conflicts / Compatible-but-relevant / Silent buckets. Implementation: `agents/prior-art-checker.md`; consumption snippet: `snippets/prior-art-check-consumption.md` (synced via `bin/verify-prior-art-sync.sh` to the same 5 Opus reviewers as docs-checker). Surface: `commands/review-dispatch.md` Phase 2.7b. Doctrine: `docs/wiki/prior-art-checker.md`. The agent makes captured wikis worth writing — without recall, capture decays.
@@ -77,7 +77,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
     - `/merge-to-main` (`skills/merging-to-main/SKILL.md`)
     - `/consolidate-git` (`skills/consolidate-git/SKILL.md`)
   - When adding a new off-daily skill: list it in (d) AND set the override inline in the skill body.
-  - **`/bug-blitz` is fail-closed-only** — it does NOT set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the daily branch. No override mode. Listed here for completeness so readers know the omission is intentional, not an oversight.
+  - **`/bug-blitz` and `/dogfood` are fail-closed-only** — they do NOT set `COORDINATOR_OVERRIDE_BRANCH=1` and do not run off the daily branch. No override mode. Listed here for completeness so readers know the omission is intentional, not an oversight.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -166,6 +166,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 - **External-review proposals: cumulative-effect + duplication audit before adopting any individual recommendation.**
 - **Codify a stable pattern before running new instances under it.**
 - **Fight-the-hook is an anti-pattern.** Strip once, commit, file paper-trail bug, surface to PM.
+- **Dogfooding new capabilities is the loop's first validation pass.** Before a lesson-captured pattern is declared stable, the thing it produced should be exercised end-to-end via `/dogfood`. Doctrine: `docs/wiki/dogfooding-doctrine.md`. Binary outcome — converge or switch gears; no file-and-defer.
 
 ### Triage cadence
 
