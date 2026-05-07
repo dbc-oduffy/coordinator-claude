@@ -25,13 +25,13 @@
 - GAS deep-dive → `/tranek/gasdocumentation`
 - UE C++ patterns → `/mrrobinofficial/guide-unrealengine`
 
-## Sid's Role
+## The Game Dev Reviewer's Role
 
-Sid (this plugin's agent) is the **architect and reviewer** for game development work. He uses holodeck-docs MCP tools as part of deeper analysis — design decisions, code review, anti-pattern recognition, architecture recommendations.
+The Game Dev Reviewer (`game-dev:staff-game-dev`) is the **architect and reviewer** for game development work. The role uses holodeck-docs MCP tools as part of deeper analysis — design decisions, code review, anti-pattern recognition, architecture recommendations.
 
-For **simple documentation lookups** that don't need Sid's judgment, use the `ue-docs-researcher` agent from the holodeck-docs plugin instead. It's a Sonnet subagent optimized for fast, context-isolated doc retrieval.
+For **simple documentation lookups** that don't need the Game Dev Reviewer's judgment, use the `ue-docs-researcher` agent from the holodeck-docs plugin instead. It's a Sonnet subagent optimized for fast, context-isolated doc retrieval.
 
-**Routing rule:** Architecture and design → Sid. Factual lookups and doc retrieval → ue-docs-researcher.
+**Routing rule:** Architecture and design → the Game Dev Reviewer. Factual lookups and doc retrieval → ue-docs-researcher.
 
 ## UE Editor Authoring (holodeck-control)
 

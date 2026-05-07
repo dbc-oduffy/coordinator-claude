@@ -157,8 +157,10 @@ test_main_branch_push_skipped() {
   [[ $rc -eq 0 ]] && [[ "$has_log" == false ]]
 }
 
-# T3: feature/* branch — push is invoked
-test_feature_branch_push_invoked() {
+# T3: feature/* branch — push is skipped (work/* only, per coordinator-auto-push doctrine)
+# feature/* branch creation is denied by block-off-daily-branch.sh; auto-push tightened
+# to work/* only so override-created feature branches don't auto-propagate.
+test_feature_branch_push_skipped() {
   setup_repo "feature/my-feature"
   setup_fake_git_shim 0
 
@@ -166,13 +168,13 @@ test_feature_branch_push_invoked() {
   local rc=$?
 
   local argv_log="${SCRATCH_DIR}/.git/fake-git-argv.log"
-  local recorded_argv=""
-  [[ -f "$argv_log" ]] && recorded_argv=$(cat "$argv_log")
+  local has_log=false
+  [[ -f "$argv_log" ]] && has_log=true
 
   teardown_all
 
-  [[ $rc -eq 0 ]] \
-    && assert_contains "T3" "push origin feature/my-feature" "$recorded_argv"
+  # Must exit 0 AND not record any push call
+  [[ $rc -eq 0 ]] && [[ "$has_log" == false ]]
 }
 
 # T4: Push failure (fake git exits non-zero) — push-failures.log is written,
@@ -230,7 +232,7 @@ echo ""
 
 run_test "T1: work/* branch — push argv recorded correctly"    test_work_branch_push_invoked
 run_test "T2: main branch — push skipped"                      test_main_branch_push_skipped
-run_test "T3: feature/* branch — push argv recorded correctly" test_feature_branch_push_invoked
+run_test "T3: feature/* branch — push skipped (work/* only)"  test_feature_branch_push_skipped
 run_test "T4: push failure — log written, hook exits 0"        test_push_failure_logged_exit_zero
 run_test "T5: SSH remote (non-Windows) — direct push path"     test_ssh_remote_non_windows_direct_push
 

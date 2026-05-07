@@ -13,10 +13,10 @@
 ## Plugin Configuration
 
 The coordinator-claude plugin system lives in `~/.claude/plugins/`:
-- **coordinator** — Core pipeline, universal reviewers (Patrik, Zolí), all workflow skills. Always enabled.
-- **web-dev** — Palí (front-end reviewer) + Fru (UX reviewer). Enable for web projects.
-- **data-science** — Camelia (data science / ML reviewer). Enable for ML projects.
-- **game-dev** — Sid (Unreal Engine reviewer). Enable for game projects. Disabled by default.
+- **coordinator** — Core pipeline, universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`)), all workflow skills. Always enabled.
+- **web-dev** — the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`). Enable for web projects.
+- **data-science** — the Data Science Reviewer (`data-science:staff-data-sci`). Enable for ML projects.
+- **game-dev** — the Game Dev Reviewer (`game-dev:staff-game-dev`). Enable for game projects. Disabled by default.
 
 ## First Officer Doctrine
 

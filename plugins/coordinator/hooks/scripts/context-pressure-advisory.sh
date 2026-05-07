@@ -75,10 +75,13 @@ if [[ -f "$COMPACTION_SENTINEL" ]]; then
   fi
 
   if [[ -n "$STATE_CONTENT" ]]; then
-    ESCAPED_STATE=$(printf '%s' "$STATE_CONTENT" | jq -Rs '.' | sed 's/^"//; s/"$//')
-    cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "COMPACTION OCCURRED: Context was compressed. Tasks survived (use TaskList/TaskGet to re-orient). Re-read any active plan files to restore continuity. Key decisions should already be on disk — verify by checking your task list. Check metadata.tried_and_abandoned on tasks for failed approaches before retrying anything.\\n\\n--- PRE-COMPACTION STATE SNAPSHOT ---\\n${ESCAPED_STATE}\\n--- END SNAPSHOT ---"}}
-JSONEOF
+    PREAMBLE="COMPACTION OCCURRED: Context was compressed. Tasks survived (use TaskList/TaskGet to re-orient). Re-read any active plan files to restore continuity. Key decisions should already be on disk — verify by checking your task list. Check metadata.tried_and_abandoned on tasks for failed approaches before retrying anything.\n\n--- PRE-COMPACTION STATE SNAPSHOT ---\n"
+    POSTAMBLE="\n--- END SNAPSHOT ---"
+    jq -n \
+      --arg preamble "$PREAMBLE" \
+      --arg state "$STATE_CONTENT" \
+      --arg postamble "$POSTAMBLE" \
+      '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ($preamble + $state + $postamble)}}'
   else
     cat <<'JSONEOF'
 {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "COMPACTION OCCURRED: Context was compressed. Tasks survived (use TaskList/TaskGet to re-orient). Re-read any active plan files to restore continuity. Key decisions should already be on disk — verify by checking your task list. Check metadata.tried_and_abandoned on tasks for failed approaches before retrying anything."}}

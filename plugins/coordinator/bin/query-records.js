@@ -3,10 +3,10 @@
 /**
  * query-records.js — Frontmatter-indexed query CLI for coordinator tracked records.
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Query Tool)
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Query Tool)
  *
  * Usage:
- *   query-records --type <handoff|decision|plan|review|worker-run|lesson>
+ *   query-records --type <handoff|decision|plan|review|lesson>
  *                 [--where "<expr>"]
  *                 [--sort "<field>|-<field>"]
  *                 [--limit N]
@@ -39,7 +39,6 @@ const TYPE_TO_GLOB = {
   decision:   'docs/decisions/*.md',
   plan:       'docs/plans/*.md',
   review:     'tasks/reviews/*.md',
-  'worker-run': 'tasks/worker-runs/*.md',
   lesson:     'tasks/lessons.md', // special
 };
 
@@ -49,7 +48,6 @@ const TYPE_DISPLAY = {
   decision:   (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
   plan:       (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
   review:     (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — reviewer: ${fm.reviewer || '?'}, findings: ${fm.findings_count ?? '?'}`,
-  'worker-run': (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — worker: ${fm.worker || '?'}, findings: ${fm.findings_count ?? '?'}`,
   lesson:     (p, fm) => `- **${fm.title || p}** [${fm.tier || 'untagged'}]`,
 };
 

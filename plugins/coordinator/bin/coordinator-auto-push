@@ -14,13 +14,34 @@
 # Logs failures to .git/push-failures.log.
 
 set -uo pipefail
+# Deliberate: do not exit on non-zero — push failure must not block commits
 
-BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
+RAW_BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
+
+# Canonicalize branch case via the on-disk ref name. On Windows's case-insensitive
+# filesystem, `.git/HEAD` can carry a different case (e.g. `work/STRIKER/...`) than
+# the actual ref file (`refs/heads/work/striker/...`). `git push` does ref lookups
+# case-sensitively against the canonical name, so a mismatched HEAD makes
+# `git push origin "$RAW_BRANCH"` fail with "cannot be resolved to branch."
+# `for-each-ref` returns the canonical case (the form the remote also expects).
+# If lookup fails for any reason, fall back to RAW_BRANCH so we don't regress on
+# Linux/macOS where this hazard doesn't exist.
+BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null \
+  | awk -v b="$RAW_BRANCH" 'tolower($0)==tolower(b){print; exit}')
+[[ -z "$BRANCH" ]] && BRANCH="$RAW_BRANCH"
 
 # Only push on work/* branches — feature/* removed because block-off-daily-branch.sh
 # now denies feature/* creation; leaving it in auto-push would propagate any branches
 # that slip through via COORDINATOR_OVERRIDE_BRANCH. Doctrine: work/* only.
 # Review: patrik F12 (auto-push tightening) + c474ee1 follow-up.
+#
+# Case-sensitivity (Patrik R1 F7 + 2026-05-07 HTTPS-autopush spinoff): the
+# `case work/*` prefix check accepted both `work/STRIKER/...` and `work/striker/...`
+# transparently, but the *push spec* did not — `git push origin work/STRIKER/...`
+# fails when the canonical ref is lowercase. The for-each-ref normalization above
+# now handles this on the push side too. Do NOT remove the lowercase normalization.
+# Both push paths below (direct + PowerShell-routed SSH) interpolate the
+# canonicalized $BRANCH, so the fix applies uniformly to HTTPS and SSH on Windows.
 case "$BRANCH" in
   work/*) ;;
   *) exit 0 ;;
@@ -54,7 +75,8 @@ esac
 if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
   # Route through PowerShell so Windows OpenSSH + 1Password agent pipe is used.
   # Quote the repo path; -C handles spaces. -NonInteractive prevents UI prompts.
-  if ! powershell.exe -NonInteractive -NoProfile -Command \
+  # -WindowStyle Hidden suppresses the brief blue console flash on every commit.
+  if ! powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
        "git -C '$REPO_ROOT' push origin '$BRANCH' --set-upstream" \
        >/dev/null 2>&1; then
     log_failure "powershell ssh push"

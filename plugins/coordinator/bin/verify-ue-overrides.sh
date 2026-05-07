@@ -10,11 +10,24 @@
 #
 # Requirements: jq OR node on PATH.
 set -e
+
+# to_native: translate MSYS-style paths (/x/foo) to native Windows (X:\foo) so
+# node/jq receive a path their stdlib can open. No-op on non-MSYS.
+to_native() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    echo "$1"
+  fi
+}
+
 if command -v jq >/dev/null 2>&1; then
   read_key() { jq -r ".enabledPlugins[\"$2\"] // \"missing\"" "$1"; }
 elif command -v node >/dev/null 2>&1; then
   read_key() {
-    node -e "const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(String((j.enabledPlugins||{})[process.argv[2]]??'missing'))" "$1" "$2"
+    local p
+    p="$(to_native "$1")"
+    node -e "const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(String((j.enabledPlugins||{})[process.argv[2]]??'missing'))" "$p" "$2"
   }
 else
   echo "ERROR: neither jq nor node on PATH — verify-ue-overrides.sh needs one" >&2
@@ -27,6 +40,7 @@ EXPECTED_KEYS=(
   "holodeck-control@claude-unreal-holodeck"
   "holodeck-docs@claude-unreal-holodeck"
   "holodeck@claude-unreal-holodeck"
+  "game-dev@claude-unreal-holodeck"
   "game-dev@coordinator-claude"
 )
 FAIL=0

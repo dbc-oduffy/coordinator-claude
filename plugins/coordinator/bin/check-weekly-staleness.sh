@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-weekly-staleness.sh — compute how stale the weekly release cadence is
 #
-# Spec backlink: docs/plans/2026-05-04-workweek-cadence-split.md § Trigger Doctrine
+# Spec backlink: archive/specs/2026-05-04-workweek-cadence-split.md § Trigger Doctrine
 #
 # Purpose: reads tasks/week-changelog/HEADER.md to extract the prior-week reset
 # SHA and the Week-starting date, then computes two staleness dimensions:
@@ -17,6 +17,10 @@
 #
 # Negative-spec: does NOT modify any file, does NOT trigger /workweek-complete,
 # does NOT read daily changelog files — HEADER.md only.
+#
+# Case-sensitivity audit (Staff Engineer R2 F-R2-2): this script does NOT interpolate $MACHINE
+# or branch names — it reads only commit SHAs and dates from HEADER.md. No case-sensitive
+# branch-name grep exposure. Confirmed case-clean 2026-05-07.
 
 set -euo pipefail
 

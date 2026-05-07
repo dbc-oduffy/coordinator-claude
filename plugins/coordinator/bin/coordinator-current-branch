@@ -1,0 +1,38 @@
+#!/bin/bash
+# coordinator-current-branch — output the canonical (on-disk) branch name.
+#
+# Why this exists: on Windows's case-insensitive filesystem, `.git/HEAD` can store
+# a ref name in a case different from the actual on-disk ref file (e.g. HEAD says
+# `refs/heads/work/STRIKER/2026-05-07` but the ref file is
+# `refs/heads/work/striker/2026-05-07`). `git branch --show-current` reads HEAD
+# literally and returns the stored case; `git push origin <that-name>` then fails
+# with "cannot be resolved to branch" because git's ref lookup is case-sensitive
+# against the canonical name.
+#
+# This helper canonicalizes via `git for-each-ref`, which returns the on-disk case
+# (the form the remote also expects). Use anywhere a script or doctrine doc would
+# otherwise call `git push origin "$(git branch --show-current)"` — the unsafe
+# pattern is a Windows-only latent failure waiting for a mixed-case daily-branch.
+#
+# Lesson source: tasks/lessons.md "git branch --show-current returns HEAD's stored
+# case, not the on-disk canonical case" (2026-05-07).
+#
+# Falls back to RAW_BRANCH on lookup failure so we don't regress on Linux/macOS
+# where the hazard doesn't exist.
+#
+# Detached HEAD / no current branch: prints nothing and exits 0 (callers that
+# require a branch must check for empty output, same as `git branch --show-current`).
+
+set -uo pipefail
+
+RAW_BRANCH=$(git branch --show-current 2>/dev/null) || exit 0
+[[ -z "$RAW_BRANCH" ]] && exit 0
+
+BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null \
+  | awk -v b="$RAW_BRANCH" 'tolower($0)==tolower(b){print; exit}')
+
+if [[ -n "$BRANCH" ]]; then
+  echo "$BRANCH"
+else
+  echo "$RAW_BRANCH"
+fi

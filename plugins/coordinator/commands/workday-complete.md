@@ -62,12 +62,33 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 
 ## Step 3: Branch Consolidation
 
+<!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
+     legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
 0. `~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
-1. Discover today's branches: `git branch --list "work/$MACHINE/$TODAY*"` (local + remote).
-2. Merge siblings into current branch. Non-trivial conflicts → report and halt.
-3. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
-4. `git push origin $(git branch --show-current) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
-5. Delete merged sibling branches: `git branch --merged | grep "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d`
+1. Recompute machine name lowercase for this step (the Staff Engineer F2 — do not rely on inherited shell scope):
+   ```bash
+   TODAY=$(date +%Y-%m-%d)
+   _LIB="$HOME/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+   if [[ -f "$_LIB" ]]; then
+     # shellcheck source=/dev/null
+     source "$_LIB"
+     MACHINE=$(cs_compute_machine)
+   else
+     MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
+   fi
+   ```
+2. Discover active workstream branches — case-insensitive to catch both legacy `work/STRIKER/...` and
+   new `work/striker/...` branches, as well as span-form `work/striker/2026-05-06to07`:
+   ```bash
+   git branch --list | grep -iE "^\*? *work/$MACHINE/$TODAY"
+   ```
+3. Merge siblings into current branch. Non-trivial conflicts → report and halt.
+4. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
+5. `git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
+6. Delete merged sibling branches:
+   ```bash
+   git branch --merged | grep -iE "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d
+   ```
 
 Feature branches are excluded — they are intentionally long-lived.
 
@@ -78,7 +99,7 @@ Feature branches are excluded — they are intentionally long-lived.
 Run `/daily-review`. Produces `archive/daily-summaries/YYYY-MM-DD.md` — feeds the changelog append and the weekly ceremony.
 
 ```bash
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---
@@ -177,7 +198,7 @@ Commit and push:
 ```bash
 git add -- "$CHANGELOG_FILE"
 git commit -m "chore(week-changelog): daily block $TODAY $MACHINE"
-git push origin $(git branch --show-current)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

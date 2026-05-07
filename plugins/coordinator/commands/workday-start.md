@@ -10,19 +10,92 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 **Announce at start:** "I'm running workday-start to prepare the day's context."
 
+## Step -1: Session Reaper
+
+Run the session reaper before any other work to bound stale-session accumulation. Capture stdout to a log file; do not echo the reaped-session lines into the Morning Briefing prose.
+
+```bash
+REAP_LOG=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-reap-sessions 2>/dev/null)
+if [[ -n "$REAP_LOG" ]]; then
+  mkdir -p ~/.claude/logs
+  printf '%s  %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$REAP_LOG" >> ~/.claude/logs/coordinator-reap.log
+fi
+```
+
+If the wrapper exits non-zero (lib not found), continue — the reaper is operational hygiene, not a gate.
+
 ## Step 0: Branch Setup
 
-Ensure work happens on today's work branch (`work/{machine}/{YYYY-MM-DD}`, machine = `hostname` lowercased) and consolidate lingering open branches from previous days.
+Ensure work happens on an active workstream branch (`work/{machine}/{date-or-span}`, machine always lowercase) and consolidate lingering open branches from previous days. The goal is no longer "create today's daily" — it is "ensure today is within the active branch's span, rename forward if not."
 
-**Sync-main invariant (run first, before any branch creation):**
+**Sync-main invariant (run first, before any branch creation or rename):**
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
 ```
 If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the PM. Do not create a branch from stale main.
 
-If already on today's branch, skip branch creation. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
+**Step 0 precedence switch** — evaluate conditions in order; stop at the first match:
 
-**Inline override required:** every `git checkout` and `git merge` in Step 0 that touches an off-daily branch must be prefixed with `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook will deny these operations without the inline override. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure with overrides. <!-- Review: patrik F1 -->
+1. **Stale-commit check (runs first):** Determine the epoch of the last commit on the current branch:
+   ```bash
+   LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
+   NOW_EPOCH=$(date +%s)
+   AGE_DAYS=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
+   ```
+   If `$AGE_DAYS > 2` AND the current branch is a `work/{machine}/...` branch → do NOT prompt rename. Surface to PM via the Branch Reconciliation A/B/C flow (below). This check runs first because a stale span branch whose end-suffix happens to equal today is still dead work that warrants A/B/C triage, not a silent exit.
+
+2. **Already-in-span check (runs second):** Use `cs_should_prompt_rename` from the lib (sources automatically — see internals). If the current branch's end-suffix already matches today's date, exit Step 0 silently — no rename, no new branch needed.
+
+3. **On main / no workstream branch (runs third):** If the current branch is `main` or does not match `work/{machine}/...`, create a fresh branch:
+   ```bash
+   MACHINE=$(cs_compute_machine)   # always lowercase
+   TODAY=$(date +%Y-%m-%d)
+   COORDINATOR_OVERRIDE_BRANCH=1 \
+   COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
+   git checkout -b "work/${MACHINE}/${TODAY}"
+   git push -u origin "work/${MACHINE}/${TODAY}"
+   ```
+
+4. **Midnight-rename (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → run the rename procedure below silently and emit a one-line notice in the Morning Briefing (`Renamed work/striker/2026-05-06 → work/striker/2026-05-06to07 (crossed midnight)`). Do NOT prompt — this is engineering housekeeping, not a product call. The PM can revert via `git branch -m` if they object.
+
+**Rename procedure (the Staff Engineer F5 — atomic, reversible):**
+```bash
+OLD=$(git branch --show-current)
+MACHINE=$(cs_compute_machine)
+TODAY=$(date +%Y-%m-%d)
+# Compute new name using cs_format_span_suffix from the lib
+START_DATE=$(cs_parse_branch_span "$OLD" | awk '{print $1}')
+NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
+
+# Concurrent-rename race guard: re-check before touching refs
+CURRENT=$(git branch --show-current)
+TODAY_DD=$(date +%d)
+if [[ "$CURRENT" == *"to${TODAY_DD}" ]]; then
+  echo "Branch already renamed by another session — nothing to do."
+  exit 0
+fi
+
+# Step a: local rename (cheap, reversible)
+COORDINATOR_OVERRIDE_BRANCH=1 \
+COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename across midnight" \
+git branch -m "$OLD" "$NEW"
+
+# Step b: atomic remote rename (both halves succeed or both fail; git ≥2.4)
+if ! COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 atomic rename push" \
+     git push --atomic origin "${NEW}:${NEW}" ":${OLD}"; then
+  # Roll back local rename on remote failure
+  COORDINATOR_OVERRIDE_BRANCH=1 \
+  COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename rollback after atomic push failure" \
+  git branch -m "$NEW" "$OLD"
+  echo "ERROR: remote rename rejected; local rolled back. Manual recovery may be needed."
+  exit 1
+fi
+```
+
+After a successful rename, continue with the branch-consolidation flow (open unmerged `work/{machine}/*` branches, A/B/C conflict handling) using the new branch name as base.
+
+**Inline override required:** every `git checkout`, `git merge`, `git branch -m`, and `git push --atomic` in Step 0 that touches off-daily refs must carry `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook denies these operations without the inline override. This now includes `git branch -m` for the rename flow. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure.
 
 **Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
 
@@ -124,6 +197,36 @@ Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typi
   _"project-rag-preamble drift detected in [N] consumer(s): [list files]. Run `bin/verify-preamble-sync.sh --fix` to repair, then commit all touched files together."_
 
 **Do NOT auto-fix.** The EM should investigate which consumer drifted and why before applying `--fix`. A drift may indicate an intentional local edit that needs to be merged back into the canonical snippet rather than simply overwritten.
+
+## Step 1.8: Auto-Push Failure Surface
+
+Silent `coordinator-auto-push` failures (e.g. case-mismatched branch refs on Windows; expired credentials; SSH agent unreachable) accumulate in `.git/push-failures.log` without any visible signal until the next manual push. This step makes them visible the next morning, not 75 minutes later.
+
+```bash
+LOG=".git/push-failures.log"
+if [[ -s "$LOG" ]]; then
+  TOTAL=$(wc -l < "$LOG" | tr -d ' ')
+  RECENT_24H=$(awk -v cutoff="$(date -d '24 hours ago' -Iseconds 2>/dev/null || date -v-1d -Iseconds 2>/dev/null)" \
+    '$0 >= "[" cutoff' "$LOG" | wc -l | tr -d ' ')
+  LAST_LINE=$(tail -1 "$LOG")
+fi
+```
+
+**Surface in the Morning Briefing under a new `### Auto-Push Health` section if any of:**
+- `RECENT_24H ≥ 1` (fresh failure since yesterday — almost always actionable)
+- `TOTAL ≥ 5` (chronic backlog)
+
+Format:
+```
+### Auto-Push Health
+- [N] failures in last 24h (total log: [M] lines). Most recent: [LAST_LINE].
+- Investigate before opening new work — silent push failures usually indicate a credential/branch-case/agent issue that will keep firing on every commit.
+- Cleanup after fix: `> .git/push-failures.log` (truncate; do not delete the file — the helper appends in-place).
+```
+
+**If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently — the log is either empty or carries old, already-resolved entries.
+
+**Cross-repo extension (deferred):** the handoff that drove this section calls for scanning *all* coordinator-tracked repos, but no registry of tracked repos exists yet. V1 checks the current repo only. If a registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
 
 ## Step 2: Doc Freshness
 
@@ -280,6 +383,11 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 _(Omit this section entirely if orphan-branch-sweep.sh produced no WARNING or CRITICAL output.)_
 - **CRITICAL:** [branch] — PR #N merged, [M] commits added after merge. Investigate before new work.
 - **WARNING:** [branch] — no PR, [N] commits, branch date [YYYY-MM-DD]. Open a PR or consolidate.
+
+### Auto-Push Health
+_(Omit this section entirely if Step 1.8 found `RECENT_24H == 0` AND `TOTAL < 5`.)_
+- [N] failures in last 24h (total log: [M] lines). Most recent: [last log line].
+- Investigate before opening new work — silent push failures usually indicate a credential/branch-case/agent issue that will keep firing on every commit.
 
 ### Priority Suggestions
 Based on project state:

@@ -1,167 +1,114 @@
 ---
-title: Dogfooding Doctrine
-kind: doctrine
-created: 2026-05-07
+kind: wiki
+title: Dogfooding Doctrine — Fix-Through Validation of New Capabilities
 status: active
-related:
-  - plugins/coordinator-claude/coordinator/skills/dogfood/SKILL.md
-  - docs/plans/2026-05-07-dogfood-super-skill.md
-  - tasks/dogfood-prior-art/holodeck-insights-report.md
-  - tasks/dogfood-prior-art/dronesim-shakedown-report.md
+created: 2026-05-07
+last_updated: 2026-05-07
+sources:
+  - coordinator/skills/dogfood/SKILL.md
+  - coordinator/CLAUDE.md § Self-Improvement Loop
+tags: [dogfood, validation, fix-through, lesson-capture]
 ---
 
 # Dogfooding Doctrine
 
-<!-- spec backlink: docs/plans/2026-05-07-dogfood-super-skill.md -->
+> Spec backlink: `coordinator/CLAUDE.md` § Self-Improvement Loop — "Dogfooding new capabilities is the loop's first validation pass."
 
-## What Dogfooding Is — Binary Outcome Rule
+Dogfooding is the discipline of invoking a newly-built capability end-to-end and fixing everything that breaks before declaring the pattern stable. It occupies a specific and load-bearing position in the improvement loop: between lesson capture and stable-pattern declaration. Skip it and the lesson remains a hypothesis; complete it and the capability is proven at the surface that matters.
 
-**Dogfooding means using a newly-built thing to see whether it actually works.** The canonical targets: a new skill, an install process, a pipeline, a script, a suite of commands you just shipped.
+---
 
-The outcome is binary. No third path:
+## 1. Why Dogfooding Is the First Validation Pass
 
-- Either an observation is a bug → **fix it now, in this session, on this branch.**
-- Or the observations reveal the thing is fundamentally wrong-shape → **switch gears: stop the loop, enter replan/refactor.**
-- **Never** "log to known-bugs and keep going." That is file-and-defer wearing a dogfood costume.
+The improvement loop in this system runs: **observe a recurring pattern → capture a lesson → distill into doctrine → build the capability** (skill, script, pipeline, hook). At that point, the capability exists as text. It has not been invoked. The lesson that motivated it has not been falsified.
 
-This is distinct from its siblings in the coordinator workflow:
+Dogfooding is the step that converts "we wrote a thing" into "the thing works." It runs *before* the pattern is declared stable because stability is a runtime property, not a text property. A skill body that looks correct in review and fails in use is not a stable pattern — it is a draft that happened to survive review.
 
-| Skill | Work source | Fix scope |
-|-------|-------------|-----------|
-| `/dogfood` | Invokes a new thing; exercises it until it works or gets replanned | Whatever the smoke surface reveals |
-| `/bug-blitz` | Works `tasks/bug-backlog.md` (pre-existing known bugs) | Scoped per backlog item |
-| `/bug-sweep` | Searches the repo for AI-fixable bugs | Codebase-wide |
+The alternative — declaring stability at merge time and finding bugs in production — is more expensive: the next session inherits a broken capability, the lesson that validated it is wrong, and the fix has to be rediscovered rather than being in-session and in-cone.
 
-The critical distinction: a dogfood session is invocation-driven and fix-through by default. A bug-blitz is backlog-driven and item-scoped. They do not compose via remainder hand-off — `/dogfood` does not file remainder to the backlog.
+Running at the source-of-truth surface (the actual invocation, not a simulation of it) beats reasoning about correctness from the spec for the same reason real integration tests beat unit tests that mock every dependency: the real surface is where the unexpected failure modes live.
 
-## Three Tiers Explained
+---
 
-The tier controls scope and budget. PM declares at invocation.
+## 2. What "Fix-Through" Means
 
-### `--narrow` — Single Surface
+Dogfooding is **binary**: either the capability converges (works end-to-end) or the session switches gears (surfaces a replan ask to PM). There is no third outcome.
 
-One install, one command, one happy-path sequence. "Does it work?" Tight budget. No mid-loop PM check-in unless the surface explodes into unexpected complexity.
+The forbidden middle ground is **file-and-defer**: the dogfood run surfaces a bug, the bug gets logged to `tasks/bug-backlog.md` or a note in the handoff, and the session moves on. This pattern means:
 
-**Example:** Running `holodeck:setup` for the first time after shipping the plugin. The narrow pass checks: does install succeed? Does the post-install smoke probe pass? That's it — multi-surface coverage is out of scope.
+- The capability has not been proven. The lesson it was meant to validate remains a hypothesis.
+- The bug is now disconnected from the context in which it was found. Future sessions that pick it up from the backlog have lost the reproduction environment and the fix-cone.
+- The "dogfood" was actually a discovery run wearing a dogfood costume. Discovery is useful; calling it dogfood misrepresents the validation status of the capability.
 
-### `--broad` — Multi-Surface Happy Path
+Fix-through means: every in-cone bug found during the run is fixed in the same session, on the same branch, before the loop exits. The run does not end until the capability works or the session explicitly switches gears with PM confirmation.
 
-End-to-end flow across multiple commands/skills/agents. Larger budget. Auto-handoffs survive compaction across sessions.
+**Surface-and-skip is the narrow exception**, not the conservative move. Skipping is structurally correct only for: bugs requiring a PM-level product decision, external dependencies, or architectural rework that the plan author needs to redo. Skip ratio above 40% in a session signals the dogfood has lost fix-through character and should be re-evaluated.
 
-**Example:** After shipping a new set of coordinator commands, a broad pass exercises: `/session-start`, a plan dispatch, an executor dispatch, and `/session-end`. Each surface gets narrow treatment; the broad tier covers the connective tissue between them.
+---
 
-### `--shakedown` — Comprehensive Coverage Matrix
+## 3. The Convergence Signal
 
-Every declared tool/surface/path exercised once with realistic input. Requires a PM-declared coverage matrix at invocation (persisted to `tasks/dogfood-<target>-<date>/coverage-matrix.md`). Without a declared matrix, `--shakedown` degrades to `--broad`.
+A dogfood run needs a **concrete, machine-readable signal** that proves the capability worked end-to-end. Without one, the run is a vibes-check: the EM observed some output, formed an impression, and called it done. That is not a proof.
 
-**Example:** project-rag dogfooded on its own repo — every RAG tool (symbol search, semantic search, referencers, subsystem profile) exercised against real code, with a pre-declared matrix confirming each tool's exercise.
+Acceptable convergence signals:
 
-Shakedown is a *kind* of dogfood, not a separate activity. It composes inward: shakedown of a multi-tool surface = broad dogfood across each tool's narrow surface, with a coverage-matrix overlay.
+- **Exit code 0 on the primary happy path** — with cross-channel consistency (exit code matches stderr severity, status file matches probe behavior).
+- **Probe status mtime advancing** — a readiness probe whose status file updates to a known-good state proves downstream consumers will see the result.
+- **Log line transition** — a tagged stdout line whose value changes from a failure-class to a success-class across iterations (e.g., `Probe 9: FAIL → PASS`).
+- **Per-iteration modes.json going empty** — the `/dogfood` skill's mandatory `pass-<N>-modes.json` artifact converges to zero `{component, error-class}` tuples when no in-cone bugs remain.
 
-## The File-and-Defer Trap
+The convergence signal must be declared before entering the loop (Gate 2 of the `/dogfood` skill). If the target doesn't emit machine-parseable output, the first deliverable is a wrapper that produces it — not skipping the gate.
 
-<!-- negative-spec: empirical source at tasks/dogfood-prior-art/holodeck-insights-report.md; citation below -->
+---
 
-The holodeck install dogfood session (2026-05-07) revealed the trap with precision. The session's strongest finding, quoted from `tasks/dogfood-prior-art/holodeck-insights-report.md`:
+## 4. When to Switch Gears
 
-> "The pull toward file-and-defer came from handoff scope language, not EM behavior — phrases like 'do not expand scope, single goal, smoke verification only' accidentally invite defer-posture when bugs surface."
+Switching gears is correct when convergence is unattainable in-session without reversing a load-bearing structural choice. Signals that warrant it (from the `/dogfood` skill's switch-gears criteria):
 
-When the EM opened the session from a handoff that said "smoke verification only," the framing nudged toward treating every bug as out-of-scope. The bugs were real, in-cone, and fixable — but the inherited language made filing them feel like the correct move.
+- `pass-<N>-modes.json` contains ≥3–4 distinct `{component, error-class}` tuples — the loop has shifted from "verify a fix" to "discover more bugs," which is a different activity.
+- The same `{component, error-class}` tuple appears unchanged from pass N to pass N+1 — the loop is stuck.
+- The fix cone requires reversing an architectural decision the plan author made intentionally.
+- Skip ratio exceeds 40% of findings in the session.
 
-**Pre-Flight Gate 3 (Framing Audit) exists to break this trap before entering the loop.** When scope language from a handoff or inherited context invites verification-only posture, the EM surfaces it to PM explicitly and forces confirmation of fix-through posture before proceeding. This gate is hardcoded — it runs first, every invocation, including autonomous runs.
+On switch-gears, the EM proposes to PM with the mechanical signal as evidence, gets confirmation, and ends the loop. The session output is the replan ask — a precise description of what shape the rework needs to take. It is not a backlog dump and not a handoff with "investigate X" as the next step.
 
-## Self-Dogfood-First Doctrine
+Grinding past the switch-gears threshold because the budget still permits more iterations is the failure mode. Budget exhaustion is itself a switch-gears signal; it does not authorize filing the remainder to the backlog.
 
-<!-- source: tasks/dogfood-prior-art/dronesim-shakedown-report.md §5 -->
+---
 
-The DroneSim shakedown report (`tasks/dogfood-prior-art/dronesim-shakedown-report.md`, §5) quantified the cost of inverting the default: approximately **67% of the bugs the consumer team absorbed should have surfaced on the producer side first via self-dogfood**.
+## 5. What Dogfooding Is NOT
 
-The DroneSim case is the canonical inverted shape: cross-repo consumer team (DroneSim) dogfooding a sibling dependency (project-rag) before the producer had dogfooded itself. The consumer absorbed bugs the producer should have fixed before shipping. Multi-cycle, release-gated, expensive.
+Dogfooding is **not**:
 
-**Self-dogfood-first doctrine:**
+- **Unit tests** — unit tests validate components in isolation with controlled inputs. Dogfooding exercises the complete capability at its actual invocation surface with realistic inputs.
+- **Type checks or lint** — static analysis catches textual errors; dogfooding catches runtime behavior.
+- **A smoke that exits 0 without exercising the new path** — if the smoke doesn't trigger the code that was added, it didn't prove anything about the addition. An exit-0 smoke on a path that wasn't exercised is not a convergence signal; it's a false positive.
+- **A discovery run** — discovery (surfacing what exists or what's broken) is a precursor to dogfooding, not a synonym. Dogfooding begins after the capability exists and runs until it works or gets replanned.
 
-1. When a thing is built in repo X, the canonical first dogfood invocation is `/dogfood` *in repo X*.
-2. Cross-repo dogfood is a deliberate follow-up after self-dogfood converges — not a substitute.
-3. When `/dogfood` is invoked with a target from a different repo, the skill's first action is to surface the self-dogfood-first default and require PM acknowledgment.
+The `/dogfood` skill is distinct from `/bug-blitz` (works a known backlog) and `/bug-sweep` (searches the repo for latent bugs). Dogfooding is invocation-driven; it finds bugs the new thing causes when used, not bugs that were already there.
 
-This is a soft check (prompt-level), not a hard enforcement gate. The `/workweek-complete` cross-repo dogfood audit (Step 7) detects drift: any cross-repo `/dogfood` invocation during the week is checked for a preceding self-dogfood pass. Drift detected in that audit routes to `tasks/lessons.md`.
+---
 
-## Cone Classification — In-Cone / Out-of-Cone / Surface-and-Skip
+## 6. Recent Example — 2026-05-07 Agentic Install Hardening
 
-Every observation during the loop must be explicitly classified. The classification determines the action; it is mandatory and logged.
+The 2026-05-07 agentic-install-hardening dogfood smoke is the canonical example of fix-through behavior.
 
-### In-Cone — Fix-Now
+Three real bugs surfaced and shipped in the same session:
 
-The default. Mechanical fixes are in-scope by definition because the dogfood IS the test:
+- **W6 (`e35c6551`):** `install_status_writer` did not accept `status=skip` via `phase_end`. This caused phases that legitimately produced no work to emit no signal, leaving the watchdog and probe consumers without confirmation that the phase ran. Fixed forward.
+- **W7 (`ab951c2a`):** Watchdog autostart relied solely on Task Scheduler, which is unavailable on locked-down user profiles. The fix added a Startup-shortcut fallback and added unconditional immediate-launch at install time, closing a race window where the watchdog was not running between install and the first scheduler trigger.
+- **W8 (`f7f6c552`):** Setup honesty — phase status accuracy and summary truth-telling. The setup script reported phases as complete when their observable output (status file, probe state) hadn't confirmed it.
 
-- Validator gaps, missing fallbacks, false-success exits, off-by-one errors
-- Missing flag handling, idempotency gaps
-- **The skill/script/pipeline body itself** — if dogfooding a new skill and the skill has a bug, fixing the skill is the whole point
-- Doctrine and wiki files the target depends on, when the smoke trips them
+The convergence signal was concrete: **Probe 9 status mtime advanced from FAIL to PASS in 0.9 seconds** after W7 landed. That transition was the observable that proved the capability worked end-to-end.
 
-In-cone is the default: the question is "is there a real reason this isn't fix-now?" — not "do I have permission to fix this?"
+Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `tasks/bug-backlog.md`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
 
-**Worked example — holodeck commit `e35c6551`.** During the holodeck install dogfood, the install script's post-install probe returned a false success exit while stderr carried a warning about a missing probe. Classification: in-cone (emission-side false positive, structural fix required). Fix: capture in-process probe truth at decision time; emit one consistent signal. Smoke evidence in commit body: "probe now returns exit 1 on missing probe; prior pass exit 0 + stderr WARNING confirmed false success pattern."
+Canonical archived plan: `archive/specs/2026-05-06-agentic-install-hardening.md`.
 
-**Worked example — holodeck commit `ab951c2a`.** Subsequent pass surfaced that the status file claimed "ready" while the downstream consumer (holodeck-doctor probe 14) reported not-found. Classification: in-cone (cross-channel contradiction). Fix: status file now written only after downstream readiness probe fires. Smoke evidence in commit body: "pass N-1 status=ready + probe=not-found; pass N status written post-probe, probe fires clean."
+---
 
-### Out-of-Cone — Switch-Gears
+## Cross-References
 
-When the bug requires architectural rework that the plan author should re-do. Three signals:
-
-- ≥3 distinct failures attributable to the same architectural shape decision (the shape is the bug)
-- Fixing would require reversing a load-bearing structural choice in the thing being dogfooded
-- The `pass-<N>-modes.json` tuple count hits ≥3–4 distinct `{component, error-class}` entries in one pass
-
-On out-of-cone classification, loop ends on PM confirm. The dogfood session's output is the replan ask, not a converged thing.
-
-### Surface-and-Skip
-
-Reserved for genuinely external scope: PM-level product decisions, externalities (PRs, signing, network dependencies), or architectural rework that is out-of-cone. **Surface-and-skip is the rare exception, not the conservative move.**
-
-Each instance requires a structured entry:
-```json
-{ "category": "pm-product | externality | architectural-rework", "evidence": "<link-or-pointer>" }
-```
-
-Entries land in `tasks/dogfood-<target>-<date>/surface-and-skip.md`, **not** `tasks/bug-backlog.md`. Skip-ratio threshold: >40% over the session, or >2 consecutive skips without an interleaved fix-now, triggers "is this dogfood the wrong shape?" surface to PM.
-
-## Switch-Gears Triggers
-
-Switch-gears is a judgment call, but two empirical signals are well-grounded.
-
-### Failure-Mode Shift Threshold
-
-When a single iteration surfaces ≥3–4 distinct failure *modes* (not bugs — modes: same component, same error class), the loop has transitioned from "verify a fix" to "discover-more-bugs." The per-iteration `pass-<N>-modes.json` makes this mechanical: count tuples.
-
-**DroneSim inflection point:** "Retries 1–3 each surfaced a different bug; retry 4 surfaced two more" — this is the empirical inflection that defines the threshold. Retries 1–3 are normal fix-through. When retry 4 brings two new modes on top of the prior three, the session has entered discovery mode. That's out-of-cone for a fix-through loop.
-
-### Same Seam, Different Bugs
-
-≥3 distinct failures attributable to the same architectural shape decision means the shape is the bug. No fix count will converge the session; the right action is out-of-cone classification and a replan ask.
-
-**Example:** Three separate passes each surface a different failure in the same hook script — exit-code mismatch, path resolution error, env-var not propagated. All three trace to the hook receiving state late in the pipeline rather than at the point of truth. The seam is wrong; patching callers will not converge.
-
-## Worked Examples — Holodeck Commits
-
-Both commits below demonstrate the canonical fix-through shape: smoke invocation → cross-channel contradiction surfaced → structural fix → smoke evidence in commit body.
-
-**`e35c6551`** (holodeck install dogfood, pass 2):
-
-The install script exited 0 and wrote `status: ready` while stderr carried `WARNING: plugin-index probe returned not-found`. Cone: in-cone (emission-side false positive). Fix: probe truth captured in-process before status file is written; status file writes only on probe success. Commit body: "pass 1 exit=0 + status=ready + stderr WARNING; pass 2 exit=1 on missing probe, probe-fires-then-status-writes, exit=0 clean." This is the canonical cross-channel observation shape.
-
-**`ab951c2a`** (holodeck install dogfood, pass 3):
-
-Fix from `e35c6551` revealed a downstream consumer (holodeck-doctor probe 14) was reading the status file before the probe had propagated. Cone: in-cone (same emission surface, different channel gap). Fix: status file gated on readiness probe firing from the consumer's perspective, not just the producer's write. Commit body: "pass 2 status=ready + probe 14=not-found; pass 3 probe fires clean before status written, probe 14 reports ready."
-
-These two commits are the DroneSim report's "three bugs surfaced in strict sequence" pattern, rendered on the holodeck surface: each bug was invisible until the shallower one was fixed.
-
-## How This Doctrine Was Built
-
-Two prior-art reports inform this doctrine, both at `~/.claude/tasks/dogfood-prior-art/`:
-
-- **`holodeck-insights-report.md`** — retrospective from a 2026-05-07 self-dogfood session on the holodeck install/setup pipeline. Strongest finding: the file-and-defer pull came from inherited handoff language, not EM behavior. This is the canonical self-dogfood shape (fix-through, converged).
-
-- **`dronesim-shakedown-report.md`** — five-cycle shakedown campaign of project-rag by the DroneSim consumer team. Strongest finding: ~67% of bugs absorbed by the consumer were reachable from the producer's machine via self-dogfood. This is the canonical inverted shape (cross-repo before self-dogfood, multi-cycle, expensive).
-
-The two cases are complementary: holodeck is the right shape; DroneSim is the cautionary inversion. Doctrine calibrates against both.
+- **`/dogfood` skill** — `coordinator/skills/dogfood/SKILL.md` — the full operational procedure: three-tier gate (narrow/broad/shakedown), pre-flight gates (idempotency, machine-parseable progress, framing audit, coverage matrix), loop mechanics, switch-gears protocol, convergence criteria, commit doctrine, flight recorder directory structure.
+- **Doctrine cite** — `coordinator/CLAUDE.md` § Self-Improvement Loop, line 169: *"Dogfooding new capabilities is the loop's first validation pass. Before a lesson-captured pattern is declared stable, the thing it produced should be exercised end-to-end via `/dogfood`. Binary outcome — converge or switch gears; no file-and-defer."*
+- **`/learn-lessons` skill** — `coordinator/skills/learn-lessons/SKILL.md` — the upstream step; surfaces patterns that need dogfooding before they can be declared stable.

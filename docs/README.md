@@ -46,7 +46,7 @@ Plans from design and implementation sessions are kept locally in `docs/plans/` 
 
 | Plan | Date | Status |
 |------|------|--------|
-| [executor-touched-files visibility + executor-commit branch drift fix](plans/2026-05-05-executor-touched-branch-pin.md) | 2026-05-05 | Patrik APPROVED with 8 findings integrated |
+| [executor-touched-files visibility + executor-commit branch drift fix](plans/2026-05-05-executor-touched-branch-pin.md) | 2026-05-05 | Staff Engineer APPROVED with 8 findings integrated |
 
 ---
 

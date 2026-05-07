@@ -9,12 +9,6 @@ This guide is for humans who want to drive the install themselves or read what's
 - Python 3 (for the install script's JSON handling)
 - [jq](https://jqlang.github.io/jq/) — used by hook scripts for JSON parsing (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`). Basic hooks degrade gracefully without it.
 
-### Optional: Temporal Memory
-
-The [remember plugin](https://github.com/anthropics/claude-plugins-official) (`claude-plugins-official` marketplace) adds automatic session-by-session memory — Haiku summarizes what happened in rolling daily/weekly/archive files under `.remember/`. The coordinator's `/update-docs` and `/workday-complete` commands integrate with it when present (cross-referencing activity against the project tracker, enriching the completed archive audit). Without it, those steps are silently skipped — no core functionality depends on it.
-
-To install: `claude plugin install remember` from the `claude-plugins-official` marketplace. On Windows, run `bash setup/patch-remember-plugin.sh` after installing to fix path resolution for the plugin-cache layout.
-
 ## Installation
 
 ### Automated (recommended)
@@ -64,15 +58,15 @@ bash setup/install.sh --plugins coordinator,game-dev --non-interactive
 
 Use `--non-interactive` for unattended installs.
 
-### Persona Customization
+### Naming Reviewers (optional)
 
-After installation, you can rename the reviewer personas:
+After installation, you can optionally bind personal names to role labels:
 
 ```bash
-bash setup/rename-personas.sh Patrik "Alex" Zolí "Jordan"
+bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"
 ```
 
-This renames display names in prose — agent behavior is defined by descriptions, not names. See [docs/customization.md](customization.md) for details.
+This replaces role labels in prose with your chosen names — agent behavior is defined by descriptions, not names. See [docs/customization.md](customization.md) for the full role table and details.
 
 <details>
 <summary>Manual Installation</summary>
@@ -243,21 +237,21 @@ project_type: web
 ```
 
 Valid `project_type` values:
-- `web` — activates Palí (frontend) + Fru (UX) reviewers
-- `data-science` — activates Camelia (ML/data) reviewer
-- `game` — activates Sid (Unreal Engine) reviewer
+- `web` — activates the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`)
+- `data-science` — activates the Data Science Reviewer (`data-science:staff-data-sci`)
+- `game` — activates the Game Dev Reviewer (`game-dev:staff-game-dev`)
 - `pure-docs` — documentation projects, coordinator only
 
-Without a config file, the coordinator defaults to core-only mode (Patrik + Zolí universal reviewers).
+Without a config file, the coordinator defaults to core-only mode — the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`), and the VP-Product Reviewer (`coordinator:vp-product`) as universal reviewers.
 
 You can also explicitly list reviewers:
 
 ```yaml
 ---
 active_reviewers:
-  - patrik
-  - sid
-  - camelia
+  - staff-eng
+  - staff-game-dev
+  - staff-data-sci
 ---
 ```
 
@@ -296,5 +290,5 @@ rm -rf ~/.claude/plugins/cache/coordinator-claude
 - Read [docs/architecture.md](architecture.md) to understand how the system works
 - Read [docs/customization.md](customization.md) to learn how to adapt personas and add skills
 - Try `/review-dispatch` to route code to a reviewer
-- Try `/deep-research` for multi-agent codebase or internet research
-- Try `/delegate-execution` to dispatch an executor agent on a well-specified task
+- Try `/research` for multi-agent codebase or internet research (deep-research plugin)
+- Try `/execute-plan` to run a PM-approved plan directly in-session

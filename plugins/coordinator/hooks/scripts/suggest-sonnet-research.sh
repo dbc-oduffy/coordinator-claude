@@ -4,10 +4,10 @@
 # Single URL from the user = proceed directly. Everything else = delegate.
 
 # Build the research pipeline suggestions conditionally
-RESEARCH_SUGGESTIONS="- Multi-query internet research → /deep-research (Pipeline A) — dispatches deep-research-orchestrator\n- Structured batch research (N subjects, same topics) → /structured-research — dispatches Agent Teams via deep-research plugin\n- Quick codebase exploration → Agent with subagent_type='Explore'\n- Enriching specs with codebase facts → Agent with subagent_type='coordinator:enricher'\n- YouTube / podcast / audio research → /notebooklm-research"
+RESEARCH_SUGGESTIONS="- Internet research (web sources) → /research --mode=web <topic>\n- Codebase / repo research → /research --mode=repo <path> [--deepest]\n- Structured batch research (N subjects, schema output) → /research --mode=structured <spec-path>\n- Quick codebase exploration → Agent with subagent_type='Explore'\n- Enriching specs with codebase facts → Agent with subagent_type='coordinator:enricher'\n- YouTube / podcast / audio research → /notebooklm-research"
 
 if [[ ! -d "$HOME/.claude/plugins/coordinator-claude/deep-research" ]]; then
-  RESEARCH_SUGGESTIONS="- Multi-query internet research → install the deep-research plugin for Pipeline A\n- Structured batch research (N subjects, same topics) → install the deep-research plugin for Pipeline C\n- Quick codebase exploration → Agent with subagent_type='Explore'\n- Enriching specs with codebase facts → Agent with subagent_type='coordinator:enricher'"
+  RESEARCH_SUGGESTIONS="- Any research (web/repo/structured) → install the deep-research plugin, then /research --mode={web,repo,structured}\n- Quick codebase exploration → Agent with subagent_type='Explore'\n- Enriching specs with codebase facts → Agent with subagent_type='coordinator:enricher'"
 fi
 
 cat << HOOK_OUTPUT

@@ -27,7 +27,7 @@ The system uses three model tiers, each matched to the cognitive demands of thei
 
 | Tier | Model | Roles | Why |
 |------|-------|-------|-----|
-| Opus | Orchestrator | Coordinator (EM), reviewers (Patrik, Sid, Camelia, etc.), research orchestrators | Judgment, analysis, architectural decisions |
+| Opus | Orchestrator | Coordinator (EM), reviewers (the Staff Engineer (`coordinator:staff-eng`), the Game Dev Reviewer (`game-dev:staff-game-dev`), the Data Science Reviewer (`data-science:staff-data-sci`), etc.), research orchestrators | Judgment, analysis, architectural decisions |
 | Sonnet | Executor | Executor agents, enricher agents, review-integrator, research synthesizers | Faithful spec-following, implementation, research |
 | Haiku | Verifier | Mechanical checks, template validation, compile verification, discovery scouts | Speed, cost, high-throughput mechanical work |
 
@@ -53,12 +53,12 @@ Applies reviewer findings to artifacts after review dispatch. Receives structure
 
 | Reviewer | Domain | Focus |
 |----------|--------|-------|
-| **Patrik** | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
-| **Zolí** | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to Patrik. |
-| **Sid** | Game dev, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches documentation rather than guessing. |
-| **Palí** | Front-end | Design system adherence, token validation, component patterns. "Close enough" to design specs is often correct when it means using standard utilities. |
-| **Fru** | UX flow | Trust signals, clarity, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
-| **Camelia** | Data science, ML/AI | Statistical validity, ML methodology, data quality, experimental design. Complements Patrik's engineering lens with quantitative expertise. |
+| **the Staff Engineer** (`coordinator:staff-eng`) | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
+| **the Ambition Advocate** (`coordinator:ambition-advocate`) | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to the Staff Engineer. |
+| **the Game Dev Reviewer** (`game-dev:staff-game-dev`) | Game dev, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches documentation rather than guessing. |
+| **the Front-End Reviewer** (`web-dev:senior-front-end`) | Front-end | Design system adherence, token validation, component patterns. "Close enough" to design specs is often correct when it means using standard utilities. |
+| **the UX Reviewer** (`web-dev:staff-ux`) | UX flow | Trust signals, clarity, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
+| **the Data Science Reviewer** (`data-science:staff-data-sci`) | Data science, ML/AI | Statistical validity, ML methodology, data quality, experimental design. Complements the Staff Engineer's engineering lens with quantitative expertise. |
 
 ### Research Orchestrators (Opus)
 Dispatch Haiku scouts and Sonnet verifiers, evaluate quality gates, synthesize final output. Three pipeline modes:
@@ -71,9 +71,11 @@ Dispatch Haiku scouts and Sonnet verifiers, evaluate quality gates, synthesize f
 A feature typically flows through:
 
 ```
-Brainstorm -> Plan -> Enrich -> Review Enrichment -> Execute -> Spec Check -> Code Review -> Backstop -> Ship
-  (skill)   (skill) (enricher)    (reviewer)       (executor) (coordinator) (Patrik+domain) (Zoli)    (skill)
+Brainstorm -> Plan -> Prior-Art Check -> Enrich -> Review Enrichment -> Execute -> Spec Check -> Code Review -> Backstop -> Ship
+  (skill)  (super-skill) (Sonnet recall) (enricher)    (reviewer)       (executor) (coordinator) (Staff Engineer+domain) (Ambition Advocate) (skill)
 ```
+
+The `Plan` stage is a decision-tree super-skill (`coordinator:plan`) — triage / substrate / compose / exit, see [docs/evolution/07-super-skills.md](evolution/07-super-skills.md). The `Prior-Art Check` stage is a Sonnet recall pass that cross-references the plan against project + global wikis, `tasks/lessons.md`, and the central improvement queue before an Opus reviewer touches it; doctrine in [`plugins/coordinator/docs/wiki/prior-art-checker.md`](../plugins/coordinator/docs/wiki/prior-art-checker.md).
 
 Each stage is a quality checkpoint:
 - **Brainstorm** catches wrong direction
@@ -104,22 +106,22 @@ This transforms what would be sequential N-item execution into M-wave execution 
 
 The routing system is **composable**:
 
-1. Coordinator defines universal reviewers (Patrik, Zolí) in `plugins/coordinator/routing.md`
-2. Domain plugins contribute fragments via their own `routing.md` (e.g., game-dev registers Sid)
+1. Coordinator defines universal reviewers (the Staff Engineer, the Ambition Advocate) in `plugins/coordinator/routing.md`
+2. Domain plugins contribute fragments via their own `routing.md` (e.g., game-dev registers the Game Dev Reviewer)
 3. `/review-dispatch` merges all fragments at dispatch time
 4. Changed code signals determine which reviewer handles it
-5. Unmatched signals fall back to Patrik
+5. Unmatched signals fall back to the Staff Engineer
 
 Sequential review protocol (for non-trivial changes):
 1. Domain specialist first (if applicable)
 2. Coordinator applies findings
-3. Patrik catches regressions (generalist pass)
-4. Zolí challenges conservatism (backstop, when warranted)
+3. The Staff Engineer catches regressions (generalist pass)
+4. The Ambition Advocate challenges conservatism (backstop, when warranted)
 
 ### Backstop Reconciliation
 
-When Zolí (backstop) returns:
-- `BACKSTOP_AGREES` — Patrik's conservative approach is genuinely appropriate; proceed
+When the Ambition Advocate (backstop) returns:
+- `BACKSTOP_AGREES` — the Staff Engineer's conservative approach is genuinely appropriate; proceed
 - `BACKSTOP_CHALLENGES` — Both perspectives surface to coordinator/PM for resolution
 - `BACKSTOP_OVERRIDES` — The conservative approach is clearly wrong; rare "iceberg" territory
 
@@ -176,7 +178,6 @@ This system maintains several complementary knowledge layers instead:
 | **Structure** | `DIRECTORY.md` | File-by-file index with purpose annotations | Auto-generated, updated by `/update-docs` when source files change |
 | **Architecture** | Architecture atlas (`tasks/architecture-atlas/`) | System boundaries, connectivity, health scores | Multi-agent audit pipeline; weekly rotation targets stalest system |
 | **Activity** | Repo map (`.claude/repomap.md`) | Git-activity-ranked file list, fitted to token budget | Generated on demand; ranked by churn, not just existence |
-| **Temporal** | `.remember/` (remember plugin) | Rolling session-by-session activity log: what happened today, this week, historically | Automatic — Haiku summarizes sessions in background; compresses daily → weekly → archive |
 | **Intent** | Project tracker, roadmaps, plan docs | What's being built, what's blocked, what shipped | PM-maintained with EM assistance; `/update-docs` syncs status |
 | **State** | Health ledger, bug/debt backlogs | Known issues, sweep results, system health | Updated by sweeps and audits; surfaced at session start |
 
@@ -184,33 +185,19 @@ None of these are loaded in bulk. The system uses a **tiered context model**:
 
 ```
 L1 (always in context)   CLAUDE.md + MEMORY.md + orientation cache (~60 lines)
-                         + .remember/ files (if remember plugin active)
 L2 (on-demand)           DIRECTORY.md, atlas, repomap, tracker, backlogs
 L3 (deep storage)        Codebase, git history — read by subagents, never bulk-loaded
 ```
 
 The **orientation cache** is the key. Generated by `/workday-start`, it's a ~60-line ephemeral summary that distills L2 artifacts into a compact briefing: top-ranked files, directory structure at a glance, health snapshot, doc freshness, and pointers to every L2 artifact for drill-down.
 
-### Temporal Memory (`.remember/` — Soft Dependency)
+### Why no agent-summarized session memory
 
-The [remember plugin](https://github.com/anthropics/claude-plugins-official) (community, `claude-plugins-official` marketplace) provides automatic temporal memory — a rolling log of what happened across sessions, without manual intervention. It hooks into Claude Code's lifecycle:
-
-- **PostToolUse hook** counts JSONL lines since the last save; when the delta exceeds a threshold (default 50), it backgrounds a Haiku call to summarize the session's exchanges into a one-line entry in `.remember/now.md`
-- **Hourly NDC compression** merges `now.md` entries into `today-YYYY-MM-DD.md` — grouped by time block, maximally compressed
-- **SessionStart consolidation** compresses past-day files into `recent.md` (7-day window) and `archive.md` (older, by week)
-
-The coordinator integrates with this when present:
-- **`/update-docs` Phase 1** cross-references `recent.md` against the project tracker — flagging untracked work, stale workstreams, and completed-but-unrecorded items
-- **`/workday-complete` Step 3.6** reads `today-*.md` and `now.md` alongside git log for the completed archive audit, catching work that doesn't produce commits (research, debugging, exploration)
-- **SessionStart hook** injects all `.remember/` files into context automatically
-
-All integrations are gracefully degrading — if `.remember/` doesn't exist, the steps are silently skipped. The plugin is not required for any core functionality.
-
-**Windows note:** The remember plugin's session slug computation and path resolution assume a Unix layout. On Windows with a plugin-cache install, a [patch script](../setup/patch-remember-plugin.sh) applies compatibility fixes. Re-run after plugin updates.
+Earlier versions of this system experimented with a `remember`-style plugin that summarized session activity into rolling daily/weekly memory files. We removed it. The handoff/commit/plan pipeline already produces a higher-fidelity record of what each session did — handoffs as the atom of session continuity, auto-pushed commits as a structured `git log -p` audit trail, plan documents on disk as write-ahead intent. Agent-summarized memory duplicated that work at worse fidelity, added its own staleness modes, and competed for context with the orientation cache. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. See [`docs/evolution/08-loop-closure.md`](evolution/08-loop-closure.md).
 
 ### Fighting Staleness
 
-The hard part of maintaining project documentation isn't generating it — it's keeping it current. `/update-docs` is an 11-phase maintenance pipeline that syncs all documentation artifacts against the codebase on every run: refreshing source indexes, archiving completed work, trimming lessons, checking the architecture atlas for unmapped files, and flagging drift. `/workday-start` surfaces staleness metrics at the top of each day.
+The hard part of maintaining project documentation isn't generating it — it's keeping it current. `/update-docs` is an 11-phase maintenance pipeline that syncs all documentation artifacts against the codebase on every run: refreshing source indexes, archiving completed work, triaging lessons via `/learn-lessons` (local mode), checking the architecture atlas for unmapped files, and flagging drift. `/workday-start` surfaces staleness metrics at the top of each day. The lesson-triage step closes one of four loops re-architected in v2.0.0 — see [docs/evolution/08-loop-closure.md](evolution/08-loop-closure.md).
 
 ### "Grep Bait" as a Design Principle
 
