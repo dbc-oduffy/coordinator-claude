@@ -40,7 +40,7 @@ def check_routing_files(errors: list):
             # Backstop chain validation: warn when **Backstop:** AgentName doesn't resolve
             # Names in routing may not exactly match filenames — fuzzy match against stems
             # Searches all plugin agent directories so cross-plugin references (e.g. game-dev
-            # routing referencing "Patrik") resolve against coordinator agents correctly.
+            # routing referencing "the Staff Engineer") resolve against coordinator agents correctly.
             for match in re.finditer(r'\*\*Backstop:\*\*\s+(\S+)', line):
                 raw_name = match.group(1).rstrip(".,;)")
                 # Collect all table-row agent names for orphan check too

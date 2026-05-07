@@ -61,7 +61,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 
 **Tripwires** (greppable contact-point reminders — full detail in linked wiki):
 
-- **Staff Engineer UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
+- **Patrik UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
 - **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz`, `/dogfood` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
@@ -104,13 +104,17 @@ When a scout's deliverable is a file on disk, the dispatch prompt MUST end with:
 
 ## Verifying Executor Output After a Crash or Timeout
 
-Files written before failure persist — partial output is the common case. When an executor fails:
+Files written before failure persist — partial output is the common case. This applies after any failure shape: kill, timeout, 1M-context tail-error, or stall. When an executor fails:
 
-1. `git status` against expected scope; check each file present and non-trivial. If the executor reported specific commits, verify attribution via `git show --stat <sha>` — executor reports can fabricate commit attribution. Chat summary is hypothesis; git log is authoritative.
+1. `git status` against expected scope; check each file present and non-trivial. If the executor reported specific commits, verify attribution via `git show --stat <sha>` — executor reports can fabricate commit attribution. "Already in file" claims are sometimes post-hoc rationalizations of just-completed work; run `git diff` to distinguish. Chat summary is hypothesis; git log is authoritative.
 2. Diff partial output against the spec.
 3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
 
 **Orphan `.tmp.<pid>.<nanos>` files = Edit tool atomic-write crash signature.** A crash mid-rename leaves the temp file with the executor's intended content. Diff against the target before deleting.
+
+**Test files written by a killed executor must be RUN, not just read.** Latent bugs cluster at imports (repo-wide path-shadowing conventions), fixture return shapes, and helper assertions encoding expectations the executor never empirically validated. Read-only recovery misses these; run the test suite over the new files before declaring recovery complete.
+
+**Apply-agent stall recovery: two failure shapes look identical in chat but differ on disk.** Before choosing redispatch-from-scratch vs `SendMessage`-resume, run `git diff --stat` + `git log --oneline -- <expected-paths>`: if substantive work landed on disk, `SendMessage` to resume from where it stalled; if zero tool-use occurred, redispatch from scratch.
 
 ## Executor Dispatch Mode
 
@@ -130,7 +134,7 @@ Autonomous-execution commands background everything by default. EM holds the wav
 
 → Procedure: walk `coordinator:plan` (decision-tree skill). Surviving doctrine bullets below are linked by that skill's branches and remain canonical here.
 
-- **Plan is a skill invocation, not a writing instruction.** When the PM types any of "plan", "let's plan", "write a plan", "draft a plan", "break this down", "plan the implementation" — the EM's first action is `Skill(coordinator:plan)`, period. Triage of "should I plan vs. just do it" lives inside the skill (Branch A), not in the EM's pre-skill judgment. Writing a plan body to disk via `Write` without first invoking the skill skips substrate verification (Branch B), the four PM doctrinal lenses (Branch C), and the prior-art-checker → Staff Engineer → integrator chain at Exit (the full 5-step plan-writing pipeline). That's a doctrine violation — re-do via the skill.
+- **Plan is a skill invocation, not a writing instruction.** When the PM types any of "plan", "let's plan", "write a plan", "draft a plan", "break this down", "plan the implementation" — the EM's first action is `Skill(coordinator:plan)`, period. Triage of "should I plan vs. just do it" lives inside the skill (Branch A), not in the EM's pre-skill judgment. Writing a plan body to disk via `Write` without first invoking the skill skips substrate verification (Branch B), the four PM doctrinal lenses (Branch C), and the prior-art-checker → Patrik → integrator chain at Exit (the full 5-step plan-writing pipeline). That's a doctrine violation — re-do via the skill.
 - **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Persist review output and plan artifacts to disk before acting.**
 - **STOP and re-plan when something goes sideways.**
@@ -141,13 +145,18 @@ Autonomous-execution commands background everything by default. EM holds the wav
 Plans drafted against unchecked substrate become dispatches that find a different reality on disk. Verify at plan-write time, not after the executor reports back.
 
 - **Investigate before planning.** Bug reports and consumer docs are framing, not ground truth. For plans touching producers/consumers/schema, dispatch a scout for file:line evidence. Plans claiming "fully independent files" still need EM file-overlap analysis before parallel dispatch.
-- **Verify paths, framework names, helper APIs against disk.** Plans citing "Jest" when the harness is `node:test`, or `npm test` when the script is `bun run test`, fail at first executor invocation.
-- **Grep seams, don't invent them.** API seams and module boundaries cited must be confirmed by grep. Triage tables must be Read per-file; counts are not a substitute.
+- **Verify paths, framework names, helper APIs against disk — at plan time, not completion.** Plans citing "Jest" when the harness is `node:test`, or `npm test` when the script is `bun run test`, fail at first executor invocation. This applies equally to recovery and setup scripts: read every script the plan will modify before authoring the plan. (failure mode: substrate-fact errors that a 2-minute disk check at authoring time would catch.)
+- **Grep seams, don't invent them.** API seams and module boundaries cited must be confirmed by grep. Triage tables must be Read per-file; counts are not a substitute. Plan seams ARE framework names: "triage-by-behaviour" is a verification claim and must be confirmed the same way. (recurring failure; treat absence of a grep citation as a plan smell)
 - **Grep existing surface before scaffolding agent-facing files** — duplicate-creation collisions hide under longer existing names.
-- **Spec instructions are not authoritative on call-site count.** "Bump constant X"/"rename helper Y" needs grep over usages before declaring scope.
+- **Spec instructions are not authoritative on call-site count or constant identity.** "Bump constant X"/"rename helper Y" needs grep over usages before declaring scope. A spec-cited constant may belong to a different index than the one the plan targets — verify the constant's actual role in code before bumping it.
 - **Paginated grep truncates enumeration claims.** Use `head_limit:0` or count-mode and quote the exact command. Default `head_limit:100` silently caps.
 - **Native-code plans require 2-3 in-tree `file:line` citations** in the dispatch brief.
 - **Premise-pass before regenerating torn-down structure.** When reversing a prior decision, grep wiki+lessons for *why*.
+- **Duplicate-detection requires body comparison, not metadata screening.** File existence and frontmatter are triage signals; two artifacts with matching frontmatter can diverge in content. Read both bodies before concluding deduplication is safe.
+- **Dispatch-brief task ordering must be explicit when later tasks reference earlier-task outputs.** Implicit ordering assumptions produce executors that reach for files that don't exist yet. Sequence tasks explicitly in the brief; name the output file each task depends on.
+- **Survey plan-substrate state before dispatching executors on a not-just-authored plan.** Plans age: files move, constants change, scaffolding lands between plan-write and dispatch. A quick `git log --oneline` + targeted reads closes the staleness window before an executor finds a different reality.
+- **Premise contradictions resolve in the fix-wave preamble, not in a separate verification wave** — see § Convergence as Confidence for the read-source rule itself.
+- **Audit symptom is correct; locus may be wrong.** An audit finding that a value is wrong at a given location does not mean the fix belongs there — verify the producer code before accepting the audit's proposed fix-locus. The symptom survives; the attribution is a hypothesis.
 - **5-dimension confidence checklist:** no-duplicate / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All five green or stop.
 
 ## Self-Improvement Loop
@@ -189,12 +198,16 @@ The predecessor is **whatever handoff this session was opened with — period.**
 
 "Most recent handoff" is a facile signal — concurrent sessions across machines produce timestamp-adjacent handoffs unrelated to each other. Adjacency is not ancestry. A handoff has one predecessor, not many. Combining predecessors only happens by explicit PM direction. Do not archive other handoffs as "superseded" on your own.
 
-**Concurrent crashed threads get separate handoffs, not a combined recovery handoff.** Recovery-session simultaneity is not workstream identity — combining buries one workstream's pending state under the other's narrative.
+**Concurrent crashed threads get separate handoffs, not a combined recovery handoff.** Recovery-session simultaneity is not workstream identity — combining buries one workstream's pending state under the other's narrative. Reconstructed handoffs (built from reflog + wave-docs + reviewer files + uncommitted-diff content-shape attribution) carry `reconstructed_by:` in frontmatter so successors can weight them appropriately.
 
 - **Claude Code restart is a session boundary, not a step within a session.** Hand off before the restart.
 - **Mandate absorbed by a concurrent peer = no-pickup signal.** Stand down; don't find filler work.
 - **Commit message beats handoff for checkpoint state.** Handoffs decay faster than git history.
+- **Orphan-promotion handoffs function as live specs.** Concurrent execution can outpace commit cadence — treat the handoff body as authoritative until git catches up, and don't redispatch from the handoff over work already in flight.
+- **Pair status bullets with "why this matters" per workstream.** Framing carries as much signal as content — a bare status list strands the successor on the same diagnostic path the author already walked.
+- **Frontmatter `status` enum is `active | consumed | superseded`.** `shipped` is rejected — use `consumed` plus a `shipped_in:` field (commit SHA or PR ref). (failure mode: validator-blocked Edits on the next neighboring change)
 - **Spinoffs are forks, not continuations.** Mid-session handoff for work the current EM won't execute. Frontmatter: `kind: spinoff`, `predecessor: none`, `authoring_session`, `workstream`. Author via `/spinoff <slug>`.
+- **Handoffs are for in-progress work with a successor.** End-of-run housekeeping for a shipped workstream is `/workday-complete` (week-changelog) or commit-and-stop, not a `tasks/handoffs/` file. The successor-work check is binary: if nothing needs picking up, do not write a handoff. Shipped ≠ handed-off.
 
 ## Documentation and Knowledge System
 
@@ -206,6 +219,8 @@ The predecessor is **whatever handoff this session was opened with — period.**
 - `docs/wiki/plugin-extraction-and-distribution.md`, `docs/wiki/claude-code-platform-gotchas.md` — checklists/reference.
 
 **Stale doc references: repoint when covered, create only when genuinely missing.** Don't scaffold when an existing file carries the topic.
+
+**CLAUDE.md is load-bearing — read at every session boot.** Default fold target for queue entries / lessons is an existing wiki, not CLAUDE.md. Promote to CLAUDE.md only when the rule is a cross-cutting tripwire that must be greppable from boot. Re-triage proposing CLAUDE.md as target is permissive routing, not a verdict — the EM is the size gate. Doctrine: `docs/wiki/document-bloat-trim.md`.
 
 **Memory is for cross-session pointers, not decision content.** Decisions/frameworks/strategies belong in plans/wikis/DRs.
 
@@ -233,6 +248,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 - **Test-design discipline:** `docs/wiki/test-design-discipline.md`.
 - **Cleanup / sweep / migration hazards:** `docs/wiki/cleanup-sweep-hazards.md`.
 - **Fan-out OOM reproducers need four-dimension assertions** (peak RSS, commit count, concurrent-session count, wall-clock time). Single-dimension tests miss the interaction failure modes. Full strategy: `docs/wiki/oom-reproducer-strategy.md`.
+- **Domain-specific implementation standards** (observability contracts, database / indexer correctness, dependency management, engine plugin packaging): `docs/wiki/implementation-standards-by-domain.md`.
 
 ## Review Sequencing
 
@@ -291,23 +307,17 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting,
 
 ## Concurrent-EM Git Operations
 
-Default operating reality is multiple EM sessions sharing a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination. Full mechanics: `docs/wiki/daily-branch-discipline.md` and `~/.claude/docs/wiki/scoped-safety-commits.md`.
+Default operating reality is multiple EM sessions sharing a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination. Full mechanics: `docs/wiki/daily-branch-discipline.md` and `~/.claude/docs/wiki/scoped-safety-commits.md`. Greppable rules below; details + failure modes in the wikis.
 
-- **One active workstream branch per machine, always.** Active branch is **either** the workstream branch (`work/{machine}/{date-or-span}`) **or** `main` (read-only, PR-only). No `feature/*`, no `hotfix/*`, no ad-hoc siblings, no worktrees. Park WIP by committing on the workstream branch or `git stash push -u`. Hook `block-off-daily-branch.sh` polices shape, not date. Override (logged): `COORDINATOR_OVERRIDE_BRANCH=1`. Integrate via `/merge-to-main` or `/workday-complete`; never push `main` directly.
-- **Commits are quick-saves.** Commit at natural checkpoints. Diff size is not a gate — a 14-file diff on the workstream branch commits the same as a 1-file diff. Don't offer the PM a pre-commit review or ask "want to commit?"; the workstream branch IS the review buffer, auto-push handles propagation, and `/merge-to-main` is the only externally-visible gate. Importing "big diff = stakeholder review" is the human-engineering instinct the global doctrine explicitly rejects.
-- **Scoped staging is the default. Never `git add -A` or `git add .`** Use `bin/coordinator-safe-commit "<subject>"`. `/session-start` and `/workday-complete` exempt via `--blanket`. Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`. Failure mode: silent sibling-commit, not rebase-recoverable.
-- **Helper misidentified your session?** Fall back to explicit-path commit (`git reset && git add -- <paths> && git commit`), not the override.
-- **`git commit --only -- <paths>` and `git commit -- <pathspec>` are unsafe** — first resets sibling staged work; second silently drops `git rm --cached` removals. Use `git add -- <paths>` + plain `git commit`. Fuse into one Bash call (gap = sibling-index window).
-- **`--scope-from` stages files in the declared handoff scope; scope is the safety contract.** Overlaps surfaced by runtime overlap gate, not post-hoc subtraction. Default mode (no `--scope-from`) fails closed with >1 live session — resolve via `--scope-from <handoff>` or `COORDINATOR_OVERRIDE_SCOPE=1`. Out-of-scope dirty files flagged loud (override `--allow-out-of-scope-dirty`).
-- **`--include-orphans <pathspec>...` stages hook/install-script-touched files not tracked by Edit/Write.** One-shot (not appended to `touched.txt`). Writes `orphan-claims.log` alongside `overrides.log`. Runs the runtime overlap gate — first claimant wins. In single-EM environments: use standalone (`coordinator-safe-commit --include-orphans <pathspec>`). In concurrent-EM environments: MUST combine with `--scope-from` (`--scope-from <handoff> --include-orphans <pathspec>`) — standalone `--include-orphans` hits the >1-live-session fail-closed gate and errors. Combined mode: `do_scope_from` is the writer of record for `active-scope.txt` (persistent, no trap); orphan-claim appends to it without installing a trap-delete. `print_summary` annotates orphan-claimed paths with `(orphan-claimed)`. SIGKILL leaks `active-scope.txt` until `cs_reap_stale` runs at 24h staleness.
-- **After every executor-ending dispatch, follow with explicit-path commit** (`--scope-from` excludes executor-edited files).
-- **Shared-branch work commits at workstream boundaries (~30 min).** Poll `git branch --show-current` between autonomous waves.
-- **Dispatching an executor that will commit?** Capture `git branch --show-current` at dispatch, include `expected_branch:` in prompt; executor passes `--expected-branch` to `coordinator-safe-commit` (fails-closed on mismatch).
-- **Smoke-test edit-then-revert leaks under concurrent commit hooks** — wrap probe edits in `git stash push -u` / `pop`.
-- **Sweep batches with diminishing returns: push + PR + merge what's quiet** after ~6 batches.
-- **Coordinated cross-repo merges: halt and surface to PM** before auto-shipping bundled work, especially with >20% non-workstream commits.
-- **Branch hygiene.** Never branch from stale main; lingering branches resolve at `/workday-start`.
-- **Never `--no-verify`, `--no-gpg-sign`, or skip signing** unless PM authorized. Bypass: `COORDINATOR_OVERRIDE_NO_VERIFY=1`.
+- **One active workstream branch per machine** (`work/{machine}/{date-or-span}` or read-only `main`). No `feature/*`, no worktrees. Integrate via `/merge-to-main` or `/workday-complete`.
+- **Commits are quick-saves.** Commit at natural checkpoints; diff size is not a gate. Don't offer pre-commit review on the workstream branch — it IS the review buffer. **Never `--no-verify` / `--no-gpg-sign`** unless PM authorized (bypass `COORDINATOR_OVERRIDE_NO_VERIFY=1`).
+- **Scoped staging is the default. Never `git add -A` / `git add .`** Use `bin/coordinator-safe-commit "<subject>"`. Fall back to explicit-path (`git reset && git add -- <paths> && git commit`) on helper misidentification. **`git commit --only`** and **`git commit -- <pathspec>`** are unsafe — see scoped-safety-commits wiki.
+- **Dispatching a committer?** Pin branch via `expected_branch:` in prompt → executor passes `--expected-branch` to `coordinator-safe-commit`. Concurrent-EM `--include-orphans` MUST combine with `--scope-from`.
+- **After every executor-ending dispatch, follow with an EM-side explicit-path commit** — `--scope-from` excludes executor-edited files.
+- **Parallel executors must NOT each call a touched-files-aware commit helper** (commit absorption + scope sweep). Pattern: EM-serial commits with plain git after fan-out.
+- **Verify staging + landing on shared branches:** unfiltered `git diff --cached --name-only` before commit; `git show --stat HEAD` immediately after. Path-filtered `git status` lies under concurrent EMs.
+- **High-concurrency (N>5) needs a 30-min `git log -p` audit before merge.** Bulk delete: pre-split tracked vs. untracked (`git ls-files`) before `xargs git rm`.
+- **Probe edits in `git stash push -u` / `pop`.** After `pop`, `git reset` back to worktree-only or the next commit silently absorbs the stash.
 
 ## Workday/Workweek Cadence
 

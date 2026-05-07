@@ -529,7 +529,7 @@ cs_active_sessions() {
 #
 # Liveness criterion mirrored in cs_active_sessions (lines 477-481 above);
 # keep in sync. Future consolidation: extract _cs_is_session_live private
-# helper (Patrik v3 finding 3, deferred — out of scope for Issue A).
+# helper (Staff Engineer v3 finding 3, deferred — out of scope for Issue A).
 cs_live_session_ids() {
   local base
   base=$(_cs_sessions_dir) || return 0

@@ -56,10 +56,10 @@ NODE_MIN_VERSION="18"
 # have no local plugin.json; they are tracked only in the marketplace manifest.
 PLUGIN_REGISTRY=(
   "coordinator|on|local|Core pipeline and workflow skills (always enabled)"
-  "web-dev|on|local|Palí + Fru reviewers"
-  "data-science|on|local|Camelia reviewer"
+  "web-dev|on|local|Front-End and UX reviewers"
+  "data-science|on|local|Data Science reviewer"
   "deep-research|on|local|Multi-agent deep research pipelines (web/repo/structured)"
-  "game-dev|off|local|Sid reviewer (Unreal Engine)"
+  "game-dev|off|local|Game Dev reviewer (Unreal Engine)"
   "notebooklm|optional|npm|Media research via NotebookLM (npm-sourced add-on)"
 )
 
