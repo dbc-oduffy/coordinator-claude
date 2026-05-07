@@ -6,7 +6,7 @@
 
 Load plan, review critically, execute tasks in batches, report for review between batches.
 
-**Core principle:** Batch execution with checkpoints for architect review. If running in a Coordinator session, prefer executor-driven dispatch via `/delegate-execution` for better review integration.
+**Core principle:** Batch execution with checkpoints for architect review. If running in a Coordinator session, prefer executor-driven dispatch per `docs/wiki/delegate-execution.md` for better review integration.
 
 **Announce at start:** "I'm running `/execute-plan` to implement this plan."
 
@@ -75,6 +75,5 @@ After all tasks complete and verified:
 ## Integration
 
 **Required workflow skills:**
-- **coordinator:using-git-worktrees** - Use when branch-level isolation is needed (separate PRs, different base branches). NOT required for single-branch sequential execution — work directly in the current worktree.
-- **coordinator:writing-plans** - Creates the plan this skill executes
+- **coordinator:plan** - Creates the plan this skill executes
 - **coordinator:finishing-a-development-branch** - Complete development after all tasks

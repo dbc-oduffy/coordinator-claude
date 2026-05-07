@@ -4,7 +4,7 @@
  *
  * Run with: node --test bin/lib/schema.test.js
  *
- * Spec backlink: docs/plans/2026-05-01-portable-ideas-from-obsidian-research.md §W1 Tests
+ * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1 Tests
  */
 
 const { describe, it } = require('node:test');
@@ -31,19 +31,18 @@ const SCHEMAS = loadSchemas(SCHEMAS_DIR);
 // ---------------------------------------------------------------------------
 
 describe('loadSchemas', () => {
-  it('loads all six schemas', () => {
+  it('loads all five schemas', () => {
     const names = Object.keys(SCHEMAS).filter(k => k !== '_byGlob');
     assert.ok(names.includes('handoff'), 'handoff schema missing');
     assert.ok(names.includes('decision'), 'decision schema missing');
     assert.ok(names.includes('plan'), 'plan schema missing');
     assert.ok(names.includes('review'), 'review schema missing');
-    assert.ok(names.includes('worker-run'), 'worker-run schema missing');
     assert.ok(names.includes('lesson-entry'), 'lesson-entry schema missing');
-    assert.equal(names.length, 6, `expected 6 schemas, got ${names.length}`);
+    assert.equal(names.length, 5, `expected 5 schemas, got ${names.length}`);
   });
 
   it('_byGlob index has an entry per applies_to schema', () => {
-    assert.ok(SCHEMAS._byGlob.length >= 5, '_byGlob should have at least 5 glob entries');
+    assert.ok(SCHEMAS._byGlob.length >= 4, '_byGlob should have at least 4 glob entries');
   });
 });
 
@@ -69,12 +68,6 @@ describe('matchSchemaForPath', () => {
     const match = matchSchemaForPath('tasks/reviews/2026-05-01-review.md', SCHEMAS);
     assert.ok(match !== null);
     assert.equal(match.schemaName, 'review');
-  });
-
-  it('tasks/worker-runs/2026-05-01-run.md → worker-run schema', () => {
-    const match = matchSchemaForPath('tasks/worker-runs/2026-05-01-run.md', SCHEMAS);
-    assert.ok(match !== null);
-    assert.equal(match.schemaName, 'worker-run');
   });
 
   it('docs/wiki/some-guide.md → no match', () => {

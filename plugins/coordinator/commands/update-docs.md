@@ -381,6 +381,20 @@ Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review
 
 This phase is informational like 11e; does NOT halt `/update-docs`.
 
+#### Phase 11h: Super-skill anchor-link check
+
+Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-links.sh`. The script walks every super-skill SKILL.md in its hardcoded consumer list and verifies each `CLAUDE.md § <section>` citation resolves against a `## ` or `### ` heading in project-level `coordinator/CLAUDE.md`. Citations explicitly qualified as global (`~/.claude/CLAUDE.md` or "global" on the same line) are recorded as QUALIFIED and not failed.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-links.sh
+```
+
+**On non-zero exit (DEAD anchors found):** Surface the diagnostic to PM — do NOT auto-fix. A DEAD anchor means a marketplace consumer walking the super-skill will hit an unresolvable section reference. Resolution is either to lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet (preferred when load-bearing) or to qualify the citation as global. Mirrors the F2 fix pattern from the 2026-05-06 cleanup gate.
+
+**On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)."
+
+This phase is informational like 11e/11f; does NOT halt `/update-docs`.
+
 #### Phase 12: Artifact Distillation (Conditional)
 
 **Skip this phase if `--no-distill` was passed.**

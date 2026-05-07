@@ -2,7 +2,7 @@
 # check-shipped-on-main.sh — verify that one or more commits are reachable from
 #                             origin/main (i.e., actually shipped).
 #
-# Spec backlink: docs/plans/2026-05-01-orphan-branch-prevention.md § 1.2
+# Spec backlink: archive/specs/2026-05-01-orphan-branch-prevention.md § 1.2
 #
 # Purpose: thin wrapper around `git merge-base --is-ancestor` providing a
 # consistent "is this work on main?" query. Its existence is the doctrine

@@ -130,17 +130,14 @@ fi
 TMP_FILE=$(mktemp "${LOG_FILE}.tmp.XXXXXX")
 trap 'rm -f "$TMP_FILE"' EXIT
 
-# Replace only the last field "pending-resolution" on the target line.
-# The sed address is exact line number; the substitution replaces the trailing word cluster.
-awk -v lineno="$LINE_NUM" -v old="pending-resolution" -v new="$RESOLUTION" '
+# Replace the last pipe-separated field on the target line.
+# FS="|" splits on pipes explicitly; $NF is the last field regardless of pipe count in
+# earlier positions (e.g. pipes in file-path comments or messages cannot mis-anchor the match).
+awk -F'|' -v OFS='|' -v lineno="$LINE_NUM" -v new="$RESOLUTION" '
   NR == lineno {
-    # Replace last pipe-separated field (trim trailing whitespace)
-    if (sub(/[[:space:]]*\| [a-z-]+[[:space:]]*$/, " | " new)) {
-      print
-      next
-    }
-    # If "pending-resolution" appears anywhere else on the line, replace last occurrence
-    if (sub(/pending-resolution/, new)) { print; next }
+    # Trim leading/trailing whitespace from last field, replace with new resolution
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", $NF)
+    $NF = " " new
     print
     next
   }

@@ -16,7 +16,7 @@ Before using a tool yourself, ask: would a specialist produce better results? Th
 When a reviewer returns findings, **accept their expertise** — implement ALL items, including P2s, nitpicks, and suggestions to defer. Every finding is an opportunity to meet or exceed their quality bar. The only exceptions: escalate to the PM when findings change scope, or push back if you believe the reviewer is genuinely wrong (state why explicitly).
 
 **Patrik** — architecture + code review. Use /review-dispatch.
-**Enricher/Executor** — codebase research + implementation. Use /enrich-and-review, /delegate-execution.
+**Enricher/Executor** — codebase research + implementation. Use /enrich-and-review; for executor dispatch follow `docs/wiki/delegate-execution.md`.
 
 **Camelia** — ML, statistics, RAG eval, training. Route: any AI/data pipeline work.
 
@@ -44,9 +44,9 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
 - `/staff-session --mode plan` — domain experts debate (Patrik, Sid, Camelia, etc.), Zolí (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
 - `/staff-session --mode review` — same debate structure for critiquing existing artifacts. Zolí synthesizes findings. Lightweight tier falls through to `/review-dispatch`.
-- `/deep-research web` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
-- `/deep-research repo` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
-- `/structured-research` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*
+- `/research --mode=web <topic>` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
+- `/research --mode=repo <path>` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
+- `/research --mode=structured <spec-path>` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*
 - `/notebooklm-research` — Pipeline D: media research via NotebookLM MCP *(requires deep-research plugin with notebooklm)*
 
 When to use teams vs. subagents: teams when agents need to **communicate** (cross-pollinate, resolve contradictions, share discoveries); subagents when tasks are **independent** (no cross-agent value). Teams are fire-and-forget — the EM scopes, spawns, and is freed.

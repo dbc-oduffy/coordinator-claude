@@ -144,14 +144,47 @@ if [[ "$FILE_PATH" == /* || "$FILE_PATH" == [A-Za-z]:* ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Dedup append: only write if not already in touched.txt.
-# grep -qxF: O(n) on file size, fast for typical small lists.
+# Atomic dedup-append helper.
+# flock(1) is not available on Windows Git Bash; we use a portable
+# mktemp-adjacent + sort-dedup + mv pattern instead:
+#   1. Read existing entries (if any).
+#   2. Check whether our path is already present — fast-exit if so.
+#   3. Write the new candidate to a sibling temp file (atomic on same FS).
+#   4. Merge existing + candidate, dedup, write to another temp file.
+#   5. mv (atomic rename) into place.
+# Concurrent races collapse to at-most-once: the last mv wins and the
+# dedup pass in step 4 prevents doubles regardless of interleaving.
+# Dedup-on-read at commit time remains the final correctness backstop.
 # ---------------------------------------------------------------------------
-if grep -qxF "$FILE_PATH_NORM" "$TOUCHED_FILE" 2>/dev/null; then
-  exit 0
-fi
+_atomic_dedup_append() {
+  local target_file="$1"
+  local new_entry="$2"
+  local target_dir
+  target_dir="$(dirname "$target_file")"
 
-echo "$FILE_PATH_NORM" >> "$TOUCHED_FILE"
+  # Fast-exit: already present (non-atomic read is fine — false negative
+  # just falls through to the merge step which will dedup).
+  if grep -qxF "$new_entry" "$target_file" 2>/dev/null; then
+    return 0
+  fi
+
+  # Write candidate to a sibling temp file (same filesystem → mv is atomic).
+  local tmp_new tmp_merged
+  tmp_new=$(mktemp "${target_dir}/.ttf-new.XXXXXX" 2>/dev/null) || return 0
+  tmp_merged=$(mktemp "${target_dir}/.ttf-mrg.XXXXXX" 2>/dev/null) || { rm -f "$tmp_new"; return 0; }
+
+  printf '%s\n' "$new_entry" > "$tmp_new"
+
+  # Merge: existing (may be empty/absent) + new candidate → dedup → merged.
+  { cat "$target_file" 2>/dev/null; cat "$tmp_new"; } \
+    | sort -u > "$tmp_merged" 2>/dev/null || true
+
+  mv "$tmp_merged" "$target_file" 2>/dev/null || true
+  rm -f "$tmp_new" "$tmp_merged" 2>/dev/null || true
+}
+
+# Session-keyed dedup-append.
+_atomic_dedup_append "$TOUCHED_FILE" "$FILE_PATH_NORM"
 
 # Issue A: parallel agent-keyed write (only for subagent fires).
 # .agents/<agent_id>/touched.txt provides the agent-id linkage that the
@@ -161,11 +194,7 @@ if [[ -n "$AGENT_ID" ]]; then
   AGENT_TOUCHED="${AGENT_DIR}/touched.txt"
   [[ -d "$AGENT_DIR" ]] || mkdir -p "$AGENT_DIR" 2>/dev/null
   [[ -f "$AGENT_TOUCHED" ]] || touch "$AGENT_TOUCHED" 2>/dev/null
-  # Concurrent-fire race: same characteristics as session-keyed touched.txt —
-  # grep-then-append is not atomic; dedup happens on read at commit time.
-  if ! grep -qxF "$FILE_PATH_NORM" "$AGENT_TOUCHED" 2>/dev/null; then
-    echo "$FILE_PATH_NORM" >> "$AGENT_TOUCHED"
-  fi
+  _atomic_dedup_append "$AGENT_TOUCHED" "$FILE_PATH_NORM"
 fi
 
 # Note: meta.json last_activity is NOT updated here (costs ~36ms on Windows).

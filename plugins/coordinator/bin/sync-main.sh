@@ -2,7 +2,7 @@
 # sync-main.sh — ensure local origin/main ref (and local main when safe) are
 #                at the latest pushed state before any branch creation.
 #
-# Spec backlink: docs/plans/2026-05-01-orphan-branch-prevention.md § 1.1.5
+# Spec backlink: archive/specs/2026-05-01-orphan-branch-prevention.md § 1.1.5
 #
 # Purpose: the branch-creation invariant. Every branch-creation site in the
 # coordinator pipeline calls this before `git checkout -b`. After this script
