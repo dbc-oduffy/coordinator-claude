@@ -1,7 +1,7 @@
 ---
 description: "Distill session artifacts into evergreen wiki + decisions; trim + archive canonical specs; delete scaffolding. Upstream of /update-docs pruning."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
-argument-hint: "[--dry-run] [--no-delete] [path]"
+argument-hint: "[--dry-run] [--no-delete] [--min-convergence=N] [path]"
 ---
 
 # Distill — Artifact Distillation Pipeline
@@ -38,7 +38,10 @@ Apply wiki updates (Phases 0-5 write steps), but skip scaffolding deletion AND s
 
 **`--allow-drop`**
 Bypass the negative-AC halt for this run after EM eyeballs the diff and confirms no semantic loss. Logs the bypass to distillation-log.md Manual Review section for audit.
-<!-- Review: the Staff Engineer R3 — F3: --allow-drop was referenced in the set-diff section but absent from Arguments; F6: dropped stale "Previously:" migration commentary from --no-delete -->
+<!-- Review: Patrik R3 — F3: --allow-drop was referenced in the set-diff section but absent from Arguments; F6: dropped stale "Previously:" migration commentary from --no-delete -->
+
+**`--min-convergence=N`**
+Override the Phase 2.5 convergence threshold for this run. Default `N=3` (matches the "wait for instance #3 before extracting a pattern" rule in coordinator doctrine). Lower values are useful when bootstrapping against a thin sidecar corpus — raise back to 3 once the corpus matures. Phase 2.5 emits a judgment proposal only when a finding cluster reaches `convergence_count >= N` across distinct plans.
 
 **`[path]`**
 Scope the inventory to a specific subdirectory. Only artifacts under that path are processed. Example: `/distill tasks/camera-refactor/` distills a single feature directory.
@@ -51,6 +54,7 @@ Scope the inventory to a specific subdirectory. Only artifacts under that path a
 /distill --no-delete              # extract wiki content, keep source files in place
 /distill tasks/camera-refactor/   # scope to a single feature dir
 /distill --dry-run plans/         # preview what would be extracted from plans/
+/distill --min-convergence=2      # bootstrap mode for thin corpus; lower threshold for early judgment entries
 ```
 
 ---
@@ -61,8 +65,8 @@ Full phase definitions, dispatch instructions, scratch path conventions, and fai
 
 ```
 Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
-  → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 3 (Opus, single)
-  → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + trim/archive + delete scaffolding)
+  → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 2.5 (Sonnet ×K, parallel)
+  → Phase 3 (Opus, single) → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + trim/archive + delete scaffolding)
 ```
 
 | Phase | Model | Purpose |
@@ -72,10 +76,11 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 1.5** | Haiku (parallel) | Quality gate — verify Phase 1 coverage, template compliance, and path spot-checks |
 | **Clustering** | Coordinator or Haiku | Regroup nuggets from input-batch ordering to output-topic ordering |
 | **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records |
+| **Phase 2.5** | Sonnet (parallel) | Mine reviewer sidecars for cross-spec convergence patterns; emit promotion proposals to scratch (`tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`). Full contract: `PIPELINE.md § Phase 2.5`. |
 | **Phase 3** | Opus (single) | Cross-reference assembly — resolve contradictions, deduplicate decision records, produce deletion manifest (does NOT apply delta ops) |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest, wait for explicit approval |
 | **Phase 5** | Coordinator | Apply wiki writes, trim + archive canonical specs (including rationale extraction), delete scaffolding, update distillation log, run link-heal pass |
-<!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
+<!-- Review: Patrik R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
 **If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3 and presents the summary.
 
@@ -104,8 +109,8 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 
 **DENYLIST sections — strip after re-homing + rationale extraction:**
 - "Reviewer Plan"
-- "Staff Engineer Round N Findings"
-- "Data Science Reviewer/Game Dev Reviewer Findings"
+- "Patrik Round N Findings"
+- "Camelia/Sid Findings"
 - "Integrator Triage"
 - "Docs-Checker Pass"
 - "Open Questions (resolved)"
@@ -117,7 +122,7 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 
 For every DENYLIST section, scan it for content introducing a constraint, AC, or decision that does not appear in any ALLOWLIST section. Each such item must be re-homed into the appropriate ALLOWLIST section (typically Acceptance Criteria or Decisions Made) before the wrapper is stripped. Re-homing produces a diff in the trim preview that the EM reviews at Phase 4. Do not strip before the EM has approved the re-homing diff.
 
-**Decision Rationale extraction (required, not optional — per the Data Science Reviewer F3):**
+**Decision Rationale extraction (required, not optional — per Camelia F3):**
 
 Re-homing handles structural items (constraints, ACs, decisions stated as such). It does NOT capture conversational *why-we-chose-X-over-Y* rationale that lives in review threads — exactly the kind of question retrieval most often surfaces. Before stripping any DENYLIST section, extract decision rationale into a dedicated `## Decision Rationale` section of the archived spec (or a sibling `archive/specs/<name>-rationale.md` if the spec is long). Format: one paragraph per decision, naming the alternatives considered and why this one won, citing reviewer findings by reference if relevant. This section is indexed by RAG and is retrievable by future EMs without `git show`.
 
@@ -128,7 +133,9 @@ Re-homing handles structural items (constraints, ACs, decisions stated as such).
 4. Strip DENYLIST sections — runs only after steps 2 + 3 are complete and EM-approved.
 5. Review MIDDLE sections for EM approval.
 6. Move (not copy) trimmed result to `archive/specs/YYYY-MM-DD-<name>.md`.
-<!-- Review: the Staff Engineer R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
+
+**Apply-agent slice rubric:** When dispatching apply-agents in Phase 5, slice "mv files" steps separately from "transform contents" steps. Bundling them in a single agent brief lets the apply-agent silently drop the transform when its budget tightens (mv work is mechanical and visibly succeeds; content transforms are higher-risk and quietly skipped). One agent per slice — keep mv-only briefs and content-transform briefs in separate dispatches.
+<!-- Review: Patrik R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
 
 ---
 
@@ -168,13 +175,13 @@ Path: `tasks/distillation-log.md` (per-project). Created on first distill run; p
 ```
 
 **Append-only contract:** Read existing rows first. Append new rows. NEVER rewrite existing rows. Row count is monotonically non-decreasing; strictly increases on any run that deletes scaffolding or archives a spec. This is an AC.
-<!-- Review: the Staff Engineer R3 — F5: "strictly increase" fails on a no-op run; reworded to monotonically non-decreasing with strict increase on runs that actually act -->
+<!-- Review: Patrik R3 — F5: "strictly increase" fails on a no-op run; reworded to monotonically non-decreasing with strict increase on runs that actually act -->
 
 **Mirroring:** For highest-value scaffolds (the canonical spec itself), the distillation log row is also mirrored into the wiki provenance frontmatter as redundancy.
 
 **Why prose-shaped reason fields:** The log itself becomes index-bait. RAG indexes the on-disk filesystem; a log row reading "scaffolding" is invisible to retrieval, but a row reading "integrator triage resolving async-run wrapper conflict in port-patterns FastMCP transport" surfaces on a query about that conflict and gives the future EM a `last_sha` to retrieve the verbose original. The log carries history forward into the retrieval surface — cheapest mitigation for the "git history is out-of-band for RAG" recall hole.
 
-**Vocabulary discipline AC (per the Data Science Reviewer F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `tasks/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
+**Vocabulary discipline AC (per Camelia F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `tasks/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
 
 ---
 
@@ -192,7 +199,7 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 **Pre-deletion active-reference check.** Before `rm -rf` any `tasks/<dir>/`, grep references first; shipped-status alone does not mean unreferenced. Halt deletion on any live cite.
 
 **Anchor the link-heal regex around path boundaries.** Sed-style rewrites over-rewrite `original_path:` and other frontmatter fields where the literal old path is semantically correct; anchor the pattern or restore frontmatter post-sweep.
-<!-- Review: the Staff Engineer R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
+<!-- Review: Patrik R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
 
 **Heal-log:** Under a `## Manual Review` section in `tasks/distillation-log.md`, write EVERY unmatched-but-suspicious hit — anything containing `docs/plans/`, `tasks/<feature>/stubs/`, or the deleted-path basenames — for EM eyeball. The EM reviews the Manual Review section before declaring the run complete.
 
@@ -209,7 +216,7 @@ An AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in 
 This prevents the muscle-memory bypass where every distill halts on review noise and operators default to `--allow-drop`. The halt fires only on genuine content loss.
 
 **False-halt mode:** Word-order-permuted equivalent lines will register as differing and trigger a halt. When this happens, the EM eyeballs the diff, confirms semantic equivalence, and proceeds with `--allow-drop` on that specific run. This is acceptable because the EM still sees the diff — the bypass becomes an inspection, not a rubber-stamp.
-<!-- Review: the Staff Engineer R3 — F2: set-diff normalization is weaker than the plan's 'semantically-equivalent line' intent; word-order permutations register as different and trigger spurious halts -->
+<!-- Review: Patrik R3 — F2: set-diff normalization is weaker than the plan's 'semantically-equivalent line' intent; word-order permutations register as different and trigger spurious halts -->
 
 ---
 
@@ -231,7 +238,13 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - Wiki provenance frontmatter includes `archived_spec`, `original_path`, `last_verbose_sha`, `distilled`.
 - `## Decision Rationale` section present in archived spec (or sibling rationale file) for every spec that had DENYLIST content; rationale covers alternatives-considered + why this won per reviewer finding.
 - Link-heal pass rewrites all three target types; `## Manual Review` section in distillation log captures unmatched-but-suspicious hits.
-- **Vocabulary discipline AC (the Data Science Reviewer F2):** /distill manual-review log on a CONTEXT.md-bearing repo flags ≥1 vocabulary-drift hit on sampled executor output OR attests zero drift after sampling N≥3 modules.
+- **Vocabulary discipline AC (Camelia F2):** /distill manual-review log on a CONTEXT.md-bearing repo flags ≥1 vocabulary-drift hit on sampled executor output OR attests zero drift after sampling N≥3 modules.
+- **Phase 2.5 exists** in `PIPELINE.md` as a defined phase with model assignment (Sonnet, parallel by topic-cluster) and dispatch instructions. Phase 2.5 runs after all Phase 2 topic-cluster agents complete and before Phase 3 dispatches.
+- **Convergence threshold enforced:** Phase 2.5 emits a judgment proposal only when `convergence_count >= MIN_CONVERGENCE` across distinct plans (one finding per plan). The `--min-convergence=N` argument gates promotion; it is not advisory. Zero proposals when threshold not reached is correct behaviour, not a failure.
+- **Update path is topic-key join, no re-`git show`:** when an existing `docs/wiki/codebase-judgment/<topic>.md` entry is present, Phase 2.5 matches new live findings against the existing topic key only — it does NOT re-`git show` prior `source_findings[*].sha` refs. The topic key is the stable join identifier. Full contract: `PIPELINE.md § D8`.
+- **`judgment_provenance:` frontmatter on promoted entries:** every new `docs/wiki/codebase-judgment/<topic>.md` carries a `judgment_provenance:` frontmatter block (NOT `provenance:` — that key is taken by Phase 5b's archived-spec schema). Schema includes `kind`, `convergence_count`, `source_findings` (sidecar path + plan + reviewer + finding ID + SHA), `promoted`, `last_refreshed`. Full schema: `PIPELINE.md § Phase 2.5 — Frontmatter schema`.
+- **Negative AC — `escalated-disagree` findings excluded:** a reviewer-sidecar finding annotated `disposition: escalated-disagree` by the review-integrator does NOT count toward convergence. Phase 2.5 reads the `disposition:` field written inline into the sidecar (per review-integrator amendment) before Phase 5 deletes it. Validated via fixture where one of three matching findings carries `disposition: escalated-disagree`; convergence count must be 2, no promotion.
+- **Prior-art-checker dogfood:** dispatching prior-art-checker on a synthetic plan whose claim-shape matches a seeded judgment entry must produce a sidecar containing a Compatible-but-relevant or Conflict bucket entry referencing the `docs/wiki/codebase-judgment/` file by path. This is the end-to-end behaviour test confirming cached Opus-tier judgment surfaces to future plan authors.
 
 ---
 
@@ -243,5 +256,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 | `/update-docs` Phase 8b | Bulk prune without knowledge extraction — runs unconditionally under conservative thresholds (`pipelines/update-docs/artifact-pruning.md`) |
 
 The two are complementary: `/distill` extracts knowledge into wiki *before* source material is discarded; `/update-docs` Phase 8b performs the raw cleanup. Run `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk pruning.
+
+**Prior-art-checker:** Phase 2.5 judgment entries are written to `docs/wiki/codebase-judgment/`. Prior-art-checker consults this subdirectory (via recursive `docs/wiki/**/*.md` glob) on every plan check, so future plans receive cached Opus-tier judgment at Sonnet cost with zero additional wiring. See `agents/prior-art-checker.md` and `docs/wiki/prior-art-checker.md`.
 
 _Update 2026-05-06:_ The standalone `coordinator:artifact-consolidation` skill was absorbed into `/update-docs` Phase 8b. Existing references should point at `pipelines/update-docs/artifact-pruning.md`.
