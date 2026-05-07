@@ -1,5 +1,6 @@
 ---
 description: "Staff session — Agent Teams-based collaborative planning and review. Two modes: plan (craft detailed plan from objectives) and review (critique existing artifact). Configurable tiers: lightweight (single reviewer), standard (2 debaters + synthesizer), full (3-5 debaters + synthesizer)."
+disable-model-invocation: true
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli,...\"] <input>"
 ---

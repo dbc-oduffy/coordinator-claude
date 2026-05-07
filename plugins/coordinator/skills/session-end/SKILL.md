@@ -1,5 +1,6 @@
 ---
 description: Wrap up finished work — capture lessons, update docs
+disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
