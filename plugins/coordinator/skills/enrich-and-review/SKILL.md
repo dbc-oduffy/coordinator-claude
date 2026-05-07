@@ -1,6 +1,5 @@
 ---
 description: Run enrichment pipeline on chunk directories
-disable-model-invocation: true
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[stub-ids|directory-path|'all']"
 ---

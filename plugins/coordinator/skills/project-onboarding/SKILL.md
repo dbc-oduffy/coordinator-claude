@@ -1,6 +1,6 @@
 ---
 name: project-onboarding
-description: "Use when starting work in a new project repository, when /update-docs reports tracker_missing, or when a marketplace user runs the coordinator plugin for the first time."
+description: "Use when starting in a new project repo, when /update-docs reports tracker_missing, or on first coordinator-plugin run."
 description-budget: 175
 version: 1.0.0
 ---

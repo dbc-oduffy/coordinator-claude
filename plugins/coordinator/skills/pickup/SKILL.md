@@ -1,6 +1,5 @@
 ---
 description: Resume work from a handoff — grab the baton and run
-disable-model-invocation: true
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[handoff-file-path]"
 ---
@@ -125,7 +124,17 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    Branch: {branch} | Next: {first recommended step, abbreviated}
    ```
 
-5. **Mark as consumed:** Append a consumed marker to the handoff file so `handoff-archival` knows it's been picked up:
+   **Spinoff banner:** If the handoff frontmatter has `kind: spinoff`, prepend one extra line:
+   ```
+   This is a spinoff — predecessor is none by design. Treat the handoff body as ground-truth spec; do not look for in-progress work to resume.
+   ```
+   Counters the default assumption that a handoff describes already-in-progress work.
+
+5. **Pre-flight: respect `pickup_ready: true`.** If the handoff frontmatter contains `pickup_ready: true`, this handoff is a fresh orphan-promotion and should not be stamped on this invocation unless the pickup is genuine. Two cases:
+   - **You ARE genuinely picking it up:** remove the `pickup_ready` field from the frontmatter (or set it to `false`) before appending the consumed marker below, then continue.
+   - **You opened it by mistake or are just reviewing it:** STOP — do not append the marker. Surface to the PM before proceeding.
+
+   **Mark as consumed:** Append a consumed marker to the handoff file so `/update-docs`'s archival phase knows it's been picked up:
    ```bash
    echo "" >> <handoff-file>
    echo "<!-- consumed: $(date +%Y-%m-%d) -->" >> <handoff-file>

@@ -1,7 +1,7 @@
 ---
 name: consolidate-git
 description-budget: 250
-description: "Cleans up branch sprawl: inventories all branches, absorbs unique commits, deletes stale, merges to main. Triggers on consolidate branches, clean up branches, stale branches cleanup, merge all branches."
+description: "Cleans up branch sprawl. Triggers: consolidate branches, clean up branches, stale branches, merge all branches."
 version: 1.0.0
 ---
 

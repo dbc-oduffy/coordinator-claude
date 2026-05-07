@@ -1,6 +1,6 @@
 ---
 name: parallel-code-review
-description: Run 4 orthogonal code reviewers (Patrik, security-audit-worker, dep-cve-auditor, test-evidence-parser) in parallel on a frozen weekly diff, into a no-rewrite synthesizer that emits BLOCKED/WARN/OK. Invoked exclusively from /workweek-complete as the pre-merge code-review gate. NOT for /merge-to-main, /workday-complete, or any other surface.
+description: Pre-merge weekly code-review gate — 4 orthogonal reviewers + no-rewrite synthesizer (BLOCKED/WARN/OK). Invoked only from /workweek-complete.
 description-budget: 350
 argument-hint: "[--force] [--gate-mode strict|advisory]"
 version: 1.0.0
@@ -60,7 +60,7 @@ The four reviewers cover orthogonal lens domains. No two reviewers share a domai
 | Rule | Sample diff | Expected gate behavior |
 |---|---|---|
 | Rule 1 | 4 changed lines in `tasks/some-task/todo.md` | SKIPPED (rule 1 — diff <10 lines or internal-only paths) |
-| Rule 2 | `docs/wiki/some-guide.md` only (no code files) | SKIP_PATRIK=1 — mechanical workers run; Patrik skipped |
+| Rule 2 | `docs/wiki/tiered-context-loading.md` only (no code files) | SKIP_PATRIK=1 — mechanical workers run; Patrik skipped |
 | Rule 3 | `docs/plans/2026-05-06-foo.md` only | SKIPPED (rule 3 — plan-only diff) |
 | Rule 4 | Any diff with `--force` | BYPASSED via --force |
 | Default | 500-2000 changed lines, mixed `.ts` + `.md` + `.sh` | All 4 reviewers run — **this is the typical week** |

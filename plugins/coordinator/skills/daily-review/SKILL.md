@@ -1,6 +1,5 @@
 ---
 description: Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective
-disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---
@@ -29,67 +28,29 @@ The only valid skip: **zero new commits today AND no agent-driven changes outsid
 
 ---
 
-## Phase A: Haiku Inventory Scout
+## Phase A: Inventory Generation
 
-Dispatch a **Haiku** agent (`model: "haiku"`, `run_in_background: true`) to produce a structured inventory of today's work.
+Generate a deterministic structured inventory of today's work using the `standup.sh` script.
 
-### Scout instructions
-
-The scout reads and inventories — it does not analyze or judge.
-
-1. **Determine scope baseline.** Find the last workday-end or workday-start:
+1. **Create directory:**
    ```bash
-   git log --oneline --grep="workday-complete\|daily-review\|workday-start" --since="3 days ago" -1 --format="%H %ai"
+   mkdir -p tasks/daily-review-scratch
    ```
-   If no match, use 24 hours ago as baseline.
 
-2. **Commit inventory:**
+2. **Run standup.sh and capture inventory:**
    ```bash
-   git log --since="<baseline>" --oneline --stat
-   ```
-   Group commits by feature/system (use branch name, commit message prefixes, or file paths to cluster).
-
-3. **File change summary:**
-   ```bash
-   git diff --stat <baseline-commit>..HEAD
+   bash plugins/coordinator-claude/coordinator/bin/standup.sh > tasks/daily-review-scratch/inventory.md
    ```
 
-4. **Plans touched today:** Read filenames (not contents) of any `tasks/*/todo.md` files modified since baseline:
-   ```bash
-   git diff --name-only <baseline-commit>..HEAD -- 'tasks/*/todo.md'
-   ```
+The script emits:
+   - `> Baseline: <sha> (<ISO-timestamp>)` — parsed by Phase B for git diff baseline
+   - Commit inventory
+   - File change summary by directory
+   - Touched handoff files
+   - Touched todo files
+   - Active handoff list
 
-5. **Handoffs active:** List `tasks/handoffs/*.md` files that exist right now (filenames + line 1 heading only).
-
-6. **Write output** to `tasks/daily-review-scratch/inventory.md`:
-
-   ```markdown
-   # Daily Inventory — YYYY-MM-DD
-
-   > Baseline: <commit-hash> (<date>)
-   > Commits since baseline: N
-   > Files changed: M
-
-   ## Commits
-   | Hash | Message | Files | +/- |
-   |------|---------|-------|-----|
-   | ...  | ...     | ...   | ... |
-
-   ## File Changes (by directory)
-   | Directory | Files Changed | Lines Added | Lines Removed |
-   |-----------|--------------|-------------|---------------|
-   | ...       | ...          | ...         | ...           |
-
-   ## Plans Touched
-   - [list of task/*/todo.md files modified]
-
-   ## Active Handoffs
-   - [filename — heading]
-   ```
-
-**Create `tasks/daily-review-scratch/` directory if it doesn't exist.**
-
-Wait for the scout to complete before proceeding to Phase B.
+**Proceed to Phase B after inventory is written.**
 
 ---
 
@@ -99,22 +60,27 @@ Dispatch a **Sonnet** agent (`model: "sonnet"`, `run_in_background: true`) to pr
 
 ### Analyst instructions
 
-1. **Read** `tasks/daily-review-scratch/inventory.md` (the scout's output).
+1. **Read** `tasks/daily-review-scratch/inventory.md` (the Phase A output).
 
-2. **Read the actual diffs** for architectural understanding:
+2. **Extract baseline:** Parse the `> Baseline:` header line from the inventory to get the commit hash and timestamp. Example:
    ```bash
-   git diff <baseline-commit>..HEAD
+   BASELINE=$(grep '^> Baseline:' tasks/daily-review-scratch/inventory.md | sed 's/^> Baseline: //' | awk '{print $1}')
+   ```
+
+3. **Read the actual diffs** for architectural understanding:
+   ```bash
+   git diff <baseline>..HEAD
    ```
    If the diff exceeds ~3000 lines, focus on the files with the most changes (from the inventory's file change table). Use `git diff <baseline>..HEAD -- <path>` for targeted reads.
 
-3. **Read commit messages in full** for context on intent:
+4. **Read commit messages in full** for context on intent:
    ```bash
    git log --since="<baseline>" --format="%H%n%s%n%b%n---"
    ```
 
-4. **Read plan docs** referenced in the inventory (if any) for context on what was being built and why.
+5. **Read plan docs** referenced in the inventory (if any) for context on what was being built and why.
 
-5. **Write the daily summary** to `archive/daily-summaries/YYYY-MM-DD.md`:
+6. **Write the daily summary** to `archive/daily-summaries/YYYY-MM-DD.md`:
 
    ```markdown
    # Daily Summary — YYYY-MM-DD
@@ -143,7 +109,7 @@ Dispatch a **Sonnet** agent (`model: "sonnet"`, `run_in_background: true`) to pr
 
    **Create `archive/daily-summaries/` directory if it doesn't exist.**
 
-6. **The "Architectural Decisions" section is the key value-add.** Don't just list what changed — identify decisions that were made (even implicitly) and their consequences. Examples:
+7. **The "Architectural Decisions" section is the key value-add.** Don't just list what changed — identify decisions that were made (even implicitly) and their consequences. Examples:
    - "Added a direct dependency from module A to module B" — coupling risk
    - "Used a concrete class where an interface would allow future flexibility" — extensibility risk
    - "Hardcoded a configuration value that may need to vary" — flexibility risk
@@ -251,7 +217,7 @@ After Phase C completes:
 | Situation | Action |
 |---|---|
 | No commits since baseline | Write a minimal daily summary noting "no work today", skip Phases B-C |
-| Scout dispatch fails | Fall back: EM runs git commands directly, writes inventory manually, proceed to Phase B |
+| `standup.sh` exits non-zero | Fall back: EM runs git commands directly, writes inventory manually, proceed to Phase B |
 | Analyst dispatch fails | Fall back: EM writes a minimal work summary from the inventory, proceed to Phase C |
 | Reviewer dispatch fails | Skip Phase C, note "strategic review skipped" in the daily summary |
 | No strategic docs exist | Reviewer focuses on pure architectural principles instead of roadmap alignment |
@@ -261,7 +227,7 @@ After Phase C completes:
 
 ## Cost
 
-1 Haiku agent (scout, ~1 min) + 1 Sonnet agent (analyst, ~3-5 min) + 1 Sonnet agent (reviewer, ~3-5 min). Total: ~7-11 minutes. Cheaper than the old Opus reviewer dispatch.
+1 deterministic shell script (`standup.sh`, sub-second) + 1 Sonnet agent (analyst, ~3-5 min) + 1 Sonnet agent (reviewer, ~3-5 min). Total: ~6-10 minutes. Phase A no longer dispatches an agent.
 
 ---
 
