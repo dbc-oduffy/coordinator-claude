@@ -69,15 +69,15 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 - **Prior-art-checker pre-flight:** Sonnet recall agent that cross-references a plan against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Output is a sidecar at `<plan-path>.prior-art-check.md` with Conflicts / Compatible-but-relevant / Silent buckets. Implementation: `agents/prior-art-checker.md`; consumption snippet: `snippets/prior-art-check-consumption.md` (synced via `bin/verify-prior-art-sync.sh` to the same 5 Opus reviewers as docs-checker). Surface: `commands/review-dispatch.md` Phase 2.7b. Doctrine: `docs/wiki/prior-art-checker.md`. The agent makes captured wikis worth writing — without recall, capture decays.
 - **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no skill/agent/hook reads programmatically. Adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 - **Daily-branch discipline:** four contact-points must stay in sync:
-  - (a) **Hook:** `hooks/scripts/block-off-daily-branch.sh` — PreToolUse Bash hook; blocks create/switch/rename/stash-branch/worktree-add/commit. Shared lib: `lib/coordinator-daily-branch.sh`. Override: `COORDINATOR_OVERRIDE_BRANCH=1` (logs session + command + reason).
-  - (b) **Check 6 location:** commit-time discipline is in `block-off-daily-branch.sh` (`commit` arm). Removed from `validate-commit.sh` (Patrik F11). `validate-commit.sh` Checks 1-5 remain for commit-content validation.
+  - (a) **Hook:** `hooks/scripts/block-off-daily-branch.sh` — PreToolUse Bash hook; blocks create/switch/rename/stash-branch/worktree-add. Shared lib: `lib/coordinator-daily-branch.sh`. Override: `COORDINATOR_OVERRIDE_BRANCH=1` (logs session + command + reason). Note: commit-time date-enforcement (Check 6) was fully decommissioned 2026-05-07 per PM call — the hook no longer blocks commits.
   - (c) **Doctrine:** § Concurrent-EM Git Operations bullet 1 + `docs/wiki/daily-branch-discipline.md`.
   - (d) **Skills with inline override** (set `COORDINATOR_OVERRIDE_BRANCH=1` on each off-daily command — never export):
     - `/workday-start` (`commands/workday-start.md`, `pipelines/workday-start-internals.md`)
     - `/merge-to-main` (`skills/merging-to-main/SKILL.md`)
     - `/consolidate-git` (`skills/consolidate-git/SKILL.md`)
+  - Note: `/workday-complete` Step 3 does NOT need override — it uses `git merge` and grep consolidation, not branch creation/rename ops.
   - When adding a new off-daily skill: list it in (d) AND set the override inline in the skill body.
-  - **`/bug-blitz` and `/dogfood` are fail-closed-only** — they do NOT set `COORDINATOR_OVERRIDE_BRANCH=1` and do not run off the daily branch. No override mode. Listed here for completeness so readers know the omission is intentional, not an oversight.
+  - **`/bug-blitz` and `/dogfood` are fail-closed-only** — they do NOT set `COORDINATOR_OVERRIDE_BRANCH=1` and do not run off the active workstream branch. No override mode. Listed here for completeness so readers know the omission is intentional, not an oversight.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -332,9 +332,9 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting,
 
 ## Concurrent-EM Git Operations
 
-Default operating reality is multiple EM sessions sharing a working tree. **The daily branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination.
+Default operating reality is multiple EM sessions sharing a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination.
 
-- **One branch per machine per day, always.** Active branch in the main checkout is **either** `work/{machine}/{YYYY-MM-DD}` (today's daily) **or** `main` (read-only, PR-only). No `feature/*`, no `hotfix/*`, no ad-hoc siblings. Park WIP by committing on the daily or `git stash push -u -m "<subject>"` *without* changing branches. Worktrees forbidden. Enforcement: `block-off-daily-branch.sh` PreToolUse (includes commit-time Check 6, consolidated from `validate-commit.sh` per Patrik F11). Override (logged): `COORDINATOR_OVERRIDE_BRANCH=1`. Use `/merge-to-main` or `/workday-complete` to integrate; never push to `main` directly. Full context: `docs/wiki/daily-branch-discipline.md`.
+- **One active workstream branch per machine, always.** Active branch in the main checkout is **either** the active workstream branch (a span-aware `work/{machine}/{date-or-span}`) **or** `main` (read-only, PR-only). No `feature/*`, no `hotfix/*`, no ad-hoc siblings. Park WIP by committing on the workstream branch or `git stash push -u -m "<subject>"` *without* changing branches. Worktrees forbidden. Enforcement: `block-off-daily-branch.sh` PreToolUse — the hook polices branch *shape*, not branch *date*. Override (logged): `COORDINATOR_OVERRIDE_BRANCH=1`. Use `/merge-to-main` or `/workday-complete` to integrate; never push to `main` directly. Full context: `docs/wiki/daily-branch-discipline.md`.
 - **Commits are quick-saves.** Commit at natural checkpoints; don't wait to be asked.
 - **Scoped staging is the default. Never `git add -A` or `git add .` for routine commits.** Use `bin/coordinator-safe-commit "<subject>"`. `/session-start` and `/workday-complete` exempt via `--blanket`. Emergency bypass: `COORDINATOR_OVERRIDE_SCOPE=1`. Guide: `~/.claude/docs/wiki/scoped-safety-commits.md`. (failure mode: silent sibling-commit, not rebase-recoverable)
 - **Helper misidentified your session?** Fall back to explicit-path commit (`git reset && git add -- <paths> && git commit`), not the override — override would commit other sessions' files.

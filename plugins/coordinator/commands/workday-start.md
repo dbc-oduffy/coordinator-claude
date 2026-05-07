@@ -12,17 +12,81 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 
 ## Step 0: Branch Setup
 
-Ensure work happens on today's work branch (`work/{machine}/{YYYY-MM-DD}`, machine = `hostname` lowercased) and consolidate lingering open branches from previous days.
+Ensure work happens on an active workstream branch (`work/{machine}/{date-or-span}`, machine always lowercase) and consolidate lingering open branches from previous days. The goal is no longer "create today's daily" — it is "ensure today is within the active branch's span, rename forward if not."
 
-**Sync-main invariant (run first, before any branch creation):**
+**Sync-main invariant (run first, before any branch creation or rename):**
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
 ```
 If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the PM. Do not create a branch from stale main.
 
-If already on today's branch, skip branch creation. Otherwise: list unmerged `work/{machine}/*` (excluding today), create/checkout today's branch (suffix `-2` on collision with merged branches), `git merge --no-ff` each open branch into today's, abort cleanly on conflict and report it (do not auto-resolve), then `git push -u origin` today's branch.
+**Step 0 precedence switch** — evaluate conditions in order; stop at the first match:
 
-**Inline override required:** every `git checkout` and `git merge` in Step 0 that touches an off-daily branch must be prefixed with `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook will deny these operations without the inline override. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure with overrides. <!-- Review: patrik F1 -->
+1. **Stale-commit check (runs first):** Determine the epoch of the last commit on the current branch:
+   ```bash
+   LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
+   NOW_EPOCH=$(date +%s)
+   AGE_DAYS=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
+   ```
+   If `$AGE_DAYS > 2` AND the current branch is a `work/{machine}/...` branch → do NOT prompt rename. Surface to PM via the Branch Reconciliation A/B/C flow (below). This check runs first because a stale span branch whose end-suffix happens to equal today is still dead work that warrants A/B/C triage, not a silent exit.
+
+2. **Already-in-span check (runs second):** Use `cs_should_prompt_rename` from the lib (sources automatically — see internals). If the current branch's end-suffix already matches today's date, exit Step 0 silently — no rename, no new branch needed.
+
+3. **On main / no workstream branch (runs third):** If the current branch is `main` or does not match `work/{machine}/...`, create a fresh branch:
+   ```bash
+   MACHINE=$(cs_compute_machine)   # always lowercase
+   TODAY=$(date +%Y-%m-%d)
+   COORDINATOR_OVERRIDE_BRANCH=1 \
+   COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
+   git checkout -b "work/${MACHINE}/${TODAY}"
+   git push -u origin "work/${MACHINE}/${TODAY}"
+   ```
+
+4. **Midnight-rename check (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → prompt PM:
+   ```
+   Branch `work/striker/2026-05-06` is still active and you've crossed midnight.
+   Rename to `work/striker/2026-05-06to07` to reflect the span? [Y/n]
+   ```
+   Default **Y** (one keystroke). On Y: run the rename procedure below. On **n**: leave the branch unchanged; do NOT create a sibling `work/{machine}/{today}` — the PM has explicitly declined.
+
+**Rename procedure (Patrik F5 — atomic, reversible):**
+```bash
+OLD=$(git branch --show-current)
+MACHINE=$(cs_compute_machine)
+TODAY=$(date +%Y-%m-%d)
+# Compute new name using cs_format_span_suffix from the lib
+START_DATE=$(cs_parse_branch_span "$OLD" | awk '{print $1}')
+NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
+
+# Concurrent-rename race guard: re-check before touching refs
+CURRENT=$(git branch --show-current)
+TODAY_DD=$(date +%d)
+if [[ "$CURRENT" == *"to${TODAY_DD}" ]]; then
+  echo "Branch already renamed by another session — nothing to do."
+  exit 0
+fi
+
+# Step a: local rename (cheap, reversible)
+COORDINATOR_OVERRIDE_BRANCH=1 \
+COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename across midnight" \
+git branch -m "$OLD" "$NEW"
+
+# Step b: atomic remote rename (both halves succeed or both fail; git ≥2.4)
+if ! COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 atomic rename push" \
+     git push --atomic origin "${NEW}:${NEW}" ":${OLD}"; then
+  # Roll back local rename on remote failure
+  COORDINATOR_OVERRIDE_BRANCH=1 \
+  COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename rollback after atomic push failure" \
+  git branch -m "$NEW" "$OLD"
+  echo "ERROR: remote rename rejected; local rolled back. Manual recovery may be needed."
+  exit 1
+fi
+```
+
+After a successful rename, continue with the branch-consolidation flow (open unmerged `work/{machine}/*` branches, A/B/C conflict handling) using the new branch name as base.
+
+**Inline override required:** every `git checkout`, `git merge`, `git branch -m`, and `git push --atomic` in Step 0 that touches off-daily refs must carry `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook denies these operations without the inline override. This now includes `git branch -m` for the rename flow. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure.
 
 **Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
 

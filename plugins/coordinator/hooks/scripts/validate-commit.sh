@@ -26,8 +26,31 @@ else
   COMMAND=$(echo "$INPUT" | sed -n 's/.*"command"\s*:\s*"\([^"]*\)".*/\1/p' | head -1)
 fi
 
-# Fast exit: only process git commit commands
-if ! echo "$COMMAND" | grep -qE '^git[[:space:]]+commit'; then
+# Fast exit: only process git commit commands.
+# Fast path: command starts with "git commit" (most common case, <1ms).
+# Slow path: tokenize on shell separators (;, &&, ||) and test each
+# subcommand's leading word pair — catches chained forms like:
+#   git status && git commit -m "..."
+#   cd foo && git commit -m "..."
+# Each token is stripped of leading whitespace before testing so that
+# "git commit" must appear as the first two words of a subcommand, not
+# anywhere inside a quoted string or a longer word (e.g. git commits).
+_contains_git_commit=0
+if echo "$COMMAND" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
+  _contains_git_commit=1
+else
+  # Split on &&, ||, ; — replace each with a newline, then test each line.
+  _normalized=$(printf '%s' "$COMMAND" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g')
+  while IFS= read -r _token; do
+    # Strip leading whitespace from token
+    _token="${_token#"${_token%%[! ]*}"}"
+    if echo "$_token" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
+      _contains_git_commit=1
+      break
+    fi
+  done <<< "$_normalized"
+fi
+if [[ "$_contains_git_commit" -eq 0 ]]; then
   exit 0
 fi
 
@@ -83,7 +106,7 @@ SH_FILES=$(echo "$STAGED" | grep -E '\.sh$' || true)
 if [[ -n "$SH_FILES" ]] && command -v shellcheck &>/dev/null; then
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
-      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|- $file:|g" || true)
+      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|${file}:|g" || true)
       if [[ -n "$SC_OUT" ]]; then
         WARNINGS="${WARNINGS}\nSHELLCHECK: $file has issues:\n${SC_OUT}"
       fi
@@ -229,11 +252,12 @@ if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; t
   exit 0
 fi
 
-# --- Check 6: MOVED ---
-# Branch discipline at commit time was Check 6 in this file. It has been
-# consolidated into block-off-daily-branch.sh (see `commit` arm of the
-# subcommand parser). One hook for branch discipline (create/switch/commit);
-# this hook handles commit-content validation only (Checks 1-5 above).
-# Review: patrik F11.
+# --- Check 6: FULLY DECOMMISSIONED ---
+# Branch discipline at commit time was Check 6 in this file. It was temporarily
+# consolidated into block-off-daily-branch.sh (`commit` arm) by Patrik F11.
+# That commit arm has now been deleted entirely (2026-05-07, per PM call) —
+# the hook no longer enforces branch-date at commit time at all.
+# See docs/plans/2026-05-07-daily-branch-doctrine-rethink.md Phase 2.
+# This hook handles commit-content validation only (Checks 1-5 above).
 
 exit 0
