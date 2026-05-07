@@ -1,5 +1,6 @@
 ---
 description: Night-shift code health review — scans today's commits, dispatches a reviewer, applies findings, and updates health tracking for next session-start
+disable-model-invocation: true
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---

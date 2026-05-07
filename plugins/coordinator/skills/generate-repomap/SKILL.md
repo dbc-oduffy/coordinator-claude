@@ -1,5 +1,6 @@
 ---
 description: Generate a ranked repository map for LLM context injection
+disable-model-invocation: true
 allowed-tools: ["Bash", "Read"]
 argument-hint: "[--budget N] [--project-root PATH] [--profile PROFILE]"
 ---
