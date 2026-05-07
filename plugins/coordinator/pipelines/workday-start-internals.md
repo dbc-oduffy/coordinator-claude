@@ -4,47 +4,152 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 ## Step 0 — Branch Setup (full procedure)
 
-Ensure all work today happens on a proper work branch and consolidate any lingering open branches from previous days.
+Spec backlink: `docs/plans/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
 
-1. **Determine today's work branch name:**
-   - Machine name: `hostname`, lowercased.
-   - Today's branch: `work/{machine}/{YYYY-MM-DD}`
+The goal is to ensure today is within the active workstream branch's span — not to create a new branch every day. A span-form branch (`work/striker/2026-05-06to07`) is the normal shape when work runs across midnight. The hook polices branch *shape*, not branch *date*; `cs_is_allowed_branch` is the policy oracle.
 
-2. **If already on today's work branch:** skip to Step 1.
+**Lib sourcing (run once at the top of the script context):**
+```bash
+LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+[[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
+```
 
-3. **Find open (unmerged) work branches owned by this user**:
-   ```bash
-   git branch --list "work/{machine}/*" --no-merged main
-   ```
-   Use the same `{machine}` from step 1 — scopes consolidation to this user/machine. Collaborators' `work/{their-machine}/*` branches are never touched. Exclude today's branch from the result list.
+### Step 0.1 — Sync main
 
-4. **Create or checkout today's branch:**
-   - New: `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create daily" git checkout -b work/{machine}/{YYYY-MM-DD}`
-   - Existing: `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 checkout daily" git checkout work/{machine}/{YYYY-MM-DD}`
-   - Name collides with an already-merged branch: `work/{machine}/{YYYY-MM-DD}-2`
-   <!-- Review: patrik F1 — block-off-daily-branch.sh would deny these without the inline override. -->
+Run `sync-main.sh` first; abort if it exits non-zero. Never create or rename branches from stale main.
 
-5. **Consolidate open branches** — for each branch from step 3:
-   ```bash
-   # Review: patrik F1 — inline override required; consolidation switches to stale branches.
-   COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 consolidate {branch-name}" \
-     git merge {branch-name} --no-ff -m "consolidate {branch-name} into today's work branch"
-   ```
-   - Clean merge: continue.
-   - Conflict: **stop immediately.** `git merge --abort`. Report: _"Merge conflict consolidating {branch-name} — manual resolution required. Continuing workday-start without consolidating this branch."_ Do not attempt automatic resolution.
-   - After all merges: old branches remain as refs (do not delete — PM may want to inspect).
+### Step 0.2 — Determine machine and today's date
 
-6. **Push today's branch to establish remote tracking:**
-   ```bash
-   git push -u origin work/{machine}/{YYYY-MM-DD}
-   ```
+```bash
+MACHINE=$(cs_compute_machine)   # always lowercase (Patrik F11; lib Phase 1)
+TODAY=$(date +%Y-%m-%d)
+CURRENT=$(git branch --show-current)
+```
 
-7. **Report:**
-   - Consolidated: _"On branch {today-branch}. Consolidated N open branches: {list}."_
-   - Nothing to consolidate: _"On branch {today-branch}. No open work branches to consolidate."_
-   - Conflicts blocked consolidation: flag clearly.
+`MACHINE` is used in every branch name constructed below. Because `cs_compute_machine` lowercases its output unconditionally, new branches are always `work/striker/...` regardless of `$COMPUTERNAME` case.
 
-**Why this matters:** without daily consolidation, sessions pile up unmerged work branches indefinitely. The daily consolidation keeps branch history clean and surfaces accumulated divergence early — before it becomes a merge nightmare.
+### Step 0.3 — Precedence switch (evaluate in order; stop at first match)
+
+**Check 1 — Stale-commit guard (runs first):**
+```bash
+LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
+NOW_EPOCH=$(date +%s)
+AGE_DAYS=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
+```
+If `$AGE_DAYS > 2` AND `$CURRENT` matches `work/*/...` → jump to **Step 0.5 (consolidation)** using `$CURRENT` as the base. Do NOT rename; surface to PM via the A/B/C Branch Reconciliation Decision (see `commands/workday-start.md` § Step 0 conflict handling). Rationale: a stale span branch whose end-suffix happens to equal today is still dead work warranting triage, not a silent continue.
+
+**Check 2 — Already-in-span (runs second):**
+```bash
+LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
+cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"
+SHOULD_PROMPT=$?
+```
+If `$SHOULD_PROMPT` is **1** and the branch is a valid `work/{machine}/...` form → exit Step 0 silently. Today is already within the branch's span. Proceed to Step 1.
+
+**Check 3 — On main / no workstream branch (runs third):**
+If `$CURRENT == "main"` or `cs_parse_branch_span "$CURRENT"` returns non-zero (branch is not a valid daily/span form) → create a fresh workstream branch:
+```bash
+COORDINATOR_OVERRIDE_BRANCH=1 \
+COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
+git checkout -b "work/${MACHINE}/${TODAY}"
+
+git push -u origin "work/${MACHINE}/${TODAY}"
+```
+Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.5 (consolidation)**.
+
+**Check 4 — Midnight-rename (runs last):**
+Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0 (should prompt). This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
+
+Prompt PM:
+```
+Branch `$CURRENT` is still active and you've crossed midnight.
+Rename to `work/$MACHINE/$(cs_format_span_suffix "$(cs_parse_branch_span "$CURRENT" | awk '{print $1}')" "$TODAY")` to reflect the span? [Y/n]
+```
+
+- **PM answers Y (default, one keystroke):** run the rename procedure below.
+- **PM answers n:** leave the branch unchanged. Do NOT create a sibling `work/${MACHINE}/${TODAY}`. The PM has explicitly declined. Proceed to Step 0.5 on the current branch as-is.
+
+### Step 0.4 — Rename procedure (Patrik F5 — atomic, reversible)
+
+Only reached when PM answers Y to the midnight-rename prompt.
+
+```bash
+OLD=$(git branch --show-current)
+START_DATE=$(cs_parse_branch_span "$OLD" | awk '{print $1}')
+NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
+
+# Concurrent-rename race guard (plan Risk #3):
+# Another session on this machine may have already renamed while we prompted.
+# Re-read the current branch name and bail if it already ends in today's DD.
+CURRENT_RECHECK=$(git branch --show-current)
+TODAY_DD=$(date +%d)
+if [[ "$CURRENT_RECHECK" == *"to${TODAY_DD}" ]]; then
+  echo "Branch already renamed by another session — nothing to do."
+  # Continue with CURRENT_RECHECK as the active branch; skip to Step 0.5.
+else
+  # Step a: local rename (cheap, reversible)
+  COORDINATOR_OVERRIDE_BRANCH=1 \
+  COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename across midnight" \
+  git branch -m "$OLD" "$NEW"
+
+  # Step b: atomic remote rename
+  # git push --atomic sends two refspecs in one transport round-trip:
+  #   ${NEW}:${NEW}  — create the new remote ref
+  #   :${OLD}        — delete the old remote ref
+  # Both succeed or both fail (requires git ≥2.4, GA since 2015).
+  if ! COORDINATOR_OVERRIDE_BRANCH=1 \
+       COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 atomic rename push" \
+       git push --atomic origin "${NEW}:${NEW}" ":${OLD}"; then
+
+    # Step b failed — roll back local rename so local and remote stay consistent
+    COORDINATOR_OVERRIDE_BRANCH=1 \
+    COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename rollback after atomic push failure" \
+    git branch -m "$NEW" "$OLD"
+
+    echo "ERROR: remote rename rejected; local rolled back to $OLD. Manual recovery may be needed."
+    echo "Hint: check remote ref-update hooks or push permissions."
+    exit 1
+  fi
+
+  # Rename complete — update tracking to the new remote branch
+  git branch --set-upstream-to="origin/${NEW}" "$NEW" 2>/dev/null || true
+fi
+```
+
+**Override rationale:** `git branch -m` and `git push --atomic` are both hook-blocked ops when the target name is being mutated. The inline `COORDINATOR_OVERRIDE_BRANCH=1` is required on each of the three git commands (rename, push, rollback). Never export this variable — set it inline per command.
+
+### Step 0.5 — Consolidate open branches
+
+Find open (unmerged) work branches for this machine:
+```bash
+git branch --list "work/${MACHINE}/*" --no-merged main
+```
+(Also check `work/$(echo "$MACHINE" | tr '[:lower:]' '[:upper:]')/*` for legacy uppercase branches during the transition period.)
+
+Exclude the current active branch from the result list. For each remaining branch:
+```bash
+COORDINATOR_OVERRIDE_BRANCH=1 \
+COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 consolidate {branch-name}" \
+git merge {branch-name} --no-ff -m "consolidate {branch-name} into active workstream branch"
+```
+
+- **Clean merge:** continue to next branch.
+- **Conflict:** `git merge --abort` immediately. Report: _"Merge conflict consolidating {branch-name} — manual resolution required."_ Do not attempt automatic resolution. Surface to PM via the A/B/C Branch Reconciliation Decision.
+- After all merges: old branches remain as refs (do not delete — PM may want to inspect).
+
+### Step 0.6 — Push and report
+
+```bash
+git push -u origin "$(git branch --show-current)"
+```
+
+Report:
+- _"On branch {active-branch}. Consolidated N open branches: {list}."_
+- _"On branch {active-branch}. No open work branches to consolidate."_
+- _"Renamed {old} → {new} to reflect midnight span."_ (if rename occurred)
+- Conflicts blocked consolidation: flag clearly.
+
+**Why this matters:** without consolidation, sessions pile up unmerged work branches indefinitely. The span-aware rename keeps the active branch name accurate without splitting the workstream history across a date boundary.
 
 ## Step 1 — Handoff reconciliation (rationale + procedure)
 
