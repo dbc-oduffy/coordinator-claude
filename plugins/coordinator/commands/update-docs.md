@@ -274,7 +274,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it again in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (Camelia F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
+**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -535,7 +535,7 @@ Present a concise summary:
 
 **This phase is EM-only.** The doc-maintenance Sonnet agent does NOT execute Phase 14 (same pattern as Phase 12). The EM runs it inline after the agent reports back. If the agent reaches Phase 14 in error, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
 
-**Purpose:** Maintain `~/.claude/tasks/repo-registry.md` — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: [`docs/wiki/repo-registry.md`](../../../docs/wiki/repo-registry.md).
+**Purpose:** Maintain `~/.claude/tasks/repo-registry.md` — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: [`docs/wiki/repo-registry.md`](../docs/wiki/repo-registry.md).
 
 **Steps:**
 
