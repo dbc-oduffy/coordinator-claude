@@ -138,5 +138,5 @@ The related antipattern — allocating a team slot to an agent whose only job is
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md)
+- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
 - Source plan: `archive/specs/2026-03-22-staff-sessions.md`

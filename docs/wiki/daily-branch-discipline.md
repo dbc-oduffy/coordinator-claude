@@ -24,7 +24,7 @@ The chokepoint is step 1. Block off-daily branch creation/switch and the rest ca
 
 Two contact-points (see CLAUDE.md tripwire):
 
-1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`, **and `git commit`** (Check 6, consolidated here from `validate-commit.sh` per the Staff Engineer's (`coordinator:staff-eng`) F11 review). Allow-list: today's daily (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the [PreToolUse contract](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md). `validate-commit.sh` Checks 1-5 remain there for commit-content validation; Check 6 was moved here.
+1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`, **and `git commit`** (Check 6, consolidated here from `validate-commit.sh` per the Staff Engineer's (`coordinator:staff-eng`) F11 review). Allow-list: today's daily (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the PreToolUse contract (documentation pending). `validate-commit.sh` Checks 1-5 remain there for commit-content validation; Check 6 was moved here.
 2. **Doctrine** — CLAUDE.md § Concurrent-EM Git Operations, first bullet. Authoritative reference for the rule.
 
 ## Supported "park WIP" recipes
@@ -101,6 +101,6 @@ The date used by both the hook and the commit-time check is computed in **local 
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). The two hooks are siblings on the same PreToolUse Bash matcher.
-- [`pretooluse-deny-contract.md`](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md) — JSON deny mechanics.
+- `pretooluse-deny-contract.md` (documentation pending) — JSON deny mechanics.
 - `archive/2026-05-05_branch-sprawl-postmortem.md` (project-rag repo) — original incident.
 - `~/.claude/plans/2026-05-05-daily-branch-discipline-hook.md` — plan & rollout for this enforcement.
