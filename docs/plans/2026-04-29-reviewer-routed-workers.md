@@ -4,7 +4,7 @@
 **Branch:** work/striker/2026-04-29
 **Status:** DRAFT — awaiting PM approval before Phase 1
 **Plan author:** EM (Claude)
-**Predecessor:** holodeck-side draft [`X:/claude-unreal-holodeck/docs/plans/2026-04-29-personas-workers-expansion.md`](file:///X:/claude-unreal-holodeck/docs/plans/2026-04-29-personas-workers-expansion.md) — this plan supersedes it for coord-claude; the holodeck team can layer UE-specific workers on top after this lands.
+**Predecessor:** holodeck-side draft `X:/claude-unreal-holodeck/docs/plans/2026-04-29-personas-workers-expansion.md` — this plan supersedes it for coord-claude; the holodeck team can layer UE-specific workers on top after this lands.
 
 ## 1. Context
 
