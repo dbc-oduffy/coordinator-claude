@@ -23,24 +23,29 @@ cd ~/coordinator-claude
 # Interactive (recommended — let the user pick reviewers):
 bash setup/install.sh
 
-# Non-interactive defaults (coordinator + web-dev + data-science + remember):
+# Non-interactive defaults (coordinator + web-dev + data-science + deep-research):
 bash setup/install.sh --non-interactive
 
 # Explicit plugin list:
-bash setup/install.sh --plugins coordinator,game-dev,remember
+bash setup/install.sh --plugins coordinator,game-dev,deep-research
 ```
 
 The installer prints a summary at the end. Read it. If it reports validation errors, surface them to the user verbatim — don't paper over.
 
 ### Plugin selection — what to recommend
 
-Default `on`: `coordinator`, `web-dev`, `data-science`, `remember`. Default `off`: `game-dev` (Unreal Engine specialist — only enable if the user works on UE projects). `notebooklm` is an opt-in add-on that requires Node 18+ and is prompted separately.
+Authoritative plugin list: `setup/install.sh::PLUGIN_REGISTRY`.
+
+Default `on`: `coordinator`, `web-dev`, `data-science`, `deep-research`. Default `off`: `game-dev` (Unreal Engine specialist — only enable if the user works on UE projects). `notebooklm` is an opt-in add-on that requires Node 18+ and is prompted separately.
+
+`deep-research` ships bundled in this repo (`plugins/deep-research/`) and is installed by default — no separate install step needed. It is also available as a standalone publish at [dbc-oduffy/deep-research-claude](https://github.com/dbc-oduffy/deep-research-claude) for users who only want deep-research without the rest of the coordinator bundle.
 
 If the user gave you any signal about their project type (web, ML, game, Unreal), pick accordingly. Otherwise ask once, briefly, before running the installer.
 
-### Companion plugins (separate installs)
+### Truly external add-ons
 
-- **deep-research** — multi-agent research pipelines. Lives in its own repo: https://github.com/dbc-oduffy/deep-research-claude. Install separately if the user wants `/research`, `/repo-research`, `/structured-research`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env.
+These are not bundled in this repo and must be installed separately:
+
 - **codex-plugin-cc** — Codex CLI integration. Optional. https://github.com/openai/codex-plugin-cc.
 - **clangd-lsp**, **Context7** — optional, install on demand.
 
