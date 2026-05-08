@@ -1,4 +1,5 @@
 ---
+name: spinoff
 description: Fork a mid-session topic into its own pickup-able handoff (a spinoff)
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "<slug> [optional one-line title]"

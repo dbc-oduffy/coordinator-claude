@@ -1,4 +1,5 @@
 ---
+name: generate-repomap
 description: Generate a ranked repository map for LLM context injection
 allowed-tools: ["Bash", "Read"]
 argument-hint: "[--budget N] [--project-root PATH] [--profile PROFILE]"

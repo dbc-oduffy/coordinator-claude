@@ -1,4 +1,5 @@
 ---
+name: handoff
 description: "Save session state for a successor mid-workstream. Not for shipped/complete work — see Step 0."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
