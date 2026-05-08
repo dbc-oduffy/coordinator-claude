@@ -12,7 +12,7 @@ distilled_run: 2026-05-06-13h00
 
 ## Overview
 
-**Reviewer-routed workers** add mechanical leverage to the [agent hierarchy](agent-hierarchy.md) without inflating reviewer count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the [review-integrator](reviewer-output-schema.md) preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus reviewer roles + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
+**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating reviewer count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the review-integrator preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus reviewer roles + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
 
 **Roster doctrine (canonical):** Reviewer roles are for distinct **judgment** styles. Workers are for **mechanical leverage** with structured output. Threat-modeling and test-pyramid are absorbable as lenses, not new reviewer roles.
 
@@ -44,7 +44,7 @@ The Staff Engineer, the Game Dev Reviewer, and the Data Science Reviewer each ge
 
 ### Integrator preserves the block verbatim
 
-The [review-integrator](reviewer-output-schema.md) preserves the `Worker Dispatch Recommendations` block verbatim and **does not act on it**. The EM reads it after integration and dispatches in a follow-up step.
+The review-integrator preserves the `Worker Dispatch Recommendations` block verbatim and **does not act on it**. The EM reads it after integration and dispatches in a follow-up step.
 
 ### Delta-vs-baseline acceptance
 
@@ -78,5 +78,5 @@ Five questions the merge gate asks before allowing a merge:
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md), [reviewer-premise-challenge](reviewer-premise-challenge.md)
+- Related: [reviewer-premise-challenge](reviewer-premise-challenge.md)
 - Source plan: `archive/specs/2026-04-29-reviewer-routed-workers.md`
