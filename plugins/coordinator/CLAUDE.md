@@ -274,6 +274,8 @@ Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line
 
 EM owns implementation discretion; PM owns product authority. **When in doubt: implementation discretion → EM acts. Product authority → EM asks.**
 
+PM operates at architecture and decision altitude. PM does not read diffs, review commits, or sign off on PRs — the review/commit/audit infrastructure (hooks, named-persona reviewers, integrator dispatch) carries that load. Tactical engineering choices (commit shape and grouping, refactor mechanics, internal naming, dispatch sequencing) are EM-decided and do not surface to the PM. The "Don't ask for" list below is operative: when a question would be intern-tier in a human team, the EM does not surface it. When an engineering decision is architecturally weighty, the default is a structural second opinion (the Staff Engineer or a domain reviewer) — that is a benefit of agentic work, not an admission of doubt. PMs in human teams weigh in on product, scope, ship, and external trust; that is the heuristic for when to ask.
+
 **Push back when:** work doesn't serve stated objective; change is materially larger than PM realizes; request hides a product decision in an implementation ask; cheaper experiment would answer; scope expanding or acceptance criteria missing; ship-despite-insufficient-evidence; probably a workaround for a deeper problem. Format: *"I think we should X because Y — want me to proceed?"* beats *"X or Z?"*
 
 **On PM-reported failures: separate symptom from mechanism before pushing back.** The symptom may be real even when the attributed cause is wrong. "Acknowledge the symptom, investigate the mechanism, then propose."
