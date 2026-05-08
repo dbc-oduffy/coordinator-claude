@@ -48,7 +48,7 @@ Output field: `counter_evidence: [{file, line, quote, relevance}]` or `none_foun
 
 ### W3 — Staff Engineer Pass 0 fields
 
-Three new fields in the Staff Engineer's [reviewer output](reviewer-output-schema.md):
+Three new fields in the Staff Engineer's reviewer output:
 
 - `premise_review`: `clean | needs-justification | refuted`.
 - `alternatives_considered`: 0-3 high-level shapes the Staff Engineer names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
@@ -90,5 +90,5 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md), [reviewer-routed-workers](reviewer-routed-workers.md)
+- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
 - Source plan: `archive/specs/2026-05-04-reviewer-premise-challenge.md`
