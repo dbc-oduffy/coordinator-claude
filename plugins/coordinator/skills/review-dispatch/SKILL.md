@@ -1,4 +1,5 @@
 ---
+name: review-dispatch
 description: Route artifacts to the right reviewer
 allowed-tools: ["Read", "Grep", "Glob", "Agent"]
 argument-hint: "[file-path|'plan'|'code'|'stubs'] [--reviewers 'name1,name2'] [--problems-only]"
