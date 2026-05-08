@@ -1,4 +1,5 @@
 ---
+name: session-end
 description: Wrap up finished work — capture lessons, update docs
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
 argument-hint: "[optional context]"
