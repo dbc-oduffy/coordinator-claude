@@ -16,6 +16,7 @@ Thanks for your interest in contributing! This project is community-first and we
 2. **Fork the repo** and create a feature branch
 3. **Make your changes** — follow existing conventions (frontmatter format, file naming, directory structure)
 4. **Run validation** locally: `python .github/scripts/run-all-checks.py`
+   - To check specifically that plugin names in docs stay in sync with `setup/install.sh::PLUGIN_REGISTRY`: `python .github/scripts/check-plugin-doc-drift.py`
 5. **Submit a PR** with a clear description of what and why
 
 ## Pull Request Policy
