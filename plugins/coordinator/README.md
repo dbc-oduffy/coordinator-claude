@@ -102,7 +102,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | **staff-eng** | Opus | The Staff Engineer (`coordinator:staff-eng`) — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | The Ambition Advocate (`coordinator:ambition-advocate`) — backstop reviewer, challenges conservative recommendations, never a primary reviewer |
 
-### Commands (23)
+### Commands (11)
 
 | Command | Purpose |
 |---------|---------|
@@ -129,7 +129,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (18+)
+### Skills (27)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
