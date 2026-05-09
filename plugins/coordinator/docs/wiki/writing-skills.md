@@ -17,6 +17,12 @@ skill teaches the right thing.
 **What is a Skill?** A reference guide for proven techniques, patterns, or tools. Skills are
 reusable; they are NOT narratives about how you solved a problem once.
 
+## Decision-Tree Skills vs Narrative Skills
+
+Coordinator skills come in two shapes. **Narrative skills** (the original pattern) contain prose explaining principles and examples — the EM is expected to absorb them at boot. **Decision-tree skills** (new pattern from 2026-05-06) contain a tree the EM walks at trigger time, with each branch terminating in a single concrete action.
+
+For skills about *how to use the coordinator workflow* (planning, reviewing, etc.), prefer the decision-tree shape. For wiki pages containing long-form reference doctrine, keep as narrative. See `docs/wiki/super-skill-architecture.md` for the full decision-tree skill contract (7 rules).
+
 ### TDD Mapping
 
 | TDD Concept | Skill Creation |
@@ -495,6 +501,35 @@ When the skill ships a script (`scripts/*.py`, `bin/*.sh`):
   The skill should have made the decision.
 
 ---
+
+## Agent Smoke Loop
+
+> See coordinator/CLAUDE.md § Agents and Subagents for boot-context notes on agent registration.
+
+Newly-shipped agents are not discoverable by the parent EM until the Claude Code session restarts. This creates a validation gap: you ship a new agent, try to verify it in the same session, and the agent simply doesn't appear — not because it's broken, but because the session hasn't re-indexed the plugin.
+
+**The in-session workaround:** simulate the new agent using a `general-purpose` Sonnet dispatch. Copy the agent's `allowed-tools`, identity, and prompt body verbatim into the `general-purpose` prompt. This exercises the agent's logic and instruction set in-session, before the restart that would properly register it.
+
+**What the smoke loop confirms:**
+- The agent's instructions produce the expected output shape.
+- The `allowed-tools` list is sufficient for the task (no silent tool-missing failures).
+- The output template / sidecar format is well-formed.
+
+**What it does NOT confirm:**
+- That the agent triggers correctly from description-based routing (requires restart + real dispatch).
+- That frontmatter name/description fields are valid YAML (run a YAML linter separately).
+
+**Protocol:**
+1. Ship the agent file.
+2. Dispatch a `general-purpose` Sonnet with the agent body verbatim as the prompt, using a representative scenario.
+3. Verify the output shape matches the expected deliverable.
+4. Restart the session before claiming the agent is production-ready.
+
+**Failure mode:** if you skip step 4 and dispatch the agent by name in the same session, the parent EM will either fail to route to it or fall back to a different registered agent with a similar description — silent and hard to diagnose.
+
+### Sidecar-emitting agents must include frontmatter in the output template
+
+If your agent writes a sidecar markdown file (verdict report, resolution log, review findings), the output template must specify YAML frontmatter — `generated_by`, `generated_at`, and any schema-relevant fields. Without it, the frontmatter linter nags on first write and the EM gets a noisy block instead of a clean handoff. Treat the frontmatter as part of the agent's contract, not a post-hoc decoration.
 
 ## Common Footguns
 

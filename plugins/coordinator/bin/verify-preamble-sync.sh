@@ -23,6 +23,41 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 2
 fi
 
+# Self-claim: source coordinator session lib for touch tracking.
+# Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
+# Best-effort — no-op if lib absent or no active session.
+_CS_LIB="$(cd "$(dirname "$0")/.." && pwd)/lib/coordinator-session.sh"
+[[ ! -f "$_CS_LIB" ]] && _CS_LIB="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+if [[ -f "$_CS_LIB" ]]; then
+    # shellcheck source=/dev/null
+    source "$_CS_LIB"
+    _CS_LIB_LOADED=1
+else
+    _CS_LIB_LOADED=0
+fi
+
+_cs_claim_if_session() {
+    [[ "$_CS_LIB_LOADED" -eq 0 ]] && return 0
+    local _sids
+    _sids="$(cs_live_session_ids 2>/dev/null)" || return 0
+    local _sid_count
+    if [[ -z "$_sids" ]]; then _sid_count=0
+    else _sid_count=$(echo "$_sids" | wc -l | tr -d ' \n'); fi
+    if [[ "$_sid_count" -eq 0 ]]; then
+        echo "coordinator-session: no active session found — skipping self-claim for $1" >&2
+        return 0
+    fi
+    if [[ "$_sid_count" -gt 1 ]]; then
+        echo "coordinator-session: ${_sid_count} live sessions (ambiguous) — skipping self-claim for $1" >&2
+        return 0
+    fi
+    local _sid
+    _sid=$(echo "$_sids" | head -1)
+    local _sdir
+    _sdir=$(_cs_session_dir "$_sid" 2>/dev/null) || return 0
+    cs_atomic_dedup_append "${_sdir}/touched.txt" "$1" 2>/dev/null || return 0
+}
+
 BEGIN_SENTINEL='<!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->'
 END_SENTINEL='<!-- END project-rag-preamble -->'
 
@@ -153,6 +188,7 @@ for line in lines:
 fpath.write_text("".join(out), encoding="utf-8")
 PYEOF
             echo "FIXED        $consumer"
+            _cs_claim_if_session "$consumer"
         else
             echo "MISMATCH     $consumer"
             EXIT_CODE=1

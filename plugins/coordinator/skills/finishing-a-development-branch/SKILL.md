@@ -49,7 +49,7 @@ Or ask: "This branch split from main - is that correct?"
 
 ### Step 3: Present Options
 
-Present exactly these 4 options:
+Present exactly these 3 options:
 
 ```
 Implementation complete. What would you like to do?
@@ -57,12 +57,13 @@ Implementation complete. What would you like to do?
 1. Merge to main via PR (recommended)
 2. Create a Pull Request (manual merge later)
 3. Keep the branch as-is (I'll handle it later)
-4. Discard this work
 
 Which option?
 ```
 
 **Don't add explanation** - keep options concise.
+
+**Why no "discard" option:** when this skill fires, work is reviewed, tested, and committed. Offering discard as a peer of "merge" treats the choice as ambivalent when it isn't. If the PM genuinely wants to throw the work away, they'll say so explicitly — and that path goes through deliberate destructive-action confirmation, not a numbered menu.
 
 ### Step 4: Execute Choice
 
@@ -105,33 +106,10 @@ Report: "Keeping branch <name>. Worktree preserved at <path>."
 
 If on a worktree: keep the worktree active.
 
-#### Option 4: Discard this work
-
-**Destructive.** Requires explicit confirmation by typing "discard".
-
-```
-This will permanently delete:
-- Branch <name>
-- All commits: <commit-list>
-- Worktree at <path>
-
-Type 'discard' to confirm.
-```
-
-Wait for exact confirmation.
-
-If confirmed:
-```bash
-git checkout <base-branch>
-git branch -D <feature-branch>
-```
-
-Deletes the branch (local + remote) and removes the worktree if applicable (Step 5).
-
 ### Step 5: Cleanup Worktree
 
 <!-- Review: the Staff Engineer — Option 2 keeps worktree active; contradicted the quick reference table -->
-**For Options 1 and 4:**
+**For Option 1:**
 
 Check if in worktree:
 ```bash
@@ -143,7 +121,7 @@ If yes:
 git worktree remove <worktree-path>
 ```
 
-**For Option 3:** Keep worktree.
+**For Options 2 and 3:** Keep worktree.
 
 ## Quick Reference
 
@@ -152,7 +130,6 @@ git worktree remove <worktree-path>
 | 1. Merge via PR | ✓ | ✓ (CI-gated) | - | ✓ |
 | 2. PR only | ✓ | - | ✓ | - |
 | 3. Keep as-is | - | - | ✓ | - |
-| 4. Discard | - | - | - | ✓ (force) |
 
 ## Common Mistakes
 
@@ -162,29 +139,28 @@ git worktree remove <worktree-path>
 
 **Open-ended questions**
 - **Problem:** "What should I do next?" → ambiguous
-- **Fix:** Present exactly 4 structured options
+- **Fix:** Present exactly 3 structured options
 
 **Automatic worktree cleanup**
 - **Problem:** Remove worktree when might need it (Option 2, 3)
-- **Fix:** Only cleanup for Options 1 and 4
+- **Fix:** Only cleanup for Option 1
 
-**No confirmation for discard**
-- **Problem:** Accidentally delete work
-- **Fix:** Require typed "discard" confirmation
+**Offering discard as a numbered option**
+- **Problem:** When work is reviewed, tested, and committed, presenting "discard" as a peer of "merge" treats the choice as ambivalent and invites accidental selection.
+- **Fix:** Don't include discard in the menu. If the PM wants to throw work away, they'll say so explicitly — and that path is deliberate destructive-action confirmation, not a numbered choice.
 
 ## Red Flags
 
 **Never:**
 - Proceed with failing tests
 - Merge without verifying tests on result
-- Delete work without confirmation
+- Offer discard as a numbered menu option
 - Force-push without explicit request
 
 **Always:**
 - Verify tests before offering options
-- Present exactly 4 options
-- Get typed confirmation for Option 4
-- Clean up worktree for Options 1 & 4 only
+- Present exactly 3 options
+- Clean up worktree for Option 1 only
 
 ## Integration
 

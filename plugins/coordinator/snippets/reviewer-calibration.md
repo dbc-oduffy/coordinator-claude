@@ -15,6 +15,8 @@ Bumps:
 
 Calibration check: if every finding you flagged is 8+, you are miscalibrated. Reread your rubric.
 
+**Word-delta calibration.** When the artifact under review is a small textual edit (≤ ~20 words changed, no structural change, no new doctrine), default-anchor confidences in the 5–7 band rather than 8+. The smaller the diff, the smaller the surface for high-confidence violations — sweeping 8s on a 12-word edit means the calibration is anchored on hypotheticals beyond the diff. Findings that genuinely contradict canonical doctrine still floor at 8 (the auto-8 floor); the rule is about the default, not the ceiling.
+
 ## Fix Classification (AUTO-FIX vs ASK)
 
 Classify every finding:

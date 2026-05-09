@@ -213,20 +213,24 @@ test_default_other_session_file_not_staged() {
   assert_not_contains "T4" "theirfile.txt" "$commit_files"
 }
 
-# T5: Default mode — empty scope errors clearly
-test_default_empty_scope_error() {
+# T5: Default mode — empty touched.txt + clean working tree exits 0 with NOTE (Case A)
+# Phase 1 (plans/safe-commit-fixes.md § Phase 1) replaced the single "No staged scope"
+# error with a four-case branched diagnosis. Case A (touched.txt empty, tree clean) is
+# not an error — it exits 0 with a NOTE so callers can detect it without treating it as
+# a failure (e.g. /session-end calling the helper on an already-clean tree).
+test_default_empty_scope_note() {
   setup_repo
   local my_sid="session-mine-$$"
   make_session "$my_sid" "$$"   # no files touched
-  # No dirty files at all
+  # No dirty files at all — Case A
 
   local out rc
   rc=0
   out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" "test: empty scope" 2>&1) || rc=$?
 
   teardown_repo
-  [[ $rc -ne 0 ]] \
-    && assert_contains "T5" "No staged scope" "$out"
+  [[ $rc -eq 0 ]] \
+    && assert_contains "T5" "Nothing to commit" "$out"
 }
 
 # T6: --dry-run — no commit produced, scope printed
@@ -354,6 +358,11 @@ test_blanket_invocation_logged_proper() {
 }
 
 # T12: --scope-from parses valid frontmatter, stages within scope
+# --allow-out-of-scope-dirty is required because out-of-scope.txt and the handoff
+# file itself are untracked (dirty) but not in the declared scope. Issue C (Phase 1+2,
+# plans/safe-commit-fixes.md § Phase 1) added a fail-closed out-of-scope-dirty check;
+# the flag opts in to warn-and-continue so this test can verify scoping behaviour
+# independently of the out-of-scope-dirty gate.
 test_scope_from_valid_frontmatter() {
   setup_repo
   local my_sid="session-mine-$$"
@@ -378,7 +387,7 @@ HANDOFF
 
   local out rc
   rc=0
-  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff.md "test: scope-from" 2>&1) || rc=$?
+  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff.md --allow-out-of-scope-dirty "test: scope-from" 2>&1) || rc=$?
 
   local commit_files
   commit_files=$(git show --name-only HEAD --format="" | grep -v "^$" || true)
@@ -528,8 +537,15 @@ HANDOFF
     && assert_contains "T18" "DRY RUN" "$out"
 }
 
-# T19: Scope-from frontmatter union with touched.txt (resuming session touches additional files)
-test_scope_from_union_with_touched() {
+# T19: --scope-from stages only handoff-declared files (touched.txt is NOT unioned)
+# Issue C (plans/2026-05-05-session-misidentification-fix.md) removed the union of
+# handoff scope + session touched.txt in --scope-from mode. The handoff scope is now
+# the sole source of truth. Files in touched.txt but NOT in the handoff scope are
+# treated as out-of-scope-dirty and are NOT staged (warning emitted with
+# --allow-out-of-scope-dirty; fail-closed without it).
+# --allow-out-of-scope-dirty is passed here so extra-touched.txt doesn't abort the
+# commit — the assertion confirms it was warned about but NOT staged.
+test_scope_from_stages_handoff_scope_only() {
   setup_repo
   local my_sid="session-mine-$$"
   make_session "$my_sid" "$$" "extra-touched.txt"  # session touched this beyond handoff scope
@@ -549,15 +565,17 @@ HANDOFF
 
   local out rc
   rc=0
-  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff.md "test: union" 2>&1) || rc=$?
+  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff.md --allow-out-of-scope-dirty "test: handoff-scope-only" 2>&1) || rc=$?
 
   local commit_files
   commit_files=$(git show --name-only HEAD --format="" | grep -v "^$" || true)
 
   teardown_repo
+  # Only the handoff-declared file is staged; the touched.txt-only file is NOT.
   [[ $rc -eq 0 ]] \
     && assert_contains "T19-scoped" "scoped-file.txt" "$commit_files" \
-    && assert_contains "T19-extra" "extra-touched.txt" "$commit_files"
+    && assert_not_contains "T19-not-staged" "extra-touched.txt" "$commit_files" \
+    && assert_contains "T19-warned" "outside declared scope" "$out"
 }
 
 # T21: Scope-from — CRLF-encoded handoff (Windows line endings).
@@ -587,9 +605,13 @@ test_scope_from_crlf_handoff() {
     return 1
   fi
 
+  # --allow-out-of-scope-dirty is required because out-of-scope.txt and the CRLF
+  # handoff file itself are untracked (dirty) but not in the declared scope. Issue C
+  # (plans/safe-commit-fixes.md § Phase 1) fail-closes on out-of-scope dirty files;
+  # the flag opts in to warn-and-continue so this test can verify CRLF parsing only.
   local out rc
   rc=0
-  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff-crlf.md "test: crlf scope-from" 2>&1) || rc=$?
+  out=$(CLAUDE_SESSION_ID="$my_sid" bash "$HELPER" --scope-from tasks/handoffs/handoff-crlf.md --allow-out-of-scope-dirty "test: crlf scope-from" 2>&1) || rc=$?
 
   local commit_files
   commit_files=$(git show --name-only HEAD --format="" | grep -v "^$" || true)
@@ -637,7 +659,7 @@ run_test "T1:  Default — only my files staged"                 test_default_my
 run_test "T2:  Default — cross-session subtraction holds"      test_default_cross_session_subtraction
 run_test "T3:  Default — orphan warned but not staged"         test_default_orphan_warned_not_staged
 run_test "T4:  Default — other-session file not staged"        test_default_other_session_file_not_staged
-run_test "T5:  Default — empty scope errors clearly"           test_default_empty_scope_error
+run_test "T5:  Default — empty scope+clean tree → NOTE exit 0" test_default_empty_scope_note
 run_test "T6:  --dry-run: no commit, scope printed"            test_dry_run_no_commit
 run_test "T7:  --blanket: rejected (no env var)"               test_blanket_rejected_no_env
 run_test "T8:  --blanket: rejected (wrong command value)"      test_blanket_rejected_wrong_command
@@ -651,7 +673,7 @@ run_test "T15: COORDINATOR_OVERRIDE_SCOPE=1 logs + stages all" test_override_sco
 run_test "T16: Missing subject → error"                        test_missing_subject
 run_test "T17: Multiple live sessions → error naming both"     test_multi_live_sessions_error
 run_test "T18: --dry-run: no commit in dry-run mode"           test_dry_run_scope_from_no_commit
-run_test "T19: --scope-from: union with session touched.txt"   test_scope_from_union_with_touched
+run_test "T19: --scope-from: handoff scope only (no touched.txt union)" test_scope_from_stages_handoff_scope_only
 run_test "T20: --scope-from: missing scope: key → error"       test_scope_from_missing_scope_key
 run_test "T21: --scope-from: CRLF handoff parses correctly"    test_scope_from_crlf_handoff
 

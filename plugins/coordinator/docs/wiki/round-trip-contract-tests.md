@@ -1,12 +1,12 @@
 # Round-Trip Contract Tests
 
-**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B5. Source extracts: holodeck E6, project-rag E9, project-rag E18.
+**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B5.
 
 When a pipeline has separate producers and consumers writing/reading the same on-disk artifact, **at least one test must run the real producer feeding the real consumer**. Tests that fabricate the schema inline on each side hide drift indefinitely.
 
 ## The Failure Mode
 
-Project-rag's lite/clang producers wrote a `symbols` table without `module` / `line_end` / `decl_text` columns; consumers (`cpp_chunker`, `extractor.extract_cpp`, `live.py`) queried those columns. CI passed because every consumer test built its own rich-schema fixture inline. The mismatch only surfaced when DroneSim ran a clean reindex against v0.1.1 — the first time the in-tree producers' real DDL met the real consumers' real SQL.
+A RAG indexer's lite/clang producers wrote a `symbols` table without `module` / `line_end` / `decl_text` columns; consumers (`cpp_chunker`, `extractor.extract_cpp`, `live.py`) queried those columns. CI passed because every consumer test built its own rich-schema fixture inline. The mismatch only surfaced when a game project ran a clean reindex — the first time the in-tree producers' real DDL met the real consumers' real SQL.
 
 The shape recurs:
 
@@ -50,6 +50,17 @@ This proves the app at least imports and the boot path is reachable. Tests that 
 - **Producer-side test directory** if the producer owns the schema authoritatively.
 - **Consumer-side test directory** if the consumer's read shape is what's drifting.
 - **Either** is fine — the rule is that *one* such test must exist on the contract, not that it must live in a specific place. What's not fine is fabricated-on-each-side fixtures with no integration seam.
+
+## Spike Acceptance: Registration Is Not Initialization
+
+> See `docs/wiki/writing-plans.md` § "Spike Pass-Conditions Must Match the Wire Path" for the plan-authoring corollary.
+
+A spike whose goal is "does X work end-to-end" must verify the **runtime wire path**, not just structural registration. The round-trip failure mode applies to spike ACs just as it applies to contract tests:
+
+- **Registration ≠ initialization.** A module can be registered in a plugin registry while failing to initialize at runtime (missing deps, wrong boot order, missing env bindings).
+- **Build success ≠ runtime reachability.** A header that compiles successfully may still be unreachable via the call path the spike claims to verify.
+
+The spike's pass-condition is a contract test in miniature: it must exercise the real producer feeding the real consumer. If the pass-condition can return green while the runtime surface is broken, it is measuring the wrong seam.
 
 ## Reference Pattern: `writing-plans` Skill Checklist
 

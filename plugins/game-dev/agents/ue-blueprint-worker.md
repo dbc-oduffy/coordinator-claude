@@ -110,7 +110,7 @@ Two extraction scripts produce the **same output schema** as live MCP inspection
 
 ### Headless commandlet extraction (`scripts/tasks/chunk2_priming.py`)
 - Runs via `UnrealEditor-Cmd -run=pythonscript -nullrhi` — **no editor GUI required**.
-- Extracts ALL BPs in the project (1,982 for DroneSim, ~87s).
+- Extracts ALL BPs in the project in a single pass.
 - Uses C++ `HolodeckBlueprintPythonLibrary` methods — all 5 dimensions (variables, functions with params+returnType, events, interfaces, SCS components).
 - Output: `bps/batch-NNNN.json` (50 BPs each) + `asset-registry.jsonl` + `referencers.jsonl`.
 - **Best for:** Full project surveys, RAG indexing, any task where you need data from more than ~20 BPs.

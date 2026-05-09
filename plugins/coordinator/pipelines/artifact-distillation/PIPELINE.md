@@ -84,6 +84,8 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 One Haiku agent per batch. Each agent reads every artifact in its batch and extracts structured "knowledge nuggets."
 
+**Input types (since 2026-05-08):** `docs/plans/*.md` (canonical specs), scaffolding stubs in `tasks/<feature>/stubs/`, and **`archive/handoffs/*.md`** (post-`/pickup` handoffs). Handoffs are enumerated via `bin/query-records --type handoff-archived --format paths` (per `commands/distill.md` § Handoff distillation), not raw `find`. Haiku scans handoffs for `[DECISION]` / `[KNOWLEDGE:{system}]` nuggets the same way it scans specs — `## Key Decisions Made` is the highest-yield section per existing handoff template.
+
 **Nugget types:**
 
 - `[DECISION]` — a choice that was made. Include optional `superseded_by:` field if a later artifact in the same batch reverses this decision.

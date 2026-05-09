@@ -109,19 +109,19 @@ The two pre-flights answer different questions:
 
 They are not substitutes; they can both run on the same artifact.
 
-## Sidecar format note
+## the Game Dev Reviewerecar format note
 
-Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish machine-emitted artifacts from authored docs. docs-checker sidecars should adopt the same convention when they are next revised (not in scope for this commit — surfaced as a follow-up).
+the Game Dev Reviewerecars use `kind:` rather than `type:` in their frontmatter to distinguish machine-emitted artifacts from authored docs. docs-checker sidecars should adopt the same convention when they are next revised (not in scope for this commit — surfaced as a follow-up).
 
 ## Distribution
 
 The reviewer-side consumption block is synced via `plugins/coordinator-claude/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Staff Engineer)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Game Dev Reviewer)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Data Science Reviewer)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Front-End Reviewer)
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 
@@ -132,7 +132,7 @@ The prior-art-checker is mechanical, not judgmental. It can over-match (false-fl
 1. **Override goes in the plan.** When the EM dispositions a conflict as "override," the plan's "Considered alternatives" section gains a one-line entry citing the prior-art quote and the override rationale. This is the durable record; future readers see what was overridden and on what grounds.
 2. **Repeated false-positives signal wiki revision.** When the same wiki entry produces multiple bogus conflicts across plans, that is a feedback signal — the wiki is outdated, vague, or wrong. Surface to PM as a candidate for wiki revision. The prior-art-checker thus becomes a quality loop on the wiki corpus.
 
-**Sidecar preservation.** Prior sidecars are never overwritten — on re-run the agent renames the existing sidecar to `<plan-path>.prior-art-check.<UTC-mtime>.md` before writing the new one. This means the arbitration history (what the first run flagged, what changed in the second run) is always available as an archived sidecar alongside the current one. The feedback-loop in rule 2 above depends on this archive existing.
+**the Game Dev Reviewerecar preservation.** Prior sidecars are never overwritten — on re-run the agent renames the existing sidecar to `<plan-path>.prior-art-check.<UTC-mtime>.md` before writing the new one. This means the arbitration history (what the first run flagged, what changed in the second run) is always available as an archived sidecar alongside the current one. The feedback-loop in rule 2 above depends on this archive existing.
 
 **Operational hook:** during `/workweek-complete` Step 4 (improvement-queue triage), the EM scans recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override" and flags wikis cited ≥3 times in overrides as candidates for revision. This is judgment-based, not automated — but the responsibility lives in weekly cadence so it doesn't drift.
 

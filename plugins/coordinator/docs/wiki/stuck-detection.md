@@ -112,7 +112,7 @@ Build own tree-sitter integration directly.
 
 ### tree-sitter parser surface
 
-- **Priority languages:** Python (P0), TypeScript (P1), C++ (P1 for DroneSim).
+- **Priority languages:** Python (P0), TypeScript (P1), C++ (P1 for game/native projects).
 - **Fallback:** Markdown / JSON / Shell keep regex.
 - **Returns:** `(definitions, references)` tuple.
 - **Cache schema v2:** `{"defs": [...], "refs": [...]}` with `_version: 2` root key.
@@ -151,5 +151,5 @@ Option 3: `requirements-repomap.txt` with pinned versions + inline stdlib fallba
 
 ## Reference
 
-- Related: [tiered-context-loading](tiered-context-loading.md)
+- Related: [agent-hierarchy](agent-hierarchy.md)
 - Source plan: `archive/specs/2026-03-16-tier1-repomap-stuckdetect.md`

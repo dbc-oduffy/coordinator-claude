@@ -1,6 +1,6 @@
 # coordinator
 
-Core orchestration plugin for the Dónal + Claude agent hierarchy. Always enabled on every project.
+Core orchestration plugin for the PM + Claude agent hierarchy. Always enabled on every project.
 
 This plugin addresses six failure modes that compound silently in sustained AI-assisted development. Each maps to named skills and commands.
 
@@ -41,7 +41,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `/review-dispatch` — Route artifacts to the right reviewer based on change signals (code, architecture, domain). Includes effort calibration, skip conditions, and EM override guidance.
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
-- Backstop pattern — the Ambition Advocate (`coordinator:ambition-advocate`) challenges conservative Staff Engineer recommendations. Mandatory for high-effort reviews.
+- Backstop pattern — Zoli (ambition advocate) challenges conservative the Staff Engineer recommendations. Mandatory for high-effort reviews.
 - `coordinator:review-code` skill (code reviews) + `coordinator:review` skill (plan reviews) + `docs/wiki/receiving-code-review.md` — Codified decision-tree skills for preparation, routing, and applying feedback.
 - Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
 
@@ -99,10 +99,10 @@ Full component inventory for the record. The failure-mode sections above are the
 | **enricher** | Sonnet | Research agent — surveys codebases, traces deps, fills in stub details |
 | **executor** | Sonnet | Implementation agent — follows specs precisely, reports DONE/DONE_WITH_CONCERNS/BLOCKED |
 | **review-integrator** | Opus | Applies reviewer findings to artifacts with annotations, escalates disagreements |
-| **staff-eng** | Opus | The Staff Engineer (`coordinator:staff-eng`) — rigorous review of code, plans, architecture, documentation |
-| **ambition-advocate** | Opus | The Ambition Advocate (`coordinator:ambition-advocate`) — backstop reviewer, challenges conservative recommendations, never a primary reviewer |
+| **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
+| **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (11)
+### Commands (23)
 
 | Command | Purpose |
 |---------|---------|
@@ -129,7 +129,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (27)
+### Skills (18+)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -181,7 +181,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 The coordinator defines the routing framework that domain plugins extend:
 
-1. This plugin's `routing.md` defines universal reviewers (the Staff Engineer, the Ambition Advocate) and the routing algorithm
+1. This plugin's `routing.md` defines universal reviewers (the Staff Engineer, Zoli) and the routing algorithm
 2. Domain plugins contribute routing fragments via their own `routing.md` files
 3. At dispatch time, `/review-dispatch` merges all fragments into a composite routing table
 4. Signals from changed code determine which reviewer handles the review
@@ -194,11 +194,11 @@ Create `coordinator.local.md` in your project:
 
 ```yaml
 ---
-project_type: unreal    # unreal | game-docs | web | pure-docs
+project_type: game-dev  # general | game-dev | web-dev | data-science
 ---
 ```
 
-Default (no config): core-only (the Staff Engineer + the Ambition Advocate).
+Default (no config): core-only (the Staff Engineer + Zoli).
 
 ---
 
@@ -265,4 +265,4 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 
 ## Authors
 
-Dónal O'Duffy & Claude
+the Coordinator Authors

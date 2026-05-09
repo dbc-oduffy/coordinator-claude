@@ -203,17 +203,28 @@ fi
 # avoid the /c/Users/... vs C:\Users\... path mismatch on Windows + Git Bash.
 # Python builds the storage path with os.path.expanduser, which resolves to
 # the correct native path on both POSIX and Windows.
+#
+# Python resolved via lib/resolve-python.sh — see lib for resolution order and rationale.
+# Exits silently only when none of the candidates are found on PATH.
 # ---------------------------------------------------------------------------
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
 
-if command -v python3 &>/dev/null; then
-  TIER_SLUG="$PROJECT_SLUG" \
-  TIER_SESSION="$SESSION_ID" \
-  TIER_NAME="$TIER" \
-  TIER_NOW="$NOW" \
-  TIER_SUBAGENT="$SUBAGENT_TYPE" \
-  TIER_RATIONALE="$RATIONALE_PRESENT" \
-  python3 - <<'PYEOF' 2>/dev/null || exit 0
+# Resolve Python via shared lib (resolution order python3 → python → py -3).
+# Dual-path lookup mirrors session-init.sh:56-57; reader (skills/session-end/SKILL.md)
+# uses absolute-path-only since BASH_SOURCE is unreliable in interactive shells.
+LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
+[[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+# shellcheck source=/dev/null
+[[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
+[[ -z "$PYTHON_BIN" ]] && exit 0
+
+TIER_SLUG="$PROJECT_SLUG" \
+TIER_SESSION="$SESSION_ID" \
+TIER_NAME="$TIER" \
+TIER_NOW="$NOW" \
+TIER_SUBAGENT="$SUBAGENT_TYPE" \
+TIER_RATIONALE="$RATIONALE_PRESENT" \
+"$PYTHON_BIN" "${PYTHON_ARGS[@]}" - <<'PYEOF' 2>/dev/null || exit 0
 import json, os
 
 project_slug      = os.environ.get("TIER_SLUG", "unknown")
@@ -263,9 +274,21 @@ if tier == "tier4":
 with open(tier_file, "w") as f:
     json.dump(data, f, indent=2)
 PYEOF
-else
-  # python3 unavailable — skip silently (telemetry is best-effort)
-  exit 0
+
+# Self-claim: register the written tier-usage JSON with the session's touched.txt.
+# Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
+# SESSION_ID is already extracted from the hook payload above.
+# Best-effort — never fails the hook (exit 0 guaranteed below).
+_CS_TIER_LIB="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
+[[ ! -f "$_CS_TIER_LIB" ]] && _CS_TIER_LIB="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+if [[ -f "$_CS_TIER_LIB" && -n "${SESSION_ID:-}" && -n "${PROJECT_SLUG:-}" ]]; then
+    # shellcheck source=/dev/null
+    source "$_CS_TIER_LIB" 2>/dev/null || true
+    _TIER_WRITTEN="${HOME}/.claude/projects/${PROJECT_SLUG}/tier-usage/${SESSION_ID}.json"
+    _TIER_SDIR=$(_cs_session_dir "$SESSION_ID" 2>/dev/null) || true
+    if [[ -n "$_TIER_SDIR" && -f "${_TIER_SDIR}/touched.txt" ]]; then
+        cs_atomic_dedup_append "${_TIER_SDIR}/touched.txt" "$_TIER_WRITTEN" 2>/dev/null || true
+    fi
 fi
 
 exit 0

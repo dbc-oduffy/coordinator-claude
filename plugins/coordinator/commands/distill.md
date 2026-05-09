@@ -8,13 +8,14 @@ argument-hint: "[--dry-run] [--no-delete] [--min-convergence=N] [path]"
 
 Extract knowledge from accumulated session artifacts into evergreen wiki documents. Trim and archive canonical specs; delete scaffolding; write or update wiki entries. The archive is the long-term record; the wiki is the navigable present.
 
-**Three categories, three fates:**
+**Four categories, four fates:**
 
 | Artifact | Fate | Rationale |
 |---|---|---|
 | Canonical plan / spec (`docs/plans/*.md`) | **Trim → move to `archive/specs/`** | Keep the "how" greppable; strip review-applied wrappers and side-channel meta only after re-homing any constraints they introduced. |
 | Enriched stubs, reviewer outputs, integrator triage, docs-checker reports | **Delete** | Pure scaffolding. Recoverable from git via distillation log. |
 | Wiki entries (`docs/wiki/*.md`) | **Write/update** | What-and-why summary. Carries provenance frontmatter. |
+| Archived handoffs (`archive/handoffs/*.md`) — added 2026-05-08 | **Extract → delete (opt-out via `--no-delete`)** | Post-`/pickup` paper trail. Contains decision rationale and reusable patterns; once those are distilled into DRs and wiki entries, the source is recoverable from git. See § Handoff distillation below. |
 
 **Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md`. Agent prompt templates in the same directory's `agent-prompts.md`.
 
@@ -38,7 +39,7 @@ Apply wiki updates (Phases 0-5 write steps), but skip scaffolding deletion AND s
 
 **`--allow-drop`**
 Bypass the negative-AC halt for this run after EM eyeballs the diff and confirms no semantic loss. Logs the bypass to distillation-log.md Manual Review section for audit.
-<!-- Review: the Staff Engineer R3 — F3: --allow-drop was referenced in the set-diff section but absent from Arguments; F6: dropped stale "Previously:" migration commentary from --no-delete -->
+<!-- Review: Patrik R3 — F3: --allow-drop was referenced in the set-diff section but absent from Arguments; F6: dropped stale "Previously:" migration commentary from --no-delete -->
 
 **`--min-convergence=N`**
 Override the Phase 2.5 convergence threshold for this run. Default `N=3` (matches the "wait for instance #3 before extracting a pattern" rule in coordinator doctrine). Lower values are useful when bootstrapping against a thin sidecar corpus — raise back to 3 once the corpus matures. Phase 2.5 emits a judgment proposal only when a finding cluster reaches `convergence_count >= N` across distinct plans.
@@ -80,11 +81,66 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 3** | Opus (single) | Cross-reference assembly — resolve contradictions, deduplicate decision records, produce deletion manifest (does NOT apply delta ops) |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest, wait for explicit approval |
 | **Phase 5** | Coordinator | Apply wiki writes, trim + archive canonical specs (including rationale extraction), delete scaffolding, update distillation log, run link-heal pass |
-<!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
+<!-- Review: Patrik R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
 **If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3 and presents the summary.
 
 **If `--no-delete`:** Phase 5 applies wiki writes and commits, but skips scaffolding deletion and spec archival.
+
+---
+
+## Handoff distillation (added 2026-05-08)
+
+Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
+
+### Input enumeration
+
+Distill enumerates archived handoffs via:
+
+```bash
+bin/query-records --type handoff-archived --format paths
+```
+
+NOT a raw `find archive/handoffs/ -name '*.md'`. Using `query-records` preserves frontmatter validation (each handoff is checked against `schemas/handoff-archived.yaml`) and provenance metadata (workstream, predecessor, deployment_state). Same enumeration discipline as `--type plan` for `docs/plans/`.
+
+### Extraction targets
+
+| Source content | Target | Notes |
+|---|---|---|
+| Substantive `## Key Decisions Made` section with reasoning | DR in `docs/decisions/` | Existing pattern (Phase 5b provenance frontmatter applies) |
+| Reusable cross-cutting patterns / lessons | Wiki entry in `docs/wiki/` | New `archived_handoff:` provenance key — see schema below |
+| Neither (only mechanical sections like `## Files Modified`) | No extraction | Eligible for delete under Phase 5 safety guards |
+
+### Provenance frontmatter — new `archived_handoff:` key
+
+Per DR-053, `archived_handoff:` is a **new top-level key**, NOT a sub-key under `provenance:` (that key is taken by Phase 5b's archived-spec schema as a list-of-objects with `path` + `last_verbose_sha`; collision would break schema-based dispatch).
+
+```yaml
+archived_handoff:
+  - path: archive/handoffs/2026-05-04_140000_some-workstream.md
+    workstream: some-workstream
+    last_verbose_sha: a1b2c3d
+    distilled: 2026-05-08
+```
+
+Sibling key to `provenance:` (specs) and `judgment_provenance:` (codebase-judgment entries).
+
+### Delete safety (mandatory; opt-out is `--no-delete`)
+
+**Doctrine reversal — confirmed opt-out 2026-05-08.** The prior `/workday-complete` line ("Delete handoffs. Never deleted — archived only after `/distill` with PM approval") is reversed. New policy: `/distill` deletes by default after extraction; `--no-delete` overrides for specific runs.
+
+A handoff is eligible for delete in Phase 5 ONLY if all four guards pass:
+
+1. **Extraction-artifact present.** At least one DR (in `docs/decisions/`) or wiki entry (in `docs/wiki/`) was written this run referencing the source via `archived_handoff:` provenance frontmatter, OR the handoff is empirically content-free (only `## Files Modified This Session`, no decisions / blockers / next-steps).
+2. **`shipped_in:` present.** A handoff in `archive/handoffs/` lacking `shipped_in:` (commit SHA or PR ref) cannot be deleted — surface to PM with the missing-paper-trail diagnosis. This catches handoffs that were archived but whose work did not actually ship; deleting would erase the only record of the orphan workstream. `shipped_in:` is set by `/pickup` (rare — only when the SHA is known) or by the picking-up session's `/handoff` or `/session-end` (normal case).
+3. **Active-reference check (per `docs/wiki/cleanup-sweep-hazards.md` §1).** Ripgrep `archive/handoffs/<basename>.md` references across `docs/`, `tasks/`, `archive/specs/`, and plugin sources. Any active reference (i.e., not in another to-be-deleted file) blocks deletion of that handoff. Cleanup is higher-risk than it looks — a citation from an active spec must not silently dangle.
+4. **Distillation-log row.** Same ≥8-word domain-prose requirement as existing scaffolding rows (per Phase 5c). Reason field describes why the handoff content was decision-bearing or content-free.
+
+Git history remains the permanent paper trail. Use `git show <last_verbose_sha>:<original-path>` to recover the verbose handoff text.
+
+### Phase 5d link-heal extension
+
+Add `archive/handoffs/<basename>.md` to the path-rewrite ripgrep set. Healing target: any cross-reference from wiki/DR to a now-deleted archived handoff gets rewritten to the wiki/DR that absorbed it (with parenthetical `(formerly archive/handoffs/<basename>.md @ <sha>)`).
 
 ---
 
@@ -109,8 +165,8 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 
 **DENYLIST sections — strip after re-homing + rationale extraction:**
 - "Reviewer Plan"
-- "the Staff Engineer Round N Findings"
-- "the Data Science Reviewer/the Game Dev Reviewer Findings"
+- "Patrik Round N Findings"
+- "Camelia/Sid Findings"
 - "Integrator Triage"
 - "Docs-Checker Pass"
 - "Open Questions (resolved)"
@@ -122,7 +178,7 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 
 For every DENYLIST section, scan it for content introducing a constraint, AC, or decision that does not appear in any ALLOWLIST section. Each such item must be re-homed into the appropriate ALLOWLIST section (typically Acceptance Criteria or Decisions Made) before the wrapper is stripped. Re-homing produces a diff in the trim preview that the EM reviews at Phase 4. Do not strip before the EM has approved the re-homing diff.
 
-**Decision Rationale extraction (required, not optional — per the Data Science Reviewer F3):**
+**Decision Rationale extraction (required, not optional — per Camelia F3):**
 
 Re-homing handles structural items (constraints, ACs, decisions stated as such). It does NOT capture conversational *why-we-chose-X-over-Y* rationale that lives in review threads — exactly the kind of question retrieval most often surfaces. Before stripping any DENYLIST section, extract decision rationale into a dedicated `## Decision Rationale` section of the archived spec (or a sibling `archive/specs/<name>-rationale.md` if the spec is long). Format: one paragraph per decision, naming the alternatives considered and why this one won, citing reviewer findings by reference if relevant. This section is indexed by RAG and is retrievable by future EMs without `git show`.
 
@@ -135,7 +191,7 @@ Re-homing handles structural items (constraints, ACs, decisions stated as such).
 6. Move (not copy) trimmed result to `archive/specs/YYYY-MM-DD-<name>.md`.
 
 **Apply-agent slice rubric:** When dispatching apply-agents in Phase 5, slice "mv files" steps separately from "transform contents" steps. Bundling them in a single agent brief lets the apply-agent silently drop the transform when its budget tightens (mv work is mechanical and visibly succeeds; content transforms are higher-risk and quietly skipped). One agent per slice — keep mv-only briefs and content-transform briefs in separate dispatches.
-<!-- Review: the Staff Engineer R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
+<!-- Review: Patrik R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
 
 ---
 
@@ -175,13 +231,13 @@ Path: `tasks/distillation-log.md` (per-project). Created on first distill run; p
 ```
 
 **Append-only contract:** Read existing rows first. Append new rows. NEVER rewrite existing rows. Row count is monotonically non-decreasing; strictly increases on any run that deletes scaffolding or archives a spec. This is an AC.
-<!-- Review: the Staff Engineer R3 — F5: "strictly increase" fails on a no-op run; reworded to monotonically non-decreasing with strict increase on runs that actually act -->
+<!-- Review: Patrik R3 — F5: "strictly increase" fails on a no-op run; reworded to monotonically non-decreasing with strict increase on runs that actually act -->
 
 **Mirroring:** For highest-value scaffolds (the canonical spec itself), the distillation log row is also mirrored into the wiki provenance frontmatter as redundancy.
 
 **Why prose-shaped reason fields:** The log itself becomes index-bait. RAG indexes the on-disk filesystem; a log row reading "scaffolding" is invisible to retrieval, but a row reading "integrator triage resolving async-run wrapper conflict in port-patterns FastMCP transport" surfaces on a query about that conflict and gives the future EM a `last_sha` to retrieve the verbose original. The log carries history forward into the retrieval surface — cheapest mitigation for the "git history is out-of-band for RAG" recall hole.
 
-**Vocabulary discipline AC (per the Data Science Reviewer F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `tasks/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
+**Vocabulary discipline AC (per Camelia F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `tasks/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
 
 ---
 
@@ -199,7 +255,7 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 **Pre-deletion active-reference check.** Before `rm -rf` any `tasks/<dir>/`, grep references first; shipped-status alone does not mean unreferenced. Halt deletion on any live cite.
 
 **Anchor the link-heal regex around path boundaries.** Sed-style rewrites over-rewrite `original_path:` and other frontmatter fields where the literal old path is semantically correct; anchor the pattern or restore frontmatter post-sweep.
-<!-- Review: the Staff Engineer R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
+<!-- Review: Patrik R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
 
 **Heal-log:** Under a `## Manual Review` section in `tasks/distillation-log.md`, write EVERY unmatched-but-suspicious hit — anything containing `docs/plans/`, `tasks/<feature>/stubs/`, or the deleted-path basenames — for EM eyeball. The EM reviews the Manual Review section before declaring the run complete.
 
@@ -216,7 +272,7 @@ An AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in 
 This prevents the muscle-memory bypass where every distill halts on review noise and operators default to `--allow-drop`. The halt fires only on genuine content loss.
 
 **False-halt mode:** Word-order-permuted equivalent lines will register as differing and trigger a halt. When this happens, the EM eyeballs the diff, confirms semantic equivalence, and proceeds with `--allow-drop` on that specific run. This is acceptable because the EM still sees the diff — the bypass becomes an inspection, not a rubber-stamp.
-<!-- Review: the Staff Engineer R3 — F2: set-diff normalization is weaker than the plan's 'semantically-equivalent line' intent; word-order permutations register as different and trigger spurious halts -->
+<!-- Review: Patrik R3 — F2: set-diff normalization is weaker than the plan's 'semantically-equivalent line' intent; word-order permutations register as different and trigger spurious halts -->
 
 ---
 
@@ -238,7 +294,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - Wiki provenance frontmatter includes `archived_spec`, `original_path`, `last_verbose_sha`, `distilled`.
 - `## Decision Rationale` section present in archived spec (or sibling rationale file) for every spec that had DENYLIST content; rationale covers alternatives-considered + why this won per reviewer finding.
 - Link-heal pass rewrites all three target types; `## Manual Review` section in distillation log captures unmatched-but-suspicious hits.
-- **Vocabulary discipline AC (the Data Science Reviewer F2):** /distill manual-review log on a CONTEXT.md-bearing repo flags ≥1 vocabulary-drift hit on sampled executor output OR attests zero drift after sampling N≥3 modules.
+- **Vocabulary discipline AC (Camelia F2):** /distill manual-review log on a CONTEXT.md-bearing repo flags ≥1 vocabulary-drift hit on sampled executor output OR attests zero drift after sampling N≥3 modules.
 - **Phase 2.5 exists** in `PIPELINE.md` as a defined phase with model assignment (Sonnet, parallel by topic-cluster) and dispatch instructions. Phase 2.5 runs after all Phase 2 topic-cluster agents complete and before Phase 3 dispatches.
 - **Convergence threshold enforced:** Phase 2.5 emits a judgment proposal only when `convergence_count >= MIN_CONVERGENCE` across distinct plans (one finding per plan). The `--min-convergence=N` argument gates promotion; it is not advisory. Zero proposals when threshold not reached is correct behaviour, not a failure.
 - **Update path is topic-key join, no re-`git show`:** when an existing `docs/wiki/codebase-judgment/<topic>.md` entry is present, Phase 2.5 matches new live findings against the existing topic key only — it does NOT re-`git show` prior `source_findings[*].sha` refs. The topic key is the stable join identifier. Full contract: `PIPELINE.md § D8`.

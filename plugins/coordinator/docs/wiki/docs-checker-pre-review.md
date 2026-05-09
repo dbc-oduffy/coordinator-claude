@@ -74,7 +74,7 @@ When project-RAG is available, docs-checker uses it to verify in-repo symbol cla
 
 When project-RAG is absent, in-repo symbol claims are skipped and noted as out-of-scope in the verification report.
 
-## Sidecar Schema
+## the Game Dev Reviewerecar Schema
 
 Each auto-fix is logged as a YAML block in `tasks/review-findings/{timestamp}-docs-checker-edits.md`:
 
@@ -117,7 +117,7 @@ The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.
 - `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
 - `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
 - `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 

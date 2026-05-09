@@ -12,7 +12,7 @@ The repo registry (`~/.claude/tasks/repo-registry.md`) is a structured cross-rep
 
 ## Why this exists
 
-`prior-art-checker` reads four corpora by default — active project's wikis, global `~/.claude/docs/wiki/`, project lessons, central improvement queue. Prior art established in *peer* repos (e.g., a RAG-shaped plan in `~/.claude` that should consult `project-rag`) was previously invisible. The registry gives the EM a structured way to nominate peers at dispatch time.
+`prior-art-checker` reads four corpora by default — active project's wikis, global `~/.claude/docs/wiki/`, project lessons, central improvement queue. Prior art established in *peer* repos (e.g., a RAG-shaped plan in `~/.claude` that should consult a peer RAG indexer) was previously invisible. The registry gives the EM a structured way to nominate peers at dispatch time.
 
 ## Consumers
 
@@ -60,7 +60,7 @@ The repo registry (`~/.claude/tasks/repo-registry.md`) is a structured cross-rep
 |---|---|---|
 | `peer` | Sibling stack — same domain, parallel development | `coordinator-claude` ↔ `deep-research-claude` |
 | `dev-publish` | Working tree ↔ installed/published copy | `coordinator-claude` ↔ `claude-central` |
-| `consumes-from` | One repo's outputs feed another | `claude-unreal-holodeck` `consumes-from` `project-rag` |
+| `consumes-from` | One repo's outputs feed another | `<your-app>` `consumes-from` `<your-rag>` |
 
 ## Status semantics
 

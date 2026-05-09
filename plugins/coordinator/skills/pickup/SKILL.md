@@ -1,5 +1,4 @@
 ---
-name: pickup
 description: Resume work from a handoff — grab the baton and run
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[handoff-file-path]"
@@ -131,18 +130,42 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    ```
    Counters the default assumption that a handoff describes already-in-progress work.
 
-5. **Pre-flight: respect `pickup_ready: true`.** If the handoff frontmatter contains `pickup_ready: true`, this handoff is a fresh orphan-promotion and should not be stamped on this invocation unless the pickup is genuine. Two cases:
-   - **You ARE genuinely picking it up:** remove the `pickup_ready` field from the frontmatter (or set it to `false`) before appending the consumed marker below, then continue.
-   - **You opened it by mistake or are just reviewing it:** STOP — do not append the marker. Surface to the PM before proceeding.
+5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/session-end` Step 2.7).
 
-   **Mark as consumed:** Append a consumed marker to the handoff file so `/update-docs`'s archival phase knows it's been picked up:
+   ### Pre-mutation safety gates (sequential, all must pass before any write)
+
+   1. **`git fetch origin <branch>` + re-read frontmatter.** Closes the cross-machine race window — if a peer already mutated and pushed, the fetch pulls their version and the next gate sees `consumed_by:` populated.
+   2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
+   3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
+      ```bash
+      source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh
+      cs_claim_handoff "$(basename tasks/handoffs/<file>)"
+      ```
+   4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
+      _"⚠ handoff `<basename>` lacks `pickup_ready: true` — proceeding anyway. (Author may not have explicitly authorized pickup; verify the workstream is yours to resume.)"_
+      Do NOT prompt. Do NOT block. Continue to mutation.
+
+   ### Frontmatter mutation (in place at `tasks/handoffs/<file>`)
+
+   - `status: active` → `status: consumed`
+   - `deployment_state: <whatever>` → `deployment_state: in_flight`
+   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_SESSION_ID` first (if exported), falling back to `cat .git/coordinator-sessions/.current-session-id` (the sentinel written by `session-init.sh`). Never the machine name. Same resolution pattern as `/session-end` Step 2.7.
+   - Do NOT remove `pickup_ready: true` if present — it stays as authorial-intent record on the consumed handoff.
+
+   ### Commit
+
+   Single explicit-path commit of the mutation only — **no `git mv`**:
    ```bash
-   echo "" >> <handoff-file>
-   echo "<!-- consumed: $(date +%Y-%m-%d) -->" >> <handoff-file>
+   git add -- tasks/handoffs/<file>
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \
+     "pickup: <workstream> — frontmatter mutation"
    ```
-   This is the signal that triggers archival on the next `/update-docs` run. The handoff stays in `tasks/handoffs/` for the duration of this session (in case you need to re-read it), but it's now marked for cleanup.
 
-6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list.
+   The handoff remains in `tasks/handoffs/`. Archival happens at one of two successor moments:
+   - **`/handoff` chain-archival** — when this session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
+   - **`/session-end` Step 2.7** — when this session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
+
+6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/session-end` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
 
 ---
 
@@ -151,5 +174,5 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 - This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/session-start` territory. Pickup is laser-focused on the handoff.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
-- **Archiving:** The consumed marker (Step 5) signals that this handoff has been picked up. It will be archived on the next `/update-docs` run. Handoffs are never archived based on age alone — only when consumed via pickup, superseded by a successor, or when the PM explicitly directs it.
+- **Archiving:** `/pickup` mutates frontmatter in place at `tasks/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/session-end` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
 - **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

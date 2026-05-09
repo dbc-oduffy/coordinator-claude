@@ -36,6 +36,12 @@ fi
 # shellcheck source=../lib/coordinator-session.sh
 source "$LIB"
 
+# Script-global: path to the overlap-gate lock directory (set by _with_overlap_lock,
+# read by EXIT traps in do_scope_from and do_scoped so that a body function calling
+# exit 1 still cleans up the lock — the RETURN trap does not fire on script exit).
+# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — mkdir-lock EXIT trap.
+_overlap_lock_dir=""
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -93,9 +99,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --include-orphans)
-      # Variadic: consume subsequent args until next flag (starts with -), --, or end.
+      # Variadic: consume subsequent args until next flag (starts with -), --, or
+      # until only one positional remains (which must be the commit subject).
+      # The subject MUST be the last positional arg. Use '--' to explicitly terminate
+      # pathspecs if a pathspec could be confused for the subject.
       shift
-      while [[ $# -gt 0 && "$1" != "--" && "$1" != -* ]]; do
+      while [[ $# -gt 1 && "$1" != "--" && "$1" != -* ]]; do
         INCLUDE_ORPHANS+=("$1")
         shift
       done
@@ -302,6 +311,171 @@ validate_pathspec() {
 }
 
 # ---------------------------------------------------------------------------
+# active-scope.txt success-path cleanup
+# ---------------------------------------------------------------------------
+
+# _cleanup_active_scope
+# Purpose: remove active-scope.txt and clear the script-global pointer after a
+# successful commit. Called from both do_scope_from (no-orphan path) and
+# do_scoped (combined-mode success path). The EXIT/INT/TERM/HUP trap covers
+# error paths; this function covers the happy path so that peer sessions do not
+# false-positive on the overlap gate after we have committed.
+# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — _cleanup_active_scope.
+_cleanup_active_scope() {
+  if [[ -n "${_sfm_active_scope_file:-}" ]]; then
+    rm -f "$_sfm_active_scope_file"
+    _sfm_active_scope_file=""
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Overlap-gate lock (Fix 6) and scoped overlap-check helpers
+# ---------------------------------------------------------------------------
+
+# _with_overlap_lock <body_fn> [args...]
+# Purpose: acquire the per-repo overlap-gate lock via atomic mkdir, run the body
+# function, then release the lock. Mirrors cs_claim_handoff in lib/coordinator-session.sh
+# (mkdir as atomic primitive — POSIX + NTFS safe, no external dependency).
+#
+# flock is NOT used: unavailable on Git Bash for Windows (command -v flock returns
+# nothing on this platform). mkdir is universal.
+#
+# Lock scope is intentionally narrow — held only across the check + publish of
+# active-scope.txt, NOT across git add / git commit (those are long-running and
+# don't need mutual exclusion for correctness).
+#
+# Exit-code contract: propagates the body's exit code unchanged (Patrik finding 1).
+# Caller MUST NOT swallow non-zero — overlap-check bodies call exit 1 on conflict.
+#
+# Signal-path cleanup: the RETURN trap fires when this function returns normally.
+# When the body calls `exit 1`, the RETURN trap does NOT fire (it is a script exit).
+# To handle that case, _overlap_lock_dir is a script-global read by the EXIT traps
+# in do_scope_from and do_scoped — they rm -rf it before clearing _sfm_active_scope_file.
+#
+# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — mkdir-lock.
+_with_overlap_lock() {
+  local lock_dir="${base}/.overlap-gate.lock"
+  local timeout_s=10
+  local waited=0
+  mkdir -p "$base" 2>/dev/null
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    # Inspect holder PID; reap stale (dead PID) locks.
+    local held_pid
+    held_pid=$(cat "${lock_dir}/pid" 2>/dev/null || echo "")
+    if [[ -n "$held_pid" ]] && ! _cs_pid_alive "$held_pid"; then
+      echo "WARNING: reaping stale overlap-gate lock (dead PID ${held_pid})" >&2
+      rm -rf "$lock_dir" 2>/dev/null
+      continue
+    fi
+    if (( waited >= timeout_s )); then
+      # Fail-loud — no degraded-mode fallback (Patrik finding 2).
+      # The mkdir primitive is universal; timeout means a real contention problem.
+      echo "ERROR: overlap-gate lock timeout (${timeout_s}s); held by PID ${held_pid:-?}" >&2
+      return 1
+    fi
+    sleep 1
+    waited=$(( waited + 1 ))
+  done
+  echo "$$" > "${lock_dir}/pid"
+  # Expose lock dir to EXIT traps in do_scope_from / do_scoped so they can clean up
+  # when the body calls exit 1 (RETURN trap does not fire on script exit).
+  _overlap_lock_dir="$lock_dir"
+  # RETURN trap: fire on normal function return. Redundant with explicit rm below
+  # but guards against early-return paths (e.g., unexpected errors in the body that
+  # propagate as non-exit failures).
+  trap 'rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""' RETURN
+  "$@"
+  local rc=$?
+  rm -rf "$lock_dir" 2>/dev/null
+  _overlap_lock_dir=""
+  trap - RETURN
+  return $rc
+}
+
+# _do_scope_from_overlap_check_and_publish <active_scope_file> <base> <session_id> <handoff_files_ref> <scope_set_ref>
+# Purpose: write this session's handoff scope to active-scope.txt and check for
+# file-level collisions with peer sessions' declared scopes. Runs inside
+# _with_overlap_lock so the write + check are atomic (no TOCTOU window).
+# Uses bash namerefs for array/assoc-array arguments (bash 4.3+; we run 5.3).
+# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — inner helper.
+_do_scope_from_overlap_check_and_publish() {
+  local active_scope_file="$1"
+  local _base="$2"
+  local _session_id="$3"
+  local -n _handoff_files_ref="$4"   # indexed array: files to write to active-scope.txt
+  local -n _scope_set_ref="$5"       # assoc array: files to check against peers
+
+  # Write this session's scope (replaces step 5 write inside the lock).
+  if [[ ${#_handoff_files_ref[@]} -gt 0 ]]; then
+    printf '%s\n' "${_handoff_files_ref[@]}" > "$active_scope_file"
+  else
+    : > "$active_scope_file"
+  fi
+
+  # Check peers for scope collisions (step 6 overlap gate, inside the lock).
+  if [[ -n "$_base" && -d "$_base" ]]; then
+    for _sfop_peer_sdir in "${_base}"/*/; do
+      [[ -d "$_sfop_peer_sdir" ]] || continue
+      local _sfop_peer_id
+      _sfop_peer_id=$(basename "$_sfop_peer_sdir")
+      [[ "$_sfop_peer_id" == "$_session_id" ]] && continue
+      [[ "$_sfop_peer_id" == ".archive" ]] && continue
+      [[ "$_sfop_peer_id" == ".agents" ]] && continue
+      local _sfop_peer_scope="${_sfop_peer_sdir}active-scope.txt"
+      [[ -f "$_sfop_peer_scope" ]] || continue
+      while IFS= read -r _sfop_path; do
+        [[ -z "$_sfop_path" ]] && continue
+        if [[ -v "_scope_set_ref[$_sfop_path]" ]]; then
+          echo "ERROR: scope overlaps with session ${_sfop_peer_id}'s handoff at ${_sfop_path}; resolve via explicit-path commit." >&2
+          exit 1
+        fi
+      done < "$_sfop_peer_scope"
+    done
+  fi
+}
+
+# _do_scoped_orphan_overlap_check_and_publish <active_scope_file> <base> <session_id> <orphan_resolved_ref> <union_scope_set_ref>
+# Purpose: append resolved orphan paths to active-scope.txt and check the union
+# (handoff scope + orphans) for collisions with peer sessions. Runs inside
+# _with_overlap_lock (Fix 6). Only called from do_scoped's --include-orphans path.
+# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — inner helper.
+_do_scoped_orphan_overlap_check_and_publish() {
+  local active_scope_file="$1"
+  local _base="$2"
+  local _session_id="$3"
+  local -n _orphan_resolved_ref="$4"   # indexed array: orphan files to append
+  local -n _union_scope_set_ref="$5"   # assoc array: full union for overlap check
+
+  # Append resolved orphan paths to active-scope.txt (additive in combined-mode;
+  # initial write in pure default-mode — file was created empty above).
+  if [[ -n "$active_scope_file" && ${#_orphan_resolved_ref[@]} -gt 0 ]]; then
+    printf '%s\n' "${_orphan_resolved_ref[@]}" >> "$active_scope_file"
+  fi
+
+  # Overlap gate: check union against peer sessions (same logic as step 6 but on union).
+  if [[ -n "$_base" && -d "$_base" ]]; then
+    for _sdop_peer_sdir in "${_base}"/*/; do
+      [[ -d "$_sdop_peer_sdir" ]] || continue
+      local _sdop_peer_id
+      _sdop_peer_id=$(basename "$_sdop_peer_sdir")
+      [[ "$_sdop_peer_id" == "$_session_id" ]] && continue
+      [[ "$_sdop_peer_id" == ".archive" ]] && continue
+      [[ "$_sdop_peer_id" == ".agents" ]] && continue
+      local _sdop_peer_scope="${_sdop_peer_sdir}active-scope.txt"
+      [[ -f "$_sdop_peer_scope" ]] || continue
+      while IFS= read -r _sdop_path; do
+        [[ -z "$_sdop_path" ]] && continue
+        if [[ -v "_union_scope_set_ref[$_sdop_path]" ]]; then
+          echo "ERROR: --include-orphans: '${_sdop_path}' is already claimed by session ${_sdop_peer_id}." >&2
+          echo "Resolve: wait for that session to finish, or use explicit-path commit without the helper." >&2
+          exit 1
+        fi
+      done < "$_sdop_peer_scope"
+    done
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Structured pre-commit summary printer
 # ---------------------------------------------------------------------------
 
@@ -448,44 +622,60 @@ do_scope_from() {
   local base
   base=$(_cs_sessions_dir) || true
 
+  # Script-globals: the active-scope.txt path for this scope-from run and a
+  # sentinel indicating that the trap was installed by do_scope_from (so that
+  # do_scoped — when called as a delegate — does not double-install a trap on
+  # the same file). NOT declared local so the EXIT trap and do_scoped both see
+  # them after do_scope_from returns on error paths.
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — Patrik finding 0.
+  _sfm_active_scope_file=""
+  _sfm_trap_installed=0
+
   # 5. Side-channel write: declare this session's active scope (best-effort
   # session id is sufficient — file is keyed by session-dir, not by identity-
   # accuracy, and even an imprecise session id distinguishes from siblings).
   if [[ -n "$base" && -n "$session_id" ]]; then
     local sdir="${base}/${session_id}"
     mkdir -p "$sdir"
-    if [[ ${#handoff_files[@]} -gt 0 ]]; then
-      printf '%s\n' "${handoff_files[@]}" > "${sdir}/active-scope.txt"
-    else
-      : > "${sdir}/active-scope.txt"
-    fi
+    _sfm_active_scope_file="${sdir}/active-scope.txt"
+    # Install trap BEFORE the write so error paths clean up the file.
+    # Also cleans up the overlap-gate lock if a body fn called exit 1 while
+    # holding it (RETURN trap does not fire on script exit — see _with_overlap_lock).
+    # Spec backlink: Patrik review fix-1 — active-scope.txt leak on error paths.
+    # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — lock EXIT cleanup.
+    trap 'rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""; [ -n "${_sfm_active_scope_file:-}" ] && rm -f "${_sfm_active_scope_file:-}"' EXIT INT TERM HUP
+    # Step 5 write + step 6 overlap check happen inside the lock (Fix 6) to close
+    # the TOCTOU window between reading peers and writing own scope.
+    # Lock is narrow: released before git add / git commit.
+    # sdir already created above (line ~639); _with_overlap_lock also calls mkdir -p "$base".
+    _with_overlap_lock _do_scope_from_overlap_check_and_publish \
+      "$_sfm_active_scope_file" "$base" "$session_id" handoff_files scope_set || exit $?
   fi
 
-  # 6. Runtime overlap gate (Patrik finding 1): file-level collision detection
-  # against other sessions' declared active-scope.txt. Cheap, deterministic, no
-  # dependency on identifying *this* session correctly — only on enumerating
-  # peers' declared scopes.
-  if [[ -n "$base" && -d "$base" ]]; then
-    for other_sdir in "${base}"/*/; do
-      [[ -d "$other_sdir" ]] || continue
-      local other_id
-      other_id=$(basename "$other_sdir")
-      [[ "$other_id" == "$session_id" ]] && continue
-      [[ "$other_id" == ".archive" ]] && continue
-      [[ "$other_id" == ".agents" ]] && continue
-      local other_scope_file="${other_sdir}active-scope.txt"
-      [[ -f "$other_scope_file" ]] || continue
-      while IFS= read -r opath; do
-        [[ -z "$opath" ]] && continue
-        if [[ -v "scope_set[$opath]" ]]; then
-          echo "ERROR: scope overlaps with session ${other_id}'s handoff at ${opath}; resolve via explicit-path commit." >&2
-          exit 1
-        fi
-      done < "$other_scope_file"
-    done
+  # 6. Runtime overlap gate is now inside _do_scope_from_overlap_check_and_publish
+  # (called above under _with_overlap_lock). This comment preserved for step numbering
+  # continuity — the lock closes the TOCTOU window that existed between the original
+  # read-peers and write-own-scope sequence (Patrik finding 7 / Fix 6).
+  # No inline overlap-gate loop here — it moved to the helper.
+
+  # 6b. Combined-mode --include-orphans processing (Phase 2).
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — delegate to do_scoped.
+  #
+  # do_scope_from has now published active-scope.txt (step 5) and checked the handoff
+  # scope against peers (step 6). Orphan resolution, union-scope overlap gate, audit
+  # log, and commit are all handled by do_scoped's --include-orphans path — which is
+  # the single canonical implementation. Delegating here eliminates the ~80-line
+  # duplicated block that lived here previously (Patrik finding 0).
+  if [[ ${#INCLUDE_ORPHANS[@]} -gt 0 ]]; then
+    # Set the sentinel BEFORE calling do_scoped so it skips the double-trap-install
+    # on _active_scope_file. Greppable > clever: explicit name, not path-as-signal.
+    _sfm_trap_installed=1
+    do_scoped "$session_id"
+    return $?
   fi
 
   # 7. Determine which declared-scope files are dirty (intersect scope ∩ git-status)
+  # No-orphan path only: scope_set contains only handoff files.
   local dirty_files=()
   while IFS= read -r f; do
     [[ -n "$f" ]] && dirty_files+=("$f")
@@ -524,6 +714,7 @@ do_scope_from() {
   fi
 
   if [[ "${MODE}" == "dry-run" ]]; then
+    # No-orphan path only (--include-orphans delegates to do_scoped before reaching here).
     echo "DRY RUN — would stage ${#my_scope[@]} file(s):" >&2
     for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
     # Out-of-scope dirty files were already reported above (error+exit or warning).
@@ -531,17 +722,29 @@ do_scope_from() {
     exit 0
   fi
 
+  # 9. Stage and commit — empty-array guard matches do_scoped line ~1079.
+  # Without this guard, an empty my_scope produces `git add --` with no args,
+  # which emits an obscure error instead of the actionable message below.
+  local staged_count=${#my_scope[@]}
   if [[ ${#my_scope[@]} -eq 0 ]]; then
-    echo "ERROR: No declared-scope files are dirty. Either nothing in scope was modified, or the handoff scope is wrong for this commit." >&2
+    echo "ERROR: declared scope filtered to zero dirty files — nothing to commit." >&2
     exit 1
   fi
-
-  # 9. Stage and commit
-  local staged_count=${#my_scope[@]}
   printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
   git commit -m "$SUBJECT"
 
-  print_summary "$staged_count" "$(printf '%s\n' "${my_scope[@]}")" \
+  # Clean up active-scope.txt — declared scope is no longer active after commit succeeds.
+  # Without this, peer sessions read stale entries and false-positive on overlap gate.
+  # Use the shared helper so both do_scope_from and do_scoped (combined-mode) share one path.
+  _cleanup_active_scope
+
+  # Build display list for print_summary (no orphan annotation needed: no-orphan path)
+  local _sfm_display_list=()
+  for _sfm_sf in "${my_scope[@]}"; do
+    _sfm_display_list+=("$_sfm_sf")
+  done
+
+  print_summary "$staged_count" "$(printf '%s\n' "${_sfm_display_list[@]:-}")" \
     0 "" \
     0 ""
 }
@@ -590,6 +793,31 @@ do_override() {
 
 do_scoped() {
   local session_id="$1"
+  # Paths claimed via --include-orphans; populated later if the flag was passed.
+  # Declared here so all code paths (dry-run, error branches, commit) see the var.
+  _orphan_claimed_paths=()
+  # active-scope.txt path (set by --include-orphans pure default-mode; used in trap).
+  # NOT declared local so the trap function can still see it after do_scoped returns.
+  _active_scope_file=""
+  # Temp files for cs_compute_scope capture. Script-globals (not local) so the
+  # consolidated trap below can see them after do_scoped returns on error paths.
+  tmpout=""
+  tmperr=""
+
+  # Single consolidated trap covering EXIT INT TERM HUP. Guards every temp/scope
+  # artifact declared above. ${var:-} guards required — set -u; trap runs at any
+  # exit point including before the variables are assigned their mktemp paths.
+  # Spec backlink: Patrik review fix-2 — trap-collision consolidation.
+  #
+  # When do_scope_from delegates here (_sfm_trap_installed=1), it has already
+  # installed its own trap on _sfm_active_scope_file (== _active_scope_file path).
+  # Skip the duplicate rm to avoid racing the do_scope_from trap on the same file.
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — Patrik finding 0.
+  #
+  # Also cleans up the overlap-gate lock dir if a body fn called exit 1 while
+  # holding it (RETURN trap does not fire on script exit — see _with_overlap_lock).
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — lock EXIT cleanup.
+  trap 'rm -f "${tmpout:-}" "${tmperr:-}"; rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""; [[ "${_sfm_trap_installed:-0}" -ne 1 ]] && [ -n "${_active_scope_file:-}" ] && rm -f "${_active_scope_file:-}"' EXIT INT TERM HUP
 
   # Issue C fail-closed gate: default mode is unsafe under concurrent sessions
   # because it relies on session-id sentinel resolution, which is
@@ -597,25 +825,22 @@ do_scoped() {
   # docs/plans/2026-05-05-session-misidentification-fix.md). When >1 live
   # session is detected, refuse to proceed and direct the caller to
   # --scope-from or COORDINATOR_OVERRIDE_SCOPE=1 with explicit-path staging.
-  local _live_count=0
-  local _live_ids=()
-  local _base
-  _base=$(_cs_sessions_dir) || true
-  if [[ -n "$_base" && -d "$_base" ]]; then
-    while IFS= read -r line; do
-      if [[ "$line" == *"  Live ("* ]]; then
-        _live_count=$(( _live_count + 1 ))
-        _live_ids+=("${line%%  *}")
-      fi
-    done < <(cs_active_sessions 2>/dev/null)
-  fi
-  if [[ "$_live_count" -gt 1 ]]; then
-    echo "ERROR: multiple live sessions detected (${_live_count}); default-mode commit is unsafe under concurrency." >&2
-    for sid_line in "${_live_ids[@]}"; do
-      echo "  ${sid_line}" >&2
-    done
-    echo "Resolve: use --scope-from <handoff> for workstream commits, or COORDINATOR_OVERRIDE_SCOPE=1 with explicit-path staging for emergencies." >&2
-    exit 1
+  #
+  # Exception: combined-mode (do_scope_from delegating via _sfm_trap_installed=1).
+  # do_scope_from already handled identity resolution and the handoff-scope overlap
+  # gate, so concurrent sessions are expected and safe at this point.
+  if [[ "${_sfm_trap_installed:-0}" -ne 1 ]]; then
+    local _live_ids=()
+    mapfile -t _live_ids < <(cs_live_session_ids 2>/dev/null || true)
+    local _live_count=${#_live_ids[@]}
+    if [[ "$_live_count" -gt 1 ]]; then
+      echo "ERROR: multiple live sessions detected (${_live_count}); default-mode commit is unsafe under concurrency." >&2
+      for sid_line in "${_live_ids[@]}"; do
+        echo "  ${sid_line}" >&2
+      done
+      echo "Resolve: use --scope-from <handoff> for workstream commits, or COORDINATOR_OVERRIDE_SCOPE=1 with explicit-path staging for emergencies." >&2
+      exit 1
+    fi
   fi
 
   # Read my touched.txt for post-filtering (mtime-only orphan exclusion)
@@ -628,9 +853,13 @@ do_scoped() {
   local base
   base=$(_cs_sessions_dir) || true
   if [[ -n "$base" && -n "$session_id" && -f "${base}/${session_id}/touched.txt" ]]; then
+    # Dedup-on-read: sort -u collapses any duplicate lines that may have landed
+    # under concurrent append-only writes (Phase 3a, plans/safe-commit-fixes.md § Phase 3a).
+    # LC_ALL=C prevents locale-sensitive collation differences from producing
+    # non-deterministic results across environments.
     while IFS= read -r t; do
       [[ -n "$t" ]] && my_touched+=("$t")
-    done < "${base}/${session_id}/touched.txt"
+    done < <(LC_ALL=C sort -u "${base}/${session_id}/touched.txt")
   fi
 
   # Issue A: union dispatched-agent touched files into my_touched.
@@ -665,17 +894,16 @@ do_scoped() {
 
   # Capture cs_compute_scope output: stdout = my scope, stderr = skip + orphan messages
   local scope_stdout scope_stderr
-  local tmpout tmperr
   tmpout=$(mktemp)
   tmperr=$(mktemp)
-  trap 'rm -f "$tmpout" "$tmperr"' EXIT
 
   cs_compute_scope "$session_id" > "$tmpout" 2> "$tmperr"
 
   scope_stdout=$(cat "$tmpout")
   scope_stderr=$(cat "$tmperr")
   rm -f "$tmpout" "$tmperr"
-  trap - EXIT
+  tmpout=""
+  tmperr=""
 
   # Parse raw scope from cs_compute_scope stdout (may include mtime-added orphans)
   local raw_scope=()
@@ -688,8 +916,22 @@ do_scoped() {
   #   - cs_compute_scope included it (so no other session claims it)
   #   - it is NOT in my touched.txt
   # Per plan orphan policy: warn only, do NOT stage.
+  #
+  # Additionally: cs_compute_scope returns files from touched.txt regardless of
+  # whether they're currently dirty. Filter my_scope to only dirty files so that
+  # clean-but-touched files (likely reverted) don't cause git commit failures.
+  local _current_dirty_list=()
+  while IFS= read -r _cdf; do
+    [[ -n "$_cdf" ]] && _current_dirty_list+=("$_cdf")
+  done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
+  declare -A _current_dirty_set
+  for _cdf in "${_current_dirty_list[@]:-}"; do
+    [[ -n "$_cdf" ]] && _current_dirty_set["$_cdf"]=1
+  done
+
   local my_scope=()
   local mtime_orphans=()
+  local _clean_touched=()  # in touched.txt but not dirty (Case C candidates)
   declare -A touched_set
   for t in "${my_touched[@]:-}"; do
     [[ -n "$t" ]] && touched_set["$t"]=1
@@ -697,7 +939,12 @@ do_scoped() {
   for candidate in "${raw_scope[@]:-}"; do
     [[ -z "$candidate" ]] && continue
     if [[ -n "${touched_set[$candidate]+x}" ]]; then
-      my_scope+=("$candidate")
+      # In touched.txt — only add to my_scope if actually dirty
+      if [[ -v "_current_dirty_set[$candidate]" ]]; then
+        my_scope+=("$candidate")
+      else
+        _clean_touched+=("$candidate")
+      fi
     else
       # Not in my touched.txt — treat as mtime-only orphan
       mtime_orphans+=("$candidate")
@@ -721,15 +968,141 @@ do_scoped() {
     fi
   done <<< "$scope_stderr"
   # Add mtime-only orphans that the library didn't mark (it thought they were ours)
-  for mto in "${mtime_orphans[@]:-}"; do
-    orphan_files+=("$mto")
-    echo "orphan (mtime-only, not in touched.txt): ${mto}" >&2
-  done
+  if [[ ${#mtime_orphans[@]} -gt 0 ]]; then
+    for mto in "${mtime_orphans[@]}"; do
+      [[ -n "$mto" ]] || continue
+      orphan_files+=("$mto")
+      echo "orphan (mtime-only, not in touched.txt): ${mto}" >&2
+    done
+  fi
+
+  # ---------------------------------------------------------------------------
+  # Phase 2: --include-orphans processing
+  # Spec backlink: plans/safe-commit-fixes.md § Phase 2 — --include-orphans flag spec.
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — combined-mode delegation.
+  #
+  # _combined_mode=1 means do_scope_from delegated here via _sfm_trap_installed=1.
+  # In that case active-scope.txt already exists (written by do_scope_from step 5);
+  # we point _active_scope_file at it without re-creating it or installing a second trap.
+  # In pure default-mode (_sfm_trap_installed=0), we create active-scope.txt fresh.
+  # ---------------------------------------------------------------------------
+  if [[ ${#INCLUDE_ORPHANS[@]} -gt 0 ]]; then
+    local _combined_mode=0
+    # Use the explicit sentinel — greppable > file-presence heuristic (Patrik finding 0).
+    if [[ "${_sfm_trap_installed:-0}" -eq 1 ]]; then
+      _combined_mode=1
+    fi
+
+    if [[ -n "$base" && -n "$session_id" ]]; then
+      _active_scope_file="${base}/${session_id}/active-scope.txt"
+    fi
+
+    # Pure default-mode: write active-scope.txt for the overlap gate.
+    # The consolidated EXIT trap at the top of do_scoped handles cleanup on all exit paths.
+    # Trap guards _active_scope_file deletion only when _sfm_trap_installed=0 (see trap above).
+    # SIGKILL leaks active-scope.txt; long-tail cleanup via cs_reap_stale at 24h staleness.
+    if [[ "$_combined_mode" -eq 0 && -n "$base" && -n "$session_id" ]]; then
+      mkdir -p "${base}/${session_id}"
+      : > "$_active_scope_file"
+    fi
+
+    # Resolve pathspecs to concrete dirty files
+    local _orphan_candidate_files=()
+    for _ops in "${INCLUDE_ORPHANS[@]}"; do
+      # Validate pathspec
+      if ! validate_pathspec "$_ops"; then
+        echo "ERROR: --include-orphans: malformed or invalid pathspec '${_ops}'" >&2
+        exit 1
+      fi
+      while IFS= read -r _of; do
+        [[ -n "$_of" ]] && _orphan_candidate_files+=("$_of")
+      done < <(git ls-files -- "$_ops" 2>/dev/null; git ls-files --others --exclude-standard -- "$_ops" 2>/dev/null)
+    done
+
+    if [[ ${#_orphan_candidate_files[@]} -eq 0 ]]; then
+      echo "WARNING: --include-orphans: no files matched the given pathspec(s): ${INCLUDE_ORPHANS[*]}" >&2
+    fi
+
+    # Filter to only dirty files (no point staging clean files as orphans)
+    local _dirty_set=()
+    while IFS= read -r _ddf; do
+      [[ -n "$_ddf" ]] && _dirty_set+=("$_ddf")
+    done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
+    declare -A _dirty_map
+    for _ddf in "${_dirty_set[@]:-}"; do
+      [[ -n "$_ddf" ]] && _dirty_map["$_ddf"]=1
+    done
+
+    local _orphan_resolved=()
+    for _orf in "${_orphan_candidate_files[@]:-}"; do
+      [[ -z "$_orf" ]] && continue
+      if [[ -v "_dirty_map[$_orf]" ]]; then
+        _orphan_resolved+=("$_orf")
+      fi
+    done
+
+    # Build union of declared scope (from active-scope.txt if combined-mode) and orphan paths
+    # Both must clear the overlap gate before any append succeeds (Patrik R3 #23).
+    declare -A _union_scope_set
+    if [[ "$_combined_mode" -eq 1 && -f "$_active_scope_file" ]]; then
+      while IFS= read -r _usf; do
+        [[ -n "$_usf" ]] && _union_scope_set["$_usf"]=1
+      done < "$_active_scope_file"
+    fi
+    for _orf in "${_orphan_resolved[@]:-}"; do
+      [[ -n "$_orf" ]] && _union_scope_set["$_orf"]=1
+    done
+
+    # Overlap gate + active-scope.txt append under lock (Fix 6): check union against
+    # peer sessions and append orphan paths to active-scope.txt atomically so no
+    # concurrent session can interleave their check+publish with ours (TOCTOU closure).
+    # Lock scope is narrow — released before git add / git commit.
+    # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — do_scoped wrap.
+    if [[ -n "$base" ]]; then
+      _with_overlap_lock _do_scoped_orphan_overlap_check_and_publish \
+        "$_active_scope_file" "$base" "$session_id" _orphan_resolved _union_scope_set || exit $?
+    fi
+
+    # Write audit log
+    if [[ -n "$base" && -n "$session_id" ]]; then
+      local _claim_log="${base}/${session_id}/orphan-claims.log"
+      {
+        echo "=== Claim at $(_cs_now_iso) ==="
+        echo "Pathspecs: ${INCLUDE_ORPHANS[*]}"
+        echo "Resolved dirty files:"
+        printf '  %s\n' "${_orphan_resolved[@]:-}"
+        echo ""
+      } >> "$_claim_log"
+    fi
+
+    _orphan_claimed_paths=("${_orphan_resolved[@]:-}")
+
+    # Remove claimed paths from orphan_files so print_summary doesn't double-list them
+    if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
+      declare -A _claimed_set
+      for _cp in "${_orphan_claimed_paths[@]}"; do
+        [[ -n "$_cp" ]] && _claimed_set["$_cp"]=1
+      done
+      local _filtered_orphans=()
+      for _of in "${orphan_files[@]:-}"; do
+        [[ -n "$_of" ]] || continue
+        [[ -v "_claimed_set[$_of]" ]] || _filtered_orphans+=("$_of")
+      done
+      orphan_files=("${_filtered_orphans[@]+"${_filtered_orphans[@]}"}")
+    fi
+  fi
+  # ---------------------------------------------------------------------------
+  # End --include-orphans processing
+  # ---------------------------------------------------------------------------
 
   # Dry-run: print and exit without committing
   if [[ "$MODE" == "dry-run" ]]; then
     echo "DRY RUN — would stage ${#my_scope[@]} file(s):" >&2
     for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
+    if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
+      echo "Orphan-claimed (would also stage): ${#_orphan_claimed_paths[@]} file(s):" >&2
+      for f in "${_orphan_claimed_paths[@]}"; do echo "  ${f}  (orphan-claimed)" >&2; done
+    fi
     if [[ ${#orphan_files[@]} -gt 0 ]]; then
       echo "Orphans (not staged): ${#orphan_files[@]} file(s):" >&2
       for f in "${orphan_files[@]}"; do echo "  $f" >&2; done
@@ -745,27 +1118,29 @@ do_scoped() {
   # Spec backlink: plans/safe-commit-fixes.md § Phase 1 — do_scoped branched error.
   # Cases A/B/C require the session to have resolved (not Case D — "no live session"
   # — which is handled upstream when resolve_session_id returns nothing).
-  if [[ ${#my_scope[@]} -eq 0 ]]; then
+  # Skip the error block if --include-orphans claimed paths to commit (Phase 2):
+  # _orphan_claimed_paths being non-empty means we have something to stage even
+  # if my_scope is empty.
+  if [[ ${#my_scope[@]} -eq 0 && ${#_orphan_claimed_paths[@]} -eq 0 ]]; then
     # Determine working-tree dirty state for diagnosis
     local _dirty_list=()
     while IFS= read -r _df; do
       [[ -n "$_df" ]] && _dirty_list+=("$_df")
     done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
 
-    local _has_touched=0
-    [[ ${#my_touched[@]} -gt 0 ]] && _has_touched=1
     local _dirty_count=${#_dirty_list[@]}
 
-    if [[ "$_has_touched" -eq 1 && "$_dirty_count" -eq 0 ]]; then
-      # Case C: touched.txt has entries but none are dirty (likely reverted)
+    if [[ ${#_clean_touched[@]} -gt 0 ]]; then
+      # Case C: touched.txt has entries but those files are clean now (likely reverted).
+      # my_scope is empty because all touched files were filtered out as clean.
       echo "NOTE: Edit/Write fired on these path(s), but they are clean now (likely reverted):" >&2
-      printf '  %s\n' "${my_touched[@]}" >&2
+      printf '  %s\n' "${_clean_touched[@]}" >&2
       if [[ ${#orphan_files[@]} -gt 0 ]]; then
         echo "Working tree dirty (unclaimed): ${#orphan_files[@]} file(s):" >&2
         printf '  %s\n' "${orphan_files[@]}" >&2
       fi
       exit 1
-    elif [[ "$_has_touched" -eq 0 && "$_dirty_count" -gt 0 ]]; then
+    elif [[ ${#my_touched[@]} -eq 0 && "$_dirty_count" -gt 0 ]]; then
       # Case B: sentinel valid, touched.txt empty, dirty tree exists
       # (files touched via Bash/hooks/install-scripts — not tracked by Edit/Write hook)
       echo "ERROR: ${_dirty_count} dirty file(s) but none claimed by this session via Edit/Write." >&2
@@ -776,7 +1151,7 @@ do_scoped() {
       echo "Dirty file(s):" >&2
       printf '  %s\n' "${_dirty_list[@]}" >&2
       exit 1
-    elif [[ "$_has_touched" -eq 0 && "$_dirty_count" -eq 0 ]]; then
+    elif [[ ${#my_touched[@]} -eq 0 && "$_dirty_count" -eq 0 ]]; then
       # Case A: sentinel valid, touched.txt absent/empty, working tree clean
       echo "NOTE: Nothing to commit — no Edit/Write fired this session and the working tree is clean." >&2
       exit 0
@@ -793,7 +1168,9 @@ do_scoped() {
   fi
 
   # Stage explicitly using xargs -0 to handle spaces in paths
-  printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
+  if [[ ${#my_scope[@]} -gt 0 ]]; then
+    printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
+  fi
 
   # Stage any orphan-claimed files (--include-orphans, Phase 2)
   if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
@@ -806,24 +1183,36 @@ do_scoped() {
     exit 1
   fi
 
+  # Success-path cleanup: remove active-scope.txt so peer sessions do not
+  # false-positive on the overlap gate. Called here for both pure default-mode
+  # (--include-orphans only) and combined-mode (do_scope_from delegated here).
+  # In combined-mode this also clears _sfm_active_scope_file so do_scope_from's
+  # EXIT trap guard is a no-op when the function returns normally.
+  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — _cleanup_active_scope.
+  if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
+    _cleanup_active_scope
+  fi
+
   # Print structured summary (to stderr so it doesn't pollute capture)
   # Annotate orphan-claimed paths with (orphan-claimed) suffix in the staged list
   local _display_staged_list=()
-  for _sf in "${my_scope[@]}"; do
-    _display_staged_list+=("$_sf")
+  for _sf in "${my_scope[@]:-}"; do
+    [[ -n "$_sf" ]] && _display_staged_list+=("$_sf")
   done
-  for _ocf in "${_orphan_claimed_paths[@]:-}"; do
-    _display_staged_list+=("${_ocf}  (orphan-claimed)")
-  done
+  if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
+    for _ocf in "${_orphan_claimed_paths[@]}"; do
+      [[ -n "$_ocf" ]] && _display_staged_list+=("${_ocf}  (orphan-claimed)")
+    done
+  fi
   local _total_staged=$(( ${#my_scope[@]} + ${#_orphan_claimed_paths[@]} ))
 
   print_summary \
     "${_total_staged}" \
-    "$(printf '%s\n' "${_display_staged_list[@]:-}")" \
+    "$(printf '%s\n' "${_display_staged_list[@]+"${_display_staged_list[@]}"}")" \
     "${#orphan_files[@]}" \
-    "$(printf '%s\n' "${orphan_files[@]:-}")" \
+    "$(printf '%s\n' "${orphan_files[@]+"${orphan_files[@]}"}")" \
     "${#other_excluded_files[@]}" \
-    "$(printf '%s\n' "${other_excluded_files[@]:-}")"
+    "$(printf '%s\n' "${other_excluded_files[@]+"${other_excluded_files[@]}"}")"
 }
 
 # ---------------------------------------------------------------------------
@@ -837,7 +1226,11 @@ main() {
   if [[ -n "$EXPECTED_BRANCH" ]]; then
     local _current_branch
     _current_branch=$(git branch --show-current 2>/dev/null)
-    if [[ "$_current_branch" != "$EXPECTED_BRANCH" ]]; then
+    # Case-insensitive compare: HEAD's stored case may differ from the on-disk
+    # canonical case on Windows (.git/HEAD literal vs ref-file). Both forms
+    # describe the same branch — compare case-insensitively. (lessons.md:3,
+    # 2026-05-07 HTTPS-autopush case-mismatch.)
+    if [[ "${_current_branch,,}" != "${EXPECTED_BRANCH,,}" ]]; then
       echo "ERROR: branch mismatch — current is '${_current_branch:-<detached>}', expected '${EXPECTED_BRANCH}'." >&2
       echo "Reflog (current branch):" >&2
       if [[ -n "$_current_branch" ]]; then

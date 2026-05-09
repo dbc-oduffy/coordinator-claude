@@ -150,6 +150,192 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Concurrent-writer regression tests (Phase 3a-pre)
+#
+# Spec backlink: plans/safe-commit-fixes.md § Phase 3a pre-flight
+# Purpose: Certify that _atomic_dedup_append in track-touched-files.sh
+# (lines 159-184) holds its at-most-once contract under N-way parallel
+# writes before Phase 3a extracts it to lib/coordinator-session.sh.
+#
+# Windows + Git Bash: flock(1) is unavailable. The implementation relies on
+# mktemp-adjacent + sort -u + mv. The race window is the interval between
+# the non-atomic read (line 167) and the atomic mv (line 182). With N=10
+# parallel writers, the dedup-on-read fast-exit (line 167) short-circuits
+# most races, and the merge-then-mv collapses the remainder to at-most-once.
+#
+# Background jobs are collected with wait; PIDs are tracked in an array so
+# partial failures are caught even if a subshell exits non-zero.
+# ---------------------------------------------------------------------------
+
+# Concurrency level used across all T20-T22
+CONCURRENCY=10
+
+# ---------------------------------------------------------------------------
+# T20: Concurrent writers, same path
+#      N writers all appending the same file path to the same touched.txt.
+#      Assert: exactly one entry in touched.txt (no duplicates from race).
+# ---------------------------------------------------------------------------
+SID20="test-session-T20"
+TOUCHED20="$SESSIONS_DIR/$SID20/touched.txt"
+rm -rf "$SESSIONS_DIR/$SID20"
+mkdir -p "$SESSIONS_DIR/$SID20"
+touch "$TOUCHED20"
+
+PIDS=()
+for i in $(seq 1 $CONCURRENCY); do
+  make_input "Write" "src/shared-target.ts" "$SID20" | bash "$HOOK" &
+  PIDS+=($!)
+done
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || true
+done
+
+if [[ ! -f "$TOUCHED20" ]]; then
+  fail "T20-concurrent-same-path: touched.txt missing after $CONCURRENCY parallel writes"
+else
+  COUNT20=$(grep -c "shared-target.ts" "$TOUCHED20" 2>/dev/null || echo 0)
+  if [[ "$COUNT20" -eq 1 ]]; then
+    pass "T20-concurrent-same-path: exactly 1 entry after $CONCURRENCY parallel writes to the same path"
+  elif [[ "$COUNT20" -eq 0 ]]; then
+    fail "T20-concurrent-same-path: 0 entries — path was lost entirely"
+  else
+    fail "T20-concurrent-same-path: expected 1, found $COUNT20 duplicates (race dedup failed)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# T21: Concurrent writers, different paths
+#      N writers each appending a distinct file path.
+#      Assert: all N paths present (none lost), no path appears more than once.
+# ---------------------------------------------------------------------------
+SID21="test-session-T21"
+TOUCHED21="$SESSIONS_DIR/$SID21/touched.txt"
+rm -rf "$SESSIONS_DIR/$SID21"
+mkdir -p "$SESSIONS_DIR/$SID21"
+touch "$TOUCHED21"
+
+PIDS=()
+for i in $(seq 1 $CONCURRENCY); do
+  make_input "Write" "src/distinct-file-${i}.ts" "$SID21" | bash "$HOOK" &
+  PIDS+=($!)
+done
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || true
+done
+
+T21_OK=true
+if [[ ! -f "$TOUCHED21" ]]; then
+  fail "T21-concurrent-distinct-paths: touched.txt missing after $CONCURRENCY parallel writes"
+  T21_OK=false
+else
+  # Verify all N paths landed exactly once
+  MISSING21=0
+  DUP21=0
+  for i in $(seq 1 $CONCURRENCY); do
+    # grep -c exits 1 when count=0 but still emits "0" on stdout.
+    # Wrap in a subshell that always exits 0 to avoid triggering set -e,
+    # and capture only grep's stdout (the numeric count line).
+    CNT=$(grep -c "distinct-file-${i}.ts" "$TOUCHED21" 2>/dev/null; true)
+    CNT="${CNT:-0}"
+    if [[ "$CNT" -eq 0 ]]; then
+      MISSING21=$(( MISSING21 + 1 ))
+    elif [[ "$CNT" -gt 1 ]]; then
+      DUP21=$(( DUP21 + 1 ))
+    fi
+  done
+  if [[ "$MISSING21" -eq 0 && "$DUP21" -eq 0 ]]; then
+    pass "T21-concurrent-distinct-paths: all $CONCURRENCY paths present exactly once"
+  else
+    T21_OK=false
+    fail "T21-concurrent-distinct-paths: $MISSING21 missing, $DUP21 duplicated paths out of $CONCURRENCY"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# T22: Concurrent writers, mixed (some duplicate, some unique)
+#      2N invocations: N writes of path-A, N writes of path-B.
+#      Assert: touched.txt contains exactly path-A and path-B (one each).
+# ---------------------------------------------------------------------------
+SID22="test-session-T22"
+TOUCHED22="$SESSIONS_DIR/$SID22/touched.txt"
+rm -rf "$SESSIONS_DIR/$SID22"
+mkdir -p "$SESSIONS_DIR/$SID22"
+touch "$TOUCHED22"
+
+PIDS=()
+for i in $(seq 1 $CONCURRENCY); do
+  make_input "Write" "src/mixed-path-a.ts" "$SID22" | bash "$HOOK" &
+  PIDS+=($!)
+  make_input "Edit" "src/mixed-path-b.ts" "$SID22" | bash "$HOOK" &
+  PIDS+=($!)
+done
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || true
+done
+
+if [[ ! -f "$TOUCHED22" ]]; then
+  fail "T22-concurrent-mixed: touched.txt missing after $((CONCURRENCY * 2)) parallel writes"
+else
+  COUNT_A=$(grep -c "mixed-path-a.ts" "$TOUCHED22" 2>/dev/null || echo 0)
+  COUNT_B=$(grep -c "mixed-path-b.ts" "$TOUCHED22" 2>/dev/null || echo 0)
+  if [[ "$COUNT_A" -eq 1 && "$COUNT_B" -eq 1 ]]; then
+    pass "T22-concurrent-mixed: path-A and path-B each appear exactly once after $((CONCURRENCY * 2)) parallel writes"
+  else
+    fail "T22-concurrent-mixed: expected path-A=1, path-B=1; got path-A=$COUNT_A, path-B=$COUNT_B"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# T23: mktemp failure path
+#      Simulate mktemp failure by making target_dir read-only.
+#      Assert: hook exits 0, existing touched.txt content is NOT corrupted.
+#
+# Implementation note: _atomic_dedup_append returns 0 on mktemp failure
+# (lines 173-174: `|| return 0`). The hook always exits 0 (advisory hook).
+# We verify the pre-existing entry survives the failed write attempt.
+#
+# On Windows with Git Bash, chmod 555 may not enforce read-only on the
+# NTFS filesystem for the current user (who owns the dir). We detect this
+# and skip the enforcement check gracefully, but still confirm exit 0.
+# ---------------------------------------------------------------------------
+SID23="test-session-T23"
+TOUCHED23="$SESSIONS_DIR/$SID23/touched.txt"
+rm -rf "$SESSIONS_DIR/$SID23"
+mkdir -p "$SESSIONS_DIR/$SID23"
+# Pre-seed a known entry so we can verify it survives
+printf 'src/existing-sentinel.ts\n' > "$TOUCHED23"
+
+# Attempt to make the session dir read-only (blocks mktemp within it)
+chmod 555 "$SESSIONS_DIR/$SID23" 2>/dev/null || true
+
+MKTEMP_FAIL_RC=0
+make_input "Write" "src/should-not-land.ts" "$SID23" | bash "$HOOK" || MKTEMP_FAIL_RC=$?
+
+# Restore permissions for cleanup
+chmod 755 "$SESSIONS_DIR/$SID23" 2>/dev/null || true
+
+if [[ "$MKTEMP_FAIL_RC" -ne 0 ]]; then
+  fail "T23-mktemp-fail: hook exited non-zero ($MKTEMP_FAIL_RC) — must always exit 0"
+else
+  # Check that the pre-existing sentinel survived
+  if [[ -f "$TOUCHED23" ]] && grep -qF "existing-sentinel.ts" "$TOUCHED23" 2>/dev/null; then
+    # Also check that the new path did NOT land (mktemp failed, so no merge happened)
+    # On Windows where chmod may not be enforced, the write may have succeeded —
+    # in that case we accept it as long as the sentinel survived (no corruption).
+    if grep -qF "should-not-land.ts" "$TOUCHED23" 2>/dev/null; then
+      # chmod was not enforced (Windows/NTFS) — write succeeded, sentinel survived.
+      # This is acceptable: the mktemp-failure no-op path wasn't triggered, but the
+      # merge-and-dedup path ran correctly. Sentinel survival = no corruption.
+      pass "T23-mktemp-fail: exit 0, sentinel survived (chmod not enforced on this FS — write path ran instead)"
+    else
+      pass "T23-mktemp-fail: exit 0, mktemp failure silently no-oped, sentinel content intact"
+    fi
+  else
+    fail "T23-mktemp-fail: existing touched.txt content corrupted or lost after mktemp failure"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$(( PASS + FAIL ))

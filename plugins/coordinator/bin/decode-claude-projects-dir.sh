@@ -6,7 +6,7 @@
 # this decoder is heuristic — it surfaces candidates for PM review, not authoritative paths.
 #
 # Output: tab-separated `shortname<TAB>candidate-path<TAB>encoded-dir-name`, deduped on shortname.
-# Empty/garbled entries (e.g., `tmp`, `--Users--oduffy--.claude`) are dropped.
+# Empty/garbled entries (e.g., `tmp`, `--Users--<user>--.claude`) are dropped.
 #
 # Used by /update-docs Phase 14 to seed the candidates block in ~/.claude/tasks/repo-registry.md.
 
@@ -25,7 +25,7 @@ declare -A seen
 #   X---repo-name             → X:/repo-name
 #   X--repo-name              → X:/repo-name (alt encoding)
 #   X---repo-name--tasks--... → X:/repo-name (subdir suffix; strip after first `--<known-subdir>--`)
-#   C---Users--oduffy---claude → C:/Users/oduffy/.claude
+#   C---Users--<user>---claude → C:/Users/<user>/.claude
 #
 # Strategy: strip known subdir suffixes (tasks, plugins, control, docs); take the segment immediately
 # after the drive prefix as the shortname. Filter out clearly-garbled entries.
@@ -76,9 +76,15 @@ for entry in "${PROJECTS_DIR}"/*/; do
   drive_lower="$(echo "${drive}" | tr '[:upper:]' '[:lower:]')"
   candidate_path="${drive_lower}:/${shortname}"
 
-  # Special case: claude-central appears as C---Users--oduffy---claude OR C--Users-oduffy--claude
-  if [[ "${shortname}" == "Users" || "${shortname}" == "Users-oduffy" ]] && [[ "${rest}" == *"claude"* ]]; then
-    candidate_path="${drive_lower}:/Users/oduffy/.claude"
+  # Special case: claude-central appears as C---Users--<user>---claude OR C--Users-<user>--claude
+  # Extract the username from whichever encoding form is present.
+  if [[ "${shortname}" == "Users" && "${rest}" =~ ^Users--([^-]+)---claude ]] && [[ "${rest}" == *"claude"* ]]; then
+    username="${BASH_REMATCH[1]}"
+    candidate_path="${drive_lower}:/Users/${username}/.claude"
+    shortname="claude-central"
+  elif [[ "${shortname}" =~ ^Users-([^-]+)$ ]] && [[ "${rest}" == *"claude"* ]]; then
+    username="${BASH_REMATCH[1]}"
+    candidate_path="${drive_lower}:/Users/${username}/.claude"
     shortname="claude-central"
   fi
 

@@ -1,6 +1,6 @@
 # Cleanup, Sweep, and Migration Hazards
 
-**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B8. Source extracts: project-rag E7, E22, E24, E25; holodeck E25, E34, E66.
+**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B8.
 
 Cleanup operations — `/distill`, `/update-docs`, link-heal, scaffolding-deletion, auto-discovery glob configs — are higher-risk than they look. They run across many files at once, often without per-file judgment, and they routinely undo work nobody noticed they were doing. This guide enumerates the recurring failure modes.
 
@@ -36,7 +36,7 @@ OR do a post-sweep audit: grep for the *new* path in fields where the *old* path
 
 When a doc-link-checker surfaces N references to M missing pages, **don't** default to "create M pages." For each missing page, ask: does the referenced content actually need its own surface, or is it already covered by existing pages + a canonical section in CLAUDE.md? Repoint when covered; create only when genuinely missing.
 
-**Concrete failure averted:** the bug-backlog had 8 references to 2 missing wiki pages (`project-rag-workflow.md`, `project-rag-architecture.md`). The naive fix is "create both." But `architecture.md`'s claimed scope was already 100% covered by existing wiki pages + CLAUDE.md Appendix F — a new page would have duplicated and drifted. `workflow.md`'s scope was genuinely unmet. The hybrid fix (create one, repoint the other) was right.
+**Concrete failure averted:** the bug-backlog had 8 references to 2 missing wiki pages. The naive fix is "create both." But one page's claimed scope was already 100% covered by existing wiki pages + CLAUDE.md — a new page would have duplicated and drifted. The other page's scope was genuinely unmet. The hybrid fix (create one, repoint the other) was right.
 
 **Defense:** before creating a new doc-surface to satisfy stale references, grep the references' descriptors against existing wiki + CLAUDE.md. If existing surfaces already carry that content, repoint instead of creating.
 
@@ -59,7 +59,7 @@ A commit titled `path-sweep + grep gate + allowlist` silently reverted a prior s
 
 ## 6. Hardcoded Developer-Machine Paths Hurt Every External Consumer
 
-A SessionStart hook had a hardcoded fallback `$KnownRoots = @("X:\DroneSim", "E:\dev\ue\Keep_Blank")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout.
+A SessionStart hook had a hardcoded fallback `$KnownRoots = @("X:\<project-1>", "E:\dev\ue\Keep_Blank")` for graph.db location when env vars were unset. Worked silently on the author's machine. Would have emitted nothing useful (or worse, misleading freshness reports about the wrong codebase) on every external consumer with a different drive layout.
 
 **Defense pattern** for any path-resolution fallback in shipped tooling:
 

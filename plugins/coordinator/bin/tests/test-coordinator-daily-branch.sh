@@ -127,7 +127,7 @@ test_parse_case_insensitive() {
 }
 
 # ---------------------------------------------------------------------------
-# AC-4: cs_parse_branch_span — month/year boundary cases (Staff Engineer F4)
+# AC-4: cs_parse_branch_span — month/year boundary cases (the Staff Engineer F4)
 # ---------------------------------------------------------------------------
 
 test_parse_month_boundary_may_to_june() {

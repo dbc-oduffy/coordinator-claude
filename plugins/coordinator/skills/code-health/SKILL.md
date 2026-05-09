@@ -1,5 +1,4 @@
 ---
-name: code-health
 description: Night-shift code health review — scans today's commits, dispatches a reviewer, applies findings, and updates health tracking for next session-start
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
@@ -53,10 +52,10 @@ Select the reviewer based on what changed:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer (`game-dev:staff-game-dev`) |
-| Frontend / UI | the Front-End Reviewer (`web-dev:senior-front-end`) |
-| Data / ML / science | the Data Science Reviewer (`data-science:staff-data-sci`) |
-| Mixed, backend, or architecture | the Staff Engineer (`coordinator:staff-eng`) |
+| Game dev / Unreal Engine | the Game Dev Reviewer |
+| Frontend / UI | the Front-End Reviewer |
+| Data / ML / science | the Data Science Reviewer |
+| Mixed, backend, or architecture | the Staff Engineer |
 
 If multiple domains are present, route to the dominant one (most files changed / most critical path).
 

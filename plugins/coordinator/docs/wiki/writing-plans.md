@@ -37,11 +37,11 @@ Every plan declares one scope mode. The mode shapes review depth, acceptable tra
 
 If you can't pick confidently, the scope is under-specified — push back to the PM (see "Definition of Ready" below) before drafting tasks.
 
-## VP-Product Pre-Flight (anticipate the stress test)
+## the VP-Product Reviewer Pre-Flight (anticipate the stress test)
 
-The VP-Product Reviewer (`coordinator:vp-product`) reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* They run as a primary reviewer at merge time on user-visible work, perf/concurrency-touching changes, and patches in patch-accumulating areas. See `agents/vp-product.md` for the full lens.
+The VP-Product Reviewer reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* The PM (Head of Product) applies the VP-of-Product lens at merge directly — the VP-Product Reviewer does NOT auto-dispatch on plans, on per-merge gates, or on multi-patch areas. The VP-Product Reviewer joins as a teammate in `/staff-session` planning when the PM includes the `vp-product` slug. See `agents/vp-product.md` for the full lens.
 
-**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a VP-Product Reviewer finding. Fix it at the plan stage, not at merge.
+**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a the VP-Product Reviewer finding. Fix it at the plan stage, not at merge.
 
 While drafting, walk the VP-Product Reviewer questions against your own plan **before** you save it:
 
@@ -51,9 +51,9 @@ While drafting, walk the VP-Product Reviewer questions against your own plan **b
 - For any patch in an area with prior patches: would a refactor be cheaper in the long run? With AI execution this is hours, not weeks.
 - What 1–3 alternative shapes did you consider before picking this one? Name them in a `## Alternatives Considered` section.
 
-**The point is not to simulate a VP-Product review in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of the Staff Engineer's review keeps engineers writing better code in the first pass. If every plan reaches the VP-Product Reviewer and gets `APPROVED_WITH_NOTES`, the system is working as designed: the actual dispatch is a belt-and-suspenders backstop, not a gatekeeper catching laziness that should have been caught earlier.
+**The point is not to write a the VP-Product Reviewer simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of the Staff Engineer's review keeps engineers writing better code in the first pass. The PM applies the VP-of-Product lens at merge time directly; the planner's job is to make the choices defensible before they reach the PM.
 
-If a VP-Product question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
+If a the VP-Product Reviewer question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
 
 ## Definition of Ready (pre-drafting gate)
 
@@ -224,6 +224,56 @@ git add tests/path/test.py src/path/file.py
 git commit -m "feat: add specific feature"
 ```
 ````
+
+## Bypass-and-Trace Discipline
+
+> See coordinator/CLAUDE.md § Pre-Dispatch Verification for the pre-dispatch confidence checklist.
+
+When a plan targets a gated path (MCP verb, hook, build system, auth flow) and the first fix unblocks one gate but reveals a second, **the correct response is to trace the full path before claiming the fix is complete**, not to ship after clearing gate one.
+
+**Principle:** bypass one gate, trace the full path. Fixes that target a single gate often reveal the next gate immediately downstream — stacked-gate diagnosis is empirically common in UE plugin pipelines, MCP auth flows, and coordinator hook chains.
+
+**In plans:** when a task's acceptance criterion is "passes gate X," include an explicit verification step that walks the full downstream path (not just the gate being targeted). If gate X passes but gate Y blocks, the AC is not met.
+
+**Measurement loop (P4):** if repeated fixes keep hitting the next gate, you're in a stacked-gate scenario. Shift the plan to "enumerate all gates in this path before writing any fixes" — one investigation pass at the start is cheaper than N sequential fix-and-reblock cycles.
+
+## Digression Governance
+
+> See coordinator/CLAUDE.md § Plan-First Workflow for the plan-first doctrine this governs.
+
+Digression from a proven path requires EM approval before the executor proceeds.
+
+**Proven path:** a file:line cite or a verb with known input/output contract that the plan specifies as the canonical approach.
+
+**Digression:** an executor chooses a different primitive sequence because the proven path hit an unexpected obstacle, or because the alternative "looks simpler."
+
+**Protocol when a digression arises:**
+1. **Name the proven path** — cite it by file:line or by verb + expected input/output signature.
+2. **Describe the specific mismatch** — what exact input/output gap makes the proven path inapplicable here?
+3. **Name the alternative** — describe the proposed alternative sequence explicitly (not just "a different approach").
+4. **Get EM sign-off** before proceeding.
+
+Silent digression — choosing the alternative without surfacing steps 1–3 — is a doctrine violation. The proven path is proven because it was tested; the alternative is unproven even if it looks equivalent.
+
+**In plans:** for any step that relies on a canonical MCP verb or established pattern, include a "No fallback" clause (see § Hard Constraints (e)) so executors cannot silently digress under pressure.
+
+## Spike Pass-Conditions Must Match the Wire Path
+
+> See coordinator/CLAUDE.md § Plan-First Workflow and `docs/wiki/round-trip-contract-tests.md` for the round-trip framing.
+
+Spike acceptance criteria must target the actual wire path being verified — not a structural proxy that appears to prove the same thing.
+
+**Failure shape:** spike AC is "registration succeeds." The executor verifies that the module is registered (a static lookup passes). But registration ≠ functional initialization — the registered module may still fail to initialize at runtime (missing deps, incorrect boot order, missing env bindings). The spike returns green on registration; the runtime surface returns broken.
+
+**Rule:** for any spike whose goal is "does X work end-to-end," the pass-condition must exercise the runtime wire path, not just the structural registration. Ask: "could this AC pass even if the runtime path is completely broken?" If yes, the AC is measuring the wrong thing.
+
+**Examples of weak ACs replaced with strong ones:**
+
+| Weak (structural proxy) | Strong (wire path) |
+|-------------------------|-------------------|
+| "Module is registered in the plugin registry" | "Module successfully initializes: boot log shows INIT_OK line for this module" |
+| "Build succeeds with the new include" | "Integration test exercises the new include path end-to-end: at least one functional call reaches the new code" |
+| "Config key is present in settings.json" | "App reads the config key and applies it: observed behavior change matches the config value" |
 
 ## Shared-State Pre-Flight Gate
 

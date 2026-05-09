@@ -180,6 +180,19 @@ CHANGELOG_FILE="tasks/week-changelog/$TODAY-$MACHINE.md"
 
 **Synthesise the block** from today's handoffs (`tasks/handoffs/YYYY-MM-DD-*.md`) and the `/daily-review` summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` and `Blockers:` from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5 exit codes — it is not LLM-authored prose.
 
+**`Reviewed:` field** — read all `tasks/review-trail/*.json` files whose filename begins with today's date (`YYYY-MM-DD-*`). For each record, emit one line:
+```
+**Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
+```
+Multiple records produce multiple `**Reviewed:**` lines — one per record. If today had non-trivial commits (any commit subject NOT matching `^(chore|docs?)([(:]|$)|^session-end quick-save`) AND no review-trail records for today exist, emit exactly one fallback line:
+<!-- Review: the Staff Engineer — previous regex ^chore|^doc|^session-end quick-save matched
+     "docker:" and "chored" as trivial; tightened to require conventional-commits
+     punctuation after chore/doc(s) or an exact prefix match. -->
+```
+**Reviewed:** none — flag for /workweek-complete Step 7
+```
+If today's commits are all trivial AND no records exist, omit the `**Reviewed:**` field entirely — do not emit an empty line.
+
 ```markdown
 ## YYYY-MM-DD — {hostname}
 
@@ -191,6 +204,7 @@ CHANGELOG_FILE="tasks/week-changelog/$TODAY-$MACHINE.md"
 **Decisions:** <extracted from today's handoffs — not re-authored>
 **Blockers:** <extracted from handoffs, or "none">
 **Validation:** validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
+**Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 **Links:** archive/daily-summaries/YYYY-MM-DD.md, archive/completed/YYYY-MM.md
 ```
 
@@ -242,7 +256,7 @@ If `$ARGUMENTS` is provided, include as a top line: _"Day summary: {arguments}"_
 - **Triage the improvement queue.** Daily depth nudge only; triage is weekly.
 - **Run ShellCheck or scc stats.** All moved to `/workweek-complete`.
 - **Delete the work branch.** Stays alive for morning review.
-- **Delete handoffs.** Never deleted — archived only after `/distill` with PM approval.
+- **Delete handoffs.** workday-complete does not delete handoffs. Lifecycle (revised 2026-05-08): `/pickup` archives them atomically (`tasks/handoffs/` → `archive/handoffs/`); `/distill` deletes from the archive after extraction (opt-out via `--no-delete`), gated by extraction-artifact + `shipped_in:` + active-reference + distillation-log guards. Spec: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
 
 ### Concurrent Session Safety
 
