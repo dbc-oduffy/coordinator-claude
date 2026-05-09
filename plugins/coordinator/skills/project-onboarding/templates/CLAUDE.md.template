@@ -9,6 +9,7 @@
 ## Project Type
 
 <!-- project_type: {{PROJECT_TYPE}} — controls domain agent routing -->
+<!-- project_subtypes: {{SUBTYPES}} — see coordinator.local.md -->
 
 {{IF game-dev}}
 ## Unreal Engine Conventions

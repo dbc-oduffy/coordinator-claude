@@ -18,7 +18,7 @@
 # Negative-spec: does NOT modify any file, does NOT trigger /workweek-complete,
 # does NOT read daily changelog files — HEADER.md only.
 #
-# Case-sensitivity audit (Staff Engineer R2 F-R2-2): this script does NOT interpolate $MACHINE
+# Case-sensitivity audit (the Staff Engineer R2 F-R2-2): this script does NOT interpolate $MACHINE
 # or branch names — it reads only commit SHAs and dates from HEADER.md. No case-sensitive
 # branch-name grep exposure. Confirmed case-clean 2026-05-07.
 

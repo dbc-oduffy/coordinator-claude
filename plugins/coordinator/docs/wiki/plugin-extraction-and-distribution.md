@@ -1,6 +1,6 @@
 # Plugin Extraction and Distribution
 
-**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B4. Source extracts: coord E13/E15, project-rag E12/E29/E30/E31, holodeck E38.
+**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B4, refactored 2026-05-07 to absorb the post-shipping plugin-extraction queue cluster (atlas drift, versioning, CRLF/LF, source-path runtime pinning, four-surface mop-up).
 
 When extracting a plugin from its source repo into a standalone distributable, "it works on my machine" is not the bar. External consumers run from a clean profile, on different OSes, with different drive layouts, against fresh `~/.claude.json` state. The extraction is incomplete until each of the surfaces below is verified.
 
@@ -8,7 +8,9 @@ When extracting a plugin from its source repo into a standalone distributable, "
 
 ### 1. Source-repo cleanup
 
-Sweep the source repo for orphan plugin trees, install scripts, local configs, and stale tool-name references that survive the extraction. The plugin's old in-repo location often leaves debris that misleads future readers and breaks reproducibility.
+Sweep the source repo for orphan plugin trees, install scripts, local configs, and stale tool-name references that survive the extraction. The plugin's old in-repo location often leaves debris that misleads future readers and breaks reproducibility. Brand-bound names (`HOLODECK_*`, `DRONESIM_*`) and the old plugin tree itself must both go — extraction is incomplete until orphans + brand-bound names are gone.
+
+The four surfaces that must mop up together at extraction time: (a) the in-source-repo plugin tree, (b) install scripts that register the old layout, (c) `marketplace.json` entries pointing at the old location, and (d) per-user `~/.claude.json` `mcpServers` and `enabledPlugins` registrations. Skip any one and the next external consumer hits dead entries the author's machine no longer notices.
 
 ### 2. Plugin generalization — `${CLAUDE_PLUGIN_ROOT}`, not hardcoded paths
 
@@ -22,6 +24,8 @@ Brand-bound env vars, paths, and config keys (`HOLODECK_*`, `DRONESIM_*`, etc.) 
 
 If the plugin's MCP server runs from a source tree (`pip install -e <source-path>`), document this explicitly. The runtime version is the checked-out branch HEAD, **not** what `pip show <pkg>` reports — which is often a separately-installed wheel. Conflating the two leads to "install v0.2.3" being a near-no-op when the consumer's MCP entry already points at source-path. Surface the source-path-vs-wheel distinction in install docs.
 
+A source-path MCP registration (`command: python`, `args: [-m, server]`, `cwd: <source-tree>`) makes every subsequent `install vN` invocation a near-no-op for that consumer — the runtime version is whatever the source checkout currently points at. Installer should detect a pre-existing source-path registration and either (a) refuse to re-register over it without `--force`, or (b) print a loud notice that "install v0.5.3" will not change runtime behavior until the consumer's checkout is updated.
+
 ### 5. Doc sync
 
 Update READMEs, install instructions, and any cross-repo references that pointed at the old location. Stale doc references → repoint to existing surfaces when content is already covered; create new pages only when genuinely missing (don't default to "create the missing doc" for every broken link).
@@ -32,9 +36,9 @@ Easy to forget: the per-user `~/.claude.json` `mcpServers` registration AND the 
 
 ### 7. Plugin enablement is **per-project**, not user-global
 
-Plugin enablement (`enabledPlugins["<name>@<marketplace>"]`) belongs in `<project>/.claude/settings.local.json`, not `~/.claude/settings.json`. The marketplace and install record stay user-global, but the install record uses `scope:"project"` with `projectPath` so a second project on the same machine appends a separate record rather than overwriting the first.
+Plugin enablement (`enabledPlugins["<name>@<marketplace>"]`) belongs in `<project>/.claude/settings.local.json`, not `~/.claude/settings.json`. The marketplace and install record stay user-global, but the install record uses `scope:"project"` with `projectPath` so a second project on the same machine appends a separate record rather than overwriting the first. Enablement granularity must match MCP-server registration granularity; the two surfaces drift apart silently when one is per-project and the other is user-global.
 
-Writing enablement to `~/.claude/settings.json` surfaces the plugin's slash commands in every project on the machine — not just the one that opted in. Mirrors the same wrong-shape failure as writing MCP server args to top-level `mcpServers` instead of `projects[<root>].mcpServers`.
+Writing enablement to `~/.claude/settings.json` surfaces the plugin's slash commands in every project on the machine — not just the one that opted in. Mirrors the same wrong-shape failure as writing MCP server args to top-level `mcpServers` instead of `projects[<root>].mcpServers`. The cost compounds: every situational MCP plugin enabled user-global contributes its deferred-tool surface and instruction blocks to *every* session boot regardless of whether the project actually uses it.
 
 ### 8. Plugin installers must register enablement, not just MCP wiring
 
@@ -52,8 +56,46 @@ Setting `enabledPlugins.foo: false` leaves the cache intact (`~/.claude/plugins/
 
 ### 10. Plugin hooks belong in `hooks/hooks.json`, not user-scope `settings.json`
 
-A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it. User-scope settings is for non-plugin overrides only.
+A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it. User-scope settings is for non-plugin overrides only. Treat this as a portability check at extraction time: grep `~/.claude/settings.json` for any hook entry whose script lives under the plugin tree, and migrate it to the plugin's `hooks/hooks.json` before shipping.
 
 ## Test From a Clean Profile
 
 The single highest-leverage validation: run the install script from a profile that has never used Claude Code before. Anything that "just worked" on the author's machine from prior manual setup will fail loudly. This catches gaps 1, 6, 8, 9, and 10 in one pass.
+
+## Atlas Drift After Extraction
+
+When a plugin moves to a standalone repo, the consumer-side architecture atlas, file-index paths, and MCP-tool prefixes go stale silently — greppable-by-old-name is not the same as broken-by-old-name. Old paths still resolve in cache, old tool prefixes still appear in agent-prompt examples, and nothing surfaces the drift until a new contributor reads the atlas and gets pointed at a path that no longer exists.
+
+Plugin-extraction PRs need an explicit atlas-sweep step before merge: grep the consumer repo for the old plugin path, the old MCP tool prefix, and the old marketplace name; update or repoint each hit; verify the architecture atlas's plugin section reflects the new layout. Treat this as part of the extraction PR itself, not a follow-up — the cost of doing it later is ambiguous "is this stale or current?" reads from every downstream consumer until someone audits.
+
+## CRLF/LF Verification on Percolation
+
+Percolation from a Unix-authored source repo to a Windows consumer (or vice versa) silently swaps line endings under the wrong git config, producing whole-file diffs that read as no-op edits but change every line of every file. "Agent reported clean" is not enough — verify percolation by per-file diff with `git diff --stat` and a spot-check on a handful of files; a clean diff under `core.autocrlf=true` may hide the entire reformatted file. Establish `.gitattributes` rules early, and run a verification pass after every cross-platform percolation.
+
+## Persona-Name Guard on Percolation
+
+The meta-repo (`~/.claude/`) authors files with persona display names — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate, the VP-Product Reviewer — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
+
+Two paired tools enforce the boundary:
+
+- **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
+
+- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator-claude/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+
+Workflow during percolation:
+
+1. Run `bash ~/.claude/setup/publish.sh <target>` (a.k.a. percolate / push-to-publish-repo) — or `/percolate <target>` for the dry-run-confirm-real-run skill wrapper.
+2. `publish.sh` discovers and runs every executable script in `setup/percolate-hooks/<target>/{pre-rsync,post-rsync,pre-ci}/*.sh` in lexical order at the corresponding boundary. The depersonalize hook fires automatically at `post-rsync` for any target with one registered. Failure-semantics: non-zero hook exit aborts the publish; post-rsync abort = destination partially mutated, recovery is to fix the hook and re-run (`--check`/`--fix` is idempotent).
+3. CI on the publish repo re-runs `python .github/scripts/check-persona-names.py` on push as the safety net — even if a hook is mis-registered, the gate catches regressions.
+
+To add or modify a hook for a target: place an executable `*.sh` script under `setup/percolate-hooks/<target>/<hook-point>/`. Numeric prefixes (`10-`, `20-`) order execution. Authoring help: `/setup-percolate` scaffolds the hook directories with `.gitkeep`. Registration is convention-based discovery — no manifest required.
+
+The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Ambition Advocate → the Ambition Advocate; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
+
+## Versioning Extraction Churn
+
+Removing one optional plugin from a distribution is a MINOR bump, not MAJOR. Semver major implies breaking changes to core API or to every consumer's setup — not "we removed an opt-in surface that was enabled-by-default in our own settings." Reserve MAJOR for the extraction event itself when it changes the install-script contract (path layout moves, MCP server names rename, env-var shape changes that consumers must mirror). Iterative cleanup of the extracted plugin's own surface is MINOR or PATCH.
+
+## Plugin-Bundled Wiki Authoring Direction
+
+Edits to plugin-bundled wikis (`<plugin>/docs/wiki/<name>.md`) belong on the dev-side authoring tree first; `bin/sync-plugin-wiki.sh` mirrors authoring → bundled. Editing the bundled copy directly without the dev-side counterpart gets silently undone the next time the sync script runs. Mirror-sync scripts must detect direction-of-truth asymmetry pre-sync and escalate rather than overwrite. Executor briefs editing bundled wikis should include the dev-side path explicitly.

@@ -1,5 +1,4 @@
 ---
-name: spinoff
 description: Fork a mid-session topic into its own pickup-able handoff (a spinoff)
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "<slug> [optional one-line title]"
@@ -39,17 +38,26 @@ title: <one-line title>
 created: <YYYY-MM-DD>
 branch: <current branch — git symbolic-ref>
 status: active
-kind: spinoff
+kind: spinoff                       # or spinoff-roadmap (Phase 5 roadmap stubs only;
+                                    # see skills/roadmap-planning for that path)
 predecessor: none
 authoring_session: <one-line description of the session that wrote this>
 workstream: <slug>
+deployment_state: ready_to_fire     # default — spinoffs are authored to be picked up cold.
+                                    # Override to awaiting_gate ONLY if the spinoff depends
+                                    # on another spinoff/handoff shipping first; in that
+                                    # case set gate_dependency: <other-handoff-filename>.
+pickup_ready: true                  # DEFAULT ON for spinoffs — positive pickup-authorized
+                                    # signal. Absence triggers a non-blocking warning at
+                                    # /pickup time. Spinoffs are orphan-promotions by design
+                                    # and are always explicitly authorized for pickup.
 scope:
   - <pathspec 1>
   - <pathspec 2>
 ---
 ```
 
-`status: active` (it's ready for pickup). `predecessor: none` always — spinoffs have no continuity ancestor. `authoring_session` replaces the predecessor link as the audit trail back to origin. `workstream` lets `/workday-start` and `/pickup` group related forks.
+`status: active` (ready for pickup). `pickup_ready: true` always — positive pickup-authorized signal; absence triggers a non-blocking warning at `/pickup`. `predecessor: none` always — spinoffs have no continuity ancestor. `authoring_session` replaces the predecessor link as the audit trail back to origin. `workstream` lets `/workday-start` and `/pickup` group related forks. `deployment_state: ready_to_fire` makes the spinoff visible to query-driven `/session-start` and `/workday-start` surfaces.
 
 Body sections (adapted from the regular handoff template):
 
@@ -81,12 +89,24 @@ This prevents the current EM from accidentally absorbing the work back into the 
 
 ### Step 4: Commit
 
-Single explicit-path commit. Do NOT blanket-stage; the working tree probably has other concurrent-session files.
+Single combined-mode call — `--scope-from` declares the handoff's frontmatter scope and
+`--include-orphans` claims the handoff path itself. Using two separate calls (a `git add`
+followed by the helper) is a race window: a concurrent sibling `--blanket` from `/session-end`
+can sweep the staged file into the wrong commit between the two calls. One call closes
+that window. Combined mode is correct here: the spinoff scenario is inherently multi-EM
+(another session may be running `/session-end` concurrently), so `--scope-from` must be
+the writer of record for `active-scope.txt`.
 
 ```bash
-git add <handoff-path>
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "chore(spinoff): <slug> [authored mid-session]"
+~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \
+  --scope-from <handoff-path> \
+  --include-orphans <handoff-path> \
+  "chore(spinoff): <slug> [authored mid-session]"
 ```
+
+If the slug's handoff path already appears in a peer session's `active-scope.txt`, the
+helper exits with a clean overlap error — re-run with a unique slug or wait for the peer
+to finish.
 
 The auto-push hook handles propagation.
 
@@ -102,9 +122,10 @@ Then return to the work the current session was doing **before** the fork. A spi
 
 ## Anti-scope
 
+- **`reviewed_at_session_end:` does NOT apply to spinoffs.** Spinoffs are forks authored mid-session, not continuations of a session's own work — the session-end review marker tracks what the *current* EM reviewed before handing off a workstream they were executing. A spinoff has no executed diff to review; it is a brief for someone else's future session. Do not add `reviewed_at_session_end:` to spinoff frontmatter. (Field is defined in `schemas/handoff.yaml` as optional for the handoff kind but semantically meaningless on `kind: spinoff` and `kind: spinoff-roadmap`.)
 - **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the skill provides the shape, the EM provides the content.
-- **Don't auto-delete or auto-merge spinoffs that get picked up.** `/update-docs`'s archival phase handles archival via the `<!-- consumed: -->` marker. Spinoffs follow the same path on consumption.
-- **Don't extend `kind:` to other values speculatively.** Two values (`session-handoff`, `spinoff`) are sufficient until a third recurring shape surfaces.
+- **Don't auto-delete or auto-merge spinoffs that get picked up.** Spinoffs follow the standard handoff lifecycle on consumption: `/pickup` mutates frontmatter in place, then the picking-up session's `/handoff` (chain-archival) or `/session-end` Step 2.7 moves the file to `archive/handoffs/`. The `<!-- consumed: -->` marker is deprecated — do not write it.
+- **Don't extend `kind:` to other values speculatively.** Three values are now authorized — `session-handoff`, `spinoff`, `spinoff-roadmap`. The third (`spinoff-roadmap`) was added 2026-05-08 after the recurring-shape threshold was met: the project-rag cross-deep-dive-synthesis episode (see `archive/specs/2026-05-08-roadmap-planning-skill-brief.md` § "Weaknesses and gaps #2") was instance #3 of stubs ending up *adjacent to* spinoffs rather than *as* spinoffs. Further extension still requires a documented recurring shape, not speculation.
 - **Don't replace `/handoff` with `/spinoff`.** They serve different needs. The writer-of-spinoff still ends their own session with `/handoff`.
 - **Don't migrate prior orphan-promotion handoffs.** Their lifecycle is over; renaming retroactively is churn. New spinoffs use the `kind:` field; old ones stay as-is.
 

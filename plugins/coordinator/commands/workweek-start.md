@@ -73,7 +73,11 @@ Surface stalled workstreams (zero recent commits) as a bulleted list. This gives
 
 Scan for aging artefacts that may need pruning or deferral:
 
-1. **Stale handoffs:** `tasks/handoffs/*.md` older than 7 days (by filename date). List filenames.
+1. **Stale handoffs:** query, don't grep:
+   ```bash
+   bin/query-records --type handoff --where "status=active" --older-than 7d --format markdown-list
+   ```
+   Lists ready_to_fire and awaiting_gate handoffs older than 7 days.
 2. **Draft plans without recent commits:** `docs/plans/*.md` with `status: draft` (grep frontmatter or body) and no commits to their referenced paths in >14 days.
 
 Surface as a brief list for PM awareness. No archival action — this command is read-and-surface only.

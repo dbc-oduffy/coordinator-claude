@@ -16,8 +16,52 @@ The scout handles mechanical source discovery so verifiers can focus on schema-m
 ## Arguments
 
 `$ARGUMENTS`:
-- `<spec-path>` — path to the research spec YAML file (required)
-- `<subject-key>` — the subject key to research within the spec (required)
+- `create <output-dir>` — Create Mode: build a new research spec from the PM's brief (see Step 0)
+- `<spec-path> [subject-key|'next'|'batch']` — Run Mode: execute an existing spec
+
+**Invocation:** `/research --mode=structured create <output-dir>` (Create Mode) or `/research --mode=structured <spec-path> [subject-key]` (Run Mode)
+
+## Step 0 — Create Mode Gate
+
+If `$ARGUMENTS` starts with `create`, run Create Mode (Steps 0a–0d below) instead of Run Mode. Do NOT proceed to Step 1 until the PM approves the spec.
+
+### Step 0a: Understand the Brief
+
+Gather from the PM (ask if not already clear):
+1. **What entities?** — Where's the list? How many? Any tiers/priority grouping?
+2. **What topics per entity?** — What facets to research? (These become `topics` in the spec)
+3. **What schema?** — Does a data schema already exist in the project? (Check for JSON schemas, TypeScript types, prompt files that define the output structure)
+4. **What's already known?** — Is there existing data per entity? Where?
+5. **What quality matters?** — Any acceptance criteria? Source language requirements? Freshness requirements?
+
+### Step 0b: Discover Project Context
+
+Before writing the spec, read the project:
+1. **Find the data schema** — look for existing type definitions, JSON schemas, or prompt files that define the output structure. This becomes the `output_schema`.
+2. **Find existing data** — look for per-entity data files. The path pattern becomes `known_context.per_subject.source_file`.
+3. **Find any prior research** — check for research docs, notes, or briefs that inform topic areas.
+
+### Step 0c: Write the Spec
+
+Write to `<output-dir>/spec.yaml` using the format from `pipelines/spec-format.md` in the deep-research plugin:
+
+1. **subjects** — source file, key field, total, batching tiers
+2. **topics** — 2-6 topic areas with search domains and focus questions derived from the schema gaps
+3. **acceptance_criteria** — per-topic and per-subject quality requirements
+4. **gates** — quality gates between phases (at minimum: official source check after Phase 1, schema conformance after Phase 2)
+5. **output_schema** — key fields with types, enums, required/optional fields — derived from the project's data schema
+6. **known_context** — path to existing data per entity
+7. **phases** — output path templates with variable substitution
+8. **manifest_path** — `<output-dir>/manifest.json`
+
+### Step 0d: PM Review
+
+Present the spec to the PM:
+- "I've written a research spec at [path]. It covers [N subjects] across [M topics]. Here's a summary: [topics list, batching plan, key gates]. Review and approve before I run it?"
+
+Do NOT proceed to Run Mode (Step 1) until the PM approves.
+
+---
 
 ## Step 1 — Setup
 

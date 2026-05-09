@@ -115,9 +115,9 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 **Reaper.** `cs_reap_agents` runs alongside `cs_reap_stale`: any `.agents/<agentId>/` whose `touched.txt` mtime is older than 24h is archived to `${base}/.archive/.agents-<aid>-<date>`. Bounds index growth.
 
-**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (Staff Engineer v2 F1).
+**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (Patrik v2 F1).
 
-**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (Staff Engineer F9 — replaces the fuzzy "one verification session" wording).
+**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (Patrik F9 — replaces the fuzzy "one verification session" wording).
 
 ### 8. `--expected-branch` Gate (Issue B — shipped 2026-05-06)
 
@@ -133,7 +133,7 @@ The helper aborts before staging on mismatch, prints reflog entries for both cur
 
 > Resolution: 'git checkout $EXPECTED_BRANCH' or correct dispatch prompt.
 
-**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (Staff Engineer F3 carried forward).
+**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (Patrik F3 carried forward).
 
 ### 9. Issue C — `--scope-from` is Exhaustive
 
@@ -143,6 +143,12 @@ The original `--scope-from` mode silently subtracted other active sessions' touc
 - **Runtime overlap gate.** If two active sessions claim overlapping paths, surface loudly at commit time. Helper's overlap check is the contract surface; the helper does not silently pick a winner.
 - **Out-of-scope dirty files fail loud.** Files dirty in the working tree but absent from the declared `scope:` block abort the commit. Pass `--allow-out-of-scope-dirty` to proceed (logged warning).
 - **Default-mode fails closed when >1 live session detected.** Resolve via `--scope-from <handoff>` (preferred) or `COORDINATOR_OVERRIDE_SCOPE=1` with explicit-path staging (emergencies). Single-session default unchanged.
+
+#### Addendum — agent-id linkage scope in `--scope-from` mode
+
+The agent-id linkage introduced by Issue A (`archive/specs/2026-05-05-issue-a-agent-id-linkage.md`) unions executor-edited files into the dispatching session's scope, but **only in default mode**. In `--scope-from` mode the declared `scope:` block is exhaustive per the Issue C contract (`archive/specs/2026-05-05-session-misidentification-fix.md`): executor-edited files that fall outside the declared scope are deliberately excluded, even when the back-pointer linkage is fully wired. This is intentional, not a bug — see SC-DR-005.
+
+When an executor produces files whose paths weren't predictable at handoff-write time (e.g., dynamically-named outputs), use `--allow-out-of-scope-dirty` to proceed with a warning, or `--include-orphans <pathspec>...` for a structured one-shot claim. A "silently extend declared scope to include executor-claimed files" mode was considered and rejected: the auditability value of exhaustive declared scope outweighs the ergonomic friction. If a workflow consistently hits this wall, the correct fix is either a richer handoff with broader `scope:` globs, or a fresh plan revisiting the Issue C contract — not a silent expansion. (Observed case: `tasks/handoffs/2026-05-06_223721_safe-commit-session-touch-tracker-orphan-files.triage.md`.)
 
 ---
 
@@ -256,14 +262,32 @@ The touch-tracker hook should have caught any `Write` or `Edit` call. Check whet
 
 **"I'm getting a scope warning for a file I touched via Bash"**
 
-Bash edits aren't tracked by the hook — intentionally. They fall to mtime detection at commit time. However, the mtime path cross-subtracts other sessions' touch lists: if another session claims the file in its `touched.txt`, the mtime fallback won't include it in your scope. If the file is genuinely yours and Bash-edited, stage it explicitly:
+Bash edits aren't tracked by the hook — intentionally. They fall to mtime detection at commit time. However, the mtime path cross-subtracts other sessions' touch lists: if another session claims the file in its `touched.txt`, the mtime fallback won't include it in your scope. If the file is genuinely yours and Bash-edited, use `--include-orphans` to claim it:
 
+**Preferred — audited, overlap-checked:**
+
+In a single-EM environment (one live session):
+```bash
+coordinator-safe-commit --include-orphans <path> "subject"
+```
+
+In a concurrent-EM environment (multiple live sessions), combine with `--scope-from`:
+```bash
+coordinator-safe-commit --scope-from <handoff.md> --include-orphans <path> "subject"
+```
+
+The helper resolves the pathspec, checks the runtime overlap gate (first claimant wins), writes
+an audit log at `.git/coordinator-sessions/<id>/orphan-claims.log`, and annotates the file with
+`(orphan-claimed)` in `print_summary`. One-shot: does not append to `touched.txt`.
+
+**Fallback — when `--include-orphans` is unavailable (older helper version):**
 ```bash
 git add <path>
 coordinator-safe-commit "subject"
 ```
 
-The explicit `git add` preloads the index; the helper proceeds from there.
+The explicit `git add` preloads the index; the helper proceeds from there. Use this only when
+the `--include-orphans` flag is not yet available — it lacks the overlap gate and audit trail.
 
 **"Helper says scope is empty"**
 
@@ -320,7 +344,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 | Artifact | Path |
 |----------|------|
 | Plan | `~/.claude/plans/scoped-safety-commits.md` |
-| Staff Engineer review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
+| Patrik review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
 | Ceremony audit | `~/.claude/plans/audit-ceremony-commit-prescriptions.md` |
 | Agent audit | `~/.claude/plans/audit-agent-commit-prescriptions.md` |
 | Deny-contract doc | `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md` |
@@ -339,7 +363,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — Staff Engineer P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Alternatives considered:* Bash-write heuristic regex (rejected — Patrik P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 
@@ -377,10 +401,10 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* Add `--expected-branch <name>` as a hard gate inside `coordinator-safe-commit`. Helper aborts before staging on mismatch.
 
-*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (Staff Engineer F3).
+*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (Patrik F3).
 
 **SC-DR-007 — Doctrine strike requires 5 burn-in cycles**
 
 *Problem:* When can the troubleshooting note about "helper misidentified your session" be removed from the wiki?
 
-*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (Staff Engineer F9). Replaces the original fuzzy "one verification session" wording.
+*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (Patrik F9). Replaces the original fuzzy "one verification session" wording.

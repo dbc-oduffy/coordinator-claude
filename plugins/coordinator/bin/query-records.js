@@ -6,11 +6,12 @@
  * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Query Tool)
  *
  * Usage:
- *   query-records --type <handoff|decision|plan|review|lesson>
+ *   query-records --type <handoff|handoff-archived|decision|plan|review|lesson>
  *                 [--where "<expr>"]
  *                 [--sort "<field>|-<field>"]
  *                 [--limit N]
  *                 [--since "Nd"|"Nw"|"Nm"|"YYYY-MM-DD"]
+ *                 [--older-than "Nd"|"Nw"|"Nm"|"YYYY-MM-DD"]
  *                 [--root <path>]
  *                 [--format markdown-list|json|paths]
  *
@@ -21,6 +22,10 @@
  *
  * --since 14d is sugar for created>=<today minus 14d>.
  *   Accepts: Nd (days), Nw (weeks), Nm (months≈30d), or YYYY-MM-DD.
+ *
+ * --older-than 14d is the inverse: created<<today minus 14d>.
+ *   Use for stale-flag queries like "awaiting_gate items older than 14 days."
+ *   Same parser as --since (Nd/Nw/Nm/YYYY-MM-DD).
  *
  * Lesson type is special: parses tasks/lessons.md entries.
  *   --where "tier=universal" matches entries tagged [universal].
@@ -35,20 +40,22 @@ const { loadSchemas, parseFrontmatter } = require('./lib/schema.js');
 // Schema-to-glob mapping (must match schema applies_to)
 // ---------------------------------------------------------------------------
 const TYPE_TO_GLOB = {
-  handoff:    'tasks/handoffs/*.md',
-  decision:   'docs/decisions/*.md',
-  plan:       'docs/plans/*.md',
-  review:     'tasks/reviews/*.md',
-  lesson:     'tasks/lessons.md', // special
+  handoff:           'tasks/handoffs/*.md',
+  'handoff-archived':'archive/handoffs/*.md',  // post-/pickup home; used by /distill enumeration
+  decision:          'docs/decisions/*.md',
+  plan:              'docs/plans/*.md',
+  review:            'tasks/reviews/*.md',
+  lesson:            'tasks/lessons.md', // special
 };
 
 // Markdown-list format columns per type (field name → label)
 const TYPE_DISPLAY = {
-  handoff:    (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
-  decision:   (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
-  plan:       (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
-  review:     (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — reviewer: ${fm.reviewer || '?'}, findings: ${fm.findings_count ?? '?'}`,
-  lesson:     (p, fm) => `- **${fm.title || p}** [${fm.tier || 'untagged'}]`,
+  handoff:           (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.deployment_state || fm.status || 'unknown'}`,
+  'handoff-archived':(p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}${fm.shipped_in ? ` (shipped: ${fm.shipped_in})` : ''}`,
+  decision:          (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
+  plan:              (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
+  review:            (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — reviewer: ${fm.reviewer || '?'}, findings: ${fm.findings_count ?? '?'}`,
+  lesson:            (p, fm) => `- **${fm.title || p}** [${fm.tier || 'untagged'}]`,
 };
 
 // ---------------------------------------------------------------------------
@@ -62,6 +69,7 @@ function parseArgs(argv) {
     sort: null,
     limit: 50,
     since: null,
+    olderThan: null,
     root: null,
     format: 'markdown-list',
   };
@@ -86,6 +94,7 @@ function parseArgs(argv) {
     else if (a === '--sort')   { opts.sort   = normalizedArgs[++i]; }
     else if (a === '--limit')  { opts.limit  = parseInt(normalizedArgs[++i], 10); }
     else if (a === '--since')  { opts.since  = normalizedArgs[++i]; }
+    else if (a === '--older-than') { opts.olderThan = normalizedArgs[++i]; }
     else if (a === '--root')   { opts.root   = normalizedArgs[++i]; }
     else if (a === '--format') { opts.format = normalizedArgs[++i]; }
     else {
@@ -129,6 +138,28 @@ function parseSince(since) {
   const m = relRe.exec(since);
   if (!m) {
     process.stderr.write(`Invalid --since value: ${since}\n`);
+    process.exit(1);
+  }
+  const n = parseInt(m[1], 10);
+  const unit = m[2];
+  const days = unit === 'd' ? n : unit === 'w' ? n * 7 : n * 30;
+  const dt = new Date();
+  dt.setDate(dt.getDate() - days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// parseOlderThan returns the cutoff date (ISO YYYY-MM-DD) for "created<cutoff".
+// Same parser shape as parseSince — Nd/Nw/Nm or YYYY-MM-DD literal.
+// "--older-than 14d" means: records whose `created` is strictly before <today minus 14 days>.
+function parseOlderThan(olderThan) {
+  if (!olderThan) return null;
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (isoRe.test(olderThan)) return olderThan;
+
+  const relRe = /^(\d+)(d|w|m)$/;
+  const m = relRe.exec(olderThan);
+  if (!m) {
+    process.stderr.write(`Invalid --older-than value: ${olderThan}\n`);
     process.exit(1);
   }
   const n = parseInt(m[1], 10);
@@ -320,6 +351,17 @@ function queryRecords(opts, root) {
       const c = r.frontmatter.created;
       if (!c) return false;
       return String(c) >= since;
+    });
+  }
+
+  // Apply --older-than as created< filter (inverse of --since).
+  // Records lacking `created` are excluded — same convention as --since.
+  const olderThan = parseOlderThan(opts.olderThan);
+  if (olderThan) {
+    records = records.filter(r => {
+      const c = r.frontmatter.created;
+      if (!c) return false;
+      return String(c) < olderThan;
     });
   }
 

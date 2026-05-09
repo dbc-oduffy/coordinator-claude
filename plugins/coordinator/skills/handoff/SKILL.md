@@ -1,5 +1,4 @@
 ---
-name: handoff
 description: "Save session state for a successor mid-workstream. Not for shipped/complete work — see Step 0."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
@@ -74,12 +73,32 @@ workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
 scope:                              # git pathspec syntax — files this workstream owns
   - path/to/file.md
   - dir/with/files/**
-pickup_ready: true                  # OPTIONAL: set on orphan-promotions and other fresh
-                                    # handoffs whose predecessor is already archived.
-                                    # Signals to /pickup and /update-docs archival that this
-                                    # handoff is fresh and must NOT be stamped or
-                                    # auto-archived. Remove (or set false) when an actual
-                                    # /pickup occurs and work genuinely resumes.
+deployment_state: ready_to_fire     # REQUIRED. Default to ready_to_fire when:
+                                    #   - Recommended next steps are concrete AND
+                                    #   - No PM-gate is named in ## Blockers or Issues.
+                                    # Use awaiting_gate when the work cannot proceed
+                                    # without an external condition clearing — pair
+                                    # with gate_dependency. Use in_flight when this
+                                    # handoff is a status report for work the next
+                                    # session resumes immediately.
+gate_dependency: <one-line>         # REQUIRED iff deployment_state=awaiting_gate.
+                                    # Subsystem-named, not file-pathed. Same durability
+                                    # rule as Recommended Next Steps prose: name the
+                                    # condition or subsystem, not the source paths.
+pickup_ready: true                  # DEFAULT ON for all handoffs authored by this skill.
+                                    # Positive signal: this handoff is explicitly
+                                    # authorized for pickup. Absence triggers a
+                                    # non-blocking warning at /pickup time (not a
+                                    # block). Do NOT remove — stays as authorial-intent
+                                    # record on consumed handoffs.
+reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
+                                    # OPTIONAL. Written by /session-end (Step 2.8) or
+                                    # /handoff (Step 2.X) after running coordinator:review-code
+                                    # on this session's diff. Format: "<sha-range> <reviewer>
+                                    # <YYYY-MM-DD>" — e.g. "abc123..def456 sonnet 2026-05-08".
+                                    # reviewer is one of: sonnet | patrik | sonnet+patrik | waived.
+                                    # Omit on spinoffs (kind: spinoff / spinoff-roadmap) — the
+                                    # field applies to continuation handoffs only.
 ---
 
 # Session Handoff — [DATE]
@@ -195,6 +214,22 @@ Update the documents that future sessions read for orientation — closing the r
 
 **Same guidance as `/session-end` Step 2.7** — targeted patches to what this session touched, not regeneration. Concurrency-safe.
 
+#### Step 2.10: Code Review Consideration
+
+Follow `/session-end` Step 2.9 (Code Review Consideration) — same diff-shape table, same precedence rule, same anti-ceremony-bias and symmetric anti-ceremony tripwires, same dispatch via `coordinator:review-code` Branch A.2, same trail-marker write via `coordinator-write-review-trail.sh`.
+
+**Gate alignment:** This step fires ONLY when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/session-end` or commit-and-stop, the review consideration belongs to that downstream surface, not here. Do not double-review.
+
+**Additional handoff-specific behavior:** when this step writes a trail record, ALSO mirror the marker into the handoff frontmatter as:
+```
+reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
+```
+Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the optional schema field added in `schemas/handoff.yaml`). Add this field to the frontmatter block written in Step 1.
+
+**Edge case (PM-flagged):** when `/handoff` is written because the EM is bailing on a workstream they don't want to finish, the successor benefits from a Sonnet review of what landed. Treat the bailing case the same as any other non-trivial handoff — the diff-shape table determines the scale.
+
+**Staging discipline:** any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`.
+
 #### Step 3: Commit + Verify Remote
 
 **Pre-flight: verify shipped claims.** For each commit referenced in this handoff's `## What Was Accomplished` as completed/shipped, run `bin/check-shipped-on-main.sh <sha>`. If any commit is NOT on `origin/main`:
@@ -218,7 +253,7 @@ Update the documents that future sessions read for orientation — closing the r
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-4. **Verify remote is synced:** confirm no unpushed commits remain (`git log origin/$(git branch --show-current)..HEAD`). If auto-push failed, push explicitly and warn the PM.
+4. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 

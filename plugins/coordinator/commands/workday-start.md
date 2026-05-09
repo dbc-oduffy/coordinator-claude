@@ -126,24 +126,44 @@ Append the rendered section to the Morning Briefing template in Step 5 (after `#
 
 ## Step 1: Handoff Triage
 
-Read all files in `tasks/handoffs/`. For each:
+Query-driven, not grep-driven. Two `bin/query-records` calls — sub-second by construction.
 
-1. **Check age** — filename includes timestamp (`YYYY-MM-DD_HHMMSS_sessionid.md`)
-2. **Check branch activity** — is the handoff's referenced branch still active? Any commits since the handoff was written?
-3. **Split first on `kind:`** — read frontmatter and route:
-   - **Spinoffs** (`kind: spinoff`) — fork awaiting pickup; treat separately. Subcategorize by age:
-     - **Fresh** (< 14 days since `created:`): list normally.
-     - **Stale** (≥ 14 days un-picked-up — adjust threshold inline if it proves wrong): flag with a heads-up nudge: _"Spinoff [filename] has sat un-picked-up for [N] days — pick up, escalate, or close out?"_
-   - **Continuation handoffs** (no `kind:`, or `kind: session-handoff`) — apply the existing categorization below.
-4. **Categorize each continuation handoff:**
-   - **Active** — has recent branch activity, or references open/in-progress work
-   - **Aging** — older, no branch activity, but not explicitly consumed
-   - **Likely consumed** — work appears in the completed archive (cross-reference below)
-5. **Surface everything, archive nothing.** Report all handoffs to the PM with their status. Handoff archival happens only when a handoff is explicitly consumed (via `/pickup`) or the PM directs it — never automatically based on age.
-6. **Cross-reference against completed archive:** Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each handoff, check whether the work it describes appears in the completed archive — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely consumed — archive it?"_
-7. **Reconcile each handoff's pending items against git — MANDATORY before reporting them as actionable.** Per-handoff (applies equally to spinoffs and continuations): (a) `git log --oneline --since="<handoff-date>" --all` and scan subjects for matching pending items; (b) Read referenced plan/stub `**Status:**` fields; (c) drop confirmed-closed items from the actionable list, note as "verified-closed since handoff" in the report. Empirical baseline: 30–60% of inherited items are already closed. **Full procedure + rationale (surface-only / cross-reference / git-reconcile):** see `pipelines/workday-start-internals.md` § Step 1.
+### Step 1.1: Actionable-now handoffs
 
-8. **Report:** "N continuation handoffs (M aging, K likely-consumed). S spinoffs awaiting pickup (T stale, ≥14 days). [X items verified-closed by git reconciliation.]" Omit the spinoffs clause entirely if S=0.
+```bash
+bin/query-records --type handoff \
+  --where "deployment_state=ready_to_fire AND status=active" \
+  --sort "-created" --format markdown-list
+```
+
+Routing on `kind:` (spinoffs cluster separately):
+
+- **`kind: spinoff` and `kind: spinoff-roadmap`** — both are pickup-able forks. List together in a "Spinoffs awaiting pickup" subsection. `spinoff-roadmap` rows additionally cluster by `roadmap_id:` (group all stubs from a single roadmap-planning run) — surface roadmap heading + stub count, not raw rows, when `roadmap_id` is non-empty and the count > 3.
+- **`kind: session-handoff`** (or absent) — list in a "Continuation handoffs" subsection.
+
+### Step 1.2: Stale-gate flag (conditional, only emit if non-empty)
+
+```bash
+bin/query-records --type handoff \
+  --where "deployment_state=awaiting_gate AND status=active" \
+  --older-than 14d --format markdown-list
+```
+
+If non-empty: surface with the heads-up nudge: _"{M} handoffs awaiting_gate >14 days — `/pickup` to surface for triage, escalate to PM gate-clearing, or close out."_ The 14-day threshold preserves the prior surface-stale-spinoff signal — `awaiting_gate` items aren't hidden indefinitely.
+
+### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
+
+Per-handoff in the `ready_to_fire` set: (a) `git log --oneline --since="<handoff-date>" --all` and scan subjects for matching pending items; (b) Read referenced plan/stub `**Status:**` fields; (c) drop confirmed-closed items from the actionable list, note as "verified-closed since handoff" in the report. Empirical baseline: 30–60% of inherited items are already closed. **Full procedure + rationale:** see `pipelines/workday-start-internals.md` § Step 1.
+
+### Step 1.4: Cross-reference against completed archive (sanity check)
+
+Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each `ready_to_fire` handoff, check whether the work it describes appears as completed — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely already done — pick up to confirm and archive, or close out?"_
+
+### Step 1.5: Report
+
+_"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {M} awaiting_gate >14 days [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
+
+**Why query, not grep (doctrine reversal documented 2026-05-08):** the prior "surface everything, archive nothing" policy assumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Filtering to `ready_to_fire` plus the 14-day stale-gate flag preserves the deferred-work signal without forcing every aging handoff through the primary list.
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
@@ -227,6 +247,8 @@ Format:
 **If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently — the log is either empty or carries old, already-resolved entries.
 
 **Cross-repo extension (deferred):** the handoff that drove this section calls for scanning *all* coordinator-tracked repos, but no registry of tracked repos exists yet. V1 checks the current repo only. If a registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
+
+- **Last session-end review (informational):** if `tasks/review-trail/` has any records, surface the most recent one (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
 
 ## Step 2: Doc Freshness
 

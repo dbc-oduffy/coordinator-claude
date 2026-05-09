@@ -133,13 +133,144 @@ done
 
 ## Step 7: Parallel Code-Review Gate
 
+### Step 7 prelude — trail-reading and scope computation
+
+Before invoking `parallel-code-review`, compute the Staff Engineer's narrowed scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) ALWAYS see the full week diff — only the Staff Engineer's lens narrows.
+
+```bash
+# Review: the Staff Engineer — WEEK_START parsing must be fail-loud; date -d is GNU-specific and
+# the old silent fallback to today violated the detect-then-silently-pick footgun rule.
+HEADER_FILE="tasks/week-changelog/HEADER.md"
+if [[ ! -f "$HEADER_FILE" ]]; then
+  echo "ERROR: $HEADER_FILE not found — run /workweek-start to initialise." >&2
+  exit 1
+fi
+WEEK_START=$(grep -E '^\*\*Week starting:\*\*' "$HEADER_FILE" | sed -E 's/^\*\*Week starting:\*\* +([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | head -1)
+if [[ -z "$WEEK_START" || ! "$WEEK_START" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "ERROR: cannot parse 'Week starting:' YYYY-MM-DD from $HEADER_FILE" >&2
+  exit 1
+fi
+TODAY=$(date -u +%Y-%m-%d)
+export WEEK_START TODAY
+
+# 1. Glob all trail records; filter by date-prefix in the Python block below.
+# (find -newermt requires GNU date arithmetic; filename-prefix comparison is portable.)
+TRAIL_FILES=$(find tasks/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
+export TRAIL_FILES
+
+# 2-7. Compute scope in Python: set subtraction, cross-segment seam detection,
+#      and JSON output — all fail-loud on any subprocess error.
+# Review: the Staff Engineer — pseudocode steps 4-6 replaced with runnable Python block that
+# performs real set subtraction and pairwise seam intersection, then writes the
+# actual scope JSON (previously emitted literal placeholder "<patrik_scope_sha_list>").
+python3 - <<'PYEOF'
+import json, os, subprocess, sys
+
+week_start = os.environ.get("WEEK_START", "")
+today      = os.environ.get("TODAY", "")
+trail_env  = os.environ.get("TRAIL_FILES", "")
+
+if not week_start or not today:
+    print("ERROR: WEEK_START and TODAY must be set before invoking this block", file=sys.stderr)
+    sys.exit(1)
+
+# ---- (a) Load trail records for this week (filename-prefix range filter) ------
+trail_files = [f.strip() for f in trail_env.split("\n") if f.strip() and f.strip().endswith(".json")]
+# Keep only files whose date prefix falls within [WEEK_START, TODAY] (inclusive).
+week_records = []
+for f in trail_files:
+    basename = os.path.basename(f)
+    date_prefix = basename[:10]  # "YYYY-MM-DD"
+    if week_start <= date_prefix <= today:
+        try:
+            with open(f) as fh:
+                rec = json.load(fh)
+            week_records.append(rec)
+        except Exception as e:
+            print(f"ERROR: could not parse trail record {f}: {e}", file=sys.stderr)
+            sys.exit(1)
+
+# ---- (b) Expand each trail record to its SHA list and file-touch set -----------
+def run(cmd):
+    result = subprocess.run(cmd, capture_output=True, text=True, shell=False)
+    if result.returncode != 0:
+        print(f"ERROR: command failed: {' '.join(cmd)}\n{result.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return result.stdout.strip()
+
+segment_shas   = []   # list of sets, one per segment
+segment_files  = []   # list of sets, one per segment
+
+for rec in week_records:
+    sha_range = rec.get("sha_range", "")
+    if not sha_range or ".." not in sha_range:
+        print(f"ERROR: trail record has invalid sha_range: {sha_range!r}", file=sys.stderr)
+        sys.exit(1)
+    shas_out   = run(["git", "rev-list", sha_range])
+    files_out  = run(["git", "diff", "--name-only", sha_range])
+    shas_set   = set(shas_out.splitlines()) if shas_out else set()
+    files_set  = set(files_out.splitlines()) if files_out else set()
+    segment_shas.append(shas_set)
+    segment_files.append(files_set)
+
+# ---- (c) reviewed_set = union of all segment SHA sets -------------------------
+reviewed_set = set()
+for s in segment_shas:
+    reviewed_set |= s
+
+# ---- (d) weekly_diff_shas = commits on HEAD not yet on origin/main ------------
+weekly_raw = run(["git", "log", "origin/main..HEAD", "--format=%H"])
+weekly_diff_shas = set(weekly_raw.splitlines()) if weekly_raw else set()
+
+# ---- (e) unreviewed_set = weekly_diff_shas - reviewed_set ---------------------
+unreviewed_set = weekly_diff_shas - reviewed_set
+
+# ---- (f) cross_segment_seams = files touched by ≥2 distinct segments ----------
+cross_segment_seams = set()
+for i in range(len(segment_files)):
+    for j in range(i + 1, len(segment_files)):
+        cross_segment_seams |= segment_files[i] & segment_files[j]
+
+# ---- (g) patrik_scope = unreviewed_set ∪ seam SHAs (deduped list) -------------
+# For file seams we include the SHAs from any segment that touched those files.
+seam_shas = set()
+for k, fset in enumerate(segment_files):
+    if fset & cross_segment_seams:
+        seam_shas |= segment_shas[k]
+
+patrik_shas  = sorted(unreviewed_set | seam_shas)
+seam_files   = sorted(cross_segment_seams)
+
+# ---- (h) Write the scope file --------------------------------------------------
+scope_path = "tasks/review-trail/.weekly-reviewer-scopes.json"
+scope_obj  = {
+    "patrik":           patrik_shas,
+    "patrik_seam_files": seam_files,
+    "mechanical_workers": "full"
+}
+try:
+    with open(scope_path, "w") as fh:
+        json.dump(scope_obj, fh, indent=2)
+except Exception as e:
+    print(f"ERROR: could not write {scope_path}: {e}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"Scope written: {len(patrik_shas)} patrik SHA(s), {len(seam_files)} seam file(s) → {scope_path}")
+PYEOF
+```
+
+**Cross-segment-seam definition:** A *segment* is the sha-range of one trail record (one session-end review). `cross_segment_seams` is the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The file-touch set per segment is derived from `git diff --name-only <sha-range>`.
+
+---
+
 After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
 
-Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict.
+Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the no-rewrite synthesizer narrates 'the Staff Engineer scoped to gap+seams; mechanical workers full diff' in the BLOCKED|WARN|OK verdict.
 
 - **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
 - **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
 - **OK:** proceed silently; verdict line still goes into the release-notes draft for the record.
+- **OK (patrik trail-covered, mechanical clean):** when the trail covers all weekly the Staff Engineer-tier scope AND no findings from any worker. Informational subvariant of OK; the dispatch still ran.
 
 **Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip the Staff Engineer on doc-only weeks; skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
 
@@ -201,7 +332,11 @@ Archive and reset the week's state:
 1. Determine the current `Week starting:` date from HEADER.md — this is the archive path key.
 2. Create `archive/week-changelogs/<week-starting>/`.
 3. Move all daily files (`tasks/week-changelog/YYYY-MM-DD-*.md`) to the archive path. HEADER.md is NOT moved — it gets rewritten in place.
-4. Write a fresh HEADER.md with the released version and a cleared `Last /workweek-start:` line:
+4. Create `archive/review-trail/<week-starting>/` and move `tasks/review-trail/*.json` (excluding `.gitkeep` and `.weekly-reviewer-scopes.json`) into it. The `.gitkeep` stays in `tasks/review-trail/` so the directory remains tracked. The transient `.weekly-reviewer-scopes.json` (written by Step 7's prelude) is deleted, not archived — it is regenerated each week.
+
+   > **Archival ordering matters:** this MUST happen AFTER Step 7 has consumed the trail (otherwise Step 7 reads an empty trail on the week it runs). Step 13 is correctly downstream — Step 7 runs at line ~135 of this file; Step 13 archives at the end.
+
+5. Write a fresh HEADER.md with the released version and a cleared `Last /workweek-start:` line:
 
 ```markdown
 # Week Changelog
@@ -215,10 +350,11 @@ Archive and reset the week's state:
 - [ ] (run /workweek-start to set priorities)
 ```
 
-5. Commit everything:
+6. Commit everything:
 ```bash
-git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/
-git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog vX.Y.Z"
+git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/ \
+           tasks/review-trail/ archive/review-trail/<week-starting>/
+git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog + review-trail vX.Y.Z"
 git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
 
@@ -254,6 +390,7 @@ git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinat
 - **Re-author the week from git log.** The week-changelog is the canonical record.
 - **Push directly to main.** Step 11 delegates to `/merge-to-main` which handles the PR.
 - **Delete release notes or handoffs.** Only daily changelog files are archived; release artifacts stay.
+- **`/distill` and `/update-docs/handoff-archival` do not touch trail records.** Trail records follow the week-changelog lifecycle (archived here in Step 13), not the handoff lifecycle. They are per-session JSON files written by `coordinator-write-review-trail.sh` and consumed by Step 7's prelude — never by handoff archival.
 
 ### Relationship to Other Commands
 

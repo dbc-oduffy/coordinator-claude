@@ -47,21 +47,119 @@ Check for each of these and record status (exists / missing / incomplete):
 
 **Global detection:** Check if `~/.claude/CLAUDE.md` exists. If yes, the generated CLAUDE.md will include an "extends global" reference. If not, the template is fully self-contained — no dependency on global config.
 
-**Distribution repo detection:** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `tasks/handoffs/`). If 2+ of these are gitignored, this is likely a **distribution repo** — a public/shared repo where session artifacts are intentionally excluded from version control (e.g., an open-source release, a template repo, a package).
+**Repo classification (PM ask):** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `tasks/handoffs/`). Capture this as a hint string — do not make a decision from it:
 
-**If distribution repo detected: STOP.** Do not proceed to Phase 2. Report:
+- 2+ of these are gitignored → hint = `_(detected: 2+ of 3 session dirs gitignored — looks like a distribution repo)_`
+- Fewer or none gitignored → hint = `_(detected: standard working-tree layout)_`
 
-> _"This looks like a distribution repo — `.gitignore` excludes session directories (`tasks/`, `archive/`, `tasks/handoffs/`). Onboarding infrastructure doesn't belong here — it's a product, not a workspace. Track work on this repo from your parent project's tracker instead."_
+Always ask the PM:
 
-This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it.
+> **Is this repo:**
+> - **(a) a working repo** — for active development, with session artifacts tracked
+> - **(b) a published artifact / template** — distributed for downstream consumers; no session infrastructure
+> - **(c) both** — a working repo that publishes itself as the artifact
+>
+> _(detected: {hint})_
+
+**Branch on the PM's answer:**
+
+- **(a)** → proceed to Phase 1.5 / Phase 2 unchanged. No injection.
+- **(b)** → STOP. Do not proceed to Phase 2. Report:
+  > _"You answered (b) — distribution repo. Onboarding infrastructure doesn't belong here — it's a product, not a workspace. Track work on this repo from your parent project's tracker instead."_
+  >
+  > _This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it._
+- **(c)** → proceed exactly like (a), AND inject a one-line note in the generated CLAUDE.md (Phase 3a) and the generated tracker (Phase 3b):
+  > _"This repo is published as its own working artifact — consumers see the full directory shape including `tasks/` and `archive/`."_
+  >
+  > <!-- TODO: inject (c) note into Phase 3a CLAUDE.md header block here -->
+  > <!-- TODO: inject (c) note into Phase 3b tracker header block here -->
 
 Report what exists and what needs to be created before proceeding.
 
+**Project type short-circuit:** Check if `coordinator.local.md` exists at the repo root:
+
+```bash
+test -f coordinator.local.md && echo "exists" || echo "missing"
+```
+
+If it exists, read it and capture `project_type` and `project_subtypes` (if present). Emit a one-line confirmation:
+
+> Project type: {type}{ +subtypes: [{subtypes}] if any}. From coordinator.local.md — skipping Phase 2 question 2.
+
+If `coordinator.local.md`'s `project_type` differs from the `detected_type` derived from the marker scan, append this one-line challenge immediately after the confirmation (PM remains authoritative — this is informational only, not a re-ask):
+
+> *`coordinator.local.md` says `{type}` but detected stack is mostly `{detected_type}` — keeping the file value (PM authoritative). If wrong, edit `coordinator.local.md` and re-run.*
+
+If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) as normal.
+
+Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
+
 **Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
-### Phase 2: ASK — PM Input (3 Questions)
+**Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
-Present all three questions together to minimize back-and-forth:
+- `*.uplugin` or `*.uproject` present → `detected_type: game-dev`, `detected_subtypes: [unreal]`
+- `package.json` + any of `next.config.js`, `vite.config.*`, `nuxt.config.*`, `svelte.config.*`, `remix.config.*` present → `detected_type: web-dev`
+- `requirements.txt` or `pyproject.toml` present (and no UE markers) → `detected_type: data-science`
+- `Cargo.toml`, `go.mod`, or none of the above → `detected_type: general`
+
+Capture these as part of the Phase 1 profile. If `coordinator.local.md` already exists and its `project_type` differs from `detected_type`, emit a one-line challenge inline in the Phase 1 report (see **Project type short-circuit** block above for the exact wording).
+
+### Phase 1.5: INVESTIGATE — Read substrate, draft proposals
+
+Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no top-level manifest).
+
+Otherwise:
+
+1. Read top-level `README.md` / `README.rst` / `README.txt` if present.
+2. Read `CONTRIBUTING.md` if present.
+3. Read top-level manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `*.uplugin`, `*.uproject`, etc. — whichever exist.
+4. Skim recent commit subjects: `git log --oneline -20`.
+
+Draft proposals from what you read:
+
+- **Project name** — from README H1 or repo directory name.
+- **Project type + subtypes** — from manifest signals + README role description, reconciled with the Phase 1 runtime-marker output. If the README/manifest-based proposal differs from `detected_type`, surface both with the proposed type winning (README role description is richer signal than file-presence heuristics), and emit this inline challenge in the ratification block:
+
+  > *Detected stack suggests `{detected_type}`. README/manifests suggest `{proposed_type}`. Going with `{proposed_type}` — confirm or override.*
+- **Initial workstreams (1-3)** — derived from README "what this does" + recent commit subjects + any "Roadmap" / "TODO" / "Status" sections. If the repo names sibling repos (path on disk, GitHub URL, or "split" / "addon" / "upstream" / "downstream" language), capture each as `peer_repo_candidates`.
+
+Present proposals to the PM for ratification:
+
+> Before I scaffold, here's what I found:
+>
+> **Project name:** {proposed}
+> **Project type:** {proposed}{, subtypes: [...] if any}
+> **Workstreams (proposed):**
+> 1. {WS1} — {2-3 deliverables}
+> 2. {WS2} — {...}
+>
+> **Sibling repos referenced:** {list with file:line citations from README/CONTRIBUTING}
+>
+> Ratify, correct, or say "go cold" to skip this and ask from scratch.
+
+On ratification: skip Phase 2's name + workstreams questions; only ask if PM corrected something or said "go cold."
+
+On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos before drafting the tracker? (recommended — they often carry schema-version, ship-state, and integration-contract context this repo doesn't.)"* If yes, dispatch Explore on each peer with a brief: *"Read README, CONTRIBUTING, and recent commits. Identify shared schemas, integration contracts, and shipped vs in-flight work relevant to {this repo's name}. Reply with file:line citations."* Wait for results before drafting tracker workstreams.
+
+### Phase 2: ASK — PM Input
+
+**Skip questions Phase 1.5 already ratified. Phase 1.5 may have already pinned project name and/or workstreams; only ask the questions whose answers are still missing.**
+
+**If `coordinator.local.md` was found in Phase 1**, skip question 2 entirely — project type is already pinned. Present the remaining questions:
+
+> I need two things to set up this project:
+>
+> **1. Project name** — short name for headers and references (e.g., "Geneva MVP", "DroneSim")
+>
+> **2. Initial workstreams** (1-3) — what are you working on? For each:
+>    - Name (short noun-phrase)
+>    - 2-3 immediate deliverables
+>    - (Optional: dependencies, blockers)
+>
+> If you're not sure about workstreams yet, say "stubs" and I'll create placeholder sections you can fill in later.
+
+**If `coordinator.local.md` was NOT found in Phase 1** (cold-ask path), present all three questions:
 
 > I need three things to set up this project:
 >
@@ -70,9 +168,9 @@ Present all three questions together to minimize back-and-forth:
 > _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
->    - `game-dev` — Unreal Engine, Blueprint/C++, the Game Dev Reviewer (`game-dev:staff-game-dev`)
->    - `web-dev` — Web frameworks, the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`)
->    - `data-science` — Notebooks, pipelines, the Data Science Reviewer (`data-science:staff-data-sci`)
+>    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
+>    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
+>    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
 >    - `general` — Standard conventions only
 >
 > **3. Initial workstreams** (1-3) — what are you working on? For each:
@@ -227,6 +325,7 @@ mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 - `docs/wiki/` — created by `coordinator:distill` when the first guide is extracted
 - `docs/plans/` — created when the first plan is copied from `~/.claude/plans/`
 - `docs/research/` — created by `coordinator:deep-research` on first research run
+- **`tasks/review-trail/`:** created on first session-end review. Contains per-session JSON marker records consumed by `/workday-complete` Step 9 and `/workweek-complete` Step 7. Lifecycle parallels `tasks/week-changelog/` — archived to `archive/review-trail/<week-starting>/` at workweek-complete.
 
 Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory (they see it exists but empty, rather than understanding it is built lazily).
 
@@ -279,6 +378,8 @@ Skip if a custom auto-push hook already exists and the PM has signed off on it.
 Do NOT create this file directly. It requires source file analysis that `/update-docs` Phase 2 handles. Instead, note in the report that the PM should run `/update-docs` to generate the source index.
 
 ### Phase 4: REPORT
+
+If Phase 1.5 dispatched peer-repo scouts, ensure the tracker's workstream blocks include `file:line` citations from the scout reports.
 
 Present what was done:
 
