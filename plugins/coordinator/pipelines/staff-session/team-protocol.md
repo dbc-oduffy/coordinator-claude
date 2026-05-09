@@ -10,8 +10,8 @@ Agent Teams-based collaborative planning and review: the EM writes a scope docum
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Debater** | Opus | 2-5 | Reviewer agent (the Staff Engineer, the Game Dev Reviewer, etc.). Reads scope + codebase, forms a position from their role's perspective, debates peers via messaging, converges, writes final position document |
-| **Synthesizer** | Opus | 1 | The Ambition Advocate (`coordinator:ambition-advocate`) — Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements through an ambition-calibrated lens, produces plan (plan mode) or synthesized findings (review mode). Represents all positions fairly but doesn't default to conservative resolutions. Writes optional advisory with ambition assessment. |
+| **Debater** | Opus | 2-5 | Persona agent (Patrik, Zoli, Sid, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
+| **Synthesizer** | Opus | 1 | Zolí (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements through his ambition-calibrated lens, produces plan (plan mode) or synthesized findings (review mode). Represents all positions fairly but doesn't default to conservative resolutions. Writes optional advisory with ambition assessment. |
 
 ## Team Lifecycle
 
@@ -46,7 +46,7 @@ Debater C (no blockers) ─┘
 
 No scout phase — debaters read the EM's scope document and the codebase directly.
 
-**Wake-up mechanism:** `blockedBy` is a file-based polling gate, not an event trigger. The Ambition Advocate starts, checks TaskList, sees unfinished blockers, and goes idle. DONE messages from debaters cause the synthesizer to re-poll TaskList. Each debater MUST send DONE to the synthesizer after marking their task complete — this is the wake-up mechanism, not just a courtesy. Without DONE messages, the synthesizer may idle indefinitely.
+**Wake-up mechanism:** `blockedBy` is a file-based polling gate, not an event trigger. The synthesizer starts, checks TaskList, sees unfinished blockers, and goes idle. DONE messages from debaters cause the synthesizer to re-poll TaskList. Each debater MUST send DONE to the synthesizer after marking their task complete — this is the wake-up mechanism, not just a courtesy. Without DONE messages, the synthesizer may idle indefinitely.
 
 ## Message Protocol — Debate
 
@@ -92,7 +92,7 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 5. Mark task `completed` (TaskUpdate)
 6. Send `DONE` to synthesizer: `SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: Position written to {scratch-dir}/{persona-slug}-position.md")`
 
-**Backstop suspension:** Reviewer agents' built-in backstop invocations (e.g., the Staff Engineer's "invoke the Ambition Advocate at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
+**Backstop suspension:** Persona agents' built-in backstop invocations (e.g., Patrik's "invoke Zoli at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
 
 ## Failure Handling
 
@@ -110,9 +110,9 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 ```
 tasks/scratch/staff-session/{run-id}/
   scope.md                    (EM input — objectives or artifact reference)
-  staff-eng-position.md       (debater output)
-  staff-game-dev-position.md  (debater output)
-  [staff-data-sci-position.md] (optional debater output — full tier)
-  synthesis.md                (Ambition Advocate synthesis — backup copy)
-  advisory.md                 (Ambition Advocate advisory, optional)
+  patrik-position.md          (debater output)
+  sid-position.md             (debater output)
+  [camelia-position.md]       (optional debater output — full tier)
+  synthesis.md                (Zolí's synthesis — backup copy)
+  advisory.md                 (Zolí's advisory, optional)
 ```

@@ -100,13 +100,13 @@ For each claim, classify the result into one of three buckets:
 - `cite` — the default. Prior art is current and the plan should reference it.
 - `wiki-may-be-outdated` — apply when the prior-art entry is older than 60 days AND the plan's claim looks like an evolution of, not a contradiction to, that entry. Signals that the wiki may need revision, not that the plan is wrong.
 
-### Phase 3: Produce the Sidecar
+### Phase 3: Produce the Game Dev Reviewerecar
 
 Write the output sidecar to `<plan-path>.prior-art-check.md`. If the plan path is `docs/plans/2026-05-06-foo.md`, the sidecar is `docs/plans/2026-05-06-foo.prior-art-check.md`.
 
 Use the format below. Do not summarize, condense, or rewrite prior-art passages — quote them verbatim with file path and (if available) line range.
 
-## Sidecar Format
+## the Game Dev Reviewerecar Format
 
 The sidecar opens with frontmatter so the frontmatter linter does not flag it. Use this template verbatim, filling the fields:
 
@@ -184,7 +184,7 @@ If all claims are silent, the plan touches uncovered ground — note prominently
 - Make architectural recommendations (that's the Opus reviewer's job).
 - Judge code quality, style, or design (Opus reviewer).
 - Suggest alternative approaches (Opus reviewer).
-- Edit the plan inline. Sidecar only — never modify the plan artifact.
+- Edit the plan inline. the Game Dev Reviewerecar only — never modify the plan artifact.
 - Fabricate prior art. If a claim is silent, say so. Inventing citations is worse than reporting a gap.
 - WebSearch for general guidance. You check OUR prior art, not the internet's.
 - Auto-block a plan. The verdict is advisory; only the EM/PM may halt a review.

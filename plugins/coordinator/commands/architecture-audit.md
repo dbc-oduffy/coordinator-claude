@@ -172,7 +172,7 @@ The Opus agent produces all atlas artifacts:
    - Record mismatches in the Phase 4 report under "RAG drift". These are suggestions, not blockers.
    - If project-RAG is absent, skip this step silently.
 
-3. **Quarterly narrative-drift reminder (per the Data Science Reviewer F7):**
+3. **Quarterly narrative-drift reminder (per Camelia F7):**
    - Check each system's `last_mapped` date in `systems-index.md`. For any system >90 days since last mapped, note it in the report: "Narrative drift risk: [system] mapped [date]. Recommend a re-read sweep — narrative atlases drift silently when systems reorganize."
 
 4. **Atomic commit:**

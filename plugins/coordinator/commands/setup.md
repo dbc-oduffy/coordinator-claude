@@ -97,20 +97,26 @@ Check if `coordinator.local.md` exists at the repo root:
 test -f coordinator.local.md && echo "exists" || echo "missing"
 ```
 
-**If it exists:** Read it and report the current `project_type`. No changes.
+**If it exists:** Read it and report the current `project_type` (and `project_subtypes` if present). Check for legacy values — if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning:
+
+> ⚠ Legacy project_type detected: `{value}`. Suggested migration: set `project_type: game-dev` + `project_subtypes: [unreal]` (or `project_type: general` for `meta`, `project_type: web-dev` for `web`). Edit `coordinator.local.md` manually — this command does not auto-rewrite.
+
+No other changes when file exists.
 
 **If missing and not `--check-only`:** Ask the user what kind of project this is:
 
 > What type of project is this? This controls which domain specialists are available for routing.
 >
 > - **general** — Software project (the Staff Engineer for code review, standard workflow)
-> - **unreal** — Unreal Engine project (adds the Game Dev Reviewer, Blueprint agents, holodeck tools)
-> - **web** — Web project (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
+> - **game-dev** — Game development project (adds the Game Dev Reviewer reviewer, game-dev domain agents)
+> - **web-dev** — Web project (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
 > - **data-science** — ML/data project (adds the Data Science Reviewer for data science review)
-> - **meta** — Coordinator infrastructure itself (full EM delegation model)
-> - **Custom** — Specify your own (comma-separated for multiple types, e.g. "unreal, data-science")
 
-Create `coordinator.local.md` based on their answer. Single type:
+Then ask:
+
+> Any subtypes? These are free-form advisory tags — no validation, no controlled vocabulary. Downstream routing does best-effort matching; mismatches simply don't trigger subtype-specific blocks. Examples: `unreal`, `unity` under game-dev; `react`, `nextjs` under web-dev. Comma-separated, or leave blank.
+
+Create `coordinator.local.md` based on their answers:
 
 ```markdown
 ---
@@ -118,59 +124,39 @@ project_type: {type}
 ---
 ```
 
-Multiple types (list format):
+When subtypes were provided, include the `project_subtypes` field:
 
 ```markdown
 ---
-project_type:
-  - {type1}
-  - {type2}
+project_type: {type}
+project_subtypes: [{subtype1}, {subtype2}]
 ---
-```
-
-### 2b. Directory structure
-
-Create the directories the coordinator expects (skip any that exist):
-
-```bash
-mkdir -p tasks/handoffs archive/handoffs
-```
-
-### 2c. Lessons file
-
-Check if `tasks/lessons.md` exists. If not, create it:
-
-```markdown
-# Lessons
-
-> Engineering patterns worth remembering. Bold title + 1-2 sentence rule. Max 3 lines per entry.
-> Review at session start. Trim when exceeding ~50 entries.
 ```
 
 ---
 
-## 3. Optional: Persona Naming
+## 3. Optional: Persona Customization
 
 After the core setup, ask once:
 
-> The coordinator ships with role-based reviewer labels (the Staff Engineer, the Game Dev Reviewer, etc.). Some people find it easier to think of them as named collaborators — would you like to give them names? You can pick now, do it later via `setup/name-personas.sh`, or skip entirely. (Default: skip — they remain role labels.)
+> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate). Would you like to customize their names?
 >
-> - **Skip** — Keep the built-in role labels (default)
-> - **Name them** — Choose your own names for the reviewer roles
+> - **Keep defaults** — Use the built-in persona names
+> - **Customize** — Choose your own names for the reviewers
 
-If the user wants to name them, note that they can run the naming script:
+If the user wants to customize, note that they can run the rename script:
 
 ```bash
-bash ~/.claude/plugins/coordinator-claude/setup/name-personas.sh "the Staff Engineer" "Alex"
+bash ~/.claude/plugins/coordinator-claude/setup/rename-personas.sh OldName "NewName"
 ```
 
 Or from the repo clone:
 
 ```bash
-bash setup/name-personas.sh --dry-run "the Staff Engineer" "Alex" "the Game Dev Reviewer" "Jordan"
+bash setup/rename-personas.sh --dry-run the Staff Engineer "Alex" the Game Dev Reviewer "Jordan"
 ```
 
-This is a one-time optional choice. Skip if `--check-only`.
+This is a one-time cosmetic choice. Skip if `--check-only`.
 
 ---
 
@@ -190,8 +176,7 @@ Present a summary table:
 | NotebookLM (Pipeline D)     | ... (optional) |
 | Global CLAUDE.md import     | ... |
 | coordinator.local.md        | ... |
-| tasks/ directory            | ... |
-| tasks/lessons.md            | ... |
+| Project scaffolding         | Run `/project-onboarding` — it owns lazy directory creation, lessons file, and tracker |
 
 ### Available commands
 
@@ -202,6 +187,7 @@ Present a summary table:
 - `/update-docs` — Refresh project documentation, maintain docs/README.md index
 - `/distill` — Extract knowledge from session artifacts into wiki guides
 - `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
+- `/setup-percolate` — Percolation setup: register a publish target, scaffold `.percolate-ignore`, scaffold hook directories
 ```
 
 ### Plugin-bundled doctrine wikis
@@ -218,6 +204,6 @@ These wikis are referenced from plugin files (CLAUDE.md, skills, commands) and t
 If any **required** items are missing (git), note them prominently.
 If any **recommended** items are missing (Agent Teams, CLAUDE.md import), list concrete next steps.
 
-End with: _"Run `/session-start` to begin, or `/project-onboarding` if this is a new project."_
+End with: _"`/setup` is environment-only. Run `/project-onboarding` to scaffold a new project (CLAUDE.md, tracker, sessions directory, lessons file). Then run `/session-start` to begin work."_
 
 If `--check-only`, show the table but note what *would* be created/configured without the flag.

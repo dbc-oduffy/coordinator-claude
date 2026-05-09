@@ -21,7 +21,7 @@ Run `sync-main.sh` first; abort if it exits non-zero. Never create or rename bra
 ### Step 0.2 — Determine machine and today's date
 
 ```bash
-MACHINE=$(cs_compute_machine)   # always lowercase (Staff Engineer F11; lib Phase 1)
+MACHINE=$(cs_compute_machine)   # always lowercase (the Staff Engineer F11; lib Phase 1)
 TODAY=$(date +%Y-%m-%d)
 CURRENT=$(git branch --show-current)
 ```
@@ -66,7 +66,7 @@ Renamed $OLD → $NEW (crossed midnight)
 ```
 PM can revert via `git branch -m` if they object.
 
-### Step 0.4 — Rename procedure (Staff Engineer F5 — atomic, reversible)
+### Step 0.4 — Rename procedure (the Staff Engineer F5 — atomic, reversible)
 
 ```bash
 OLD=$(git branch --show-current)
@@ -106,8 +106,13 @@ else
     exit 1
   fi
 
-  # Rename complete — update tracking to the new remote branch
-  git branch --set-upstream-to="origin/${NEW}" "$NEW" 2>/dev/null || true
+  # Rename complete — update tracking to the new remote branch.
+  # Surface (don't swallow) failures: --set-upstream-to should succeed because
+  # the atomic push above already published origin/${NEW}; unexpected failure
+  # is worth a visible warning rather than a silent || true.
+  if ! git branch --set-upstream-to="origin/${NEW}" "$NEW" 2>/dev/null; then
+    echo "WARN: could not set upstream to origin/${NEW}; check remote tracking manually."
+  fi
 fi
 ```
 
@@ -115,11 +120,11 @@ fi
 
 ### Step 0.5 — Consolidate open branches
 
-Find open (unmerged) work branches for this machine:
+Find open (unmerged) work branches for this machine. Use a case-insensitive glob (the legacy uppercase transition period is over but mixed-case strays still appear from manual branch creates):
 ```bash
-git branch --list "work/${MACHINE}/*" --no-merged main
+# shopt is bash-only; case-fold the listing portably with grep -i over a wider glob
+git branch --list "work/*" --no-merged main | grep -i "^[* ]*work/${MACHINE}/"
 ```
-(Also check `work/$(echo "$MACHINE" | tr '[:lower:]' '[:upper:]')/*` for legacy uppercase branches during the transition period.)
 
 Exclude the current active branch from the result list. For each remaining branch:
 ```bash
@@ -148,7 +153,7 @@ Report:
 
 ## Step 1 — Handoff reconciliation (rationale + procedure)
 
-**Why surface-only:** handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do.
+**Why filter to `ready_to_fire`, with `awaiting_gate` behind a 14-day stale flag (doctrine reversal 2026-05-08):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability requires a clear filter. The 14-day stale-gate flag preserves the deferred-work signal: handoffs sitting in `awaiting_gate` longer than 14 days are surfaced to PM, so an unforgotten gate doesn't silently bury work indefinitely. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
 
 **Why cross-reference completed archive:** handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 
@@ -168,7 +173,7 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 
 **Empirical baseline:** expect 30–60% of inherited items to be already closed. Skipping means the Morning Briefing recommends ghost work.
 
-**Partial-completion claims** (DroneSim T1.2 pattern): before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
+**Partial-completion claims:** before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
 
 ## Step 5.5 — Orientation Cache Content Derivation
 

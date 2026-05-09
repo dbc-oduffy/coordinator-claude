@@ -40,7 +40,7 @@ If `$ARGUMENTS` is provided:
 
 The executor agents will also mark their individual stub documents (per the executor's write-ahead protocol), creating two layers of breadcrumbs. If a session crashes mid-execution, both the tracker and the stub itself show "in progress."
 
-### Between Dispatch Waves — Checkpoint Protocol (DroneSim T1.1)
+### Between Dispatch Waves — Checkpoint Protocol
 
 After each parallel or sequential executor wave completes, before launching the next:
 
@@ -53,7 +53,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Model Selection Rubric
 
-**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (Game Dev Reviewer/Data Science Reviewer/Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
+**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
 
 | Stub character | Model | Rationale |
 |---|---|---|
@@ -66,7 +66,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Dispatch
 
-#### Briefing Concreteness (DroneSim T1.4)
+#### Briefing Concreteness
 
 Prefer enumerated targets over described scope. "Apply this regex to these 7 files" beats "apply this regex everywhere it's needed." When the work is enumerable, enumerate it in the prompt.
 
@@ -209,6 +209,8 @@ Agent(
 6. If not spec-compliant: re-dispatch executor with specific gap list (this is distinct from validation failure — this is missing work, not broken work)
 7. Update tracker status to "Done" with commit hash if applicable
 
+**Anti-dodge framing for executors:** When an executor hits an unexpected gate, BLOCKED is the correct answer — substrate switches are dodges. An executor reaching for a different tool, language, or implementation pattern when the spec's named approach hits resistance is hiding a spec problem behind a self-authorized scope expansion. Pair with a sanity-floor: "if the stated approach can't make it past <named gate>, return BLOCKED with the gate quoted, do not switch substrates."
+
 **On BLOCKED report:**
 1. Read the structured escalation report (BLOCKED format)
 2. **Persist attempted approach:** Extract the "Attempted" field from the BLOCKED report and add to the task's `metadata.tried_and_abandoned` via TaskUpdate. Format: `"Tried: [attempted approach] — Blocked: [blocker]"`
@@ -308,3 +310,40 @@ grep -in "<codename>" docs/project-tracker.md tasks/*/todo.md docs/roadmap.md RO
 - **`/enrich-and-review`** must be run before this command — stubs must be enriched and reviewed
 - **`/review-dispatch`** handles the review step that precedes execution
 - For a post-execution code quality pass, use `/review-dispatch` (see Phase 3, step 5)
+
+---
+
+## Bug-Blitz Pattern — Executor Edit-and-Report, EM Serializes Commits
+
+From the live bug-blitz smoke run (2026-05-06), two defects were discovered in the original design:
+
+1. **Concurrent-commit absorption** — multiple executor self-commits bundled into one with only one message surviving.
+2. **Scope sweep** — coordinator-safe-commit consulted touched-files from the long-lived session, absorbing 46 unrelated dirty files from concurrent workstreams.
+
+**Fix pattern (now canonical):** Executors **edit-and-report only** (no self-commit). EM serializes commits at wave gate via:
+```bash
+git reset && git add -- <specific-paths> && git commit -m "<message>"
+```
+Plain git, no helper. This pattern prevents both absorption and scope sweep.
+
+Source: `archive/completed/2026-05.md` (2026-05-06 bug-blitz entry).
+
+## Review-Integrator as Mandatory Next Step
+
+After every review (plan, code, or architectural), the next action MUST be dispatching the review-integrator agent. Manual integration ("go through findings line-by-line") is prohibited except for explicit PM-override items.
+
+The review-integrator dispatched as a subagent handles:
+- Applying tradeoff-free correctness fixes silently
+- Writing an escalation list for the EM (items needing PM input or genuine disagreement)
+
+EM spot-checks the diff after integration; does not re-do the integration manually.
+
+Source: `archive/completed/2026-04.md` (2026-04-04 entry).
+
+## coordinator-auto-push — SSH Routing on Windows
+
+Git Bash's bundled OpenSSH cannot read 1Password's Windows named pipe (`\\.\pipe\openssh-ssh-agent`). `coordinator-auto-push` detects Git Bash + SSH remote and routes through `powershell.exe -NonInteractive -NoProfile` (Windows OpenSSH has access to the credential manager via the pipe). HTTPS and Linux/macOS go direct.
+
+The post-commit hook delegates to `coordinator-auto-push`; project-onboarding installs it on new repos.
+
+Source: `archive/completed/2026-04.md` (2026-04-28).

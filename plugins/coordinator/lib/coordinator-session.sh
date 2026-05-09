@@ -529,7 +529,7 @@ cs_active_sessions() {
 #
 # Liveness criterion mirrored in cs_active_sessions (lines 477-481 above);
 # keep in sync. Future consolidation: extract _cs_is_session_live private
-# helper (Staff Engineer v3 finding 3, deferred — out of scope for Issue A).
+# helper (the Staff Engineer v3 finding 3, deferred — out of scope for Issue A).
 cs_live_session_ids() {
   local base
   base=$(_cs_sessions_dir) || return 0
@@ -597,6 +597,77 @@ cs_atomic_dedup_append() {
   printf '%s\n' "$entry" >> "$touched" 2>/dev/null || return 0
 
   return 0
+}
+
+# cs_claim_handoff <basename>
+#   Atomic mkdir-based claim primitive for concurrent /pickup race detection.
+#   Claim directory: .git/coordinator-sessions/<sid>/handoff-claims/<basename>/
+#
+#   On EEXIST:
+#     - If the holding session's PID is alive  → exit 1 with held-by message.
+#     - If the holding session's PID is dead   → log warning, rm -rf and recreate.
+#
+#   On success, writes pid, session_id, claimed_at inside the claim directory.
+#   Release is structural: cs_archive moves the entire session dir (including
+#   handoff-claims/) into .archive/, so no separate cs_release_handoff_claim is
+#   needed. Single release point as a consequence of session end.
+#
+#   Spec backlink: tasks/split-pickup-archival/plan.md § Edit 1
+cs_claim_handoff() {
+  local basename="${1:?basename required}"
+  local sid="${COORDINATOR_SESSION_ID:-}"
+  if [[ -z "$sid" ]]; then
+    # Fall back to sentinel file — same Priority-2 resolution as coordinator-safe-commit
+    local root
+    root=$(_cs_git_root) || return 1
+    local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
+    [[ -f "$sentinel" ]] && sid=$(cat "$sentinel" 2>/dev/null)
+  fi
+  [[ -z "$sid" ]] && { echo "cs_claim_handoff: no session_id available" >&2; return 1; }
+
+  local base sdir claims_dir claim_dir
+  base=$(_cs_sessions_dir) || return 1
+  sdir="${base}/${sid}"
+  claims_dir="${sdir}/handoff-claims"
+  claim_dir="${claims_dir}/${basename}"
+
+  mkdir -p "$claims_dir" 2>/dev/null || true
+
+  # Attempt atomic mkdir — POSIX mkdir is atomic; fails EEXIST if already present
+  if mkdir "$claim_dir" 2>/dev/null; then
+    # Success — write claim metadata
+    local now
+    now=$(_cs_now_iso)
+    echo "$$"    > "${claim_dir}/pid"
+    echo "$sid"  > "${claim_dir}/session_id"
+    echo "$now"  > "${claim_dir}/claimed_at"
+    return 0
+  fi
+
+  # EEXIST — inspect existing claim
+  local held_pid held_sid
+  held_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
+  held_sid=$(cat "${claim_dir}/session_id" 2>/dev/null || echo "unknown")
+
+  if _cs_pid_alive "$held_pid"; then
+    echo "cs_claim_handoff: ${basename} held by session ${held_sid} (PID ${held_pid}) — concurrent /pickup detected" >&2
+    return 1
+  fi
+
+  # Dead PID — stale claim; take over
+  echo "cs_claim_handoff: stale claim on ${basename} (session ${held_sid}, dead PID ${held_pid:-?}) — taking over" >&2
+  rm -rf "$claim_dir" 2>/dev/null || true
+  if mkdir "$claim_dir" 2>/dev/null; then
+    local now
+    now=$(_cs_now_iso)
+    echo "$$"    > "${claim_dir}/pid"
+    echo "$sid"  > "${claim_dir}/session_id"
+    echo "$now"  > "${claim_dir}/claimed_at"
+    return 0
+  fi
+
+  echo "cs_claim_handoff: failed to create claim dir for ${basename} after stale takeover" >&2
+  return 1
 }
 
 # cs_reap_agents

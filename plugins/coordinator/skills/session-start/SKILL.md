@@ -1,5 +1,4 @@
 ---
-name: session-start
 description: Orient session — preflight, load context, choose work
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[task-description]"
@@ -96,20 +95,37 @@ Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system
 
 ### Handoffs
 
-Check `tasks/handoffs/` for `.md` files (active handoffs). If handoffs exist:
+Run two `bin/query-records` calls — sub-second by construction, no file walks.
 
-1. **Read only filenames** (do NOT read file contents). Extract dates and session IDs from the filename pattern `YYYY-MM-DD_HHMMSS_sessionid.md`.
-2. List each file with its date/time. To get the heading, read only line 1 of each file.
-3. **Report what's available and stop:**
-   _"Found {N} active handoff(s): {list with dates and headings}."_
-4. **Do NOT load, summarize, or act on any handoff.** This applies even if there is only one handoff. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first.
-5. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
+**Primary: actionable-now handoffs.**
+
+```bash
+bin/query-records --type handoff \
+  --where "deployment_state=ready_to_fire AND status=active" \
+  --sort "-created" --format markdown-list
+```
+
+Report: _"Found {N} actionable handoffs (deployment_state=ready_to_fire). Run `/pickup <file>` to resume one."_ If empty, say so.
+
+**Stale-gate flag (conditional, only emit if non-empty).**
+
+```bash
+bin/query-records --type handoff \
+  --where "deployment_state=awaiting_gate AND status=active" \
+  --older-than 14d --format markdown-list
+```
+
+If non-empty: _"{M} handoffs awaiting_gate >14 days — `/pickup` to surface for triage, or PM may need to clear gate."_
+
+**Do NOT load, summarize, or act on any handoff.** This applies even if there's only one. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
 
 **When the PM indicates they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for the Engage section. Alternatively, the PM may use `/pickup` which is purpose-built for handoff resumption and skips the general orientation ceremony.
 
-**Archiving is handled by `/update-docs` only** (48-hour threshold). This ensures handoffs persist until the work they describe has had time to complete.
+**Archive lifecycle:** `/pickup` archives the handoff atomically (frontmatter mutation + `git mv` to `archive/handoffs/` + commit, in one operation). Supersession archival happens at `/update-docs` (chain-aware pass for explicit predecessors named via `Continuing from`).
 
 **Path convention:** Active handoffs in `tasks/handoffs/`, archived in `archive/handoffs/`. Both git-tracked.
+
+**Why query, not grep:** `deployment_state` filters out handoffs that aren't ready for execution — the prior per-file walk surfaced everything regardless of state, which is grep-shaped behavior. Sub-second queryability requires a clear filter; the stale-gate flag preserves the deferred-work signal for `awaiting_gate` items without forcing them through the primary list.
 
 **If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked. `tasks/` contains handoffs and plan docs; `archive/` contains the completion history. `.claude/` contains only platform-managed files (settings, hooks) and need not be tracked.
 
@@ -152,6 +168,8 @@ The SessionStart hook already injected orientation context at boot (cache if fre
 
 If the hook reported no fresh cache, note: _"No orientation cache — run `/workday-start` or `/update-docs` to generate one."_ Otherwise, move on silently.
 
+- **Last session-end review (informational):** if `tasks/review-trail/` has any records, surface the most recent one (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
+
 ### Documentation index
 
 Check if `docs/README.md` exists. If it does, note briefly: _"Documentation index at docs/README.md — [N] wiki guides, [N] research files, [N] plans."_ (Count by globbing each directory.) This tells the agent and PM that accumulated project knowledge is available.
@@ -162,7 +180,7 @@ If neither exists, skip silently — the project hasn't adopted the wiki system 
 
 ### Delegation context (game-dev projects)
 
-**Conditional on project type:** Only for projects whose `project_type` list includes `unreal` or `game-docs` in `coordinator.local.md`. Skip silently if neither type is present.
+**Conditional on project type:** Only for projects where `coordinator.local.md` declares `project_type: game-dev` AND `project_subtypes` contains `unreal`. Skip silently if either condition is absent.
 
 The capability-catalog (injected at boot) carries the general delegation argument. This section loads the operational routing knowledge needed to delegate effectively in game-dev projects:
 

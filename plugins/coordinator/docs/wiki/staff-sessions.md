@@ -25,7 +25,7 @@ A **staff session** is an Agent Teams-based collaborative planning or review pat
 | Standard | 2 debaters + synthesizer (3 total) | Default for architectural questions |
 | Full | 3-5 debaters + synthesizer (4-6 total) | Multi-domain or irreversible structural choices |
 
-Default standard pairings: the Staff Engineer + the Ambition Advocate (architecture / cross-cutting), the Game Dev Reviewer + the Staff Engineer (game dev), the Front-End Reviewer + the UX Reviewer (frontend), the Data Science Reviewer + the Staff Engineer (data).
+Default standard pairings: the Staff Engineer+the Ambition Advocate (architecture / cross-cutting), the Game Dev Reviewer+the Staff Engineer (game dev), the Front-End Reviewer+the UX Reviewer (frontend), the Data Science Reviewer+the Staff Engineer (data).
 
 ### When a single reviewer is the right tool instead
 
@@ -54,7 +54,7 @@ Team lifecycle, blocking chain, and synthesis pattern are structurally identical
 
 ### Synthesizer is a teammate, not the EM
 
-When the team spawns, the EM is freed. The Ambition Advocate (Opus) does cross-referencing as synthesizer and teammate, blocked on all debaters via `blockedBy`. Same pattern as research pipelines.
+When the team spawns, the EM is freed. The synthesizer (Opus) does cross-referencing as a teammate, blocked on all debaters via `blockedBy`. Same pattern as research pipelines.
 
 ### Output is a reviewed plan
 
@@ -116,27 +116,27 @@ The related antipattern — allocating a team slot to an agent whose only job is
 ## Example invocations
 
 ```
-# Standard plan session — auto-selects Staff Engineer + Game Dev Reviewer for architecture, Ambition Advocate synthesizes
+# Standard plan session — auto-selects the Staff Engineer + the Game Dev Reviewer for architecture, the Ambition Advocate synthesizes
 /staff-session --mode plan --tier standard "Design the executor abort/escalation protocol"
 
-# Standard review — explicit reviewers, Ambition Advocate synthesizes
-/staff-session --mode review --tier standard --members "staff-game-dev,staff-eng" docs/plans/2026-03-22-holodeck-refactor.md
+# Standard review — explicit reviewers, the Ambition Advocate synthesizes
+/staff-session --mode review --tier standard --members "sid,patrik" docs/plans/2026-03-22-holodeck-refactor.md
 
-# Full plan session — multi-domain debaters, Ambition Advocate synthesizes
-/staff-session --mode plan --tier full --members "staff-eng,staff-game-dev,staff-data-sci" "Design cross-system AI behavior pipeline"
+# Full plan session — multi-domain debaters, the Ambition Advocate synthesizes
+/staff-session --mode plan --tier full --members "patrik,sid,camelia" "Design cross-system AI behavior pipeline"
 
-# Lightweight — falls through to single-reviewer dispatch (no Ambition Advocate synthesis)
-/staff-session --mode review --tier lightweight --members "staff-eng" docs/plans/quick-fix.md
+# Lightweight — falls through to single-reviewer dispatch (no the Ambition Advocate synthesis)
+/staff-session --mode review --tier lightweight --members "patrik" docs/plans/quick-fix.md
 ```
 
 ## Gotchas
 
 - **Backstop protocols suspended during staff sessions.** Parallel debate serves the same multi-perspective challenge function; double-counting wastes tokens.
 - **No simulated-PM agent.** Push-for-more is a synthesizer prompt lens; if a business perspective is needed, the Ambition Advocate is the closest fit.
-- **Reuses existing reviewer agents** with a tool-list addition (`SendMessage`, `TaskUpdate`, `TaskList`, `TaskGet`). These tools are no-op outside Agent Teams; non-team dispatches via `/review-dispatch` are behaviorally unchanged.
+- **Reuses existing persona agents** with a tool-list addition (`SendMessage`, `TaskUpdate`, `TaskList`, `TaskGet`). These tools are no-op outside Agent Teams; non-team dispatches via `/review-dispatch` are behaviorally unchanged.
 - **PM-gated, never EM-initiated.** If the EM thinks a staff session is warranted, ask first. NEVER invoke from a subagent.
 
 ## Reference
 
-- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
+- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md)
 - Source plan: `archive/specs/2026-03-22-staff-sessions.md`

@@ -2,7 +2,7 @@
 
 ## Discovery Protocol
 
-<!-- Review: staff-eng — anchor implementation reference to prevent silent staleness -->
+<!-- Review: patrik — anchor implementation reference to prevent silent staleness -->
 **Implementation:** `/review-dispatch` command. This document describes the algorithm; the command implements it.
 
 At dispatch time, `/review-dispatch` assembles a composite routing table:
@@ -16,14 +16,14 @@ Domain plugins register reviewers by providing a `routing.md` file at the plugin
 
 ## Universal Reviewers
 
-### the Staff Engineer (`coordinator:staff-eng`)
+### the Staff Engineer (staff-eng)
 - **Signals:** Architectural change, new subsystem, cross-cutting (many files, new pattern), backend, security, other/unmatched
 - **Model:** opus
 - **Effort:** Medium (escalates to High for architectural changes)
 - **Backstop:** the Ambition Advocate
 - **Agent file:** `agents/staff-eng.md`
 
-### the Ambition Advocate (`coordinator:ambition-advocate`)
+### the Ambition Advocate (ambition-advocate)
 - **Signals:** N/A — backstop only, never primary
 - **Model:** opus
 - **Effort:** Medium
@@ -39,8 +39,8 @@ Any signal that does not match a domain plugin's routing fragment routes to **th
 
 1. Domain specialist reviews first (if signal matches a domain plugin)
 2. Coordinator incorporates feedback
-3. The Staff Engineer catches regressions (if effort >= Medium)
-4. The Ambition Advocate challenges conservatism (if effort >= High, or Coordinator judges it warranted)
+3. Generalist (the Staff Engineer) catches regressions (if effort >= Medium)
+4. Backstop challenges conservatism (if effort >= High, or Coordinator judges it warranted)
 
 ## Routing Fragment Format
 
@@ -58,19 +58,15 @@ Domain plugins MUST provide `routing.md` at the plugin root with this structure:
 Per-project config in `coordinator.local.md`:
 
     ---
-    project_type:            # list of types — all matching domain agents are active
-      - unreal               # values: unreal | game-docs | web | data-science | meta
-      - data-science
+    project_type: game-dev   # general | game-dev | web-dev | data-science
+    project_subtypes:        # optional free-form tags; used for engine-specific routing
+      - unreal
     active_reviewers:        # optional explicit override
-      - staff-eng
-      - staff-game-dev
+      - patrik
+      - sid
     ---
 
-Single values are also accepted for backwards compatibility:
-
-    ---
-    project_type: web
-    ---
+`project_type` is a single string. `project_subtypes` is an optional list of free-form tags (e.g. `unreal`, `unity`) that enable engine-specific or stack-specific routing within the declared type. Downstream consumers do best-effort matching; unknown subtypes are silently ignored.
 
 If no `.local.md` exists, default to core-only (the Staff Engineer + the Ambition Advocate).
 

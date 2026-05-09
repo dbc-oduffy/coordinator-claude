@@ -1,6 +1,6 @@
 # Claude Code Platform Gotchas
 
-**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B11. Source extracts: coord E6–E15, project-rag E29/E30/E31, holodeck Cand1.
+**Provenance:** consolidated 2026-05-05 from `tasks/lesson-triage-2026-05-05/SYNTHESIS.md` §B11.
 
 Reference catalog of platform-level Claude Code behaviors that have bitten us — hooks, MCP, plugins, subprocesses, OS quirks. None of these are documentation gaps in our doctrine; they're things the platform does (or doesn't do) that surprise authors writing against it. Greppable single-page reference; link from `~/.claude/CLAUDE.md`.
 
@@ -38,6 +38,40 @@ Claude Code triggers the `PreCompact` event for events that don't actually compr
 
 Don't assume the env var exists.
 
+### `CLAUDE_SESSION_ID` unavailable in subagent environments
+
+Confirmed via probe (2026-05-05): `CLAUDE_SESSION_ID` is NOT present in subagent env. Subagent env contains: `AI_AGENT=claude-code_2-1-128_agent`, `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT=cli`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. No `CLAUDE_SESSION_ID`, no `CLAUDE_PARENT_SESSION_ID`.
+
+`$PPID = 1` (Cygwin/MSYS shim — no real parent visible). `tty` returns "not a tty". the Game Dev Reviewere-channel signals also dead. Session-ID-based cross-session linkage via env is infeasible.
+
+**Defense:** Use on-disk state (sentinel files). `session-init.sh:77` writes the current `session_id` to `.git/coordinator-sessions/.current-session-id` on every SessionStart — read this sentinel from shell scripts that need it.
+
+Source: `tasks/probes/2026-05-05-probe-0-1-results.md`.
+
+## Git — Windows-Specific
+
+### Mixed-case branch ref on Windows case-insensitive filesystem
+
+On Windows, `.git/HEAD` can store a mixed-case ref name (`work/STRIKER/2026-05-07`) while the on-disk canonical ref is lowercase (`work/striker/2026-05-07`). `git branch --show-current` returns HEAD's stored case (uppercase). `git push origin <uppercase>` fails with "cannot be resolved to branch" because the remote resolves against the on-disk canonical.
+
+**Root cause:** `lib/coordinator-daily-branch.sh:129` normalizes input to lowercase before the allow-list check (`cs_is_allowed_branch`), silently accepting non-canonical mixed-case branch creation.
+
+**Defense-in-depth** (all four now in place):
+1. Runtime fix: `coordinator-auto-push` is case-agnostic in branch ref handling
+2. Creation-time tripwire: `cs_is_canonical_branch` in the hook rejects mixed-case at `git checkout -b` time
+3. Migration helper: `bin/migrate-branch-canonical-case.sh` (idempotent rename: local + remote)
+4. Doctrine: `daily-branch-discipline.md` updated with span-aware rename flow
+
+Source: `archive/handoffs/2026-05-07_101517_https-autopush-credential-failure.md`, `archive/specs/2026-05-07-mixed-case-branch-creation-tripwire.md` (formerly `docs/plans/...` @ d0fcc842).
+
+### `git push` from hook subprocess — Windows Credential Manager access
+
+`git push` from a post-commit hook subprocess may fail to reach the Windows Credential Manager that the interactive session has populated. HTTPS remotes take the `git push` direct path in the same bash subprocess executing the hook. Failure is silent unless `.git/push-failures.log` is monitored.
+
+**Workaround:** `coordinator-auto-push` routes through `powershell.exe -NonInteractive -NoProfile` for SSH remotes (where 1Password-agent is inaccessible from Git Bash OpenSSH). For HTTPS remotes, the same routing provides credential access via Windows OpenSSH.
+
+Source: `archive/handoffs/2026-05-07_101517_https-autopush-credential-failure.md`.
+
 ### PreToolUse deny: use JSON output, not exit 2
 
 The exit-1-vs-2 distinction is a footgun (exit 1 is non-blocking; only exit 2 blocks). Modern interface — emit on stdout with exit 0:
@@ -53,6 +87,12 @@ The exit-1-vs-2 distinction is a footgun (exit 1 is non-blocking; only exit 2 bl
 When `track-touched-files.sh` is async, the next Bash tool call (e.g. `coordinator-safe-commit` from `/handoff`) can read `touched.txt` before the hook has appended — same-session files get misclassified as orphans and rejected with "No staged scope detected."
 
 **Rule:** for any hook whose output is consumed by the very next tool call, keep the matcher synchronous. The script is ~70ms; the 5s timeout is plenty.
+
+### `track-touched-files.sh` PostToolUse hook must be synchronous
+
+If `track-touched-files.sh` runs with `async: true`, it races against `coordinator-safe-commit`'s reads of `touched.txt`. This causes same-session files to be misclassified as orphans ("owned by another session"), leading to scope-sweep failures where the commit absorbs files from concurrent sessions. Fix: set `async: false` (default) on this hook.
+
+Source: `archive/completed/2026-04.md` (2026-04-28 entries).
 
 ### "LSP/watcher reverts my writes" is a TEXT-ONLY hallucination variant
 
@@ -74,9 +114,52 @@ when adopting plugin-managed MCPs.
 
 ### Source-path MCP registrations make "install vN" a near-no-op
 
-When a consumer's MCP entry in `~/.claude.json` points at a source tree (`X:/project-rag/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out.
+When a consumer's MCP entry in `~/.claude.json` points at a source tree (`X:/<your-rag>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out.
 
 Before running an installer for "version N" against a consumer, inspect whether the MCP entry is source-path or wheel-import. If source-path, surface that the actual version gate is the checked-out branch — don't conflate `pip show` output with what the MCP harness boots.
+
+### User-scope MCP entry overrides plugin-scope entry silently
+
+If `~/.claude.json` has a user-scope `mcpServers.<name>` entry AND a plugin provides the same name (same command/URL), the user-scope entry wins. The plugin's copy is dropped with "skipped — same command/URL" warning, and the 35 tools load regardless of plugin enable/disable state (because the user-scope entry is always active). Plugin lifecycle no longer controls tool loading.
+
+**Fix:** `claude mcp remove <name> --scope user`. Scope precedence: Local > Project > User > Plugin.
+
+Source: `archive/completed/2026-04.md` (2026-04-28).
+
+### PostToolUse JSON does not carry parent-session pointer
+
+PostToolUse hook JSON does not carry a parent-session pointer. Session isolation between EM and dispatched agents is complete at both the env and hook levels. Cross-session tracking must use on-disk state, not process-level signals.
+
+Source: `tasks/probes/2026-05-05-probe-0-2-results.md`.
+
+## Python / Windows Tooling
+
+### `python3` may not be on PATH on Windows hosts
+
+On many Windows hosts, `python3` is NOT on PATH. Only `python` (e.g. Python 3.13) and `py` (launcher) are available. Scripts gating on `command -v python3` exit silently. `jq` is also frequently absent on Windows.
+
+**PYTHON_BIN resolver pattern:**
+```bash
+if command -v python3 &>/dev/null; then PYTHON_BIN=python3
+elif command -v python &>/dev/null; then PYTHON_BIN=python
+elif command -v py &>/dev/null; then PYTHON_BIN=py
+else echo "ERROR: no Python found" >&2; exit 1; fi
+```
+
+Use `$PYTHON_BIN` everywhere instead of hardcoding `python3`. For JSON: prefer Python-with-fallback-resolver over `jq` since jq is not guaranteed.
+
+Source: `tasks/tier-usage-telemetry-fix/spec.md`, `archive/completed/2026-05.md`.
+
+### Windows console window flash — process window flags
+
+Processes spawned from hooks (post-commit, SessionStart) may open console windows on Windows when the parent has no console (e.g. spawned under `pythonw.exe` or from Claude's windowless process). Each child that inherits no console gets a fresh one allocated.
+
+**Fix pattern:**
+- Shell: `powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden`
+- Python subprocess: `creationflags=subprocess.CREATE_NO_WINDOW`
+- Registry: `HKCU\Console\%%Startup\Delegation{Console,Terminal}` — switch from Windows Terminal to Console Host so allocations don't open focus-stealing WT tabs
+
+Source: `archive/completed/2026-05.md` (2026-05-07 PowerShell flash fix).
 
 ## Plugins
 
@@ -97,6 +180,10 @@ AND delete the `enabledPlugins` key from every project's settings.json — not j
 ### Plugin hooks belong in `hooks/hooks.json`, not user-scope `settings.json`
 
 A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it.
+
+### Disabling a hook means removing the settings.json reference, not just renaming the script
+
+When a hook script is disabled or removed, prune its registration from `settings.json` (and any plugin `hooks/hooks.json`) in the same commit. Leaving the registration in place with the script renamed/removed leads to silent invocation failures on future sessions and noisy "command not found" entries in hook logs. The reverse direction — the registration is the source of truth, the script is what the registration calls.
 
 ### Plugin installers must register enablement, not just MCP wiring
 
@@ -128,11 +215,19 @@ Deferred tool names can vary by prefix convention (`mcp__notebooklm__*` vs `mcp_
 
 ## OS Quirks
 
+### Hot-path PowerShell invocations must include `-WindowStyle Hidden`
+
+Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. `coordinator-auto-push` on every PostToolUse commit, or `hooks.json` SessionStart on every boot/compact) must include `-WindowStyle Hidden` to suppress the brief blue console flash that appears on Windows even for sub-second invocations.
+
+**Rule:** `-NonInteractive -NoProfile -WindowStyle Hidden` is the standard preamble for all coordinator shell invocations on Windows. The tripwire `bin/verify-no-powershell-flash.sh` greps shell scripts and `hooks.json` to catch bare invocations in coordinator and sibling plugins (game-dev, holodeck).
+
+**Empirical source:** `tasks/lessons.md:171` — fixed in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.
+
 ### Git Bash on Windows cannot reach 1Password's SSH agent
 
 The agent lives on the Windows-only pipe `\\.\pipe\openssh-ssh-agent`; Git Bash's bundled OpenSSH cannot read it, so `git push` to SSH remotes fails with "Permission denied (publickey)" from Claude Code's Bash tool — even when the same key works in PowerShell.
 
-**Workaround:** route SSH pushes through `powershell.exe -NonInteractive -NoProfile -Command "git ... push ..."`. HTTPS remotes are unaffected (Windows Credential Manager works in either shell). Canonical helper: `coordinator/bin/coordinator-auto-push`.
+**Workaround:** route SSH pushes through `powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command "git ... push ..."`. HTTPS remotes are unaffected (Windows Credential Manager works in either shell). Canonical helper: `coordinator/bin/coordinator-auto-push`.
 
 ## Bash Tool
 

@@ -1,5 +1,4 @@
 ---
-name: daily-review
 description: Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
@@ -126,10 +125,10 @@ Route to a reviewer based on the dominant domain of today's work. Use the same r
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer (`game-dev:staff-game-dev`) |
-| Frontend / UI | the Front-End Reviewer (`web-dev:senior-front-end`) |
-| Data / ML / science | the Data Science Reviewer (`data-science:staff-data-sci`) |
-| Mixed, backend, or architecture | the Staff Engineer (`coordinator:staff-eng`) |
+| Game dev / Unreal Engine | the Game Dev Reviewer |
+| Frontend / UI | the Front-End Reviewer |
+| Data / ML / science | the Data Science Reviewer |
+| Mixed, backend, or architecture | the Staff Engineer |
 
 Dispatch the selected reviewer as a **Sonnet** agent (this is a strategic check, not a deep code review — Sonnet is sufficient).
 

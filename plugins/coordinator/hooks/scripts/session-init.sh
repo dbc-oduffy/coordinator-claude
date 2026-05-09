@@ -76,34 +76,78 @@ fi
 # This is what coordinator-safe-commit's Priority-2 resolution reads.
 echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
 
-# --- Auto-stamp tripwire (spec backlink: docs/plans/2026-05-05-handoff-auto-stamp-fix.md Phase 3) ---
-# Two detection rules, both non-blocking (exit 0). Purpose: surface cases where a
-# handoff in tasks/handoffs/ has been stamped with a consumed marker it should not
-# carry. Rule 1 catches post-convention-adoption failures (pickup_ready:true + marker);
-# Rule 2 catches the original 2026-05-05 incident pattern (marker + mtime < 1h).
-if [ -d "${GIT_ROOT}/tasks/handoffs" ]; then
-  for f in "${GIT_ROOT}/tasks/handoffs/"*.md; do
-    [ -f "$f" ] || continue
+# --- Orphan consumed-handoff sweep (spec backlink: tasks/split-pickup-archival/plan.md § Edit 7) ---
+#
+# Under the split-pickup-archival lifecycle, /pickup mutates frontmatter only
+# (status: consumed, deployment_state: in_flight, consumed_by: <sid>). Archival
+# to archive/handoffs/ happens at the terminal event: /handoff chain-archival or
+# /session-end Step 2.7. A handoff in tasks/handoffs/ with status: consumed is
+# therefore an orphan — the picking-up session died before its terminal event.
+#
+# Recovery: for each such file, check if the consuming session is still alive. If
+# the session is dead (no .git/coordinator-sessions/<sid>/ dir, or its PID is dead),
+# and consumed_at is not in the future (sanity check), quietly git mv the file to
+# archive/handoffs/. No PM ping, no WARNING line — silent recovery.
+#
+# This handles: cross-machine pickup-then-end-elsewhere, mid-workstream Claude Code
+# restart, crash-without-/session-end. Recovery latency drops from "7 days" (reaper)
+# to "next session boot."
+#
+# Why query-records, not grep: per coordinator CLAUDE.md "Tripwire call-shape
+# coverage" rule, raw grep misses quoted/whitespace variants. query-records uses
+# the schema parser.
 
-    # Rule 1: handoff has BOTH pickup_ready:true AND a consumed marker
-    # (fresh handoff that got stamped despite the frontmatter opt-out)
-    if grep -q "^pickup_ready: true" "$f" 2>/dev/null && \
-       grep -q "<!-- consumed:" "$f" 2>/dev/null; then
-      echo "WARNING AUTO-STAMP TRIPWIRE (Rule 1): $f has both pickup_ready:true and a consumed marker — investigate" >&2
-    fi
+QR="${HOME}/.claude/plugins/coordinator-claude/coordinator/bin/query-records.js"
+if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
+  # Find all consumed handoffs still in tasks/handoffs/
+  consumed_paths=$(node "$QR" --type handoff --where "status=consumed" --format paths --root "$GIT_ROOT" 2>/dev/null || true)
+  if [ -n "$consumed_paths" ]; then
+    archive_dir="${GIT_ROOT}/archive/handoffs"
+    mkdir -p "$archive_dir" 2>/dev/null || true
 
-    # Rule 2: handoff has a consumed marker AND was modified within the last hour
-    # "consumed within 1h of creation" is a strong signal of a misfired stamp —
-    # a real pickup-then-work-then-handoff cycle in <1h is rare.
-    if grep -q "<!-- consumed:" "$f" 2>/dev/null; then
-      file_mtime=$(_cs_mtime_epoch "$f" 2>/dev/null || echo 0)
-      now=$(date +%s)
-      age=$(( now - file_mtime ))
-      if [ "$age" -lt 3600 ]; then
-        echo "WARNING AUTO-STAMP TRIPWIRE (Rule 2): $f has a consumed marker and is less than 1h old — investigate (misfired stamp?)" >&2
+    while IFS= read -r fpath; do
+      [ -z "$fpath" ] && continue
+
+      # Extract consumed_by session id from frontmatter.
+      # query-records.js has no --field flag, so we read the YAML line directly.
+      # The frontmatter is bounded by --- delimiters; consumed_by is a single
+      # scalar string written by /pickup, so a one-line grep is sufficient.
+      consumed_sid=$(grep -m1 '^consumed_by:' "$fpath" 2>/dev/null | sed 's/consumed_by:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)
+      [ -z "$consumed_sid" ] && continue
+
+      # Check if the consuming session is alive
+      sid_dir="${GIT_ROOT}/.git/coordinator-sessions/${consumed_sid}"
+      session_alive=false
+      if [ -d "$sid_dir" ]; then
+        # Session dir exists — check if its PID is alive
+        sid_pid=$(cat "${sid_dir}/meta.json" 2>/dev/null | grep '"pid"' | sed 's/.*"pid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -1 || true)
+        if [ -n "$sid_pid" ] && kill -0 "$sid_pid" 2>/dev/null; then
+          session_alive=true
+        fi
+      fi
+
+      # Sanity: skip if session is still alive
+      [ "$session_alive" = "true" ] && continue
+
+      # Quietly archive
+      fname=$(basename "$fpath")
+      git -C "$GIT_ROOT" mv "tasks/handoffs/${fname}" "archive/handoffs/${fname}" 2>/dev/null || true
+    done <<< "$consumed_paths"
+
+    # Commit any moved files (only if git has staged changes from the mv above)
+    if git -C "$GIT_ROOT" diff --cached --quiet 2>/dev/null; then
+      : # nothing staged — no commit needed
+    else
+      # Use coordinator-safe-commit if available, else plain git commit
+      CSC="${HOME}/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit"
+      if [ -f "$CSC" ]; then
+        "$CSC" "session-init: archived orphaned handoff(s)" 2>/dev/null || \
+          git -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
+      else
+        git -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
       fi
     fi
-  done
+  fi
 fi
 
 exit 0
