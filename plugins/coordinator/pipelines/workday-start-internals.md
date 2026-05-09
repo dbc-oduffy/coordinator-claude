@@ -6,7 +6,7 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 Spec backlink: `docs/plans/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
 
-The goal is to ensure today is within the active workstream branch's span — not to create a new branch every day. A span-form branch (`work/striker/2026-05-06to07`) is the normal shape when work runs across midnight. The hook polices branch *shape*, not branch *date*; `cs_is_allowed_branch` is the policy oracle.
+The goal is to ensure today is within the active workstream branch's span — not to create a new branch every day. A span-form branch (`work/<machine>/2026-05-06to07`) is the normal shape when work runs across midnight. The hook polices branch *shape*, not branch *date*; `cs_is_allowed_branch` is the policy oracle.
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
@@ -26,7 +26,7 @@ TODAY=$(date +%Y-%m-%d)
 CURRENT=$(git branch --show-current)
 ```
 
-`MACHINE` is used in every branch name constructed below. Because `cs_compute_machine` lowercases its output unconditionally, new branches are always `work/striker/...` regardless of `$COMPUTERNAME` case.
+`MACHINE` is used in every branch name constructed below. Because `cs_compute_machine` lowercases its output unconditionally, new branches are always `work/<machine>/...` regardless of `$COMPUTERNAME` case.
 
 ### Step 0.3 — Precedence switch (evaluate in order; stop at first match)
 

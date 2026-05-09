@@ -4,6 +4,37 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-09
+
+Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bundling, and session-end review doctrine.
+
+### Added
+
+- **`coordinator:percolate` skill** — wraps `setup/publish.sh` with a deterministic dry-run → PM-confirm → real-run → optional CI-smoke flow. Adds coverage-drift detection (`find -newer .percolate-ignore`), impact-radius gut-check (top dirs / file types / sensitive paths), and a three-tier content-leakage scan (HIGH credentials / MEDIUM identity+internal+peer-repo / LOW informational) on every invocation. HIGH hits abort; MEDIUM forces the confirmation gate even on small changesets.
+- **`coordinator:setup-percolate` skill** — idempotent walkthrough for registering a publish target, scaffolding `.percolate-ignore`, and seeding `setup/percolate-hooks/<target>/{pre-rsync,post-rsync,pre-ci}/`.
+- **`bin/sync-plugin-wiki.sh`** — sweeps wiki references inside plugin files and demotes / copies guides into `<plugin-root>/docs/wiki/` so plugin-bundled wikis stay self-contained. Wired into `/update-docs`.
+- **Plugin-bundled wiki convention** — when a plugin file cites a wiki guide, the guide MUST live inside the plugin at `<plugin-root>/docs/wiki/<name>.md`. Project-level wikis (architecture atlas, codebase-specific) stay in the consumer's `~/.claude/docs/wiki/`.
+
+### Changed
+
+- **Mandatory end-of-run Sonnet code review in mise-en-place Phase 6.** `/mise-en-place` now requires a minimum-Sonnet review on the cumulative diff before declaring the run complete; fires in both standard and hibernate modes (doctrine commit `e592b2d1`).
+- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+Patrik (chain-end escalation, EM-judged) code review on the diff. Records land in `tasks/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
+- **Bare-slash skill invocations standardized for 24 coordinator skills/commands.** `name:` frontmatter doctrine captured in `docs/wiki/writing-skills.md`.
+- **`depersonalize-for-publish.sh` hardened** — extended identity-vocab and JSON coverage; sanitization sweep over 10 wikis + the 3 deferred wikis; PM-D2 placeholders, PM-D3 ue-bootstrap exclusion, PM-D4 disclaimer integrated.
+
+### Fixed
+
+- **`bin/coordinator-safe-commit` overlap-gate** — atomic `mkdir`-lock closes the prior TOCTOU window (Patrik finding 7; `flock` unavailable on Git Bash, used `cs_claim_handoff` pattern).
+- **`bin/coordinator-safe-commit` combined-mode dead path** — `do_scope_from` now delegates to `do_scoped`, eliminating duplicated combined-mode code (Patrik finding 0).
+- **block-off-daily-branch hook regex** — tightened cheap-gate to stop at the `--` pathspec separator.
+- **`/percolate` post-rsync hook stdin** — always-pipe `</dev/null` to prevent blocking; pre-ci hook discovery added (Sonnet review-2 F0+F5).
+
+### Sanitization
+
+- Generalized hardcoded `c:/users/oduffy/.claude` path in `/update-docs` Phase 14 (Step 2c MEDIUM).
+- Dropped hardcoded `/x/<peer-repo>` list from `staff-eng.md` routing note (Step 2c MEDIUM).
+- Source-edit sanitization sweep per audit Section 4.3.
+
 ## [2.0.0] — 2026-05-07
 
 **This is a major release.** Three skill renames, one branch-naming change, and a new validator gate make this incompatible with v1.x consumers. See **Breaking Changes** and **Migration** below.

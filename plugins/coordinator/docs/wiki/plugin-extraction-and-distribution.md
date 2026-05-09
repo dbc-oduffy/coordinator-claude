@@ -90,6 +90,8 @@ Workflow during percolation:
 
 To add or modify a hook for a target: place an executable `*.sh` script under `setup/percolate-hooks/<target>/<hook-point>/`. Numeric prefixes (`10-`, `20-`) order execution. Authoring help: `/setup-percolate` scaffolds the hook directories with `.gitkeep`. Registration is convention-based discovery — no manifest required.
 
+Source-side publish-content policy (`.percolate-ignore`) lives at `$SOURCE_DIR/.percolate-ignore` (gitignore-shaped, simplified subset — `**/` not supported). `publish.sh` `sync_mirror` honors it in both copy and delete phases. `/setup-percolate` scaffolds it with sensible defaults (`_archived/`, `scratch/`, `*.bak`, `*.tmp`).
+
 The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Ambition Advocate → the Ambition Advocate; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
 
 ## Versioning Extraction Churn
@@ -99,3 +101,18 @@ Removing one optional plugin from a distribution is a MINOR bump, not MAJOR. Sem
 ## Plugin-Bundled Wiki Authoring Direction
 
 Edits to plugin-bundled wikis (`<plugin>/docs/wiki/<name>.md`) belong on the dev-side authoring tree first; `bin/sync-plugin-wiki.sh` mirrors authoring → bundled. Editing the bundled copy directly without the dev-side counterpart gets silently undone the next time the sync script runs. Mirror-sync scripts must detect direction-of-truth asymmetry pre-sync and escalate rather than overwrite. Executor briefs editing bundled wikis should include the dev-side path explicitly.
+
+## Plugin-Bundled Wiki Reference Convention
+
+**Canonical decision (2026-05-06):** Plugin doctrine wikis (wikis cited from plugin files like SKILL.md, CLAUDE.md, agent prompts) MUST live inside the plugin at `<plugin>/docs/wiki/<name>.md`. References use the path **relative to the plugin root**.
+
+**Rationale:** Wikis at `~/.claude/docs/wiki/` resolve only on the authoring machine. Marketplace consumers install the plugin into their `~/.claude/plugins/cache/<marketplace>/<plugin>/<sha>/`. References to `docs/wiki/<name>.md` from plugin files must resolve against the plugin's own directory, not the consumer's home directory (which does not contain the demoted content).
+
+**Convention:**
+- Plugin doctrine wikis → `plugins/<plugin>/docs/wiki/<name>.md` (bundled inside plugin)
+- Project-level wikis (atlas, codebase-specific patterns) → consumer's `~/.claude/docs/wiki/` (NOT cited from plugin files)
+- References in plugin files → `docs/wiki/<name>.md` resolved relative to plugin root
+
+**Sync:** `bin/sync-plugin-wiki.sh` during `/update-docs` (auto-discovers new wiki citations from plugin files and confirms bundled copies exist).
+
+Source: `archive/specs/2026-05-06-wiki-bundling-for-marketplace-consumers.md`.

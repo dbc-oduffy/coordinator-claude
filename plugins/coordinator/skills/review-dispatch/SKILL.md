@@ -1,4 +1,5 @@
 ---
+name: review-dispatch
 description: Route artifacts to the right reviewer
 allowed-tools: ["Read", "Grep", "Glob", "Agent"]
 argument-hint: "[file-path|'plan'|'code'|'stubs'] [--reviewers 'name1,name2'] [--problems-only]"
@@ -37,12 +38,12 @@ The filter criterion is `severity != "nitpick"` — not prose-based filtering.
 
 1. Read the artifact (file, directory of stubs, or diff)
 2. Determine the nature of the work by looking for signals:
-   - Game dev / Unreal / DroneSim references → Sid route
-   - Architectural changes, new subsystems, new abstractions → Patrik route
-   - Front-end, CSS, UI components, tokens, design system → Palí route
-   - ML/AI pipeline, model serving, RAG, data science → Camelia route
-   - UX flow, user-facing feature, trust/clarity → Fru route
-   - Cross-cutting changes (many files, new patterns) → Patrik route
+   - Game dev / Unreal / DroneSim references → the Game Dev Reviewer route
+   - Architectural changes, new subsystems, new abstractions → the Staff Engineer route
+   - Front-end, CSS, UI components, tokens, design system → the Front-End Reviewer route
+   - ML/AI pipeline, model serving, RAG, data science → the Data Science Reviewer route
+   - UX flow, user-facing feature, trust/clarity → the UX Reviewer route
+   - Cross-cutting changes (many files, new patterns) → the Staff Engineer route
    - Multiple signals → use the strongest signal for Reviewer 1, secondary for Reviewer 2
 3. Report the routing decision before dispatching
 
@@ -60,15 +61,15 @@ Reference composite table (assembled at dispatch time from discovery):
 
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
-| Game dev / Unreal / DroneSim | Sid | Patrik | Medium → Medium |
-| Architectural change, new subsystem | Patrik | (backstop: Zolí) | High |
-| Front-end, CSS, UI components | Palí | (backstop: Fru) | Medium |
-| Front-end + architecture | Palí | Patrik | Medium → High |
-| ML/AI pipeline, model serving, RAG | Camelia | Patrik | High → High |
-| UX flow, user-facing feature | Fru | (backstop: Patrik) | Low → Medium |
-| Cross-cutting (many files, new pattern) | Patrik | (backstop: Zolí) | High |
-| Major DroneSim feature / new game mode | Sid | Patrik | High → High |
-| Other / unmatched | Patrik | (none) | Medium |
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
+| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
+| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
+| Other / unmatched | the Staff Engineer | (none) | Medium |
 
 ### Phase 2.5: Write-Ahead Status Update
 
@@ -143,14 +144,14 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 **Dispatch:**
 1. Dispatch `prior-art-checker` agent with the plan path.
 2. prior-art-checker reads project wikis, global wikis, lessons, and the improvement queue; cross-references the plan; writes a sidecar at `<plan-path>.prior-art-check.md`.
-3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
+3. the Game Dev Reviewerecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed, fold prior art into the plan, or escalate to PM.
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
    - **WARN:** EM dispositions each conflict (fold-in, override-and-document, or PM consult). For overrides, append a one-line entry to the plan's "Considered alternatives" section. Include the sidecar in the Opus reviewer dispatch.
    - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
 5. Include the following verbatim in the Opus reviewer's dispatch prompt:
 
-   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
+   > A prior-art-check pre-flight ran on this plan. the Game Dev Reviewerecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
 
 **On prior-art-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. Reviewers fall back to their own doctrine recall (which is the pre-2026-05-06 baseline). This phase is additive, not blocking.
 
@@ -180,7 +181,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **externa
 **Dispatch (when both conditions hold):**
 1. Dispatch `external-pattern-checker` agent with the plan path and the prior-art sidecar path.
 2. The agent reads the prior-art sidecar, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at `<plan-path>.external-pattern.md`.
-3. Sidecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
+3. the Game Dev Reviewerecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** The verdict determines next steps:
    - **RESEARCH-RECOMMENDED:** EM dispatches the recommended `general-purpose` web scout or `/deep-research` as a separate decision before the Opus review. Include the sidecar path in the Opus reviewer prompt.
    - **LIGHT-CONTEXT-AVAILABLE or CAUTIONARY-NOTE:** Fold the relevant `Light Context Surfaced` / `Cautionary Note` sections as a one-paragraph briefing into the Opus reviewer dispatch prompt.
