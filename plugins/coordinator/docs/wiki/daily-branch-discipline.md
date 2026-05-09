@@ -2,7 +2,7 @@
 
 > **The rule.** In any project's main checkout, the active branch is **either** the active workstream branch (span-aware `work/{machine}/{date-or-span}`) **or** `main` (read-only). Nothing else. The hook polices branch *shape*, not branch *date* — commit-time date-enforcement (Check 6) was decommissioned 2026-05-07 per PM call.
 
-> **The shape.** The active workstream branch (e.g. `work/striker/2026-05-07` or `work/striker/2026-05-07to08`) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
+> **The shape.** The active workstream branch (e.g. `work/<machine>/2026-05-07` or `work/<machine>/2026-05-07to08`) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
 
 ## Why
 
@@ -49,7 +49,7 @@ Interactive: hard-block until PM picks. Non-interactive (overnight, no TTY): aut
 
 ### Cross-machine identity considerations
 
-The branch-name date is **local** (`date +%Y-%m-%d`). The orphan sweep's WARNING tier is calibrated by last-commit time (`tip_ct`) rather than branch-name date — this prevents false-positive WARNING noise on legitimate active span branches like `work/striker/2026-05-01to07`. Sessions that span midnight roll forward via `/workday-start`; see [Midnight crossings](#midnight-crossings).
+The branch-name date is **local** (`date +%Y-%m-%d`). The orphan sweep's WARNING tier is calibrated by last-commit time (`tip_ct`) rather than branch-name date — this prevents false-positive WARNING noise on legitimate active span branches like `work/<machine>/2026-05-01to07`. Sessions that span midnight roll forward via `/workday-start`; see [Midnight crossings](#midnight-crossings).
 
 Portable timestamp parsing matters. The 5-min quiet-gate before merge uses `gh pr view --json commits` for timestamps (no local fetch dependency) and Python ISO-8601 parsing — `date -d` differs across Windows/macOS/Linux. Pre-implementation sanity check: verify `gh` returns commits in chronological order; otherwise sort: `.commits | sort_by(.committedDate) | last`.
 
@@ -107,12 +107,12 @@ Mapped to the postmortem patterns:
 |---|---|---|
 | Pattern 2 — checkout-stash-checkback anti-pattern | PreToolUse hook | Denies the `checkout -b feature/X` at step 1 |
 | Pattern 3 — orphan stashes outlive deleted branches | Eliminated structurally | If non-workstream branches never exist, stashes can't reference them |
-| Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` auto-rename | Silently renames `work/striker/2026-05-06` → `work/striker/2026-05-06to07` and notes it in the Morning Briefing; no commit block |
+| Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` auto-rename | Silently renames `work/<machine>/2026-05-06` → `work/<machine>/2026-05-06to07` and notes it in the Morning Briefing; no commit block |
 | Pattern 4 — speculative `feature/<topic>-<date>` naming from planning prose | PreToolUse hook | The branch can't be created, so the cosmetic naming has nowhere to land |
 
 ## Mixed-Case Branch Tripwire
 
-**Problem (2026-05-07):** `lib/coordinator-daily-branch.sh:129` normalizes branch names to lowercase before the allow-list check, silently accepting non-canonical (mixed-case) branch creation. When `git checkout -b work/STRIKER/2026-05-07` is run, the hook allows it because the normalized form is in the allow-list. `.git/HEAD` stores `work/STRIKER/2026-05-07`, but the on-disk canonical ref is lowercase. Result: `git branch --show-current` returns uppercase, `git push origin <uppercase>` fails ("cannot be resolved to branch").
+**Problem (2026-05-07):** `lib/coordinator-daily-branch.sh:129` normalizes branch names to lowercase before the allow-list check, silently accepting non-canonical (mixed-case) branch creation. When `git checkout -b work/<MACHINE>/2026-05-07` is run, the hook allows it because the normalized form is in the allow-list. `.git/HEAD` stores `work/<MACHINE>/2026-05-07`, but the on-disk canonical ref is lowercase. Result: `git branch --show-current` returns uppercase, `git push origin <uppercase>` fails ("cannot be resolved to branch").
 
 **Fix:** `cs_is_canonical_branch` function checks whether the proposed `work/*` name is already in canonical lowercase form. Creation of mixed-case `work/*` names is rejected at hook time with a remediation message naming the canonical form.
 
@@ -132,7 +132,7 @@ Source: `archive/specs/2026-05-07-mixed-case-branch-creation-tripwire.md` (forme
 
 ## Span-Aware Branch Naming
 
-Daily branches can now carry across days as a span: `work/{machine}/{date}to{dd}` (e.g. `work/striker/2026-05-07to08`). This eliminates the need for a branch rename at every midnight crossing. Optional Step 10.5 in `/workday-complete` prompts for a preemptive end-of-day rename to tomorrow's suffix using atomic-rename-with-rollback.
+Daily branches can now carry across days as a span: `work/{machine}/{date}to{dd}` (e.g. `work/<machine>/2026-05-07to08`). This eliminates the need for a branch rename at every midnight crossing. Optional Step 10.5 in `/workday-complete` prompts for a preemptive end-of-day rename to tomorrow's suffix using atomic-rename-with-rollback.
 
 **Midnight crossings:** The wiki's Midnight crossings section has been rewritten around the span-aware rename flow. No grace window required — the span form is valid for any consecutive date range.
 
@@ -142,10 +142,10 @@ Source: `tasks/daily-branch-doctrine-rethink/` Phase 4+5 execution, 2026-05-07.
 
 Sessions that span midnight are normal and expected. The hook polices branch *shape*, not branch *date* — there is no commit block after midnight, and no grace window concept.
 
-**What happens at midnight:** nothing automatic. The session continues committing on `work/striker/2026-05-06` (or whatever the active branch is). The first `/workday-start` after midnight performs the rename automatically.
+**What happens at midnight:** nothing automatic. The session continues committing on `work/<machine>/2026-05-06` (or whatever the active branch is). The first `/workday-start` after midnight performs the rename automatically.
 
 **Span-aware rename flow:** when `/workday-start` detects that the active branch's start-date is yesterday (or earlier) and there were commits within the last 48h, it renames silently — no prompt — and emits a one-line notice in the Morning Briefing:
-> "Renamed `work/striker/2026-05-06` → `work/striker/2026-05-06to07` (crossed midnight)"
+> "Renamed `work/<machine>/2026-05-06` → `work/<machine>/2026-05-06to07` (crossed midnight)"
 
 This is engineering housekeeping under the EM's remit, not a product call; the EM does not ask. PM can revert via `git branch -m` if they object. The rename is atomic (`git push --atomic origin <new>:<new> :<old>`) with local rollback on remote failure.
 

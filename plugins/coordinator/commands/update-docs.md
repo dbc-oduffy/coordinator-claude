@@ -1,4 +1,5 @@
 ---
+name: update-docs
 description: Repo-wide documentation maintenance and sync
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--no-distill]"

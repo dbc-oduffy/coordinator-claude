@@ -212,7 +212,7 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 |---|---|---|
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
 | **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
-| **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded `X:/DroneSim`, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
+| **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 
 If `project_type` is not `game-dev` or `project_subtypes` does not contain `unreal`, skip this step entirely.
 
@@ -222,7 +222,7 @@ If `project_type` is not `game-dev` or `project_subtypes` does not contain `unre
 BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 
 # Title based on branch type
-# work/striker/2026-03-13 → "Work: striker 2026-03-13"
+# work/<machine>/2026-03-13 → "Work: <machine> 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
 # PR body = ship verdict + release notes + demo path (Step 1.5 Parts 1–3)

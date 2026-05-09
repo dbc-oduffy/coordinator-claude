@@ -1,4 +1,5 @@
 ---
+name: session-start
 description: Orient session — preflight, load context, choose work
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[task-description]"

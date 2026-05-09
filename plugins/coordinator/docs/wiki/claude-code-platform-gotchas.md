@@ -52,7 +52,7 @@ Source: `tasks/probes/2026-05-05-probe-0-1-results.md`.
 
 ### Mixed-case branch ref on Windows case-insensitive filesystem
 
-On Windows, `.git/HEAD` can store a mixed-case ref name (`work/STRIKER/2026-05-07`) while the on-disk canonical ref is lowercase (`work/striker/2026-05-07`). `git branch --show-current` returns HEAD's stored case (uppercase). `git push origin <uppercase>` fails with "cannot be resolved to branch" because the remote resolves against the on-disk canonical.
+On Windows, `.git/HEAD` can store a mixed-case ref name (`work/<MACHINE>/2026-05-07`) while the on-disk canonical ref is lowercase (`work/<machine>/2026-05-07`). `git branch --show-current` returns HEAD's stored case (uppercase). `git push origin <uppercase>` fails with "cannot be resolved to branch" because the remote resolves against the on-disk canonical.
 
 **Root cause:** `lib/coordinator-daily-branch.sh:129` normalizes input to lowercase before the allow-list check (`cs_is_allowed_branch`), silently accepting non-canonical mixed-case branch creation.
 
@@ -114,7 +114,7 @@ when adopting plugin-managed MCPs.
 
 ### Source-path MCP registrations make "install vN" a near-no-op
 
-When a consumer's MCP entry in `~/.claude.json` points at a source tree (`X:/<your-rag>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out.
+When a consumer's MCP entry in `~/.claude.json` points at a source tree (`X:/<your-rag-indexer>/mcp/server.py`) rather than a pip-installed wheel, the source tree's current HEAD is what executes — `pip show <pkg>` reports a separate, possibly stale wheel. Installer re-runs refresh registration + editable wheel, but the version that *actually runs* is whichever branch is checked out.
 
 Before running an installer for "version N" against a consumer, inspect whether the MCP entry is source-path or wheel-import. If source-path, surface that the actual version gate is the checked-out branch — don't conflate `pip show` output with what the MCP harness boots.
 

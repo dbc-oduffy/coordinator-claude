@@ -1,4 +1,5 @@
 ---
+name: bug-blitz
 description: Autonomously grind tasks/bug-backlog.md — verify each item still applies, fix small items in parallel waves, auto-spinoff big ones to handoffs.
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--dry-run | --max=N]"

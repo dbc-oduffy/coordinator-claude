@@ -1,4 +1,5 @@
 ---
+name: workweek-complete
 description: Weekly release ceremony — validate, update docs, cut release notes, version bump, merge to main, archive
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: ""

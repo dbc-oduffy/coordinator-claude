@@ -75,6 +75,12 @@ Only `name` and `description` supported. Max 1024 chars total.
 - `name`: letters, numbers, hyphens only.
 - `description`: third-person, **describes ONLY when to use, NOT what it does** — start with "Use when..."
 
+**The `name:` field controls bare slash invocation.** Plugin skills/commands without `name:` in frontmatter require the fully-qualified `/<plugin>:<skill>` form (e.g. `/coordinator:pickup`). Adding `name: <slug>` to the frontmatter exposes the skill as `/<slug>` bare in the slash picker, while the qualified form continues to work. Verified empirically 2026-05-09 across both `commands/*.md` and `skills/<name>/SKILL.md` surfaces — same mechanism for both.
+
+- **Default to adding `name:`** for any skill you'd type often. The `/coordinator:` prefix is friction; the bare form is the natural shape.
+- **Omit `name:` to avoid collisions across plugins.** If two enabled plugins both expose a generic verb (`/setup`, `/doctor`), keep at least the non-primary ones qualified. Coordinator's `/coordinator:setup` is intentionally prefixed because holodeck and deep-research also have setup commands.
+- **Scheduled wakeups and skill-to-skill calls** that reference a bare `/name` only resolve once `name:` is set. A `/loop` or scheduled invocation written against the bare form will fail with "Unknown command" until the prefix is added or `name:` is set in the target skill.
+
 ```markdown
 ---
 name: skill-name-with-hyphens
@@ -527,7 +533,7 @@ Newly-shipped agents are not discoverable by the parent EM until the Claude Code
 
 **Failure mode:** if you skip step 4 and dispatch the agent by name in the same session, the parent EM will either fail to route to it or fall back to a different registered agent with a similar description — silent and hard to diagnose.
 
-### Sidecar-emitting agents must include frontmatter in the output template
+### the Game Dev Reviewerecar-emitting agents must include frontmatter in the output template
 
 If your agent writes a sidecar markdown file (verdict report, resolution log, review findings), the output template must specify YAML frontmatter — `generated_by`, `generated_at`, and any schema-relevant fields. Without it, the frontmatter linter nags on first write and the EM gets a noisy block instead of a clean handoff. Treat the frontmatter as part of the agent's contract, not a post-hoc decoration.
 

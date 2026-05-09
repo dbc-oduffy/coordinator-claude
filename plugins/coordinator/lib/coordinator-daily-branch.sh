@@ -1,12 +1,12 @@
 #!/bin/bash
 # coordinator-daily-branch.sh — Shared helpers for daily-branch discipline enforcement
 #
-# NOTE on examples: comments and tests reference `striker` as a literal machine
-# name (e.g. `work/striker/2026-05-06`). This is the canonical battle-story
-# exemplar from the source authoring environment — the publish doctrine treats
-# such examples as exempt from depersonalization (they convey shape, not
-# identity). Any machine name with the same encoding (lowercase ASCII, no
-# slashes) reads correctly here.
+# NOTE on examples: tests under bin/tests/ use `striker` / `STRIKER` as
+# literal fixture values (test cases assert canonical-case behavior on a
+# concrete machine name; placeholders won't substitute mechanically). Doctrine
+# prose elsewhere in the plugin uses `<machine>` / `<MACHINE>` placeholders.
+# A consumer reading either form should mentally substitute their own machine
+# name — both shapes convey "lowercase ASCII identifier, no slashes."
 #
 # Spec backlink: docs/plans/2026-05-07-daily-branch-doctrine-rethink.md (Phase 1)
 #
