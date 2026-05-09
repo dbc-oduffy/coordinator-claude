@@ -74,7 +74,7 @@ Run this before every WebFetch call to an external URL. Do not batch external ch
 ## Workflow
 
 1. **Discover markdown files** in the scope path using `Bash find <path> -name "*.md" -type f | sort`
-2. **Extract links** from each file — both `[text]\(url\)` and `[text][ref]` / `[ref]: url` reference-style links
+2. **Extract links** from each file — both `[text]\(url\)` and `[text][ref]` / `[ref]: url` reference-style links. **Skip fenced code blocks by default** — links inside ```` ``` ```` or ```` ~~~ ```` fences are typically templates that the consuming skill writes into a downstream file (relative paths resolve in the materialized output, not from the plugin source). To force inclusion of a fenced block, the source file may carry an explicit opt-in sentinel before the fence: `<!-- doc-link-check: include-fenced -->`. Without that sentinel, treat fenced links as out-of-scope (do not flag as broken).
 3. **Validate internal links** (file + anchor existence) — no sleep needed, no cap
 4. **Validate external links** — 1s sleep between each, stop at 100 URLs
 5. **Write the structured output file** to the path specified in the dispatch prompt (default: `tasks/doc-link-check-<timestamp>.md`)

@@ -44,12 +44,16 @@ When invoked, systematically update all documentation artifacts to match reality
 
 #### Phase 0: Quick-Save Before Docs
 
-1. **Branch guard:** If on `main`, create a work branch (`work/{machine}/{date}`) and switch. Never commit to main directly.
+Commit everything before updating documentation — captures all uncommitted changes from any source.
+
+1. **Branch guard:** If on `main`, create a work branch first (`work/{machine}/{date}`) and switch to it. Never commit directly to main — the repo's merge policy (PR + CI) is the only path to main.
 2. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-docs quick-save"`
 3. If nothing to commit, move on
-4. Do not push yet — push happens in Phase 9
+4. Do not push yet — push happens in Phase 9 after all docs are updated
 
 #### Phase 1: Detect Current State (Silent)
+
+Determine the current state of the codebase — not "what happened this session" but "what does the repo look like now vs what docs describe."
 
 1. **Project tracker check:**
    - Look for `docs/project-tracker.md`
@@ -80,7 +84,11 @@ When invoked, systematically update all documentation artifacts to match reality
 
 #### Phase 2: Update Source Indexes (or Create Them)
 
-**If no DIRECTORY.md (or equivalent source index) exists at all**, create one using subagents. Each agent handles one top-level source directory:
+**If no DIRECTORY.md (or equivalent source index) exists at all**, create one. A source index is the single highest-value documentation artifact for LLM-driven development — it eliminates most exploratory grepping and gives every agent immediate orientation.
+
+**Creating a new DIRECTORY.md:**
+
+Use subagents to parallelize the work. Each agent handles one top-level source directory:
 
 1. Identify the project's source root(s) (e.g., `src/`, `Source/`, `lib/`, `app/`, `packages/`)
 2. For each top-level directory, dispatch a subagent with this prompt:
@@ -98,7 +106,9 @@ When invoked, systematically update all documentation artifacts to match reality
    - Maps cross-directory dependency chains
    - Includes a "Last refreshed" timestamp
 
-**Adapt to project conventions:** If the project uses a different index structure, match it. Default location: `DIRECTORY.md` at the project root.
+**Adapt to project conventions:** If the project uses a different index structure (README.md per folder, a single flat index, etc.), match that convention instead.
+
+**Default location:** If no existing convention is apparent, create `DIRECTORY.md` at the project root. This is the most discoverable location and matches the convention used by this orchestration infrastructure.
 
 **If a DIRECTORY.md already exists**, update it:
 
@@ -111,9 +121,11 @@ When invoked, systematically update all documentation artifacts to match reality
 
 #### Phase 2b: Maintain `docs/README.md`
 
-**If `docs/README.md` does not exist:** Create it now. Include:
+The `docs/README.md` is the top-level entry point for all project documentation — wikis, research, specs, and reference docs. It should always exist and always be current.
+
+**If `docs/README.md` does not exist:** Create it now. It should include:
 - A **Wikis and Guides** section: table of all guides in `docs/wiki/` (read from `DIRECTORY_GUIDE.md` or glob `docs/wiki/*.md`)
-- A **Plans** section: pointer to `docs/plans/` with count and recent list (`docs/plans/` is the canonical home; copy approved `~/.claude/plans/` items here)
+- A **Plans** section: pointer to `docs/plans/` with count and list of recent plans. `docs/plans/` is the canonical home for approved plans — plans that started in `~/.claude/plans/` should be copied here once approved.
 - A **Research** section: pointer to `docs/research/` with highlights of recent files (glob by date, list top 5–10 most recent)
 - A **Design Specifications** section: table of specs (check `docs/specs/`, `docs/superpowers/specs/`, or project-specific locations)
 - A **Reference Documentation** section: table of top-level `docs/*.md` files (project-tracker, ci-pipeline, git-workflow, etc.)
@@ -121,16 +133,22 @@ When invoked, systematically update all documentation artifacts to match reality
 
 **If `docs/README.md` already exists:** Update it:
 1. Sync the Wikis and Guides table against `docs/wiki/DIRECTORY_GUIDE.md` — add new guides, remove deleted ones, update summaries
-2. Sync the Plans section — list new plans in `docs/plans/`, remove deleted ones; copy any approved `~/.claude/plans/` items not yet in `docs/plans/`
-3. Update the Research highlights — add new `docs/research/*.md` files since the footer timestamp
-4. Sync the Design Specifications table — add new specs, update status if implementation is complete
+2. Sync the Plans section — list new plans in `docs/plans/`, remove deleted ones. Check `~/.claude/plans/` for approved plans not yet in `docs/plans/` and copy them over (the canonical location is in the repo, not the global plans dir)
+3. Update the Research highlights — add any new `docs/research/*.md` files created since the last update date in the footer
+4. Sync the Design Specifications table against project specs directories — add new specs, update status if implementation is detectably complete
 5. Update the footer timestamp
 
 **Include `docs/README.md` in the Phase 9 commit.**
 
 #### Phase 3: Update Plan Documents
 
-For each plan doc related to current codebase state: read it, update status markers (checkbox completion, phase status), note completion date if fully done, and document deviations.
+For each plan doc that relates to work reflected in the current codebase:
+
+1. Read the plan document
+2. Check which items/phases are now implemented
+3. Update status markers (e.g., checkbox completion, phase status)
+4. If a plan is fully implemented, note the completion date
+5. If implementation deviated from the plan, document what changed and why
 
 #### Phase 4: Update Memory
 
@@ -155,7 +173,9 @@ Read the project's MEMORY.md (at `~/.claude/projects/<project-key>/memory/MEMORY
 - **Session-specific details** — what was discussed, temporary state
 - **Speculative conclusions** from reading a single file
 
-**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it — promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with pointers. Lessons-style content (behavior corrections, anti-patterns) routes via `/learn-lessons` to `tasks/lessons.md`, not here.
+**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it. Promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with one-line pointers to the authoritative file.
+
+**For lessons-style content** (assistant behavior corrections, anti-patterns) — those route via `/learn-lessons` to `tasks/lessons.md`, not MEMORY.md.
 
 #### Phase 5: Maintain Project Tracker + Archive Completed Work
 
@@ -165,7 +185,7 @@ Inline the tracker-maintenance routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/up
 
 #### Phase 6: Trim Lessons Files
 
-Invoke `/learn-lessons --mode=local` directly.
+Invoke `/learn-lessons --mode=local` directly. (`lesson-triage` was renamed to `learn-lessons` in Phase E — no alias shim.)
 
 #### Phase 7: Update CLAUDE.md (Rare)
 
@@ -182,7 +202,9 @@ Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 #### Phase 8b: Prune Accumulated Artifacts
 
-Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the safety commit makes any deletion `git revert`-able.
+Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the pipeline only deletes when accumulated artifacts cross the threshold lines documented there. The safety commit it takes makes any deletion `git revert`-able as a single operation.
+
+This phase replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06). `/distill` continues to handle distill-then-delete (extract knowledge into wiki before deleting source) and runs upstream of this phase conceptually.
 
 #### Phase 9: Commit + Verify Remote
 
@@ -192,7 +214,7 @@ Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
    If unpushed commits remain, push explicitly.
 3. If push fails, **warn the PM explicitly**
 
-**Note:** Pushes to the current branch only. Getting to main is the caller's responsibility (`/workday-complete` or `/merge-to-main`). If on main here, Phase 0 failed.
+**Note:** This skill pushes to the current branch only. Getting changes onto main is the caller's responsibility (e.g., `/workday-complete` or `/merge-to-main`). If you're on main at this point, something went wrong in Phase 0.
 
 #### Detection-Gating Contract — RAG_PRESENT
 
@@ -210,6 +232,8 @@ All "when RAG present" gates in this command use the same detection mechanism: c
 - `RAG_PRESENT` + stale/uninitialized: run `/generate-repomap` as fallback stopgap. Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG stale)."
 - `RAG_PRESENT` + fresh: skip. Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
 
+**Previously this was handled inline in Phase 10.** It is now an explicit conditional phase so the gating logic is visible to maintainers.
+
 #### Phase 10: Refresh Orientation Cache
 
 If `tasks/orientation_cache.md` exists, **always do a full refresh in this phase — never skip on grounds of "looks roughly current."** Stale orientation poisons every subsequent session-start:
@@ -226,9 +250,11 @@ If `tasks/orientation_cache.md` exists, **always do a full refresh in this phase
 
 If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
+**Execution:** The Sonnet agent handles this as part of its mechanical work. Include the cache format spec in the dispatch prompt so the agent can write it directly.
+
 #### Phase 10b: Repomap Audit Log (when RAG present and repomap was generated as fallback)
 
-**Only execute when:** RAG present AND repomap generated as fallback this run (stale/uninitialized, not fresh).
+**Only execute when:** project-RAG was detected (see detection-gating contract below) AND repomap was generated during this run as a fallback (i.e., RAG is present but stale or uninitialized, not fresh).
 
 Emit a single log entry to `tasks/repomap-audit.log` (create if absent, append-only):
 
@@ -248,7 +274,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it again in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `tasks/architecture-atlas/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 13: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
+**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Narrative atlases drift more silently than enumerative ones. Check `tasks/architecture-atlas/systems-index.md` for the `last_mapped` date. If any system's `last_mapped` is >90 days ago, add a note to the Phase 13 report: *"Atlas drift risk: system [X] last mapped [date] — narrative may not reflect current reality. Schedule a quarterly re-read sweep."* This is informational only — no auto-audit triggered.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -265,7 +291,9 @@ done
 exit $fail
 ```
 
-**If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. Investigate which consumer drifted from its canonical snippet.
+(The `plugins/*/*/bin/` glob covers all known homes today — `coordinator-claude/coordinator/bin/` and `claude-unreal-holodeck/holodeck-control/bin/` — and any future plugin that follows the `bin/verify-*-sync.sh` convention. New verifiers are picked up automatically.)
+
+**If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. The EM should investigate which consumer drifted from its canonical snippet. Example escalation: *"Snippet sync check failed in `verify-default-routing-sync.sh` — one or more consumers drifted from `snippets/default-routing.md`. Diff attached. Which file was intentionally changed?"*
 
 **If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
 
@@ -279,7 +307,9 @@ Mirror dev-side wiki files cited from plugin files into the plugin-bundled `docs
 
 **If the script reports synced files:** include the updated/created files under `plugins/coordinator-claude/coordinator/docs/wiki/` in the Phase 9 commit. Log in the Phase 13 report: "Plugin-bundled wiki: N file(s) synced."
 
-**If the script reports WARN:** a wiki name is referenced but absent from dev-side. Doc-link health (Phase 11e) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+**If the script reports WARN:** a wiki name is referenced by a plugin file but absent from dev-side. Doc-link health (Phase 11e via `doc-link-checker`) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+
+**Doctrine:** plugin-doctrine wikis live inside the plugin (`<plugin-root>/docs/wiki/`); see `coordinator/CLAUDE.md` § Documentation and Knowledge System → Plugin-bundled wikis. The `/distill` and demote-to-wiki workflows MUST place plugin-doctrine wiki bodies in the dev-side authoring tree (`~/.claude/docs/wiki/`); this phase mirrors them downstream.
 
 #### Phase 11c: Query Callout Refresh
 
@@ -297,9 +327,9 @@ Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... --
 
 #### Phase 11d: Frontmatter Schema Drift Sweep
 
-The W1 PreToolUse validator runs in WARN mode — violations do NOT block writes. This phase surfaces accumulated drift counts at every `/update-docs` run.
+The W1 PreToolUse validator runs in WARN mode by default — violations on tracked records surface as `additionalContext` to the authoring agent but do NOT block writes. Without a periodic sweep, accumulated drift rots invisibly. This phase makes the count visible at every `/update-docs` run.
 
-Run the lint:
+Run the lint as a hard read:
 
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/lint-frontmatter.sh --json
@@ -315,7 +345,9 @@ Parse the JSON. Three behaviors:
    - Phase 13 wording: *"Frontmatter schema drift: N violations across S schema(s). Top: [schema A] (count), [schema B] (count). Files: [path1, path2, ...]. WARN-mode validator did not block these writes — fix-forward at the listed paths."*
 3. **Non-zero exit other than 1:** Note "frontmatter drift sweep: errored, stderr attached" in the Phase 13 report and continue. Do NOT abort the rest of `/update-docs`.
 
-**Do not auto-fix.** This phase reports only — violations may encode intentional decisions (predating the schema, field deprecation in flight). Escalation path: ≥2 consecutive non-zero runs → lift schema default to STRICT (`COORDINATOR_SCHEMA_STRICT=1`) or open a bulk-fix debt entry. **Exception:** tradeoff-free correctness fixes on records authored this session (typo, missing required field) may be fixed inline before the Phase 9 commit.
+**Do not auto-fix.** This phase reports only. Schema violations frequently encode an intentional decision (e.g., a record predating the schema, or a field deprecation in flight) — the EM and PM judge the right fix per file. The PM-directed escalation path: when daily count remains non-zero for ≥2 consecutive `/update-docs` runs, lift the affected schema's default from WARN → STRICT (`COORDINATOR_SCHEMA_STRICT=1`) or open a debt-triage entry for the bulk-fix.
+
+**Exception:** If a violation is a tradeoff-free correctness fix (typo in a field name, missing required field on a record the EM just authored this session), fix it inline before the Phase 9 commit. Don't let the EM's own fresh dirt accumulate across runs.
 
 #### Phase 11e: Doc-link health check (plugin assets)
 
@@ -352,13 +384,13 @@ Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the p
 
 #### Phase 11f: Parallel-review lens-orthogonality check
 
-Asserts the four reviewers in the parallel-code-review skill's lens-domain manifest exist as agent files and have non-overlapping `lens_domain` values.
+Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh`. The script asserts the four reviewers named in the parallel-code-review skill's lens-domain manifest (`skills/parallel-code-review/SKILL.md`) exist as agent files and have non-overlapping `lens_domain` values. Fails non-zero if any reviewer is missing or two share a domain.
 
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh
 ```
 
-**On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. A collision means the parallel-review carve-out's preconditions no longer hold (`coordinator/CLAUDE.md` § Review Sequencing). Fix: rename the colliding lens domain or remove the reviewer from the parallel pool.
+**On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. The carve-out in `coordinator/CLAUDE.md` § Review Sequencing requires orthogonal lenses; a collision means a future reviewer was added with overlap and the carve-out's preconditions no longer hold. Resolution is to either rename the colliding lens domain in the manifest or reconsider whether the new reviewer belongs in the parallel pool.
 
 **On zero exit:** Report "Parallel-review lens-orthogonality: clean."
 
@@ -366,13 +398,13 @@ This phase is informational like 11e; does NOT halt `/update-docs`.
 
 #### Phase 11h: Super-skill anchor-link check
 
-Walks every super-skill SKILL.md and verifies each `CLAUDE.md § <section>` citation resolves against a heading in project-level `coordinator/CLAUDE.md`. Global citations (`~/.claude/CLAUDE.md` or "global" on the same line) are recorded as QUALIFIED and not failed.
+Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-links.sh`. The script walks every super-skill SKILL.md in its hardcoded consumer list and verifies each `CLAUDE.md § <section>` citation resolves against a `## ` or `### ` heading in project-level `coordinator/CLAUDE.md`. Citations explicitly qualified as global (`~/.claude/CLAUDE.md` or "global" on the same line) are recorded as QUALIFIED and not failed.
 
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-links.sh
 ```
 
-**On non-zero exit (DEAD anchors found):** Surface to PM — do NOT auto-fix. Fix: lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet, or qualify the citation as global.
+**On non-zero exit (DEAD anchors found):** Surface the diagnostic to PM — do NOT auto-fix. A DEAD anchor means a marketplace consumer walking the super-skill will hit an unresolvable section reference. Resolution is either to lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet (preferred when load-bearing) or to qualify the citation as global. Mirrors the F2 fix pattern from the 2026-05-06 cleanup gate.
 
 **On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)."
 
@@ -396,7 +428,7 @@ done
 
 **On non-zero exit:** Surface the file path and line from the pruner's error output to the PM — do NOT skip. The pruner fails loud on unexpected structure and must not be bypassed.
 
-**On zero exit with lines pruned:** Include the diff in the docs-maintenance commit (or a separate `chore(queues): prune resolved-state bloat` commit if large). Report pruned counts in the summary.
+**On zero exit with lines pruned:** Commit the diff as part of the docs-maintenance commit (or a separate `chore(queues): prune resolved-state bloat` commit if the diff is large). Report pruned line counts in the update-docs summary.
 
 **On zero exit with no lines pruned:** Note in the report: "Queue prune: clean (no resolved bloat found)."
 
@@ -416,42 +448,90 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```
 
-2. **Check recency + threshold — fire if EITHER:** total count ≥ 50; OR last distillation >14 days ago (read from `docs/wiki/.distill-log.md`); OR no log exists and count ≥ 20.
+2. **Check recency:** Read `docs/wiki/.distill-log.md` if it exists. Extract the most recent run date. Calculate days since last distillation.
 
-3. **If threshold met:** Announce to PM: *"Artifact count is [N] / last distillation was [N] days ago. Chaining into `/distill`."* Then invoke `/distill` via the Skill tool. `/distill` Phase 4 is the PM approval checkpoint.
+3. **Threshold check — fire if EITHER condition is met:**
+   - Total artifact count ≥ 50
+   - Last distillation was >14 days ago (or no distillation log exists and artifact count ≥ 20)
 
-4. **If threshold not met:** Note in report: "Distillation: not needed (N artifacts, last run M days ago)."
+4. **If threshold met:** Announce to the PM: *"Artifact count is [N] (threshold: 50) / last distillation was [N] days ago. Chaining into `/distill` to extract knowledge before pruning."* Then invoke `/distill` via the Skill tool. The PM gate in `/distill` Phase 4 provides the approval checkpoint.
+
+5. **If threshold not met:** Note in the report: "Distillation: not needed (N artifacts, last run M days ago)."
 
 #### Phase 13: Report
 
-Present a concise `## Documentation Update Summary`. Emit one `### <section>` heading per row below, followed by a single status line drawn from the bracketed options.
+Present a concise summary:
 
-| Section heading | Status template |
-|---|---|
-| Project Tracker | `[Maintained — N items archived, M remaining / No tracker found — NEEDS PM+EM SETUP / No changes needed]`; append active workstream count + any dependency/dead-reference notes |
-| Source Indexes | `[Created from scratch (N directories, M files) / Updated — N files added, M removed / No changes needed]` |
-| Plan Documents | one line per file: `[file]: [what was updated]` |
-| Memory | `[Updated / No changes needed] — [what changed]` |
-| Lessons | `[Trimmed N entries / Merged M / No changes needed]` |
-| CLAUDE.md | `[Updated / No changes needed]` |
-| Handoffs Archived | `[N moved from tasks/handoffs/ → archive/handoffs/ / No handoffs to clean up]` |
-| Artifact Pruning (Phase 8b) | `[Pruned N plans, M archived handoffs, K task dirs (safety commit <sha>) / Nothing crossed threshold — no-op]` |
-| Plugin Doc-Link Health | `[Clean / N broken, M anchor-missing — see <report-path> / Skipped — N external URLs over 100-cap]` |
-| Completion Archive | `[N items archived to archive/completed/YYYY-MM.md / No completed items]`; second line for ad-hoc git-log captures |
-| Architecture Atlas | `[Narrative-drift findings: N suggestions / No drift detected / Skipped — atlas not found]`; append RAG-staleness line and quarterly drift-risk note if triggered |
-| Repomap | `[Generated (primary — no RAG) / Generated as RAG-fallback (RAG stale) / Skipped (RAG present + fresh)]`; append audit-log line if applicable |
-| Preamble Sync | `[In sync / FAILED — diff surfaced to PM / Script not found (W2 not deployed)]` |
-| Query Callouts | `[Up to date / N file(s) updated / Error — stderr surfaced to PM / Script not found (W2 not deployed)]` |
-| Frontmatter Schema Drift | `[0 violations / N violations across S schema(s) — top: schema A (count), schema B (count); offending files: path1, path2 … / Script not found (W1 not deployed)]` |
-| Distillation | `[Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]` |
-| Pushed to Remote | `[yes — branch name / no — reason]` |
-| Cross-Repo Registry (Phase 14, central-only) | `[N candidates surfaced for tagging / All known repos verified / N entries marked unreachable / Skipped — not running from ~/.claude]` |
+```
+## Documentation Update Summary
+
+### Project Tracker
+- [Maintained — N items archived, M remaining / No tracker found — NEEDS PM+EM SETUP / No changes needed]
+- Active workstreams: [N] [⚠️ exceeds limit of 5 — consider consolidating]
+- Dependencies resolved: [N] / Dead references: [list if any]
+- Temporal memory cross-ref: [N untracked activities, M stale workstreams / aligned / session memory not active]
+
+### Source Indexes
+- [Created from scratch (N directories, M files) / Updated — N files added, M removed / No changes needed]
+
+### Plan Documents
+- [file]: [what was updated]
+
+### Memory
+- [Updated/No changes needed] — [what changed]
+
+### Lessons
+- [Trimmed N entries / Merged M / No changes needed]
+
+### CLAUDE.md
+- [Updated/No changes needed]
+
+### Handoffs Archived
+- [N moved from tasks/handoffs/ → archive/handoffs/ / No handoffs to clean up]
+
+### Artifact Pruning (Phase 8b)
+- [Pruned N plans, M archived handoffs, K task dirs (safety commit <sha>) / Nothing crossed threshold — no-op]
+
+### Plugin Doc-Link Health
+- [Clean / N broken, M anchor-missing — see <report-path> / Skipped — N external URLs over 100-cap]
+
+### Completion Archive
+- [N items archived from tracker to archive/completed/YYYY-MM.md / No completed items to archive]
+- [M ad-hoc items captured from git log / No untracked work found]
+
+### Architecture Atlas
+- [Narrative-drift findings: N suggestions / No drift detected / Skipped — atlas not found]
+- [Atlas drift risk: system X last mapped DATE — quarterly re-read due / All systems current]
+- [Project-RAG staleness: fresh / stale / uninitialized / absent]
+
+### Repomap
+- [Generated (primary — no RAG) / Generated as RAG-fallback (RAG stale) / Skipped (RAG present + fresh)]
+- [Audit log: repomap_unique_value: yes|no — justification / Not applicable]
+
+### Preamble Sync
+- [In sync / FAILED — diff surfaced to PM / Script not found (W2 not deployed)]
+
+### Query Callouts
+- [Up to date / N file(s) updated / Error — stderr surfaced to PM / Script not found (W2 not deployed)]
+
+### Frontmatter Schema Drift
+- [0 violations / N violations across S schema(s) — top: schema A (count), schema B (count); offending files: path1, path2 … / Script not found (W1 not deployed)]
+
+### Distillation
+- [Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]
+
+### Pushed to Remote
+- [yes — branch name / no — reason]
+
+### Cross-Repo Registry (Phase 14, central-only)
+- [N candidates surfaced for tagging / All known repos verified / N entries marked unreachable / Skipped — not running from ~/.claude]
+```
 
 **Flag to PM:** Explicitly note the push so they can verify nothing breaks for other consumers.
 
 #### Phase 14: Cross-Repo Registry Refresh (cwd-gated, EM-only)
 
-**Skip this phase entirely if `pwd` does not resolve to `~/.claude` (i.e., `$HOME/.claude` or `c:/users/oduffy/.claude` on Windows).** This phase exists for the central coordinator repo only — per-project `/update-docs` runs are no-ops here. Skip with one-line log: *"Phase 14: skipped — not running from ~/.claude."*
+**Skip this phase entirely if `pwd` does not resolve to `~/.claude` (i.e., `$HOME/.claude`, or the equivalent `c:/users/<user>/.claude` on Windows).** This phase exists for the central coordinator repo only — per-project `/update-docs` runs are no-ops here. Skip with one-line log: *"Phase 14: skipped — not running from ~/.claude."*
 
 **This phase is EM-only.** The doc-maintenance Sonnet agent does NOT execute Phase 14 (same pattern as Phase 12). The EM runs it inline after the agent reports back. If the agent reaches Phase 14 in error, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
 
@@ -476,11 +556,14 @@ Present a concise `## Documentation Update Summary`. Emit one `### <section>` he
    - `K entries restored to active` (if any flipped back from unreachable)
    - `R entries refreshed last_verified`
 
-5. **Commit.** Include `~/.claude/tasks/repo-registry.md` in the EM-side Phase 9 commit. Use `coordinator-safe-commit "registry refresh: N candidates, M unreachable"` or explicit-path staging.
+5. **Commit.** Edits to `~/.claude/tasks/repo-registry.md` go in the same Phase 9 commit cycle (the EM-side commit, not the doc-maintenance agent's). Use `coordinator-safe-commit "registry refresh: N candidates, M unreachable"` or fall back to explicit-path staging.
 
-**Failure modes:** Decoder returns zero candidates → log warning, proceed to staleness check. Registry file missing → create from template (Schema heading + empty active + empty candidates blocks); log `"Phase 14: registry file created from scratch"`. Sentinel block malformed → surface to PM, do NOT auto-repair.
+**Failure modes:**
+- Decoder returns zero candidates → log warning, continue with staleness check only.
+- Registry file missing → create from template (Schema heading + empty active block + empty candidates block); log `"Phase 14: registry file created from scratch"`.
+- Sentinel block markers missing or malformed → surface to PM, do NOT auto-repair.
 
-**Out of scope for V1:** auto-promoting candidates, inferring stack tags from manifest files, or pruning dormant entries (PM curates and judges in `/workweek-complete`).
+**Out of scope for V1:** auto-promoting candidates (PM curates `goals` + `stack_tags` + `relationships`), pruning dormant entries (PM judges in `/workweek-complete`), inferring stack tags from manifest files.
 
 ### Style Guidelines
 

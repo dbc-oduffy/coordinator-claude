@@ -1,5 +1,4 @@
 ---
-name: generate-repomap
 description: Generate a ranked repository map for LLM context injection
 allowed-tools: ["Bash", "Read"]
 argument-hint: "[--budget N] [--project-root PATH] [--profile PROFILE]"
@@ -70,7 +69,7 @@ For generating maps focused on specific task areas:
 python3 "$GENERATOR" \
   --project-root /path/to/project \
   --task "Implement the camera follow system for the drone actor" \
-  --focus-files "Source/DroneSim/Camera/CameraFollowComponent.cpp,Source/DroneSim/Drone/DroneActor.h"
+  --focus-files "Source/<Project>/Camera/CameraFollowComponent.cpp,Source/<Project>/<Subsystem>/Actor.h"
 ```
 
 - `--task`: Natural language description of the current task. Path-like tokens in the description are matched against project files.

@@ -31,14 +31,15 @@ const SCHEMAS = loadSchemas(SCHEMAS_DIR);
 // ---------------------------------------------------------------------------
 
 describe('loadSchemas', () => {
-  it('loads all five schemas', () => {
+  it('loads all six schemas', () => {
     const names = Object.keys(SCHEMAS).filter(k => k !== '_byGlob');
     assert.ok(names.includes('handoff'), 'handoff schema missing');
+    assert.ok(names.includes('handoff-archived'), 'handoff-archived schema missing');
     assert.ok(names.includes('decision'), 'decision schema missing');
     assert.ok(names.includes('plan'), 'plan schema missing');
     assert.ok(names.includes('review'), 'review schema missing');
     assert.ok(names.includes('lesson-entry'), 'lesson-entry schema missing');
-    assert.equal(names.length, 5, `expected 5 schemas, got ${names.length}`);
+    assert.equal(names.length, 6, `expected 6 schemas, got ${names.length}`);
   });
 
   it('_byGlob index has an entry per applies_to schema', () => {
@@ -265,7 +266,7 @@ describe('validateFrontmatter — decision', () => {
       title: 'Use Node over shell',
       created: '2026-05-01',
       status: 'accepted',
-      deciders: ['donal', 'patrik'],
+      deciders: ['pm', 'staff-eng'],
     };
     const result = validateFrontmatter(fm, decisionSchema);
     assert.ok(result.ok);
@@ -276,7 +277,7 @@ describe('validateFrontmatter — decision', () => {
       title: 'Use Node over shell',
       created: '2026-05-01',
       status: 'accepted',
-      deciders: 'donal',
+      deciders: 'pm',
     };
     const result = validateFrontmatter(fm, decisionSchema);
     assert.equal(result.ok, false);

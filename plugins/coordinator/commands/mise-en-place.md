@@ -35,17 +35,17 @@ Follow all phases in order. The pipeline definition at `pipelines/mise-en-place/
 
 A mise-grade item meets ALL of the following:
 
-1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
+1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (Patrik/Sid/Camelia/Palí/Fru as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
 2. **No downstream contract.** This item's output is not reference material that subsequent waves consume to define their own behavior. Wiki pages, schema definitions, research outputs, and enricher-quality stubs frequently fail this test — if Wave N produces a doc that Wave N+1 reads to know what to build, the run is not mise.
 3. **Pure-executor agent type.** A single Sonnet executor (or coordinator-inline executor) can complete it given the spec. Items requiring live-editor MCP authoring, enricher judgment, reviewer judgment, or staff-session synthesis are not executor work — they belong in their dedicated commands.
 4. **File footprint declarable.** You can name the files the executor will write before dispatching. If the spec says "discover what needs changing," that is investigation, not execution.
-5. **Verification is mechanical.** "Tests pass," "function exists with this signature," "file matches this acceptance criterion" — not "the Game Dev Reviewer agrees this looks right."
+5. **Verification is mechanical.** "Tests pass," "function exists with this signature," "file matches this acceptance criterion" — not "Sid agrees this looks right."
 
 **Disqualifying patterns (reject the run if any item exhibits these):**
 
 - "Wave 1: foundations" — wiki pages, contract definitions, schema authoring, or any artifact later waves consume as reference. Foundations belong in a planning session, not a mise.
 - Mixed agent types in the planned waves — enricher + executor + MCP-author in the same run signals the work isn't ready.
-- Items marked `Pending Review` or `Needs Staff Engineer Review` or with open reviewer findings.
+- Items marked `Pending Review` or `Needs Patrik` or with open reviewer findings.
 - Stubs whose acceptance criteria are vague ("improves the system," "addresses the concern") rather than verifiable.
 - Items requiring `manage_*` MCP tools in a live editor session — those need an interactive EM-driven flow.
 - Research stubs, brainstorming stubs, or anything whose output is "a decision."
@@ -245,7 +245,7 @@ Verify that ALL canonical trackers reflect the run's outcomes — this is the EM
 1. Done. Per-wave commits already pushed. The PM runs `/update-docs` (and later `/workday-complete` or `/merge-to-main`) separately when ready to integrate. Rationale: `/update-docs` now absorbs the tracker-maintenance, handoff-archival, and atlas-integrity-check subroutines inline, making it a heavier operation than it was when /mise tailed it automatically. PM-gated invocation is the right shape.
 
 **Hibernate:**
-1. Verify push: `git log origin/$(git branch --show-current)..HEAD 2>/dev/null` should be empty for all session work
+1. Verify push: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null` should be empty for all session work
 2. If unpushed commits remain, push explicitly. If push fails, do NOT hibernate — stop and report.
 3. Hibernate the machine:
 

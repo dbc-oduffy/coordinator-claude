@@ -47,6 +47,8 @@ _Condition: a plan doc is the right artifact; substrate must be verified BEFORE 
   → Run the negative-search procedure (grep `tasks/lessons.md` and wiki for the central nouns + prohibition vocabulary). _See `docs/wiki/writing-plans.md` § Negative-Search Before Drafting._
 - _Native-code (C++/UE/Rust/etc.) plan?_
   → Add 2–3 in-tree `file:line` citations to the dispatch brief. _See CLAUDE.md § Pre-Dispatch Verification ¶ native-code plans._
+- _Plan adds a new dispatch / handler / op / job to a surface that already has registered entries?_
+  → Check whether a table/registry pattern exists (e.g. `UE_REGISTER_*`, `register_action`, plugin-style auto-registration). If yes, the plan MUST use the registered surface; adding a parallel `else if` / `switch` / hand-rolled lookup is a recurring footgun that re-introduces dispatch-fragility bugs. Project-level wikis carry the concrete instances (see `docs/wiki/writing-plans.md` for project-specific examples).
 
 ---
 

@@ -1,5 +1,4 @@
 ---
-name: session-end
 description: Wrap up finished work — capture lessons, update docs
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob"]
 argument-hint: "[optional context]"
@@ -20,21 +19,52 @@ When invoked, capture lessons and update plan/project documentation to reflect c
 Before capturing lessons, emit the tier usage summary for this session. This closes the W3 telemetry loop — the PM sees whether the tiered-context-loading doctrine was followed.
 
 ```bash
-SESSION_JSON=$(find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" 2>/dev/null | \
-  xargs ls -t 2>/dev/null | head -1)
-if [[ -n "$SESSION_JSON" && -f "$SESSION_JSON" ]]; then
-  python3 -c "
-import json, sys
-data = json.load(open('${SESSION_JSON}'))
-c = data.get('counts', {})
-t4 = data.get('tier4_dispatches', [])
-missing = sum(1 for d in t4 if not d.get('rationale_present', True))
-print(f\"Tier usage this session: tier1={c.get('tier1',0)} tier2={c.get('tier2',0)} tier3={c.get('tier3',0)} tier4={c.get('tier4',0)} ({missing} tier-4 missing rationale)\")
-" 2>/dev/null || true
+# Resolve the current session's tier-usage JSON.
+# Review: the Staff Engineer — prefer CLAUDE_SESSION_ID env var (if exported) over sentinel to avoid
+# sentinel race with concurrent same-repo sessions; sentinel is fallback for when env var absent.
+GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+SESSION_ID="${CLAUDE_SESSION_ID:-}"
+if [[ -z "$SESSION_ID" && -n "$GIT_ROOT" && -f "${GIT_ROOT}/.git/coordinator-sessions/.current-session-id" ]]; then
+  SESSION_ID=$(cat "${GIT_ROOT}/.git/coordinator-sessions/.current-session-id" 2>/dev/null)
+fi
+
+if [[ -z "$SESSION_ID" ]]; then
+  echo "Tier usage: telemetry unavailable (no CLAUDE_SESSION_ID and no sentinel; session-init hook may not have run)"
+else
+  # session_id is unique across all projects, so search by session_id and accept the first hit.
+  SESSION_JSON=$(find "${HOME}/.claude/projects" -name "${SESSION_ID}.json" -path "*/tier-usage/*" 2>/dev/null | head -1)
+  if [[ -z "$SESSION_JSON" || ! -f "$SESSION_JSON" ]]; then
+    echo "Tier usage: telemetry unavailable (no JSON for session ${SESSION_ID:0:8} — writer hook may not have fired)"
+  else
+    # Resolve Python via shared lib (python3 → python → py -3).
+    LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
+    if [[ -z "$PYTHON_BIN" ]]; then
+      if command -v py &>/dev/null && ! py -3 --version &>/dev/null; then
+        echo "Tier usage: telemetry unavailable (py launcher present but no Python 3 registered — run \`py -0\` to list installed versions)"
+      else
+        echo "Tier usage: telemetry unavailable (no Python on PATH — tried python3, python, py -3)"
+      fi
+    else
+      SESSION_JSON_PATH="$SESSION_JSON" "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "
+import json, os, sys
+try:
+    with open(os.environ['SESSION_JSON_PATH']) as f:
+        data = json.load(f)
+    c = data.get('counts', {})
+    t4 = data.get('tier4_dispatches', [])
+    missing = sum(1 for d in t4 if not d.get('rationale_present', True))
+    print(f\"Tier usage this session: tier1={c.get('tier1',0)} tier2={c.get('tier2',0)} tier3={c.get('tier3',0)} tier4={c.get('tier4',0)} ({missing} tier-4 missing rationale)\")
+except Exception as e:
+    print(f'Tier usage: telemetry parse failed ({type(e).__name__}: {e})', file=sys.stderr)
+    sys.exit(1)
+"
+    fi
+  fi
 fi
 ```
 
-If the JSON file doesn't exist (first session, telemetry hook not yet active, or no tracked tools fired), skip silently — do not error.
+If telemetry is genuinely unavailable (no session sentinel, no JSON, no Python), Step 0 prints a one-line diagnostic — never empty.
 
 ### Step 1: Capture Lessons
 
@@ -121,7 +151,26 @@ Sweep the session's commits for completed work that isn't already in the project
 
 **Skip if** no `archive/` directory exists and no `docs/project-tracker.md` exists — the project hasn't adopted unified tracking yet.
 
-### Step 2.7: Refresh Orientation Documents
+### Step 2.7: Archive Predecessor Handoff (if applicable)
+
+When this session was opened with `/pickup`, the consumed handoff still lives in `tasks/handoffs/` (mutation-only at pickup time). If this session is ending via `/session-end` rather than `/handoff`, archive the predecessor now.
+
+**Detection:** scan `tasks/handoffs/*.md`. For each file, read its frontmatter `consumed_by:` field.
+
+- Resolve this session's id: `$CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
+- Zero matches → skip silently.
+- One match → archive it (see Action below).
+- More than one match → log to stderr and archive all. (A session that legitimately consumed multiple predecessors is rare but not invalid — no fail-loud.)
+
+**Action:** `git mv tasks/handoffs/<file> archive/handoffs/<file>`. Create `archive/handoffs/` if it does not exist. On `git mv` failure (file already moved by a concurrent `/handoff` chain-archival), log to stderr and continue — idempotent treatment of already-moved files.
+
+The move folds into the existing session-end commit at Step 3 — no separate commit for this step.
+
+**No claim release call needed here.** `cs_archive` at Step 3.5 carries the entire session directory (including `handoff-claims/`) into `.archive/`. The claim is released structurally.
+
+**Skip entirely if** this session is exiting via `/handoff` — `/handoff` chain-archival owns that path. `/session-end` and `/handoff` are mutually exclusive session-exit paths.
+
+### Step 2.8: Refresh Orientation Documents
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. These are lightweight, targeted patches based on what THIS session accomplished, not a full regeneration.
 
@@ -142,6 +191,55 @@ Update the documents that future sessions read for orientation — closing the r
 
 **Concurrency note:** These are targeted patches to specific rows/sections based on this session's work — safe with concurrent agents, as long as agents work on different items (which they should by design).
 
+### Step 2.9: Code Review Consideration
+
+Assess whether this session's diff warrants a code review pass before committing. EM makes the call using the table below — this step is judgment, not ceremony.
+
+**Diff-shape table:**
+
+| Session shape | Default scale |
+|---|---|
+| Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
+| Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
+| Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **Sonnet** (review-code Branch A.2 single reviewer) |
+| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **Sonnet** on chain diff (default) |
+| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **Sonnet + the Staff Engineer** (EM-judged escalation) |
+
+**Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
+
+**Anchored-ranges note:** the numeric anchors (50 LOC, 500 LOC, ≥3 segments) are decision anchors, not hard thresholds. An EM seeing a 51-LOC change with a clean shape should not feel obliged to escalate; an EM seeing a 49-LOC change touching a public schema seam should not feel released from review.
+
+**Anti-ceremony-bias tripwire:**
+> "If you're considering Sonnet-only because escalation feels like ceremony rather than because the diff is genuinely shallow — escalate. The Staff Engineer is one dispatch away; the cost of redundant review is one Opus call. The cost of unreviewed integration risk shipping to main is hours of debugging."
+
+**Symmetric anti-ceremony tripwire (row 3+):**
+> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. The anti-ceremony tripwire fires symmetrically: 'Sonnet-after-already-doing-review feels like ceremony, skip' is the same motion as 'Sonnet feels like ceremony, escalate' — running in reverse. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the four-point shape above, not the row number. See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
+
+**Chain-end detection:**
+- Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
+- Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
+- **Additional escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — that's a strong escalation signal toward Sonnet+the Staff Engineer.
+
+**Diff scope:**
+- Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
+- Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (where `$LAST_REVIEW_SHA` is the `sha_range` head from the most recent trail record, or session-start SHA if no prior review exists)
+
+**Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
+
+**Marker write:** after review integration completes, invoke:
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-write-review-trail.sh \
+  --sha-range <A..B> --reviewer <sonnet|patrik|sonnet+patrik> \
+  --scope <chain|session> --verdict <ok|warn|blocked> --diff-loc <N>
+```
+
+**Negative-spec:**
+- Trivial sessions (Row 1, 2 of the table): skip the review entirely. No trail record written.
+- PM-waived sessions: log waiver to trail with `--reviewer waived --verdict waived`. Greppable as `verdict=waived`.
+
+**Staging discipline:**
+> "Any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`. This preserves the existing concurrent-EM safety property of Step 3."
+
 ### Step 3: Commit + Verify Remote
 
 1. **Stage only paths this session touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
@@ -150,7 +248,7 @@ Update the documents that future sessions read for orientation — closing the r
    - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
    - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
 2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
-3. If nothing to commit, check for unpushed commits: `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
+3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
 6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure

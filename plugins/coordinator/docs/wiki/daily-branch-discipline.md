@@ -6,7 +6,7 @@
 
 ## Why
 
-Postmortem source: `X:/project-rag/archive/2026-05-05_branch-sprawl-postmortem.md`.
+Postmortem source: a peer repo's `archive/2026-05-05_branch-sprawl-postmortem.md` (private — citation pointer for the source authors).
 
 The anti-pattern was mechanical:
 
@@ -35,7 +35,7 @@ Both modes are caught by `bin/orphan-branch-sweep.sh` with three severity tiers:
 
 Flags: `--format json|text`, `--severity-min ok|warning|critical`, `--include-remote`, `--max-age-days N` (default 30).
 
-The companion `bin/sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
+The companion `bin/sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per the Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
 
 ### `/workday-start` Step 0 — Branch Reconciliation Decision (A/B/C)
 
@@ -57,7 +57,7 @@ Portable timestamp parsing matters. The 5-min quiet-gate before merge uses `gh p
 
 Two contact-points (see CLAUDE.md tripwire):
 
-1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`. Allow-list: any span-aware `work/{machine}/{date-or-span}` (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the PreToolUse contract (documentation pending). `validate-commit.sh` Checks 1-5 remain there for commit-content validation. **Commit-time date-enforcement (Check 6) was fully decommissioned 2026-05-07 per PM call** — the hook no longer blocks commits based on branch date.
+1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`. Allow-list: any span-aware `work/{machine}/{date-or-span}` (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the [PreToolUse contract](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md). `validate-commit.sh` Checks 1-5 remain there for commit-content validation. **Commit-time date-enforcement (Check 6) was fully decommissioned 2026-05-07 per PM call** — the hook no longer blocks commits based on branch date.
 2. **Doctrine** — CLAUDE.md § Concurrent-EM Git Operations, first bullet. Authoritative reference for the rule.
 
 ## Supported "park WIP" recipes
@@ -110,6 +110,34 @@ Mapped to the postmortem patterns:
 | Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` auto-rename | Silently renames `work/striker/2026-05-06` → `work/striker/2026-05-06to07` and notes it in the Morning Briefing; no commit block |
 | Pattern 4 — speculative `feature/<topic>-<date>` naming from planning prose | PreToolUse hook | The branch can't be created, so the cosmetic naming has nowhere to land |
 
+## Mixed-Case Branch Tripwire
+
+**Problem (2026-05-07):** `lib/coordinator-daily-branch.sh:129` normalizes branch names to lowercase before the allow-list check, silently accepting non-canonical (mixed-case) branch creation. When `git checkout -b work/STRIKER/2026-05-07` is run, the hook allows it because the normalized form is in the allow-list. `.git/HEAD` stores `work/STRIKER/2026-05-07`, but the on-disk canonical ref is lowercase. Result: `git branch --show-current` returns uppercase, `git push origin <uppercase>` fails ("cannot be resolved to branch").
+
+**Fix:** `cs_is_canonical_branch` function checks whether the proposed `work/*` name is already in canonical lowercase form. Creation of mixed-case `work/*` names is rejected at hook time with a remediation message naming the canonical form.
+
+**Defense-in-depth layers** (all now in place):
+1. Creation-time hook rejection (cs_is_canonical_branch)
+2. Runtime canonicalization in coordinator-auto-push (case-agnostic push)
+3. Migration helper: `bin/migrate-branch-canonical-case.sh` (idempotent: rename local + remote)
+4. Doctrine: CLAUDE.md § Concurrent-EM Git Operations bullet 1 span-aware framing
+
+**Contact points requiring sync:**
+1. `hooks/scripts/block-off-daily-branch.sh` (PreToolUse hook — primary enforcement)
+2. `lib/coordinator-daily-branch.sh` (shared library — cs_is_canonical_branch + cs_compute_machine)
+3. `coordinator/CLAUDE.md § Concurrent-EM Git Operations` bullet 1
+4. This wiki (daily-branch-discipline.md)
+
+Source: `archive/specs/2026-05-07-mixed-case-branch-creation-tripwire.md` (formerly `docs/plans/2026-05-07-mixed-case-branch-creation-tripwire.md` @ d0fcc842).
+
+## Span-Aware Branch Naming
+
+Daily branches can now carry across days as a span: `work/{machine}/{date}to{dd}` (e.g. `work/striker/2026-05-07to08`). This eliminates the need for a branch rename at every midnight crossing. Optional Step 10.5 in `/workday-complete` prompts for a preemptive end-of-day rename to tomorrow's suffix using atomic-rename-with-rollback.
+
+**Midnight crossings:** The wiki's Midnight crossings section has been rewritten around the span-aware rename flow. No grace window required — the span form is valid for any consecutive date range.
+
+Source: `tasks/daily-branch-doctrine-rethink/` Phase 4+5 execution, 2026-05-07.
+
 ## Midnight crossings
 
 Sessions that span midnight are normal and expected. The hook polices branch *shape*, not branch *date* — there is no commit block after midnight, and no grace window concept.
@@ -133,7 +161,8 @@ This is engineering housekeeping under the EM's remit, not a product call; the E
 - **`git checkout --orphan <name>`** — the hook checks the orphan name and denies if it is not an allowed workstream branch or main. `--orphan` onto an allowed name is permitted.
 - **Linked worktrees (already created)** — the hook exits silently when run inside a `worktrees/` git-dir. Doctrine bans worktree creation; the audit catches existing ones separately. The hook's `worktree add` deny prevents new ones.
 - **Compound commands beyond the first git op** — the hook inspects the first `git <branch-op>` it finds. Subsequent ops in `git checkout -b foo && git checkout -b bar` are not separately validated, but step 1 already denies, so step 2 doesn't run.
-- **`git -C <path>` / `cd <path> && git ...`** — cross-repo forms are denied outright when a branch-mutating subcommand follows. Use `COORDINATOR_OVERRIDE_BRANCH=1` for legitimate cross-repo work.
+- **`git -C <path>` / `git --git-dir=<path>/.git`** — cross-repo forms are policed by the same shape rules (allowed if the target branch name is canonical `work/{machine}/{date-or-span}` or `main`; denied otherwise). No override needed for shape-canonical names. The parser captures the `-C <path>` value to validate `is_local_branch` and `@{-1}` resolution against the sibling repo's refs, not `$GIT_ROOT`. (Relaxed from outright deny by spec `2026-05-08-daily-branch-discipline-cross-repo.md`.)
+- **`cd <path> && git ...`** — cross-repo via `cd` is denied outright when a branch-mutating subcommand follows; the hook subprocess cannot resolve the post-`cd` cwd (`$GIT_ROOT` is captured at entry, before the `cd`). Use `COORDINATOR_OVERRIDE_BRANCH=1` for legitimate cd-then-git cross-repo work.
 
 ## "Shipped" definition — branch tip ≠ origin/main
 
@@ -150,8 +179,8 @@ Tripwire entry in CLAUDE.md § "Adding a Convention to the Coordinator System" e
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). The two hooks are siblings on the same PreToolUse Bash matcher.
-- `pretooluse-deny-contract.md` (documentation pending) — JSON deny mechanics.
-- `archive/2026-05-05_branch-sprawl-postmortem.md` (project-rag repo) — original incident.
+- [`pretooluse-deny-contract.md`](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md) — JSON deny mechanics.
+- `archive/2026-05-05_branch-sprawl-postmortem.md` (peer repo, private) — original incident.
 - `~/.claude/plans/2026-05-05-daily-branch-discipline-hook.md` — plan & rollout for the real-time enforcement hook.
 - `~/.claude/archive/specs/2026-05-01-orphan-branch-prevention.md` — orphan-branch sweep + sync-main + check-shipped-on-main pipeline (PR #57, v1.6.0).
-- `streamline-infra.md` (documentation pending) — snippet-sync pattern that keeps the R-3 prohibition synchronized across consumers.
+- [`streamline-infra.md`](./streamline-infra.md) — snippet-sync pattern that keeps the R-3 prohibition synchronized across consumers.

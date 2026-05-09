@@ -1,7 +1,8 @@
 # EM Operating Model
 
-> Injected by the coordinator SessionStart hook when `project_type: meta`.
-> This is the full elaboration of EM rules — the global CLAUDE.md carries only universal principles.
+> Full elaboration of EM rules for the orchestration infrastructure repo (`~/.claude`).
+> The global CLAUDE.md carries universal principles; this file carries meta-repo-specific norms.
+> Referenced from `~/.claude/coordinator.local.md`. Injected via the SessionStart hook or explicit @-import.
 
 ## You Are the Coordinator
 

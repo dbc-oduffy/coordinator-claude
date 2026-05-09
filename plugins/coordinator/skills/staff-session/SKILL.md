@@ -1,5 +1,4 @@
 ---
-name: staff-session
 description: "PM-GATED: ask first; never from subagent. Agent Teams collaborative planning/review for architectural decisions only. Modes: plan, review."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli,...\"] <input>"
@@ -9,7 +8,7 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli
 
 The EM scopes the work, selects the team, creates the team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Debaters** (2-5, Opus, persona agents) — read input independently, research the codebase, form positions, debate peers via messaging, converge, write position documents, send DONE to synthesizer
-- **the Ambition Advocate (`coordinator:ambition-advocate`) / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through an ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
+- **the Ambition Advocate / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
 
 **Lightweight tier falls through to `/review-dispatch` — no team created.**
 
@@ -55,7 +54,7 @@ Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 
 **If `--tier lightweight`:**
 
-Do NOT create a team. Route directly to `/review-dispatch` with the specified member (or `staff-eng` as default if `--members` not provided).
+Do NOT create a team. Route directly to `/review-dispatch` with the specified member (or `patrik` as default if `--members` not provided).
 
 Announce: "Routing to `/review-dispatch` for single-reviewer gut-check."
 
@@ -73,7 +72,7 @@ Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/temp
 
 **If `--members` not specified:** Auto-select based on domain signals from the input topic and scope.
 
-**Important: the Ambition Advocate is the synthesizer, not a debater.** The Ambition Advocate cannot appear in the debater list — they read all debater positions and produce the final output. If the user specifies `--members "patrik,zoli"`, reject with: "The Ambition Advocate is the staff session synthesizer — they can't also debate. Choose a different second debater, or I'll auto-select one."
+**Important: the Ambition Advocate is the synthesizer, not a debater.** the Ambition Advocate cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "patrik,zoli"`, reject with: "the Ambition Advocate is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
 
 | Domain Signal | Default Pair |
 |---|---|
@@ -101,8 +100,9 @@ Persona slug → agent file mapping:
 | `fru` | `web-dev/agents/staff-ux.md` |
 | `pali` | `web-dev/agents/senior-front-end.md` |
 | `camelia` | `data-science/agents/staff-data-sci.md` |
+| `vp-product` | `coordinator/agents/vp-product.md` |
 
-**Note:** `zoli` is NOT a valid debater slug — the Ambition Advocate is the synthesizer. See Step 6.
+**Note:** `zoli` is NOT a valid debater slug — he is the synthesizer. See Step 6.
 
 ## Step 5 — Create Team and Tasks
 
@@ -186,6 +186,7 @@ Persona slug → subagent_type mapping:
 | `fru` | `web-dev:staff-ux` |
 | `pali` | `web-dev:senior-front-end` |
 | `camelia` | `data-science:staff-data-sci` |
+| `vp-product` | `coordinator:vp-product` |
 
 ## Step 7 — EM Is Freed
 

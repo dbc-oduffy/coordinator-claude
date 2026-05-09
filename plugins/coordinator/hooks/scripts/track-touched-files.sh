@@ -5,7 +5,7 @@
 # matcher). Records the modified file path into the per-session touch list at
 # .git/coordinator-sessions/<session_id>/touched.txt.
 #
-# Design notes (per Staff Engineer P0-3):
+# Design notes (per Patrik P0-3):
 #   - Bash tool calls are NOT parsed — mtime fallback at commit time handles
 #     Bash-driven edits. Parsing arbitrary shell for write effects is unsound.
 #   - Hook matcher in hooks.json already restricts to edit tools. This script

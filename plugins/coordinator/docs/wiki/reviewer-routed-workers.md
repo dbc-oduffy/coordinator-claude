@@ -12,9 +12,9 @@ distilled_run: 2026-05-06-13h00
 
 ## Overview
 
-**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating reviewer count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the review-integrator preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus reviewer roles + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
+**Reviewer-routed workers** add mechanical leverage to the [agent hierarchy](agent-hierarchy.md) without inflating persona count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the [review-integrator](reviewer-output-schema.md) preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus personas + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
 
-**Roster doctrine (canonical):** Reviewer roles are for distinct **judgment** styles. Workers are for **mechanical leverage** with structured output. Threat-modeling and test-pyramid are absorbable as lenses, not new reviewer roles.
+**Roster doctrine (canonical):** Personas are for distinct **judgment** styles. Workers are for **mechanical leverage** with structured output. Threat-modeling and test-pyramid are absorbable as lenses, not new personas.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ The Staff Engineer, the Game Dev Reviewer, and the Data Science Reviewer each ge
 
 ### Integrator preserves the block verbatim
 
-The review-integrator preserves the `Worker Dispatch Recommendations` block verbatim and **does not act on it**. The EM reads it after integration and dispatches in a follow-up step.
+The [review-integrator](reviewer-output-schema.md) preserves the `Worker Dispatch Recommendations` block verbatim and **does not act on it**. The EM reads it after integration and dispatches in a follow-up step.
 
 ### Delta-vs-baseline acceptance
 
@@ -59,7 +59,7 @@ No overlap.
 
 ### Periodic dispatch via recheck markers
 
-`dep-cve-auditor` runs both periodically and Staff Engineer-named. First run drops `tasks/cve-recheck-due-YYYY-MM-DD.md` dated +7 days; `/workday-start` Step 1.6 globs `tasks/*-recheck-due-*.md` and surfaces expiring markers.
+`dep-cve-auditor` runs both periodically and the Staff Engineer-named. First run drops `tasks/cve-recheck-due-YYYY-MM-DD.md` dated +7 days; `/workday-start` Step 1.6 globs `tasks/*-recheck-due-*.md` and surfaces expiring markers.
 
 ## Phase 2 (deferred): /merge-to-main 5-step gate
 
@@ -69,7 +69,7 @@ Five questions the merge gate asks before allowing a merge:
 2. Schema/version bumps flagged?
 3. Install/setup scripts touched (sandbox)?
 4. CHANGELOG updated where applicable?
-5. Staff Engineer review of release artifact required if ANY of: public API additions, version bump, install/setup script touched, >50 commits since last tag, breaking-change CHANGELOG entries.
+5. The Staff Engineer review of release artifact required if ANY of: public API additions, version bump, install/setup script touched, >50 commits since last tag, breaking-change CHANGELOG entries.
 
 ## Gotchas
 
@@ -78,5 +78,5 @@ Five questions the merge gate asks before allowing a merge:
 
 ## Reference
 
-- Related: [reviewer-premise-challenge](reviewer-premise-challenge.md)
+- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md), [reviewer-premise-challenge](reviewer-premise-challenge.md)
 - Source plan: `archive/specs/2026-04-29-reviewer-routed-workers.md`

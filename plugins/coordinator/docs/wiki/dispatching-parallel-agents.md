@@ -248,6 +248,47 @@ For chunks that are too large for any single executor but have natural seam boun
 
 See `docs/wiki/delegate-execution.md` Phase 2 for the full model selection rubric.
 
+## Long-Running Dispatched Process
+
+> See coordinator/CLAUDE.md § Subagent Dispatch for background dispatch doctrine.
+
+When a dispatched agent spawns a background shell process (installer, pipeline runner, long-running executor) that must run beyond the agent's own turn, that process needs machine-parseable progress output — not just a log file the EM reads at the end.
+
+**Why prose logs aren't enough:** the EM can't interrupt a running background process to ask "where are you?" It polls a status artifact. If the artifact only contains prose, the EM has to parse it. If parsing fails or the format drifts, the EM can't distinguish "still running — phase 3 of 7" from "hung silently."
+
+**Required pattern for long-running dispatched processes:**
+
+1. **Status file** — the process writes a structured status file at a known path (e.g., `<output-dir>/install-status.json` or `tasks/<slug>/status.json`). The EM polls this file.
+
+2. **Heartbeat** — the process updates a `last_heartbeat_utc` (or similar) timestamp every N seconds. A stale heartbeat is the EM's signal that the process has hung or crashed — distinct from "still running but quiet."
+
+3. **Tagged stdout** — every phase boundary emits a parseable tag:
+   - `PHASE-START:<phase-name>` — phase is beginning.
+   - `PHASE-END:<phase-name>` — phase completed successfully.
+   - `PHASE-SKIP:<phase-name>:<reason>` — phase was skipped (idempotency, precondition not met, etc.).
+
+   These tags enable the EM to reconstruct "what has run, what is pending, what was skipped" from a log tail without parsing prose.
+
+**Status file schema (minimum):**
+
+```json
+{
+  "phase": "<current-phase-name>",
+  "status": "running | success | failed | skipped",
+  "last_heartbeat_utc": "<ISO-8601>",
+  "phases_completed": ["phase-1", "phase-2"],
+  "phases_skipped": [],
+  "error": null
+}
+```
+
+**EM polling protocol:**
+- Poll `last_heartbeat_utc` — if stale by >2× the expected heartbeat interval, treat as hung.
+- Check `status` field before reading `phases_completed` — a `failed` status with a non-empty `phases_completed` means partial work was done; use this to resume from the last checkpoint, not re-run from scratch.
+- Do NOT derive status from log file size or line count — these are unreliable proxies.
+
+**Empirical source:** `tasks/lessons.md:358` — generalizes the `install_status_writer` pattern from the holodeck plugin installer, 2026-05-07.
+
 ## Key Benefits
 
 1. **Parallelization** - Multiple investigations happen simultaneously

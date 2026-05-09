@@ -3,7 +3,7 @@
 # enabling later coordinator-safe-commit invocations to union the executors'
 # touched-file lists into scope.
 #
-# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, Staff Engineer
+# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, the Staff Engineer
 # APPROVED_WITH_NOTES v3 2026-05-06).
 #
 # Mechanism:
@@ -16,7 +16,7 @@
 #     The em-session-id.txt back-pointer is the durable linkage that makes
 #     the read path sentinel-independent (helper enumerates .agents/* and
 #     matches against the candidate em-sid set built from cs_live_session_ids).
-#   - Atomic temp+rename for the back-pointer (Staff Engineer v2 finding 3).
+#   - Atomic temp+rename for the back-pointer (the Staff Engineer v2 finding 3).
 #   - Always exits 0 — advisory bookkeeping, never blocks tool calls.
 
 if command -v timeout &>/dev/null; then
@@ -77,7 +77,7 @@ if [[ ! -d "$SESSION_DIR" ]]; then
   fi
 fi
 
-# Init agent-dir + write back-pointer atomically (Staff Engineer v2 finding 3).
+# Init agent-dir + write back-pointer atomically (the Staff Engineer v2 finding 3).
 # `-s` test: file exists AND is non-empty. Empty back-pointers (partial-write
 # survivors) trigger re-write. The temp+rename pattern means a concurrent
 # fire either succeeds-second-or-cleans-up — no orphan temp files.

@@ -94,7 +94,9 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 ### Step 1.5: Build PR Body (mandatory, every merge)
 
-Every merge to `main` produces a PR body composed of four parts: ship verdict, VP-Product verdict (when applicable), release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
+Every merge to `main` produces a PR body composed of three parts: ship verdict, release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
+
+The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a the VP-Product Reviewer dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke the VP-Product Reviewer by name. The merge gate does not auto-dispatch the VP-Product Reviewer.
 
 **Part 1 — Ship Verdict (every merge)**
 
@@ -114,28 +116,7 @@ Before creating the PR, the EM stages a one-line ship verdict for the PR body:
 
 The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
 
-**Part 2 — VP-Product Reviewer Review (user-visible, perf/concurrency, third-patch-in-six-months, or refactor-cheaper-than-patch)**
-
-Dispatch **the VP-Product Reviewer (`coordinator:vp-product`, `agents/vp-product.md`)** as a primary reviewer for any merge that:
-
-- changes user-visible behavior (UI, copy, defaults, error states, permissions, public APIs), **or**
-- touches performance, concurrency, scalability, or extensibility surface, **or**
-- is a **patch** in an area that has accumulated prior patches (third patch in six months → mandatory VP-Product Reviewer), **or**
-- the EM proposes an approach where a refactor would plausibly be cheaper than the patch.
-
-Skip the VP-Product Reviewer entirely for: pure doc updates, test-infrastructure-only changes, dep bumps with no API surface change, and trivial typo fixes.
-
-The VP-Product Reviewer's job is to ask the dumb questions experienced engineers skip — *"why single-threaded when multi-thread is 30 lines?"*, *"have you considered a different shape?"*, *"is this YAGNI legitimate or laziness in costume?"* The output is a structured review with a `shape_assessment`, a `refactor_recommendation`, and 1–3 alternative shapes considered. See `agents/vp-product.md` for full doctrine.
-
-**Output** — append the VP-Product Reviewer's verdict line to the PR body:
-
-```markdown
-**VP-Product verdict:** [APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED] — shape: [right | acceptable | wrong] — refactor: [recommend-refactor | recommend-patch | undecided] — [one-sentence rationale]
-```
-
-If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply the VP-Product Reviewer's findings before drafting the ship verdict. Do not hand-wave them away. If the EM disagrees with the VP-Product Reviewer on a refactor recommendation, the EM must articulate the disagreement in the PR body — silent override is the failure mode this gate exists to prevent.
-
-**Part 3 — Release Notes (every merge)**
+**Part 2 — Release Notes (every merge)**
 
 1. **Inventory the merge:**
    ```bash
@@ -203,7 +184,7 @@ If `REQUIRES_CHANGES` or `REJECTED`: dispatch the review-integrator to apply the
 
 **Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
 
-**Part 4 — Demo Path (user-visible only)**
+**Part 3 — Demo Path (user-visible only)**
 
 For user-visible merges, append a **Demo Path** section to the PR body:
 
@@ -223,9 +204,9 @@ For internal merges, omit. The point is to make every user-visible increment dem
 
 The composed PR body is what flows into Step 2's `gh pr create --body`.
 
-### Step 1.6: UE-specific check items (project_type: unreal)
+### Step 1.6: UE-specific check items (project_type: game-dev, project_subtypes: unreal)
 
-If `coordinator.local.md` declares `project_type` includes `unreal`, run these three additional checks after the main release-readiness steps. The coord-claude steps run first; this UE addendum runs after.
+If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtypes` contains `unreal`, run these three additional checks after the main release-readiness steps. The coord-claude steps run first; this UE addendum runs after.
 
 | Check | Detection | Action |
 |---|---|---|
@@ -233,7 +214,7 @@ If `coordinator.local.md` declares `project_type` includes `unreal`, run these t
 | **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded `X:/DroneSim`, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 
-If `project_type` does not include `unreal`, skip this step entirely.
+If `project_type` is not `game-dev` or `project_subtypes` does not contain `unreal`, skip this step entirely.
 
 ### Step 2: Create PR
 
@@ -244,10 +225,10 @@ BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-curren
 # work/striker/2026-03-13 → "Work: striker 2026-03-13"
 # feature/my-feature → "Feature: my-feature"
 
-# PR body = ship verdict + VP-Product Reviewer verdict (when run) + release notes + demo path (Step 1.5 Parts 1–4)
+# PR body = ship verdict + release notes + demo path (Step 1.5 Parts 1–3)
 BODY="$(cat <<EOF
 $SHIP_VERDICT
-$VP_PRODUCT_VERDICT
+$the VP-Product Reviewer_VERDICT
 
 $RELEASE_NOTES
 

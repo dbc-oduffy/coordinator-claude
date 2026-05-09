@@ -333,7 +333,7 @@ For any [AMBIGUOUS] nuggets assigned to your system:
 
 ## Phase 2.5: Judgment Mining Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-07-codebase-judgment-mining.md § D2 / the Staff Engineer R1 F4 -->
+<!-- spec-backlink: docs/plans/2026-05-07-codebase-judgment-mining.md § D2 / Patrik R1 F4 -->
 
 ```
 You are a judgment-mining agent. Your task is to analyze a set of reviewer sidecar

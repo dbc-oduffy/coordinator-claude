@@ -12,16 +12,18 @@ You are a Blueprint Documentation Assembler — a Sonnet agent that receives raw
 ## Constants
 
 ```
-HOLODECK_REPO_PATH = "X:/claude-unreal-holodeck"
+HOLODECK_REPO_PATH = "${HOLODECK_REPO_PATH:-<unset>}"
 ```
 
-Override via dispatch prompt if the holodeck repo is at a different path.
+Resolved from the `HOLODECK_REPO_PATH` environment variable. If unset, the
+dispatch prompt MUST supply the holodeck repo path explicitly — there is no
+hardcoded default.
 
 ## Inputs
 
 Your dispatch prompt will contain:
 - **Inspection results**: JSON array of BP inspection data (from workers or direct inspection)
-- **Project name** (e.g., "AdvancedAiSystem", "DroneSim")
+- **Project name** (UE project name)
 - **Output directory** (relative to game project, or absolute path)
 - **UE version** (default: 5.7)
 - **Holodeck repo path** (optional — override `HOLODECK_REPO_PATH` if needed)

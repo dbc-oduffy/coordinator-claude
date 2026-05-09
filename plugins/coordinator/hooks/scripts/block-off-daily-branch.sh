@@ -9,7 +9,7 @@
 #   main                            (read-only, PR-only)
 # Policy oracle is cs_is_allowed_branch in coordinator-daily-branch.sh.
 #
-# Commit-time branch enforcement (formerly Check 6, consolidated here by Staff Engineer F11)
+# Commit-time branch enforcement (formerly Check 6, consolidated here by the Staff Engineer F11)
 # was REMOVED 2026-05-07 per PM call. See docs/wiki/daily-branch-discipline.md.
 # The orphan-branch-creation prevention (checkout -b, branch -m, stash branch,
 # worktree add, --orphan) remains unchanged.
@@ -90,7 +90,19 @@ fi
 # Review: patrik F7/F8 — extended to include --move, --copy, -c, -C, -M;
 # F4/F5 — added git -C / --git-dir patterns; BS-2026-05-06-002 — tightened
 # git -C / --git-dir gate to mutating subcommands only.
-if ! echo "$COMMAND" | grep -qE '(\bgit[[:space:]]+(checkout|switch|branch([[:space:]]+(-m|-M|-c|-C|--move|--copy|--force-create-branch))?|stash[[:space:]]+branch|worktree[[:space:]]+add)\b|\bgit[[:space:]]+(-C[[:space:]]|--git-dir[=[:space:]]|--work-tree[=[:space:]])[^|;&]*\b(checkout|switch|branch|stash[[:space:]]+branch|worktree[[:space:]]+add)\b)'; then
+#
+# Spec backlink: archive/handoffs/2026-05-08_143000_post-split-cleanup-followups-2.md
+# § "New Followups Surfaced This Session — Cheap-gate over-match on bare branch keyword"
+#
+# The second arm uses ([^|;&-]|-[^-]|--[^[:space:]])* instead of [^|;&]* to prevent
+# crossing a `--` pathspec separator. The old [^|;&]* would match tokens like
+# "status -- plans/branch-thing.md" and trigger on "branch" inside the pathspec.
+# The new character class allows: non-separator/non-dash chars, single-dash flags
+# (-C, -q, etc.), and long flags (--git-dir=..., --work-tree=...) but STOPS at
+# a bare " -- " separator (space + double-dash + space), which is the POSIX pathspec
+# boundary. This preserves all true-positive mutating subcommand detection while
+# eliminating false positives from read-only git ops with branch-named pathspecs.
+if ! echo "$COMMAND" | grep -qE '(\bgit[[:space:]]+(checkout|switch|branch([[:space:]]+(-m|-M|-c|-C|--move|--copy|--force-create-branch))?|stash[[:space:]]+branch|worktree[[:space:]]+add)\b|\bgit[[:space:]]+(-C[[:space:]]|--git-dir[=[:space:]]|--work-tree[=[:space:]])([^|;&-]|-[^-]|--[^[:space:]])*\b(checkout|switch|branch|stash[[:space:]]+branch|worktree[[:space:]]+add)\b)'; then
   exit 0
 fi
 
@@ -118,6 +130,11 @@ if [[ -f "$LIB_PATH" ]]; then
 else
   # Fallback: inline the helpers if lib is missing (should not happen in normal install).
   # Mirrors coordinator-daily-branch.sh — keep in sync if lib changes.
+  # Drift-check (the Staff Engineer R-code follow-up): the inline copy below is a manual
+  # mirror. Whenever cs_compute_machine / cs_parse_branch_span / cs_is_allowed_branch /
+  # cs_is_canonical_branch change in the lib, update the fallback below in the
+  # same commit. Verification: diff the lib body against the function bodies
+  # below; they should be byte-equal (sans the 'cs_' prefix unification).
   cs_compute_machine() {
     local m
     if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then m="$COORDINATOR_MACHINE"
@@ -197,9 +214,14 @@ emit_canonical_hint() {
   echo "$name" | tr '[:upper:]' '[:lower:]'
 }
 
-# is_local_branch <name> — true iff refs/heads/<name> exists.
+# is_local_branch <name> [<root>] — true iff refs/heads/<name> exists in <root>.
+# When <root> is omitted, defaults to $GIT_ROOT (same-repo behaviour).
+# The optional root argument supports cross-repo forms (git -C <path>) where
+# op_repo_root is captured from the -C flag during the global-flag skip loop.
 is_local_branch() {
-  git -C "$GIT_ROOT" show-ref --verify --quiet "refs/heads/$1" 2>/dev/null
+  local name="$1"
+  local root="${2:-$GIT_ROOT}"
+  git -C "$root" show-ref --verify --quiet "refs/heads/$name" 2>/dev/null
 }
 
 # emit_deny <reason> — write JSON deny to stdout, log, exit 0 (so JSON is parsed).
@@ -254,28 +276,32 @@ emit_deny() {
   exit 0
 }
 
-# --- F4/F5: Deny git -C / --git-dir / cd-then-git cross-repo forms ---
-# Review: patrik F4/F5 — these forms evade the parser and allow off-daily
-# branch ops in sibling repos. Minimum viable: deny outright when followed by
-# a branch-mutating subcommand. Legitimate cross-repo work uses the override.
+# --- F4/F5 (form-split relaxation, 2026-05-08): Cross-repo branch-op policy ---
+# Spec backlink: ~/.claude/plans/2026-05-08-daily-branch-discipline-cross-repo.md
+#
+# KEPT (cd && git): The hook subprocess captures $GIT_ROOT once from the
+# *original* cwd. A `cd` before the git invocation changes directory in the
+# user's shell but not here — policy checks would run against the wrong repo's
+# refs/heads. This form continues to require COORDINATOR_OVERRIDE_BRANCH=1.
+#
+# RELAXED (git -C / --git-dir): The global-flag skip at the parser loop
+# (below) already strips -C / --git-dir flags before tokenising the subcommand.
+# The threat model is *shape*, not *location* — the parser's is_canonical_branch
+# / is_allowed_branch oracles apply identically regardless of which repo is
+# targeted. The F4/F5 outright deny was belt-on-working-suspenders; removing it
+# lets the parser's shape policy apply cross-repo.
 
-# Detect cd <path> && git <branch-op> chains.
+# Detect cd <path> && git <branch-op> chains — KEEP deny, parser cannot track
+# post-cd cwd. Use COORDINATOR_OVERRIDE_BRANCH=1 for legitimate cd-then-git ops.
 if echo "$COMMAND" | grep -qE 'cd[[:space:]]+[^&;|]+(&&|;)[[:space:]]*git[[:space:]]+(checkout|switch|branch|stash[[:space:]]+branch|worktree)'; then
   emit_deny \
-    "Cross-directory 'cd && git' branch op is not parsed; use COORDINATOR_OVERRIDE_BRANCH=1 if intentional." \
+    "Cross-directory 'cd && git' branch op is not parsed; the hook captures GIT_ROOT at entry and cannot follow the cd. Use COORDINATOR_OVERRIDE_BRANCH=1 if intentional." \
     "cd-then-git"
 fi
 
-# Detect git -C <path> / --git-dir / --work-tree global flags before subcommand.
-# We check for these flags appearing in the raw command string alongside a branch-mutating subcommand.
-if echo "$COMMAND" | grep -qE '\bgit[[:space:]]+(-C[[:space:]]|--git-dir[=[:space:]]|--work-tree[=[:space:]])'; then
-  # Only deny if a branch-mutating subcommand follows anywhere in the command.
-  if echo "$COMMAND" | grep -qE '(checkout|switch|branch|stash[[:space:]]+branch|worktree[[:space:]]+add)'; then
-    emit_deny \
-      "git -C / --git-dir cross-repo branch op is not parsed; use COORDINATOR_OVERRIDE_BRANCH=1 if intentional." \
-      "git-C-or-git-dir"
-  fi
-fi
+# git -C / --git-dir forms: fall through to the parser below. The global-flag
+# skip loop captures any -C <path> value into op_repo_root for use in
+# is_local_branch and @{-1} resolution.
 
 # --- Parse the command. Tokenise, then handle each shape. ---
 # Strip leading/chained-prefix (handles "&& git checkout -b foo" etc.).
@@ -312,19 +338,43 @@ strip_quotes() {
 # Walk tokens, find the relevant git op.
 i=0
 n=${#TOKENS[@]}
+# op_repo_root: the repo root the current git invocation targets.
+# Default is $GIT_ROOT (same-repo). Overridden to the -C <path> value when the
+# global-flag skip loop sees a -C flag. Used in is_local_branch and @{-1}
+# resolution so cross-repo forms validate against the correct repo's refs/heads.
+op_repo_root="$GIT_ROOT"
 while (( i < n )); do
   tok="${TOKENS[$i]}"
+  # Reset op_repo_root for each new git token encountered.
+  op_repo_root="$GIT_ROOT"
   case "$tok" in
     git)
       sub="${TOKENS[$((i+1))]:-}"
       # Review: patrik F4 — skip past git global flags (-C, --git-dir, etc.)
-      # before reading the subcommand. These were already denied above, but the
-      # parser guard here prevents false-allows if the deny somehow doesn't fire.
+      # before reading the subcommand.
+      # Spec (2026-05-08 form-split relaxation): capture -C <path> into
+      # op_repo_root so downstream arms (switch-target is_local_branch,
+      # @{-1} resolution) query the correct sibling repo's refs/heads.
       while [[ "$sub" == -C || "$sub" == --git-dir* || "$sub" == --work-tree* ]]; do
         i=$((i+1))
         # If -C or --git-dir takes a separate value token, skip that too.
+        # Capture the value for op_repo_root resolution.
         case "$sub" in
-          -C|--git-dir|--work-tree) i=$((i+1)) ;;
+          -C)
+            # -C <path>: the value is the next token.
+            op_repo_root="${TOKENS[$((i+1))]:-$GIT_ROOT}"
+            i=$((i+1))
+            ;;
+          --git-dir|--work-tree)
+            # --git-dir <path> or --work-tree <path>: skip the value token.
+            # op_repo_root stays as $GIT_ROOT for --git-dir (we'd need dirname
+            # on the .git path to resolve the work-tree root; not worth the
+            # complexity — cross-repo shape check still applies on the branch name).
+            i=$((i+1))
+            ;;
+          --git-dir=*|--work-tree=*)
+            # --git-dir=<path>: value is embedded; no extra skip needed.
+            ;;
         esac
         sub="${TOKENS[$((i+1))]:-}"
       done
@@ -380,7 +430,9 @@ while (( i < n )); do
                 ;;
               -)
                 # Switch to previous branch — resolve and validate.
-                prev=$(git -C "$GIT_ROOT" rev-parse --abbrev-ref '@{-1}' 2>/dev/null || true)
+                # Use op_repo_root so cross-repo `git -C <path> switch -`
+                # queries the sibling repo's reflog, not $GIT_ROOT.
+                prev=$(git -C "$op_repo_root" rev-parse --abbrev-ref '@{-1}' 2>/dev/null || true)
                 if [[ -z "$prev" || "$prev" == "@{-1}" ]]; then
                   # No previous branch known; allow and let runtime fail.
                   exit 0
@@ -419,7 +471,9 @@ while (( i < n )); do
 
           if [[ -n "$switch_target" ]]; then
             # Is it a local branch? If not, it's a sha/tag/remote-ref — allow.
-            if ! is_local_branch "$switch_target"; then
+            # Pass op_repo_root so cross-repo forms (git -C <path> checkout main)
+            # look up the branch ref in the sibling repo, not $GIT_ROOT.
+            if ! is_local_branch "$switch_target" "$op_repo_root"; then
               # Could be a remote-tracking spec like origin/foo — allow as
               # those produce detached HEAD. Commit-time check catches commits there.
               exit 0

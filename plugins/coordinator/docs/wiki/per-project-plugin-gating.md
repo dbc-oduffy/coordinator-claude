@@ -28,10 +28,7 @@ userSettings → projectSettings → localSettings → flagSettings → policySe
 Run once per directory; idempotent (re-running on a project that already has the override is a no-op):
 
 ```bash
-~/.claude/bin/claude-ue-bootstrap.sh /x/DroneSim
-~/.claude/bin/claude-ue-bootstrap.sh /x/project-rag
-~/.claude/bin/claude-ue-bootstrap.sh /x/claude-unreal-holodeck
-~/.claude/bin/claude-ue-bootstrap.sh ~/.claude
+~/.claude/bin/claude-ue-bootstrap.sh /path/to/<your-game-repo>
 ```
 
 The script writes `<project>/.claude/settings.json` with the UE override block. If a `settings.json` already exists, it merges using `jq '. * $new'` (right-wins deep merge — existing keys outside `enabledPlugins` are preserved; the four UE plugin keys are set to `true`). Merge path requires `jq`; no-existing-settings fast path is pure shell.
@@ -61,15 +58,11 @@ This preserves deliberate disables (e.g., a third-party UE repo where UE plugins
 
 ## Drift Verifier
 
-`~/.claude/bin/verify-ue-overrides.sh` walks the four known UE-context dirs and asserts each carries the expected override. Wired into `/workday-complete` Step 1 as a non-blocking check:
+A drift verifier — wired into `/workday-complete` Step 1 as a non-blocking check — walks the set of UE-context dirs and asserts each carries the expected override keys in `.claude/settings.json`. Exits 0 on success; exits 1 with diagnostic output on failure (e.g., someone ran `rm -rf .claude/` in a registered UE dir). On failure, re-run the bootstrap for the flagged dir.
 
-```bash
-~/.claude/bin/verify-ue-overrides.sh
-```
+The reference verifier and bootstrap helper are not shipped with this plugin (they're wired to the source author's local layout). Consumers who want this behavior implement their own thin script: a JSON read of `enabledPlugins` per dir, comparing against the four UE plugin keys above, plus the `game-dev@coordinator-claude` opt-in for game-dev sessions.
 
-Exits 0 on success; exits 1 with diagnostic output on failure (e.g., someone ran `rm -rf .claude/` in a named UE dir). On failure, re-run the bootstrap for the flagged dir.
-
-## Lean-Session Routing — Game Dev Reviewer Unavailability
+## Lean-Session Routing — the Game Dev Reviewer Unavailability
 
 The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `game-dev` plugin. In a lean session, the Game Dev Reviewer is not available. The Staff Engineer's routing note in `coordinator/agents/staff-eng.md` provides conditional guidance: if a UE-context session is available, recommend the Game Dev Reviewer; otherwise surface to PM with a request to relaunch in a UE-context dir.
 
@@ -79,8 +72,8 @@ The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context session
 |------|------|
 | `~/.claude/settings.json` | Global default — four UE plugins set to `false` |
 | `<project>/.claude/settings.json` | Per-project opt-in — four UE plugins set to `true` |
-| `~/.claude/bin/claude-ue-bootstrap.sh` | One-shot script to write/merge the per-project override |
-| `~/.claude/bin/verify-ue-overrides.sh` | Drift verifier for known UE-context dirs |
+| `~/.claude/bin/claude-ue-bootstrap.sh` | _(reference helper, not shipped)_ — one-shot script to write/merge the per-project override |
+| `~/.claude/bin/verify-ue-overrides.sh` | _(reference helper, not shipped)_ — drift verifier for UE-context dirs |
 | `coordinator/hooks/scripts/ue-knowledge-distrust.sh` | SessionStart hook — auto-bootstraps on `.uproject` detection |
 | `coordinator/commands/workday-complete.md` | Calls `verify-ue-overrides.sh` in Step 1 validate phase |
 | `coordinator/agents/staff-eng.md` | Carries lean-session routing note for the Game Dev Reviewer |

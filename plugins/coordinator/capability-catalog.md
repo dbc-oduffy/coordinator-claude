@@ -15,12 +15,12 @@ Before using a tool yourself, ask: would a specialist produce better results? Th
 
 When a reviewer returns findings, **accept their expertise** — implement ALL items, including P2s, nitpicks, and suggestions to defer. Every finding is an opportunity to meet or exceed their quality bar. The only exceptions: escalate to the PM when findings change scope, or push back if you believe the reviewer is genuinely wrong (state why explicitly).
 
-**the Staff Engineer (`coordinator:staff-eng`)** — architecture + code review. Use /review-dispatch.
+**Patrik** — architecture + code review. Use /review-dispatch.
 **Enricher/Executor** — codebase research + implementation. Use /enrich-and-review; for executor dispatch follow `docs/wiki/delegate-execution.md`.
 
-**the Data Science Reviewer (`data-science:staff-data-sci`)** — ML, statistics, RAG eval, training. Route: any AI/data pipeline work.
+**Camelia** — ML, statistics, RAG eval, training. Route: any AI/data pipeline work.
 
-**the Game Dev Reviewer (`game-dev:staff-game-dev`)** — UE architecture + C++/BP design (has RAG access + production knowledge base). Route: "should I use X?" design questions. Superior to you on UE idiom judgment.
+**Sid** — UE architecture + C++/BP design (has RAG access + production knowledge base). Route: "should I use X?" design questions. Superior to you on UE idiom judgment.
 **Blueprint Inspector** — automated BP documentation extraction. Route: "document all BPs."
 
 **UE Editor** — 4 domain agents + 1 planner, with typed tools you cannot access directly:
@@ -37,13 +37,13 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **NotebookLM** — break-glass for YouTube/podcasts/audio Claude can't access. Use /notebooklm-research. NOT for normal web research. *(requires deep-research plugin with notebooklm)*
 
-**the Front-End Reviewer (`web-dev:senior-front-end`)** — front-end review (tokens, design system, CSS). **the UX Reviewer (`web-dev:staff-ux`)** — UX flow review (trust, clarity). Use /review-dispatch.
+**Palí** (senior-front-end) — front-end review (tokens, design system, CSS). **Fru** — UX flow review (trust, clarity). Use /review-dispatch.
 
-**eng-director** (the Ambition Advocate (`coordinator:ambition-advocate`)) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
+**eng-director** (Zolí) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
 
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
-- `/staff-session --mode plan` — domain experts debate (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.), the Ambition Advocate (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
-- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. the Ambition Advocate synthesizes findings. Lightweight tier falls through to `/review-dispatch`.
+- `/staff-session --mode plan` — domain experts debate (Patrik, Sid, Camelia, etc.), Zolí (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
+- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. Zolí synthesizes findings. Lightweight tier falls through to `/review-dispatch`.
 - `/research --mode=web <topic>` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=repo <path>` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=structured <spec-path>` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*
@@ -59,14 +59,14 @@ When to use teams vs. subagents: teams when agents need to **communicate** (cros
 - `/architecture-audit` — EM scopes→dispatches Haiku scouts→dispatches Sonnet analysts→dispatches Opus synthesizer→commits atlas.
 
 **Reviewer-routed workers** (dispatched by EM after a reviewer names them in a `## Worker Dispatch Recommendations` block — never dispatched directly by reviewers):
-- **test-evidence-parser** — runs a test command (Jest/pytest/cargo/Go/RSpec — auto-detected), classifies each failure as `real / flake / env / timeout / known-skip`, returns structured markdown table. Dispatch when the Staff Engineer or the Game Dev Reviewer flags test failures needing mechanical triage.
-- **security-audit-worker** — static security scan of a diff or file set; detects path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion; runs semgrep → bandit/gitleaks → grep-heuristics fallback chain. Dispatch when the Staff Engineer flags a security surface in review.
-- **dep-cve-auditor** — reads dependency manifests (`package.json`, `requirements.txt`, `Cargo.toml`, `go.mod`, `pyproject.toml`), runs ecosystem audit tools (`npm audit`, `pip-audit`, `cargo audit`, `govulncheck`), classifies CVEs by severity and our actual usage. Drops a 7-day recheck marker. Dispatch when the Staff Engineer flags a CVE surface, or when `/workday-start` surfaces a `cve-recheck-due-*.md` marker.
+- **test-evidence-parser** — runs a test command (Jest/pytest/cargo/Go/RSpec — auto-detected), classifies each failure as `real / flake / env / timeout / known-skip`, returns structured markdown table. Dispatch when Patrik or Sid flags test failures needing mechanical triage.
+- **security-audit-worker** — static security scan of a diff or file set; detects path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion; runs semgrep → bandit/gitleaks → grep-heuristics fallback chain. Dispatch when Patrik flags a security surface in review.
+- **dep-cve-auditor** — reads dependency manifests (`package.json`, `requirements.txt`, `Cargo.toml`, `go.mod`, `pyproject.toml`), runs ecosystem audit tools (`npm audit`, `pip-audit`, `cargo audit`, `govulncheck`), classifies CVEs by severity and our actual usage. Drops a 7-day recheck marker. Dispatch when Patrik flags a CVE surface, or when `/workday-start` surfaces a `cve-recheck-due-*.md` marker.
 - **doc-link-checker** — crawls `docs/` (or a specified path), validates internal markdown links (file + anchor existence) and external URLs (HEAD requests, 100-URL cap, 1s rate limit), returns structured broken/redirect/timeout table. Dispatch opportunistically from `/update-docs` or when a reviewer recommends it.
 
 **UE holodeck — cinematic and virtual-production agents** (dispatched by EM for specialized UE authoring; require holodeck-control MCP):
 - **ue-cinematic-animator** — level sequences, camera cuts, movie render queue, AnimBP state machines, skeletal mesh + socket setup, anim montages, blend spaces, Control Rig, physics-driven animation (montage, ragdoll, IK), demo replay file scrubbing, animated USD. Does NOT own Chaos sim caches, Niagara cache bakes, ML deformer, Live Link, nDisplay, vcam, take recorder — those route to ue-virtual-production.
 - **ue-virtual-production** — Chaos simulation cache baking (rigid, cloth, flesh), Niagara sim cache baking, ML deformer training (HCG-5 spike-conditional), hair/fur groom assets, Live Link preset authoring, nDisplay cluster config, virtual camera (vcam) asset config, take recorder presets and live capture sessions, sequencer playlists, demo replay live recording. Does NOT own level sequences, AnimBP, skeletal mesh setup — those route to ue-cinematic-animator.
 
-**UE holodeck — game-dev workers** (dispatched by EM after the Game Dev Reviewer or the Staff Engineer names them; require UE automation artifacts on disk):
+**UE holodeck — game-dev workers** (dispatched by EM after Sid or Patrik names them; require UE automation artifacts on disk):
 - **bp-test-evidence-parser** — ingests UE Automation Framework artifacts and PIE wave outputs (`manage_pie` JSON, automation `.json` reports, screenshots directories), classifies failures as `real / flake / PIE-startup / asset-load / cooked-vs-editor-mismatch / known-skip`, returns per-wave breakdown table. UE-specific counterpart to `test-evidence-parser` — handles UE automation artifacts only; general test frameworks use `test-evidence-parser`.
