@@ -1,4 +1,5 @@
 ---
+name: workday-complete
 description: End-of-day orchestration — validate, consolidate branches, daily review, append to week-changelog
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[optional summary of the day]"

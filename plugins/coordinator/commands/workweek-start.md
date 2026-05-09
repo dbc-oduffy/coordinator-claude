@@ -1,4 +1,5 @@
 ---
+name: workweek-start
 description: Weekly strategic orient — surface last week's results, set this week's priorities, update HEADER.md
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: ""

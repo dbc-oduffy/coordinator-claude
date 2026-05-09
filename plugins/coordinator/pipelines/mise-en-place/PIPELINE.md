@@ -189,11 +189,23 @@ This tells the hook to emit informational-only context pressure messages (no han
 
 ### Phase 6: Tail — Close Out the Run
 
-After all waves are executed and verified, mark all item tasks as `completed` via TaskUpdate, clean up the autonomous-run sentinel, then execute the tail action based on mode:
+After all waves are executed and verified, mark all item tasks as `completed` via TaskUpdate, clean up the autonomous-run sentinel, run the **mandatory end-of-run code review** (minimum Sonnet — see below), then execute the tail action based on mode:
 
 ```bash
 rm -f /tmp/autonomous-run-${SESSION_ID}
 ```
+
+**End-of-run code review (mandatory — minimum Sonnet, both modes):**
+
+Every /mise run ends with at minimum a Sonnet code review of the cumulative diff. Per-item Haiku verifiers cover footprint + AC compliance only; they are not a substitute for a real review pass. The review fires BEFORE `/update-docs` and BEFORE hibernate so findings can be addressed in-band.
+
+1. Compute the run's cumulative diff range from the goal task's recorded starting SHA through HEAD.
+2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (default: generalist staff-eng pass; escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per `docs/wiki/session-end-review.md`).
+3. Persist the review record to `tasks/review-trail/<timestamp>-mise-<run-id>.json`.
+4. On findings, dispatch review-integrator (`mode: "acceptEdits"`) for tradeoff-free corrections. Surface real tradeoffs to the PM in the tail summary; do not defer to a follow-up session.
+5. In hibernate mode the review must complete and any integrator commits must be pushed before the hibernate command fires. If review dispatch itself fails (rate-limit/auth), retry once; if it still fails, hibernate anyway and surface the gap in the tail summary on disk — do not block hibernate on infrastructure noise. **Do not skip review for non-infrastructure reasons.**
+
+This is the structural backstop for autonomous runs: nobody is watching, so the cumulative diff gets a second set of eyes before the EM relinquishes control.
 
 **Standard (default):**
 1. Invoke `/update-docs` — sync documentation, commit, push to branch (includes artifact distillation if thresholds are met)

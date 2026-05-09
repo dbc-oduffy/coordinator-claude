@@ -1,4 +1,5 @@
 ---
+name: workday-start
 description: Morning orientation — triage handoffs, surface staleness, align priorities
 allowed-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[optional day focus]"

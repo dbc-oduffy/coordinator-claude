@@ -1,4 +1,5 @@
 ---
+name: daily-review
 description: Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
