@@ -185,8 +185,22 @@ EXCLUDED_PREFIXES=(
   "docs/plans/" "docs/research/" "docs/decisions/" "docs/specs/"
 )
 
+# Self-corruption guard: any file whose own content IS the substitution
+# vocabulary (this script and the publish-repo's checker that mirrors the
+# table) must be skipped, regardless of where it sits in the tree. Without
+# this guard, --fix on a tree containing either rewrites the literal table
+# entries themselves and breaks both tools. Discovered the hard way during
+# 2026-05-09 publish-sanitization dogfood (bulk-fix on /x/coordinator-claude
+# corrupted the publish-repo's check-persona-names.py PERSONA_NAMES list).
+EXCLUDED_BASENAMES=( "depersonalize-for-publish.sh" "check-persona-names.py" )
+
 is_excluded() {
   local rel="$1"
+  local base; base="$(basename "$rel")"
+  for b in "${EXCLUDED_BASENAMES[@]}"; do
+    [[ "$base" == "$b" ]] && return 0
+  done
+  case "$base" in *check-persona*|*depersonalize*) return 0 ;; esac
   for pfx in "${EXCLUDED_PREFIXES[@]}"; do
     if [[ "$rel" == "$pfx"* ]]; then return 0; fi
   done

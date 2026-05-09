@@ -87,6 +87,12 @@ log() { [ "$QUIET" -eq 1 ] || echo "$@"; }
 # Discover wiki names cited from plugin files. Strategy: grep for the literal
 # substring `docs/wiki/` in plugin files (CLAUDE.md, README, agents/, commands/,
 # skills/, snippets/, pipelines/, hooks/), then extract the wiki filename token.
+#
+# Placeholder filter: names matching common example/placeholder tokens (foo, bar,
+# baz, qux, example, name, your-wiki-name) are filtered out — these appear in
+# illustrative tables/code-fences inside snippets and agent prompts and are not
+# real wiki citations.
+PLACEHOLDER_RE='^(foo|bar|baz|qux|example|name|your-wiki-name|wiki-name)$'
 mapfile -t names < <(
   grep -rhoE 'docs/wiki/[a-zA-Z0-9_-]+\.md' \
     "${PLUGIN_ROOT}/CLAUDE.md" \
@@ -103,7 +109,8 @@ mapfile -t names < <(
     --exclude='*.test.js' \
     2>/dev/null \
   | sed -E 's|^docs/wiki/||; s|\.md$||' \
-  | sort -u
+  | sort -u \
+  | grep -vE "$PLACEHOLDER_RE"
 )
 
 if [ "${#names[@]}" -eq 0 ]; then

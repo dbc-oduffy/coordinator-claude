@@ -60,7 +60,7 @@ The repo registry (`~/.claude/tasks/repo-registry.md`) is a structured cross-rep
 |---|---|---|
 | `peer` | Sibling stack — same domain, parallel development | `coordinator-claude` ↔ `deep-research-claude` |
 | `dev-publish` | Working tree ↔ installed/published copy | `coordinator-claude` ↔ `claude-central` |
-| `consumes-from` | One repo's outputs feed another | `<your-app>` `consumes-from` `<your-rag>` |
+| `consumes-from` | One repo's outputs feed another | `<your-app>` `consumes-from` `<your-rag-indexer>` |
 
 ## Status semantics
 

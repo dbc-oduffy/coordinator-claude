@@ -1,4 +1,5 @@
 ---
+name: pickup
 description: Resume work from a handoff — grab the baton and run
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[handoff-file-path]"
