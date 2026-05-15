@@ -11,7 +11,27 @@ Verify-then-grind through `tasks/bug-backlog.md`. Re-check each item against cur
 
 **Operates exclusively on `tasks/bug-backlog.md`.** Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries are NOT pre-spec'd executor stubs, so triage is the spec-creation step.
 
-**Announce at start:** "Running `/bug-blitz` — verifying backlog, then autonomous parallel waves through fixable items. Big items auto-spinoff to handoffs."
+**Announce at start:** "Running `/bug-blitz` — verifying backlog, then aggressive autonomous parallel waves through every fixable item. The default is dispatch-and-spot-check; defer requires named evidence. Big items auto-spinoff to handoffs."
+
+## Default Stance — Dispatch, Don't Defer
+
+The skill's job is to *grind the backlog down*, not to produce a triage report. Empirically (smoke 2026-05-14) the skill defers 90%+ of items on lazy grounds — "lacks standalone entry," "judgment-call refactor," "intersects active plan" — and ships a run that fixes 2 of 47 items. That is failure, not caution. **Fix the lazy defer, not the run.**
+
+**Hard rules — defer ONLY for these reasons, all of which require evidence in the verdict row:**
+
+1. **`already-fixed`** — commit SHA cited; the pattern is provably gone from HEAD.
+2. **`file-removed`** — the cited file no longer exists.
+3. **`big` (auto-spinoff)** — multi-file refactor, schema/contract change, or new test fixtures required. The footprint must be ≥3 files OR introduce a new module/interface. "I'd need to think about it" is not `big`.
+4. **`plan-substrate-collision`** — the fix would edit code an open plan in `docs/plans/` is *actively rewriting* (not merely touching nearby). Cite the plan path + the specific file(s) it claims. If the plan touches `foo.py` but the bug is in `bar.py`, that is not a collision.
+
+**The following are NOT valid defer reasons** (treat as dispatch signal, not skip signal):
+
+- "Summary-form" / "lacks standalone entry" / "not yet expanded into a row." If the backlog text carries file:line + a one-line description, the EM (or a Haiku) expands it into a dispatch brief inline during Phase 1. Summary entries are spec-creation work, not skip work.
+- "P2 judgment-call" / "refactor flavor" / "caching strategy" / "god-function decomposition." P2 ≠ skip. If the fix is mechanical (rename, extract, parameterize, replace string) and footprint-bounded, dispatch it. The EM spot-checks the diff at the wave gate — that is the judgment call, applied to concrete code rather than to a backlog row.
+- "Intersects active plan" without a named file collision. Mechanical fixes adjacent to in-flight plans are fine; they go through the same wave-gate review as everything else and conflict-out at git-level if they actually collide.
+- "Would take careful thought." Careful thought is what the executor + verifier + EM spot-check chain is *for*. Push the judgment into the dispatch, not in front of it.
+
+**Recovery framing.** The 2026-05-14 run resolved 2 items and deferred ~45 P2s in "summary form." On a re-run of that shape: expect to expand the summary-form entries inline during Phase 1, dispatch them in file-disjoint waves, and converge on a fix-rate of 50%+ of the verified-open backlog per run, not 5%.
 
 ## Arguments
 
@@ -58,10 +78,11 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
    - `git log --oneline -5 <file>` — did a recent commit address it?
    - Verdict: `still-open` | `already-fixed` | `pattern-changed` | `file-removed`
 2. **Size classify (only if `still-open` or `pattern-changed`):**
-   - `small` — single-file edit, no new tests required, fix is obvious from the recommended-fix line. AI-fixable in <10 minutes.
-   - `big` — multi-file refactor, new test fixtures needed, schema/contract change, or design decision required. Triggers auto-spinoff (Phase 2).
-   - `needs-investigation` — pattern is ambiguous; needs EM to read code carefully before deciding. Stays in backlog with note.
+   - `small` — footprint ≤2 files, no new test fixtures, fix shape derivable from cited code + recommended-fix line. **Default classification.** P2 / "refactor flavor" / "judgment-call" items with a bounded mechanical fix shape are `small`, not `big`. AI-fixable in <10 minutes.
+   - `big` — footprint ≥3 files OR introduces a new module/interface OR requires schema/contract change OR requires new test fixtures. Triggers auto-spinoff (Phase 2).
+   - `needs-investigation` — **NOT a terminal verdict.** A Haiku flagging this must include the file:line range it actually inspected and the specific ambiguity. The EM resolves it at the Phase 2 gate by reading the cited code; it then converts to `small`, `big`, or `already-fixed`. It never stays in the backlog unresolved across this skill.
 3. **Footprint declaration (small only):** the file(s) the fix would touch.
+4. **Summary-form expansion.** If the backlog entry is a multi-item summary row (e.g. one row covering N file:line citations under a shared theme), the Haiku expands it into one verdict row per cited file:line in the output table. Summary rows do not pass through — they fan out. **Carrying a summary row forward as a single "needs decomposition" defer is a Phase 1 failure.**
 
 **Output schema (per chunk):**
 
@@ -78,6 +99,10 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 ## Phase 2: Plan Waves + Auto-Spinoffs (EM, ~3 min)
 
 Read all chunk verifications from disk. Build the execution plan.
+
+### Step 2.0: Resolve `needs-investigation` rows
+
+Every `needs-investigation` row from Phase 1 gets read by the EM (cited file:line + surrounding context) and converted to `small`, `big`, or `already-fixed` here. **The skill does not exit with `needs-investigation` rows still pending** — that is the "lazy defer" failure mode the Default Stance prohibits. If a row genuinely cannot be classified after the EM reads the code (rare), reclassify as `big` and let the spinoff handoff carry it.
 
 ### Step 2.1: Auto-spinoff big items
 
@@ -208,17 +233,27 @@ For each wave:
 
 After all waves complete:
 
-1. **Final backlog update.** Phase 4:
+1. **Final backlog update — prune-with-paper-trail.** The fixes themselves are the paper trail (each PASS item committed individually in Phase 3 with the item ID in the commit subject); Phase 4 removes the now-redundant backlog rows so the backlog doesn't bloat. Phase 4:
    - Updates the header: `last_run: bug-blitz-{run-id}`, `last_run_commit: <new-HEAD>`, current open counts.
-   - Removes resolved/spun-off rows from the active P1/P2 tables. Already-fixed items are deleted from active tables (named in commit subject and final report — not moved to a resolved section).
-   - Adds `## Spun off (this run)` section with each spinoff: ID, handoff path (if not yet present).
+   - **Deletes — does NOT archive in-place — every closed row** from the active P1/P2 tables. Three closure shapes, all delete:
+     - `PASS` (fixed this run) — paper trail is the Phase 3 commit naming the item ID
+     - `already-fixed` (silent prior fix) — paper trail is the cited prior commit SHA in the final report
+     - `spun-off` (auto-spinoff to handoff) — paper trail is the handoff path
+   - **No "Resolved this run" section inside the backlog.** The backlog is the queue of OPEN work. Closed items live in `git log` + the final report — adding them back to the backlog as a "resolved" section defeats the prune.
+   - Adds `## Spun off (this run)` section with each spinoff: ID, handoff path. (Spinoffs are pointers to live work elsewhere, not closure records.)
    **Note: last-write-wins hazard.** If two bug-blitz runs overlap, the second run's Phase 4 rewrite will overwrite the first. Do NOT run concurrent bug-blitzes.
-2. **Commit the backlog update** as the final wave (EM-serial, single Bash call): `git reset && git add -- tasks/bug-backlog.md && git commit -m "bug-blitz {run-id}: prune <N> resolved, <M> spun-off"`. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
-3. **Clean scratch.** Run cleanup only after backlog commit succeeds:
+2. **Commit the backlog prune** as the final wave (EM-serial, single Bash call):
+   ```bash
+   git reset && git add -- tasks/bug-backlog.md && \
+     git commit -m "bug-blitz {run-id}: prune resolved — fixed: <ID1, ID2, ...>; already-fixed: <ID3, ...>; spun-off: <ID4, ...>"
+   ```
+   **The commit subject MUST name every closed ID** (across all three closure shapes). This is the greppable paper trail — `git log --all -- tasks/bug-backlog.md | grep BS-NNNN` resolves "whatever happened to that bug?" without reading the backlog history. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
+3. **If no items closed this run** (all verifications came back blocked / pattern-shifted / nothing fixable), do NOT commit an empty backlog update. Skip to the final report and announce the no-op — that itself is a useful signal that the backlog has reached a state where bug-blitz alone can't make progress and the next step is `/bug-sweep` or `/plan`.
+4. **Clean scratch.** Run cleanup only after backlog commit succeeds:
    ```bash
    rm -rf tasks/scratch/bug-blitz/{run-id}/ 2>/dev/null || { echo "Warning: scratch cleanup failed — tasks/scratch/bug-blitz/{run-id}/ may need manual removal. Not failing the run." ; }
    ```
-4. **Final report to PM:**
+5. **Final report to PM:**
 
 ```markdown
 ## Bug Blitz Complete

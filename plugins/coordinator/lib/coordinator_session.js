@@ -86,10 +86,14 @@ function _toShellPath(p) {
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    if (out && out.trim()) return out.trim();
+    if (out && out.trim()) normalized = out.trim();
   } catch (_e) {
     // cygpath not available — use normalized form.
   }
+  // Escape double-quotes and dollar signs for safe interpolation inside
+  // bash -c "..." double-quoted strings (backslash handling above already
+  // converted Windows separators; do quotes/dollars last).
+  normalized = normalized.replace(/"/g, '\\"').replace(/\$/g, '\\$');
   return normalized;
 }
 

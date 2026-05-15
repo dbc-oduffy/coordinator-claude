@@ -31,6 +31,8 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 
 > "If you're considering Sonnet-only because escalation feels like ceremony rather than because the diff is genuinely shallow — escalate. The Staff Engineer is one dispatch away; the cost of redundant review is one Opus call. The cost of unreviewed integration risk shipping to main is hours of debugging."
 
+**Doctrine-table defaults are defaults, not negotiation starting points.** Each row in the diff-shape table above specifies a *default review scale*. The EM has waive authority for genuinely shallow diffs — a one-line rename, a mechanical typo fix — but "I already did plan-time review" and "the workstream felt small" are not waive grounds; they are the rationalization shapes the anti-ceremony bias takes. Plan-time review and post-implementation review catch different defect classes (see § Why post-implementation review is not redundant with plan-time review below). The table row that matches the session shape is the starting point; the EM must articulate a diff-shape reason to waive below it, not a coverage-completeness reason.
+
 ## Why post-implementation review is not redundant with plan-time review
 
 EM judgment on row 3+ keeps waive authority for genuinely shallow diffs (a one-line rename caught by an executor, a mechanical typo fix, a single-file refactor with obvious shape). The diff-shape table's defaults stand; this section names four recurring rationalization patterns that look like judgment but are actually shape-mismatched substitutions, so future EMs can pattern-match against them.
@@ -50,7 +52,19 @@ If a waive rationale boils down to "the plan was already reviewed," that's the s
 
 **The pattern-match tell:** if the EM is drafting a "waiving with rationale" sentence on a row-3+ session, the rationale itself is the tell. Compose the sentence; read it back; if it leans on plan-time coverage, executor gates, distributed/heavy upstream review, or "we've already done a lot" — run the Sonnet review. It's one dispatch. The marker trail records `verdict=ok` in seconds and downstream load-shedding still benefits.
 
+**Summary.** Plan-time review (writing-plans pre-flight) and post-impl review (session-end review) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop session-end review because "pre-flight passed."
+
 **Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived session-end Sonnet on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh Sonnet lens on the actual diff catches.
+
+## Findings disposition — fix everything, including nitpicks
+
+A reviewer verdict of `OK` with N "below blocking threshold" observations is not a license to commit and move on. Those observations *are* the review output. The diff is fresh, the EM has context, and folding them in now costs a fraction of what they cost three weeks later when someone is hunting the bug they hinted at.
+
+**Rule:** all findings of any severity fold in via `coordinator:review-integrator` before the marker-trail write. P0 / P1 / P2 / nitpick / observation / note / "consider" — same treatment. The integrator escalates real disagreements; it does not silently skip on severity.
+
+**The only legitimate skip path** is a real tradeoff that escalates to PM per `coordinator/CLAUDE.md` § Reviewer findings — apply, don't ratify: cost/value, scope/polish, architectural direction. "Recorded below blocking threshold" framing in an EM wrap-up sentence is the tell that this rule was skipped — re-open the diff, fold the findings, then write the marker.
+
+**Verdict semantics under this rule.** The marker trail's `verdict` field records what the reviewer found on the *pre-fix* diff (`ok` / `warn` / `blocked`), not what shipped. The verdict is a downstream load-shedding signal; the trail is not a fix-completion log. A pre-fix `verdict=ok` with three observations all folded in is the expected shape, not a contradiction.
 
 ## Marker trail mechanics
 

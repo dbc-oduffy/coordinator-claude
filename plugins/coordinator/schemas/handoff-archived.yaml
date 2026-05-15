@@ -25,7 +25,7 @@ optional:
   machine: string
   kind:
     type: enum
-    values: [session-handoff, spinoff, spinoff-roadmap]
+    values: [session-handoff, spinoff, spinoff-roadmap, recovery]
   authoring_session: string
   workstream: string
   scope: list-of-string

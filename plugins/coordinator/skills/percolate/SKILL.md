@@ -29,10 +29,47 @@ Wraps the existing `publish.sh` + publish-repo CI gate into a single determinist
 
 **Do NOT use `/percolate` when:**
 - Publishing ALL targets at once — run `bash ~/.claude/setup/publish.sh` directly for multi-target.
-- You need to edit `publish-targets.sh` or add a new target — run `/setup-percolate` instead.
+- You need to edit `publish-targets.sh` or add a new target — Branch 0 will walk setup automatically. Manual edit of `publish-targets.sh` also works.
 - You want to commit or push changes in the publish repo — this skill does not manage the publish repo's git state.
 
 ## Step Sequence
+
+### Branch 0 — First-Run Setup (idempotent gate)
+
+**Run this branch before Step 1 on every invocation.** It silently skips when the target is already fully configured; it walks setup when any piece is missing.
+
+**Gate check — all three conditions must be true to skip:**
+
+1. `<target>` argument is provided AND appears in `setup/publish-targets.sh`.
+2. `<source_dir>/.percolate-ignore` exists (resolve `<source_dir>` from the matching TARGETS entry's third pipe-separated field).
+3. Hook directories `setup/percolate-hooks/<target>/pre-rsync/`, `post-rsync/`, and `pre-ci/` all exist.
+
+```bash
+# Gate check — source publish-targets.sh and test conditions
+bash -c '
+  source setup/publish-targets.sh 2>/dev/null || { echo "MISSING_TARGETS"; exit 0; }
+  TARGET="<target>"
+  src_dir=""
+  for t in "${TARGETS[@]}"; do
+    IFS="|" read -r name mode src dest <<< "$t"
+    if [[ "$name" == "$TARGET" ]]; then src_dir="$src"; break; fi
+  done
+  [[ -z "$src_dir" ]] && { echo "MISSING_TARGET_ENTRY"; exit 0; }
+  [[ ! -f "${src_dir}/.percolate-ignore" ]] && { echo "MISSING_IGNORE"; exit 0; }
+  for hp in pre-rsync post-rsync pre-ci; do
+    [[ ! -d "setup/percolate-hooks/$TARGET/$hp" ]] && { echo "MISSING_HOOK_DIR:$hp"; exit 0; }
+  done
+  echo "CONFIGURED"
+'
+```
+
+**On `CONFIGURED`:** silent skip — proceed directly to Step 1 (Pre-Flight).
+
+**On any other output:** walk `docs/wiki/percolate-setup.md` (plugin-relative path) inline, following Steps 1–5 of that procedure. After the setup procedure completes, continue to Step 1 below.
+
+The setup wiki is the single source of truth for the interactive procedure (target registration, `.percolate-ignore` audit-and-classify, grey-zone `AskUserQuestion`, hook scaffolding, and drift detection). Do not duplicate its steps here — walk it inline.
+
+---
 
 ### Step 1 — Pre-Flight: Verify Target Exists
 
@@ -72,7 +109,7 @@ Parse the dry-run stdout to determine:
 - Whether any deletions are present (lines matching `deleting` or `del.` in rsync summary).
 - Total file count touched (lines not prefixed with a directory marker).
 - Whether any sensitive paths are touched: `CLAUDE.md`, `settings.json`, files under `hooks/`, files under `agents/`.
-- **`.percolate-ignore` policy state:** if the dry-run output contains `No .percolate-ignore found at <source>`, surface this as a non-blocking nudge to the PM: _"`.percolate-ignore` is missing — currently publishing everything. Run `/setup-percolate` to scaffold one."_ The publish proceeds normally regardless; the nudge is informational.
+- **`.percolate-ignore` policy state:** if the dry-run output contains `No .percolate-ignore found at <source>`, surface this as a non-blocking nudge to the PM: _"`.percolate-ignore` is missing — currently publishing everything. Re-run `/percolate <target>` — Branch 0 will detect and walk the setup wiki."_ The publish proceeds normally regardless; the nudge is informational.
 
 #### Step 2a — Coverage-drift detection
 
@@ -137,7 +174,7 @@ xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
 
 # Tier MEDIUM — PM/EM identity, internal paths, peer-repo names. Surfaces to PM gate.
 xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
-  "([Dd][óo]nal\\b|O'?[Dd]uffy|\\boduffy\\b|delphiinteractive|\\bstriker\\b|/c/Users/oduffy|~/\\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b)" \
+  "([Dd][óo]nal\\b|O'?[Dd]uffy|\\boduffy\\b|delphiinteractive|\\bstriker\\b|/c/Users/oduffy|~/\\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b)" \
   2>/dev/null
 
 # Tier LOW — informational only. Renders in panel without forcing gate.
@@ -179,7 +216,7 @@ Content-leakage scan:
 - MEDIUM ≥1: panel rendered, gate FORCED to fire (PM confirmation required even if file count <10), confirmation prompt notes the MEDIUM count.
 - LOW ≥1 OR all clean: panel rendered for transparency; does not change gate-fire logic.
 
-**Hook escape:** if a `<source_dir>/.percolate-scan-allowlist` file exists, treat each line as a `file:line` exemption (e.g. for a wiki that legitimately documents an example secret format). The exemption MUST be the exact file:line; pattern matches don't auto-allowlist. Exemptions are reviewed at `/setup-percolate` time, not here.
+**Hook escape:** if a `<source_dir>/.percolate-scan-allowlist` file exists, treat each line as a `file:line` exemption (e.g. for a wiki that legitimately documents an example secret format). The exemption MUST be the exact file:line; pattern matches don't auto-allowlist. Exemptions are reviewed during percolation setup (see `docs/wiki/percolate-setup.md` § Drift Detection), not here.
 
 **False-positive caveat:** the regex set is intentionally broad. `the PM` matches any first-name use (intended). Refining is the EM's call when integrating findings — but defaulting to "surface and let PM judge" beats "silently miss a real leak."
 

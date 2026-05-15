@@ -74,6 +74,8 @@ On switch-gears, the EM proposes to PM with the mechanical signal as evidence, g
 
 Grinding past the switch-gears threshold because the budget still permits more iterations is the failure mode. Budget exhaustion is itself a switch-gears signal; it does not authorize filing the remainder to the backlog.
 
+Acceptance criteria that require PM-eyeballs verification ("PM confirms the rendered output looks right") are legitimate autonomous-mode stop conditions — the autonomous run pauses, surfaces the artifact, and waits. This is not a "work item" to defer; it's a structural gate in the dogfood loop.
+
 ---
 
 ## 5. What Dogfooding Is NOT
@@ -106,6 +108,22 @@ Universal lesson captured from this run: **"Dogfood means fix-through, not file-
 Canonical archived plan: `archive/specs/2026-05-06-agentic-install-hardening.md`.
 
 ---
+
+## 7. E2E Gate Timing — Schedule as Early as the Producer Can Compile
+
+End-to-end execution gates catch real bugs that unit tests + structural verification miss. The 2026-05-13 Stream-J β.5 dogfood surfaced **five distinct bugs in one session**, all in code that had passed unit tests + structural review + docs-check:
+
+1. A spec-cited API function that did not exist in the target engine version (docs-check Gate A blind spot).
+2. A C++ namespace-shadow bug (no test exercised the multi-item header path).
+3. An MSYS path-translation bug in the wrapper script (`--dry-run` skipped the node handoff that triggered it).
+4. `/tmp` manifest paths handed to `node.exe` (same dry-run blind spot).
+5. A C++ batch-output overwrite-per-iteration bug (explicit TODO-confessed in code; reviewer didn't catch it).
+
+Each caught **only when the actual end-to-end flow ran** — the producer was actually invoked, the rebuilt plugin actually loaded, the multi-item commandlet actually iterated. Several were one-line fixes with high cost-to-find ratios. Without the e2e gate, they'd have shipped and surfaced at next-consumer's first attempt.
+
+**Rule:** when a plan has an end-to-end execution gate (`/dogfood`, integration smoke against real runtime, β.5-style "rebuild + run capture script live"), **schedule it as soon as the producer-side artifacts can plausibly compile and invoke** — don't wait until everything looks structurally clean. The structural-clean state is precisely when latent integration bugs hide best: skeleton stubs, structural reviews, and docs-checks each verify a specific surface; none substitute for "actually run the thing end-to-end."
+
+**Multi-stage plan corollary.** For a plan with α / β / β.5 / γ / δ / ε waves, β.5 (the e2e gate) is **more valuable than δ (the consumer-side test) for catching producer-side bugs** — schedule the e2e gate as early as the producer can compile, even with a partial-AC fixture form. The full integration test downstream is for the consumer surface; the early e2e gate is for the producer surface, and the producer surface is the bug-rich one.
 
 ## Cross-References
 

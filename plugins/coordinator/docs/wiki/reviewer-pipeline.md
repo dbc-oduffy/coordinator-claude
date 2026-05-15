@@ -1,77 +1,22 @@
 ---
-name: review-dispatch
-description: Route artifacts to the right reviewer
-allowed-tools: ["Read", "Grep", "Glob", "Agent"]
-argument-hint: "[file-path|'plan'|'code'|'stubs'] [--reviewers 'name1,name2'] [--problems-only]"
+name: reviewer-pipeline
+spec_backlink: docs/plans/2026-05-09-skill-consolidation-pass.md
+status: canonical
 ---
 
-# Review Dispatch — Smart Reviewer Routing
+<!-- Purpose: Canonical home for the shared reviewer pipeline phases used by both /review (plan-shaped) and /review-code (code-shaped). Carries Phases 2.5, 2.7, 2.7b, 2.7c, 2.8, 3.5, 3.7, 4, and 5 verbatim from the former review-dispatch skill. Does NOT carry the routing table (lives in each skill's Branch A.2) or the sequential-dispatch HARD RULE (lives in each skill's Branch A.3). -->
 
-Determine which reviewers to summon for a given artifact, at what effort level, and dispatch them sequentially. Usable standalone for hotfixes/PR reviews or as part of the enrichment pipeline.
+# Reviewer Pipeline — Shared Phases Reference
 
-## Instructions
+This wiki is the single authoritative source for the phases that run identically for plan reviews (`/review`) and code reviews (`/review-code`). Both skills reference these phases inline — they are not optional. Walk them in order as directed by the invoking skill.
 
-When invoked, analyze the artifact to be reviewed and dispatch the appropriate reviewers.
+**Scope boundary:** This wiki carries numbered phases with their inline framing prose (rationale paragraphs, EM Decision Step tables, On-failure clauses, write-ahead status). It does NOT carry:
+- The reviewer routing table — lives in each skill's Branch A.2.
+- The sequential-dispatch HARD RULE — lives in each skill's Branch A.3.
 
-If `$ARGUMENTS` is provided:
-- A file/directory path → review that artifact
-- "plan" → optimize routing for plan document review
-- "code" → optimize routing for code review
-- "stubs" → optimize routing for enriched stub review
-- `--reviewers "name1,name2"` → explicit reviewer override, bypassing routing table auto-detection. Reviewers are dispatched in order listed. Use this for PM-directed dual-review setups (e.g., `--reviewers "sid,patrik"` for domain + architectural pass).
-- `--problems-only` → suppress praise and suggestions; return only actionable findings. See **Problems-Only Mode** below for the full contract.
+---
 
-### Problems-Only Mode
-
-When `--problems-only` is specified, append to the reviewer prompt:
-
-> Return only findings that identify problems, bugs, security issues, or correctness concerns. Do not include praise, compliments, or suggestions for optional improvements. Nitpick-severity findings should still be included in your JSON output but will be filtered from the rendered summary.
-
-Three explicit behaviors:
-1. Nitpicks are written to the JSON file for audit trail
-2. Nitpicks are omitted from the rendered Markdown table
-3. Nitpicks are NOT auto-applied to the artifact
-
-The filter criterion is `severity != "nitpick"` — not prose-based filtering.
-
-### Phase 1: Analyze the Artifact
-
-1. Read the artifact (file, directory of stubs, or diff)
-2. Determine the nature of the work by looking for signals:
-   - Game dev / Unreal / DroneSim references → the Game Dev Reviewer route
-   - Architectural changes, new subsystems, new abstractions → the Staff Engineer route
-   - Front-end, CSS, UI components, tokens, design system → the Front-End Reviewer route
-   - ML/AI pipeline, model serving, RAG, data science → the Data Science Reviewer route
-   - UX flow, user-facing feature, trust/clarity → the UX Reviewer route
-   - Cross-cutting changes (many files, new patterns) → the Staff Engineer route
-   - Multiple signals → use the strongest signal for Reviewer 1, secondary for Reviewer 2
-3. Report the routing decision before dispatching
-
-### Phase 2: Apply Routing Table
-
-**If `--reviewers` was provided:** Skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Look up each reviewer's agent type and model from the composite routing table. Report: "PM-directed review: [name1] then [name2]."
-
-**Otherwise, auto-detect** using dynamic discovery:
-1. Read the base routing table from this plugin's `coordinator/routing.md`
-2. Scan all enabled plugins for `<plugin-root>/coordinator/routing.md` (or equivalent root-level `routing.md`) fragments
-3. Merge into composite routing table
-4. Match the artifact's signals against the composite table
-
-Reference composite table (assembled at dispatch time from discovery):
-
-| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
-|--------|---------------------|------------------------|--------|
-| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: the Ambition Advocate) | High |
-| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
-| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
-| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
-| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Ambition Advocate) | High |
-| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
-| Other / unmatched | the Staff Engineer | (none) | Medium |
-
-### Phase 2.5: Write-Ahead Status Update
+## Phase 2.5: Write-Ahead Status Update
 
 Before dispatching reviewers, mark the artifact's review status. If the artifact has a status header (plan doc, stub doc), update it:
 
@@ -81,7 +26,9 @@ Before dispatching reviewers, mark the artifact's review status. If the artifact
 
 If the artifact is code (no status header), note the review in the tracker or plan doc that references this work. The point is: if a crash happens mid-review, there's a breadcrumb showing what was being reviewed and by whom.
 
-### Phase 2.7: API Verification (docs-checker pre-flight)
+---
+
+## Phase 2.7: API Verification (docs-checker pre-flight)
 
 Before dispatching expensive Opus reviewers, decide whether to run the **docs-checker** agent (Sonnet) as a suggested pre-flight. docs-checker verifies external API references and applies AUTO-FIX-class corrections inline — reviewers receive a pre-verified artifact and can skip mechanical lookups entirely.
 
@@ -121,7 +68,9 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **Phase 2.8 integrator note:** The review-integrator does NOT review docs-checker auto-fixes — those are pre-applied before the Opus reviewer sees the artifact. The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the review record archived alongside the review findings.
 
-### Phase 2.7b: Prior-Art Verification (prior-art-checker pre-flight)
+---
+
+## Phase 2.7b: Prior-Art Verification (prior-art-checker pre-flight)
 
 **The prior-art-checker is a recall pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
 
@@ -144,14 +93,14 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 **Dispatch:**
 1. Dispatch `prior-art-checker` agent with the plan path.
 2. prior-art-checker reads project wikis, global wikis, lessons, and the improvement queue; cross-references the plan; writes a sidecar at `<plan-path>.prior-art-check.md`.
-3. the Game Dev Reviewerecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
+3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed, fold prior art into the plan, or escalate to PM.
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
    - **WARN:** EM dispositions each conflict (fold-in, override-and-document, or PM consult). For overrides, append a one-line entry to the plan's "Considered alternatives" section. Include the sidecar in the Opus reviewer dispatch.
    - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
 5. Include the following verbatim in the Opus reviewer's dispatch prompt:
 
-   > A prior-art-check pre-flight ran on this plan. the Game Dev Reviewerecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
+   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
 
 **On prior-art-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. Reviewers fall back to their own doctrine recall (which is the pre-2026-05-06 baseline). This phase is additive, not blocking.
 
@@ -159,7 +108,9 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 
 **Phase 2.7b integrator note:** The review-integrator does NOT process prior-art-check findings directly — those are EM-dispositioned before the Opus reviewer sees the plan. The integrator continues to handle Opus reviewer findings as today. The prior-art-check sidecar is part of the review record archived alongside the review findings.
 
-### Phase 2.7c: External Pattern Verification (external-pattern-checker, opt-in)
+---
+
+## Phase 2.7c: External Pattern Verification (external-pattern-checker, opt-in)
 
 **The external-pattern-checker is a triage pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed as ad-hoc context in the Opus reviewer's dispatch prompt.**
 
@@ -181,7 +132,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **externa
 **Dispatch (when both conditions hold):**
 1. Dispatch `external-pattern-checker` agent with the plan path and the prior-art sidecar path.
 2. The agent reads the prior-art sidecar, identifies architecturally-loaded Silent claims, runs ≤ 2 WebSearch + ≤ 5 WebFetch, and writes a sidecar at `<plan-path>.external-pattern.md`.
-3. the Game Dev Reviewerecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
+3. Sidecar verdict is `RESEARCH-RECOMMENDED`, `LIGHT-CONTEXT-AVAILABLE`, `NO-EXTERNAL-SIGNAL`, `DEGRADED`, or `SCOPE-MISMATCH`.
 4. **EM reads the sidecar before dispatching the Opus reviewer.** The verdict determines next steps:
    - **RESEARCH-RECOMMENDED:** EM dispatches the recommended `general-purpose` web scout or `/deep-research` as a separate decision before the Opus review. Include the sidecar path in the Opus reviewer prompt.
    - **LIGHT-CONTEXT-AVAILABLE or CAUTIONARY-NOTE:** Fold the relevant `Light Context Surfaced` / `Cautionary Note` sections as a one-paragraph briefing into the Opus reviewer dispatch prompt.
@@ -202,7 +153,9 @@ This makes consumption auditable. Silent omission of the sidecar with no confirm
 
 **Note on vocabulary:** external-pattern-checker uses its own bucket vocabulary (`Signal Worth Deeper Research`, `Light Context Surfaced`, `Cautionary Note`, `No External Signal`). These are distinct from prior-art-checker's vocabulary (`Conflicts`, `Compatible-but-relevant`, `Silent`). Do not conflate them in reviewer prompts or EM notes. Full doctrine: `docs/wiki/external-pattern-checker.md`.
 
-### Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
+---
+
+## Phase 2.8: Pre-Review Artifact Verification (Haiku, optional)
 
 Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to verify the artifact is well-formed and worth reviewing. This catches broken artifacts before they waste the most expensive tokens in the system.
 
@@ -219,33 +172,9 @@ Before dispatching an expensive Opus reviewer, dispatch a **Haiku agent** to ver
 
 **Why Haiku:** Running `tsc --noEmit`, `grep`, and checking file sizes is mechanical work. A failed pre-flight saves 1 full Opus reviewer dispatch — the highest per-agent cost in the system.
 
-### Phase 3: Sequential Dispatch
+---
 
-> **HARD RULE: Reviews are ALWAYS sequential, never parallel.** Each reviewer must see the evolved artifact including all changes from prior reviewers. This compounding context is the entire point of multi-reviewer pipelines. Do not parallelize for speed.
-
-**Reviewer 1 (Domain Specialist):**
-1. Dispatch via Task tool with the appropriate agent type and model
-2. Include the full artifact in the prompt — do not make the reviewer read files themselves if avoidable
-3. Wait for Reviewer 1's findings
-
-**Phase 3.7: Review Integration (replaces manual feedback application)**
-
-4. Dispatch the review-integrator agent with:
-   - The **filtered** finding list (post-Phase 3.5 `--problems-only` filtering if active)
-   - The artifact path(s)
-   - The reviewer name (for annotation attribution)
-5. Review-integrator applies all findings, annotates changes, returns completion report
-6. EM reviews:
-   - Escalation list (usually 0 items) — resolve any disagreements
-   - Spot-check the diff (verify integrator applied findings correctly)
-   - If escalations exist: EM resolves directly or escalates to PM
-
-**Reviewer 2 (Generalist) — if routing calls for one:**
-7. Dispatch Reviewer 2 with the EVOLVED artifact (post-review-integrator changes)
-8. Reviewer 2 catches novel issues AND regressions from the integration pass
-9. Dispatch review-integrator again for Reviewer 2's findings (same Phase 3.7 protocol)
-
-### Phase 3.5: Parse and Render Structured Output
+## Phase 3.5: Parse and Render Structured Output
 
 After each reviewer completes:
 
@@ -280,7 +209,31 @@ After each reviewer completes:
    - Nitpicks are NOT auto-applied to the artifact
    - Only findings with severity ∈ {critical, major, minor} are included in the "apply all" list
 
-### Phase 4: Backstop Handling
+---
+
+## Phase 3.7: Review Integration (replaces manual feedback application)
+
+After each reviewer completes (and Phase 3.5 runs):
+
+1. Dispatch the review-integrator agent with:
+   - The **filtered** finding list (post-Phase 3.5 `--problems-only` filtering if active)
+   - The artifact path(s)
+   - The reviewer name (for annotation attribution)
+2. Review-integrator applies all findings, annotates changes, returns completion report
+3. EM reviews:
+   - Escalation list (usually 0 items) — resolve any disagreements
+   - Spot-check the diff (verify integrator applied findings correctly)
+   - If escalations exist: EM resolves directly or escalates to PM
+
+**Reviewer 2 (Generalist) — if routing calls for one:**
+
+4. Dispatch Reviewer 2 with the EVOLVED artifact (post-review-integrator changes)
+5. Reviewer 2 catches novel issues AND regressions from the integration pass
+6. Dispatch review-integrator again for Reviewer 2's findings (same Phase 3.7 protocol)
+
+---
+
+## Phase 4: Backstop Handling
 
 When effort level is High:
 1. Verify that the reviewer invoked their backstop partner
@@ -291,7 +244,9 @@ When effort level is Medium:
 - Backstop invocation is at the reviewer's discretion
 - No verification needed
 
-### Phase 5: Report
+---
+
+## Phase 5: Report
 
 Summarize the review with a **triage table** — every finding must have an explicit disposition:
 
@@ -310,8 +265,67 @@ Then summarize:
 
 **Post-review synthesis:** If 2+ reviewers ran, produce a synthesis note per the routing rules. This cross-references coverage declarations and flags reinforcing findings, conflicts, and gaps. The synthesis is the coordinator's judgment — no additional agent dispatch.
 
-### Relationship to Other Commands
+---
 
-- **`/enrich-and-review`** invokes this command's logic during Phase 5
-- For lightweight code quality checks, dispatch a Sonnet-level subagent directly rather than the full review-dispatch pipeline
-- Executor dispatch (`docs/wiki/delegate-execution.md`) follows after review-dispatch approves artifacts for execution
+## Composition Patterns for Major Surface Additions
+
+The numbered phases above describe a single review pass. For substrate-blind spec→impl chains, parallel-enriched cohorts, and architecturally-loaded plan stubs, composition matters as much as any single reviewer's depth. The patterns below name the recipes that have caught real bugs the single-pass shapes missed.
+
+### Five-layer review topology
+
+For major surface additions where the spec author was substrate-blind (no on-disk grep, no per-file Read), a single Opus reviewer is not enough — orthogonal lenses catch different error classes. The full topology:
+
+1. **Plan-author negative-search** (W1, `writing-plans` SKILL). Prohibitions and prior reversals surfaced before reviewer dispatch.
+2. **docs-checker pre-flight** (Phase 2.7). External-API claim verification, AUTO-FIX inline.
+3. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
+4. **the Staff Engineer Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
+5. **Domain reviewer (the Game Dev Reviewer for game-dev / the Data Science Reviewer for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
+
+Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (test-evidence-parser, security-audit-worker, dep-cve-auditor, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
+
+### Architectural review chain — the Staff Engineer, the Game Dev Reviewer, enricher catch different bugs
+
+Within the layer-5 envelope, the three roles divide the work:
+
+- **the Staff Engineer catches structural problems.** Plan coherence, missing seams, architectural inversions, premise refutation.
+- **the Game Dev Reviewer (or domain-equivalent) catches existing-codebase-pattern violations.** "We don't do it that way here" — patterns the plan invented when the codebase already had a convention.
+- **The enricher catches callsite reality.** What the code actually does at the consumer end — function envelopes, reachability, guard conditions the plan paraphrased.
+
+All three are needed on architecturally-loaded stubs. Dropping any one of them produces a known failure class.
+
+### Sequential two-reviewer on architecturally-loaded stubs
+
+For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist the Staff Engineer + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
+
+### Two-pipeline review on shared artifacts: per-stub + per-cohort + docs-check
+
+When a cohort of stubs is enriched in parallel from a shared spec, **two pipelines on the same artifacts** beats picking one lens:
+
+- **Per-stub depth:** the Staff Engineer (or domain reviewer) on each stub independently. Catches local correctness, premise validity, structural soundness.
+- **Per-cohort coherence:** one reviewer across the whole cohort. Catches contradictions between stubs, shared-API gaps, sibling-surface drift, cross-stub seam violations.
+- **docs-check pre-flight:** every external-API claim verified across the cohort, once.
+
+Composition beats picking one. The per-cohort lens routinely re-edits stubs that the per-stub lens already marked "complete" — that is the value, not a defect. Stub completion is conditional on cohort settle, never on per-stub verdict alone. Integrator sweeps cohort-wide findings back across already-applied stubs before declaring the wave done.
+
+### Reviewers false-positive on import-fallback seams
+
+A common false positive: reviewers flag `try: import X / except ImportError: ...` patterns as bugs or anti-patterns without reading both arms. The except-arm is usually a deliberate graceful-degradation seam — a fallback to a vendored module, a stub for optional dependency, or a runtime-detected capability. Flagging the seam as a bug inverts the intent.
+
+**EM disposition discipline:** when a reviewer flags an `ImportError` fallback, **read both arms** before applying. If the except-arm is a structural seam (not error-swallowing), dismiss the finding with a one-line reasoning ("intentional fallback for optional X"). Same shape for try/except `ModuleNotFoundError`, `AttributeError` on capability probes, and platform-conditional imports.
+
+The integrator does not auto-apply import-fallback findings — they always land in the EM disposition table.
+
+---
+
+## Problems-Only Mode
+
+When `--problems-only` is specified at invocation, append to the reviewer prompt:
+
+> Return only findings that identify problems, bugs, security issues, or correctness concerns. Do not include praise, compliments, or suggestions for optional improvements. Nitpick-severity findings should still be included in your JSON output but will be filtered from the rendered summary.
+
+Three explicit behaviors:
+1. Nitpicks are written to the JSON file for audit trail
+2. Nitpicks are omitted from the rendered Markdown table
+3. Nitpicks are NOT auto-applied to the artifact
+
+The filter criterion is `severity != "nitpick"` — not prose-based filtering. Applied in Phase 3.5 step 5.

@@ -6,7 +6,7 @@ related:
   - docs/wiki/prior-art-checker.md
   - docs/wiki/docs-checker-pre-review.md
   - plugins/coordinator-claude/coordinator/agents/external-pattern-checker.md
-  - plugins/coordinator-claude/coordinator/skills/review-dispatch/SKILL.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
 ---
 
 <!-- Spec backlink: ~/.claude/plans/external-pattern-checker.md Phase 2 -->
@@ -46,7 +46,7 @@ prior-art-checker runs by default on every plan. Adding bounded web calls to a d
 
 ## When Does It Run? — The Two-Condition Trigger Gate
 
-The EM may invoke external-pattern-checker during `review-dispatch` Phase 2.7c only when **both** conditions hold:
+The EM may invoke external-pattern-checker during the reviewer pipeline Phase 2.7c (see `docs/wiki/reviewer-pipeline.md` § Phase 2.7c) only when **both** conditions hold:
 
 **Condition A:** prior-art-checker returned `Silent` on architecturally-loaded claims — where "architecturally-loaded" means the claim involves a new abstraction, protocol, or doctrine surface (not a constant bump, test fix, or rename).
 
@@ -85,6 +85,6 @@ If neither condition holds, the EM does not invoke it. The cost exceeds the valu
 
 **False-positive rate:** A sidecar is a false positive when the EM reads it and concludes the light context was not worth surfacing — i.e., the reviewer would have reached the same conclusions without it. Acceptable rate: ≤ 30% of invocations over the first 30-day window. Higher than 30% suggests the trigger gate is too loose.
 
-**v2-promotion criterion:** If the EM forgets to include the fold-confirmation statement (see review-dispatch Phase 2.7c) ≥ 1 time over the 30-day window, the v2 path activates: create `snippets/external-pattern-check-consumption.md`, create `bin/verify-external-pattern-sync.sh`, add to the snippet-sync tripwire in `coordinator/CLAUDE.md`. This makes consumption structurally enforced rather than relying on EM discipline.
+**v2-promotion criterion:** If the EM forgets to include the fold-confirmation statement (see `docs/wiki/reviewer-pipeline.md` § Phase 2.7c) ≥ 1 time over the 30-day window, the v2 path activates: create `snippets/external-pattern-check-consumption.md`, create `bin/verify-external-pattern-sync.sh`, add to the snippet-sync tripwire in `coordinator/CLAUDE.md`. This makes consumption structurally enforced rather than relying on EM discipline.
 
 **Retire criterion:** If across the 30-day window ≥ 2 invocations occurred AND in zero of them did the reviewer cite the sidecar OR did the EM dispatch the recommended-next-step research scout, the EM surfaces a retire-recommendation to PM with the dogfood evidence. Retiring is a PM call, not an EM-unilateral action.

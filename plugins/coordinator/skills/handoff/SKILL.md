@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Save session state for a successor mid-workstream. Not for shipped/complete work — see Step 0."
+description: "Involuntary mid-workstream save-state under context pressure. By definition a continuation, never a workstream ending — see Step 0."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
@@ -9,7 +9,11 @@ argument-hint: "[optional context]"
 
 Capture the current session state so future sessions (or other agents) can pick up seamlessly.
 
+> **Handoff is involuntary by definition.** The only legitimate trigger is context pressure that forces the current session to stop mid-workstream before its next action can land. A handoff is a continuation-point, not a workstream-ending ceremony — if you find yourself reaching for `/handoff` because the work feels like a good place to pause, that framing IS the disqualifier. Workstreams end via `/workday-complete`, `/merge-to-main`, or commit-and-stop; never via handoff. The EM does not voluntarily invoke this skill at perceived stopping points.
+
 > **Continuation vs. fork.** This skill writes a *continuation* handoff — work the current session was doing that someone (often you, next session) will resume. To carve off a *different* mid-session topic for someone else to pick up cold, use `/spinoff` instead — that produces `kind: spinoff`, `predecessor: none` handoffs, designed for fork rather than continuation.
+>
+> **Recovery flavor.** If you are writing this handoff to resume from a crash, kill, or other unclean termination of a prior session — not a clean stopping point — set `kind: recovery` in frontmatter. Point `predecessor:` at the crashed handoff or its last commit SHA when known; null is permitted when no recoverable predecessor exists. Recovery handoffs follow the standard continuation lifecycle (deployment_state, /pickup flow, archival); the tag exists so `/workday-start` surfaces them with a `(recovery)` marker and so the audit trail distinguishes crash-driven continuations from deliberate ones.
 
 ## Instructions
 
@@ -24,15 +28,25 @@ When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each
 
 **CRITICAL: Write the handoff file FIRST, before commits or anything else.** Handoffs are typically invoked when the session is near compaction. If you do git operations first, you risk losing the conversation context that makes the handoff valuable. Get the knowledge out of your head and onto disk immediately.
 
-## Step 0: Successor-work check
+## Step 0: Trigger check — is context pressure actually forcing this?
 
-Before writing anything, run this binary gate. It takes 30 seconds and prevents polluting `tasks/handoffs/` with end-of-session housekeeping that no successor will pick up.
+Before writing anything, run this binary gate. The PRIMARY question is whether the current session can still take its next action; if it can, you are not handing off, you are deferring — and that's a doctrine violation regardless of how "tidy" the current state looks.
 
-### NO-tests — any one of these → STOP, do not write a handoff
+### Trigger gate — at least one must be true → continue
+
+- Auto-compaction is imminent or in progress and would lose load-bearing context before the next action can land.
+- A Claude Code restart or MCP-bridge restart is unavoidable mid-workstream.
+- A hard blocker (PM input, external system, after-hours wait) is preventing the next action *right now* — not a future step.
+- The PM has explicitly invoked `/handoff` and named the workstream.
+
+If none of these hold, STOP. Take the next action in this session instead. "Plan reviewed," "looks like a good pause point," "feels tidy here" are not triggers — they are the trap.
+
+### NO-tests — any one of these → STOP, do not write a handoff (even under context pressure, redirect to the right artifact)
 
 - The workstream's next action is `/merge-to-main`, or the terminal PR is already merged with no follow-up commits expected.
 - The work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
 - All in-flight chunks of the active plan have landed and the plan doc is marked complete.
+- **Plan is reviewed/approved but the executor hasn't been dispatched yet in this session.** A reviewed plan is scaffolding, not a deliverable — the next action belongs in *this* session (dispatch the executor), not in a successor's. Framing the session as winding down at plan-approval inverts the doctrine: plans exist to produce executed code. If acceptance criteria are still empirically unverified and no executor has run, STOP — dispatch, don't hand off. Handoff is legitimate only after the executor has run and there is genuine in-progress executor/integrator/test work for a successor to resume.
 
 ### YES-tests — only consulted if all NO-tests fail
 
@@ -45,7 +59,7 @@ Before writing anything, run this binary gate. It takes 30 seconds and prevents 
 ### If a NO-test trips → STOP
 
 The right artifact is one of:
-- `/workday-complete` — end-of-day ceremony; daily-review entry lands in `tasks/week-changelog/`
+- `/workday-complete` — end-of-day ceremony; Step 4 daily summary lands in `archive/daily-summaries/`, indexed by Step 9 in `tasks/week-changelog/`
 - Commit-and-stop — for mid-day completion of a workstream that's already merged or PR-ready
 - `/session-end` — if lessons need capture but no successor brief is needed
 
@@ -241,24 +255,29 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 
 **Now** that the handoff is written, commit everything and verify remote sync.
 
-1. **Stage only paths this workstream touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
-   - Make a mental (or explicit) list of the files this workstream edited this session (typically small: the handoff doc itself, `tasks/` files, and any late-session work).
-   - `git add <path1> <path2> ...` — name each path explicitly.
-   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
-2. If there are staged changes, commit using the scoped helper — it reads `workstream:` and `scope:` from the handoff doc's frontmatter and stages only the declared paths:
+**Workstream scope is declared in the handoff `scope:` block** (written above this step). With concurrent EMs active on the same branch, `git add -A` would sweep up another session's staged/modified files and silently re-attribute them — the `scope:` block is the workstream-anchored authority on which paths belong to this commit. If `git status` shows unfamiliar unstaged files you didn't touch, leave them alone — they belong to a concurrent session.
+
+1. Commit using explicit-path plain git — read the `scope:` block from the handoff frontmatter and stage only those paths (lessons.md:43, lessons.md:207, SC-DR-008; no fallback to staging-all):
+   ```bash
+   HANDOFF=<handoff-doc-path>
+   # Extract scope paths from YAML frontmatter (  - <path> lines between scope: and next key)
+   SCOPE=$(awk '/^scope:/{found=1; next} found && /^  - /{print substr($0, 5)} found && /^[a-z]/{exit}' "$HANDOFF")
+   if [ -z "$SCOPE" ]; then
+     echo "FAIL: handoff frontmatter scope: block missing or empty — cannot enumerate paths" >&2
+     exit 1
+   fi
+   git add -- $SCOPE && git commit -m "handoff quick-save: <workstream>" -- $SCOPE
    ```
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "handoff quick-save: <workstream>"
-   ```
-   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `--scope-from` flag reads `scope:` as git pathspec entries and stages only those paths — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`).
-3. **Pushing:** The post-commit hook handles pushing to branch automatically.
+   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `scope:` block lists git pathspec entries — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`). **If `scope:` is missing or empty: FAIL and exit non-zero — no fallback.**
+2. **Pushing:** The post-commit hook handles pushing to branch automatically.
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-4. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
+3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 
-Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Without this, `coordinator-safe-commit --scope-from` in concurrent sessions repeatedly trips on dead-PID claims that touched the same scope files — forcing the next EM to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (session-start, workday-complete, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
 
 Run:
 ```bash

@@ -8,7 +8,7 @@
 # NOTE: assumes single-line description; double-quoted with escaped \" inside not supported
 # (warn-and-skip on multi-line; double-escape edge case is unhandled — flag and acceptable
 # for current 12 skills).
-set -e
+set -euo pipefail
 PLUGINS_ROOT="$HOME/.claude/plugins"
 FAIL=0
 DEFAULT_LIMIT=150

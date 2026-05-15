@@ -5,7 +5,7 @@ type: doctrine
 related:
   - plugins/coordinator-claude/coordinator/agents/prior-art-checker.md
   - plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md
-  - plugins/coordinator-claude/coordinator/commands/review-dispatch.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
   - plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
   - docs/wiki/docs-checker-pre-review.md
   - docs/wiki/lesson-triage.md
@@ -105,13 +105,13 @@ The two pre-flights answer different questions:
 | **Corpus** | Context7, LSP, project-RAG, cppreference | Project wikis, global wikis, `tasks/lessons.md`, central improvement queue |
 | **Output** | Per-claim verification table (VERIFIED / UNVERIFIED / INCORRECT) | Three-bucket sidecar (Conflict / Compatible-but-relevant / Silent) |
 | **Authority** | AUTO-FIX allowlist for tradeoff-free corrections | REPORT-ONLY — EM dispositions all findings |
-| **Surface** | review-dispatch Phase 2.7 | review-dispatch Phase 2.7b |
+| **Surface** | reviewer pipeline Phase 2.7 (`docs/wiki/reviewer-pipeline.md`) | reviewer pipeline Phase 2.7b (`docs/wiki/reviewer-pipeline.md`) |
 
 They are not substitutes; they can both run on the same artifact.
 
-## the Game Dev Reviewerecar format note
+## Sidecar format note
 
-the Game Dev Reviewerecars use `kind:` rather than `type:` in their frontmatter to distinguish machine-emitted artifacts from authored docs. docs-checker sidecars should adopt the same convention when they are next revised (not in scope for this commit — surfaced as a follow-up).
+Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish machine-emitted artifacts from authored docs. docs-checker sidecars should adopt the same convention when they are next revised (not in scope for this commit — surfaced as a follow-up).
 
 ## Distribution
 
@@ -120,7 +120,7 @@ The reviewer-side consumption block is synced via `plugins/coordinator-claude/co
 - `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
 - `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
 - `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
 - `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
@@ -132,7 +132,7 @@ The prior-art-checker is mechanical, not judgmental. It can over-match (false-fl
 1. **Override goes in the plan.** When the EM dispositions a conflict as "override," the plan's "Considered alternatives" section gains a one-line entry citing the prior-art quote and the override rationale. This is the durable record; future readers see what was overridden and on what grounds.
 2. **Repeated false-positives signal wiki revision.** When the same wiki entry produces multiple bogus conflicts across plans, that is a feedback signal — the wiki is outdated, vague, or wrong. Surface to PM as a candidate for wiki revision. The prior-art-checker thus becomes a quality loop on the wiki corpus.
 
-**the Game Dev Reviewerecar preservation.** Prior sidecars are never overwritten — on re-run the agent renames the existing sidecar to `<plan-path>.prior-art-check.<UTC-mtime>.md` before writing the new one. This means the arbitration history (what the first run flagged, what changed in the second run) is always available as an archived sidecar alongside the current one. The feedback-loop in rule 2 above depends on this archive existing.
+**Sidecar preservation.** Prior sidecars are never overwritten — on re-run the agent renames the existing sidecar to `<plan-path>.prior-art-check.<UTC-mtime>.md` before writing the new one. This means the arbitration history (what the first run flagged, what changed in the second run) is always available as an archived sidecar alongside the current one. The feedback-loop in rule 2 above depends on this archive existing.
 
 **Operational hook:** during `/workweek-complete` Step 4 (improvement-queue triage), the EM scans recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override" and flags wikis cited ≥3 times in overrides as candidates for revision. This is judgment-based, not automated — but the responsibility lives in weekly cadence so it doesn't drift.
 

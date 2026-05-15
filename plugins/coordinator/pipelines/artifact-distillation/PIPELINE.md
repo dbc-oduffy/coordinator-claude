@@ -34,7 +34,9 @@ Session workflows generate artifacts that accumulate indefinitely. The knowledge
 ```
 Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
   → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 2.5 (Sonnet ×K, judgment-mining)
-  → Phase 3 (Opus, single) → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + delete)
+  → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus, if needed]
+  → Phase 3b (Sonnet, single) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
+  → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + delete)
 ```
 
 **Phases MUST run sequentially.** Each phase's output shapes the next phase's prompts. Do not begin the next phase until all agents in the current phase have completed and their scratch files verified.
@@ -65,7 +67,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 7. **Scope gate — choose pipeline tier based on the scout's NEW count:**
    - **0 NEW artifacts:** **Abort.** Report "nothing to distill" and stop. Optionally offer to delete EPHEMERAL files directly.
    - **<20 NEW artifacts:** **Lightweight mode.** Dispatch a single Sonnet agent that reads all NEW files and produces guide deltas + decision records + deletion manifest in one pass. No Haiku scanning, no clustering, no Opus assembly. Jump directly to Phase 4 (PM gate).
-   - **20-50 NEW artifacts:** **Standard mode.** 2-3 Haiku batches, skip QG (Phase 1.5), coordinator does clustering inline, 2-3 Sonnet synthesizers, coordinator assembles (skip Opus Phase 3).
+   - **20-50 NEW artifacts:** **Standard mode.** 2-3 Haiku batches, skip QG (Phase 1.5), coordinator does clustering inline, 2-3 Sonnet synthesizers, coordinator assembles (skip Phase 3a — run 3b/3c/3d only).
    - **50+ NEW artifacts:** **Full pipeline** as designed below.
 8. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `tasks/scratch/artifact-distillation/{run-id}/`
 9. **Sort artifacts chronologically** within each source directory (temporal ordering preserved through pipeline — critical for detecting superseded decisions)
@@ -74,7 +76,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 **If `$ARGUMENTS` includes a path,** scope inventory to that path only.
 
-**If `--dry-run`,** announce dry-run mode. The pipeline runs through Phase 3, then presents the summary and deletion manifest at the Phase 4 checkpoint without applying anything. Phases 4-5 are skipped.
+**If `--dry-run`,** announce dry-run mode. The pipeline runs through Phase 3d, then presents the summary and deletion manifest at the Phase 4 checkpoint without applying anything. Phases 4-5 are skipped.
 
 ---
 
@@ -185,9 +187,9 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 **Ownership boundary:** Synthesizers own their scratch files. They write to `tasks/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
 
-**Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3.
+**Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3a.
 
-**CRITICAL: Checkpoint scratch files before Phase 3.** `git add tasks/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3 is the highest-risk step (largest context load, longest runtime). If it fails, the checkpoint allows re-running Phase 3 without re-doing Phases 1-2.
+**CRITICAL: Checkpoint scratch files before Phase 3a.** `git add tasks/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3a/3b/3d are the highest-risk steps (largest context load, longest runtime). If any fail, the checkpoint allows re-running without re-doing Phases 1-2.
 
 ---
 
@@ -197,9 +199,9 @@ Instruct each agent in its prompt to use Read and Write. (The Agent tool has no 
 
 **Model:** Sonnet. **Dispatch:** One agent per topic-cluster, all simultaneously.
 
-**Strict-sequencing gate:** All Phase 2 topic-cluster agents MUST complete and their scratch files verified before Phase 2.5 begins. Phase 2.5 MUST complete before Phase 3 dispatches.
+**Strict-sequencing gate:** All Phase 2 topic-cluster agents MUST complete and their scratch files verified before Phase 2.5 begins. Phase 2.5 MUST complete before Phase 3a dispatches.
 
-**Purpose:** Mine the run's reviewer sidecars for cross-spec convergence patterns — findings that recur across ≥N distinct plans on similar codebase shapes (default `N=3`, overridable via `--min-convergence=N`). Findings that converge above threshold are emitted as `judgment-proposals` for Phase 3 review and eventual wiki promotion into `docs/wiki/codebase-judgment/`.
+**Purpose:** Mine the run's reviewer sidecars for cross-spec convergence patterns — findings that recur across ≥N distinct plans on similar codebase shapes (default `N=3`, overridable via `--min-convergence=N`). Findings that converge above threshold are emitted as `judgment-proposals` for Phase 3b review and eventual wiki promotion into `docs/wiki/codebase-judgment/`.
 
 **Read-only orchestrator boundary:** Phase 2.5 dispatches no nested sub-agents. It is one Sonnet call per topic-cluster, fanned out by the coordinator.
 
@@ -311,31 +313,128 @@ judgment_provenance:
 
 Instruct each agent in its prompt to use Read, Write, Glob, and Bash (for `git show` SHA resolution). Dispatch with `run_in_background: true`.
 
-**Scratch verification:** Before proceeding to Phase 3, verify `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md` exists. If no proposals were emitted (zero convergence), create an empty proposals file with a `## No proposals — corpus below threshold` header so Phase 3 can proceed with a known-good input.
+**Scratch verification:** Before proceeding to Phase 3a/3b/3d, verify `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md` exists. If no proposals were emitted (zero convergence), create an empty proposals file with a `## No proposals — corpus below threshold` header so Phase 3a/3b/3d can proceed with a known-good input.
 
 ---
 
-## Phase 3: Cross-Reference Assembly (Opus or decomposed Sonnet)
+## Phase 3a: Contradiction Detection (Sonnet, parallel by cluster)
 
-**Default:** Opus single agent. **If >200 nuggets or >5 topic clusters:** decompose into 2 parallel Sonnet sub-tasks: (a) deduplicate decision records + cross-reference check, (b) produce deletion manifest. The coordinator assembles the final output.
+<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#2, AC#6a, AC#6e -->
 
-**Opus does NOT expand or apply delta operations.** Phase 2 scratch files contain delta operations for existing guides and full content for new guides — Phase 3 reads them as-is. Mechanical delta application happens in Phase 5 (coordinator). Phase 3's value is in intelligent work only: contradiction detection, deduplication, and the deletion manifest.
+**Model:** Sonnet. **Dispatch:** One agent per topic cluster, all simultaneously.
 
-**DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3: Opus Cross-Reference Assembly Prompt** verbatim. Fill in:
-- `[N]` — number of topic-specific Sonnet agents
-- Phase 2 scratch file paths
-- Existing wiki state (guide files and decision records)
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-opus-assembly.md`
+**Sharding rule (Option B — clustered pairwise):** Reuses Phase 2.5's shape-match clustering apparatus. Topics are already grouped into 3-5 clusters by claim-topic affinity. Each 3a agent compares all topics *within its cluster* — detecting intra-cluster contradictions. The coordinator handles cross-cluster contradictions separately (see below).
 
-Instruct the agent in its prompt to use Read, Write, and Glob. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
+**Single-topic cluster exemption:** If a cluster contains only one topic, skip dispatching a 3a agent for it — no within-cluster pairwise comparison is possible. Cross-cluster check (below) still applies.
 
-**Phase 3 produces:**
-1. Cross-reference consistency report (contradictions flagged, with temporal resolution)
-2. Deduplicated decision records
-3. Updated `DIRECTORY_GUIDE.md` index
-4. **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, or `SKIP` with reason
+**DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3a: Sonnet Contradiction Detection Prompt** verbatim. Fill in:
+- `[CLUSTER_TAG]` — the cluster label from Phase 2.5 clustering
+- `[TOPIC_PAIR_LIST]` — all topic pairs in this cluster
+- `[LIST_OF_PHASE2_SCRATCH_PATHS_FOR_CLUSTER]` — Phase 2 scratch files for the topics in this cluster
+- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3a-contradictions-{cluster-tag}.md`
 
-**Scratch verification:** Verify the Phase 3 file exists before proceeding to Phase 4.
+Instruct each agent in its prompt to use Read and Write. Dispatch with `run_in_background: true`.
+
+**Scratch verification:** Before proceeding, verify all expected `phase3a-contradictions-{cluster-tag}.md` files exist. Re-dispatch the failed agent once on missing files. If it fails again, skip that cluster and note the gap.
+
+### Coordinator cross-cluster check (mechanical, post-3a)
+
+After all 3a agents complete, the coordinator runs a mechanical enumeration pass across ALL 3a scratch files:
+
+1. Collect every decision-record ID (DR-NNN) and topic-tag from every 3a scratch file.
+2. Flag any DR-ID or topic-tag that appears in ≥2 clusters with differing claims as a **cross-cluster contradiction candidate**.
+3. Feed these candidates into the Opus escalation path (same path as intra-cluster `unresolvable_contradictions`).
+
+This mechanical step closes the cross-cluster blind spot that per-cluster agents cannot see. No subagent dispatch — the coordinator reads the 3a scratch files directly.
+
+### Opus escalation (conditional, auto-dispatch)
+
+After the cross-cluster check, the coordinator reads the `unresolvable_contradictions` field from every 3a scratch frontmatter AND the cross-cluster candidates:
+
+- **If total unresolvable count = 0 and no cross-cluster candidates:** proceed directly to Phase 3b.
+- **If any unresolvable contradictions or cross-cluster candidates exist:** auto-dispatch Opus with the **Phase 3-Esc: Opus Contradiction Resolution Prompt** from `agent-prompts.md`.
+
+**Opus escalation dispatch — fill in:**
+- `[LIST_OF_3A_SCRATCH_FILES_WITH_UNRESOLVABLE_CONTRADICTIONS]` — only the 3a files with `unresolvable_contradictions > 0`, plus any cross-cluster candidates
+- `[LIST_OF_PHASE2_SCRATCHES_FOR_FLAGGED_TOPICS]` — ONLY the Phase 2 scratch files for the topics cited in the flagged `contradiction_refs` (bounded input — not the full Phase 2 set)
+- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md`
+
+**No PM gate on the escalation itself.** Opus writes its resolution to `phase3-esc-resolution.md`. Phase 4 PM gate still applies to the assembled output. If Opus fails or times out, surface to Phase 4 PM gate with an escalation-failure note — PM decides whether to accept output without contradiction resolution or retry.
+
+---
+
+## Phase 3b: Decision-Record Dedup (Sonnet, single)
+
+<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#3, AC#6d -->
+
+**Model:** Sonnet. **Dispatch:** Single agent. **Runs after:** Phase 3a complete and cross-cluster check done (and Opus escalation, if triggered).
+
+**DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3b: Sonnet Decision-Record Dedup Prompt** verbatim. Fill in:
+- `[LIST_OF_PHASE2_SCRATCH_PATHS]` — all Phase 2 scratch file paths
+- `[JUDGMENT_PROPOSALS_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`
+- `[PHASE3_ESC_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3b checks existence before reading)
+- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3b-dedup.md`
+
+Instruct the agent in its prompt to use Read and Write.
+
+**CRITICAL FAILURE MODE:** An empty DR set (zero decision records found) is always a pipeline error — it means Phase 2 did not run correctly or produced no judgment proposals. The 3b agent writes a `PHASE_3B_FAILURE` report in this case; the coordinator halts and surfaces the error rather than proceeding to Phase 3c.
+
+**Scratch verification:** Verify `phase3b-dedup.md` exists before proceeding to Phase 3c.
+
+---
+
+## Phase 3c: DIRECTORY_GUIDE.md Assembly (Coordinator, mechanical)
+
+<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#4 -->
+
+**Model:** Coordinator (no subagent). **Runs after:** Phase 3b complete.
+
+The coordinator reads Phase 2 scratch frontmatter + Phase 0 wiki inventory and writes the `DIRECTORY_GUIDE.md` index table directly. This is index construction, not judgment — no subagent dispatch needed.
+
+**Ordering rule:**
+- Alphabetical-by-guide-filename within each section.
+- Sections appear in the order already present in `docs/wiki/DIRECTORY_GUIDE.md`.
+- New sections (if any) append at the end.
+- No reordering of existing rows beyond what new-guide insertion requires.
+
+**Inputs the coordinator reads:**
+- Phase 2 scratch files — frontmatter lists any new guide names produced
+- Phase 3b dedup output — canonical DR IDs for the DIRECTORY_GUIDE.md table
+- Existing `docs/wiki/DIRECTORY_GUIDE.md` — current table rows preserved, new rows inserted alphabetically
+
+**Output:** Updated `DIRECTORY_GUIDE.md` preview written to `tasks/scratch/artifact-distillation/{run-id}/phase3c-directory-guide-preview.md`. This is coordinator-written — presented at Phase 4 PM gate for review before any production write.
+
+---
+
+## Phase 3d: Deletion Manifest (Sonnet, single)
+
+<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d -->
+
+**Model:** Sonnet. **Dispatch:** Single agent. **Runs after:** Phase 3b complete. 3d does not consume 3c output, so 3d may overlap with 3c — but both depend on 3b's deduped DR set and run after 3b.
+
+**DISPATCH:** Open `agent-prompts.md`. Copy the **Phase 3d: Sonnet Deletion Manifest Prompt** verbatim. Fill in:
+- `[LIST_OF_PHASE1_SCRATCH_PATHS]` — all Phase 1 (Haiku scanner) scratch file paths
+- `[LIST_OF_PHASE1_5_SCRATCH_PATHS]` — all Phase 1.5 (QG verdict) scratch file paths
+- `[LIST_OF_PHASE2_SCRATCH_PATHS]` — all Phase 2 scratch file paths
+- `[PHASE3_ESC_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3d checks existence before reading)
+- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3d-deletion-manifest.md`
+
+Instruct the agent in its prompt to use Read and Write.
+
+**Phase 3d produces:**
+- **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` with reason
+
+**Scratch verification:** Verify `phase3d-deletion-manifest.md` exists before proceeding to Phase 4.
+
+---
+
+**Phase 3 produces (combined across 3a–3d):**
+1. Cross-reference consistency report — contradictions flagged and resolved (3a + optional Opus)
+2. Deduplicated decision records (3b)
+3. `DIRECTORY_GUIDE.md` preview (3c)
+4. **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` with reason (3d)
+
+**Checkpoint discipline preserved:** The `git checkpoint` before Phase 3a (from the end of Phase 2) applies to 3a/3b/3c/3d re-runnability — each 3a agent writes to a named scratch path, so re-running a completed shard is safe (idempotent).
 
 ---
 
@@ -343,7 +442,8 @@ Instruct the agent in its prompt to use Read, Write, and Glob. (The Agent tool h
 
 Present to PM:
 - Summary table: N guides created/updated, N decisions created, N artifacts to delete
-- Full deletion manifest (from Phase 3)
+- Full deletion manifest (from Phase 3d)
+- `DIRECTORY_GUIDE.md` preview (from Phase 3c)
 - PM can remove items from the deletion list
 
 **Wait for explicit approval. Do not proceed without it.**
@@ -355,7 +455,7 @@ Present to PM:
 ## Phase 5: Apply and Clean (Coordinator-orchestrated, Sonnet-applied)
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
-1. **Safety commit:** `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-distillation checkpoint"`
+1. **Safety commit:** `CLAUDE_INVOKING_COMMAND=distillation ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "pre-distillation checkpoint"`
 
 2. **Split apply work across 2-3 Sonnet apply-agents (parallel where possible).**
 
@@ -364,7 +464,7 @@ Present to PM:
    Standard slicing (use all three for medium/large runs; combine into 1-2 agents for small runs):
 
    - **Apply-Agent A — Topic-guide deltas:** For each existing guide with a Phase 2 scratch file, read the delta operations (ADD_SECTION / UPDATE_SECTION / REMOVE_SECTION) and apply them mechanically. For new guides, write the full content from the Phase 2 scratch file. Output: list of guide files touched.
-   - **Apply-Agent B — Gotchas distribution + bookkeeping:** Apply cross-cutting nuggets (gotchas, lessons, cross-references) flagged by Phase 3, then update `docs/wiki/DIRECTORY_GUIDE.md` and `docs/README.md` (add new guides to the Wikis and Guides table; add promoted research to the Research section; mark archived specs; bump footer timestamp). Output: list of bookkeeping files touched.
+   - **Apply-Agent B — Gotchas distribution + bookkeeping:** Apply cross-cutting nuggets (gotchas, lessons, cross-references) flagged by Phase 3a/3b, then update `docs/wiki/DIRECTORY_GUIDE.md` (using Phase 3c preview as source) and `docs/README.md` (add new guides to the Wikis and Guides table; add promoted research to the Research section; mark archived specs; bump footer timestamp). Output: list of bookkeeping files touched.
    - **Apply-Agent C — Leftover guides + decision records:** Any guide files or decision records not covered by A (e.g., low-volume topics handled in a single batch). Output: list of files touched.
 
    Apply-agents must use Read, Write, Edit only — no further dispatch.
@@ -402,9 +502,9 @@ Present to PM:
 
 | Scenario | Haiku | Sonnet | Opus | Wall-Clock |
 |----------|-------|--------|------|------------|
-| Small (<30 artifacts, 2-4 systems) | 4 (2 scan + 2 QG) | 2-4 | 1 | ~20 min |
-| Medium (30-200, 4-8 systems) | 8-12 (4-6 + QG) | 4-8 | 1 | ~35 min |
-| Large (200+, 6-12 systems) | 16 (8 + QG) + 1 clustering | 6-12 | 1 | ~50 min |
+| Small (<30 artifacts, 2-4 systems) | 4 (2 scan + 2 QG) | 2-4 + 3a clusters + 3b + 3d | 0 (happy path) | ~20 min |
+| Medium (30-200, 4-8 systems) | 8-12 (4-6 + QG) | 4-8 + 3a clusters + 3b + 3d | 0 (happy path) | ~30 min |
+| Large (200+, 6-12 systems) | 16 (8 + QG) + 1 clustering | 6-12 + 3a clusters + 3b + 3d | 0–1 (escalation only) | ~45 min |
 
 Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator reading scratch, clustering, dispatching) accounts for ~5-15 min depending on nugget volume.
 
@@ -417,13 +517,17 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Running phases in parallel | Each phase's output shapes the next. Sequential = cheaper AND better. |
 | Writing custom dispatch prompts | Templates in `agent-prompts.md` are tested infrastructure. Copy verbatim, fill blanks. |
 | Haiku synthesizing instead of cataloging | "Completeness matters more than analysis" instruction is in the Phase 1 template. Don't remove it. |
-| Delta operation references non-existent heading | Phase 3 Opus flags these as errors rather than guessing — surface for coordinator review |
+| Delta operation references non-existent heading | Phase 3a flags these as contradictions in its scratch output — surface for coordinator review |
 | Deleting active handoff references | Phase 0 reads `tasks/handoffs/` for active context — those files are read-only, never batched |
-| Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Opus does not expand them. |
+| Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Phase 3 agents do not expand them. |
 | Phase 2.5 promotes mechanical findings | Agent prompt explicitly excludes mechanical / docs-checker-class findings; only architectural reviewer findings are eligible. Review agent-prompts.md Phase 2.5 template if false positives appear. |
 | Phase 2.5 counts multiple findings from same plan as N convergences | Each plan contributes at most one count toward convergence, regardless of how many findings from that plan shape-match. One plan = one count. |
 | Phase 2.5 re-mines historical SHAs on update path | Update path uses the topic key as the join — it does NOT call `git show` on prior `source_findings[*].sha` refs. Only new live findings trigger SHA lookup on initial corpus creation. |
-| Phase 2.5 proposals file missing before Phase 3 | If zero proposals emitted, write an empty `judgment-proposals.md` with a `## No proposals — corpus below threshold` header so Phase 3 can proceed. |
+| Phase 2.5 proposals file missing before Phase 3a/3b/3d | If zero proposals emitted, write an empty `judgment-proposals.md` with a `## No proposals — corpus below threshold` header so Phase 3a/3b/3d can proceed. |
+| Partial 3a completion (k of N cluster agents complete, others timeout) | Coordinator re-dispatches only the missing shards — 3a agents write to named scratch paths (`phase3a-contradictions-{cluster-tag}.md`), so re-running a completed shard is safe (idempotent). |
+| Opus escalation auto-dispatches but Opus fails or times out | Coordinator surfaces an escalation-failure note to the Phase 4 PM gate instead of proceeding. PM decides whether to accept output without contradiction resolution or retry. |
+| 3b dedup produces an empty DR set (zero DRs across all Phase 2 outputs) | Always a pipeline failure — not a valid empty outcome. Phase 2 did not run correctly or produced no judgment proposals. 3b agent writes a `PHASE_3B_FAILURE` report; coordinator halts and surfaces the error. |
+| Single-topic cluster in 3a (only one topic, no within-cluster pairwise comparison possible) | Coordinator skips dispatching a 3a agent for that cluster. Cross-cluster check (post-3a coordinator pass) still applies to single-topic clusters. |
 | Artifacts distilled twice | Distillation log (`docs/wiki/.distill-log.md`) excludes already-processed artifacts at Phase 0 |
 | PM skips approval and deletion runs | "Wait for explicit approval" is unconditional — no timeout, no auto-proceed |
 | Scratch file missing after agent completes | Verify with `ls`; re-dispatch once; skip batch on second failure — don't stall the pipeline |

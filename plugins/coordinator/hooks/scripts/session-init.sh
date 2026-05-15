@@ -112,7 +112,7 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
       # query-records.js has no --field flag, so we read the YAML line directly.
       # The frontmatter is bounded by --- delimiters; consumed_by is a single
       # scalar string written by /pickup, so a one-line grep is sufficient.
-      consumed_sid=$(grep -m1 '^consumed_by:' "$fpath" 2>/dev/null | sed 's/consumed_by:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)
+      consumed_sid=$(awk '/^---$/{n++; next} n==1' "$fpath" 2>/dev/null | grep -m1 '^consumed_by:' | sed 's/consumed_by:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)
       [ -z "$consumed_sid" ] && continue
 
       # Check if the consuming session is alive
@@ -135,17 +135,12 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
     done <<< "$consumed_paths"
 
     # Commit any moved files (only if git has staged changes from the mv above)
+    # Plain-git explicit commit — do NOT use coordinator-safe-commit here (SC-DR-008, lessons.md:207)
+    # The staged paths are exactly the git mv operations above; no additional staging needed.
     if git -C "$GIT_ROOT" diff --cached --quiet 2>/dev/null; then
       : # nothing staged — no commit needed
     else
-      # Use coordinator-safe-commit if available, else plain git commit
-      CSC="${HOME}/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit"
-      if [ -f "$CSC" ]; then
-        "$CSC" "session-init: archived orphaned handoff(s)" 2>/dev/null || \
-          git -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
-      else
-        git -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
-      fi
+      git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
     fi
   fi
 fi

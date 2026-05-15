@@ -30,6 +30,20 @@ Secure any uncommitted work before touching branches:
 
 **Do not ask permission.** Non-negotiable safety measure.
 
+### Agent worktree check
+
+Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); session-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/agent-worktree-sweep.sh --format text
+```
+
+If any line is emitted (i.e. at least one `<repo>/.claude/worktrees/agent-*` exists), surface a one-liner:
+
+> _"{N} agent-isolation worktree(s) on disk — Claude Code auto-creates these for `Agent` dispatches and they persist locked until session deletion. Run `/workday-start` to sweep + salvage, or `bin/agent-worktree-sweep.sh --reap` to act now."_
+
+If no output, skip silently — the common case.
+
 ### Branch detection
 
 **main is read-only.** All work — including safety commits — must happen on a work branch. Never commit to main directly.
@@ -108,15 +122,27 @@ bin/query-records --type handoff \
 
 Report: _"Found {N} actionable handoffs (deployment_state=ready_to_fire). Run `/pickup <file>` to resume one."_ If empty, say so.
 
-**Stale-gate flag (conditional, only emit if non-empty).**
+**Gated handoffs (always surface count; list when stale).**
+
+Two queries — first counts everything `awaiting_gate`, second lists the stale subset:
 
 ```bash
 bin/query-records --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
-  --older-than 14d --format markdown-list
+  --sort "-created" --format markdown-list
+
+bin/query-records --type handoff \
+  --where "deployment_state=awaiting_gate AND status=active" \
+  --older-than 6d --format markdown-list
 ```
 
-If non-empty: _"{M} handoffs awaiting_gate >14 days — `/pickup` to surface for triage, or PM may need to clear gate."_
+Reporting rules:
+
+- **If any `awaiting_gate` exist:** surface the full list (titles + gate_dependency, not bodies). The PM may want to clear a gate, retarget, or pick one up even before staleness — silently filtering them is what buries actionable work.
+- **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage or PM clear-gate."_
+- **If none exist:** skip silently.
+
+Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated handoffs that the PM needed visibility on for cross-workstream planning. Six days is roughly one working week — long enough that a gate that hasn't cleared is worth a glance, short enough to catch drift before it ossifies.
 
 **Do NOT load, summarize, or act on any handoff.** This applies even if there's only one. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
 

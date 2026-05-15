@@ -11,6 +11,6 @@
 
 ## Project-Local Pairings
 - `<ue-control-plugin>`: the Data Science Reviewer + the Staff Engineer default pairing (ML/AI heavy)
-- `<dashboard-app>`: the Data Science Reviewer when data analysis needed, pairs with the Front-End Reviewer (web-dev plugin)
+- `<dashboard-app>`: the Data Science Reviewer when data analysis needed, pairs with Palí (web-dev plugin)
 
-(Replace the placeholders above with your actual project names; this file is the routing table consumed by review-dispatch.)
+(Replace the placeholders above with your actual project names; this file is the routing table consumed by `/review` and `/review-code` for reviewer routing.)

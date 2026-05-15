@@ -2,7 +2,7 @@
 
 ## Reviewers
 
-### the Front-End Reviewer (senior-front-end)
+### Palí (senior-front-end)
 - **Signals:** Front-end, CSS, UI components, design tokens, component library, styling, responsive design, web accessibility
 - **Model:** opus
 - **Effort:** Medium (escalates to High when combined with architecture)
@@ -17,7 +17,7 @@
 - **Agent file:** `agents/staff-ux.md`
 
 ## Project-Local Pairings
-- `<web-app>`: the Front-End Reviewer primary, the UX Reviewer for UX flows, the Staff Engineer for architecture
-- `<dashboard-app>`: the Front-End Reviewer primary, the UX Reviewer for UX, the Data Science Reviewer when data-science plugin enabled
+- `<web-app>`: Palí primary, the UX Reviewer for UX flows, the Staff Engineer for architecture
+- `<dashboard-app>`: Palí primary, the UX Reviewer for UX, the Data Science Reviewer when data-science plugin enabled
 
-(Replace the placeholders above with your actual project names; this file is the routing table consumed by review-dispatch.)
+(Replace the placeholders above with your actual project names; this file is the routing table consumed by `/review` and `/review-code` for reviewer routing.)

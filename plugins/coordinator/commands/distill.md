@@ -33,7 +33,7 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 `$ARGUMENTS` may include any combination of:
 
 **`--dry-run`**
-Run Phases 0-3 only. Preview extraction results and the deletion manifest, but apply nothing to disk. Presents the summary at Phase 4 and stops. Use to verify what would be extracted before committing.
+Run Phases 0-3d only. Preview extraction results and the deletion manifest, but apply nothing to disk. Presents the summary at Phase 4 and stops. Use to verify what would be extracted before committing.
 
 **`--no-delete`**
 Apply wiki updates (Phases 0-5 write steps), but skip scaffolding deletion AND skip moving specs to `archive/specs/` (specs stay in `docs/plans/`). Wiki writes still apply.
@@ -68,7 +68,9 @@ Full phase definitions, dispatch instructions, scratch path conventions, and fai
 ```
 Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
   → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 2.5 (Sonnet ×K, parallel)
-  → Phase 3 (Opus, single) → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + trim/archive + delete scaffolding)
+  → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus, if needed]
+  → Phase 3b (Sonnet, single) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
+  → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + trim/archive + delete scaffolding)
 ```
 
 | Phase | Model | Purpose |
@@ -79,12 +81,15 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Clustering** | Coordinator or Haiku | Regroup nuggets from input-batch ordering to output-topic ordering |
 | **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records |
 | **Phase 2.5** | Sonnet (parallel) | Mine reviewer sidecars for cross-spec convergence patterns; emit promotion proposals to scratch (`tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`). Full contract: `PIPELINE.md § Phase 2.5`. |
-| **Phase 3** | Opus (single) | Cross-reference assembly — resolve contradictions, deduplicate decision records, produce deletion manifest (does NOT apply delta ops) |
-| **Phase 4** | Coordinator | PM approval gate — present deletion manifest, wait for explicit approval |
+| **Phase 3a** | Sonnet (parallel by cluster) | Contradiction detection — one agent per topic cluster; coordinator cross-cluster check post-3a; Opus escalation if unresolvable contradictions found |
+| **Phase 3b** | Sonnet (single) | Decision-record dedup — collect all Phase 2 DRs, produce deduplicated canonical set + duplicate-mapping table |
+| **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write index table directly; no subagent |
+| **Phase 3d** | Sonnet (single) | Deletion manifest — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` |
+| **Phase 4** | Coordinator | PM approval gate — present deletion manifest + DIRECTORY_GUIDE.md preview, wait for explicit approval |
 | **Phase 5** | Coordinator | Apply wiki writes, trim + archive canonical specs (including rationale extraction), delete scaffolding, update distillation log, run link-heal pass |
 <!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
-**If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3 and presents the summary.
+**If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3d and presents the summary.
 
 **If `--no-delete`:** Phase 5 applies wiki writes and commits, but skips scaffolding deletion and spec archival.
 
@@ -171,7 +176,7 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 - "Integrator Triage"
 - "Docs-Checker Pass"
 - "Open Questions (resolved)"
-- "Scope-Expansion the Game Dev Reviewere-Channel" / "Heavy-Investment Pass" wrappers
+- "Scope-Expansion Side-Channel" / "Heavy-Investment Pass" wrappers
 
 **MIDDLE — keep + flag for EM eyeball in dry-run:** any section heading not matching either list above. Do not auto-strip; surface in dry-run for EM decision.
 
@@ -296,7 +301,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - `## Decision Rationale` section present in archived spec (or sibling rationale file) for every spec that had DENYLIST content; rationale covers alternatives-considered + why this won per reviewer finding.
 - Link-heal pass rewrites all three target types; `## Manual Review` section in distillation log captures unmatched-but-suspicious hits.
 - **Vocabulary discipline AC (the Data Science Reviewer F2):** /distill manual-review log on a CONTEXT.md-bearing repo flags ≥1 vocabulary-drift hit on sampled executor output OR attests zero drift after sampling N≥3 modules.
-- **Phase 2.5 exists** in `PIPELINE.md` as a defined phase with model assignment (Sonnet, parallel by topic-cluster) and dispatch instructions. Phase 2.5 runs after all Phase 2 topic-cluster agents complete and before Phase 3 dispatches.
+- **Phase 2.5 exists** in `PIPELINE.md` as a defined phase with model assignment (Sonnet, parallel by topic-cluster) and dispatch instructions. Phase 2.5 runs after all Phase 2 topic-cluster agents complete and before Phase 3a dispatches.
 - **Convergence threshold enforced:** Phase 2.5 emits a judgment proposal only when `convergence_count >= MIN_CONVERGENCE` across distinct plans (one finding per plan). The `--min-convergence=N` argument gates promotion; it is not advisory. Zero proposals when threshold not reached is correct behaviour, not a failure.
 - **Update path is topic-key join, no re-`git show`:** when an existing `docs/wiki/codebase-judgment/<topic>.md` entry is present, Phase 2.5 matches new live findings against the existing topic key only — it does NOT re-`git show` prior `source_findings[*].sha` refs. The topic key is the stable join identifier. Full contract: `PIPELINE.md § D8`.
 - **`judgment_provenance:` frontmatter on promoted entries:** every new `docs/wiki/codebase-judgment/<topic>.md` carries a `judgment_provenance:` frontmatter block (NOT `provenance:` — that key is taken by Phase 5b's archived-spec schema). Schema includes `kind`, `convergence_count`, `source_findings` (sidecar path + plan + reviewer + finding ID + SHA), `promoted`, `last_refreshed`. Full schema: `PIPELINE.md § Phase 2.5 — Frontmatter schema`.

@@ -6,7 +6,12 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 Spec backlink: `docs/plans/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
 
-The goal is to ensure today is within the active workstream branch's span — not to create a new branch every day. A span-form branch (`work/<machine>/2026-05-06to07`) is the normal shape when work runs across midnight. The hook polices branch *shape*, not branch *date*; `cs_is_allowed_branch` is the policy oracle.
+The goal is to ensure the active workstream branch reconciles with `origin/main` daily — not to create a new branch every day. The active workstream may be either:
+
+- **Canonical** — `work/{machine}/{date-or-span}` (e.g. `work/striker/2026-05-06to07`). Span form is the normal shape when work runs across midnight.
+- **Named long-lived workstream** — `migration/...`, `release/...`, `feature/...`, etc., authorized at create-time via the inline `COORDINATOR_OVERRIDE_BRANCH=1`. Once it exists with commits ahead of main, workday-start treats it as a legitimate workstream bus.
+
+The hook polices branch *shape* at create-time, not branch *date* at workday-start. Daily ritual is **reconcile with origin/main**, applicable to both branch types. One active workstream branch per machine, kept current with main, until it's ready to merge.
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
@@ -46,8 +51,8 @@ SHOULD_PROMPT=$?
 ```
 If `$SHOULD_PROMPT` is **1** and the branch is a valid `work/{machine}/...` form → exit Step 0 silently. Today is already within the branch's span. Proceed to Step 1.
 
-**Check 3 — On main / no workstream branch (runs third):**
-If `$CURRENT == "main"` or `cs_parse_branch_span "$CURRENT"` returns non-zero (branch is not a valid daily/span form) → create a fresh workstream branch:
+**Check 3 — On main / detached / empty branch (runs third):**
+If `$CURRENT == "main"` OR HEAD is detached OR `$CURRENT` is non-main with zero commits ahead of `origin/main` → create a fresh canonical workstream branch:
 ```bash
 COORDINATOR_OVERRIDE_BRANCH=1 \
 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
@@ -55,7 +60,16 @@ git checkout -b "work/${MACHINE}/${TODAY}"
 
 git push -u origin "work/${MACHINE}/${TODAY}"
 ```
-Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.5 (consolidation)**.
+Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.4.5 (reconcile)** and **Step 0.5 (consolidation)**.
+
+**Why "empty branch" qualifies for fresh-cut:** a non-main branch with zero commits ahead is structurally indistinguishable from `main` for workstream purposes — it's an empty container, not work-in-progress. Cutting fresh from main is fine; nothing is being abandoned.
+
+**Check 3.5 — Named long-lived workstream (runs between 3 and 4):**
+If `$CURRENT` is non-main, `cs_parse_branch_span "$CURRENT"` returns non-zero (not `work/{machine}/...`), AND `git rev-list --count origin/main..HEAD` > 0 → this is an active named workstream bus (e.g. `migration/from-holodeck-...`, `release/v2.0`). Skip the rename procedure (which is `work/{machine}/...`-specific). Proceed directly to **Step 0.4.5 (reconcile)**, then **Step 0.5 (consolidation)** with this branch as base.
+
+**Why not force a fresh daily here:** creating `work/{machine}/{today}` off main and abandoning the named workstream branch would strand potentially weeks of work on an inactive ref. The PM authorized this branch at create-time via the inline override; daily reconciliation keeps it current with main without forking.
+
+**Consolidation scope for named workstreams:** Step 0.5 (merge open `work/{machine}/...` siblings into the active branch) is **skipped** when the active branch is a named long-lived workstream. The named bus is deliberately scoped (e.g. a migration, a release); folding generic daily work into it cross-pollutes the workstream history. Sibling `work/{machine}/...` branches stay where they are until their own session consolidates them, or until they're explicitly merged via `/consolidate-git`.
 
 **Check 4 — Midnight-rename (runs last):**
 Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0. This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
@@ -118,6 +132,40 @@ fi
 
 **Override rationale:** `git branch -m` and `git push --atomic` are both hook-blocked ops when the target name is being mutated. The inline `COORDINATOR_OVERRIDE_BRANCH=1` is required on each of the three git commands (rename, push, rollback). Never export this variable — set it inline per command.
 
+### Step 0.4.5 — Reconcile with origin/main (daily ritual)
+
+Applies to any non-main active branch — canonical `work/{machine}/...` or named long-lived workstream. Runs after the precedence switch resolves and after any rename, before consolidation.
+
+```bash
+git fetch origin main
+CURRENT=$(git branch --show-current)
+
+if git merge-base --is-ancestor origin/main HEAD; then
+  # Already includes origin/main — nothing to do.
+  :
+elif COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (ff)" \
+     git merge --ff-only origin/main 2>/dev/null; then
+  echo "Fast-forwarded $CURRENT to include origin/main."
+else
+  if COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (merge)" \
+     git merge --no-ff origin/main \
+       -m "reconcile origin/main into $CURRENT (workday-start)"; then
+    echo "Merged origin/main into $CURRENT."
+  else
+    git merge --abort
+    echo "Reconcile conflict with origin/main — surface via A/B/C Branch Reconciliation Decision."
+    # Do not proceed to Step 0.5; PM resolves first.
+    exit 1
+  fi
+fi
+```
+
+**Why this replaces "cut a fresh daily off main":** other contributors push to `origin/main` independently. The active workstream branch needs that work folded in daily to stay mergeable — abandoning the branch and cutting a fresh one off main would lose the in-progress workstream. Conflicts on reconcile use the same A/B/C decision flow as consolidation conflicts (`commands/workday-start.md` § Step 0 conflict handling).
+
+**Override rationale:** `git merge origin/main` does not mutate a branch ref, but the hook surface includes `git merge` in some shells (compound parsing). Inline override is cheap insurance; remove if hook coverage analysis confirms it's not needed.
+
 ### Step 0.5 — Consolidate open branches
 
 Find open (unmerged) work branches for this machine. Use a case-insensitive glob (the legacy uppercase transition period is over but mixed-case strays still appear from manual branch creates):
@@ -153,7 +201,7 @@ Report:
 
 ## Step 1 — Handoff reconciliation (rationale + procedure)
 
-**Why filter to `ready_to_fire`, with `awaiting_gate` behind a 14-day stale flag (doctrine reversal 2026-05-08):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability requires a clear filter. The 14-day stale-gate flag preserves the deferred-work signal: handoffs sitting in `awaiting_gate` longer than 14 days are surfaced to PM, so an unforgotten gate doesn't silently bury work indefinitely. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
+**Why filter to `ready_to_fire` for the primary actionable list, with `awaiting_gate` always surfaced as its own subsection (doctrine reversal 2026-05-08, revised 2026-05-15):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability for the actionable list requires a clear filter. The original 2026-05-08 revision hid `awaiting_gate` behind a 14-day staleness gate; empirical use (2026-05-15) showed this buried gated work the PM needed for cross-workstream planning — clear-gate, retarget, or pick-up-early decisions never reached the briefing. Revised behavior: `awaiting_gate` items always surface as a "Gated handoffs" subsection (count + list when present), with a >6-day flag for items where the gate may be stuck. Six days ≈ one working week — long enough to filter normal in-flight gates, short enough to catch ossification. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
 
 **Why cross-reference completed archive:** handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 

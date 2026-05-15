@@ -92,12 +92,12 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 1. Identify the system's domain:
    - Game dev / Unreal → the Game Dev Reviewer
-   - Frontend / UI → the Front-End Reviewer
+   - Frontend / UI → Palí
    - ML / data → the Data Science Reviewer
    - Other / architecture → the Staff Engineer
 2. Dispatch the domain reviewer with full system scope — all files in the system. Include the atlas page as context (per Step 2.5).
 3. Reviewer grades the system and adds/updates the grade on the atlas page.
-4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/the Front-End Reviewer/the Data Science Reviewer), the Ambition Advocate for the Staff Engineer. Run backstop after applying domain reviewer findings.
+4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/Palí/the Data Science Reviewer), Zolí for the Staff Engineer. Run backstop after applying domain reviewer findings.
 
 ### Systems >10 files — Haiku→Sonnet Pre-Digestion
 
@@ -117,7 +117,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 5. Reviewer grades the system and adds/updates the grade on the atlas page.
 
-6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Ambition Advocate for the Staff Engineer.
+6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, Zolí for the Staff Engineer.
 
 ---
 
@@ -221,6 +221,6 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 ## Relationship to Other Commands
 
 - **`/architecture-audit`** — the full deep-audit command that bootstraps the atlas and health ledger. Run this first on a new project before running `/architecture-rotation`.
-- **`/review-dispatch`** — routes a single artifact through a reviewer. `/architecture-rotation` orchestrates the full rotation loop including review, inline fixes, debt tracking, and ledger updates — it is not a thin wrapper around `/review-dispatch`.
+- **`/review` / `/review-code`** — route a single artifact through a reviewer (plan-shaped via `/review`, code-shaped via `/review-code`). `/architecture-rotation` orchestrates the full rotation loop including review, inline fixes, debt tracking, and ledger updates — it is not a thin wrapper around single-reviewer dispatch.
 - **`pipelines/weekly-architecture-audit/PIPELINE.md`** — the pipeline definition this command executes. Contains the authoritative process specification; this command is the invocable surface for it.
 - **`/architecture-audit`** — full system discovery and atlas construction. Use it when the atlas is stale or a system is entirely undocumented.

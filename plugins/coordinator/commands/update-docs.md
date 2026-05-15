@@ -48,7 +48,7 @@ When invoked, systematically update all documentation artifacts to match reality
 Commit everything before updating documentation — captures all uncommitted changes from any source.
 
 1. **Branch guard:** If on `main`, create a work branch first (`work/{machine}/{date}`) and switch to it. Never commit directly to main — the repo's merge policy (PR + CI) is the only path to main.
-2. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-docs quick-save"`
+2. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "pre-docs quick-save"`
 3. If nothing to commit, move on
 4. Do not push yet — push happens in Phase 9 after all docs are updated
 
@@ -209,7 +209,7 @@ This phase replaces the former `coordinator:artifact-consolidation` skill (absor
 
 #### Phase 9: Commit + Verify Remote
 
-1. `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "docs maintenance"`
+1. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "docs maintenance"`
    (The post-commit hook will auto-push on work/feature branches.)
 2. **Verify remote is synced:** `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
    If unpushed commits remain, push explicitly.
@@ -221,17 +221,29 @@ This phase replaces the former `coordinator:artifact-consolidation` skill (absor
 
 All "when RAG present" gates in this command use the same detection mechanism: check whether any MCP tool matching `mcp__*project-rag*` (case-insensitive substring) is available in the current session. A positive match sets the logical `RAG_PRESENT` flag for this run. Future maintainers: the same detection is used by `coordinator/hooks/project-rag-detect.*` (W1 hook) — keep them in sync.
 
-**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):**
-- **RAG absent (`!RAG_PRESENT`):** repomap retains its primary role — generate/refresh unconditionally.
-- **RAG present + stale or uninitialized:** repomap available as a fast stopgap. Generate as fallback, emit audit log entry (Phase 10b). EM chooses repomap-vs-reindex per session based on time budget.
+**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):** See `docs/wiki/repomap-rag-gating.md` for the full gating doctrine. Summary:
+- **RAG absent:** repomap retains its primary role — generate unconditionally.
+- **RAG present + stale or uninitialized:** generate as fallback stopgap; emit audit log entry (Phase 10b).
 - **RAG present + fresh:** skip repomap generation entirely.
 
 #### Phase 9b: Repomap Regeneration (RAG-gated)
 
-**Three-tier logic:**
-- `!RAG_PRESENT`: run `/generate-repomap` as today (unconditional). Repomap is primary.
-- `RAG_PRESENT` + stale/uninitialized: run `/generate-repomap` as fallback stopgap. Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG stale)."
-- `RAG_PRESENT` + fresh: skip. Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
+Gate via `bin/check-rag-state.sh`, then invoke `bin/generate-repomap.sh`. Full gating pattern in `docs/wiki/repomap-rag-gating.md § Caller Pattern`.
+
+```bash
+RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+case "$RAG_STATE" in
+  fresh)
+    # Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
+    ;;
+  absent|stale|unknown)
+    bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh"
+    if [ "$RAG_STATE" != "absent" ]; then
+      # Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG state: ${RAG_STATE})."
+    fi
+    ;;
+esac
+```
 
 **Previously this was handled inline in Phase 10.** It is now an explicit conditional phase so the gating logic is visible to maintainers.
 
@@ -411,6 +423,24 @@ Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-li
 
 This phase is informational like 11e/11f; does NOT halt `/update-docs`.
 
+#### Phase 11h2: Cross-reference coverage sweep
+
+Run `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-coverage.js`. The script walks the entire coordinator-claude plugin tree, extracts every `<plugin>:<name>` reference, `subagent_type:` assignment, and worker bullet under `## Worker Dispatch Recommendations` headers, and verifies each resolves to a real skill / agent / command on disk. External plugin prefixes (`holodeck-control:*`, `superpowers:*`, etc.) are skipped — the check is in-tree only.
+
+Ported from holodeck's `agent-domain-coverage.test.ts` (TS) — same producer/consumer invariant, retargeted to coordinator-claude's surface.
+
+```bash
+node ~/.claude/plugins/coordinator-claude/coordinator/bin/verify-coverage.js
+```
+
+The script exits non-zero on any orphan reference. This phase HALTS `/update-docs` until orphans are resolved — either by retargeting the reference to a real artifact, by adding it to `REF_ALLOWLIST` in `bin/verify-coverage.js` with a one-line rationale for historical/rename mentions, or by creating the missing artifact.
+
+Baseline was cleaned 2026-05-14 (15 → 0 orphans: 9 retargets to renamed skills, 6 historical mentions allowlisted). Promotion from `--report-only` to hard gate landed in the same commit.
+
+**On orphans:** Report `Cross-reference coverage: N orphan(s) — /update-docs HALTED. Resolve before re-running.` and stop the phase. Each orphan needs human judgment on what the writer meant (the common fix is renaming to the current skill name; rare cases need a new artifact or allowlist entry).
+
+**On zero orphans:** Report "Cross-reference coverage: clean."
+
 #### Phase 11i: Prune resolved-state bloat from queues
 
 Spec backlink: `docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5`
@@ -557,7 +587,7 @@ Present a concise summary:
    - `K entries restored to active` (if any flipped back from unreachable)
    - `R entries refreshed last_verified`
 
-5. **Commit.** Edits to `~/.claude/tasks/repo-registry.md` go in the same Phase 9 commit cycle (the EM-side commit, not the doc-maintenance agent's). Use `coordinator-safe-commit "registry refresh: N candidates, M unreachable"` or fall back to explicit-path staging.
+5. **Commit.** Edits to `~/.claude/tasks/repo-registry.md` go in the same Phase 9 commit cycle (the EM-side commit, not the doc-maintenance agent's). Plain-git explicit-path commit (SC-DR-008): `git add -- ~/.claude/tasks/repo-registry.md && git commit -m "registry refresh: N candidates, M unreachable" -- ~/.claude/tasks/repo-registry.md`.
 
 **Failure modes:**
 - Decoder returns zero candidates → log warning, continue with staleness check only.

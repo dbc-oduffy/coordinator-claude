@@ -13,7 +13,10 @@
 #
 # Hook execution is serial within a session — no TOCTOU risk on sentinel
 # check-then-delete.
-set -euo pipefail
+set -uo pipefail
+# NOTE: -e deliberately omitted. This is an advisory hook and must fail-open;
+# critical sections use explicit `|| true` guards. A blanket -e would abort
+# the hook on any subcommand non-zero (e.g., stat/jq/find), defeating that.
 
 # --- Safe stdin read (the fix for the Windows hang) ---
 # GNU timeout is available in Git Bash via coreutils. If somehow missing,
@@ -137,6 +140,14 @@ fi
 # (e.g., "claude-opus-4-7[1m]"). Match that suffix explicitly before the bare model
 # pattern so a plain ID falls through to the 200K default.
 case "$MODEL_ID" in
+  # Explicit 1M-context variants — must match before the bare family arms below.
+  # Anthropic encodes 1M-context variants with a "[1m]" suffix (e.g.
+  # "claude-opus-4-7[1m]"); some ID shapes use "-1m" or a bare "1m" token.
+  # Matching here prevents a 1M-context Sonnet from falling into the *sonnet*
+  # arm and producing false-positive handoff nudges at ~200K bytes.
+  *\[1m\]*)       CONTEXT_WINDOW=1000000 ;;  # Explicit "[1m]" suffix
+  *-1m*)          CONTEXT_WINDOW=1000000 ;;  # "-1m" infix variant
+  *1m*)           CONTEXT_WINDOW=1000000 ;;  # Bare "1m" token
   # Explicit 200K overrides for Opus variants known to ship without the 1M window
   # (add specific model IDs here as they appear).
   # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
@@ -180,8 +191,13 @@ else
   TRANSCRIPT_HASH="$SESSION_ID"
 fi
 
-# Stale sentinel cleanup (>24h old)
-find /tmp -maxdepth 1 \( -name "context-pressure-*" -o -name "autonomous-run-*" \) -mmin +1440 -delete 2>/dev/null || true
+# Stale sentinel cleanup (>24h old) — scope to this session only.
+# Previously this matched all sessions' sentinels, so session A's cleanup
+# would delete session B's live sentinels. SESSION_ID is guaranteed non-empty
+# here (we exit early above when it's blank), but guard defensively.
+if [[ -n "${SESSION_ID:-}" ]]; then
+  find /tmp -maxdepth 1 \( -name "context-pressure-*${SESSION_ID}*" -o -name "autonomous-run-*${SESSION_ID}*" \) -mmin +1440 -delete 2>/dev/null || true
+fi
 
 # --- Autonomous run detection ---
 AUTONOMOUS_SENTINEL="/tmp/autonomous-run-${SESSION_ID}"

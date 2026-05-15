@@ -42,6 +42,21 @@ Both validators must exit 0. A partial pass (one OK, one failing) still blocks.
 
 ---
 
+### 0c: UBT pending-record resolution (UE plugin work only)
+
+If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records that have NO corresponding `*.ubt-compile.resolved.json` sibling. For each unresolved pair, run the UBT build (via the script) and write a new resolved record. Exit non-zero if any record resolves to `verdict=blocked` — this is a **blocking gate**.
+
+```bash
+[ -x bin/check-ubt-build-fresh.sh ] && \
+  bin/check-ubt-build-fresh.sh --since HEAD --mode resolve
+```
+
+- **Exit 0 (no pending records, or all resolved to ok):** proceed.
+- **Exit 1 (one or more resolved to blocked):** halt and report. Fix the C++ compile error, then run `/workday-complete` again. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM explicitly authorises bypassing the gate.
+- **Script absent:** skip silently (non-UE repos see no change). Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/session-end` Step 2.9.
+
+---
+
 ## Step 1: `/validate` (blocking gate)
 
 ```bash
@@ -97,10 +112,76 @@ Feature branches are excluded — they are intentionally long-lived.
 
 ## Step 4: Strategic Daily Review
 
-Run `/daily-review`. Produces `archive/daily-summaries/YYYY-MM-DD.md` — feeds the changelog append and the weekly ceremony.
+Produce `archive/daily-summaries/YYYY-MM-DD.md`. Heavy-weight templates, the failure-mode table,
+health-ledger schema, and debt-backlog DSR-ID format live in
+`docs/wiki/daily-summary-procedure.md` (plugin-relative) — walk that wiki for detail; do not
+re-author it inline.
+
+**Skip condition:** zero new commits AND no agent-driven changes outside commits → write a one-line
+summary noting "no work today" and skip Steps 4b–4e.
+
+### Step 4a: Inventory Generation
 
 ```bash
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+mkdir -p tasks/daily-review-scratch
+bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/standup.sh" > tasks/daily-review-scratch/inventory.md
+```
+
+The script emits: baseline SHA/timestamp, commit inventory, file-change summary by directory,
+touched handoffs, touched todos, active handoffs.
+
+### Step 4b: Analyst Dispatch
+
+Dispatch a **Sonnet** analyst agent (`model: "sonnet"`, `run_in_background: true`).
+
+Full prompt template: `docs/wiki/daily-summary-procedure.md` § Sonnet Analyst Prompt Template.
+Summary of what the analyst does:
+1. Reads `tasks/daily-review-scratch/inventory.md`.
+2. Reads `git diff <baseline>..HEAD` (targeted reads if diff >3000 lines).
+3. Reads commit messages and any referenced plan docs.
+4. Writes `archive/daily-summaries/YYYY-MM-DD.md` — Work Completed, Systems Affected,
+   Architectural Decisions sections. Creates the directory if needed.
+
+Wait for the analyst to complete before Step 4c.
+
+### Step 4c: Reviewer Dispatch
+
+Route to a reviewer based on the dominant domain of today's work. Full routing table:
+`docs/wiki/daily-summary-procedure.md` § Routing Table.
+
+Quick reference:
+
+| Dominant change type | Reviewer |
+|---|---|
+| Game dev / Unreal Engine | the Game Dev Reviewer |
+| Frontend / UI | Palí |
+| Data / ML / science | the Data Science Reviewer |
+| Mixed, backend, or architecture | the Staff Engineer |
+
+Dispatch the selected reviewer as a **Sonnet** agent.
+
+Full prompt template: `docs/wiki/daily-summary-procedure.md` § Sonnet Reviewer Prompt Template.
+The reviewer appends a `## Strategic Review` section to the daily summary and optionally adds
+rows to `tasks/debt-backlog.md` (DSR-{date}-{N} format — see wiki for schema).
+
+### Step 4d: Health Ledger Update
+
+After the reviewer completes:
+1. Read `tasks/health-ledger.md`. If missing, create from schema in
+   `docs/wiki/daily-summary-procedure.md` § Health Ledger Entry Schema.
+2. Update `Last daily check` to today's date.
+3. Update grades for any system flagged by the reviewer; add new rows (grade `?`) for systems
+   touched by commits that have no row yet.
+
+### Step 4e: No Commit Here
+
+Do **not** commit in Step 4. Step 9 stages and commits `archive/daily-summaries/YYYY-MM-DD.md`
+alongside the changelog row.
+
+### Step 4f: Clean Scratch
+
+```bash
+rm -rf tasks/daily-review-scratch
 ```
 
 ---
@@ -179,7 +260,10 @@ CHANGELOG_FILE="tasks/week-changelog/$TODAY-$MACHINE.md"
 **Staleness guard:** read `tasks/week-changelog/HEADER.md`. If `Week starting:` is set and today is >14 days past it, emit a hard warning and skip the append:
 > "WARN: HEADER.md is stale (week started >14 days ago). Was `/workweek-complete` skipped?"
 
-**Synthesise the block** from today's handoffs (`tasks/handoffs/YYYY-MM-DD-*.md`) and the `/daily-review` summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` and `Blockers:` from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5 exit codes — it is not LLM-authored prose.
+**Synthesise the block** from today's handoffs (`tasks/handoffs/YYYY-MM-DD-*.md`) and the Step 4
+daily summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` and `Blockers:`
+from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5
+exit codes — it is not LLM-authored prose.
 
 **`Reviewed:` field** — read all `tasks/review-trail/*.json` files whose filename begins with today's date (`YYYY-MM-DD-*`). For each record, emit one line:
 ```
@@ -209,9 +293,9 @@ If today's commits are all trivial AND no records exist, omit the `**Reviewed:**
 **Links:** archive/daily-summaries/YYYY-MM-DD.md, archive/completed/YYYY-MM.md
 ```
 
-Commit and push:
+Commit and push — include the daily summary artifact alongside the changelog row:
 ```bash
-git add -- "$CHANGELOG_FILE"
+git add -- "$CHANGELOG_FILE" "archive/daily-summaries/$TODAY.md"
 git commit -m "chore(week-changelog): daily block $TODAY $MACHINE"
 git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 ```
@@ -268,6 +352,6 @@ Per-machine files under `tasks/week-changelog/` eliminate concurrent-write confl
 ### Relationship to Other Commands
 
 - **`/merge-to-main`** — deliberate supervised merge; run in the morning.
-- **`/daily-review`** — invoked in Step 4; its output feeds Step 9.
+- **`archive/daily-summaries/YYYY-MM-DD.md`** — produced by Step 4; feeds Step 9 synthesis.
 - **`/workweek-complete`** — weekly release ceremony: docs sweep, ShellCheck, triage, version bump, merge.
 - **`/workweek-start`** — PM-facing weekly orient; sets priorities in HEADER.md.
