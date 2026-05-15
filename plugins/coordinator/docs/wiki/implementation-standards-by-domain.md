@@ -19,6 +19,9 @@ See `docs/wiki/document-bloat-trim.md` for the general extraction rule.
 
 - **Log field names are contracts, not labels.** A field must measure exactly one fact, named for that fact. `cuda_available` reporting NVML probe state (not device availability) misled reviewers for an entire release cycle — the name promised a different fact than the value delivered.
 - **Silent absence is indistinguishable from success.** Fail-open paths and gate-skipped phases must both emit structured events; default-on-with-opt-out beats default-off-with-opt-in for load-bearing phases.
+- **Fail-open paths require a structured "degraded mode" emit.** Fail-open is often the right default (don't hard-block the user when a probe library is missing), but it must be coupled with a queryable signal: `logger.warning("vram_probe degraded — pynvml not installed; gate disabled", extra={"pynvml_importable": False, "vram_gate_active": False})`. The field names must let a log-analytics pass enumerate hosts where the gate is non-functional. A silent fail-open is a silent no-op.
+- **Silent env-var-gated skips break diagnostic loops.** When a script consults an env var to decide whether to run a load-bearing phase, the absence path must emit a structured skip event the diagnostic surface can detect — and the default should be *on with explicit opt-out*, not *off with implicit opt-in*. Probes that say "run X to fix this" silently no-op when X's env-gate is unset produce identical FAIL across multiple remediation attempts with no diagnostic signal.
+- **Long-running backgrounded scripts need machine-parseable progress.** Any backgrounded long-running script the agent dispatches must emit (a) a status file at a known path (machine-parseable JSON), (b) a heartbeat timestamp updated every N seconds (liveness), and (c) tagged stdout at phase boundaries using a three-tag taxonomy: `PHASE-START:<name>` / `PHASE-END:<name>` / `PHASE-SKIP:<name>:<reason>`. Cat-ing tmp files and grepping the script for `Read-Host` is the diagnostic shape that signals the surface needs structured output. See `docs/wiki/dispatching-parallel-agents.md` § Long-Running Dispatched Process for the full status-file schema.
 
 ## Database / indexer correctness
 
@@ -30,10 +33,16 @@ See `docs/wiki/document-bloat-trim.md` for the general extraction rule.
 ## Dependency management
 
 - **Vendor with a mechanical SHA pin, not a doc-only policy.** A pinned SHA is machine-verifiable and survives doc drift; a policy note in a README is not enforceable at build time.
+- **Substrate pins belong in `pyproject.toml` / `setup.cfg` / declared manifest, NOT in installer scripts.** Python version, library minimum, CUDA variant, and similar substrate constraints belong in the declared package manifest where every tool (pip, uv, build systems, CI) sees them. Installer-side pins drift from manifest and silently install the wrong substrate when called out-of-band (direct `pip install`, editor-driven venv creation, sibling repo bootstrap).
+- **Bash scripts shelling to Python MUST resolve the interpreter via `PYTHON_BIN` env-var or a shared `bin/lib/resolve-python.sh` helper**, not hard-coded `python` or `python3`. Resolution order: explicit `PYTHON_BIN` env → repo-local venv → system. Hard-coded `python` picks up whichever interpreter `$PATH` happens to expose, which on shared machines (Windows + WSL, multi-version dev boxes) is rarely the one the script was authored against.
 
 ## Engine plugin packaging
 
 - **UE plugin distribution mode determines DLL load location.** `AdditionalPluginDirectories` (engine-managed) and project-local plugin paths load from different directories; conflating the two produces inverted directional rules. Verify distribution mode before writing any DLL-path logic.
+
+## Named contracts vs incidental flags
+
+- **A workaround that relies on a flag's incidental name/value** (e.g. piggy-backing on `--legacy-compat` to enable an unrelated behavior) is not a solution — it's debt the next refactor will silently break. Add an explicit named contract (a new flag, a constant, an env var) when the behavior is intentional.
 
 ## Related
 

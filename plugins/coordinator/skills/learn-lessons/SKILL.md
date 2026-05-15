@@ -142,7 +142,9 @@ One Haiku scout per surviving repo, dispatched in parallel. Scout brief:
 - Routing schema verbatim from this SKILL.md
 
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
-**Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. No such constraint exists. The ONLY valid completion is calling the Write tool. Replies that dump the deliverable inline count as task failure.**
+**Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. No such constraint exists. The ONLY valid completion is calling the Write tool. Replies that dump the deliverable inline count as task failure. This applies at every tier — Haiku, Sonnet, and Opus have all been observed reproducing this hallucination on scout/inventory dispatches under parallel-fanout load. Tier does not exempt you; verify file on disk before replying DONE.**
+
+- **If you propose deferral or BLOCKED, the report MUST name the specific premise you could not verify** (e.g. "cannot verify Module X exposes Symbol Y on this branch"). Bare "insufficient information" is a hallucination signature — readiness scouts and verifiers that defer without naming the unverified premise are pattern-matching their way out of the dispatch, not reporting a real gap.
 <!-- END text-only-recovery-preamble -->
 
 Scout verifies with `Bash ls -la <path>` and replies EXACTLY: `DONE: <path>`.
@@ -174,6 +176,8 @@ same lesson (semantic match on the rule statement, not exact string).
 
 **If no match:** append as a new entry with `recurring: 0` and `resolution: pending`.
 
+**Semantic-pass (run after substring/exact-match first pass).** Substring match is the cheap floor — it misses semantic duplicates that share no keywords. After the first pass, for each surviving candidate ask: "Does this candidate restate, in different words, an existing rule in the queue / CLAUDE.md / target wiki?" If yes, route to "already-covered" rather than creating a new entry. Common failure mode: the same lesson phrased with different domain vocabulary (e.g. "executor fabricates commit attribution" vs "executor reports lie about which sha was committed" vs "git-log-says-X but chat-says-Y" — all the same rule, no substring overlap). Read the candidate's body against the target wiki's narrative, not just the title: keyword overlap is the floor; narrative match is the ceiling.
+
 ## Phase 4 — Discard Archive
 
 Before removing any entry from `tasks/lessons.md`, append it to the per-repo archive file.
@@ -191,6 +195,20 @@ Before removing any entry from `tasks/lessons.md`, append it to the per-repo arc
 EM judges discard inline — no PM confirmation gate on individual discards. The archive is the
 safety net; it is recoverable (grep by date, source file, or line number) but not surfaced by
 default from `tasks/lessons.md`.
+
+**Reversed-lesson annotation (do NOT delete — annotate instead).** When a `[universal]` or
+doctrine-targeted lesson is overturned by a later run or PM decision, do NOT delete the original
+`tasks/lessons.md` entry. Instead, annotate it inline:
+
+```
+> **INVERTED 2026-05-14:** <one-line reason for reversal> (replaced by: <new doctrine pointer>)
+```
+
+Place the blockquote directly under the original lesson body. The original lesson remains as
+historical context; future scouts see both the prior conclusion and the inversion, preventing
+re-discovery of the same shape. Deletion is reserved for lessons that were factually wrong from
+the start (e.g. cited a nonexistent file) or exact duplicates already folded — not for
+"we changed our minds" reversals.
 
 ## Phase 5 — Authorization and Apply
 
@@ -250,7 +268,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 #### Apply dispatch
 
 - `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` →
-  write focused plan, dispatch Patrik for review, integrator on findings, executor.
+  write focused plan, dispatch the Staff Engineer for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
 - `wiki-append`, `retag-local`, `memory-pointer`, `discard` → direct executor or EM edit.
 - `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
@@ -259,7 +277,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 
 ## Phase 6 — Per-Project Improvement Queue
 
-<!-- Review: Patrik F6 — added explicit write-time discipline for new entries to both queues -->
+<!-- Review: the Staff Engineer F6 — added explicit write-time discipline for new entries to both queues -->
 
 **Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.
@@ -330,6 +348,7 @@ The recurrence list is the pressure signal. PM acts or defers — no automatic b
 - **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture.
   `learn-lessons` is the periodic process that classifies and routes.
 - **Same-session capture-and-validate-as-resolved.** Central-mode runs that capture a lesson AND mark it resolved within the same session create unverified-resolution noise — the resolution claim has not survived a context boundary. Capture in this run; validate in a later run when the lesson has had the chance to recur (or not).
+- **Same-session capture-and-validate-as-universal.** A central `/learn-lessons` run that BOTH captures a new lesson AND validates it as universal in the same pass is a self-confirming loop — the session that surfaced the pattern is the same session asserting its cross-repo generality. Validate universality against accumulated evidence (peer repos, prior runs, recurrence count), not against the session that captured it. Capture this run; promote to `[universal]` in a later run once the pattern has recurred in a different context.
 
 ## Related
 

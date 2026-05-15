@@ -29,12 +29,23 @@
  *
  * Lesson type is special: parses tasks/lessons.md entries.
  *   --where "tier=universal" matches entries tagged [universal].
+ *
+ * Inline consumed marker: bodies containing `<!-- consumed: YYYY-MM-DD [notes] -->`
+ * are normalized as if frontmatter set `status: consumed` and
+ * `deployment_state: shipped` (with `consumed_at` / `shipped_in` derived from
+ * the marker). Existing terminal frontmatter values (`superseded`, `abandoned`)
+ * are preserved.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { loadSchemas, parseFrontmatter } = require('./lib/schema.js');
+const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./lib/consumed-marker.js');
+// Review: Patrik F3 — import shared constants/regex so read-time and write-time
+// paths (normalize-consumed-frontmatter.js) stay greppably aligned.
+// Review: Patrik F4 — CONSUMED_MARKER_RE now uses lazy `(.*?)\s*-->` capture so
+// `>` characters in notes (e.g. "shipped via PR > main") are captured correctly.
 
 // ---------------------------------------------------------------------------
 // Schema-to-glob mapping (must match schema applies_to)
@@ -271,6 +282,33 @@ function filePatternToRegex(pattern) {
 }
 
 // ---------------------------------------------------------------------------
+// Inline consumed-marker normalization
+// ---------------------------------------------------------------------------
+// Meets EMs where they are: many shipped handoffs carry `<!-- consumed: YYYY-MM-DD
+// [notes] -->` in the body but their frontmatter `status` was never flipped, so
+// they keep surfacing in ready_to_fire / status=active queries. Treat the body
+// marker as authoritative for status/deployment_state when frontmatter lags.
+// CONSUMED_MARKER_RE, TERMINAL_STATUS, TERMINAL_DEPLOYMENT imported from
+// lib/consumed-marker.js (shared with normalize-consumed-frontmatter.js).
+
+function applyConsumedMarker(frontmatter, body) {
+  if (!body) return;
+  const m = CONSUMED_MARKER_RE.exec(body);
+  if (!m) return;
+  const date = m[1];
+  const notes = (m[2] || '').trim();
+
+  if (!TERMINAL_STATUS.has(frontmatter.status)) {
+    frontmatter.status = 'consumed';
+  }
+  if (!TERMINAL_DEPLOYMENT.has(frontmatter.deployment_state)) {
+    frontmatter.deployment_state = 'shipped';
+  }
+  if (!frontmatter.consumed_at) frontmatter.consumed_at = date;
+  if (!frontmatter.shipped_in && notes) frontmatter.shipped_in = notes;
+}
+
+// ---------------------------------------------------------------------------
 // Lesson parser
 // ---------------------------------------------------------------------------
 /**
@@ -337,8 +375,9 @@ function queryRecords(opts, root) {
     for (const file of files) {
       let content;
       try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
-      const { frontmatter } = parseFrontmatter(content);
+      const { frontmatter, body } = parseFrontmatter(content);
       if (!frontmatter) continue;
+      applyConsumedMarker(frontmatter, body);
       const relPath = path.relative(root, file).replace(/\\/g, '/');
       records.push({ path: relPath, frontmatter });
     }

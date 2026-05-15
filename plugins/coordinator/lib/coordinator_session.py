@@ -206,4 +206,8 @@ def _to_shell_path(p: str) -> str:
             escaped = result.stdout.strip()
     except (FileNotFoundError, Exception):
         pass
+    # Escape double-quotes and dollar signs for safe interpolation inside
+    # bash -c "..." double-quoted strings (backslash handling above already
+    # converted Windows separators; do quotes/dollars last).
+    escaped = escaped.replace('"', '\\"').replace('$', '\\$')
     return escaped

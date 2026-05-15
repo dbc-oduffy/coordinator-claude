@@ -1,52 +1,55 @@
 ---
-name: setup-percolate
-description: Walk through registering a publish target, scaffolding .percolate-ignore, and scaffolding hook directories. Idempotent — re-runs detect what exists and scaffold what's missing.
-triggers:
-  - /setup-percolate
-  - setup percolate
-  - register publish target
-  - configure percolation
-argument-hint: "[<target-name>]"
-version: 1.0.0
+name: percolate-setup
+spec_backlink: docs/plans/2026-05-09-skill-consolidation-pass.md
+status: canonical
 ---
 
-# /setup-percolate — Register a Publish Target and Scaffold Percolation Config
+# Percolation Setup Procedure
 
-<!-- spec backlink: docs/plans/2026-05-08-percolation-improvements-surface-a.md § Component 3 -->
+<!-- spec backlink: docs/plans/2026-05-09-skill-consolidation-pass.md § T4 -->
 
-Idempotent setup skill for the percolation pipeline. Detects what already exists, scaffolds what's missing, never overwrites. Safe to re-run when adding a new publish target or checking that scaffolding is complete.
+Canonical reference for the percolation setup procedure — registering a publish target, auditing `.percolate-ignore`, and scaffolding hook directories. This wiki is the single source of truth; both `/percolate` (Branch 0) and `/setup` (percolation phase) walk it inline.
 
-**Announce at start:** "Running `/setup-percolate` — detecting existing config, auditing what should and should not publish, scaffolding what's missing."
+**Consumers:**
+- `/percolate` Branch 0 — fires on first run against an unconfigured target; skips silently on subsequent runs.
+- `/setup` percolation phase — fires when the repo is detected as a percolation source with no registered targets.
 
-**First Officer obligation.** `.percolate-ignore` is a privacy/leakage boundary, not a scratch-file convention. The EM does NOT write a generic stub and call setup "done" — that creates a false sense of security and abrogates First Officer doctrine. Every invocation that touches `.percolate-ignore` (creation OR re-run-against-existing) MUST audit the source tree, classify entries, surface grey-zone items for explicit PM decision, and only then write/confirm the file. "Already exists, no changes made" is acceptable ONLY after a coverage-drift audit confirms the existing file still covers everything in the tree that shouldn't publish.
-
-**Structural-vs-content split.** `.percolate-ignore` filters STRUCTURAL leaks — categories of paths (`__pycache__/`, `_archived/`, `tasks/handoffs/`, peer-runtime dirs). It cannot catch CONTENT leaks that accumulate during normal authoring: a name slipping into a wiki body, a peer-repo reference embedded in a snippet, a machine name in a code comment, a token pasted into an example. Content leaks are caught at publish time by `/percolate`'s Step 2c content-leakage scan (regex sweep over the about-to-publish file set, three severity tiers, panel surfaces to PM gate). Do NOT try to encode content scans here — they belong in `/percolate` because authoring drift is continuous and the static ignore file ages out of sync. The two skills divide labour: `/setup-percolate` catches structural categories once; `/percolate` re-scans content on every publish.
-
-## When to Use / When NOT to Use
-
-**Use `/setup-percolate` when:**
-- Registering a new publish target for the first time on this machine.
-- Scaffolding `.percolate-ignore` or hook directories for an existing target.
-- `/percolate` emitted a "No `.percolate-ignore` found" nudge and you want to create one.
-- Adding a second (or third) publish target to an existing `publish-targets.sh`.
-
-**Do NOT use `/setup-percolate` when:**
-- You want to *publish* files to a target — use `/percolate <target>` for that.
-- You want to edit an existing registered target entry — edit `setup/publish-targets.sh` directly.
-- You want general coordinator environment setup (git, env vars, plugins) — use `/setup` for that.
-
-## What This Skill Does NOT Do
-
-- Does **not** edit or overwrite existing entries in `publish-targets.sh` — append-only when adding.
-- Does **not** run `/percolate` — setup only; publication is a separate invocation.
-- Does **not** commit or push any scaffolded files — the PM commits when satisfied.
-- Does **not** create the publish-repo itself or configure its remote — that's a one-time manual step.
+**Scaffold guards (prior-art entry 2026-05-08 — `**/` regression):**
+- This wiki's header comment discloses the supported pattern subset: `**/` is NOT supported in `.percolate-ignore`. Directory patterns are already recursive without it.
+- Before writing `.percolate-ignore`, walk the matcher against a fixture set (Step 3d) to verify patterns resolve as expected. Do not skip the pre-write verification pass.
 
 ---
 
-## Step Sequence
+## First Officer Obligation
 
-### Step 1 — Detect or Scaffold `setup/publish-targets.sh`
+`.percolate-ignore` is a **privacy/leakage boundary**, not a scratch-file convention. The EM does NOT write a generic stub and call setup "done" — that creates a false sense of security and abrogates First Officer doctrine. Every invocation that touches `.percolate-ignore` (creation OR re-run-against-existing) MUST:
+
+1. Audit the source tree.
+2. Classify entries (PUBLISH / IGNORE / GREY ZONE).
+3. Surface grey-zone items for explicit PM decision via `AskUserQuestion`.
+4. Only then write or confirm the file.
+
+"Already exists, no changes made" is acceptable ONLY after a coverage-drift audit confirms the existing file still covers everything in the tree that shouldn't publish.
+
+## Structural-vs-Content Split
+
+`.percolate-ignore` filters **structural leaks** — categories of paths (`__pycache__/`, `_archived/`, `tasks/handoffs/`, peer-runtime dirs). It cannot catch **content leaks** that accumulate during normal authoring: a name slipping into a wiki body, a peer-repo reference embedded in a snippet, a machine name in a code comment, a token pasted into an example.
+
+Content leaks are caught at publish time by `/percolate` Step 2c (content-leakage scan — regex sweep over the about-to-publish file set, three severity tiers, panel surfaces to PM gate). Do NOT try to encode content scans here — they belong in `/percolate` because authoring drift is continuous and the static ignore file ages out of sync.
+
+The two surfaces divide labour: this procedure catches structural categories **once**; `/percolate` re-scans content on **every publish**.
+
+---
+
+## Announce at Start
+
+When walking this procedure, open with:
+
+> "Setting up percolation for target `<target>` — detecting existing config, auditing what should and should not publish, scaffolding what's missing."
+
+---
+
+## Step 1 — Detect or Scaffold `setup/publish-targets.sh`
 
 Check whether `setup/publish-targets.sh` exists at the repo root:
 
@@ -78,13 +81,13 @@ test -f setup/publish-targets.example.sh && echo "example_found" || echo "no_exa
   ```bash
   cp setup/publish-targets.example.sh setup/publish-targets.sh
   ```
-  Report: _"`setup/publish-targets.sh` was missing — copied from the example file. Open it and fill in your target entries before continuing. Re-run `/setup-percolate` after editing."_
+  Report: _"`setup/publish-targets.sh` was missing — copied from the example file. Open it and fill in your target entries before continuing. Re-run after editing."_
   **Stop here** — the PM must edit the file before Step 2 can proceed meaningfully.
 
 - If neither file exists: report that the repo does not appear to have a percolation setup yet, and offer to create a minimal stub:
 
   ```bash
-  # setup/publish-targets.sh — stub created by /setup-percolate
+  # setup/publish-targets.sh — stub created by percolation setup
   # Each TARGETS entry: "name|mode|source_dir|dest_dir"
   # mode: mirror (rsync full tree) or manifest (explicit list via publish-manifest.txt)
   TARGETS=()
@@ -94,11 +97,11 @@ test -f setup/publish-targets.example.sh && echo "example_found" || echo "no_exa
 
 ---
 
-### Step 2 — Walk PM Through Registering a Target
+## Step 2 — Walk PM Through Registering a Target
 
-**If `$ARGUMENTS` names a target** (e.g. `/setup-percolate coordinator-claude`): check whether that target name already appears in `publish-targets.sh`. If it does, skip to Step 3 — no need to re-register.
+**If `$ARGUMENTS` names a target** (e.g. `/percolate coordinator-claude`): check whether that target name already appears in `publish-targets.sh`. If it does, skip to Step 3 — no need to re-register.
 
-**If no argument provided, or the named target is not yet registered:** walk the PM through the four fields:
+**If no argument provided, or the named target is not yet registered:** walk the PM through the four fields.
 
 Ask (one question, all four fields in a single prompt):
 
@@ -132,7 +135,7 @@ Report: _"Target `<name>` registered."_
 
 ---
 
-### Step 3 — Audit + Author `.percolate-ignore` at the Source Plugin Root
+## Step 3 — Audit + Author `.percolate-ignore` at the Source Plugin Root
 
 Resolve `<source_dir>` from the TARGETS entry for the target being set up (the named argument, or the just-registered target from Step 2, or ask if ambiguous when multiple targets exist).
 
@@ -144,7 +147,7 @@ Check whether `.percolate-ignore` already exists:
 test -f "<source_dir>/.percolate-ignore" && echo "exists" || echo "missing"
 ```
 
-#### Step 3a — Inventory the source tree
+### Step 3a — Inventory the source tree
 
 Regardless of whether the file exists, walk `<source_dir>` to ground the audit in reality:
 
@@ -160,7 +163,7 @@ Read suspicious-looking dirs more carefully (`tasks/`, `docs/`, `setup/`, `state
 
 For small single-purpose source trees (one skill bundle, ≤20 files), the EM may classify directly — but the classification step (3b) is non-optional even then.
 
-#### Step 3b — Classify what was found
+### Step 3b — Classify what was found
 
 For every observed top-level path (and any second-level path that's load-bearing for the boundary call), assign one of:
 
@@ -173,7 +176,7 @@ For every observed top-level path (and any second-level path that's load-bearing
   - *scratch:* `scratch/`, `_archived/`, `*.bak`, `*.tmp`, orphan `.tmp.<pid>.<nanos>` files
 - **GREY ZONE** — flag explicitly. Examples that historically need PM judgment: `examples/`, `CONTEXT.md`, `ARCHITECTURE.md`, top-level READMEs, decision records (`docs/decisions/`), plan archives, anything under a name the EM doesn't recognize.
 
-#### Step 3c — Surface grey-zone to PM for decision
+### Step 3c — Surface grey-zone to PM for decision
 
 Before writing the file, present a structured framing:
 
@@ -195,15 +198,19 @@ If `.percolate-ignore` already exists, ALSO show:
 - A diff: "Patterns the existing file DOES cover: ...  Coverage gaps the audit found: ..."
 - Ask: _"Update existing `.percolate-ignore` to close these gaps? [y/N]"_ A `n` answer is acceptable but must be explicit — the existing file is then preserved with no edits, and Step 5's summary reports `kept existing (PM-confirmed coverage adequate)`.
 
-#### Step 3d — Write the audited file
+### Step 3d — Write the audited file
 
-Compose the file with comment-grouped sections so future readers (and the next `/setup-percolate` re-run) can see the reasoning:
+**Scaffold guard — pre-write matcher walk:** Before writing, verify each pattern resolves correctly against the inventory from Step 3a. For each non-trivial pattern (directory suffix `/`, extension glob `*.ext`), confirm at least one inventory entry would match. Patterns that match nothing are not errors (prophylactic exclusions are valid), but patterns that were intended to match something but don't (e.g., wrong path depth) must be corrected before writing.
+
+**Pattern subset reminder:** `**/` is NOT supported. Multi-depth matches need explicit listing. Directory patterns (trailing `/`) are already recursive — they match the directory at any depth in the source tree.
+
+Compose the file with comment-grouped sections so future readers (and the next re-run at Branch 0 / `/setup`) can see the reasoning:
 
 ```
 # .percolate-ignore — paths under this source plugin that should NOT publish.
 # gitignore-shaped: directories with trailing /, file globs without.
 # '**/' is not supported — multi-depth matches need explicit listing.
-# Audited by /setup-percolate on YYYY-MM-DD against <source_dir>.
+# Audited by /percolate Branch 0 on YYYY-MM-DD against <source_dir>.
 
 # --- Authoring scratch ---
 _archived/
@@ -230,7 +237,7 @@ Report what changed: _"`.percolate-ignore` written/updated at `<source_dir>/.per
 
 ---
 
-### Step 4 — Scaffold Hook Directories
+## Step 4 — Scaffold Hook Directories
 
 Resolve `<target_name>` (same as Step 3). The hook base is `setup/percolate-hooks/<target_name>/`.
 
@@ -255,12 +262,40 @@ Note to PM: _"Hook directories are empty by default. Place executable `*.sh` scr
 
 ---
 
-### Step 5 — Summary and Next Step
+## Step 5 — Drift Detection on Existing `.percolate-ignore`
+
+**This step applies when `.percolate-ignore` already exists and the gate in Branch 0 / `/setup` detected coverage gaps (i.e., setup is running because hook dirs were absent, not because the ignore file was missing).**
+
+After the hook scaffolding in Step 4, perform a drift check: are there source-tree entries that have appeared since the ignore file was last audited?
+
+```bash
+find "<source_dir>" -type f -newer "<source_dir>/.percolate-ignore" | sort | head -50
+```
+
+If the result is non-empty, surface under a "Coverage drift since last audit:" panel:
+
+```
+Coverage drift since last audit (<date from ignore file header>):
+  New files / dirs since last percolate-ignore audit:
+    <path>
+    <path>
+    ...
+
+Re-audit recommended. Run /percolate <target> — Branch 0 will re-evaluate.
+```
+
+For each new path, classify it (PUBLISH / IGNORE / GREY ZONE) using the same taxonomy as Step 3b. Present grey-zone additions via `AskUserQuestion` (multiSelect) and offer to append new IGNORE entries to the existing file.
+
+If no new files are found since the last audit: report `"Coverage drift check: clean — no new files since last audit."` and proceed.
+
+---
+
+## Step 5 (Summary) — Summary and Next Step
 
 Print a summary of what was created vs. already in place:
 
 ```
-/setup-percolate <target> — DONE
+Percolation setup for <target> — DONE
 
   publish-targets.sh:    <created|already existed|target added|target already registered>
   .percolate-ignore:     <audited+written|audited+updated to close N gaps|kept existing (PM-confirmed coverage adequate)>
@@ -272,3 +307,19 @@ Setup complete. Run `/percolate <target>` to publish.
 ```
 
 If any step was skipped due to an existing artifact, note it explicitly so the PM can audit.
+
+---
+
+## Failure Modes
+
+| Failure | Symptom | Recovery |
+|---|---|---|
+| `setup/publish-targets.sh` missing, no example | Step 1 exits after stub-creation prompt | Fill in stub or copy example; re-run |
+| Target not in `publish-targets.sh` | Step 2 prompts for registration; cannot auto-detect source path | Provide all four fields at the prompt |
+| Source path does not exist | Step 3 `ls -A` returns empty or error | Verify `<source_dir>` in the TARGETS entry |
+| PM declines grey-zone item write | `.percolate-ignore` not written; step exits with proposed content shown | PM edits manually or re-runs with explicit decisions |
+| Hook dir creation fails (permissions) | `mkdir -p` exits non-zero | Fix permissions at `setup/percolate-hooks/`; re-run (Step 4 is idempotent) |
+| Pattern in `.percolate-ignore` uses `**/` | Matcher silently ignores the pattern (unsupported syntax) | Replace with explicit directory listing or remove `**/` prefix |
+| Drift check finds no ignore file | `find -newer` returns nothing (file missing, not just no drift) | Treat as missing; run full Step 3 audit |
+| Sonnet audit subagent TEXT-ONLY failure | Deliverable not written to disk; subagent returned summary inline | Re-dispatch with `snippets/text-only-recovery-preamble.md`; verify `DONE: <path>` |
+| Partial hook scaffold (dirs partially created) | Some `pre-rsync`/`post-rsync`/`pre-ci` present, others missing | Step 4 is idempotent — re-run; it creates missing dirs and skips existing ones |

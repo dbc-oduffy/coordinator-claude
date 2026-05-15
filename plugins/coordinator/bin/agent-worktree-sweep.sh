@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# agent-worktree-sweep.sh — find and (optionally) reap agent-isolation worktrees
+#
+# Background: Claude Code 2.1.x auto-creates per-dispatch git worktrees under
+# <repo>/.claude/worktrees/agent-<hash>/ for backgrounded Agent dispatches.
+# These are documented opt-out-only behavior (no per-dispatch flag yet, see
+# anthropics/claude-code#58597). They persist locked until session deletion,
+# accumulating across days.
+#
+# This script:
+#   1. Enumerates `git worktree list` for paths matching .claude/worktrees/agent-*
+#   2. Per worktree, classifies state vs. the calling repo's HEAD branch:
+#        - empty-clean   : no commits ahead of HEAD, no dirty files
+#        - commits-clean : commits ahead, no dirty files (salvageable)
+#        - dirty         : uncommitted changes present (PM must handle)
+#   3. With --reap: removes empty-clean; cherry-picks commits-clean onto HEAD
+#      then removes; warns and leaves dirty alone.
+#   4. Emits one JSON line per worktree: {path, branch, state, action, detail}
+#
+# Negative-spec: never touches non-agent worktrees. Never deletes branches that
+# don't match worktree-agent-*. Never force-pushes. Never invokes destructive
+# git commands without --reap.
+#
+# Exit codes:
+#   0 — completed (with or without findings)
+#   2 — not a git repo / no worktree command available
+#   3 — --reap requested but cherry-pick conflict left a worktree in mid-state
+
+set -euo pipefail
+
+REAP=0
+FORMAT="json"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reap)         REAP=1;       shift ;;
+    --format)       FORMAT="$2";  shift 2 ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: agent-worktree-sweep.sh [--reap] [--format json|text]
+
+  --reap            Remove empty-clean worktrees; cherry-pick + remove
+                    commits-clean worktrees. Without it, scan only.
+  --format json     Default. One JSON line per worktree.
+  --format text     Human-readable summary.
+  --help            Show this help.
+
+Operates on the repo containing $PWD. Touches only worktrees whose path
+matches .claude/worktrees/agent-* relative to the repo root.
+EOF
+      exit 0
+      ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "git not found" >&2
+  exit 2
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$REPO_ROOT" ]]; then
+  echo "not in a git repo" >&2
+  exit 2
+fi
+
+ACTIVE_BRANCH="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || true)"
+if [[ -z "$ACTIVE_BRANCH" ]]; then
+  echo "calling repo is in detached HEAD; refuse to reap" >&2
+  REAP=0
+fi
+
+# git worktree list --porcelain emits stanzas like:
+#   worktree /path
+#   HEAD <sha>
+#   branch refs/heads/<name>
+#   locked
+WORKTREES=()
+CURRENT_PATH=""
+CURRENT_BRANCH=""
+CURRENT_LOCKED=0
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      if [[ -n "$CURRENT_PATH" ]]; then
+        WORKTREES+=("${CURRENT_PATH}|${CURRENT_BRANCH}|${CURRENT_LOCKED}")
+      fi
+      CURRENT_PATH="${line#worktree }"
+      CURRENT_BRANCH=""
+      CURRENT_LOCKED=0
+      ;;
+    "branch refs/heads/"*)
+      CURRENT_BRANCH="${line#branch refs/heads/}"
+      ;;
+    "locked"*)
+      CURRENT_LOCKED=1
+      ;;
+    "")
+      if [[ -n "$CURRENT_PATH" ]]; then
+        WORKTREES+=("${CURRENT_PATH}|${CURRENT_BRANCH}|${CURRENT_LOCKED}")
+        CURRENT_PATH=""
+        CURRENT_BRANCH=""
+        CURRENT_LOCKED=0
+      fi
+      ;;
+  esac
+done < <(git -C "$REPO_ROOT" worktree list --porcelain)
+if [[ -n "$CURRENT_PATH" ]]; then
+  WORKTREES+=("${CURRENT_PATH}|${CURRENT_BRANCH}|${CURRENT_LOCKED}")
+fi
+
+emit_json() {
+  local path="$1" branch="$2" state="$3" action="$4" detail="$5"
+  printf '{"path":"%s","branch":"%s","state":"%s","action":"%s","detail":"%s"}\n' \
+    "$path" "$branch" "$state" "$action" "$detail"
+}
+
+emit_text() {
+  local path="$1" branch="$2" state="$3" action="$4" detail="$5"
+  printf '[%s] %-14s %-10s %s\n  branch=%s detail=%s\n' \
+    "$(date -u +%H:%M:%S)" "$state" "$action" "$path" "$branch" "$detail"
+}
+
+emit() {
+  case "$FORMAT" in
+    json) emit_json "$@" ;;
+    text) emit_text "$@" ;;
+  esac
+}
+
+EXIT_CODE=0
+
+for entry in "${WORKTREES[@]:-}"; do
+  [[ -z "$entry" ]] && continue
+  IFS='|' read -r WT_PATH WT_BRANCH _LOCKED <<<"$entry"
+
+  # Match agent-isolation worktrees only — anything else is user-managed
+  case "$WT_PATH" in
+    *"/.claude/worktrees/agent-"*) ;;
+    *) continue ;;
+  esac
+
+  if [[ ! -d "$WT_PATH" ]]; then
+    emit "$WT_PATH" "$WT_BRANCH" "missing" "skip" "worktree path does not exist"
+    continue
+  fi
+
+  # Count commits unique to the worktree relative to the calling branch
+  COMMITS_AHEAD=0
+  if [[ -n "$ACTIVE_BRANCH" ]]; then
+    COMMITS_AHEAD="$(git -C "$WT_PATH" rev-list --count "${ACTIVE_BRANCH}..HEAD" 2>/dev/null || echo 0)"
+  fi
+
+  # Detect dirty state (staged + unstaged + untracked)
+  DIRTY_LINES="$(git -C "$WT_PATH" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+
+  STATE=""
+  if [[ "$DIRTY_LINES" -gt 0 ]]; then
+    STATE="dirty"
+  elif [[ "$COMMITS_AHEAD" -gt 0 ]]; then
+    STATE="commits-clean"
+  else
+    STATE="empty-clean"
+  fi
+
+  if [[ "$REAP" -eq 0 ]]; then
+    emit "$WT_PATH" "$WT_BRANCH" "$STATE" "scan-only" "ahead=${COMMITS_AHEAD} dirty=${DIRTY_LINES}"
+    continue
+  fi
+
+  case "$STATE" in
+    empty-clean)
+      if git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null; then
+        # Best-effort branch cleanup; ignore failure (branch may already be gone)
+        if [[ -n "$WT_BRANCH" ]]; then
+          git -C "$REPO_ROOT" branch -D "$WT_BRANCH" >/dev/null 2>&1 || true
+        fi
+        emit "$WT_PATH" "$WT_BRANCH" "$STATE" "removed" "ahead=0 dirty=0"
+      else
+        emit "$WT_PATH" "$WT_BRANCH" "$STATE" "remove-failed" "git worktree remove rejected"
+        EXIT_CODE=3
+      fi
+      ;;
+
+    commits-clean)
+      # Collect oldest-first commit list for cherry-pick
+      mapfile -t COMMITS < <(git -C "$WT_PATH" rev-list --reverse "${ACTIVE_BRANCH}..HEAD")
+      PICKED=0
+      PICK_FAILED=""
+      for sha in "${COMMITS[@]}"; do
+        if COORDINATOR_OVERRIDE_BRANCH=1 \
+           COORDINATOR_OVERRIDE_BRANCH_REASON="agent-worktree-sweep cherry-pick from $WT_PATH" \
+           git -C "$REPO_ROOT" cherry-pick --allow-empty -x "$sha" >/dev/null 2>&1; then
+          PICKED=$((PICKED + 1))
+        else
+          PICK_FAILED="$sha"
+          # Abort the in-progress cherry-pick to leave the active branch clean
+          git -C "$REPO_ROOT" cherry-pick --abort >/dev/null 2>&1 || true
+          break
+        fi
+      done
+      if [[ -n "$PICK_FAILED" ]]; then
+        emit "$WT_PATH" "$WT_BRANCH" "$STATE" "salvage-conflict" \
+          "picked=${PICKED}/${#COMMITS[@]} stopped_at=${PICK_FAILED} — worktree retained for PM"
+        EXIT_CODE=3
+      else
+        if git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null; then
+          if [[ -n "$WT_BRANCH" ]]; then
+            git -C "$REPO_ROOT" branch -D "$WT_BRANCH" >/dev/null 2>&1 || true
+          fi
+          emit "$WT_PATH" "$WT_BRANCH" "$STATE" "salvaged-removed" \
+            "cherry-picked=${PICKED} onto=${ACTIVE_BRANCH}"
+        else
+          emit "$WT_PATH" "$WT_BRANCH" "$STATE" "salvaged-remove-failed" \
+            "cherry-picked=${PICKED} onto=${ACTIVE_BRANCH} but worktree remove rejected"
+          EXIT_CODE=3
+        fi
+      fi
+      ;;
+
+    dirty)
+      emit "$WT_PATH" "$WT_BRANCH" "$STATE" "warned-skip" \
+        "ahead=${COMMITS_AHEAD} dirty=${DIRTY_LINES} — uncommitted changes; PM must triage"
+      ;;
+  esac
+done
+
+# Best-effort prune; ignores failure on Windows when refs are still locked.
+git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+
+exit "$EXIT_CODE"

@@ -140,7 +140,14 @@ emit_result() {
     fi
   else
     # JSON line
-    echo "{\"branch\":\"${branch}\",\"ahead\":${ahead},\"age_h\":${age_h},\"pr\":${pr_json},\"orphan_after_merge\":${orphan_after_merge},\"severity\":\"${severity}\"}"
+    jq -cn \
+      --arg branch "$branch" \
+      --argjson ahead "$ahead" \
+      --argjson age_h "$age_h" \
+      --argjson pr "$pr_json" \
+      --argjson orphan_after_merge "$orphan_after_merge" \
+      --arg severity "$severity" \
+      '{branch: $branch, ahead: $ahead, age_h: $age_h, pr: $pr, orphan_after_merge: $orphan_after_merge, severity: $severity}'
   fi
 }
 

@@ -8,8 +8,8 @@
 
 You are operating as the Coordinator (EM role) in a structured agent hierarchy.
 For non-trivial multi-step work, follow the enrichment-review-execute pipeline.
-Available commands: /enrich-and-review, /review-dispatch. For executor dispatch follow `docs/wiki/delegate-execution.md`.
-Routing table lives in the coordinator plugin. Use /review-dispatch for reviewer routing.
+Available commands: /enrich-and-review, /review (plan artifacts), /review-code (code artifacts). For executor dispatch follow `docs/wiki/delegate-execution.md`.
+Routing table lives in the coordinator plugin. Use `/review` for plan reviewer routing; use `/review-code` for code reviewer routing.
 
 ## HARD RULES
 
@@ -18,7 +18,7 @@ Routing table lives in the coordinator plugin. Use /review-dispatch for reviewer
   discrete steps, and key decisions. Update via TaskUpdate as you go.
 - Research needing 2+ queries → delegate to Explore/Enricher agents
 - Code implementation from specs → delegate to Executor agents
-- Reviews → route through /review-dispatch to named reviewers
+- Reviews → route through `/review` (plan) or `/review-code` (code) to named reviewers
 - 2+ independent tasks → batch-dispatch in parallel, never sequential
 
 Override: If the PM indicates time pressure, acknowledge and proceed without

@@ -53,11 +53,13 @@ If this sweep is re-running against a prior bug backlog (`tasks/bug-backlog.md`)
 
 1. Read each cited file:line — does the bug pattern still exist in HEAD?
 2. Check recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
-3. Return a `still-open` / `already-fixed` verdict per item
+3. Return a `still-open` / `already-fixed` verdict per item, **with the resolving commit SHA cited for each `already-fixed`** (from the `git log` check in step 2 — `--first-parent` on the cited file is enough; if no clear single SHA, cite the range or `unattributed`).
 
-Drop `already-fixed` items from the dispatch queue before any Phase 1 agents are launched.
+Drop `already-fixed` items from the dispatch queue before any Phase 1 agents are launched. **Record the verified-fixed IDs + their resolving SHAs** to `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` — Phase 4 reads this file to prune the backlog.
 
 **Why verify first:** In one measured run, 11 of 20 backlog items were already fixed before dispatch — fixes landed through other workstreams without updating the tracker. Dispatching agents on ghost debt wastes time and produces false findings.
+
+**Why prune at Phase 4:** Without this, backlog rows accumulate forever — every sweep verifies-and-drops the same already-fixed items from its dispatch queue but leaves them sitting in the file. The next sweep re-verifies them at cost. Prune-on-detect breaks the cycle. The paper trail is the resolving commit SHA in the Phase 4 backlog-prune commit subject.
 
 **P0/P1 verification gate** (fifa T1.5, paired with E1.6): Before fixing any item that is or will be classified P0 or P1, the EM (or a verifier subagent) must read the cited code and confirm the claim against current source — not the agent's paraphrase. Bug-sweep Sonnet agents have a 100% false positive rate on P0 claims in their 2026-03-19 sweep. P2 and lower-confidence findings had a much better hit rate (~60%).
 
@@ -175,10 +177,25 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
 
 1. **Commit fixes:**
    ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "bug-sweep: fixed N bugs across M files"
+   # Plain-git scoped commit — do NOT use coordinator-safe-commit here (lessons.md:207, SC-DR-008)
+   SWEEP_FILES=$(git diff --name-only)
+   git add -- $SWEEP_FILES && git commit -m "bug-sweep: fixed N bugs across M files" -- $SWEEP_FILES
    ```
 
-2. **Update bug backlog** (`tasks/bug-backlog.md`) — only if there are genuinely blocked items:
+2. **Prune already-fixed rows from the existing backlog (paper-trail commit).** Before appending new blocked items, read `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` (written during Pre-Dispatch). For each entry there:
+   - Delete the corresponding row from the active P1/P2 tables in `tasks/bug-backlog.md`.
+   - Do NOT move it to a "resolved" section in the same file — the paper trail is the resolving commit SHA from the pre-dispatch scan, captured in this commit's subject.
+
+   Commit the prune (separate from the fixes commit in step 1):
+   ```bash
+   git reset && git add -- tasks/bug-backlog.md && \
+     git commit -m "bug-sweep {run-id}: prune already-fixed — <BS-ID-1>→<sha1>, <BS-ID-2>→<sha2>, ..."
+   ```
+   The commit subject names each closed ID paired with the SHA that resolved it (or `unattributed` when no single SHA is identifiable). This is the greppable record — `git log --all -- tasks/bug-backlog.md | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
+
+   Skip this sub-step entirely if no already-fixed items were detected pre-dispatch.
+
+3. **Update bug backlog** (`tasks/bug-backlog.md`) — append genuinely blocked items from this sweep + refresh the header:
 
    Header format:
    ```markdown
@@ -195,7 +212,13 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
 
    If no blocked items, update just the header line (last sweep date, commit hash, zero counts).
 
-3. **Report to PM:**
+   Commit this update separately from the prune in step 2:
+   ```bash
+   git reset && git add -- tasks/bug-backlog.md && \
+     git commit -m "bug-sweep {run-id}: append <M> new blocked items, refresh header"
+   ```
+
+4. **Report to PM:**
    ```markdown
    ## Bug Sweep Complete
 
@@ -204,12 +227,13 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    **Tests run:** [pass/fail/error counts]
    **Found:** [total] findings ([X] fixed, [Y] blocked, [Z] false positives)
    **Fixes applied:** [list with file:line refs]
+   **Backlog pruned:** [N already-fixed items removed with paper-trail commit / none]
    **Blocked items:** [list with "why blocked" for each, or "none"]
    **Docs verification (Phase 3.5):** [clean / N incorrect API claims in fixes reverted / skipped: not C++/UE and no external APIs touched]
    **Track C API sweep:** [N INCORRECT API findings fixed, N suspicious-UNVERIFIED flagged / skipped: `DOCS_VERIFY` not set for this stack]
    ```
 
-4. **Clean scratch:** `rm -rf tasks/scratch/bug-sweep/{run-id}/`
+5. **Clean scratch:** `rm -rf tasks/scratch/bug-sweep/{run-id}/`
    Only delete after commit succeeds. If Phase 2/3 agents failed, scratch contains Phase 1 findings for recovery.
 
 ## Pattern Library, Cost Profile, Failure Modes

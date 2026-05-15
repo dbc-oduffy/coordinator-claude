@@ -101,7 +101,7 @@ plan: <plan-path-relative-to-repo-root>
 ---
 ```
 
-All five fields (`title`, `created`, `author`, `status`, `kind`) are required by the frontmatter linter. The `plan` field is the convention-mirror from prior-art-checker. The sidecar uses `status: consumed` — it is produced and consumed in a single review-dispatch cycle.
+All five fields (`title`, `created`, `author`, `status`, `kind`) are required by the frontmatter linter. The `plan` field is the convention-mirror from prior-art-checker. The sidecar uses `status: consumed` — it is produced and consumed in a single reviewer pipeline cycle (see `docs/wiki/reviewer-pipeline.md` § Phase 2.7c).
 
 **After the frontmatter, write the report body:**
 

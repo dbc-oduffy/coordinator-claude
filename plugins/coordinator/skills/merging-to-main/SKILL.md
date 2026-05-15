@@ -46,9 +46,10 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 ### Step 1: Pre-flight
 
-1. **Check for uncommitted changes.** If any exist:
+1. **Check for uncommitted changes.** If any exist, commit only the paths this session touched — do NOT use coordinator-safe-commit here (SC-DR-008, lessons.md:207):
    ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-merge quick-save"
+   # Stage only the paths you explicitly touched this session (no git add -A / git add .)
+   git add -- <path1> <path2> ... && git commit -m "pre-merge quick-save" -- <path1> <path2> ...
    ```
 
 2. **Handle current branch:**
@@ -174,8 +175,7 @@ The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on 
 
 6. **If `HAS_CHANGELOG=1`:** prepend the new entry to `CHANGELOG.md` (above prior entries, below any header). Commit on the same branch:
    ```bash
-   git add CHANGELOG.md
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "docs(changelog): release notes for upcoming merge"
+   git add -- CHANGELOG.md && git commit -m "docs(changelog): release notes for upcoming merge" -- CHANGELOG.md
    git push origin "$BRANCH"
    ```
    This commit lands as part of the PR — consumers reading the merge see the notes inline with the work.
@@ -213,6 +213,7 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
 | **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
+| **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
 
 If `project_type` is not `game-dev` or `project_subtypes` does not contain `unreal`, skip this step entirely.
 
@@ -228,7 +229,7 @@ BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-curren
 # PR body = ship verdict + release notes + demo path (Step 1.5 Parts 1–3)
 BODY="$(cat <<EOF
 $SHIP_VERDICT
-$the VP-Product Reviewer_VERDICT
+$YK_VERDICT
 
 $RELEASE_NOTES
 

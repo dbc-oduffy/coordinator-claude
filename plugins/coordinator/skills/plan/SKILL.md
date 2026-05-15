@@ -16,7 +16,7 @@ prerequisite:
 
 **Trigger:** EM is about to plan implementation work where the spec carries decision weight (multi-file, new abstraction, cross-system, scaffolds new agents/skills, reverses a prior decision) OR the PM has typed *"write a plan", "break this down", "plan the implementation"*.
 
-**When NOT to use:** Trivial work (single-file fix, typo, link repoint, no abstraction) → just do it. Implementation-only ambiguity mid-coding → harness Plan tool inline. Architectural-tier (cross-system irreversible, multi-stakeholder) → surface to PM first. Spec vague or multi-subsystem → `coordinator:brainstorming` first. Skill-authoring (writing a SKILL.md) → `coordinator:writing-skills`. Plan already written and needs review → `coordinator:review`. Stuck pattern → see `docs/wiki/stuck-detection.md`.
+**When NOT to use:** Trivial work (single-file fix, typo, link repoint, no abstraction) → just do it. Implementation-only ambiguity mid-coding → harness Plan tool inline. Architectural-tier (cross-system irreversible, multi-stakeholder) → surface to PM first. Spec vague or multi-subsystem → `coordinator:brainstorming` first. Skill-authoring (writing a SKILL.md) → `plugin-dev:skill-development`. Plan already written and needs review → `coordinator:review`. Stuck pattern → see `docs/wiki/stuck-detection.md`.
 
 ---
 
@@ -28,6 +28,8 @@ _Condition: EM has just received a planning trigger; first decision is whether a
   → Just do it. No plan doc. _See CLAUDE.md § Plan-First Workflow._
 - _Implementation-only ambiguity?_ (multi-line edit where the EM is choosing between two equally valid shapes mid-typing)
   → Use the harness Plan tool inline. No plan doc.
+- _PM has set a session axiom?_ (PM said *"we are going to do X"* / *"the next thing is Y"* / *"build Z this session"* — an explicit directive that names the work, not a question about the work)
+  → Disposition default flips to **plan**, not brainstorm. The brainstorm-vs-plan triage is bypassed: the PM has already chosen scope; the EM's job is to plan the named work, not to re-litigate whether to scope it differently. Continue to **Branch B**. The architectural-tier check (final bullet) still fires — a PM axiom does not override an architectural surface-to-PM. _See CLAUDE.md § Challenging the PM ¶ EM owns implementation discretion; PM owns product authority._
 - _Non-trivial (default for everything else)?_ (multi-file, new abstraction, cross-system, scaffolds an agent/skill, reverses prior teardown, touches shared schema)
   → Continue to **Branch B**.
 - _Architectural-tier?_ (cross-system irreversible, multi-stakeholder, security/privacy boundary, naming-collision-with-product-policy)
@@ -47,6 +49,8 @@ _Condition: a plan doc is the right artifact; substrate must be verified BEFORE 
   → Run the negative-search procedure (grep `tasks/lessons.md` and wiki for the central nouns + prohibition vocabulary). _See `docs/wiki/writing-plans.md` § Negative-Search Before Drafting._
 - _Native-code (C++/UE/Rust/etc.) plan?_
   → Add 2–3 in-tree `file:line` citations to the dispatch brief. _See CLAUDE.md § Pre-Dispatch Verification ¶ native-code plans._
+- _Plan renumbers or rekeys a published API (constants, error codes, route numbers, step indices)?_
+  → Reverse-reference scan must grep ≥3 pattern shapes for each renumbered value: bare number, quoted string (`'N'` / `"N"`), fmt-string form (`{n}` / `%d`), and comment form (`# step N`, `// route N`). Bare-number grep misses string-form citations; string-form grep misses comment-form. Internal cross-references rot silently when only the canonical declaration site is found.
 - _Plan adds a new dispatch / handler / op / job to a surface that already has registered entries?_
   → Check whether a table/registry pattern exists (e.g. `UE_REGISTER_*`, `register_action`, plugin-style auto-registration). If yes, the plan MUST use the registered surface; adding a parallel `else if` / `switch` / hand-rolled lookup is a recurring footgun that re-introduces dispatch-fragility bugs. Project-level wikis carry the concrete instances (see `docs/wiki/writing-plans.md` for project-specific examples).
 
@@ -77,16 +81,20 @@ _Condition: substrate verified; ready to draft body. The four PM doctrinal lense
   - _Additionally, plan touches concurrency-shared state (shared file appends across N machines/sessions, shared index, shared lock)?_ → Prefer per-machine paths over atomic-merge logic. _See `docs/wiki/writing-plans.md` § Hard Constraints (f) — Concurrency-safe file design._
 - _Plan mutates a shared symbol (state enum, gameplay tag, public field, exported function signature)?_
   → Add a reverse-reference scan subsection to the plan listing every consumer. _See `docs/wiki/writing-plans.md` § Shared-State Pre-Flight Gate._
+- _Plan amends an assumption that another live plan also depends on?_ (the current plan revises a path / contract / constant / sequencing decision that one or more sibling plans in `docs/plans/` reference — by `**Depends on:**` header, shared-symbol citation, or explicit cross-reference)
+  → **Edit the body of every affected sibling plan in this same change** — do not let sibling plans silently drift. Procedure: (1) grep `docs/plans/` for references to the amended assumption (path, constant, contract name); (2) for each hit, open the sibling plan and edit the body inline so the assumption matches the new shape; (3) add a one-line amendment note at the top of each edited sibling: `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>`; (4) commit the amending plan and all edited siblings together. Silent drift is the failure mode this row exists to prevent — a sibling plan that still cites the old shape will be dispatched against stale substrate. _See `docs/wiki/writing-plans.md` § (c) Cross-plan reconciliation is a separate pass._
+- _Plan brief contains code blocks (shell, Python, config) the executor will consume?_
+  → Mark every fenced block either `TEMPLATE` (illustrative — executor adapts paths/values) or `VERBATIM` (executor copies as-is). Convention: place a fenced comment above the block, e.g. `<!-- TEMPLATE: adapt paths -->` or `<!-- VERBATIM -->`. Unmarked pseudocode-shaped bash gets faithfully transcribed into broken shell — the convention is the fix.
 
 ---
 
-## Exit — Handoff to `coordinator:review`
+## Exit — Auto-Invoke `coordinator:review`
 
 _Condition: plan body drafted, saved to `docs/plans/YYYY-MM-DD-<slug>.md`, ready for review._
 
-→ Walk `coordinator:review` Branch A. That skill's Branch A.2 carries the auto-skip terminals (genuinely-trivial, PM-waived); this skill always exits there — seam exhaustiveness is provable from that skill's body.
+→ **Invoke `coordinator:review` immediately. Do not ask the PM whether to proceed to review — plan→review is the pipeline, not a checkpoint.** If the plan was worth formally writing, it is worth formally reviewing; the gating on review-or-not happens inside `coordinator:review` Branch A (Branch A.2 carries the auto-skip terminals for genuinely-trivial / PM-waived). Pausing to ask "want me to invoke review now?" is a doctrine violation — the answer is always yes, and the auto-skip path lives downstream.
 
-**The full plan-writing pipeline is:** (1) substrate verification (Branch B above), (2) body composition with the four PM doctrinal lenses (Branch C above), (3) prior-art-checker via `coordinator:review` (skip only with an EM-justified rationale in the dispatch comment), (4) the Staff Engineer review, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline; "I'll just write the plan and skip review" is the failure mode this skill exists to prevent.
+**The full plan-writing pipeline is:** (1) substrate verification (Branch B above), (2) body composition with the four PM doctrinal lenses (Branch C above), (3) prior-art-checker via `coordinator:review` (skip only with an EM-justified rationale in the dispatch comment), (4) the Staff Engineer review, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline; "I'll just write the plan and skip review" — and "let me ask first before invoking review" — are the two failure modes this skill exists to prevent.
 
 <!-- Per docs/plans/2026-05-06-plan-super-skill.md F1 (PM lean b): coordinator:review Branch A.2 carries the auto-skip terminals. Renamed from "Branch D" to "Exit" per walk-through gap §2 — a one-row branch is shape-dishonest; this is a handoff, not a decision. -->
 

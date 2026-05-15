@@ -54,7 +54,7 @@ Select the reviewer based on what changed:
 | Dominant change type | Reviewer |
 |---|---|
 | Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
+| Frontend / UI | Palí |
 | Data / ML / science | the Data Science Reviewer |
 | Mixed, backend, or architecture | the Staff Engineer |
 
@@ -211,5 +211,5 @@ The post-commit hook pushes automatically.
 
 - **`/workday-complete`** — primary trigger for this command; runs code-health as part of its end-of-day health survey phase. The normal path is to let `/workday-complete` invoke this, not to run it standalone.
 - **`/session-start`** — reads `tasks/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
-- **`/review-dispatch`** — this command dispatches a reviewer directly with `--problems-only`; it does not go through `/review-dispatch`, which is for feature-level reviews. Don't substitute one for the other.
+- **`/review-code`** — this command dispatches a reviewer directly with `--problems-only` for targeted code health assessment; it does not go through the full `/review-code` feature-review workflow. Don't substitute one for the other.
 - **`pipelines/daily-code-health/PIPELINE.md`** — the pipeline definition this command executes. If you need to customize routing or scope, read it directly.

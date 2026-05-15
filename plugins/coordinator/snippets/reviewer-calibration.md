@@ -26,3 +26,11 @@ Classify every finding:
 Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK. Findings < 5 are not surfaced.
 
 **Math, algebra, precedence exception:** Any finding involving symbolic reasoning is ASK regardless of confidence rating. If also rated P0/P1, the verification gate in `coordinator/CLAUDE.md` ("P0/P1 Verification Gate") applies in addition — the two gates compose.
+
+**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant from disk, the executor MUST `ls` / `Read` the cited path before proceeding — defense-in-depth, the cited file may have moved or churned between review-time and dispatch-time.
+
+**SSOT claims have a scope.** Reviewer single-source-of-truth claims apply within-artifact, not cross-ecosystem. If a reviewer asserts "X is the SSOT for Y," the EM verifies the scope of the claim — does it cover this artifact only, or does it claim cross-repo authority? Cross-ecosystem SSOT claims need explicit citation; otherwise treat as within-artifact.
+
+**False-positive patterns to suppress.**
+
+- `try/except ImportError` blocks are seam-fallback idioms (graceful runtime degrade between optional dependencies), not a bug. Reviewers should not flag these unless the fallback path is unsound.

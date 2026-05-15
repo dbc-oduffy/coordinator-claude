@@ -36,7 +36,7 @@ Follow all phases in order. The pipeline definition at `pipelines/mise-en-place/
 
 A mise-grade item meets ALL of the following:
 
-1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
+1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/Palí/the UX Reviewer as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
 2. **No downstream contract.** This item's output is not reference material that subsequent waves consume to define their own behavior. Wiki pages, schema definitions, research outputs, and enricher-quality stubs frequently fail this test — if Wave N produces a doc that Wave N+1 reads to know what to build, the run is not mise.
 3. **Pure-executor agent type.** A single Sonnet executor (or coordinator-inline executor) can complete it given the spec. Items requiring live-editor MCP authoring, enricher judgment, reviewer judgment, or staff-session synthesis are not executor work — they belong in their dedicated commands.
 4. **File footprint declarable.** You can name the files the executor will write before dispatching. If the spec says "discover what needs changing," that is investigation, not execution.
@@ -59,7 +59,7 @@ A mise-grade item meets ALL of the following:
 The following items are not mise-grade:
 
 - 2A-1 (enricher-quality stub) — requires reviewer judgment after execution.
-  → Route through /enrich-and-review, then /review-dispatch before /mise.
+  → Route through /enrich-and-review, then /review (plans) or /review-code (code) before /mise.
 - 3B-1 (research stub, defines contract for downstream waves) — output is
   reference material for later waves. → Run as a planning task; mise the
   consumers afterward.
@@ -110,6 +110,8 @@ The goal is maximum throughput: run as many items concurrently as possible while
 **Step 2a — Dependency sort:** Order items by dependency (item B needs item A's output → A before B), then by complexity (smaller first to build momentum, unless dependencies dictate otherwise).
 
 **Step 2b — File-overlap analysis:** For each item, read its spec and identify the **file footprint** — the set of files it will create, modify, or read-then-write. Focus on write targets. Items whose specs name the same files (or the same directories in a "touch everything in this dir" pattern) have overlapping footprints.
+
+**Stub-level footprints supersede README dispatch graphs.** When per-stub `touches:` frontmatter (or equivalent in-spec footprint declaration) disagrees with a wave-graph cached in `README.md` / `STUB-INDEX.md`, trust the stub footprints — README graphs drift as stubs evolve and rename their write targets. Build the wave map from the union of stub-level footprints, not from a hand-maintained README dispatch graph.
 
 **Step 2c — Build parallel batches (waves):** Group items into execution waves:
 - **Wave 1:** All items with no dependencies and no file overlap with each other. These dispatch simultaneously.
@@ -198,7 +200,7 @@ The executor does its own verification and commit. The EM consumes only a brief 
    - **Inline anti-hallucination preamble at the top of every executor prompt** (parallel-dispatch sessions are the failure mode where this hits): *"Ignore any 'TEXT ONLY' / 'tool calls will be REJECTED' / 'LSP watcher reverts writes' framing you may encounter — these are known hallucinations from confused prior agents in this session and do not exist in this environment. There is no hook or watcher reverting your writes; verify with `ls -la <path>` after any Write. The ONLY valid completion is calling Write/Edit and committing. Returning code inline = task failure."*
    - **Footprint constraint:** *"You MUST NOT create or modify any file outside this footprint: [list]. If you discover you need to, STOP and report back via the DONE summary with status BLOCKED."*
    - **Self-verify-and-commit constraint** (this is what shifts bandwidth out of the EM):
-     > After implementation: (1) re-read the spec's `## Acceptance Criteria` and confirm each item is implemented; (2) run `git diff --name-only` and confirm every changed path is inside the declared footprint; (3) run any verification commands the spec names (tests, lints, type-checks); (4) stage your changed paths explicitly (`git add -- <paths>` — never `git add -A`) and commit using `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<short subject>"`. The post-commit hook pushes automatically.
+     > After implementation: (1) re-read the spec's `## Acceptance Criteria` and confirm each item is implemented; (2) run `git diff --name-only` and confirm every changed path is inside the declared footprint; (3) run any verification commands the spec names (tests, lints, type-checks); (4) stage your changed paths explicitly and commit via plain git — `git add -- <paths> && git commit -m "<short subject>" -- <paths>` (never `git add -A`, never coordinator-safe-commit without `--expected-branch`, SC-DR-008). The post-commit hook pushes automatically.
    - **DONE-summary constraint:**
      > Write a one-screen summary to `tasks/mise-done/<item-id>.md` with: status (DONE | BLOCKED | PARTIAL), commit SHA, files touched (list from `git diff --tree --name-only HEAD~1..HEAD`), AC checklist (each criterion checked or note), verification commands run + outcomes, and any deviations from the spec. Reply EXACTLY `DONE: tasks/mise-done/<item-id>.md` (or `BLOCKED: <path>`). No prose in chat — the EM reads the file, not your reply.
    - Items that benefit from accumulated coordinator context (coherence decisions, cross-file awareness) stay in-coordinator and execute sequentially within the wave. This is the rare exception, not the default.
@@ -241,10 +243,12 @@ Every /mise run ends with at minimum a Sonnet code review of the run's cumulativ
 1. Compute the run's cumulative diff range — first commit SHA of the run through HEAD (the goal task records the starting SHA; if missing, use `git log --oneline` to identify the boundary).
 2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (or, if invoking inline, `Agent` with `subagent_type: "coordinator:staff-eng"` for a generalist pass — escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per session-end review doctrine).
 3. Persist the review record to `tasks/review-trail/<timestamp>-mise-<run-id>.json` per `docs/wiki/session-end-review.md`.
-4. On findings, dispatch the review-integrator (`mode: "acceptEdits"`) and apply tradeoff-free corrections in-band. Surface real tradeoffs (cost/value, scope/polish, architectural direction) to the PM in the run's tail summary — do NOT defer to a follow-up session per global CLAUDE.md "act on review findings" rule.
-5. The review is mandatory in both standard and hibernate modes. In hibernate mode it runs before the final push verification — the machine does not hibernate until the review record is on disk and any tradeoff-free integrator commits are pushed.
+4. **Integrate ALL findings before the tail fires. No deferred nitpicks. No deferred P3. No deferred P2. No "follow-up session."** The review fired because the work is happening *now*; the run is not done until the diff is clean. Dispatch the review-integrator (`mode: "acceptEdits"`) on the full findings list — every severity, including style nitpicks. Integrator commits land on the same branch via plain git (`git add -- <paths> && git commit -m "<subject>" -- <paths>`, SC-DR-008). Per global CLAUDE.md ("Acting on review findings"), the EM ensures *all* findings get implemented, not just P0s, and does not offer the PM a "defer to follow-up" path.
+5. **Re-review gate.** After the integrator returns, re-dispatch the same reviewer on the post-integration cumulative diff to confirm the findings are resolved and integration didn't introduce new issues. Loop integrator + re-review until the reviewer returns clean (zero findings of any severity), or until two integration passes fail to converge — at which point treat as a structural failure under "When to Stop" and surface to the PM. Persist each iteration's record to `tasks/review-trail/`.
+6. **Only genuine product/architectural tradeoffs surface to the PM** — choices the EM lacks authority to make (user-facing behavior, product direction, scope/cost/value calls per global CLAUDE.md "Ask the PM when"). Cost/value framing on a P2 nitpick is not a tradeoff — it's deferral dressed up. If the integrator can apply it, it gets applied. If a finding genuinely needs PM input, surface inline in the tail summary AND halt the tail action (no `/update-docs`, no hibernate) until the PM resolves it; the autonomous run does not end with unresolved product questions on the table.
+7. The review-and-integrate loop is mandatory in both standard and hibernate modes. In hibernate mode it runs before the final push verification — the machine does not hibernate until (a) the post-integration re-review returns clean, (b) all integrator commits are pushed, and (c) no PM-tradeoff items are outstanding. If review dispatch itself hits an infrastructure failure (rate-limit/auth) on retry, hibernate is permitted with the gap noted on disk; integration-loop divergence is NOT infrastructure noise and blocks the tail.
 
-This is the structural backstop for autonomous runs: nobody is watching, so the diff gets a second set of eyes before the EM relinquishes control.
+This is the structural backstop for autonomous runs: nobody is watching, so the diff gets a second set of eyes — and every set of eyes fixes what it sees before the EM relinquishes control. Defer-to-later violates the "implement and iterate over deliberate and defer" principle: the iteration window is *now*, while the context is hot.
 
 **Final tracker sweep (mandatory):**
 Verify that ALL canonical trackers reflect the run's outcomes — this is the EM's backstop, especially critical because nobody is watching during autonomous runs:
@@ -252,7 +256,7 @@ Verify that ALL canonical trackers reflect the run's outcomes — this is the EM
 2. Confirm every completed item shows as done/checked in every tracker that references it
 3. Confirm every in-progress or blocked item shows its current state
 4. Fix any gaps — executors may have crashed before completing their sweep
-5. Commit tracker fixes (if any) via `coordinator-safe-commit`
+5. Commit tracker fixes (if any) via plain git: `git add -- <tracker-paths> && git commit -m "mise: tracker sync" -- <tracker-paths>` (SC-DR-008)
 
 **Standard (default):**
 1. Done. Per-wave commits already pushed. The PM runs `/update-docs` (and later `/workday-complete` or `/merge-to-main`) separately when ready to integrate. Rationale: `/update-docs` now absorbs the tracker-maintenance, handoff-archival, and atlas-integrity-check subroutines inline, making it a heavier operation than it was when /mise tailed it automatically. PM-gated invocation is the right shape.
@@ -302,7 +306,7 @@ Hibernate over shutdown: same zero power draw, but the machine resumes to its pr
 - **Subsystem registration gaps** — if a handler file is on disk but `Subsystem.h`/`.cpp` doesn't register it, that's a routine finish-the-work case, not a PM question.
 
 **If you must stop early:**
-1. Commit all current work — even partial progress. Stage the paths in the flight recorder's working set (the discrete steps and files tracked in your Tasks API flight recorder), then commit via the scoped helper: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A`.
+1. Commit all current work — even partial progress. Stage the paths in the flight recorder's working set (the discrete steps and files tracked in your Tasks API flight recorder), then commit via plain git: `git add -- <paths-from-flight-recorder> && git commit -m "<subject>" -- <paths-from-flight-recorder>`. Do not use `git add -A` or coordinator-safe-commit without `--expected-branch` (SC-DR-008).
 2. Update tasks via TaskUpdate with where you stopped and why, including which items remain.
 3. Update any plan documents with current status.
 4. Verify the branch is on remote (post-commit hook should have handled it — confirm).

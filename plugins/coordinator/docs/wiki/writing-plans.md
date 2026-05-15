@@ -107,9 +107,14 @@ This gives you the structural context to make informed file-mapping decisions wi
 
 **Periodic baselines drift — instruct read-current-and-increment, not match-spec.** When a stub names a count, version, or baseline ("bump from 55 to 56"), absolute values rot between enrichment and execution. Phrase as "read current value and increment" so the math survives the gap.
 
+- Scaffolded config files (templates the plan instructs an executor to write) must self-disclose which fields they actually support — silent ignoring of unrecognized fields breeds downstream debugging cost. Plans citing config templates should require the template carry a `# Supported fields:` comment listing the keys.
+- Plans extending an existing pipeline (e.g. adding a new wave to /distill, a new phase to /update-docs) MUST grep the pipeline's existing scratch-path conventions before declaring output paths — silent collision with sibling waves' scratch namespaces breaks parallel safety.
+
 ## Negative-Search Before Drafting
 
 Before committing to a prescribed shape, run a negative search to surface prior decisions that argue against what the plan proposes to introduce or restore.
+
+**No-fabrication branch — predicates citing fields must grep the field first.** A plan or predicate that asserts on a frontmatter key, env var, config field, or schema column without grepping for the literal name is fabrication, not verification. Extends the 5-dim no-duplicate branch into no-fabrication: *does the named field exist on disk?* Before writing any trigger gate, abstain condition, or rule that references a structured data field (`outcome:`, `status:`, `kind:`), grep the schema definition (e.g., `schemas/handoff.yaml`, frontmatter validator) and quote a file:line citation. Absence of a grep citation against the schema is a plan smell. Source: 2026-05-07 external-pattern-checker plan trigger-gate cited a non-existent `outcome: failed` field on handoff schema (enum is `active | consumed | superseded`); the gate would have fired on EM mood, not signal. Greppable from `coordinator/CLAUDE.md` § Pre-Dispatch Verification (`no-fabrication`).
 
 1. **Identify the central nouns/abstractions** the prescription introduces or restores (e.g., a pattern name, an architectural layer, a specific tool or verb).
 
@@ -142,6 +147,12 @@ This structure informs task decomposition — each task should produce self-cont
 - "Implement the minimal code to make the test pass" - step
 - "Run the tests and make sure they pass" - step
 - "Commit" - step
+
+**Additive-before-destructive ordering.** When chunks are file-independent and one is purely additive while another removes existing code, land the additive chunk first. The destructive chunk's regression window shrinks because the additive piece is already in the codebase — reviewers and tests can verify behavior before removal, not after.
+
+- Order chunks additive-before-destructive — scaffolding/new-symbol chunks land before delete-old-symbol chunks. A destructive chunk that lands before its replacement is staged risks a broken intermediate state on rollback.
+
+**Scaffolded config files must self-disclose their supported subset.** A scaffolded config in a familiar format (`.gitignore`-shaped, JSON-schema-like, INI) must declare which subset of the format is actually honored in a header comment — OR the plan must instruct the executor to implement the full format. Catch at plan-time by walking the proposed default body through the matcher implementation. (Surfaced by `/percolate`'s `.percolate-ignore` shipping `**/scratch/` as dead code — the bash `[[ ]]` matcher didn't handle `**/`.)
 
 ## Plan Document Header
 
@@ -287,6 +298,16 @@ Before writing a plan or dispatching agents on a debugging or fix task, identify
 
 **Framing rule:** Hypothesis-driven dispatch without diagnostic data is a stuck-detection trigger. If you find yourself writing a plan section that says "the cause is probably X," stop and run the diagnostic first. (geneva T1.2, paired across writing-plans + systematic-debugging)
 
+**Diagnose-then-design sequence.** Don't author architectural plans for unknown root causes. When the symptom is observed but the mechanism is unverified, the first plan is a diagnostic plan — not a mitigation/refactor plan. Architectural plans built on guessed-at root causes optimize the wrong surface and bury the actual fault under structural churn; the structural work then has to be unwound when the real mechanism surfaces. Sequence is diagnostic spike → mechanism identified → design plan. Skipping the diagnostic step because "we already know it's the X layer" is exactly the heuristic that produces wrong-locus mitigations.
+
+## Roadmap and Cross-Repo Plan Hazards
+
+These apply when a plan is part of a multi-stub roadmap or moves work between repos.
+
+**Single-consumer audit-spike work folds into Phase 0 of the implementation plan, not a separate roadmap stub.** When a roadmap-shaped audit/spike has exactly one downstream consumer (the implementation workstream that uses its findings), the audit is not a peer stub — it's the first phase of that consumer. Separate-stub framing introduces handoff overhead, stale-findings risk between stubs, and review duplication for no integration benefit. Roadmap-shape heuristic: count consumers. ≥2 consumers → standalone audit stub justified; 1 consumer → fold into Phase 0 of that consumer's plan.
+
+**Cross-repo MOVE between repos = audit residual at the source.** When a plan moves a stub/component/feature from repo A to repo B, the destination often only needs *part* of the original scope. The residual in repo A is not auto-deleted by the MOVE — audit what stays behind and decide explicitly: keep / delete / migrate. Silent MOVE without source-residual audit leaves orphaned scaffolding (configs, hooks, references, dead helpers) at the origin that survive every subsequent grep as "still in use somewhere," gating future cleanups.
+
 ## Hard Constraints for Executor-Bound Plans
 
 These apply to any plan that will be handed to an executor agent. Violations here are the most common source of scope bleed and unauthorized work.
@@ -341,6 +362,30 @@ When a plan proposes shared-file appends across N machines or sessions, prefer *
 
 Plans that claim "fully independent files" still need EM-side file-overlap analysis before parallel executor dispatch. Trust-but-verify: a 30-second cross-check against the plan's file lists prevents two executors from racing the same file under independence assumptions.
 
+### (h) Plan-time dispatch decisions go stale
+
+Dispatch-shape decisions written into a plan (Haiku/Sonnet/Opus, parallel/serial, scout vs general-purpose) are valid at plan-write time only. Phase-2 dispatch must re-check that the chosen shape still fits the substrate; staleness window is ~24h.
+
+### (i) Read-current-and-increment for periodic baselines
+
+Increment math is durable; absolute baseline values rot. Stubs touching a periodically-changing baseline (orphan count, lesson count, queue depth) MUST instruct executor to `read-current-then-increment-by-N` rather than asserting absolute target values.
+
+### (j) PM redirect mid-pipeline invalidates completed reviews
+
+PM redirect mid-pipeline (scope/direction change after dispatch is in flight) counts as structural rework — completed reviews are invalidated against the new surface and MUST be re-run before treating the pipeline as resumable. Don't smuggle pre-redirect review approvals across a surface change.
+
+### (k) No-TBD-thresholds (extends 5-dim confidence checklist)
+
+Any plan that ships with `TBD` / `???` / `<placeholder>` in a threshold position (cutoff value, retry count, timeout) is unsafe to dispatch — the executor will either fabricate the value or fail at runtime. Resolve thresholds at plan-write time or explicitly defer the chunk.
+
+### (l) Plan frontmatter is EM-only territory
+
+Plan frontmatter (`status:`, `landed_in:`, `reviewed_by:`) is EM-only territory. Executor dispatch briefs MUST include verbatim "DO NOT modify plan frontmatter — that is the EM's bookkeeping surface." Even with this, audit `git diff` on plan files in the post-dispatch verification step.
+
+## Self-Modifying Infrastructure
+
+Plans that modify hooks, validators, or other infra that runs against the plan's own artifacts must include a smoke-test step with synthetic input that exercises the modified code path BEFORE the modified hook fires on real session traffic. The plan body MUST cite the synthetic-input file path.
+
 ## Lessons Learned
 
 **Default to subagent dispatch over a new RPC verb when *adding* internal operations.** When a plan proposes a new tool/verb/handler/CLI-job, ask first: can a subagent compose this from existing primitives via `execute_python_code` + `inspect` + extant MCP verbs? If yes, the plan should propose the dispatch path, not the new verb. The new verb earns its place only on (a) C++-only capability, (b) transactional state coupling that primitive composition cannot preserve, or (c) cross-call editor-state invisible in tool signatures. **Never default to dispatch over an existing verb without explicit retire-justification** — prior surface is the proven path.
@@ -351,7 +396,7 @@ Tag: `[universal]` — applies to any project_type using the coordinator pipelin
 
 After saving the plan, it MUST go through one review cycle before execution. This catches structural problems while they're cheap to fix — before enrichment and execution invest real work.
 
-1. Route the plan through `/review-dispatch` — the plan document is the artifact
+1. Route the plan through `/review` — the plan document is the artifact
 2. **Dispatch the review-integrator agent** to apply findings to the plan. Do not integrate findings manually — the review-integrator handles this. Your job after dispatch:
    - Review the integrator's escalation list (usually 0 items)
    - Spot-check the diff to verify findings were applied correctly
@@ -377,7 +422,7 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 
 **"Plan reviewed and saved to `docs/plans/<filename>.md`. Two execution options:**
 
-**1. Executor-Driven (this session)** - I dispatch Executor agents per task following `docs/wiki/delegate-execution.md`, code review via `/review-dispatch` between tasks, fast iteration
+**1. Executor-Driven (this session)** - I dispatch Executor agents per task following `docs/wiki/delegate-execution.md`, code review via `/review-code` between tasks, fast iteration
 
 **2. Parallel Session (separate)** - Open new session and run /execute-plan, batch execution with checkpoints
 
@@ -386,7 +431,7 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 **If Executor-Driven chosen:**
 - Follow `docs/wiki/delegate-execution.md` to dispatch Executor agents
 - Stay in this session
-- Fresh Executor agent per task + code review via `/review-dispatch`
+- Fresh Executor agent per task + code review via `/review-code`
 
 **If Parallel Session chosen:**
 - Guide them to open new session in worktree

@@ -14,7 +14,7 @@
 #
 # Environment:
 #   CLAUDE_SESSION_ID            — session ID (highest priority source)
-#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be session-start or workday-complete)
+#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: session-start, workday-complete, update-docs, relay-protocol, distillation)
 #   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
 #
 # See: ~/.claude/plans/scoped-safety-commits.md  (design)
@@ -513,6 +513,112 @@ print_summary() {
 }
 
 # ---------------------------------------------------------------------------
+# BLANKET MODE — foreign-staging pre-check
+# ---------------------------------------------------------------------------
+#
+# _blanket_check_foreign_staging <current_session_id>
+#   Warn on stderr when --blanket is about to commit files claimed by sibling
+#   sessions.  Advisory only: does NOT block the commit.
+#
+# Spec backlink: tasks/coordinator-improvement-queue.md — blanket pre-check entry.
+#
+# Algorithm:
+#   1. Collect touched.txt paths from every live sibling session → $foreign_paths
+#   2. Collect would-be-staged paths via git status --porcelain → $prospective_paths
+#      (matches what git add -A will see, not --cached which is pre-add)
+#   3. Emit WARN block for any intersection, unless COORDINATOR_BLANKET_ACCEPT_FOREIGN=1
+_blanket_check_foreign_staging() {
+  local current_sid="${1:?session_id required}"
+
+  # Silently skip if the environment opt-out is set
+  if [[ "${COORDINATOR_BLANKET_ACCEPT_FOREIGN:-}" == "1" ]]; then
+    return 0
+  fi
+
+  local base
+  base=$(_cs_sessions_dir) || return 0
+  [[ -d "$base" ]] || return 0
+
+  # --- 1. Build foreign_paths: paths claimed by live sibling sessions ----------
+  # mapfile requires bash 4+; cs_live_session_ids already uses bash 4 features so
+  # this is safe.  Use process substitution to avoid subshell variable scoping.
+  local -a live_sids=()
+  mapfile -t live_sids < <(cs_live_session_ids 2>/dev/null || true)
+
+  # Map each foreign path to the short session id that claims it.
+  # Format: "path|sid-short"  (pipe separator avoids spaces-in-paths issues)
+  local -a foreign_entries=()
+  local sid
+  for sid in "${live_sids[@]:-}"; do
+    [[ -z "$sid" ]] && continue
+    [[ "$sid" == "$current_sid" ]] && continue
+    local tfile="${base}/${sid}/touched.txt"
+    [[ -f "$tfile" ]] || continue
+    local sid_short="${sid:0:8}"
+    local fpath
+    while IFS= read -r fpath; do
+      [[ -z "$fpath" ]] && continue
+      foreign_entries+=("${fpath}|${sid_short}")
+    done < "$tfile"
+  done
+
+  # Nothing foreign at all — fast exit
+  if [[ ${#foreign_entries[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  # --- 2. Build prospective_paths: what git add -A would stage -----------------
+  local -a prospective_paths=()
+  local status_line path_col
+  while IFS= read -r status_line; do
+    [[ -z "$status_line" ]] && continue
+    local xy="${status_line:0:2}"
+    local rest="${status_line:3}"
+    if [[ "$xy" == R* || "$xy" == *R ]]; then
+      # Rename line: "old -> new" — take the post-arrow path
+      path_col="${rest##* -> }"
+    else
+      path_col="$rest"
+    fi
+    prospective_paths+=("$path_col")
+  done < <(git status --porcelain 2>/dev/null || true)
+
+  if [[ ${#prospective_paths[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  # --- 3. Intersection: which prospective paths are also foreign ---------------
+  local -a overlap_entries=()
+  local entry fp_sid fp_path ppath
+  for entry in "${foreign_entries[@]}"; do
+    fp_path="${entry%%|*}"
+    fp_sid="${entry##*|}"
+    for ppath in "${prospective_paths[@]}"; do
+      if [[ "$ppath" == "$fp_path" ]]; then
+        overlap_entries+=("  ${fp_path}   (claimed by ${fp_sid})")
+        break
+      fi
+    done
+  done
+
+  # --- 4. Emit WARN block if any overlap found ---------------------------------
+  if [[ ${#overlap_entries[@]} -gt 0 ]]; then
+    local count=${#overlap_entries[@]}
+    {
+      echo "WARN: --blanket about to commit ${count} path(s) claimed by sibling session(s):"
+      local line
+      for line in "${overlap_entries[@]}"; do
+        echo "$line"
+      done
+      echo "If this is intentional (cross-session sweep), set COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to suppress this warning."
+      echo "Proceeding with commit."
+    } >&2
+  fi
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # BLANKET MODE
 # ---------------------------------------------------------------------------
 
@@ -523,7 +629,9 @@ do_blanket() {
   local invoking="${CLAUDE_INVOKING_COMMAND:-}"
   local allowed=false
 
-  if [[ "$invoking" == "session-start" || "$invoking" == "workday-complete" ]]; then
+  if [[ "$invoking" == "session-start" || "$invoking" == "workday-complete" || \
+        "$invoking" == "update-docs" || "$invoking" == "relay-protocol" || \
+        "$invoking" == "distillation" ]]; then
     allowed=true
   fi
 
@@ -535,14 +643,16 @@ do_blanket() {
     else
       ppid_cmd=$(ps -p "$PPID" -o command= 2>/dev/null || true)
     fi
-    if [[ "$ppid_cmd" == *"session-start.md"* || "$ppid_cmd" == *"workday-complete.md"* ]]; then
+    if [[ "$ppid_cmd" == *"session-start.md"* || "$ppid_cmd" == *"workday-complete.md"* || \
+          "$ppid_cmd" == *"update-docs.md"* || "$ppid_cmd" == *"relay-protocol.md"* || \
+          "$ppid_cmd" == *"distillation"* ]]; then
       allowed=true
     fi
   fi
 
   if [[ "$allowed" == false ]]; then
     cat >&2 <<'ERR'
-ERROR: --blanket is only valid from /session-start or /workday-complete.
+ERROR: --blanket is only valid from authorized sweep ceremonies: /session-start, /workday-complete, /update-docs, relay-protocol, or distillation.
 Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.
 ERR
     exit 1
@@ -558,9 +668,29 @@ ERR
     echo "$(_cs_now_iso) invoking_command=${invoking:-unknown}" >> "$log_file"
   fi
 
+  # Foreign-staging pre-check: warn if sibling sessions claim any prospective paths.
+  _blanket_check_foreign_staging "$session_id"
+
   # Stage everything (this is the ONE sanctioned use of git add -A)
+  # Sentinel 1: capture HEAD before commit so we can detect silent no-ops.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
+  local _pre_head
+  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
   git add -A
-  git commit -m "$SUBJECT"
+  # Sentinel 2: wrap commit call so mid-call failures (hook reject, detached HEAD)
+  # surface as a FAIL line rather than a silent non-zero exit.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
+  if ! git commit -m "$SUBJECT"; then
+    local _rc=$?
+    echo "FAIL: git commit returned ${_rc} in do_blanket" >&2
+    exit 2
+  fi
+  local _post_head
+  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+  if [[ "$_pre_head" == "$_post_head" ]]; then
+    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_blanket commit attempt)" >&2
+    exit 2
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -730,8 +860,24 @@ do_scope_from() {
     echo "ERROR: declared scope filtered to zero dirty files — nothing to commit." >&2
     exit 1
   fi
+  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
+  local _pre_head
+  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
   printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
-  git commit -m "$SUBJECT"
+  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
+  if ! git commit -m "$SUBJECT"; then
+    local _rc=$?
+    echo "FAIL: git commit returned ${_rc} in do_scope_from" >&2
+    exit 2
+  fi
+  local _post_head
+  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+  if [[ "$_pre_head" == "$_post_head" ]]; then
+    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_scope_from commit attempt)" >&2
+    exit 2
+  fi
 
   # Clean up active-scope.txt — declared scope is no longer active after commit succeeds.
   # Without this, peer sessions read stale entries and false-positive on overlap gate.
@@ -783,8 +929,24 @@ do_override() {
     } >> "$log_file"
   fi
 
+  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
+  local _pre_head
+  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
   git add -A
-  git commit -m "$SUBJECT"
+  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
+  if ! git commit -m "$SUBJECT"; then
+    local _rc=$?
+    echo "FAIL: git commit returned ${_rc} in do_override" >&2
+    exit 2
+  fi
+  local _post_head
+  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+  if [[ "$_pre_head" == "$_post_head" ]]; then
+    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_override commit attempt)" >&2
+    exit 2
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1177,10 +1339,24 @@ do_scoped() {
     printf '%s\0' "${_orphan_claimed_paths[@]}" | xargs -0 git add --
   fi
 
-  # Commit
+  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
+  local _pre_head
+  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+
+  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
   if ! git commit -m "$SUBJECT"; then
-    echo "ERROR: git commit failed. Staged set: ${my_scope[*]}" >&2
-    exit 1
+    local _rc=$?
+    echo "FAIL: git commit returned ${_rc} in do_scoped" >&2
+    exit 2
+  fi
+
+  local _post_head
+  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+  if [[ "$_pre_head" == "$_post_head" ]]; then
+    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_scoped commit attempt)" >&2
+    exit 2
   fi
 
   # Success-path cleanup: remove active-scope.txt so peer sessions do not

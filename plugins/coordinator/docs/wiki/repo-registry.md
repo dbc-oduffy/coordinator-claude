@@ -102,6 +102,38 @@ When dispatching `prior-art-checker` for a plan:
 
 If plan stack is unclear or multi-domain, omit `peer_repos` — the 4-corpus default is the safe fallback.
 
+## Sentinels self-document their refresh contract
+
+Auto-generated sentinel blocks in the registry (and in any cross-repo doc that consumes registry data) MUST inline their refresh preconditions — generator script, input source, refresh trigger, last-refreshed timestamp. The sentinel block is the contract; siblings decay.
+
+```markdown
+<!-- BEGIN repo-registry-candidates
+     Generator: ${CLAUDE_PLUGIN_ROOT}/bin/decode-claude-projects-dir.sh
+     Source: ~/.claude/projects/
+     Refresh: /update-docs Phase 14 (cwd-gated, ~/.claude only)
+     Last refreshed: <ISO-date>
+-->
+...candidates...
+<!-- END repo-registry-candidates -->
+```
+
+Without inline preconditions, the block becomes an orphan auto-generated region that no maintainer knows how to regenerate. Cross-repo sentinel convention lives in the coordinator plugin's `docs/wiki/cross-repo-citation-conventions.md`.
+
+## Sibling-output lift before re-running extraction pipelines
+
+When a peer repo has already run an extraction, distillation, or audit pipeline against shared substrate (lessons mining, atlas extraction, prior-art harvest), **lift the sibling's output before re-running the pipeline locally**. Re-extraction over identical substrate burns tokens and produces near-duplicate output that then needs deduping against the very artifact you ignored.
+
+Procedure:
+
+1. Before invoking an extraction pipeline (e.g. `/learn-lessons central`, `/architecture-audit`), check peer registry entries with overlapping `stack_tags`.
+2. Read each peer's most recent output (typically under `tasks/learn-lessons-*` or `docs/architecture/`).
+3. Lift overlapping records as **inputs** to the local synthesizer phase, not as a separate scout.
+4. Run extraction only on the local-unique delta.
+
+Anti-pattern: dispatching a full extraction over a corpus a peer already mined yesterday, then deduping after the fact. The dedup pass is the wrong layer — the lift should happen at dispatch-time.
+
+This is a peer-repo *output* consumption, distinct from peer-repo *wiki* consumption (which `prior-art-checker` handles). Outputs are dated artifacts; wikis are evergreen. The registry's `docs_wiki` field points at the wiki; outputs are located by convention under each peer's `tasks/` tree.
+
 ## Anti-patterns
 
 - **Auto-promoting candidates without PM review.** Stack tags require human judgment on goals + relationships; auto-promotion would silently shape prior-art lookups based on nothing.
