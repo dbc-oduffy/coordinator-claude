@@ -273,14 +273,25 @@ for f in "${FILES[@]}"; do
     # via env vars to avoid delimiter conflicts (e.g. "dbc-oduffy/coordinator-claude"
     # contains "/" which would terminate a s/…/…/g literal delimiter) and
     # single-quote escaping issues in "the Coordinator Authors".
-    # Non-slash keys (bare lowercase slugs without `/`) get \b...\b word
-    # boundaries so short slugs ("sid", "fru") don't match substrings inside
-    # unrelated tokens ("aside", "fruit"). Slash-bearing keys (org slugs) are
-    # already naturally bounded by `/`.
+    # Three substitution branches:
+    #   1. Slash-bearing keys (org slugs): plain s// — slash is a natural boundary.
+    #   2. Non-ASCII keys (diacritic names like Palí, Zolí): plain s// without \b.
+    #      quotemeta() escapes non-ASCII chars (e.g. í → \í), breaking the match
+    #      under -CS; and Perl's \b treats non-ASCII letters as non-\w, so the
+    #      word-boundary anchor also fails at the diacritic position. Diacritic
+    #      names are not substrings of any ASCII word, so \b guards are unnecessary.
+    #   3. ASCII keys: \b...\b word boundaries so short tokens ("fru", "sid") do
+    #      not match inside unrelated words ("fruit", "aside"). Only ASCII
+    #      metacharacters are escaped (not non-ASCII chars) to keep the pattern valid.
     DEPERSONALIZE_KEY="${name}" DEPERSONALIZE_ROLE="${role}" \
       perl -CS -i -pe '
-        my $k = quotemeta($ENV{DEPERSONALIZE_KEY});
+        my $k = $ENV{DEPERSONALIZE_KEY};
+        # Escape only ASCII regex metacharacters (not non-ASCII, which quotemeta
+        # would over-escape and break under -CS Unicode mode).
+        $k =~ s/([.+*?^\${}()|])/\\$1/g;
         if ($ENV{DEPERSONALIZE_KEY} =~ m{/}) {
+          s/$k/$ENV{DEPERSONALIZE_ROLE}/g;
+        } elsif ($ENV{DEPERSONALIZE_KEY} =~ /[^\x00-\x7F]/) {
           s/$k/$ENV{DEPERSONALIZE_ROLE}/g;
         } else {
           s/\b$k\b/$ENV{DEPERSONALIZE_ROLE}/g;
