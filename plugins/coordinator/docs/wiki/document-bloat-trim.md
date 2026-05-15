@@ -60,6 +60,13 @@ Audit-trail bug to watch: publish repos that lack `coordinator-safe-commit` sile
 
 The shim pattern: a 14-line `bin/safe-commit` that delegates to `$HOME/.claude/...` rather than copying the full helper + lib. No drift, low cost; makes the canonical pattern accessible from each repo without needing to remember the absolute path. Full helper copy was rejected as a drift hazard.
 
+## Workflow-hygiene adjacencies
+
+These aren't strictly CLAUDE.md trim rules but share the "don't pay re-cost on every session/run" framing:
+
+- **Composed pipelines need chain invocation, not human memory.** A pipeline composed of two skills (A → B) needs a chain-invocation primitive — a calling skill that dispatches both in order, not a human-memory step. Otherwise B silently drops when the operator forgets. (queue 2026-05-08 E138)
+- **Process theater on porting from prior extraction runs.** When "porting from a prior extraction run" is just lift-and-shift the prior output, don't re-run the extraction pipeline. Re-run is justified only when the input substrate has changed; otherwise lift sibling outputs. (queue 2026-05-13 E179)
+
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — the helper this page references.

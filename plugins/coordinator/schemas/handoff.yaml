@@ -24,9 +24,18 @@ optional:
   # spinoff-roadmap: a stub authored by coordinator:roadmap-planning, carrying graph
   # primitives (blocks/blocked_by/roadmap_id) the other kinds do not use. See
   # docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 1a.
+  # recovery: a continuation handoff authored to resume from a crash, kill, or
+  # other unclean session termination. Behaves like session-handoff for lifecycle
+  # purposes (predecessor when known, deployment_state, /pickup flow). The tag
+  # exists so /pickup and /workday-start can surface recovery context to the
+  # successor and so the audit trail distinguishes deliberate continuations from
+  # crash-driven ones. `predecessor:` SHOULD point to the crashed handoff or its
+  # commit SHA when known; null is permitted when the prior session left no
+  # recoverable handoff. Replaces the ad-hoc `reconstructed_by:` field for new
+  # handoffs (existing `reconstructed_by:` records remain valid).
   kind:
     type: enum
-    values: [session-handoff, spinoff, spinoff-roadmap]
+    values: [session-handoff, spinoff, spinoff-roadmap, recovery]
   # Required-by-convention on spinoffs: replaces the predecessor link as the audit
   # trail back to origin. Free-form one-liner.
   authoring_session: string

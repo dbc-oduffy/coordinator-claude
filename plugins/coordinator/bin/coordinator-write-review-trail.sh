@@ -10,10 +10,14 @@
 # Usage:
 #   coordinator-write-review-trail.sh \
 #     --sha-range A..B \
-#     --reviewer sonnet|patrik|sonnet+patrik|waived \
+#     --reviewer sonnet|patrik|sonnet+patrik|waived|ubt-compile \
 #     --scope chain|session \
-#     --verdict ok|warn|blocked|waived \
+#     --verdict ok|warn|blocked|waived|pending \
 #     --diff-loc <integer>
+#
+# Automated-check reviewer names are mechanism-named (e.g. ubt-compile, not automated-check)
+# so future automated verdicts (clippy, eslint, pytest-coverage) each add one unambiguous entry.
+# ubt-compile: automated build verdict produced by bin/check-ubt-build-fresh.sh
 #
 # Session-id resolution (strict precedence):
 #   1. CLAUDE_SESSION_ID env var (if set and non-empty)
@@ -70,7 +74,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "ERROR: Unknown argument: $1" >&2
-      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer sonnet|patrik|sonnet+patrik|waived --scope chain|session --verdict ok|warn|blocked|waived --diff-loc <integer>" >&2
+      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer sonnet|patrik|sonnet+patrik|waived|ubt-compile --scope chain|session --verdict ok|warn|blocked|waived|pending --diff-loc <integer>" >&2
       exit 1
       ;;
   esac
@@ -86,7 +90,7 @@ if [[ -z "$SHA_RANGE" ]]; then
 fi
 
 if [[ -z "$REVIEWER" ]]; then
-  echo "ERROR: --reviewer is required; allowed: sonnet | patrik | sonnet+patrik | waived" >&2
+  echo "ERROR: --reviewer is required; allowed: sonnet | patrik | sonnet+patrik | waived | ubt-compile" >&2
   exit 1
 fi
 
@@ -96,7 +100,7 @@ if [[ -z "$SCOPE" ]]; then
 fi
 
 if [[ -z "$VERDICT" ]]; then
-  echo "ERROR: --verdict is required; allowed: ok | warn | blocked | waived" >&2
+  echo "ERROR: --verdict is required; allowed: ok | warn | blocked | waived | pending" >&2
   exit 1
 fi
 
@@ -110,9 +114,9 @@ fi
 # ---------------------------------------------------------------------------
 
 case "$REVIEWER" in
-  sonnet|patrik|sonnet+patrik|waived) ;;
+  sonnet|patrik|sonnet+patrik|waived|ubt-compile) ;;
   *)
-    echo "ERROR: --reviewer value '${REVIEWER}' is invalid; allowed: sonnet | patrik | sonnet+patrik | waived" >&2
+    echo "ERROR: --reviewer value '${REVIEWER}' is invalid; allowed: sonnet | patrik | sonnet+patrik | waived | ubt-compile" >&2
     exit 1
     ;;
 esac
@@ -126,9 +130,9 @@ case "$SCOPE" in
 esac
 
 case "$VERDICT" in
-  ok|warn|blocked|waived) ;;
+  ok|warn|blocked|waived|pending) ;;
   *)
-    echo "ERROR: --verdict value '${VERDICT}' is invalid; allowed: ok | warn | blocked | waived" >&2
+    echo "ERROR: --verdict value '${VERDICT}' is invalid; allowed: ok | warn | blocked | waived | pending" >&2
     exit 1
     ;;
 esac
@@ -190,8 +194,8 @@ if [[ "$_TS_RAW" == *%N* ]] || [[ ${#_TS_RAW} -lt 20 ]]; then
   # not invoke this helper more than once per second per session.
   TIMESTAMP=$(date -u +%Y-%m-%d-%H%M%S)
 else
-  # Truncate to 22 chars: YYYY-MM-DD-HHMMSS + 6 nanosecond digits (stable length).
-  TIMESTAMP="${_TS_RAW:0:22}"
+  # Truncate to 23 chars: YYYY-MM-DD-HHMMSS + 6 nanosecond digits (stable length).
+  TIMESTAMP="${_TS_RAW:0:23}"
 fi
 SESSION_ID_SHORT="${SESSION_ID:0:8}"
 TRAIL_DIR="${REPO_ROOT_FOR_WRITE}/tasks/review-trail"

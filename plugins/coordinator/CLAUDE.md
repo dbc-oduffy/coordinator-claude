@@ -64,7 +64,7 @@ Process alone fails — conventions decay unless greppable from the surfaces age
 - **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, and any sibling autonomous skill.
 - **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
 - **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, orthogonal lenses, no-rewrite synthesizer. Plan/stub/doc review excluded. Skill: `coordinator:parallel-code-review`. Surface: `/workweek-complete` Step 7 only.
-- **Prior-art-checker pre-flight:** Sonnet recall agent cross-references a plan against project/global wikis, `tasks/lessons.md`, central improvement queue. the Game Dev Reviewerecar at `<plan-path>.prior-art-check.md`. Snippet synced to same 5 Opus reviewers as docs-checker. Doctrine: `docs/wiki/prior-art-checker.md`.
+- **Prior-art-checker pre-flight:** Sonnet recall agent cross-references a plan against project/global wikis, `tasks/lessons.md`, central improvement queue. Sidecar at `<plan-path>.prior-art-check.md`. Snippet synced to same 5 Opus reviewers as docs-checker. Doctrine: `docs/wiki/prior-art-checker.md`.
 - **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no programmatic consumers. Adding one requires a separate plan.
 - **Daily-branch discipline:** four contact-points must stay in sync — full guide `docs/wiki/daily-branch-discipline.md`. Hook `hooks/scripts/block-off-daily-branch.sh` blocks create/switch/rename/stash-branch/worktree-add (override `COORDINATOR_OVERRIDE_BRANCH=1`). Inline-override skills: `/workday-start`, `/merge-to-main`, `/consolidate-git`. `/bug-blitz` and `/dogfood` are fail-closed-only. New off-daily skill → list inline override in body.
 
@@ -92,6 +92,7 @@ When a scout's deliverable is a file on disk, the dispatch prompt MUST end with:
 
 - **Haiku bypasses 1M-context billing gates** that block Sonnet/Opus subagent dispatch.
 - **Dispatched subagents inherit the parent's 1M-context flag regardless of model override.** Plan token budgets accordingly.
+- **Subagents do not expand slash commands in their prompts.** `Agent(prompt="/foo:bar")` is a structural no-op — the subagent sees the literal string, not the skill body. Chains must inline the procedure in the parent prompt or Read the skill's `.md` body from disk first.
 - **Investigation dispatches require an explicit out-of-scope block.** Every scout/investigation prompt must include verbatim: "Do NOT modify files, commit, or push. Read-only." CLAUDE.md is invisible to subagents; without this, scouts will overreach.
 - **All write-capable autonomous skill dispatches must carry a destructive-action prohibition.** If a new autonomous skill can write files, commit, or trigger network actions, add it to the Tripwires § Destructive-action prohibition list and include an inline "Out-of-scope actions" block in the dispatch prompt.
 
@@ -143,19 +144,20 @@ Autonomous-execution commands background everything by default. EM holds the wav
 Plans drafted against unchecked substrate become dispatches that find a different reality on disk. Verify at plan-write time, not after the executor reports back.
 
 - **Investigate before planning.** Bug reports and consumer docs are framing, not ground truth. For plans touching producers/consumers/schema, dispatch a scout for file:line evidence. "Fully independent files" claims still need EM file-overlap analysis before parallel dispatch.
-- **Verify paths, framework names, helper APIs against disk — at plan time.** Plans citing "Jest" when the harness is `node:test`, or `npm test` when the script is `bun run test`, fail at first executor invocation. Read every script the plan will modify before authoring.
-- **Grep seams, don't invent them.** API seams, module boundaries, framework names cited must be confirmed by grep. Triage tables must be Read per-file; counts are not a substitute. Treat absence of a grep citation as a plan smell.
+- **Verify against disk at plan time, not at executor failure.** Paths, framework names (Jest vs `node:test`, `npm test` vs `bun run test`), helper APIs, numeric constants (RSS limits, timeouts, retry counts) — grep them out of the asserting test/contract, not memory. Read every script the plan will modify before authoring.
+- **Grep seams and schema fields, don't invent them.** API seams, module boundaries, framework names, data-schema field references (DB columns, JSON keys, manifest fields) cited must be confirmed by grep. Triage tables Read per-file; counts are not a substitute. Absence of a grep citation = plan smell.
+- **No-fabrication on cited fields.** Plans asserting on a frontmatter key, env var, config field, or schema column must grep the literal name first — a predicate over a non-existent field is fabrication, not verification. Doctrine: `docs/wiki/writing-plans.md` § Negative-Search.
 - **Grep existing surface before scaffolding agent-facing files** — duplicate-creation collisions hide under longer existing names.
-- **Spec instructions are not authoritative on call-site count or constant identity.** "Bump constant X"/"rename helper Y" needs grep over usages; a spec-cited constant may belong to a different index than the plan targets — verify role in code first.
-- **Paginated grep truncates enumeration claims.** Use `head_limit:0` or count-mode and quote the exact command. Default `head_limit:100` silently caps.
+- **Spec is not authoritative on call-site count or constant identity.** Bump/rename specs need grep over usages; verify role in code first.
+- **Paginated grep truncates enumeration claims.** Use `head_limit:0` or count-mode; quote the exact command. Default `head_limit:100` silently caps.
 - **Native-code plans require 2-3 in-tree `file:line` citations** in the dispatch brief.
 - **Premise-pass before regenerating torn-down structure.** When reversing a prior decision, grep wiki+lessons for *why*.
-- **Duplicate-detection requires body comparison, not metadata screening.** Two artifacts with matching frontmatter can diverge in content. Read both bodies before deduplicating.
-- **Dispatch-brief task ordering must be explicit when later tasks reference earlier-task outputs.** Sequence tasks explicitly; name the output file each task depends on.
-- **Survey plan-substrate state before dispatching on a not-just-authored plan.** Files move, constants change between plan-write and dispatch. `git log --oneline` + targeted reads closes the staleness window.
+- **Duplicate-detection requires body comparison, not metadata screening.** Read both bodies before deduplicating.
+- **Dispatch-brief task ordering must be explicit when later tasks reference earlier-task outputs.** Name the output file each dependent task consumes.
+- **Survey plan-substrate state before dispatching on a not-just-authored plan.** `git log --oneline` + targeted reads closes the staleness window.
 - **Premise contradictions resolve in the fix-wave preamble**, not a separate verification wave — see § Convergence as Confidence.
-- **Audit symptom is correct; locus may be wrong.** A wrong-value finding at location X doesn't mean the fix belongs there — verify producer code before accepting the audit's proposed fix-locus. Symptom survives; attribution is hypothesis.
-- **5-dimension confidence checklist:** no-duplicate / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All five green or stop.
+- **Audit symptom is correct; locus may be wrong.** Verify producer code before accepting the audit's proposed fix-locus. Symptom survives; attribution is hypothesis.
+- **6-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All green or stop.
 
 ## Self-Improvement Loop
 
@@ -192,21 +194,21 @@ Classify scope: **universal** / **project** / **wiki-only**. If `universal`: tag
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
-The predecessor is **whatever handoff this session was opened with — period.** The file passed to `/pickup`, or the file the PM named at session start. Nothing else. Concurrent sessions across machines produce timestamp-adjacent handoffs unrelated to each other; adjacency is not ancestry. Combining predecessors only happens by explicit PM direction. Do not archive other handoffs as "superseded" on your own.
+Predecessor is **whatever handoff this session was opened with — period** (the `/pickup` file or PM-named one). Concurrent sessions across machines produce timestamp-adjacent handoffs unrelated to each other; adjacency is not ancestry. Combining predecessors only by explicit PM direction. Don't archive other handoffs as "superseded" on your own.
 
-**Concurrent crashed threads get separate handoffs.** Recovery-session simultaneity is not workstream identity — combining buries one workstream under the other. Reconstructed handoffs carry `reconstructed_by:` in frontmatter.
+**Concurrent crashed threads get separate handoffs.** Recovery handoffs carry `kind: recovery` in frontmatter with `predecessor:` pointing to the crashed handoff's SHA (null permitted). Legacy `reconstructed_by:` still valid for existing records.
 
 - **Claude Code restart is a session boundary.** Hand off before the restart.
 - **Mandate absorbed by a concurrent peer = no-pickup signal.** Stand down; don't find filler work.
 - **Commit message beats handoff for checkpoint state.** Handoffs decay faster than git history.
-- **Orphan-promotion handoffs function as live specs.** Concurrent execution can outpace commit cadence — treat the body as authoritative until git catches up; don't redispatch over work already in flight.
-- **Pair status bullets with "why this matters" per workstream.** A bare status list strands the successor on the same diagnostic path the author already walked.
-- **Frontmatter `status` enum is `active | consumed | superseded`.** `shipped` is rejected — use `consumed` plus `shipped_in:` (commit SHA or PR ref).
-- **Frontmatter `deployment_state` enum is `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`.** Drives query-driven `/session-start` and `/workday-start` surfacing — only `ready_to_fire` appears in the primary list. `awaiting_gate` requires a `gate_dependency:` one-liner. `/handoff` and `/spinoff` set initial state; `/pickup` flips to `in_flight` atomically; picking-up session's `/handoff` or `/session-end` flips to `shipped` with `shipped_in:` or back to `ready_to_fire`.
-- **`/pickup` mutates handoff frontmatter in place at `tasks/handoffs/`; archival is performed by the picking-up session's terminal `/handoff` (chain-archival of the explicit predecessor) or `/session-end` Step 2.7, with `session-init.sh` providing a boot-time sweep for orphans whose authoring session died.**
-- **Concurrent `/pickup` is fail-loud.** Failure mode is `cs_claim_handoff` EEXIST (single-machine) or `consumed_by:` populated after `git fetch` (cross-machine). No `git mv` race — the file stays in `tasks/handoffs/` until session end. The detecting session exits non-zero and surfaces to PM; no retry, no merge.
-- **Spinoffs are forks, not continuations.** Mid-session handoff for work the current EM won't execute. Frontmatter: `kind: spinoff` or `kind: spinoff-roadmap`, `predecessor: none`, `authoring_session`, `workstream`, `deployment_state: ready_to_fire`. Author via `/spinoff <slug>` or `coordinator:roadmap-planning`.
-- **Handoffs are for in-progress work with a successor.** End-of-run housekeeping for a shipped workstream is `/workday-complete` or commit-and-stop, not a handoff file. Shipped ≠ handed-off.
+- **Orphan-promotion handoffs function as live specs** — treat body as authoritative until git catches up; don't redispatch over work in flight.
+- **Pair status bullets with "why this matters" per workstream.** A bare status list strands the successor on the author's diagnostic path.
+- **Frontmatter `status` enum: `active | consumed | superseded`.** `shipped` is rejected — use `consumed` plus `shipped_in:` (commit SHA or PR ref).
+- **Frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`.** Only `ready_to_fire` surfaces in `/session-start` / `/workday-start` primary list. `awaiting_gate` requires `gate_dependency:`. `/pickup` flips to `in_flight`; terminal `/handoff` or `/session-end` flips to `shipped` (with `shipped_in:`) or back to `ready_to_fire`.
+- **`/pickup` mutates handoff frontmatter in place at `tasks/handoffs/`;** archival happens at the picking-up session's terminal `/handoff` (chain-archival) or `/session-end` Step 2.7; `session-init.sh` provides a boot-time orphan sweep.
+- **Concurrent `/pickup` is fail-loud:** `cs_claim_handoff` EEXIST (single-machine) or `consumed_by:` populated after `git fetch` (cross-machine). Detecting session exits non-zero and surfaces to PM.
+- **Spinoffs are forks, not continuations.** Frontmatter: `kind: spinoff` or `kind: spinoff-roadmap`, `predecessor: none`, `authoring_session`, `workstream`, `deployment_state: ready_to_fire`. Author via `/spinoff <slug>` or `coordinator:roadmap-planning`.
+- **Handoffs are involuntary continuations, never workstream-endings.** Triggers are context pressure or explicit PM invocation — not "tidy stopping point." If the session can take the next action, take it. Shipped work ends via `/workday-complete`, `/merge-to-main`, or commit-and-stop.
 
 ## Documentation and Knowledge System
 
@@ -231,7 +233,7 @@ Never mark a task complete without proving it works — run tests, check logs, d
 
 **"Shipped" means on `origin/main`, not on a branch tip.** Run `bin/check-shipped-on-main.sh <commit>` before asserting work has shipped. PR-merged-from-this-branch is shipping IFF no further commits landed on the source branch after the merge.
 
-Concurrent sweeps silently overwrite edits — verify parallel-executor work via `git log -p`, not chat. Tool self-health checks lie — smoke tests prove dispatch, not useful results. Producer/consumer schemas need round-trip tests, not parallel fabrications. Iteration-debugging signal is failure-mode shift, not failure count. Green unit tests are not runtime-readiness for HTTP apps unless tests import the app. Full doctrine: `docs/wiki/round-trip-contract-tests.md`.
+Concurrent sweeps silently overwrite edits — verify parallel-executor work via `git log -p`, not chat. Tool self-health checks lie — smoke tests prove dispatch, not useful results. Producer/consumer schemas need round-trip tests, not parallel fabrications. Iteration-debugging signal is failure-mode shift, not failure count. Green unit tests are not runtime-readiness for HTTP apps unless tests import the app. Full doctrine: `docs/wiki/round-trip-contract-tests.md`. For UE plugin work touching `control/plugin/**/Source/**/*.{cpp,h}`, the build gate lives at `bin/check-ubt-build-fresh.sh` (invoked from `/session-end` Step 2.9, `/workday-complete` Step 0c, `/workweek-complete` Step 4c).
 
 ## Build For Someone Else's Machine
 
@@ -241,6 +243,7 @@ Default assumption: code runs on a machine you've never seen. For any path: expl
 
 ## Implementation Standards
 
+- **OOS framing must be architectural, not appetite-based.** When deferring scope, name the irreversible cost or hard constraint that makes the cut survive — "not now / follow-up" hedging without an architectural rationale isn't OOS, it's incomplete work. Only architectural rejections survive review; appetite-based ones bubble back as the same gap a session later.
 - **Land regression-net tests BEFORE the refactor that depends on them.**
 - **Detect-then-silently-pick is a footgun.** Refactor to detect-then-fail-loud-when-ambiguous.
 - **Guards match conditions, not containers.** Substring-on-path filters and state-proxy liveness checks reject legitimate cases alongside the targeted failure.
@@ -314,9 +317,9 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting,
 
 Default operating reality is multiple EM sessions sharing a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape. Full mechanics: `docs/wiki/daily-branch-discipline.md` + `~/.claude/docs/wiki/scoped-safety-commits.md`.
 
-- **One active workstream branch per machine** (`work/{machine}/{date-or-span}` or read-only `main`). No `feature/*`, no worktrees. Integrate via `/merge-to-main` or `/workday-complete`.
+- **One active workstream branch per machine.** Two legitimate shapes: canonical `work/{machine}/{date-or-span}` OR a named long-lived workstream the PM authorized at create-time (e.g. `migration/...`, `release/...`, `feature/<name>`). The named form must be created via inline `COORDINATOR_OVERRIDE_BRANCH=1`; once it exists with commits ahead of main, treat it as a legitimate workstream bus. Read-only `main` is also fine. No worktrees. Daily ritual is **reconcile with origin/main** (handled by `/workday-start` Step 0.4.5) — keep the one active branch current with main until it's ready to merge; do **not** abandon ongoing work to cut a fresh daily off main. Integrate via `/merge-to-main` or `/workday-complete`.
 - **Commits are quick-saves.** Commit at natural checkpoints; diff size is not a gate. The workstream branch IS the review buffer. **Never `--no-verify` / `--no-gpg-sign`** unless PM authorized (`COORDINATOR_OVERRIDE_NO_VERIFY=1`).
-- **Scoped staging is the default. Never `git add -A` / `git add .`** Use `bin/coordinator-safe-commit "<subject>"`. Fall back to `git reset && git add -- <paths> && git commit` on helper misidentification. `git commit --only` / `-- <pathspec>` are unsafe.
+- **Scoped commits default to plain `git add -- <paths> && git commit -m "<subject>" -- <paths>`. Never `git add -A` / `git add .`** `coordinator-safe-commit` is reserved for authorized sweep ceremonies (`session-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation` — all `--blanket`) and `agents/executor.md` (`--expected-branch`, SC-DR-006). Raw helper (no flags) is deprecated. SC-DR-008 (2026-05-13) inverts prior default; `docs/wiki/scoped-safety-commits.md` carries rationale and full call-site list.
 - **Dispatching a committer?** Pin branch via `expected_branch:` in prompt → executor passes `--expected-branch`. Concurrent-EM `--include-orphans` MUST combine with `--scope-from`.
 - **After every executor-ending dispatch, follow with EM-side explicit-path commit** — `--scope-from` excludes executor-edited files.
 - **Parallel executors must NOT each call a touched-files-aware commit helper.** Pattern: EM-serial commits with plain git after fan-out.
@@ -326,7 +329,7 @@ Default operating reality is multiple EM sessions sharing a working tree. **The 
 
 ## Workday/Workweek Cadence
 
-Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises from existing handoffs and `/daily-review` — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
+Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises from existing handoffs and `/workday-complete` Step 4 daily summary — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
 
 Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, delete the resolved entries; commit subject names them).
 

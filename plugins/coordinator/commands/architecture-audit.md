@@ -62,7 +62,23 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 2. **Detect mode:**
    - Check for `tasks/architecture-atlas/systems-index.md`
    - **Not found:** First run → step 3
-   - **Found:** Refresh → step 4
+   - **Found:** Refresh → step 2.5
+
+2.5. **Calibrate scope — targeted refactor audit vs atlas refresh:**
+
+   Discriminate on PM phrasing before entering the Phase 1/2/3 fan-out:
+
+   - **Targeted refactor audit** — PM names ONE system OR cites a specific architectural concern (e.g. "audit the executor", "I want to look at the ingestion pipeline"). Mode is a single-system spike:
+     - Skip Phases 1R/2R fan-out across all systems entirely.
+     - Dispatch ONE Sonnet analyst against the named system (read its existing atlas page + git-diff since last mapped date for delta context).
+     - Dispatch ONE optional Opus synthesis pass ONLY if the named system has ≥2 cross-system dependencies flagged in `connectivity-matrix.md` — skip Opus otherwise.
+     - Wall-clock ~15-30 min. Does NOT update `systems-index.md` Last-mapped dates for sibling systems.
+     - After the Sonnet analyst returns, update ONLY the named system's page (`systems/{name}.md`) and its row in `systems-index.md`. Atlas-wide artifacts (`cross-system-map.md`, `connectivity-matrix.md`, `file-index.md`) are not regenerated.
+     - Report to PM with the targeted-audit variant of the Phase 4 template (system name, key findings, updated date).
+
+   - **Atlas refresh** — PM names no specific system, OR names ≥3 systems, OR invokes `--refresh` without further scope. Continue to step 4 (Refresh — identify churned systems). Existing Phase 1R/2R/3R flow applies across all churned systems.
+
+   - **First run (BOOTSTRAP)** — no atlas exists. Step 2 already routed here via "Not found → step 3". Unchanged.
 
 3. **First run — define system boundaries and sub-chunks:**
    - Derive 4-8 system boundaries from repo map + directory structure
@@ -73,6 +89,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
    - **Output:** Chunk table (system, sub-chunks, file count, mode: full, focus questions)
 
 4. **Refresh — identify churned systems:**
+   _If the PM asked for a targeted single-system audit, jump to the targeted-audit branch in step 2.5 instead — do not enumerate churned systems._
    - Read `systems-index.md` for existing systems and `Last mapped` dates
    - Diff git activity since each system's last mapped date:
      ```bash
@@ -204,6 +221,7 @@ The Opus agent produces all atlas artifacts:
 
 | Scenario | Haiku | Sonnet | Opus | Wall-Clock |
 |----------|-------|--------|------|------------|
+| Targeted refactor audit (1 system) | 0 | 1 | 0-1 | ~15-30 min |
 | First run, 6 systems (≤12 files each) | 6 | 6 | 1 | ~25-35 min |
 | First run, 8 systems (≤12 files each) | 8 | 8 | 1 | ~35-45 min |
 | First run, large system (59 files → 5-6 sub-chunks) | 10-14 | 6-8 | 1 | ~40-55 min |
@@ -214,6 +232,7 @@ The Opus agent produces all atlas artifacts:
 
 | Failure | Prevention |
 |---------|------------|
+| Atlas refresh dispatched when targeted audit was the right shape | Phase 0 step 2.5 calibrates scope before chunking |
 | Haiku invents call relationships | Template says "write [UNKNOWN], do NOT guess" |
 | Haiku analyzes instead of inventorying | Template says "completeness > analysis" |
 | >12 files per agent | Sub-chunk to 8-12 files before dispatch |

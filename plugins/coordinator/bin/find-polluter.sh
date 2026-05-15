@@ -9,8 +9,7 @@
 #   'tests/*.test.ts'    — all .test.ts files directly in tests/
 # The pattern is evaluated by bash globstar, not find, so ** works correctly.
 
-set -e
-set -o pipefail
+set -euo pipefail
 
 # Pre-flight: npm must be available — without it the test loop silently reports "no polluter"
 if ! command -v npm > /dev/null 2>&1; then

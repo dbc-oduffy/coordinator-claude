@@ -51,7 +51,7 @@ The four reviewers cover orthogonal lens domains. No two reviewers share a domai
 
 - **Rule 2 (skip-patrik-on-doc-only):** if every changed file matches `\.(md|rst|txt)$` AND no file matches `\.(py|js|ts|sh|c|cpp|h|hpp|rs|go|java|cs)$`, set `SKIP_PATRIK=1`. Run mechanical workers only. Doc-only weeks are possible but rare at weekly cadence.
 
-- **Rule 3 (skip-entire-gate-on-plan-only):** if every changed file matches `^docs/plans/`, log `Code-review gate: SKIPPED (rule 3 — plan-only diff; staff-eng review on plans goes through /review-dispatch).` and exit 0. Plan-only diffs are handled at authoring time via `/review-dispatch`, not at the weekly boundary.
+- **Rule 3 (skip-entire-gate-on-plan-only):** if every changed file matches `^docs/plans/`, log `Code-review gate: SKIPPED (rule 3 — plan-only diff; staff-eng review on plans goes through /review).` and exit 0. Plan-only diffs are handled at authoring time via `/review`, not at the weekly boundary.
 
 - **Rule 4 (`--force` escape):** if `$ARGUMENTS` contains `--force`, log `Code-review gate: BYPASSED via --force.` and exit 0.
 

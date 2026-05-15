@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # depersonalize-for-publish.sh — scan or rewrite files to strip persona display
-# names (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate, the VP-Product Reviewer) and identity vocabulary
+# names (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Palí, the UX Reviewer, Zolí, the VP-Product Reviewer) and identity vocabulary
 # (PM name forms, private GitHub org slugs) in favor of role labels and
 # canonical public identifiers.
 #
@@ -22,10 +22,10 @@
 #
 # Vocabulary (matching docs/customization.md "Reviewer Roles" table):
 #   the Staff Engineer                        → the Staff Engineer
-#   the Ambition Advocate                          → the Ambition Advocate
+#   Zolí                          → the Ambition Advocate
 #   the VP-Product Reviewer                            → the VP-Product Reviewer
 #   the Game Dev Reviewer                           → the Game Dev Reviewer
-#   the Front-End Reviewer                          → the Front-End Reviewer
+#   Palí                          → the Front-End Reviewer
 #   the UX Reviewer                           → the UX Reviewer
 #   the Data Science Reviewer                       → the Data Science Reviewer
 #
@@ -74,10 +74,10 @@ Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixe
 
 Persona vocabulary table:
   the Staff Engineer   → the Staff Engineer
-  the Ambition Advocate     → the Ambition Advocate
+  Zolí     → the Ambition Advocate
   the VP-Product Reviewer       → the VP-Product Reviewer
   the Game Dev Reviewer      → the Game Dev Reviewer
-  the Front-End Reviewer     → the Front-End Reviewer
+  Palí     → the Front-End Reviewer
   the UX Reviewer      → the UX Reviewer
   the Data Science Reviewer  → the Data Science Reviewer
 
@@ -137,10 +137,10 @@ fi
 declare -A NAME_TO_ROLE=(
   # Persona names (must match the publish-repo check-persona-names.py pattern)
   ["the Staff Engineer"]="the Staff Engineer"
-  ["the Ambition Advocate"]="the Ambition Advocate"
+  ["Zolí"]="the Ambition Advocate"
   ["the VP-Product Reviewer"]="the VP-Product Reviewer"
   ["the Game Dev Reviewer"]="the Game Dev Reviewer"
-  ["the Front-End Reviewer"]="the Front-End Reviewer"
+  ["Palí"]="the Front-End Reviewer"
   ["the UX Reviewer"]="the UX Reviewer"
   ["the Data Science Reviewer"]="the Data Science Reviewer"
   # Identity vocabulary — PM name forms (compound before bare)
@@ -164,10 +164,10 @@ ORDERED_KEYS=(
   "dbc-oduffy/coordinator-claude"
   "dbc-oduffy/deep-research-claude"
   "the Staff Engineer"
-  "the Ambition Advocate"
+  "Zolí"
   "the VP-Product Reviewer"
   "the Game Dev Reviewer"
-  "the Front-End Reviewer"
+  "Palí"
   "the UX Reviewer"
   "the Data Science Reviewer"
 )
@@ -236,8 +236,11 @@ PATTERN+=")"
 if [[ "$MODE" == "check" ]]; then
   hits=0
   for f in "${FILES[@]}"; do
-    # grep -nP gives Perl regex (\b boundary); -H prepends filename.
-    if grep -nHP "$PATTERN" "$f" 2>/dev/null; then
+    # grep -nE gives POSIX extended regex; -H prepends filename. (Was -P, but
+    # macOS BSD grep lacks -P, which made --check silently pass. PATTERN is
+    # built from literal-escaped keys joined by | — pure ERE, no PCRE features
+    # required.)
+    if grep -nHE "$PATTERN" "$f" 2>/dev/null; then
       hits=$((hits + 1))
     fi
   done
@@ -270,8 +273,19 @@ for f in "${FILES[@]}"; do
     # via env vars to avoid delimiter conflicts (e.g. "dbc-oduffy/coordinator-claude"
     # contains "/" which would terminate a s/…/…/g literal delimiter) and
     # single-quote escaping issues in "the Coordinator Authors".
+    # Non-slash keys (bare lowercase slugs without `/`) get \b...\b word
+    # boundaries so short slugs ("sid", "fru") don't match substrings inside
+    # unrelated tokens ("aside", "fruit"). Slash-bearing keys (org slugs) are
+    # already naturally bounded by `/`.
     DEPERSONALIZE_KEY="${name}" DEPERSONALIZE_ROLE="${role}" \
-      perl -CS -i -pe 'my $k = quotemeta($ENV{DEPERSONALIZE_KEY}); s/$k/$ENV{DEPERSONALIZE_ROLE}/g' "$f"
+      perl -CS -i -pe '
+        my $k = quotemeta($ENV{DEPERSONALIZE_KEY});
+        if ($ENV{DEPERSONALIZE_KEY} =~ m{/}) {
+          s/$k/$ENV{DEPERSONALIZE_ROLE}/g;
+        } else {
+          s/\b$k\b/$ENV{DEPERSONALIZE_ROLE}/g;
+        }
+      ' "$f"
   done
   # Post-pass cleanups:
   # 1. "the X" / "the X" → collapse to a single article. Fires when the

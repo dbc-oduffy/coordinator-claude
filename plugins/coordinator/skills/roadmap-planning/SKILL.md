@@ -121,6 +121,16 @@ scope:
 
 Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` so they appear alongside ad-hoc spinoffs in query-records output but cluster by `roadmap_id` for `/workday-start` reporting (per `commands/workday-start.md` Step 1.1 routing).
 
+**Field semantics — clarifications:**
+
+- **`wave: <N>` is a concurrency-gate primitive, NOT a sprint synonym.** Two distinct shapes:
+  - **Wave** = single-dispatch parallel fan-out within a sprint. All wave-N stubs are file-disjoint by construction and dispatch concurrently. Cost profile: one EM-session of dispatch + sync. Risk profile: bounded — failure of one wave-N stub does not invalidate sibling stubs.
+  - **Sprint** = multi-session sequence; the time-box across which wave-N → wave-N+1 gating fires. Cost profile: multi-day, multi-session, with `/handoff` between sessions. Risk profile: compound — a sprint-2 architectural finding can invalidate sprint-3 stubs authored against a now-wrong assumption.
+  Do NOT use `wave:` for time-boxing or for unit-of-effort grouping; use `sprint:` for that. A roadmap with 20 stubs split as 4 sprints × 5 waves of 1 stub each is using `wave:` wrong — those should be 4 sprints × 1 wave × 5 sequential stubs, OR (if truly parallel) 4 sprints × 1 wave × 5 parallel stubs. See `docs/wiki/spinoff-handoffs.md` § "Wave vs sprint" for the cost/risk breakdown.
+- **`gate_dependency:` frontmatter is for HARD gates only.** A hard gate is a precondition that must land before this stub can be dispatched at all — typically a sibling tc-id, a merged PR, or a flipped feature flag. Soft cross-repo seams (advisory coordination cues like "consider coordinating with peer-repo PR-N" or "watch for X downstream") belong in the stub body's `## Notes` section, NOT in machine-read `gate_dependency:` frontmatter. The frontmatter field drives query-records surfacing and `/pickup` gating logic; polluting it with advisory text causes false "still gated" reports.
+- **Soft seams declared in body, not frontmatter.** Each stub MUST include a `## Soft seams` section in its body (Step 2.2) enumerating workstreams it may overlap with, advisory cross-repo coordination notes, and any "consider coordinating with X" cues. Format: bulleted list, each entry one line, naming the peer workstream/PR/stub and the nature of the overlap (file-region, schema-shape, timing). The frontmatter `scope:` block remains the HARD declaration (machine-readable, drives `/pickup` safety-commit pathspec); `## Soft seams` is the SOFT declaration (human-readable, drives EM judgment when sequencing parallel waves). See `docs/wiki/spinoff-handoffs.md` § "Soft-seams discipline" for the full rule and rationale.
+- **Audit-spike sizing heuristic.** When an audit/spike has exactly one downstream consumer, fold it as Phase 0 of that consumer's implementation stub rather than authoring a standalone audit stub — the audit's output never reaches a second consumer, so the stub overhead is pure ceremony. Standalone audit stubs earn their own tc-id only when ≥2 downstream consumers will read the audit output to define their own behavior.
+
 ### Step 2.2 — Body sections (per stub)
 
 - `# <title>`
@@ -131,6 +141,7 @@ Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{
 - `## Acceptance criteria` — binary checklist.
 - `## Recommended next steps for the picking-up EM` — 3–7 numbered, each verifiable.
 - `## Anti-scope` — what NOT to do.
+- `## Soft seams` — bulleted enumeration of workstreams/PRs/stubs this stub may overlap with; one line per seam naming peer + overlap nature. MAY be empty (single bullet: `- None identified at authoring time.`); MUST be present. Distinct from frontmatter `scope:` (HARD pathspec) and `blocked_by:` (HARD graph edge). See `docs/wiki/spinoff-handoffs.md` § "Soft-seams discipline".
 - Trailing marker: `<!-- spinoff-roadmap: <run-id> tc-<N> by roadmap-planning -->`
 
 ### Step 2.3 — STUB-INDEX as a query callout
@@ -225,6 +236,7 @@ Before Phase 3:
 - [ ] COORDINATOR-RESOLUTIONS exists for every conflict.
 - [ ] `pm-gates.md` enumerates every PM-gate; each is cross-referenced in stub frontmatter.
 - [ ] Stub-coverage audit passes (MERGE+KEEP count matches stub count).
+- [ ] Every stub has a `## Soft seams` section (may be empty with `- None identified`, must be present per Step 2.2).
 - [ ] `kind: spinoff-roadmap` validator clean across all stubs.
 - [ ] the Staff Engineer+the Data Science Reviewer review integrated.
 
@@ -326,7 +338,7 @@ Per `~/.claude/tasks/coordinator-improvement-queue.md` 2026-05-06 entry on auton
 
 - `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` — spec
 - `archive/specs/2026-05-08-roadmap-planning-skill-brief.md` — empirical motivator (project-rag retrospective)
-- `docs/wiki/spinoff-handoffs.md` — frontmatter conventions for spinoffs (predecessor: none, etc.)
+- `docs/wiki/spinoff-handoffs.md` — cohort wiki: frontmatter conventions (predecessor: none), deployment_state lifecycle for spinoffs, soft-seams discipline, awaiting_gate aging, pickup-side premise check.
 - `commands/distill.md` — extracts knowledge from completed roadmap stubs
 - `coordinator:plan` — for single-plan work downstream of a roadmap stub
 - `coordinator:brainstorming` — for pre-roadmap option exploration

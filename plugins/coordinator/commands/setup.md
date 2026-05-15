@@ -109,7 +109,7 @@ No other changes when file exists.
 >
 > - **general** — Software project (the Staff Engineer for code review, standard workflow)
 > - **game-dev** — Game development project (adds the Game Dev Reviewer reviewer, game-dev domain agents)
-> - **web-dev** — Web project (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
+> - **web-dev** — Web project (adds Palí for front-end review, the UX Reviewer for UX)
 > - **data-science** — ML/data project (adds the Data Science Reviewer for data science review)
 
 Then ask:
@@ -139,7 +139,7 @@ project_subtypes: [{subtype1}, {subtype2}]
 
 After the core setup, ask once:
 
-> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate). Would you like to customize their names?
+> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Palí, the UX Reviewer, Zolí). Would you like to customize their names?
 >
 > - **Keep defaults** — Use the built-in persona names
 > - **Customize** — Choose your own names for the reviewers
@@ -160,6 +160,36 @@ This is a one-time cosmetic choice. Skip if `--check-only`.
 
 ---
 
+## 3.5. Percolation Setup (if applicable)
+
+Detect whether this repo is a *source* repo for percolation — i.e., a repo that publishes plugin content to a separate publish-repo target.
+
+```bash
+test -f setup/publish.sh && echo "percolation_source" || echo "not_applicable"
+```
+
+**If `setup/publish.sh` is absent:** skip this phase silently. This repo is not a percolation source.
+
+**If `setup/publish.sh` is present:** check whether any publish targets are registered:
+
+```bash
+bash -c '
+  [[ -f setup/publish-targets.sh ]] || { echo "MISSING_TARGETS"; exit 0; }
+  source setup/publish-targets.sh
+  echo "TARGET_COUNT:${#TARGETS[@]}"
+'
+```
+
+- **`MISSING_TARGETS` or `TARGET_COUNT:0`:** No targets registered. Walk `docs/wiki/percolate-setup.md` (plugin-relative path) inline — specifically Steps 1 and 2 to register a target, then Steps 3–4 to scaffold `.percolate-ignore` and hook directories. This is an interactive procedure; do not skip.
+- **Targets registered and all configured** (each target has a `.percolate-ignore` and hook dirs): report status in the summary table as `Percolation: N target(s) configured`.
+- **Targets registered but partially configured** (missing `.percolate-ignore` or hook dirs on any target): surface the gap and offer to run the setup procedure for the unconfigured target(s).
+
+If `--check-only`, report the percolation state in the summary table without creating anything.
+
+Add a `Percolation` row to the status table in Phase 4.
+
+---
+
 ## 4. Status Report
 
 Present a summary table:
@@ -176,6 +206,7 @@ Present a summary table:
 | NotebookLM (Pipeline D)     | ... (optional) |
 | Global CLAUDE.md import     | ... |
 | coordinator.local.md        | ... |
+| Percolation                 | ... (n/a if not a percolation source) |
 | Project scaffolding         | Run `/project-onboarding` — it owns lazy directory creation, lessons file, and tracker |
 
 ### Available commands
@@ -183,11 +214,11 @@ Present a summary table:
 - `/session-start` — Orient session, load context, choose work
 - `/session-end` — Wrap up, capture lessons
 - `/handoff` — Save state for next session
-- `/review-dispatch` — Route artifacts to reviewers
+- `/review` (plans) and `/review-code` (diffs) — Self-contained review skills with inline routing; shared phases in `docs/wiki/reviewer-pipeline.md`
 - `/update-docs` — Refresh project documentation, maintain docs/README.md index
 - `/distill` — Extract knowledge from session artifacts into wiki guides
 - `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
-- `/setup-percolate` — Percolation setup: register a publish target, scaffold `.percolate-ignore`, scaffold hook directories
+- `/percolate` — Publish to a registered target; first-run setup walks `docs/wiki/percolate-setup.md` automatically (also walked by `/setup` percolation phase)
 ```
 
 ### Plugin-bundled doctrine wikis

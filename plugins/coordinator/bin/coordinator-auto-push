@@ -52,7 +52,7 @@ REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || exit 0
 
 log_failure() {
   local reason="$1"
-  echo "[$(date -Iseconds)] PUSH FAILED on $BRANCH ($reason)" \
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PUSH FAILED on $BRANCH ($reason)" \
     >> "$REPO_ROOT/.git/push-failures.log"
 }
 
@@ -74,10 +74,12 @@ esac
 
 if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
   # Route through PowerShell so Windows OpenSSH + 1Password agent pipe is used.
-  # Quote the repo path; -C handles spaces. -NonInteractive prevents UI prompts.
-  # -WindowStyle Hidden suppresses the brief blue console flash on every commit.
-  if ! powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
-       "git -C '$REPO_ROOT' push origin '$BRANCH' --set-upstream" \
+  # Pass REPO_ROOT and BRANCH via environment variables so embedded apostrophes
+  # in the repo path can't break out of the -Command string. -NonInteractive
+  # prevents UI prompts. -WindowStyle Hidden suppresses the blue console flash.
+  if ! REPO_ROOT="$REPO_ROOT" BRANCH="$BRANCH" \
+       powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
+       'git -C $env:REPO_ROOT push origin $env:BRANCH --set-upstream' \
        >/dev/null 2>&1; then
     log_failure "powershell ssh push"
   fi

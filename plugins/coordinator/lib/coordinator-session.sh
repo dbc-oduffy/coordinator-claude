@@ -97,7 +97,7 @@ _cs_iso_to_epoch() {
     # shellcheck source=/dev/null
     [[ -f "$_lib" ]] && source "$_lib"
     if [[ -n "$PYTHON_BIN" ]]; then
-      epoch=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import datetime; print(int(datetime.datetime.fromisoformat('${iso%Z}').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
+      epoch=$(CS_ISO_TS="${iso%Z}" "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
         || epoch=0
     fi
   fi
@@ -125,13 +125,27 @@ _cs_update_meta_field() {
   local meta="${sdir}/meta.json"
   [[ -f "$meta" ]] || return 1
   if command -v jq &>/dev/null; then
-    local tmp
-    tmp=$(jq --arg v "$value" ".${field} = \$v" "$meta" 2>/dev/null) && echo "$tmp" > "$meta"
+    # Atomic rewrite: jq -> tempfile next to target -> mv. The prior
+    # `tmp=$(jq ...) && echo "$tmp" > "$meta"` pattern is non-atomic — a
+    # concurrent reader could see a truncated meta.json mid-write, and two
+    # writers race on the redirect. mktemp+mv mirrors the sed-fallback path.
+    local _tmp
+    _tmp=$(mktemp "${meta}.XXXXXX" 2>/dev/null) || _tmp=$(mktemp) || return 1
+    if jq --arg v "$value" ".${field} = \$v" "$meta" > "$_tmp" 2>/dev/null; then
+      mv "$_tmp" "$meta" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    else
+      rm -f "$_tmp"
+      return 1
+    fi
   else
-    # sed tempfile fallback — portable across BSD/macOS and GNU sed
+    # sed tempfile fallback — portable across BSD/macOS and GNU sed.
+    # Escape value for sed RHS: `\`, `&`, `/` must be backslash-escaped or
+    # they corrupt the replacement (e.g. branch name containing `/`).
+    local _sed_escaped
+    _sed_escaped=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
     local _tmp
     _tmp=$(mktemp) && \
-      sed "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${value}\"/" "$meta" > "$_tmp" 2>/dev/null && \
+      sed "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${_sed_escaped}\"/" "$meta" > "$_tmp" 2>/dev/null && \
       mv "$_tmp" "$meta" || { rm -f "$_tmp"; true; }
   fi
 }
@@ -191,14 +205,26 @@ cs_init() {
         '{session_id: $sid, branch: $branch, pid: $pid, last_activity: $now, goal: $goal}' \
         > "${sdir}/meta.json"
     else
-      local goal_escaped="${goal//\\/\\\\}"
-      goal_escaped="${goal_escaped//\"/\\\"}"
+      # Escape every interpolated field — `\` -> `\\`, `"` -> `\"`. Previously
+      # only `goal` was escaped; a branch name containing `"` or `\` would
+      # corrupt meta.json. Inline helper kept simple to avoid sourcing order.
+      _cs_json_escape() {
+        local _v="${1//\\/\\\\}"
+        _v="${_v//\"/\\\"}"
+        printf '%s' "$_v"
+      }
+      local sid_escaped branch_escaped pid_escaped now_escaped goal_escaped
+      sid_escaped=$(_cs_json_escape "$sid")
+      branch_escaped=$(_cs_json_escape "$branch")
+      pid_escaped=$(_cs_json_escape "$pid")
+      now_escaped=$(_cs_json_escape "$now")
+      goal_escaped=$(_cs_json_escape "$goal")
       cat > "${sdir}/meta.json" <<METAJSON
 {
-  "session_id": "${sid}",
-  "branch": "${branch}",
-  "pid": "${pid}",
-  "last_activity": "${now}",
+  "session_id": "${sid_escaped}",
+  "branch": "${branch_escaped}",
+  "pid": "${pid_escaped}",
+  "last_activity": "${now_escaped}",
   "goal": "${goal_escaped}"
 }
 METAJSON

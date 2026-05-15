@@ -43,16 +43,34 @@ _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumptio
 
 ### A.2 — Reviewer selection and dispatch
 
-**Matching review tier to plan complexity** (table absorbed from the deleted `coordinator:requesting-code-review` skill; the code-reviews tier-matching counterpart lives in `coordinator:review-code` Branch A.2):
+**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the artifact's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
+
+**Composite routing table (reference — assembled at dispatch time from fragment discovery):**
+
+| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
+|--------|---------------------|------------------------|--------|
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: Zolí) | High |
+| Front-end, CSS, UI components | Palí | (backstop: the UX Reviewer) | Medium |
+| Front-end + architecture | Palí | the Staff Engineer | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
+| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: Zolí) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
+| Other / unmatched | the Staff Engineer | (none) | Medium |
+
+If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
+
+**Matching review tier to plan complexity:**
 
 Match tier to complexity, not importance. Routing every "important" plan to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
 | Situation | Correct tier |
 |---|---|
-| Single-domain plan (new feature, doc redesign, refactor) | `/review-dispatch <plan-path> plan` → one reviewer |
-| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | `/review-dispatch <plan-path> plan --reviewers "<domain>,patrik"` → two sequential reviewers |
+| Single-domain plan (new feature, doc redesign, refactor) | One reviewer (auto-detects domain from routing table above) |
+| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | `/review-dispatch <plan-path> plan` → one reviewer |
+| "This is important, I want it done right" | One reviewer (auto-detects domain) |
 
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
   → No review needed; commit and proceed.
@@ -60,6 +78,8 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
   → Exit; this skill does not run. Log the waiver in the plan frontmatter (`review: skipped per PM direction YYYY-MM-DD`).
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
+
+**Pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → 2.7b → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
 
 ### A.3 — Sequencing (HARD RULE for plan reviews)
 

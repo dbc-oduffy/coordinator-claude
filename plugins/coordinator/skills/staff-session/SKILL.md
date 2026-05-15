@@ -9,15 +9,15 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli
 
 The EM scopes the work, selects the team, creates the team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Debaters** (2-5, Opus, persona agents) — read input independently, research the codebase, form positions, debate peers via messaging, converge, write position documents, send DONE to synthesizer
-- **the Ambition Advocate / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
+- **Zolí / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
 
-**Lightweight tier falls through to `/review-dispatch` — no team created.**
+**Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code) — no team created.**
 
 ## Arguments
 
 `$ARGUMENTS`:
 - `--mode plan|review` — required. `plan` for crafting a new plan from objectives; `review` for critiquing an existing artifact
-- `--tier lightweight|standard|full` — required. `lightweight` routes to `/review-dispatch`. `standard` = 2 debaters. `full` = 3-5 debaters
+- `--tier lightweight|standard|full` — required. `lightweight` routes to single-reviewer dispatch (`/review` for plan artifacts, `/review-code` for code artifacts). `standard` = 2 debaters. `full` = 3-5 debaters
 - `--members "persona-a,persona-b,..."` — optional. Override auto-selection with explicit persona slugs (e.g., `"patrik,zoli"`)
 - `<input>` — required. Plan mode: path to objectives document or free-text objectives. Review mode: path to the artifact to review
 
@@ -55,9 +55,9 @@ Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 
 **If `--tier lightweight`:**
 
-Do NOT create a team. Route directly to `/review-dispatch` with the specified member (or `patrik` as default if `--members` not provided).
+Do NOT create a team. Route directly to `/review` (plan artifacts) or `/review-code` (code artifacts) with the specified member (or `patrik` as default if `--members` not provided).
 
-Announce: "Routing to `/review-dispatch` for single-reviewer gut-check."
+Announce: "Routing to single-reviewer dispatch (`/review` or `/review-code`) for single-reviewer gut-check."
 
 **STOP — the rest of this command does not execute.**
 
@@ -73,7 +73,7 @@ Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/temp
 
 **If `--members` not specified:** Auto-select based on domain signals from the input topic and scope.
 
-**Important: the Ambition Advocate is the synthesizer, not a debater.** the Ambition Advocate cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "patrik,zoli"`, reject with: "the Ambition Advocate is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
+**Important: Zolí is the synthesizer, not a debater.** Zolí cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "patrik,zoli"`, reject with: "Zolí is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
 
 | Domain Signal | Default Pair |
 |---|---|
@@ -214,9 +214,10 @@ When you receive a notification that the synthesizer task is complete:
 
 3. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it.
 
-4. Commit the output:
+4. Commit the output (plain-git scoped — SC-DR-008, lessons.md:207):
    ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "staff-session: {mode} — {topic-slug}"
+   # Stage only the output files this session wrote (scratch dir contents + any plan/review artifact)
+   git add -- {output-paths} && git commit -m "staff-session: {mode} — {topic-slug}" -- {output-paths}
    ```
 
 5. Archive the paper trail:
@@ -235,9 +236,9 @@ When you receive a notification that the synthesizer task is complete:
    TeamDelete(team_name: "staff-{topic-slug}")
    ```
 
-8. Commit cleanup:
+8. Commit cleanup (plain-git scoped — SC-DR-008, lessons.md:207):
    ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "staff-session: archive + cleanup"
+   git add -- docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/ && git commit -m "staff-session: archive + cleanup" -- docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/
    ```
 
 9. Present output to PM:

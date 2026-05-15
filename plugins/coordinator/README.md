@@ -38,7 +38,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 *Reviewer returns 30 findings. Six are real problems. Twenty-four are style preferences, redundant observations, and concerns the PM needs to adjudicate. The EM spends more time triaging the review than reading the code.*
 
 **Addressed by:**
-- `/review-dispatch` — Route artifacts to the right reviewer based on change signals (code, architecture, domain). Includes effort calibration, skip conditions, and EM override guidance.
+- `coordinator:review` (plans) and `coordinator:review-code` (diffs) — Self-contained decision-tree skills carrying the routing table, sequencing rules, and dispatch mechanics. Shared pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`.
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
 - Backstop pattern — Zoli (ambition advocate) challenges conservative the Staff Engineer recommendations. Mandatory for high-effort reviews.
@@ -54,7 +54,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 **Addressed by:**
 - Synthesis Discipline (coordinator CLAUDE.md) — Synthesizers assess, fill, and frame. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases (+25–33pp), nuanced facts (+19–21pp), cross-topic relationships (+42pp).
 - Pipeline C v2.1 (`/research --mode=structured`) — Hard file-existence gate, CONTESTED change type for unresolved peer challenges, adversarial verifier dynamics, forced reflection after each source fetch.
-- `/distill` — 6-phase pipeline: Haiku scans → Haiku QG → Sonnet synthesis → Opus assembly → PM gate → apply+delete. Synthesis of session artifacts into evergreen wiki guides.
+- `/distill` — Multi-phase pipeline: Haiku scans → Haiku QG → Sonnet synthesis → Sonnet judgment-mining → coordinator-orchestrated parallel Sonnet Phase 3 (contradiction detection / dedup / deletion manifest) → PM gate → apply+delete. Synthesis of session artifacts into evergreen wiki guides. Opus reserved for escalation when contradictions cannot be resolved by temporal ordering.
 - `deep-research` skill / `/deep-research` — Multi-source investigation. Pipeline A (internet), Pipeline B (codebase), Pipeline C (structured schema research), Pipeline D (NotebookLM media).
 
 ---
@@ -115,8 +115,6 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/update-docs` | Repo-wide documentation maintenance and sync (auto-chains `/distill` when thresholds met) |
 | `/execute-plan` | Execute a PM-approved implementation plan in the coordinator session |
 | `/enrich-and-review` | Run enrichment pipeline on chunk directories |
-| `/review-dispatch` | Route artifacts to the right reviewer |
-| `/generate-repomap` | Generate a ranked repository map for LLM context injection |
 | `/mise-en-place` | Autonomous backlog execution — gather ready items, execute without stopping |
 | `/research` | Deep research pipeline — `--mode=web` (Pipeline A), `--mode=repo` (Pipeline B), `--mode=structured` (Pipeline C) |
 | `/architecture-audit` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
@@ -125,7 +123,6 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/bug-blitz` | Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`) |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
-| `/daily-review` | Strategic daily review — inventory today's work, summarize what shipped, get architectural perspective |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
@@ -183,7 +180,7 @@ The coordinator defines the routing framework that domain plugins extend:
 
 1. This plugin's `routing.md` defines universal reviewers (the Staff Engineer, Zoli) and the routing algorithm
 2. Domain plugins contribute routing fragments via their own `routing.md` files
-3. At dispatch time, `/review-dispatch` merges all fragments into a composite routing table
+3. At dispatch time, `/review` and `/review-code` merge all fragments into a composite routing table
 4. Signals from changed code determine which reviewer handles the review
 
 See the parent [ARCHITECTURE.md](../ARCHITECTURE.md) for the full conceptual model.
@@ -221,7 +218,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 
 ### v1.3.1 (March 2026) — Artifact Distillation
 
-- **`/distill` command:** New 6-phase pipeline that extracts knowledge from accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (`docs/wiki/`, `docs/decisions/`), then deletes the source material. Haiku scans → Haiku QG → Sonnet synthesis → Opus assembly → PM approval → apply+delete.
+- **`/distill` command:** New pipeline that extracts knowledge from accumulated session artifacts (plans, handoffs, completed work) into evergreen wiki documents (`docs/wiki/`, `docs/decisions/`), then deletes the source material. Haiku scans → Haiku QG → Sonnet synthesis → Sonnet judgment-mining → coordinator-orchestrated Sonnet Phase 3 split (3a contradiction detection / 3b dedup / 3c directory-guide assembly / 3d deletion manifest) → PM approval → apply+delete. Opus reserved for escalation on unresolvable contradictions.
 - **`/update-docs` chaining:** Phase 12 added — auto-fires `/distill` when artifact count ≥50 or last distillation >14 days ago. PM gate in `/distill` Phase 4 provides the approval checkpoint. `--no-distill` flag to skip.
 - **Mise-en-place guard:** Hibernate mode passes `--no-distill` to avoid blocking on PM approval overnight.
 - **`artifact-consolidation` relationship:** Bulk pruning without extraction. `/distill` supersedes it for the distill-then-delete workflow. _(Update 2026-05-06: `artifact-consolidation` skill was absorbed into `/update-docs` Phase 8b. `/distill` continues to handle distill-then-delete; raw bulk pruning now runs unconditionally in every `/update-docs` invocation under conservative thresholds.)_
@@ -231,7 +228,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, the Ambition Advocate, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, Zolí, the Game Dev Reviewer, Palí, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.

@@ -34,7 +34,7 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── docs/wiki/                          — wiki guides (LAZY — created by coordinator:distill on first guide extraction)
 ├── docs/wiki/DIRECTORY_GUIDE.md        — guide index with decision record mapping
 ├── docs/plans/                         — implementation plans (LAZY — created when first plan is copied from ~/.claude/plans/)
-├── docs/research/                      — research outputs (LAZY — created by coordinator:deep-research on first run)
+├── docs/research/                      — research outputs (LAZY — created by deep-research:research on first run)
 ├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:session-end on first lesson)
 ├── archive/completed/                  — completion archive (LAZY — created by coordinator:session-end on first completion)
 ├── tasks/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
@@ -169,7 +169,7 @@ On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos
 >
 > **2. Project type** — controls which domain agents and conventions are included:
 >    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
->    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
+>    - `web-dev` — Web frameworks (adds Palí for front-end review, the UX Reviewer for UX)
 >    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
 >    - `general` — Standard conventions only
 >
@@ -324,7 +324,7 @@ mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 - `archive/completed/` — created by `coordinator:session-end` on first archived completion
 - `docs/wiki/` — created by `coordinator:distill` when the first guide is extracted
 - `docs/plans/` — created when the first plan is copied from `~/.claude/plans/`
-- `docs/research/` — created by `coordinator:deep-research` on first research run
+- `docs/research/` — created by `deep-research:research` on first research run
 - **`tasks/review-trail/`:** created on first session-end review. Contains per-session JSON marker records consumed by `/workday-complete` Step 9 and `/workweek-complete` Step 7. Lifecycle parallels `tasks/week-changelog/` — archived to `archive/review-trail/<week-starting>/` at workweek-complete.
 
 Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory (they see it exists but empty, rather than understanding it is built lazily).

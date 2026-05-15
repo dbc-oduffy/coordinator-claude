@@ -67,7 +67,7 @@ RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceed
 
 ## Source-Specific Handling
 
-### From Review Agents (the Staff Engineer, the Ambition Advocate, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer)
+### From Review Agents (the Staff Engineer, Zolí, the Game Dev Reviewer, Palí, the UX Reviewer, the Data Science Reviewer)
 
 This is where coordinators most often fail. You dispatched an Opus-level agent to review your work. **Use everything they give you.**
 
@@ -99,6 +99,14 @@ FORBIDDEN:
 ```
 
 **Why this matters:** We are spending Opus-level agents on reviews. If you gloss over items, that investment is wasted. The whole point is excellent code and docs — every item is an opportunity.
+
+- **Half-rotation premise-check:** when a reviewer's finding cites a constant/seam/file that's about to be modified by another in-flight chunk of the same workstream, re-verify the premise against the post-merge artifact before applying the finding. Reviewer premises rot during multi-chunk dispatches.
+
+- **Reverse a premature disposition when a later reviewer surfaces stronger evidence.** Dispositions in the triage table are not write-once. When Reviewer 2 (or a worker like test-evidence-parser) returns evidence that contradicts a `Dismissed` or `Captured` verdict from Reviewer 1, reopen the row — change the disposition, record the evidence, apply the fix. Stale disposition entries strand bugs under "addressed" framing. Single-reviewer high-confidence verdicts are most-likely to need reversal; flag `Dismissed` rows for re-check when the next reviewer's domain overlaps.
+
+- **Post-review plan body sweep — grep for old framing, not just patch the cited line.** When a structural reviewer finding lands (renamed abstraction, inverted default, removed phase, reframed objective), grep the plan body for the OLD framing before declaring the integration done. Integrator patches the cited line; the rest of the plan body still quotes the pre-finding vocabulary. Body sweep is a one-grep step per structural finding — cheap insurance against half-applied edits that surface as confusion three sessions later.
+
+- **Retroactive escalation framings need forward reframing, not mechanical application.** When a reviewer or PM escalates an item retroactively — "this should have been a ceremony / blocking gate / staff-session topic" — the finding's value is the anchor pattern for *future* work, not a mechanical patch to the artifact already in flight. Capture the doctrine update (wiki/skill edit, queue entry), reframe the anchor for forward use; do not retroactively rewrite the in-flight artifact to satisfy a ceremony that wasn't load-bearing when the work started.
 
 ### From the PM
 - **Trusted** - implement after understanding

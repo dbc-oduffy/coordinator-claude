@@ -27,7 +27,7 @@ If the wrapper exits non-zero (lib not found), continue — the reaper is operat
 
 ## Step 0: Branch Setup
 
-Ensure work happens on an active workstream branch (`work/{machine}/{date-or-span}`, machine always lowercase) and consolidate lingering open branches from previous days. The goal is no longer "create today's daily" — it is "ensure today is within the active branch's span, rename forward if not."
+Ensure work happens on an active workstream branch and reconcile it with `origin/main` daily. The active workstream may be either canonical (`work/{machine}/{date-or-span}`, machine always lowercase) **or** a named long-lived workstream bus (e.g. `migration/...`, `release/...`, `feature/...`) that the PM authorized. The daily ritual is **reconcile with origin/main**, not branch-rotation: as long as a single active workstream branch exists locally, keep loading work onto it until it's ready to merge. Consolidate lingering sibling `work/{machine}/...` branches into the active one.
 
 **Sync-main invariant (run first, before any branch creation or rename):**
 ```bash
@@ -47,7 +47,7 @@ If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the
 
 2. **Already-in-span check (runs second):** Use `cs_should_prompt_rename` from the lib (sources automatically — see internals). If the current branch's end-suffix already matches today's date, exit Step 0 silently — no rename, no new branch needed.
 
-3. **On main / no workstream branch (runs third):** If the current branch is `main` or does not match `work/{machine}/...`, create a fresh branch:
+3. **On main / detached / empty branch (runs third):** If the current branch is `main` or detached HEAD OR is non-main with zero commits ahead of `origin/main`, create a fresh canonical workstream branch:
    ```bash
    MACHINE=$(cs_compute_machine)   # always lowercase
    TODAY=$(date +%Y-%m-%d)
@@ -57,7 +57,30 @@ If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the
    git push -u origin "work/${MACHINE}/${TODAY}"
    ```
 
-4. **Midnight-rename (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → run the rename procedure below silently and emit a one-line notice in the Morning Briefing (`Renamed work/striker/2026-05-06 → work/striker/2026-05-06to07 (crossed midnight)`). Do NOT prompt — this is engineering housekeeping, not a product call. The PM can revert via `git branch -m` if they object.
+4. **Named long-lived workstream (runs fourth):** If `$CURRENT` is non-main, does NOT match `work/{machine}/...`, AND is ahead of `origin/main` → treat as an active named workstream bus. **Do not** create a fresh daily — that would abandon ongoing work. Skip the rename procedure (it is `work/{machine}/...`-specific) and proceed to the **daily origin/main reconcile** below, then continue to consolidation. The PM authorizes named workstreams via the inline override at branch-create time; once they exist, workday-start treats them as legitimate buses.
+
+5. **Midnight-rename (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → run the rename procedure below silently and emit a one-line notice in the Morning Briefing (`Renamed work/striker/2026-05-06 → work/striker/2026-05-06to07 (crossed midnight)`). Do NOT prompt — this is engineering housekeeping, not a product call. The PM can revert via `git branch -m` if they object.
+
+**Daily origin/main reconcile (runs after precedence resolves, for ANY non-main active branch):**
+```bash
+git fetch origin main
+if git merge-base --is-ancestor origin/main HEAD; then
+  : # already includes origin/main — nothing to do
+elif COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main" \
+     git merge --ff-only origin/main 2>/dev/null; then
+  echo "Fast-forwarded $(git branch --show-current) to include origin/main."
+else
+  if ! COORDINATOR_OVERRIDE_BRANCH=1 \
+       COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (merge)" \
+       git merge --no-ff origin/main -m "reconcile origin/main into $(git branch --show-current) (workday-start)"; then
+    git merge --abort
+    echo "Reconcile conflict — surface to PM via A/B/C Branch Reconciliation Decision."
+    # Fall through to conflict handling below; do not silently continue.
+  fi
+fi
+```
+This is the daily ritual that replaces "cut a fresh daily off main." Other contributors' work on `origin/main` is folded into the active workstream branch on each workday-start. Conflicts here go through the same A/B/C flow as consolidation conflicts.
 
 **Rename procedure (the Staff Engineer F5 — atomic, reversible):**
 ```bash
@@ -92,6 +115,12 @@ if ! COORDINATOR_OVERRIDE_BRANCH=1 \
   echo "ERROR: remote rename rejected; local rolled back. Manual recovery may be needed."
   exit 1
 fi
+
+# Step c: re-wire local tracking so @{upstream} resolves correctly.
+# git push --atomic creates the remote ref but does NOT update the local
+# tracking pointer; @{upstream} stays pointed at the now-deleted OLD ref
+# until this runs. Without it, coordinator-auto-push silently misroutes.
+git branch --set-upstream-to="origin/${NEW}" "${NEW}"
 ```
 
 After a successful rename, continue with the branch-consolidation flow (open unmerged `work/{machine}/*` branches, A/B/C conflict handling) using the new branch name as base.
@@ -125,6 +154,47 @@ Run `bin/orphan-branch-sweep.sh --format text --severity-min warning`. For each 
 
 Append the rendered section to the Morning Briefing template in Step 5 (after `### Alignment Check`, before `### Priority Suggestions`).
 
+## Step 0.6: Agent Worktree Sweep
+
+Claude Code 2.1.x auto-creates per-dispatch worktrees under `<repo>/.claude/worktrees/agent-<hash>/` for backgrounded `Agent` calls. They persist locked until session deletion (no auto-cleanup on agent completion) and accumulate across days. Doctrine forbids worktrees as a parallelism mechanism — see `docs/wiki/dispatching-parallel-agents.md` § Worktree vs. Same-Worktree Dispatch — so any agent worktree on disk is unintended residue.
+
+Run the sweep in `--reap` mode to consolidate and remove:
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/agent-worktree-sweep.sh --reap --format text
+```
+
+Per-worktree disposition:
+- **`empty-clean`** (no commits ahead of the active branch, no dirty files) → removed silently.
+- **`commits-clean`** (commits ahead, no dirty files) → cherry-picked onto the active workstream branch (carries `COORDINATOR_OVERRIDE_BRANCH=1` for the off-daily hook), then removed. Cherry-pick conflict aborts the pick, leaves the worktree intact, exit 3.
+- **`dirty`** (uncommitted changes) → left alone. Almost always benign bystander dirt (e.g. `.claude/settings.local.json` permission auto-adds), but the EM does not auto-discard.
+
+**Surface in the Morning Briefing under a new `### Agent Worktrees` section** if anything other than `empty-clean → removed` was reported:
+
+```
+### Agent Worktrees
+- [N] worktrees swept ([K] removed clean, [S] salvaged + removed, [D] dirty retained, [F] salvage-conflict).
+- Dirty retained: [list paths]. Inspect with `cd <path> && git status` and either commit, discard, or `git worktree remove --force` after triage.
+- Salvage-conflict: [list paths]. Cherry-pick stopped on a conflict; resolve manually or remove if the commits aren't worth recovering.
+```
+
+If every worktree was clean (or none existed), omit the section.
+
+**Why here, not Step 0.5:** Orphan-branch-sweep (Step 0.5) operates on user-owned `work/*` and `feature/*` branches — agent-isolation worktrees use ephemeral `worktree-agent-*` branches that don't match those patterns, so they're invisible to that pass.
+
+## Step 0.7: Consumed-Marker Frontmatter Sync
+
+Belt-and-suspenders against the most common handoff-frontmatter drift: EMs sometimes mark work shipped with an inline `<!-- consumed: YYYY-MM-DD [notes] -->` body marker but forget to flip `status:` / `deployment_state:` in frontmatter. Step 1's `query-records` calls read frontmatter as authoritative, so unflipped records surface in `ready_to_fire` queries and waste triage attention.
+
+```bash
+node ~/.claude/plugins/coordinator-claude/coordinator/bin/normalize-consumed-frontmatter.js
+```
+
+The script is idempotent; prints a one-line no-drift notice to stderr when nothing changes. Each surfaced change line names the file and the field flips; if more than a handful surface, mention the count in the Morning Briefing — recurring drift is a doctrine signal worth surfacing to the PM (consider `coordinator:learn-lessons` if it recurs across days).
+<!-- Review: the Staff Engineer F6 — "silent on no-op" was inaccurate; the script writes "No drift" to stderr. Updated to accurate phrasing. Do not redirect stderr — the diagnostic has value when an EM debugs why nothing flipped. -->
+
+Scans handoffs + plans + decisions + reviews. Also strips `gate_dependency:` on flipped records — the field is only meaningful while `deployment_state: awaiting_gate` and is stale noise once shipped. Terminal states (`status: superseded`, `deployment_state: abandoned`) are preserved.
+
 ## Step 1: Handoff Triage
 
 Query-driven, not grep-driven. Two `bin/query-records` calls — sub-second by construction.
@@ -140,17 +210,27 @@ bin/query-records --type handoff \
 Routing on `kind:` (spinoffs cluster separately):
 
 - **`kind: spinoff` and `kind: spinoff-roadmap`** — both are pickup-able forks. List together in a "Spinoffs awaiting pickup" subsection. `spinoff-roadmap` rows additionally cluster by `roadmap_id:` (group all stubs from a single roadmap-planning run) — surface roadmap heading + stub count, not raw rows, when `roadmap_id` is non-empty and the count > 3.
-- **`kind: session-handoff`** (or absent) — list in a "Continuation handoffs" subsection.
+- **`kind: session-handoff`** (or absent) and **`kind: recovery`** — list together in a "Continuation handoffs" subsection. Recovery rows get a `(recovery)` suffix so the PM can see at a glance which continuations came from a crashed/killed prior session.
 
-### Step 1.2: Stale-gate flag (conditional, only emit if non-empty)
+### Step 1.2: Gated handoffs (always surface count; flag stale subset)
+
+Two queries — first lists everything `awaiting_gate`, second flags the stale subset:
 
 ```bash
 bin/query-records --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
-  --older-than 14d --format markdown-list
+  --sort "-created" --format markdown-list
+
+bin/query-records --type handoff \
+  --where "deployment_state=awaiting_gate AND status=active" \
+  --older-than 6d --format markdown-list
 ```
 
-If non-empty: surface with the heads-up nudge: _"{M} handoffs awaiting_gate >14 days — `/pickup` to surface for triage, escalate to PM gate-clearing, or close out."_ The 14-day threshold preserves the prior surface-stale-spinoff signal — `awaiting_gate` items aren't hidden indefinitely.
+- **If any `awaiting_gate` exist:** surface the full list as a "Gated handoffs" subsection (titles + gate_dependency, not bodies). Morning briefing is the right surface for cross-workstream gate awareness — silently filtering them buries actionable triage decisions (clear gate, retarget, pick up early).
+- **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
+- **If none exist:** skip silently.
+
+Threshold rationale: six days is roughly one working week. Long enough that a gate that hasn't cleared deserves a glance; short enough to catch drift before it ossifies. The prior 14-day threshold + only-emit-if-stale pattern buried gated handoffs that the PM needed for cross-workstream planning.
 
 ### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
 
@@ -162,9 +242,9 @@ Read `archive/completed/YYYY-MM.md` (current month, plus previous month if withi
 
 ### Step 1.5: Report
 
-_"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {M} awaiting_gate >14 days [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
+_"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {G} awaiting_gate (of which {M} >6 days) [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
 
-**Why query, not grep (doctrine reversal documented 2026-05-08):** the prior "surface everything, archive nothing" policy assumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Filtering to `ready_to_fire` plus the 14-day stale-gate flag preserves the deferred-work signal without forcing every aging handoff through the primary list.
+**Why query, not grep (doctrine reversal documented 2026-05-08, revised 2026-05-15):** the prior "surface everything, archive nothing" policy assumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Filtering to `ready_to_fire` for the primary actionable list remains correct; `awaiting_gate` items now surface as their own subsection (count always, list always when present) rather than hiding behind a staleness gate, so cross-workstream gate awareness reaches the PM.
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
@@ -406,6 +486,12 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 _(Omit this section entirely if orphan-branch-sweep.sh produced no WARNING or CRITICAL output.)_
 - **CRITICAL:** [branch] — PR #N merged, [M] commits added after merge. Investigate before new work.
 - **WARNING:** [branch] — no PR, [N] commits, branch date [YYYY-MM-DD]. Open a PR or consolidate.
+
+### Agent Worktrees
+_(Omit this section entirely if Step 0.6 found nothing or only `empty-clean → removed` worktrees.)_
+- [N] worktrees swept ([K] removed clean, [S] salvaged + removed, [D] dirty retained, [F] salvage-conflict).
+- Dirty retained: [list paths]. Inspect with `cd <path> && git status` and either commit, discard, or `git worktree remove --force` after triage.
+- Salvage-conflict: [list paths]. Cherry-pick stopped on a conflict; resolve manually or remove if the commits aren't worth recovering.
 
 ### Auto-Push Health
 _(Omit this section entirely if Step 1.8 found `RECENT_24H == 0` AND `TOTAL < 5`.)_

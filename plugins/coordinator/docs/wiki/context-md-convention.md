@@ -71,7 +71,7 @@ Two skills produce `CONTEXT.md` entries as a side-effect of their natural work:
 | Skill | When it produces |
 |---|---|
 | `coordinator:brainstorming` | When the PM resolves a term during design dialogue |
-| `coordinator:writing-plans` | When the plan introduces a domain term that will recur |
+| `coordinator:plan` | When the plan introduces a domain term that will recur |
 
 **Lazy-creation rule:** Neither skill scaffolds an empty `CONTEXT.md`. Creation happens on the first real term being resolved. If no term has been resolved yet in a session, the file should not exist (or should not be extended with empty/placeholder entries).
 
@@ -83,10 +83,10 @@ Skills that read `CONTEXT.md` for orientation use canonical terms in their outpu
 
 Current consumers (this plan, v1):
 - `coordinator:brainstorming` (reads before first PM question, if present)
-- `coordinator:writing-plans` (reads before file-mapping, if present)
+- `coordinator:plan` (reads before file-mapping, if present)
 - `/architecture-audit` synthesizer (reads if present; flags glossary candidates without writing)
 
-Future consumer rollout (follow-up plan): `docs/wiki/systematic-debugging.md` (formerly the systematic-debugging skill, demoted 2026-05-06), `coordinator:debt-triage`, `coordinator:code-review`, and others. Do not add "read CONTEXT.md" to additional skills/wikis without a plan that explicitly authorizes the addition — that's how cargo-cult expansion starts.
+Future consumer rollout (follow-up plan): `docs/wiki/systematic-debugging.md` (formerly the systematic-debugging skill, demoted 2026-05-06), `coordinator:debt-triage`, `coordinator:review-code`, and others. Do not add "read CONTEXT.md" to additional skills/wikis without a plan that explicitly authorizes the addition — that's how cargo-cult expansion starts.
 
 ### ADR-0001 — Silence on Absence
 
@@ -128,4 +128,4 @@ This variant is documented here so a future session has a paved path. No skill c
 - Proof-of-concept: `~/.claude/CONTEXT.md` (the coordinator-claude repo's own glossary)
 - Coordinator doctrine: `plugins/coordinator-claude/coordinator/CLAUDE.md` § Documentation and Knowledge System
 - Inspiration audit: `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1
-- Producer skills: `coordinator:brainstorming`, `coordinator:writing-plans`
+- Producer skills: `coordinator:brainstorming`, `coordinator:plan`

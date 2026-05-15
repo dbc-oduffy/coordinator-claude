@@ -105,6 +105,34 @@ This check is informational when the marker is fresh; it is a **blocking gate** 
 
 ---
 
+## Step 4c: UBT Pending-Record Merge Gate (UE plugin work only)
+
+Scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records created this week that have NO corresponding `*.ubt-compile.resolved.json` sibling.
+
+```bash
+# Find unresolved pending records (pending without a .resolved.json sibling)
+UNRESOLVED=$(find tasks/review-trail -maxdepth 1 -name "*.ubt-compile.pending.json" -type f 2>/dev/null | while read -r f; do
+  base="${f%.pending.json}"
+  [[ ! -f "${base}.resolved.json" ]] && echo "$f"
+done)
+```
+
+- **No unresolved records:** Step 4c passes silently. Proceed to Step 5.
+- **All pending records have resolved siblings:** Step 4c passes silently. Proceed to Step 5.
+- **One or more pending records lack a resolved sibling:** Halt and emit the unresolved `sha_range` list:
+  ```
+  ERROR: UBT pending records without resolved siblings:
+    <sha_range from record 1>
+    <sha_range from record 2>
+  Remediation: run /workday-complete on the affected day(s) to resolve pending records,
+  or override with COORDINATOR_OVERRIDE_UBT_GATE=1 (same escape hatch as Step 0c).
+  ```
+  Do NOT proceed to Step 5 (merge) until the pending records are resolved.
+
+This step mirrors Step 4b's freshness-check pattern — cheap grep gate, expensive work deferred to /workday-complete Step 0c. Applies only when `bin/check-ubt-build-fresh.sh` exists in the repo root (non-UE repos see no pending records and this step passes silently).
+
+---
+
 ## Step 5: scc Snapshot
 
 If `scc` is available (`which scc` or `~/bin/scc`):

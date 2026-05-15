@@ -11,7 +11,7 @@ spec_backlink: docs/plans/2026-05-06-review-code-super-skill.md
 
 **Trigger:** EM has a code change ready for review (outgoing): mid-session diff before commit, completed task before next dispatch, branch ready for `/merge-to-main`, PR landing inline. OR a code-review's findings have landed and need processing (incoming).
 
-**When NOT to use:** Plan / design doc / RFC review → `coordinator:review`. Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-implementation (no clean review surface yet) → keep coding. Stuck pattern → `coordinator:stuck-detection`. Pure mechanical citation check with no Opus → run `docs-checker` directly. Pure mechanical test-output classification → dispatch `test-evidence-parser` directly.
+**When NOT to use:** Plan / design doc / RFC review → `coordinator:review`. Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-implementation (no clean review surface yet) → keep coding. Stuck pattern → see `docs/wiki/stuck-detection.md`. Pure mechanical citation check with no Opus → run `docs-checker` directly. Pure mechanical test-output classification → dispatch `test-evidence-parser` directly.
 
 ---
 
@@ -49,15 +49,33 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 
 ### A.2 — Reviewer selection and dispatch
 
+**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the diff's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
+
+**Composite routing table (reference — assembled at dispatch time from fragment discovery):**
+
+| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
+|--------|---------------------|------------------------|--------|
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: Zolí) | High |
+| Front-end, CSS, UI components | Palí | (backstop: the UX Reviewer) | Medium |
+| Front-end + architecture | Palí | the Staff Engineer | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
+| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: Zolí) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
+| Other / unmatched | the Staff Engineer | (none) | Medium |
+
+If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
+
 Match tier to complexity, not importance. Routing every "important" diff to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
 | Situation | Correct tier |
 |---|---|
-| Single-subsystem code change (one feature, one bug fix, one refactor) | `/review-dispatch <range> code` → one reviewer (auto-detects domain). For known-target single-reviewer cases (e.g., obvious the Staff Engineer or the Game Dev Reviewer match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; `/review-dispatch` is preferred for routing intelligence. |
-| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | `/review-dispatch <range> code --reviewers "<domain>,patrik"` → two sequential reviewers |
+| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer (auto-detects domain from routing table above). For known-target single-reviewer cases (e.g., obvious the Staff Engineer or the Game Dev Reviewer match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. |
+| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural code change with ≥2 valid implementations AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | `/review-dispatch <range> code` → one reviewer |
-| Code touches auth, security, billing — high stakes but clear approach | `/review-dispatch <range> code` → one reviewer |
+| "This is important, I want it done right" | One reviewer (auto-detects domain) |
+| Code touches auth, security, billing — high stakes but clear approach | One reviewer (auto-detects domain) |
 
 - _Code change is genuinely trivial?_ (typo, comment-only, single-line config bump with no behavior change)
   → No review needed; commit and proceed.
@@ -65,6 +83,8 @@ Match tier to complexity, not importance. Routing every "important" diff to a st
   → Exit; this skill does not run. Log the waiver in commit message or PR description: `review: skipped per PM direction YYYY-MM-DD` (greppable).
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
+
+**Pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → 2.7b → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
 
 ### A.3 — Sequencing
 

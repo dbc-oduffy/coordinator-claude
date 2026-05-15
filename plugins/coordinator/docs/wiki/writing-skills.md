@@ -503,6 +503,10 @@ When the skill ships a script (`scripts/*.py`, `bin/*.sh`):
   paths or POSIX `~/` shorthand.
 - **Offering too many options** — a skill with 8 modes and a decision tree at the top is a skill
   no one will use correctly. Pick a default; expose alternatives via a subskill or follow-up file.
+- **Pairing destruction with construction in one menu option** — each menu option exposes ONE
+  primary verb. Pairing destruction (delete/discard/abandon) with construction (create/extend) in
+  the same option forces an irreversible decision the user can't preview. Split into two adjacent
+  options if both gestures are needed.
 - **Punting to the user** — "ask the user which option they want" mid-skill is almost always wrong.
   The skill should have made the decision.
 
@@ -533,7 +537,7 @@ Newly-shipped agents are not discoverable by the parent EM until the Claude Code
 
 **Failure mode:** if you skip step 4 and dispatch the agent by name in the same session, the parent EM will either fail to route to it or fall back to a different registered agent with a similar description — silent and hard to diagnose.
 
-### the Game Dev Reviewerecar-emitting agents must include frontmatter in the output template
+### Sidecar-emitting agents must include frontmatter in the output template
 
 If your agent writes a sidecar markdown file (verdict report, resolution log, review findings), the output template must specify YAML frontmatter — `generated_by`, `generated_at`, and any schema-relevant fields. Without it, the frontmatter linter nags on first write and the EM gets a noisy block instead of a clean handoff. Treat the frontmatter as part of the agent's contract, not a post-hoc decoration.
 
@@ -554,8 +558,19 @@ produce file output to `access-mode: read-write`.
 template, never inline its body. Drift between inlined copy and template is a silent correctness
 bug.
 
+**Slash commands in subagent prompts do not expand.** Slash commands embedded in a subagent
+dispatch prompt are NOT expanded — the subagent sees the literal `/skillname args` string, not
+the underlying skill body. To compose skills, the caller must inline the relevant skill
+instructions or dispatch the orchestrator skill that knows how to spawn the chain.
+
+**Use contrastive voice anchors in agent prompts.** Pairing the desired tone with an anti-example
+("respond like a senior reviewer, NOT like a sycophant") reduces drift toward
+sycophancy/over-elaboration. Single-sentence anti-examples beat paragraph-long style guides.
+
 **Hook authoring** — see `coordinator/docs/hook-authoring-notes.md` for SubagentStop agent_type
 gating and stderr-as-error-channel footguns.
+
+**Install / onboarding docs are written *to* the agent, not *about* the install.** When the supported install path is "PM pastes a prompt to their agent" or "agent reads a runbook," the canonical install doc is a **runbook addressed to the agent** — imperative voice, "you" = the agent, explicit verification steps, named failure modes, exact commands to run. Prose written for a human reader (background, motivation, narrative arc, design rationale) gets summarized and drifts when an agent consumes it, because agents follow runbooks reliably and infer poorly from explanatory prose. Same principle as dispatch-prompt-as-API at the subagent layer, applied to the install layer. Keep the agent-facing brief separate from any human-readable narrative; promote the brief to the front-door file, demote the human walkthrough to a sibling location a skeptic can find but isn't the default surface.
 
 **Null-result audits — fold rule into producer skill, not just the report.** When an audit yields
 a "don't do X" rule, write it into the skill that would otherwise produce X. Cross-reference

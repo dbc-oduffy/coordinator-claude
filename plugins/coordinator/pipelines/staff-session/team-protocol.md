@@ -10,7 +10,7 @@ Agent Teams-based collaborative planning and review: the EM writes a scope docum
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Debater** | Opus | 2-5 | Persona agent (Patrik, Zoli, Sid, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
+| **Debater** | Opus | 2-5 | Persona agent (the Staff Engineer, Zoli, the Game Dev Reviewer, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
 | **Synthesizer** | Opus | 1 | Zolí (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements through his ambition-calibrated lens, produces plan (plan mode) or synthesized findings (review mode). Represents all positions fairly but doesn't default to conservative resolutions. Writes optional advisory with ambition assessment. |
 
 ## Team Lifecycle
@@ -92,16 +92,16 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 5. Mark task `completed` (TaskUpdate)
 6. Send `DONE` to synthesizer: `SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: Position written to {scratch-dir}/{persona-slug}-position.md")`
 
-**Backstop suspension:** Persona agents' built-in backstop invocations (e.g., Patrik's "invoke Zoli at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
+**Backstop suspension:** Persona agents' built-in backstop invocations (e.g., the Staff Engineer's "invoke Zoli at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
 
 ## Failure Handling
 
 | Failure | Action |
 |---------|--------|
 | Single debater crashes (no position written) | Synthesizer works with remaining positions. Note the gap: "Missing perspective: {persona}." EM can supplement manually. |
-| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). TeamDelete, fall back to `/review-dispatch` for the same artifact. |
+| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). TeamDelete, fall back to single-reviewer dispatch via `/review` (plan artifacts) or `/review-code` (code artifacts). |
 | Synthesizer fails | EM reads raw debater position documents from scratch dir. Manual synthesis is feasible — position docs are structured. |
-| Team creation fails | Report to PM. Fall back to `/review-dispatch` or EM-authored plan. |
+| Team creation fails | Report to PM. Fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code), or EM-authored plan. |
 | DONE message not received (debater marked complete but synthesizer not woken) | Synthesizer checks TaskList on a polling cycle. If all debater tasks show `completed` but no DONE received after 2 minutes, synthesizer proceeds anyway. EM can send a manual nudge via SendMessage if synthesizer appears stalled. |
 | Debate loops (no convergence) | Ceiling time is a hard cutoff. Diminishing returns detection also triggers convergence after 2 no-change exchanges. Position documents capture the disagreement; synthesizer resolves or presents as dissent. |
 
