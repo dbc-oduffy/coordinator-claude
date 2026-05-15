@@ -90,24 +90,19 @@ This prevents the current EM from accidentally absorbing the work back into the 
 
 ### Step 4: Commit
 
-Single combined-mode call — `--scope-from` declares the handoff's frontmatter scope and
-`--include-orphans` claims the handoff path itself. Using two separate calls (a `git add`
-followed by the helper) is a race window: a concurrent sibling `--blanket` from `/session-end`
-can sweep the staged file into the wrong commit between the two calls. One call closes
-that window. Combined mode is correct here: the spinoff scenario is inherently multi-EM
-(another session may be running `/session-end` concurrently), so `--scope-from` must be
-the writer of record for `active-scope.txt`.
+Plain-git scoped commit — do NOT use coordinator-safe-commit here (SC-DR-008, lessons.md:43, lessons.md:207). Extract scope paths from handoff frontmatter; the handoff file itself is always included since it was just written.
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \
-  --scope-from <handoff-path> \
-  --include-orphans <handoff-path> \
-  "chore(spinoff): <slug> [authored mid-session]"
+HANDOFF=<handoff-path>
+# Extract scope paths from YAML frontmatter (  - <path> lines under scope: key)
+SCOPE=$(awk '/^scope:/{found=1; next} found && /^  - /{print substr($0, 5)} found && /^[a-z]/{exit}' "$HANDOFF")
+if [ -z "$SCOPE" ]; then
+  echo "FAIL: handoff frontmatter scope: block missing or empty — cannot enumerate paths" >&2
+  exit 1
+fi
+# Include the handoff file itself alongside the declared scope
+git add -- $SCOPE "$HANDOFF" && git commit -m "chore(spinoff): <slug> [authored mid-session]" -- $SCOPE "$HANDOFF"
 ```
-
-If the slug's handoff path already appears in a peer session's `active-scope.txt`, the
-helper exits with a clean overlap error — re-run with a unique slug or wait for the peer
-to finish.
 
 The auto-push hook handles propagation.
 

@@ -94,3 +94,140 @@ Three pre-formalization signals motivated it (see [DR-013](#dr-013)):
 **Status:** accepted
 **Decision:** Spinoffs never carry a predecessor link — they are forks, not continuations. The `authoring_session` field carries the audit trail back to origin.
 **Consequences:** `/pickup` banner can be deterministic; lineage rules treat spinoffs as roots.
+
+## Pickup-side premise check
+
+> Consumed by: `skills/pickup/SKILL.md` Step 3.4e.
+
+Brief: handoff body is hypothesis; verify load-bearing premises before executing.
+
+### What to verify
+
+Check each of the following before treating any premise as ground truth:
+
+- **Paths cited as "modified" or "needs editing":** `ls` / `Read` each one. Files move, get renamed, or get deleted between handoff-write and pickup.
+- **Commit SHAs cited as "shipped" or "landed":** `git cat-file -e <sha>` to confirm reachable; `git branch --contains <sha>` to confirm landing claim. Cherry-picks and rebases invalidate SHA assertions across sessions.
+- **Scope frontmatter pathspecs:** glob each pathspec. An empty glob means the workstream substrate has moved — surface to PM before mutation, do not proceed silently.
+- **Declarative premises ("X is true" / "Y done"):** for each load-bearing claim, identify the witness (a file, a commit, a doc section) and confirm it. Premise drift is the dominant failure mode for >24h-old handoffs.
+
+### Spinoff exemption
+
+`kind: spinoff` and `kind: spinoff-roadmap` have `predecessor: none` by design. A missing continuity ancestor is NOT a premise failure for these kinds — it is the correct structural shape. Verify the `authoring_session:` audit trail instead (confirms the spinoff origin context is still readable, not that a predecessor existed).
+
+### When to surface to PM
+
+- Premise drift on a load-bearing claim → surface before mutation; do not proceed silently.
+- Routine path-rename with clear mapping → fix forward and note in pickup report.
+- Scope pathspec returns empty glob → STOP, surface to PM; do not mutate.
+
+### Empirical baseline
+
+Expect 30–60% of inherited items to be already closed (pickup SKILL Step 3 empirical note). Premise decay compounds on top of this: a 24h-old handoff may have 1–2 stale file assertions; a 7d-old handoff routinely has more. Treat unverified premises as blocking gaps, not deferrals.
+
+## Deployment_state lifecycle for spinoffs
+
+> Cross-reference: coordinator CLAUDE.md § Handoff Lineage (deployment_state enum).
+
+### Initial state at authoring
+
+- `/spinoff` sets `deployment_state: ready_to_fire` for stubs intended for immediate pickup.
+- `roadmap-planning` sets `deployment_state: awaiting_gate` for stubs with `gate_dependency:` (sequenced stubs that must not be picked up until a predecessor ships).
+
+### Lifecycle table
+
+> Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed | superseded` (per coordinator CLAUDE.md § Handoff Lineage); `shipped` is not a valid `status:` value — use `consumed` + `shipped_in:` instead.
+
+| Event | From → To | Skill responsible |
+|---|---|---|
+| author spinoff | (n/a) → ready_to_fire \| awaiting_gate | /spinoff or roadmap-planning |
+| /pickup grabs | ready_to_fire → in_flight | /pickup Step 5 |
+| gate clears | awaiting_gate → ready_to_fire | /handoff or /session-end (gate-meaningfulness audit) |
+| session ships | in_flight → shipped (+ shipped_in) | /handoff or /session-end |
+| session pauses | in_flight → ready_to_fire | /handoff |
+| abandoned | any → abandoned | PM-authorized only |
+
+### Concurrent-pickup interaction
+
+`/pickup` mutates frontmatter in place with the `cs_claim_handoff` gate; a second EM observing `consumed_by:` populated after `git fetch` fails loud (pickup SKILL Step 5 pre-mutation gate). No silent double-claim — the detecting session exits non-zero and surfaces to PM.
+
+## Soft-seams discipline
+
+> Consumed by: `skills/roadmap-planning/SKILL.md` Step 2.1 (gate_dependency soft/hard rule) + Step 2.2 (body sections) + Phase 2 exit gate.
+
+### Hard vs soft seams
+
+- **HARD seams** (machine-read, drive tooling behavior):
+  - Frontmatter `scope:` — pathspec consumed by `/pickup` safety-commit staging
+  - Frontmatter `blocks:` / `blocked_by:` — tc-id graph edges consumed by wave-derivation topo-sort
+  - Frontmatter `gate_dependency:` — consumed by `/handoff` gate-meaningfulness audit and `/pickup` gating logic
+- **SOFT seams** (human-read, advisory):
+  - Body `## Soft seams` section — consumed by the sequencing EM when ordering parallel waves; no tooling dependency
+
+### Why a separate section
+
+Frontmatter pollution with advisory text causes false "still gated" reports (roadmap SKILL § Field semantics — `gate_dependency:` for HARD gates only). Inline-in-Notes loses greppability. A dedicated `## Soft seams` heading is greppable (`Grep "## Soft seams"`) and structurally separable from specification content.
+
+### Format
+
+One bullet per seam, each naming:
+- The peer (workstream slug / PR ref / tc-id)
+- The overlap nature (file-region, schema-shape, timing, semantic)
+
+Example: `- roadmap-run-abc/tc-4 — shares the `bin/lint-frontmatter.js` cross-field rules surface; coordinate on rule-ordering if both stubs edit the same array.`
+
+### Empty is allowed, but the section must be present
+
+Explicit `- None identified at authoring time.` is preferred over an absent section. Absence triggers Phase 2 exit-gate failure. An empty section is structurally correct and signals deliberate authoring-time triage, not accidental omission.
+
+## Awaiting_gate aging
+
+> Consumed by: `skills/pickup/SKILL.md` Step 3.4d aging-reconcile clause.
+
+### Why aging matters
+
+Gates clear silently; gate text drifts in meaning over time. The gate-meaningfulness audit in roadmap SKILL Step 3.2 fires on the `awaiting_gate → ready_to_fire` transition — but it cannot catch the aging-without-unblock case, where the gate text now misnames the blocker without anyone having triggered a transition.
+
+### Thresholds
+
+Force a re-check when ALL THREE conditions hold:
+1. `now − created:` ≥ 14 days
+2. `deployment_state: awaiting_gate`
+3. No `last_gate_recheck:` field present, OR `last_gate_recheck:` is ≥7 days ago
+
+**Threshold derivation:** 14d matches the existing spinoff stale-nudge threshold (wiki § "Pickup-side and workday-start handling", L73). The 7d recheck cadence matches the lesson-triage recheck shape (`tasks/lesson-triage-recheck-due-*.md` pattern, ~weekly cadence per coordinator CLAUDE.md § Triage cadence).
+
+### Recheck mechanics
+
+1. Read the gate witness named in `gate_dependency:`.
+2. **Gate cleared:** flip `deployment_state: ready_to_fire`; write `last_gate_recheck: <ISO date>` in mutation pass.
+3. **Gate still closed, text still accurate:** write `last_gate_recheck: <ISO date>` in mutation pass; surface gate status to PM.
+4. **Gate still closed, text now misnames the blocker** (e.g., named sibling stub archived without shipping, named PR abandoned): surface to PM with the discrepancy — do NOT silently retain the stale gate text.
+
+### Frontmatter field — `last_gate_recheck:`
+
+ISO date (e.g., `2026-05-14`). Written by `/pickup` Step 5 mutation pass when the aging-reconcile clause fires. Absent on freshly-authored spinoffs; `/pickup` adds it at first aging-triggered recheck.
+
+## Wave vs sprint
+
+> Consumed by: `skills/roadmap-planning/SKILL.md` Step 2.1 wave-vs-sprint clarification.
+
+### Wave
+
+Single-dispatch parallel fan-out within a sprint. All wave-N stubs are file-disjoint by construction and dispatched concurrently in one EM session. Cost: one EM-session of dispatch + sync overhead. Risk: bounded — failure of one wave-N stub does not invalidate sibling stubs.
+
+### Sprint
+
+Multi-session time-box. Wave-N+1 stubs gate on all-of-wave-N completing; `/handoff` bridges between sessions. Cost: multi-day, multi-session. Risk: compound — a sprint-N architectural finding can invalidate sprint-N+M stubs authored against a now-wrong assumption.
+
+### Smell-tests
+
+- **1 stub per wave across many waves:** probably should be sequential stubs within one wave, not separate waves — `wave:` is for parallelism, not serial ordering.
+- **>5 stubs in one wave:** file-disjointness is suspect; audit `scope:` overlaps before dispatch. If two stubs share any pathspec, they are NOT safe to run in parallel.
+- **20 stubs as 4 sprints × 5 waves of 1 stub each:** using `wave:` for time-boxing. Correct shape: 4 sprints × 1 wave × 5 sequential stubs, OR (if genuinely parallel) 4 sprints × 1 wave × 5 parallel stubs with verified disjoint `scope:` blocks.
+
+## See also
+
+- `skills/pickup/SKILL.md` — premise check (Step 3.4e) and awaiting_gate aging (Step 3.4d) consumers.
+- `skills/roadmap-planning/SKILL.md` — wave/sprint distinction, soft-seams body section, and Phase 2 exit gate consumers.
+- `skills/spinoff/SKILL.md` (if present) — initial-state authoring for `kind: spinoff`.
+- Coordinator CLAUDE.md § Handoff Lineage — deployment_state enum, predecessor rules (canonical tripwire form).

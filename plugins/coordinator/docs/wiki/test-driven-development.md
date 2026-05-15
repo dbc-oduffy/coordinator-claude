@@ -197,6 +197,14 @@ Can't check all boxes? You skipped TDD. Start over.
 | Must mock everything | Code too coupled. Use dependency injection. |
 | Test setup huge | Extract helpers. Still complex? Simplify design. |
 
+## Test-Plan Drafting as Bug Discovery
+
+Drafting the test plan often surfaces bugs faster than the tests themselves do. The act of enumerating *what should be tested* forces a walk of the actual surface: the producer's outputs, the consumer's expected shapes, the edge cases the code claims to handle. Each enumerated case is a hypothesis the plan author must reconcile against real code — and that reconciliation step is where latent bugs surface.
+
+**Pattern:** when authoring a test plan, treat the plan-draft pass as the first verification gate. Read the code each enumerated test would exercise; bugs found at plan-draft time are an order of magnitude cheaper to fix than bugs found at test-execution time, because the plan author still holds full context.
+
+**Apply when:** drafting an AC table, writing a regression-net plan for a refactor, or scoping a contract test for a new producer/consumer seam. The drafting pass is not bureaucracy — it's the cheapest empirical pass available.
+
 ## Debugging Integration
 
 Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression. Never fix bugs without a test.

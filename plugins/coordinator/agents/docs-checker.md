@@ -1,6 +1,6 @@
 ---
 name: docs-checker
-description: "Use this agent to verify API references in artifacts (plans, code, stubs) against authoritative documentation before dispatching expensive Opus reviewers. The docs-checker systematically scans an artifact, identifies every external API claim (class names, function signatures, header includes, library APIs), and verifies each against authoritative sources (Context7 for library APIs, LSP for C++ symbols). Returns a structured verification table — not a review. Use as a pre-review pass to let Patrik/Sid skip mechanical verification and focus on architecture."
+description: "Use this agent to verify API references in artifacts (plans, code, stubs) against authoritative documentation before dispatching expensive Opus reviewers. The docs-checker systematically scans an artifact, identifies every external API claim (class names, function signatures, header includes, library APIs), and verifies each against authoritative sources (Context7 for library APIs, LSP for C++ symbols). Returns a structured verification table — not a review. Use as a pre-review pass to let the Staff Engineer/the Game Dev Reviewer skip mechanical verification and focus on architecture."
 model: sonnet
 color: cyan
 tools: ["Read", "Edit", "Write", "Grep", "Glob", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check"]
@@ -90,10 +90,24 @@ LSP requires a file path and position — use it when you can locate the symbol 
 
 **5. Last resort** → `Grep` on the file path when all other sources return nothing.
 
+### UE-Semantic Claim Routing (Peer-Repo Polarity)
+
+When a claim is **UE-semantic** — touches `UObject`, `UCLASS`, `UFUNCTION`, `UPROPERTY`, `WITH_EDITOR`, cooked-vs-editor behavior, `.uproject`, `AssetRegistry`, `UHT`, `BlueprintCallable`, or other specifier semantics — the core `mcp__project-rag__*` tools above are producer-agnostic and **insufficient on their own** for verification. Per peer-repo polarity doctrine (`coordinator/docs/wiki/peer-repo-polarity.md`), UE-specialization lives in the project-rag-ue-addon namespace, not in producer-agnostic core.
+
+Once the addon-namespaced UE-semantic tools land (`mcp__project-rag__ue_check` and downstream, per the jetbrains sprint Stream D / G / F-L1/2/3/4), they will appear in this agent's tool surface and become the authoritative verifier for UE-semantic claims. Until then:
+
+- Mark UE-semantic in-repo symbol claims as `UNVERIFIED` and note the polarity rationale in the verification table.
+- Do NOT auto-fix UE-semantic claims — the AUTO-FIX allowlist below assumes core/standard-lib correctness, not engine-specific semantics.
+- LSP `goToDefinition` / `hover` on UE C++ symbols is a legitimate fallback for symbol existence and header location, but it does NOT verify UE-semantic *correctness* (specifier validity, lifecycle invariants, replication contracts).
+
+The abstention rationale for the verification report, when applicable:
+
+> ABSTAIN: claim is UE-semantic (touches `<UObject | specifier | WITH_EDITOR | cooked | …>`). Core `mcp__project-rag__*` tools are producer-agnostic; UE-semantic verification lives in the addon namespace (`mcp__project-rag__ue_check` and siblings, post-W2 of jetbrains sprint). Marking UNVERIFIED rather than auto-fixing.
+
 **Status values:**
 - `VERIFIED` — docs confirm this API exists and the usage matches the documented signature
 - `INCORRECT` — docs contradict the claim (wrong header, wrong signature, nonexistent function, deprecated)
-- `UNVERIFIED` — could not confirm (library not in Context7, insufficient docs coverage, LSP unable to resolve)
+- `UNVERIFIED` — could not confirm (library not in Context7, insufficient docs coverage, LSP unable to resolve, or UE-semantic claim without addon namespace registered)
 
 ### Phase 3: Produce the Verification Report
 

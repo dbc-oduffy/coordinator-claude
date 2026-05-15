@@ -61,7 +61,7 @@ The EM must REJECT a /mise run if any candidate item exhibits these patterns:
 - Items aren't scoped yet — use `coordinator:plan` or `coordinator:brainstorming` first.
 - Iterative PM judgment expected throughout.
 
-**If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, /review-dispatch, /staff-session, executor dispatch per `docs/wiki/delegate-execution.md`). The PM decides whether to pull the failed items or defer the mise.
+**If even one item fails, decline the entire run** rather than fragmenting it on the fly. Output a clear refusal naming each disqualifying item, the reason, and the recommended next step (planning session, /enrich-and-review, `/review` (plans) or `/review-code` (code), /staff-session, executor dispatch per `docs/wiki/delegate-execution.md`). The PM decides whether to pull the failed items or defer the mise.
 
 ## The Process
 
@@ -202,10 +202,12 @@ Every /mise run ends with at minimum a Sonnet code review of the cumulative diff
 1. Compute the run's cumulative diff range from the goal task's recorded starting SHA through HEAD.
 2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (default: generalist staff-eng pass; escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per `docs/wiki/session-end-review.md`).
 3. Persist the review record to `tasks/review-trail/<timestamp>-mise-<run-id>.json`.
-4. On findings, dispatch review-integrator (`mode: "acceptEdits"`) for tradeoff-free corrections. Surface real tradeoffs to the PM in the tail summary; do not defer to a follow-up session.
-5. In hibernate mode the review must complete and any integrator commits must be pushed before the hibernate command fires. If review dispatch itself fails (rate-limit/auth), retry once; if it still fails, hibernate anyway and surface the gap in the tail summary on disk — do not block hibernate on infrastructure noise. **Do not skip review for non-infrastructure reasons.**
+4. **Integrate ALL findings before the tail fires — every severity, including nitpicks and P2/P3.** No "defer to follow-up session." The review is happening *now* because the work is happening *now* (global CLAUDE.md "Acting on review findings"). Dispatch review-integrator (`mode: "acceptEdits"`) on the full findings list and let it commit fixes via plain git (`git add -- <paths> && git commit -m "<subject>" -- <paths>`, SC-DR-008).
+5. **Re-review until clean.** After integration, re-dispatch the same reviewer on the post-integration diff. Loop integrator + re-review until the reviewer returns zero findings of any severity, or until two integration passes fail to converge — at that point treat as a structural failure under "When to Stop" and surface to the PM. Persist each iteration to `tasks/review-trail/`.
+6. **Only genuine product/architectural tradeoffs surface to the PM**, and they HALT the tail action until resolved (no `/update-docs`, no hibernate). Cost/value framing on a P2 is not a tradeoff — it's deferral dressed up. The autonomous run does not end with unresolved review work on the table.
+7. The review-and-integrate loop is mandatory in both modes. In hibernate mode it runs before the final push verification — the machine does not hibernate until the post-integration re-review is clean, all integrator commits are pushed, and no PM-tradeoff items are outstanding. If review *dispatch* itself fails (rate-limit/auth) on retry, hibernate anyway with the gap noted on disk. Integration-loop divergence is not infrastructure noise and blocks the tail. **Do not skip review or truncate the integrate-and-re-review loop for non-infrastructure reasons.**
 
-This is the structural backstop for autonomous runs: nobody is watching, so the cumulative diff gets a second set of eyes before the EM relinquishes control.
+This is the structural backstop for autonomous runs: nobody is watching, so every finding the diff produces gets fixed before the EM relinquishes control. "Implement and iterate over deliberate and defer" means iterating *now*, while the context is hot.
 
 **Standard (default):**
 1. Invoke `/update-docs` — sync documentation, commit, push to branch (includes artifact distillation if thresholds are met)

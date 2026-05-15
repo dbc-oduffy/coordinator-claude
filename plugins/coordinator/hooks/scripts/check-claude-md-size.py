@@ -23,6 +23,8 @@ SOFT = 39000
 
 def simulate(tool, inp):
     file_path = inp.get("file_path", "")
+    if file_path:
+        file_path = os.path.abspath(file_path)
     if tool == "Write":
         return inp.get("content", "")
     if tool == "Edit":

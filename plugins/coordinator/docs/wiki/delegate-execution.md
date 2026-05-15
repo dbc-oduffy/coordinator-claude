@@ -6,7 +6,7 @@ related:
   - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
   - plugins/coordinator-claude/coordinator/agents/executor.md
   - docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator-claude/coordinator/commands/review-dispatch.md
+  - plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md
   - plugins/coordinator-claude/coordinator/commands/enrich-and-review.md
 ---
 
@@ -53,7 +53,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Model Selection Rubric
 
-**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
+**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/Palí corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
 
 | Stub character | Model | Rationale |
 |---|---|---|
@@ -204,8 +204,8 @@ Agent(
    - If validation fails with deterministic errors (test failures, type errors, lint violations): re-dispatch the executor with the failure output and instruction to fix. Do NOT escalate to code review with known failures.
    - If validation fails after 2 re-dispatches: escalate to coordinator for diagnosis. The failures may indicate a spec problem, not an execution problem.
    - If validation passes: proceed to step 5.
-5. If spec-compliant and validation passes: route to code quality review via `/review-dispatch`
-   - Post-execution review findings flow through the review-integrator for application (via Phase 3.7 of `/review-dispatch`), not the EM manually
+5. If spec-compliant and validation passes: route to code quality review via `/review-code`
+   - Post-execution review findings flow through the review-integrator for application (via Phase 3.7 of the reviewer pipeline — see `docs/wiki/reviewer-pipeline.md`), not the EM manually
 6. If not spec-compliant: re-dispatch executor with specific gap list (this is distinct from validation failure — this is missing work, not broken work)
 7. Update tracker status to "Done" with commit hash if applicable
 
@@ -308,8 +308,8 @@ grep -in "<codename>" docs/project-tracker.md tasks/*/todo.md docs/roadmap.md RO
 ### Relationship to Other Commands
 
 - **`/enrich-and-review`** must be run before this command — stubs must be enriched and reviewed
-- **`/review-dispatch`** handles the review step that precedes execution
-- For a post-execution code quality pass, use `/review-dispatch` (see Phase 3, step 5)
+- **`/review`** handles the plan-review step that precedes execution
+- For a post-execution code quality pass, use `/review-code` (see Phase 3, step 5)
 
 ---
 

@@ -143,12 +143,13 @@ Sweep the session's commits for completed work that isn't already in the project
 
 1. **Scan session commits:** `git log --oneline` for commits since the session started (or since the last `/session-end`/`/update-docs`)
 2. **Check against tracker + archive:** For each substantive commit (skip merge commits, doc-only commits, quick-saves), check if the work is already represented in either the tracker or the current month's archive
-3. **Append missing entries:** For any untracked completed work, append to `archive/completed/YYYY-MM.md`:
+3. **Dedupe against concurrent /update-docs.** Before appending, re-read `archive/completed/YYYY-MM.md` from disk (not from session context). If a concurrent `/update-docs` run has already appended entries for the same commits since the last time you read the file, do not add duplicates. Check by commit SHA — if the hash already appears in the file, skip that entry.
+4. **Append missing entries:** For any untracked completed work, append to `archive/completed/YYYY-MM.md`:
    ```
    ## YYYY-MM-DD
    - **[Concise past-tense description]** — ad-hoc [bug fix|task|refactor] | commit: [hash]
    ```
-4. **Judgment filter:** Not every commit is a work item. Group related commits into a single archive entry. Skip trivial commits (typo fixes, formatting). The archive records *what shipped*, not every keystroke.
+5. **Judgment filter:** Not every commit is a work item. Group related commits into a single archive entry. Skip trivial commits (typo fixes, formatting). The archive records *what shipped*, not every keystroke.
 
 **Skip if** no `archive/` directory exists and no `docs/project-tracker.md` exists — the project hasn't adopted unified tracking yet.
 
@@ -183,6 +184,7 @@ Update the documents that future sessions read for orientation — closing the r
    - If the cache doesn't exist, skip — the project hasn't run `/workday-start` yet.
    - **Do not claim the cache is absent based on intuition.** If the SessionStart orientation hook failed to inject output (a known past failure mode), you may have no in-context evidence of the cache. Before asserting "no orientation cache in this repo," run `ls tasks/orientation_cache.md` and read the result. Assertions about existence require a verification step, not a recollection.
    - **Stale is not a skip condition — it's a refresh trigger.** If `generated_at` is older than today, or `git_head_at_generation` doesn't match current HEAD, or the SessionStart hook flagged the cache as stale, do a full refresh (re-derive Active Workstreams, Health Snapshot, Recent Work, Doc Freshness from current repo state) before concluding session-end. Leaving a stale cache in place means the next session boots on misleading orientation. The process owns freshness.
+   - **Dedup-verify after append.** After patching, grep the orientation cache (and `archive/completed/YYYY-MM.md` if you touched it in Step 3) for duplicate entries with the same `date + slug` pair — a concurrent `/update-docs` run can double-append in the race window. If duplicates are present, keep the first occurrence and delete the rest in place before committing.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
 
@@ -227,6 +229,11 @@ Assess whether this session's diff warrants a code review pass before committing
 
 **Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
 
+**Findings disposition — fix everything, including nitpicks:**
+> "If a finding is worth surfacing, it is worth fixing now. The diff is fresh, the EM has context, and the cost to fix at session-end is a fraction of what it costs three weeks later in a debugging session. A reviewer verdict of `OK` with three 'below blocking threshold' observations is NOT a license to commit and move on — those observations are the review output, and they get fixed in this session before commit. This applies symmetrically across severities: P0/P1/P2/nitpick/observation/note/'consider' — all fold in via `coordinator:review-integrator` before the marker-trail write. The only legitimate skip path is a real tradeoff (cost/value, scope/polish, architectural direction) that escalates to PM per § Reviewer findings — apply, don't ratify in `coordinator/CLAUDE.md`. 'Recorded below blocking threshold' in the EM's wrap-up sentence is the tell that this rule was skipped. Re-open the diff, fold the findings, then write the marker."
+
+After integration, the trail's `--verdict` field still records the reviewer's original verdict (`ok` / `warn` / `blocked`) — verdict tracks what the reviewer found on the pre-fix diff, not what shipped. Downstream load-shedding consumes the verdict; the trail is not a fix-completion log.
+
 **Marker write:** after review integration completes, invoke:
 ```bash
 ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-write-review-trail.sh \
@@ -240,6 +247,13 @@ Assess whether this session's diff warrants a code review pass before committing
 
 **Staging discipline:**
 > "Any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`. This preserves the existing concurrent-EM safety property of Step 3."
+
+**UBT pending-marker (UE plugin work only):** If `bin/check-ubt-build-fresh.sh` exists in the cwd, invoke it in `--mode pending`. Captures the build verdict as a deferred record; resolution happens at `/workday-complete` Step 0c. This step is a no-op for non-UE repos (script absent) — the `[ -x bin/<name>.sh ]` pattern is the canonical convention for conditional UE-specific steps in coordinator skill bodies; future UE conditionals (`clippy`, etc.) follow this shape.
+
+```bash
+[ -x bin/check-ubt-build-fresh.sh ] && \
+  bin/check-ubt-build-fresh.sh --since "$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)" --mode pending
+```
 
 ### Step 3: Commit + Verify Remote
 

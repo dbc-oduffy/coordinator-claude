@@ -45,6 +45,10 @@ TestClient(app).get("/health")
 
 This proves the app at least imports and the boot path is reachable. Tests that exercise registry/lock/lease internals via direct submodule imports can pass while the top-level `from fastapi import ...` in `app.py` would fail (e.g. fastapi missing from the venv). Cheap to add, immediate signal on environment drift.
 
+## Stdio Loops: EOF Is Empty-String, Not None
+
+Python `file.readline()` and similar stdio readers return empty-string `''` to signal EOF, NOT `None`. Round-trip stdio client loops that check `if line is None: break` busy-loop forever on closed pipes — check `if not line: break` (truthiness). Same shape recurs in any language whose stdio API distinguishes "empty line" from "stream closed" by returning a falsy non-`None` sentinel.
+
 ## Where the Test Lives
 
 - **Producer-side test directory** if the producer owns the schema authoritatively.
@@ -61,6 +65,21 @@ A spike whose goal is "does X work end-to-end" must verify the **runtime wire pa
 - **Build success ≠ runtime reachability.** A header that compiles successfully may still be unreachable via the call path the spike claims to verify.
 
 The spike's pass-condition is a contract test in miniature: it must exercise the real producer feeding the real consumer. If the pass-condition can return green while the runtime surface is broken, it is measuring the wrong seam.
+
+## Partner-Tool Integration Tests: Ship the Mixed Result
+
+When running an integration test on a partner team's release (peer-repo dogfood, cross-org API integration, vendor SDK validation), **producer/consumer failures ARE the deliverable**. Workarounds (installing missing tools manually, hand-editing configs, skipping producers, mocking around the broken path) **hide the bugs the test is meant to surface** — and the green-with-workarounds result is structurally worse than the failed run, because it ships false confidence back to the partner.
+
+**The 2026-05-01 project-rag v0.1.1 reindex** left the graph DB essentially empty. Sending the producer ledger + 10 findings A–J back to the partner team was more valuable than a green run that masked broken consumers. The mixed-result data is the contract evidence; manufactured green is fabrication.
+
+**Rule for partner-tool integration runs:**
+
+1. **Ship the mixed-result data.** Don't try to "make it work" by patching around partner bugs.
+2. **Capture the failure shape verbatim:** exit codes, stderr, partial outputs, environment state. This is what the partner needs to fix forward.
+3. **Refuse the workaround temptation.** "I'll install the missing dep manually and re-run" defeats the test's purpose — the missing dep IS the bug.
+4. **Surface as cross-repo finding,** not as in-tree fix unless the partner explicitly hands ownership across.
+
+Same shape applies to cross-team release validation, API integration smoke tests, and peer-repo `/dogfood` runs. The discipline is **don't hide failures, surface them** — companion principle to the round-trip-contract-tests rule that fabricated-on-each-side fixtures lie. A workaround that hides a partner bug is the cross-repo analogue of a parallel fabricated fixture.
 
 ## Reference Pattern: `writing-plans` Skill Checklist
 

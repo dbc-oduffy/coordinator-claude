@@ -5,13 +5,13 @@
 # multiple stubs in the active set, or cross-reference a stub against tasks/roadmap/<run-id>/pm-gates.md.
 #
 # Spec backlink: docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 5
-# Patrik review finding: P1-1 (audit script must ship in v1, not be deferred to post-dogfood).
+# the Staff Engineer review finding: P1-1 (audit script must ship in v1, not be deferred to post-dogfood).
 #
 # Usage: audit-roadmap.sh <run-id>
 #
 # Exits 0 on pass; 1 on any audit failure with diagnostic output.
 
-set -u
+set -euo pipefail
 
 RUN_ID="${1:-}"
 if [ -z "$RUN_ID" ]; then
@@ -71,11 +71,12 @@ if [ -n "$READY_PATHS" ]; then
     [ -z "$p" ] && continue
     node -e "
       const fs=require('fs');
-      const {parseFrontmatter} = require('${QR%/*}/lib/schema.js');
-      const c = fs.readFileSync('${ROOT}/' + '$p','utf8');
+      const path=require('path');
+      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator-claude/coordinator/bin/lib/schema.js'));
+      const c = fs.readFileSync(path.join(process.argv[2], process.argv[3]),'utf8');
       const fm = parseFrontmatter(c).frontmatter || {};
       console.log((fm.wave === undefined || fm.wave === null) ? 'NO_WAVE' : fm.wave);
-    " 2>/dev/null || echo "PARSE_ERROR"
+    " -- "$ROOT" "$p" 2>/dev/null || echo "PARSE_ERROR"
   done)
 
   DUPES=$(echo "$WAVES" | sort | uniq -d)
@@ -101,12 +102,13 @@ if [ -n "$PM_STUBS" ]; then
     [ -z "$p" ] && continue
     TC=$(node -e "
       const fs=require('fs');
-      const {parseFrontmatter} = require('${QR%/*}/lib/schema.js');
-      const c = fs.readFileSync('${ROOT}/' + '$p','utf8');
+      const path=require('path');
+      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator-claude/coordinator/bin/lib/schema.js'));
+      const c = fs.readFileSync(path.join(process.argv[2], process.argv[3]),'utf8');
       const fm = parseFrontmatter(c).frontmatter || {};
       const gd = String(fm.gate_dependency || '');
       if (gd.startsWith('PM ')) console.log(fm.tc_id || '');
-    " 2>/dev/null || echo "")
+    " -- "$ROOT" "$p" 2>/dev/null || echo "")
     [ -n "$TC" ] && PM_TC_IDS="${PM_TC_IDS} ${TC}"
   done <<< "$PM_STUBS"
 fi

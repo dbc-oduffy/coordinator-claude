@@ -186,7 +186,7 @@ After writing all files to the game project output directory:
 
 ## Stuck Detection
 
-Self-monitor for stuck patterns — see coordinator:stuck-detection skill. Assembler-specific: if a file write fails twice, skip that file, note the failure in the summary, and continue with remaining files.
+Self-monitor for stuck patterns — see `docs/wiki/stuck-detection.md`. Assembler-specific: if a file write fails twice, skip that file, note the failure in the summary, and continue with remaining files.
 
 ## Self-Check
 

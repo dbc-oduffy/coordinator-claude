@@ -24,6 +24,8 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 **`/brainstorming` is for vague requirements, not well-scoped follow-ups.** When the PM says "build X and the way is clear," skip brainstorm — go straight to plan. When the PM says "we should probably do something about Y" with multiple plausible shapes, brainstorm. The signal is whether the action's *shape* is contested, not whether it's hard. Hard-but-clear → plan. Easy-but-shape-unknown → brainstorm.
 
+**PM-set axiom collapses brainstorm into plan.** When the PM has fixed the axiom (chosen the architectural direction, named the constraint, set the policy), residual ambiguity is classification-shaped — "which existing surfaces fall under this axiom, with what disposition?" That is plan-shaped work, not brainstorm-shaped. Brainstorm exists to *generate* shape options; once the PM has picked one, generating more is regression. Skip to plan and let the plan-pipeline handle the per-surface classifications under the fixed axiom.
+
 ## Pattern-extraction calibration
 
 **Wait for instance #3 before extracting a pattern into a skill.** One-off looks like noise. Two might be coincidence. Three is a pattern. The cost of premature extraction is a skill that codifies the wrong invariant — and once codified, the wrong invariant is harder to correct than the original ad-hoc behavior. Hold instance-#1 and instance-#2 in `tasks/lessons.md` with a `recurring:` count; promote on the third surfacing. (Codified in `coordinator/CLAUDE.md` § Self-Improvement Loop.)
@@ -36,6 +38,18 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 **Pair with: calibrate deprecation-cycle posture to consumer count, not general best-practice.** At two consumers, direct ship. The general "deprecation cycle" rubric is for surfaces with diffuse external consumers; in-tree surfaces with N≤2 known consumers can be migrated in one commit. Don't import enterprise deprecation pacing into a setup where the consumers are visible in `git grep`.
 
+### Deprecation-cycle calibration — ask consumer count first
+
+Deprecation cycles, opt-in flags, and gradual-rollout windows assume *thousands* of consumers. At that scale the machinery protects a real population. At **two consumers**, the same machinery is ceremony for ceremony's sake; the version of "respect users' time" that does apply is "fix the underlying behavior cleanly so they're not debugging silent degradation later."
+
+When facing a *(a) direct ship / (b) opt-in for one cycle / (c) opt-out indefinitely* decision, the **first question** is "how many consumers?" — not "what's the right posture?". The posture follows from the consumer-count answer:
+
+- **N ≤ 2 (visible in `git grep`):** direct ship. Migrate the consumers in the same commit if needed. No flag, no cycle, no doc note about deprecation — the consumers are inline with the change.
+- **N small (≤10, all in-org):** direct ship with a release note. Optional opt-out flag *only* if the change has a known-bad failure mode you can't fix forward (rare).
+- **N large (diffuse / external):** standard deprecation cycle applies — flag, doc, cycle window, telemetry on usage of the deprecated path.
+
+The failure mode is importing enterprise-grade deprecation pacing into a two-consumer setup. The ceremony costs real session time and produces no signal. Verify consumer count by grep before reaching for the deprecation rubric.
+
 ## Authorial-latitude conventions
 
 **Bind sub-disciplines at the latitude site, not in separate stanzas.** When a convention says "executor decides X but must follow Y," the Y constraints belong on the same line as the X latitude — separating them lets executors read the latitude and miss the binding. Pattern: "Authorial latitude on phrasing; vocabulary stays disciplined per `CONTEXT.md`" beats "Authorial latitude on phrasing." (later) "Vocabulary stays disciplined." A sub-discipline two stanzas away from the freedom it constrains is an unenforced rule.
@@ -46,9 +60,23 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 **Asymmetric defaults + override conditions in scope.md produce sharper synthesis than balanced surveys.** Declare per-layer defaults explicitly: "Layer 1 = exhaustive, Layer 2 = targeted, Layer 3 = bypass unless trigger Z fires." Balanced surveys produce balanced (= mediocre) synthesis because every layer gets equal attention regardless of relevance. The asymmetry is the signal.
 
+## Small-workstream framing is not a discount lens
+
+"Mostly lift," "small," "mechanical substitution" — these describe effort, not integration complexity. Hidden complexity clusters at substitution seams, integration boundaries between workstreams, and concurrent-EM bleed-through (invisible to per-workstream review by construction). The doctrine table fires on "any executor dispatched OR shared schema seam touched," not LoC threshold. When a workstream feels small or mechanical, that is the signal to look harder at the seams — not less hard. (Surfaced 2026-05-08: an 80%-lift workstream had 6 Sonnet findings invisible to per-W' mechanical gates.)
+
+Small framing is not a discount lens on review doctrine. A workstream may be small in line-count but lift-heavy (touches a load-bearing constant, refactors a hot seam) — review depth tracks lift, not size. Default sequential review still applies.
+
+## Inline triage as scout-failure fallback
+
+Inline triage by the EM is a legitimate fallback when a classification scout fails (1M-tail-error, TEXT-ONLY hallucination), provided the EM applies the same bucket schema the scout would have used AND records the inline-vs-dispatched decision. Don't redispatch over a partial scout result if disciplined inline finish is cheaper.
+
 ## Session-end-as-defer is hedging in disguise
 
 Mid-session offering to defer non-blocking work to a future session — "want me to session-end and pick this up next time?" — is the anti-ambition tell. When findings are applicable now, apply them; reserve `session-end` for genuine completion or PM redirect. The "we could do less" framing rationalizes the heaviest ceremony available (close out, write a handoff, restart) for what's actually a tradeoff between two minutes of work and an hour of context-loss next time. Default: keep going. Only invoke session-end when it's the *cheapest* remaining action, not the easiest *to ask permission for*.
+
+## Phase deferral beats redundant smoke-spend
+
+When a phase's smoke-test would re-prove something a sibling phase already proved, defer the phase with documented rationale (`# DEFERRED: redundant with Phase 3 smoke`) rather than running it for completeness. Redundant smoke-spend is a workflow tax with no signal gain — the deferral note carries the audit trail; the re-run carries nothing the previous phase didn't.
 
 ## Negative space — what doesn't earn ceremony
 

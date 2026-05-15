@@ -20,4 +20,4 @@
 - `<game-project>`: the Game Dev Reviewer primary, the Staff Engineer backstop (default)
 - `<ue-control-plugin>`: the Game Dev Reviewer + the Data Science Reviewer (if data-science plugin enabled) + the Staff Engineer
 
-(Replace the placeholders above with your actual project names; this file is the routing table consumed by review-dispatch.)
+(Replace the placeholders above with your actual project names; this file is the routing table consumed by `/review` and `/review-code` for reviewer routing.)

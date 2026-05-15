@@ -42,7 +42,7 @@ Don't assume the env var exists.
 
 Confirmed via probe (2026-05-05): `CLAUDE_SESSION_ID` is NOT present in subagent env. Subagent env contains: `AI_AGENT=claude-code_2-1-128_agent`, `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT=cli`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. No `CLAUDE_SESSION_ID`, no `CLAUDE_PARENT_SESSION_ID`.
 
-`$PPID = 1` (Cygwin/MSYS shim — no real parent visible). `tty` returns "not a tty". the Game Dev Reviewere-channel signals also dead. Session-ID-based cross-session linkage via env is infeasible.
+`$PPID = 1` (Cygwin/MSYS shim — no real parent visible). `tty` returns "not a tty". Side-channel signals also dead. Session-ID-based cross-session linkage via env is infeasible.
 
 **Defense:** Use on-disk state (sentinel files). `session-init.sh:77` writes the current `session_id` to `.git/coordinator-sessions/.current-session-id` on every SessionStart — read this sentinel from shell scripts that need it.
 
@@ -99,6 +99,14 @@ Source: `archive/completed/2026-04.md` (2026-04-28 entries).
 No PostToolUse hook can revert a write — by the time it fires the file is already on disk. When executors in parallel dispatch report "the watcher is reverting writes," verify with `ls -la <path>` (almost always the file is fine) and treat as the hallucination class. Inline the anti-hallucination preamble at agent identity AND in dispatch prompts; verify on disk, not via DONE replies.
 
 ## MCP
+
+### Variable substitution — `{token}` placeholders are NOT expanded in launch args
+
+Claude Code does NOT substitute `{token}` curly-brace placeholders in MCP server launch args — they pass through literally to the server's CLI. Use absolute paths or env-var expansion (`$VAR` at the harness shell layer) instead. (See also `## Misc` § curly-brace tokens for the failure shape.)
+
+### Scope precedence — user-scope entries silently shadow plugin entries
+
+MCP server precedence: user-scope (`~/.claude.json` mcpServers block) > project-scope (`<project>/.mcp.json`) > plugin-scope (`plugins/<name>/.mcp.json`). User-scope entries silently shadow plugin entries with the same server name — debugging this requires `claude mcp list` to see the resolved set.
 
 ### User-scope MCP entries silently override plugin `.mcp.json` of the same name
 
@@ -209,6 +217,10 @@ Instructions in the EM's CLAUDE.md are invisible to subagents — they only read
 
 When adding a step between existing team phases (e.g., atlas sketch between scouts and specialists), dispatch it as a regular subagent — not a teammate. Create tasks upfront with blockers, but delay spawning dependent agents until the subagent completes. The EM isn't freed during this window but the overhead is small (~2-5 min for Haiku work).
 
+### Agent Teams — billing/auth gate recovery differs by scope
+
+Recovery from a billing/auth gate differs by scope — a SINGLE agent's gate (1M-context billing on one Sonnet teammate) is resumed via `SendMessage` to that agent after the gate clears; a GLOBAL gate (account-wide auth expiry) requires fresh redispatch because all transcripts may be stale. Probe scope with `claude api ping` before deciding. (Refines the doctrine in CLAUDE.md § Agent Teams.)
+
 ### MCP tool names in Agent Teams teammates may differ from parent
 
 Deferred tool names can vary by prefix convention (`mcp__notebooklm__*` vs `mcp__plugin_notebooklm_notebooklm__*`). Always use graduated `ToolSearch`: exact `select:` → keyword `+prefix` fallback → graceful failure. Never hardcode a single naming pattern.
@@ -245,6 +257,34 @@ A backgrounded process killed by the harness's timeout takes its child processes
 
 If an MCP launcher arg contains `{session_id}` or similar curly-brace placeholders, Claude Code passes them through literally. Substitution is the launcher's responsibility, not the harness's.
 
+### PowerShell `@`-splat does not preserve `[switch]` semantics through string arrays
+
+Wrapper scripts forwarding flags via `& downstream.ps1 @PassThrough` where `PassThrough` is `[string[]]` silently drop `[switch]` flags downstream — the downstream parameter binds to `$false` rather than receiving the switch. Translate switches to env vars (or explicit `-Switch:$true` calls) at the wrapper-to-downstream seam. Bash positional pass-through (`"$@"`) does not have this gap.
+
 ### HTML-encoded BOM (`&#xFEFF;`) is a real PS1 failure mode
 
 A PowerShell script with an HTML-encoded BOM at the start fails with cryptic parse errors. When PS1 scripts emitted by tools fail to run, check the first few bytes for encoding artifacts before debugging script logic.
+
+### `pythonw.exe` swallows stdout/stderr — diagnostic output disappears
+
+Scripts launched via `pythonw.exe` (windowless Python on Windows) have no attached console, so `print()`/`sys.stderr.write()` go to `os.devnull`. Logging that "works" under `python.exe` produces zero diagnostic output under `pythonw.exe` — typical failure shape is "script ran, no output, no error, no idea why it didn't do the thing." Defense: route diagnostics to a file via `logging.FileHandler` (not `StreamHandler`); never assume stdout is captured.
+
+### PE subsystem flag determines whether a Windows binary gets a console
+
+A Python launcher (or any Windows binary) compiled with the GUI subsystem (`/SUBSYSTEM:WINDOWS`) has no console attached at startup; a binary compiled with the CONSOLE subsystem (`/SUBSYSTEM:CONSOLE`) always allocates one. The `.exe` name (`python.exe` vs `pythonw.exe`) is a hint, not a contract — inspect the PE header (`dumpbin /headers <exe>` or `pwsh: (Get-Item exe).VersionInfo`) to confirm subsystem before debugging "why did/didn't a console window appear." This is the layer underneath the `creationflags=CREATE_NO_WINDOW` workaround.
+
+### `asyncio.wait_for(coro, timeout=0)` raises `TimeoutError` immediately, never awaits the coro
+
+`timeout=0` is not "no timeout" — it's "expire immediately." The coroutine is scheduled but cancelled on the next loop tick before any work runs. Anyone reading the call site expects either "fire-and-forget" or "no timeout"; both are wrong. Use `None` for no timeout or a positive float for an actual budget.
+
+### MSYS/Git-Bash auto-translates POSIX-looking paths in argv
+
+When a Bash script passes `/foo/bar` as an argument to a non-MSYS binary (e.g. `node`, `python`, `claude`), MSYS/Git-Bash silently rewrites it to a Windows path (`C:\Program Files\Git\foo\bar`) — sometimes prepending the Git install dir. Defense: prefix with `//` (`//foo/bar`) to disable translation, or set `MSYS_NO_PATHCONV=1` for the invocation. Symptom: a flag whose value is a literal POSIX-shaped string (URL paths, JSON pointers, regex patterns) arrives mangled at the receiving binary.
+
+### Stale `node` / `python` / TS-build processes survive session boundaries
+
+Killing the Claude Code session does NOT kill backgrounded `node`/`python` workers or watch-mode TS builds that the session spawned. They keep holding file locks, port bindings, and stale compiled `.js` output until the host OS reaps them or the user kills them by hand. The next session sees "files updated but behavior unchanged" — that's the prior session's daemon still serving from memory. Defense: `taskkill /F /IM node.exe` (Windows) or `pkill -f node` (POSIX) at session boundaries when long-running watchers were in play; never trust "I rebuilt the TS" if the watch-mode build from the prior session is still resident.
+
+### Cross-platform script portability — `#!/usr/bin/env bash` is necessary but not sufficient
+
+A shell script that uses `realpath`, `readlink -f`, GNU-extension flags (`sed -i ''` vs `sed -i`), `mktemp` without `-d`, or assumes `/dev/stdin` works the same way on every platform will fail loudly on macOS or Windows Git-Bash even with a portable shebang. Defense: pin to documented-portable subset, or detect host (`uname -s`) at top and dispatch. Treat "works on Linux CI" as a non-claim about author/consumer machines.

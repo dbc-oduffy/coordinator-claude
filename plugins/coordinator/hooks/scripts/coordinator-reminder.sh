@@ -54,7 +54,7 @@ Before responding to the user's opening message, silently read `tasks/orientatio
 
 ## Coordinator Infrastructure
 Available for complex work:
-- /review-dispatch — route artifacts to domain + architecture reviewers
+- /review (plan artifacts) or /review-code (code artifacts) — route artifacts to domain + architecture reviewers
 - /enrich-and-review — enrich specs with codebase research
 - For executor dispatch, follow docs/wiki/delegate-execution.md
 Use these when they add value. For direct requests, just do the work.
