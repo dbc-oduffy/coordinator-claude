@@ -2,10 +2,13 @@
 title: Prior-Art Auto-Discovery + Registry Fix for Interwoven Triad
 created: 2026-05-17
 author: EM
-status: reviewed
+status: shipped
 kind: plan
 scope_mode: feature
+shipped_in: a1d38e1,f7d46fa,4fcb76c,087c70a,53cc9d7,bf9ce0c (coordinator-claude work/striker/2026-05-07); 9cd29dd3 (claude-central work/striker/2026-05-07to15); 94b25c00 (project-rag); 7507f2a3d (project-rag-ue-addon); 6e486bdb (claude-unreal-holodeck)
 ---
+
+> **Status: ALL STAGES SHIPPED 2026-05-17** — 10 commits across 5 repos. See `shipped_in:` frontmatter for the commit ledger. Stage 1.B (registry data), 1.C (doctrine wiki), 1.C-pre (3 sister-repo CLAUDE.md strips), 1.5 (wiki layout move), 1.6 (wiki-mirror scripts retired), 2 (agent prompt rewrite), 3 (CLAUDE.md tripwires + Phase 14 hint) all in. Outstanding empirical question per Zolí F6/F8: the augment-default override semantic and three-oracle smoke test haven't been exercised yet — first real-world prior-art-checker dispatch from the triad will be the first end-to-end validation.
 
 # Prior-Art Auto-Discovery + Registry Fix
 
