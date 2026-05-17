@@ -172,6 +172,28 @@ ORDERED_KEYS=(
   "Camelia"
 )
 
+# Self-protection: if this script's own ORDERED_KEYS look already-substituted
+# (every key starts with "the " or "dbc-"), a past run depersonalized our own
+# substitution map. Subsequent --fix sweeps would be no-ops and silently lie
+# about it. Refuse to run; instruct the operator to restore from source.
+# Tripped previously: dest's depersonalize.sh had ORDERED_KEYS = ("the Coordinator
+# Authors", "the Staff Engineer", ...) — repaired 2026-05-17 by copying source.
+self_corrupted=true
+for k in "${ORDERED_KEYS[@]}"; do
+  if [[ "$k" != "the "* && "$k" != "dbc-"* ]]; then
+    self_corrupted=false
+    break
+  fi
+done
+if [[ "$self_corrupted" == "true" ]]; then
+  echo "depersonalize-for-publish: FATAL — ORDERED_KEYS look already-substituted." >&2
+  echo "  This script's substitution map has been corrupted by a past depersonalize run." >&2
+  echo "  Restore from the meta-repo source:" >&2
+  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-for-publish.sh \\" >&2
+  echo "       \$(realpath \"\$0\")" >&2
+  exit 2
+fi
+
 # Sentence-initial capitalization: "Patrik flagged..." at sentence start would
 # substitute fine to "the Staff Engineer flagged..." (lowercase t), which is
 # grammatically odd. We cannot detect sentence position reliably without an
