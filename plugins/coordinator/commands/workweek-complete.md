@@ -149,6 +149,32 @@ This is informational. A failure here is a follow-up nudge, not a blocker. Read 
 
 ---
 
+## Step 4e: Owner-File Invariant Lint Advisory
+
+Applies only when `scripts/lint-owner-file-invariants.py` exists in the repo root — projects without the §1a "Owner-File Invariant Paragraph" convention (see `docs/wiki/rag-bait-conventions.md` §1a) pass silently.
+
+```bash
+# Advisory only — never blocks. Surfaces drift: owner files in scripts/owner_files.yaml
+# that have lost or never had their "Invariant —" paragraph in the first 3000 chars.
+if [[ -f scripts/lint-owner-file-invariants.py ]]; then
+  set +e
+  _LINT_OUT=$(python scripts/lint-owner-file-invariants.py 2>&1)
+  _LINT_RC=$?
+  set -e
+  echo "---"
+  echo "owner-file-invariant advisory (rc=$_LINT_RC):"
+  echo "$_LINT_OUT"
+  echo "---"
+  # _LINT_RC is never propagated to ceremony exit
+fi
+```
+
+This is informational. A non-zero rc means one or more files in `scripts/owner_files.yaml` lost their `Invariant —` marker (rename, refactor, or accidental docstring rewrite). Note over-budget files in the weekly summary; address next session. The lint is fail-soft here by design — the convention is new (shipped 2026-05-17) and weekly drift detection is the right friction level until empirical add-cadence data justifies promotion to `/validate` or pre-commit.
+
+Citation: pattern mirrors Step 4d (description-length advisory). See `docs/wiki/super-skill-architecture.md` line 96 (description-budget advisory precedent) and `docs/wiki/workday-workweek-cadence.md` lines 56–75 (cadence doctrine: ShellCheck, scc, queue triage, and description-length advisories are weekly-only — do not belong in the daily wrap).
+
+---
+
 ## Step 5: scc Snapshot
 
 If `scc` is available (`which scc` or `~/bin/scc`):
