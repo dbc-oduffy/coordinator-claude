@@ -217,6 +217,14 @@ no change. See `docs/wiki/holodeck-doctrine.md §7.7` for the full convention.
 
 Spec backlink: `docs/plans/2026-05-15-ubt-compile-gate-review-trail.md` §Shape.
 
+## Boundary-relabeling defect class — chain-end catches what mid-stream reviewers miss
+
+Chain-end Sonnet+the Staff Engineer review on row-5 criteria empirically catches **boundary-relabeling** bugs — where a refactor renames a failure-reason enum, retypes an error code, or relabels a status taxonomy, and four prior mid-stream reviews fail to spot the relabel because each reviewer saw only their slice of the diff. The relabeled boundary surfaces only when the full chain is read in one pass.
+
+Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and downstream consumers that pattern-match on the old labels silently fall through to a default arm. Per-commit review confirms each individual rename is correct in isolation; chain-end review reads enough of the chain to notice the relabel happened at all.
+
+Anti-ceremony tripwire: "we did a lot of review already" framing at chain end is wrap-up pressure, not a real signal. The post-implementation review catches a different defect class than mid-stream review — they are not substitutes. Universal across project types whenever failure-reason taxonomies are refactored.
+
 ## Cross-references
 
 - `coordinator:review-code` Branch A.2 — the dispatch surface for the actual Sonnet/the Staff Engineer review invoked from Step 2.8 and Step 2.10

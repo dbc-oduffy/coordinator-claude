@@ -172,6 +172,18 @@ Refactors that fix or close a bug-backlog entry by side effect (without naming i
 2. Consumer-side: bug-blitz's pickup phase must verify each entry against current `HEAD` (not against the entry's authoring date) before dispatching a fix — entries that no longer reproduce get deleted, not "investigated."
 3. The commit subject names the closed backlog entry; `git log -- tasks/bug-backlog.md` becomes the audit trail.
 
+## 20. Doctrine Flips: Audit Test Infra AND Write-Sites
+
+When a doctrine flips a *value-class* (preferred Python interpreter, default branch shape, canonical commit helper, env-var polarity), the sweep is two-sided and both sides bite:
+
+1. **Test infra and guards encode the OLD rationale.** Pre-flip assertion shapes (`_check_venv refused presence of a venv`, "no-venv-policy" warnings, fixtures that assert against the rejected state) survive the flip with their *inverted* rationale intact. They keep enforcing the old rule against a codebase now meant to violate it. Grep every assertion site mentioning the flipped value-class before declaring the flip done.
+
+2. **Write-sites that consumed the flipped value as-is silently regress on a secondary property.** Code that happily took `python.exe` instead of system Python (the headline flip) may suddenly produce different *subsystem* (console vs GUI), different `sys.executable`, different bundled-package surface, different launch flags — properties the original write-site never asserted on because it didn't matter under the old polarity. The flip is correct in the headline dimension and wrong in an orthogonal one.
+
+**Concrete failure:** 2026-05-14 project-rag venv-primary doctrine flip — the producer side moved from system Python to venv `python.exe`. The headline switch landed cleanly, but downstream a Windows hook was launching `python.exe` (console subsystem) where it had been launching `pythonw.exe`-equivalent system Python (GUI-by-shim) — flashing a console window on every fire. The test infra side simultaneously kept an `_check_venv refused presence of a venv` guard that now fired on every legitimate run.
+
+**Defense:** the doctrine-flip plan enumerates (a) every guard/test that mentions the value-class — sweep for inversion; (b) every write-site that consumes the value — sweep for orthogonal-property regression. Both go in the plan body before dispatch, both are verified post-flip, neither is "we'll catch it in CI" territory.
+
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class.

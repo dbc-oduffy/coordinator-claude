@@ -85,6 +85,12 @@ When a phase's smoke-test would re-prove something a sibling phase already prove
 - **Tool choice within an established pattern** — direct dispatch unless cost/risk shifts materially.
 - **Whether to commit/branch/stash** — never ask.
 
+## Shared-Evidence-Axes Sizing Pass
+
+Linear-run verification budgets — "we'll spend N sessions of verification across this multi-handoff chain" — collapse when **shared evidence axes are identified first**. Before sizing a multi-session handoff chain, enumerate the shared evidence: test files exercised by multiple handoffs, build artifacts referenced by multiple stubs, schema columns multiple parsers consume, config values multiple subsystems read. Each shared axis can be verified once and reused across the dependent handoffs; without enumeration, each session re-verifies the same evidence and the budget inflates by the dependency factor.
+
+**Sizing-pass procedure** (run during `coordinator:roadmap-planning` Phase 2 or before authoring a multi-session plan): (1) list every handoff / stub in the chain; (2) for each, list the evidence it asserts on (files, commits, schema state, build artifacts); (3) compute set-union; (4) re-cost the chain assuming each shared-axis verification runs *once*, not per-handoff. The gap between linear-cost and shared-axis-cost is the room the sizing pass buys back.
+
 ## Companion doctrine
 
 - `docs/wiki/writing-plans.md` — plan-pipeline mechanics

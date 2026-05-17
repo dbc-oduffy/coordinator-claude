@@ -139,7 +139,7 @@ project_subtypes: [{subtype1}, {subtype2}]
 
 After the core setup, ask once:
 
-> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate). Would you like to customize their names?
+> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering). Would you like to customize their names?
 >
 > - **Keep defaults** — Use the built-in persona names
 > - **Customize** — Choose your own names for the reviewers
