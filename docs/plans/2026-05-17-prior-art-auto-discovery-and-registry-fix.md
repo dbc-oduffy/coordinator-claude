@@ -57,7 +57,8 @@ Update `~/.claude/tasks/repo-registry.md`:
    - `goals`: from CLAUDE.md — UE plugin runtime (`ClaudeUnrealHolodeck`), `holodeck-control` MCP, 3D-gen sidecars, `/holodeck:setup` + `/holodeck:doctor`.
    - `stack_tags`: `[claude-plugin, unreal-engine, mcp-server, game]`.
    - `working_wiki`: `x:/claude-unreal-holodeck/docs/wiki` (verified exists).
-   - `relationships`: edges to `project-rag` (consumes-from — engine corpus served back) and `project-rag-ue-addon` (ancestor — carved out 2026-05-13). Per CLAUDE.md ground truth quote available.
+   - `relationships`: outgoing edges declared from holodeck: `consumes-from: project-rag` (engine corpus served back), `depends-on: coordinator-claude` (general dependency on coordinator doctrine). Ancestor edges declare the descendant pointing at the ancestor (per wiki directional rule — `A's ancestor is B; A is the descendant`), so `project-rag` and `project-rag-ue-addon` each declare `ancestor: claude-unreal-holodeck` outgoing — holodeck does NOT carry outgoing `ancestor` edges to its descendants. The bidirectional graph walk in agent Step 4 surfaces descendants as peers when dispatching from holodeck via reverse-edge scan.
+   <!-- Review: code-review (Sonnet session-end) — P2-1: original text implied holodeck outgoing ancestor→ue-addon edge (wrong direction per wiki); registry is semantically correct; plan body updated to match registry actuals and clarify directional rule -->
 
 2. **Add `project-rag-ue-addon`** as new active entry.
    - `path`: `x:/project-rag-ue-addon` (verified exists).
