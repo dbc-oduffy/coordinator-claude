@@ -39,11 +39,11 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **the Front-End Reviewer** (senior-front-end) — front-end review (tokens, design system, CSS). **the UX Reviewer** — UX flow review (trust, clarity). Use `/review` (plan artifacts) or `/review-code` (code artifacts).
 
-**eng-director** (the Ambition Advocate) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
+**eng-director** (the Director of Engineering) — Director of Engineering. Three modes: (1) **standalone primary reviewer** (default; dispatched directly via `/review`, `/review-code`, or `coordinator:eng-director` for cross-team / cross-repo / generic-substrate reviews — peer of the Staff Engineer in technical rigor, with DoE-altitude authority to set cross-team boundaries the Staff Engineer would hedge on); (2) **backstop reviewer** (chained after the Staff Engineer on High-effort architectural reviews); (3) **staff-session synthesizer** (spawned by `/staff-session`, blocked until debaters complete, resolves contested topics with DoE authority — organizational benefit, customer-serving, velocity-over-time — not by averaging the loudest debaters).
 
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
-- `/staff-session --mode plan` — domain experts debate (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.), the Ambition Advocate (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
-- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. The Ambition Advocate synthesizes findings. Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code).
+- `/staff-session --mode plan` — domain experts debate (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.), the Director of Engineering (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
+- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. The Director of Engineering synthesizes findings. Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code).
 - `/research --mode=web <topic>` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=repo <path>` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=structured <spec-path>` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*

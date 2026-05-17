@@ -84,6 +84,8 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 - **Write fallback (Sonnet permission errors):** `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
 - **Size threshold:** 1–2KB when brief expected order-of-magnitude larger = summary masquerading as deliverable.
 - **Verify worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`, e.g. `Explore`) produce inline "failures" that aren't TEXT-ONLY hallucination — accept inline and persist EM-side, or escalate to `general-purpose` Sonnet.
+- **Worktree-isolated subagents honor literal absolute paths in Write calls.** A scout dispatched with worktree isolation that writes to an absolute path lands the file in the main project tree, not the worktree. Either pass relative paths or expect main-tree writes; verify with `ls` post-completion.
+- **Resumed worktree agents can re-fire post-completion with hallucinated TEXT-ONLY runs.** Disk-first verification is load-bearing — a "DONE" reply from a resumed worktree agent does not mean the file was written this run. `ls -la`/size before accepting.
 
 ## Subagent Dispatch
 
@@ -155,6 +157,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 - **Premise contradictions resolve in the fix-wave preamble**, not a separate verification wave.
 - **Audit symptom is correct; locus may be wrong.** Verify producer code before accepting the audit's proposed fix-locus.
 - **6-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All green or stop.
+- **Re-run mechanical pre-flights after material plan amendments.** path-scout, prior-art, docs-checker findings age if the plan changes between review and integration; re-run before the next reviewer.
 
 ## Self-Improvement Loop
 

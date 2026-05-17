@@ -9,7 +9,7 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"patrik,zoli
 
 The EM scopes the work, selects the team, creates the team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Debaters** (2-5, Opus, persona agents) — read input independently, research the codebase, form positions, debate peers via messaging, converge, write position documents, send DONE to synthesizer
-- **the Ambition Advocate / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
+- **the Director of Engineering / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code) — no team created.**
 
@@ -73,7 +73,7 @@ Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/temp
 
 **If `--members` not specified:** Auto-select based on domain signals from the input topic and scope.
 
-**Important: the Ambition Advocate is the synthesizer, not a debater.** the Ambition Advocate cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "patrik,zoli"`, reject with: "the Ambition Advocate is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
+**Important: the Director of Engineering is the synthesizer, not a debater.** the Director of Engineering cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "patrik,zoli"`, reject with: "the Director of Engineering is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
 
 | Domain Signal | Default Pair |
 |---|---|

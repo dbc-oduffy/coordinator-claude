@@ -152,6 +152,7 @@ case "$MODEL_ID" in
   # (add specific model IDs here as they appear).
   # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
   # unless an override above caught it first.
+  # Family-fallback patterns survive minor version bumps; pinned arms break.
   *opus*)         CONTEXT_WINDOW=1000000 ;;  # Opus family default: 1M
   *sonnet*)       CONTEXT_WINDOW=200000  ;;  # Sonnet family default: 200K
   *haiku*)        CONTEXT_WINDOW=200000  ;;  # Haiku family default: 200K

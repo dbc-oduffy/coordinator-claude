@@ -1,0 +1,8 @@
+# .persona-names-allowlist — legitimate occurrences of persona names.
+# Format: filepath:line_number (one per line, # comments allowed).
+# Use sparingly — prefer the EXCLUDED_PREFIXES mechanism for whole-file exemptions.
+
+# ci-pipeline.md legitimately names the personae while documenting the
+# check-persona-names script and the depersonalize substitution map.
+docs/ci-pipeline.md:37
+docs/ci-pipeline.md:45

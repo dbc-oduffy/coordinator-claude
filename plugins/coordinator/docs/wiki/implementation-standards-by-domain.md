@@ -40,6 +40,16 @@ See `docs/wiki/document-bloat-trim.md` for the general extraction rule.
 
 - **UE plugin distribution mode determines DLL load location.** `AdditionalPluginDirectories` (engine-managed) and project-local plugin paths load from different directories; conflating the two produces inverted directional rules. Verify distribution mode before writing any DLL-path logic.
 
+## Comment provenance and primitive layering
+
+All three rules below share a shape: comments-as-stories don't age well; structured citation does. When in doubt, lift the explanation out of the comment and into a commit message + commit-SHA pointer, or delete the comment entirely.
+
+- **When defensive hardening bloats past the primitive, the primitive is at the wrong layer.** A guard pile that grows comment-per-edge-case ("handle case X", "but watch out for Y", "Z is also valid when …") is the symptom; the cause is that the primitive sits below the layer where those distinctions exist. Refactor up — move the primitive to the layer that has the type, the schema, or the context to express the distinction structurally. Each new guard added in place is debt; the primitive is misplaced. Applies to any embedded-language pattern (shell-in-JSON, SQL-in-JS, regex-in-config) where the host language can't see the embedded structure.
+
+- **Dated bug-fix narrative comments are frozen-in-time stories.** `// 2026-04-09 — fixed crash when foo is null because bar` reads well in the review but ages into a fossil the moment the surrounding code is refactored. The comment now points at a fix that no longer exists, against a bug that no longer reproduces, in a code path that no longer runs. Prefer a commit-SHA citation in the commit message + (when truly needed in-line) a one-line `// see commit <sha> — <subject>` pointer; the SHA stays valid even when the narrative goes stale. Migrations and refactors should not have to update comment prose to remain truthful.
+
+- **"Empirical verification" comments without provenance age into folklore.** A comment that says "tested empirically, this works" or "verified — N is the right limit" with no test file, no dated run-log, no benchmark artifact cited is folklore the moment its author leaves. The next reader has no way to re-verify and no signal whether the claim still holds. Either cite a test/log path (`see tests/perf/foo_test.py::test_n_limit, run 2026-05-12`) or omit the comment and let the test be the documentation. A code comment that asserts an empirical fact without a verifiable pointer back to the verification is worse than no comment — it stops future readers from re-checking.
+
 ## Named contracts vs incidental flags
 
 - **A workaround that relies on a flag's incidental name/value** (e.g. piggy-backing on `--legacy-compat` to enable an unrelated behavior) is not a solution — it's debt the next refactor will silently break. Add an explicit named contract (a new flag, a constant, an env var) when the behavior is intentional.

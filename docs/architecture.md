@@ -54,7 +54,7 @@ Applies reviewer findings to artifacts after review dispatch. Receives structure
 | Reviewer | Domain | Focus |
 |----------|--------|-------|
 | **the Staff Engineer** (`coordinator:staff-eng`) | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
-| **the Ambition Advocate** (`coordinator:ambition-advocate`) | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to the Staff Engineer. |
+| **the Director of Engineering** (`coordinator:eng-director`) | Cross-team authority + ambition calibration | Peer of the Staff Engineer in technical rigor with the additional DoE altitude to set cross-team / cross-repo boundaries the Staff Engineer would hedge on. Three modes: standalone primary reviewer (default, for cross-team / consumer-producer / generic-substrate reviews), backstop after the Staff Engineer (chained for High-effort architectural reviews), staff-session synthesizer (resolves contested topics through an organizational / customer / velocity lens). |
 | **the Game Dev Reviewer** (`game-dev:staff-game-dev`) | Game dev, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches documentation rather than guessing. |
 | **the Front-End Reviewer** (`web-dev:senior-front-end`) | Front-end | Design system adherence, token validation, component patterns. "Close enough" to design specs is often correct when it means using standard utilities. |
 | **the UX Reviewer** (`web-dev:staff-ux`) | UX flow | Trust signals, clarity, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
@@ -72,7 +72,7 @@ A feature typically flows through:
 
 ```
 Brainstorm -> Plan -> Prior-Art Check -> Enrich -> Review Enrichment -> Execute -> Spec Check -> Code Review -> Backstop -> Ship
-  (skill)  (super-skill) (Sonnet recall) (enricher)    (reviewer)       (executor) (coordinator) (Staff Engineer+domain) (Ambition Advocate) (skill)
+  (skill)  (super-skill) (Sonnet recall) (enricher)    (reviewer)       (executor) (coordinator) (Staff Engineer+domain) (Director of Engineering, backstop mode) (skill)
 ```
 
 The `Plan` stage is a decision-tree super-skill (`coordinator:plan`) — triage / substrate / compose / exit, see [docs/evolution/07-super-skills.md](evolution/07-super-skills.md). The `Prior-Art Check` stage is a Sonnet recall pass that cross-references the plan against project + global wikis, `tasks/lessons.md`, and the central improvement queue before an Opus reviewer touches it; doctrine in [`plugins/coordinator/docs/wiki/prior-art-checker.md`](../plugins/coordinator/docs/wiki/prior-art-checker.md).
@@ -106,7 +106,7 @@ This transforms what would be sequential N-item execution into M-wave execution 
 
 The routing system is **composable**:
 
-1. Coordinator defines universal reviewers (the Staff Engineer, the Ambition Advocate) in `plugins/coordinator/routing.md`
+1. Coordinator defines universal reviewers (the Staff Engineer, the Director of Engineering) in `plugins/coordinator/routing.md`
 2. Domain plugins contribute fragments via their own `routing.md` (e.g., game-dev registers the Game Dev Reviewer)
 3. `/review-dispatch` merges all fragments at dispatch time
 4. Changed code signals determine which reviewer handles it
@@ -116,11 +116,11 @@ Sequential review protocol (for non-trivial changes):
 1. Domain specialist first (if applicable)
 2. Coordinator applies findings
 3. The Staff Engineer catches regressions (generalist pass)
-4. The Ambition Advocate challenges conservatism (backstop, when warranted)
+4. The Director of Engineering challenges conservatism or sets cross-team boundaries (backstop mode after the Staff Engineer; standalone for cross-team / consumer-producer reviews)
 
 ### Backstop Reconciliation
 
-When the Ambition Advocate (backstop) returns:
+When the Director of Engineering returns in backstop mode (after the Staff Engineer):
 - `BACKSTOP_AGREES` — the Staff Engineer's conservative approach is genuinely appropriate; proceed
 - `BACKSTOP_CHALLENGES` — Both perspectives surface to coordinator/PM for resolution
 - `BACKSTOP_OVERRIDES` — The conservative approach is clearly wrong; rare "iceberg" territory

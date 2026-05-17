@@ -9,16 +9,16 @@
 | Tier | Examples | Skill / command | Reviewer | Expected wall time | Ship gate |
 |------|----------|-----------------|----------|--------------------|-----------|
 | **Tiny edit** | Fix a typo, update a constant, rename a variable | Direct EM edit — no plan, no dispatch | None required | < 5 min | Commit + push |
-| **Small fix** | One-function bug fix, add a missing guard, tweak a config value | `coordinator:systematic-debugging` (for bugs) or direct edit | Optional: quick Ambition Advocate pass if the fix touches shared state | 5–20 min | Commit + push; reviewer finding if risky |
-| **Feature** | New command, new skill, new agent, new integration | `/execute-plan` after PM approves a plan | Domain reviewer first (e.g., the Staff Engineer (`coordinator:staff-eng`) for UE, the Front-End Reviewer (`web-dev:senior-front-end`) for web), then the Ambition Advocate (`coordinator:ambition-advocate`) | 30 min – 2 hrs | PR via `/merge-to-main`; ship verdict required |
-| **Refactor** | Extract a subsystem, rename a core abstraction, restructure a plugin | `/staff-session plan` to align on approach first, then `/execute-plan` | the Staff Engineer (architecture lens) + the Ambition Advocate (generalist) — sequential | 1–4 hrs | PR; architecture atlas update via `/update-docs` |
-| **System rewrite** | Replace core pipeline, migrate hook architecture, multi-plugin overhaul | `/staff-session plan` (multi-perspective debate) → chunked execution via `/delegate-execution` | Full sequential chain: domain specialist → the Staff Engineer → the Ambition Advocate; regression suite required | Half day – full day | PM sign-off on plan + ship verdict; `/workweek-complete` gate |
+| **Small fix** | One-function bug fix, add a missing guard, tweak a config value | `coordinator:systematic-debugging` (for bugs) or direct edit | Optional: quick the Staff Engineer pass if the fix touches shared state | 5–20 min | Commit + push; reviewer finding if risky |
+| **Feature** | New command, new skill, new agent, new integration | `/execute-plan` after PM approves a plan | Domain reviewer first (e.g., the Staff Engineer (`coordinator:staff-eng`) for UE, the Front-End Reviewer (`web-dev:senior-front-end`) for web), then the Staff Engineer (`coordinator:staff-eng`) as generalist; the Director of Engineering (`coordinator:eng-director`) as backstop at High effort | 30 min – 2 hrs | PR via `/merge-to-main`; ship verdict required |
+| **Refactor** | Extract a subsystem, rename a core abstraction, restructure a plugin | `/staff-session plan` to align on approach first, then `/execute-plan` | the Staff Engineer (architecture lens) + the Director of Engineering (backstop mode) — sequential | 1–4 hrs | PR; architecture atlas update via `/update-docs` |
+| **System rewrite** | Replace core pipeline, migrate hook architecture, multi-plugin overhaul | `/staff-session plan` (multi-perspective debate) → chunked execution via `/delegate-execution` | Full sequential chain: domain specialist → the Staff Engineer → the Director of Engineering (backstop mode); regression suite required | Half day – full day | PM sign-off on plan + ship verdict; `/workweek-complete` gate |
 
 ---
 
 ## Reading the table
 
-**"Tiny edit" is not "trivial."** A one-line change to a hook or a shared constant can have system-wide effects. If in doubt, run a quick Ambition Advocate pass — it takes minutes and pays for itself the first time it catches an unintended side-effect.
+**"Tiny edit" is not "trivial."** A one-line change to a hook or a shared constant can have system-wide effects. If in doubt, run a quick the Staff Engineer pass — it takes minutes and pays for itself the first time it catches an unintended side-effect.
 
 **"Expected wall time" is calendar, not compute.** Most of this is agent work you're not watching. The timer starts when you describe the work and ends when you're reviewing the result.
 
@@ -46,12 +46,13 @@
 
 | Work type | Reviewer |
 |-----------|----------|
-| General correctness, style, sequencing | the Ambition Advocate (`coordinator:ambition-advocate`) |
-| Unreal Engine / C++ / Blueprint | the Staff Engineer (`coordinator:staff-eng`) (then the Ambition Advocate) |
-| Front-end / React / TypeScript | the Front-End Reviewer (`web-dev:senior-front-end`) (then the Ambition Advocate) |
+| General correctness, style, sequencing | the Staff Engineer (`coordinator:staff-eng`) |
+| Unreal Engine / C++ / Blueprint | the Staff Engineer (`coordinator:staff-eng`) (the Director of Engineering as backstop at High effort) |
+| Front-end / React / TypeScript | the Front-End Reviewer (`web-dev:senior-front-end`) (then the Staff Engineer) |
 | UX flows, user-facing copy | the UX Reviewer (`web-dev:staff-ux`) |
 | Data science / ML | the Data Science Reviewer (`data-science:staff-data-sci`) |
-| Architecture, major structural changes | the Staff Engineer |
+| Architecture, major structural changes | the Staff Engineer (the Director of Engineering as backstop at High effort) |
+| Cross-team / cross-repo seams, consumer-producer plug-in architecture, generic-substrate review | the Director of Engineering (`coordinator:eng-director`) standalone |
 | Product scope / user-visible behavior | the VP-Product Reviewer (`coordinator:vp-product`) |
 
-Dispatch via `/review-dispatch`. Always sequential: domain expert first, generalist (the Ambition Advocate) second, fixes integrated between each pass.
+Dispatch via `/review-dispatch`. Always sequential: domain expert first, generalist (the Staff Engineer) second, the Director of Engineering as backstop at High effort, fixes integrated between each pass.

@@ -20,16 +20,20 @@ Domain plugins register reviewers by providing a `routing.md` file at the plugin
 - **Signals:** Architectural change, new subsystem, cross-cutting (many files, new pattern), backend, security, other/unmatched
 - **Model:** opus
 - **Effort:** Medium (escalates to High for architectural changes)
-- **Backstop:** the Ambition Advocate
+- **Backstop:** the Director of Engineering
 - **Agent file:** `agents/staff-eng.md`
 
-### the Ambition Advocate (ambition-advocate)
-- **Signals:** N/A — backstop only, never primary
+### the Director of Engineering (eng-director)
+- **Signals (standalone primary):** Cross-team / cross-repo seams (consumer ↔ producer, plugin ↔ host, app ↔ shared library), generic-substrate / consumer-leak risk on producer-side surfaces, architecturally-ambitious plans where DoE-altitude authority is wanted, any review the PM directs to the Director of Engineering solo
+- **Signals (backstop):** Chained after the Staff Engineer on High-effort reviews to challenge under-ambition or under-authority; this is one of the Director of Engineering's roles, not his identity
 - **Model:** opus
-- **Effort:** Medium
-- **Backstop:** None (terminal backstop)
-- **Agent file:** `agents/ambition-advocate.md`
-- **Invocation rule:** Mandatory at High effort, optional at Medium, skip at Low
+- **Effort:** Medium (escalates to High when issuing cross-team directives or resolving architectural ambition)
+- **Backstop:** None (terminal — the Director of Engineering is the DoE)
+- **Agent file:** `agents/eng-director.md`
+- **Invocation rules:**
+  - **Standalone is a first-class dispatch.** When the PM says "get a the Director of Engineering review," dispatch the Director of Engineering solo — do NOT insist on running the Staff Engineer first. The Director of Engineering is a peer of the Staff Engineer in technical rigor, not a the Staff Engineer-attached subroutine.
+  - **Backstop chain is still the default for High-effort architectural the Staff Engineer reviews.** the Staff Engineer runs first, integrator applies findings, the Director of Engineering runs as backstop on the evolved artifact.
+  - **For cross-repo or consumer/producer-substrate reviews, prefer the Director of Engineering standalone over the Staff Engineer+the Director of Engineering.** the Staff Engineer's EM-altitude hedging on peer-team appetite is exactly what the Director of Engineering's DoE altitude is meant to bypass.
 
 ## Fallback Rule
 
@@ -68,7 +72,7 @@ Per-project config in `coordinator.local.md`:
 
 `project_type` is a single string. `project_subtypes` is an optional list of free-form tags (e.g. `unreal`, `unity`) that enable engine-specific or stack-specific routing within the declared type. Downstream consumers do best-effort matching; unknown subtypes are silently ignored.
 
-If no `.local.md` exists, default to core-only (the Staff Engineer + the Ambition Advocate).
+If no `.local.md` exists, default to core-only (the Staff Engineer + the Director of Engineering).
 
 ## Effort Calibration
 
@@ -90,15 +94,26 @@ Not every change needs the full review pipeline:
 - **Purely mechanical changes** (rename, format, move): `coordinator:validate` is sufficient, skip review
 - **CI/CD config only**: EM self-review, no dispatch needed
 
+## the Director of Engineering Standalone vs. Backstop — Dispatch Selection
+
+When the PM or EM wants a the Director of Engineering review, decide which mode applies:
+
+- **Standalone (default when in doubt):** Dispatch the Director of Engineering solo via `Agent(subagent_type=coordinator:eng-director, ...)` with `mode: "standalone"` in the prompt. Use when (a) the artifact spans repos or touches a consumer/producer seam, (b) the PM said "get a the Director of Engineering review" without naming the Staff Engineer, (c) the architectural ambition itself is what's being evaluated, or (d) the Staff Engineer would hedge on cross-team scope that the Director of Engineering has authority to set.
+- **Backstop (after the Staff Engineer):** Dispatch the Director of Engineering with `mode: "backstop"` AFTER the Staff Engineer has reviewed and the integrator has applied the Staff Engineer's findings. Use when (a) the Staff Engineer returned and his recommendation reads as "conservative under AI capacity," (b) High-effort architectural reviews where doctrine requires the backstop pass, or (c) the Staff Engineer explicitly named the Director of Engineering in his findings.
+
+An EM who responds to "get a the Director of Engineering review" with "doctrine says the Director of Engineering is a backstop, dispatching the Staff Engineer first" is misreading the doctrine. Standalone is a first-class dispatch — proceed.
+
 ## Backstop Reconciliation Protocol
 
-When the backstop (the Ambition Advocate) returns findings after a primary review (the Staff Engineer or domain reviewer):
+When the Director of Engineering returns findings in **backstop mode** after a primary review (the Staff Engineer or domain reviewer):
 
-- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. The Ambition Advocate's agreement is noted but requires no action.
-- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use the Ambition Advocate's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
+- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. The Director of Engineering's agreement is noted but requires no action.
+- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use the Director of Engineering's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
 - **BACKSTOP_OVERRIDES:** Coordinator surfaces both perspectives to PM and blocks until resolved. Overrides are rare — "ship heading for iceberg" territory.
 
-The review-integrator should never receive findings where the Staff Engineer and the Ambition Advocate disagree without the coordinator having resolved the disagreement first.
+The review-integrator should never receive findings where the primary reviewer and the Director of Engineering disagree without the coordinator having resolved the disagreement first.
+
+When the Director of Engineering returns findings in **standalone mode**, the verdict shape is the standard reviewer enum (`APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED`) and findings flow through the normal integrator path — no special reconciliation protocol applies.
 
 ## Post-Review Synthesis (when 2+ reviewers ran)
 

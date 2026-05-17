@@ -56,14 +56,18 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
 | Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: the Director of Engineering) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude) | (none) | High |
 | Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
 | Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
 | ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
 | UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Director of Engineering) | High |
 | Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
 | Other / unmatched | the Staff Engineer | (none) | Medium |
+
+**the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch the Director of Engineering **standalone** with `mode: "standalone"` in the prompt — do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The "(backstop: the Director of Engineering)" entries above are the chained-after-the Staff Engineer usage for High-effort architectural reviews; that mode is still in play but does not exhaust the Director of Engineering's role.
 
 If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
 

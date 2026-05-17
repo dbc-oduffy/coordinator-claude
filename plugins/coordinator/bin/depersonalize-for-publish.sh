@@ -22,7 +22,7 @@
 #
 # Vocabulary (matching docs/customization.md "Reviewer Roles" table):
 #   Patrik                        → the Staff Engineer
-#   Zolí                          → the Ambition Advocate
+#   Zolí                          → the Director of Engineering
 #   YK                            → the VP-Product Reviewer
 #   Sid                           → the Game Dev Reviewer
 #   Palí                          → the Front-End Reviewer
@@ -74,7 +74,7 @@ Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixe
 
 Persona vocabulary table:
   Patrik   → the Staff Engineer
-  Zolí     → the Ambition Advocate
+  Zolí     → the Director of Engineering
   YK       → the VP-Product Reviewer
   Sid      → the Game Dev Reviewer
   Palí     → the Front-End Reviewer
@@ -137,7 +137,7 @@ fi
 declare -A NAME_TO_ROLE=(
   # Persona names (must match the publish-repo check-persona-names.py pattern)
   ["Patrik"]="the Staff Engineer"
-  ["Zolí"]="the Ambition Advocate"
+  ["Zolí"]="the Director of Engineering"
   ["YK"]="the VP-Product Reviewer"
   ["Sid"]="the Game Dev Reviewer"
   ["Palí"]="the Front-End Reviewer"
@@ -330,8 +330,8 @@ for f in "${FILES[@]}"; do
   #    period-space and start-of-line cases; mid-paragraph fixes stay literal.
   perl -CS -i -pe '
     s/\b(?:[Tt]he) (the) /\1 /g;                                  # The the X / the the X → the X
-    s/^the (Staff Engineer|Ambition Advocate|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/The \1/g;  # line-start
-    s/(\. |\? |\! )the (Staff Engineer|Ambition Advocate|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/\1The \2/g;  # sentence-initial
+    s/^the (Staff Engineer|Director of Engineering|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/The \1/g;  # line-start
+    s/(\. |\? |\! )the (Staff Engineer|Director of Engineering|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/\1The \2/g;  # sentence-initial
   ' "$f"
   fixed=$((fixed + 1))
   echo "rewrote: $f (backup: ${f}.bak)"

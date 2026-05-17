@@ -25,7 +25,7 @@ A **staff session** is an Agent Teams-based collaborative planning or review pat
 | Standard | 2 debaters + synthesizer (3 total) | Default for architectural questions |
 | Full | 3-5 debaters + synthesizer (4-6 total) | Multi-domain or irreversible structural choices |
 
-Default standard pairings: the Staff Engineer+the Ambition Advocate (architecture / cross-cutting), the Game Dev Reviewer+the Staff Engineer (game dev), the Front-End Reviewer+the UX Reviewer (frontend), the Data Science Reviewer+the Staff Engineer (data).
+Default standard pairings: the Staff Engineer+the Director of Engineering (architecture / cross-cutting), the Game Dev Reviewer+the Staff Engineer (game dev), the Front-End Reviewer+the UX Reviewer (frontend), the Data Science Reviewer+the Staff Engineer (data).
 
 ### When a single reviewer is the right tool instead
 
@@ -39,8 +39,8 @@ The default for any review is single-reviewer dispatch (via `/review` for plan a
 | Single-skill or single-command edit | `/review` (single reviewer) | Scoped artifact; one expert lens fits |
 | Post-execution code review | `/review-code` | Sequential by design (evolved artifact) |
 | Per-stub reviews during enrichment | single reviewer | Too heavy for individual stubs |
-| Genuinely architectural decision crossing two domains, with real cost in being wrong | **Standard** staff session (2 debaters + the Ambition Advocate) — *PM authorization required* | Two domain experts debate, the Ambition Advocate synthesizes |
-| Cross-cutting work touching three+ domains where each lens is irreplaceable | **Full** staff session (3-5 debaters + the Ambition Advocate) — *PM authorization required* | Each domain expert brings a lens no other can substitute |
+| Genuinely architectural decision crossing two domains, with real cost in being wrong | **Standard** staff session (2 debaters + the Director of Engineering) — *PM authorization required* | Two domain experts debate, the Director of Engineering synthesizes |
+| Cross-cutting work touching three+ domains where each lens is irreplaceable | **Full** staff session (3-5 debaters + the Director of Engineering) — *PM authorization required* | Each domain expert brings a lens no other can substitute |
 
 The bar for even *asking* the PM whether a staff session is warranted: the work is genuinely architectural — cross-system design, irreversible structural choice, multi-domain tradeoff with real cost in being wrong. If you're tempted to recommend one for a one-afternoon process change, you're miscalibrated; do the lighter thing instead.
 
@@ -117,23 +117,23 @@ The related antipattern — allocating a team slot to an agent whose only job is
 ## Example invocations
 
 ```
-# Standard plan session — auto-selects the Staff Engineer + the Game Dev Reviewer for architecture, the Ambition Advocate synthesizes
+# Standard plan session — auto-selects the Staff Engineer + the Game Dev Reviewer for architecture, the Director of Engineering synthesizes
 /staff-session --mode plan --tier standard "Design the executor abort/escalation protocol"
 
-# Standard review — explicit reviewers, the Ambition Advocate synthesizes
+# Standard review — explicit reviewers, the Director of Engineering synthesizes
 /staff-session --mode review --tier standard --members "sid,patrik" docs/plans/2026-03-22-holodeck-refactor.md
 
-# Full plan session — multi-domain debaters, the Ambition Advocate synthesizes
+# Full plan session — multi-domain debaters, the Director of Engineering synthesizes
 /staff-session --mode plan --tier full --members "patrik,sid,camelia" "Design cross-system AI behavior pipeline"
 
-# Lightweight — falls through to single-reviewer dispatch (no the Ambition Advocate synthesis)
+# Lightweight — falls through to single-reviewer dispatch (no the Director of Engineering synthesis)
 /staff-session --mode review --tier lightweight --members "patrik" docs/plans/quick-fix.md
 ```
 
 ## Gotchas
 
 - **Backstop protocols suspended during staff sessions.** Parallel debate serves the same multi-perspective challenge function; double-counting wastes tokens.
-- **No simulated-PM agent.** Push-for-more is a synthesizer prompt lens; if a business perspective is needed, the Ambition Advocate is the closest fit.
+- **No simulated-PM agent.** Push-for-more is a synthesizer prompt lens; if a business perspective is needed, the Director of Engineering is the closest fit.
 - **Reuses existing persona agents** with a tool-list addition (`SendMessage`, `TaskUpdate`, `TaskList`, `TaskGet`). These tools are no-op outside Agent Teams; non-team dispatches via `/review` or `/review-code` are behaviorally unchanged.
 - **PM-gated, never EM-initiated.** If the EM thinks a staff session is warranted, ask first. NEVER invoke from a subagent.
 
