@@ -75,7 +75,7 @@ Brainstorm -> Plan -> Prior-Art Check -> Enrich -> Review Enrichment -> Execute 
   (skill)  (super-skill) (Sonnet recall) (enricher)    (reviewer)       (executor) (coordinator) (Staff Engineer+domain) (Director of Engineering, backstop mode) (skill)
 ```
 
-The `Plan` stage is a decision-tree super-skill (`coordinator:plan`) — triage / substrate / compose / exit, see [docs/evolution/07-super-skills.md](evolution/07-super-skills.md). The `Prior-Art Check` stage is a Sonnet recall pass that cross-references the plan against project + global wikis, `tasks/lessons.md`, and the central improvement queue before an Opus reviewer touches it; doctrine in [`plugins/coordinator/docs/wiki/prior-art-checker.md`](../plugins/coordinator/docs/wiki/prior-art-checker.md).
+The `Plan` stage is a decision-tree super-skill (`coordinator:plan`) — triage / substrate / compose / exit, see [docs/evolution/07-super-skills.md](evolution/07-super-skills.md). The `Prior-Art Check` stage is a Sonnet recall pass that cross-references the plan against project + global wikis, `tasks/lessons.md`, and the central improvement queue before an Opus reviewer touches it; doctrine in [`docs/wiki/prior-art-checker.md`](../docs/wiki/prior-art-checker.md).
 
 Each stage is a quality checkpoint:
 - **Brainstorm** catches wrong direction
