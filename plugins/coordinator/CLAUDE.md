@@ -65,7 +65,7 @@ Conventions decay unless greppable from surfaces agents touch. For each new conv
 - **Prior-art-checker pre-flight:** Sonnet recall agent cross-references plan vs. project/global wikis, lessons, central queue. Sidecar at `<plan-path>.prior-art-check.md`. → `docs/wiki/prior-art-checker.md`.
 - **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no programmatic consumers.
 - **Daily-branch discipline:** → `docs/wiki/daily-branch-discipline.md`. Hook `block-off-daily-branch.sh` blocks create/switch/rename/stash-branch/worktree-add (override `COORDINATOR_OVERRIDE_BRANCH=1`). Inline-override: `/workday-start`, `/merge-to-main`, `/consolidate-git`. `/bug-blitz` and `/dogfood` fail-closed-only.
-- **Wiki-mirror block:** `block-dev-side-mirror-wiki.sh` blocks writes to `~/.claude/docs/wiki/<name>.md` when bundled copy exists. Override: `COORDINATOR_OVERRIDE_WIKI_MIRROR=1`. Write plugin-doctrine wikis to bundled path directly.
+- **Working wiki canonical layout:** Coordinator doctrine wikis live at repo top-level `docs/wiki/<name>.md` (post 2026-05-17 layout move). The published plugin's bundled copy at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` is stale leftover from before the move; not actively maintained. Prior wiki-mirror hook (`block-dev-side-mirror-wiki.sh`) retired — invariant inverted by the move.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -228,7 +228,7 @@ Predecessor is **whatever handoff this session was opened with — period** (the
 
 **Memory is for cross-session pointers, not decision content.** Decisions/frameworks/strategies belong in plans/wikis/DRs.
 
-**Plugin-bundled wikis.** When a plugin file cites a wiki guide, the wiki MUST live at `<plugin-root>/docs/wiki/<name>.md`. References use `docs/wiki/<name>.md` relative to plugin root. Project-level wikis stay in consumer's `~/.claude/docs/wiki/`. Validate: `bin/sync-plugin-wiki.sh`. Never both — dev-side mirrors of plugin-doctrine wikis re-introduce the write-direction trap.
+**Coordinator doctrine wikis.** Live at repo top-level `docs/wiki/<name>.md` (canonical post 2026-05-17 layout move). Plugin files cite `docs/wiki/<name>.md` as a prose reference — agents resolve against the active project's wiki directory at read time. Consumer projects keep their own wikis at `~/.claude/docs/wiki/` (user-level cross-project notes, distinct from coordinator doctrine). The published plugin at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` carries a stale snapshot from before the move; not actively maintained per PM-accepted tradeoff (percolation does not actively push wikis). See `docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md` § Stage 1.5.
 
 ## Verification Before Done
 
