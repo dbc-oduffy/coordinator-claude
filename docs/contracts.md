@@ -44,7 +44,7 @@ Layer taxonomy:
   *— prompt-doctrine via CLAUDE.md § Plan-First Workflow + `plan/SKILL.md`*
 - Plans pass through prior-art recall before Opus review →
   [`plugins/coordinator/agents/prior-art-checker.md`](../plugins/coordinator/agents/prior-art-checker.md) +
-  [`plugins/coordinator/docs/wiki/prior-art-checker.md`](../plugins/coordinator/docs/wiki/prior-art-checker.md)
+  [`docs/wiki/prior-art-checker.md`](../docs/wiki/prior-art-checker.md)
   *— workflow-check via prior-art-checker dispatch in plan pipeline*
 
 ## Executor contract
@@ -97,5 +97,5 @@ Layer taxonomy:
 
 - Full persona rationale: [`docs/evolution/03-personas-as-ergonomics.md`](evolution/03-personas-as-ergonomics.md)
 - System architecture: [`docs/architecture.md`](architecture.md)
-- Daily-branch doctrine: `plugins/coordinator/docs/wiki/daily-branch-discipline.md`
-- Scoped-staging guide: `plugins/coordinator/docs/wiki/scoped-safety-commits.md`
+- Daily-branch doctrine: `docs/wiki/daily-branch-discipline.md`
+- Scoped-staging guide: `docs/wiki/scoped-safety-commits.md`
