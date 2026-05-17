@@ -19,28 +19,9 @@ Repo-wide maintenance — syncs all documentation artifacts to match the current
 
 **Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, or any `gh` command mutating GitHub state beyond pushing the current branch. DO NOT commit to `main`. If you find yourself reaching for a merge, STOP and surface to the EM. The EM merges via `/merge-to-main`.
 
-### What This Does
-
-1. **Detects** project tracker and flags if missing (escalates to PM)
-2. **Refreshes** source indexes / directory docs if source files changed
-3. **Updates** plan documents to reflect completed/changed work
-4. **Syncs** MEMORY.md with new patterns, decisions, or status changes
-5. **Maintains** the unified project tracker (inlined; was `tracker-maintenance` skill — see `pipelines/update-docs/`) — marks completion, archives shipped work, updates dependencies
-6. **Processes** lessons files (inlined via `/learn-lessons --mode=local`)
-7. **Updates** CLAUDE.md if architecture or conventions changed (rare)
-8. **Archives** old handoffs (inlined; see `pipelines/update-docs/`)
-9. **Commits** all doc changes and verifies remote sync
-9b. **Regenerates repomap** (RAG-gated: primary when no RAG, fallback when RAG stale, skipped when RAG fresh)
-10. **Refreshes** orientation cache if present
-10b. **Logs repomap audit value** (when RAG present and repomap generated as fallback)
-11. **Checks** changed files against architecture atlas — narrative-drift mode on RAG repos, hybrid mode on non-RAG repos (inlined; see `pipelines/update-docs/`)
-11b. **Verifies snippet sync** (runs every `plugins/*/bin/verify-*-sync.sh`; surfaces diff to PM on failure)
-11d. **Sweeps frontmatter-schema drift** (runs `bin/lint-frontmatter.sh --json`; surfaces count + top violators)
-12. **Distills** accumulated artifacts into wiki guides if thresholds are met (`/distill` pipeline, conditional)
-13. **Reports** summary of all phases
-14. **Refreshes** the cross-repo registry (cwd-gated: only fires when invoked from `~/.claude`)
-
 ### Execution Workflow
+
+Phases below are the source of truth — the headings enumerate everything this command does. No separate "what this does" list (it drifts).
 
 #### Phase 0: Quick-Save Before Docs
 
@@ -434,71 +415,28 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
 
 #### Phase 13: Report
 
-Present a concise `## Documentation Update Summary`. Emit one `### <section>` heading per row below, followed by a single status line drawn from the bracketed options.
+Present a concise `## Documentation Update Summary` with one `### <section>` heading per item below, status line drawn from the phase's own success/skip/failure outputs.
 
-| Section heading | Status template |
-|---|---|
-| Project Tracker | `[Maintained — N items archived, M remaining / No tracker found — NEEDS PM+EM SETUP / No changes needed]`; append active workstream count + any dependency/dead-reference notes |
-| Source Indexes | `[Created from scratch (N directories, M files) / Updated — N files added, M removed / No changes needed]` |
-| Plan Documents | one line per file: `[file]: [what was updated]` |
-| Memory | `[Updated / No changes needed] — [what changed]` |
-| Lessons | `[Trimmed N entries / Merged M / No changes needed]` |
-| CLAUDE.md | `[Updated / No changes needed]` |
-| Handoffs Archived | `[N moved from tasks/handoffs/ → archive/handoffs/ / No handoffs to clean up]` |
-| Artifact Pruning (Phase 8b) | `[Pruned N plans, M archived handoffs, K task dirs (safety commit <sha>) / Nothing crossed threshold — no-op]` |
-| Plugin Doc-Link Health | `[Clean / N broken, M anchor-missing — see <report-path> / Skipped — N external URLs over 100-cap]` |
-| Completion Archive | `[N items archived to archive/completed/YYYY-MM.md / No completed items]`; second line for ad-hoc git-log captures |
-| Architecture Atlas | `[Narrative-drift findings: N suggestions / No drift detected / Skipped — atlas not found]`; append RAG-staleness line and quarterly drift-risk note if triggered |
-| Repomap | `[Generated (primary — no RAG) / Generated as RAG-fallback (RAG stale) / Skipped (RAG present + fresh)]`; append audit-log line if applicable |
-| Preamble Sync | `[In sync / FAILED — diff surfaced to PM / Script not found (W2 not deployed)]` |
-| Query Callouts | `[Up to date / N file(s) updated / Error — stderr surfaced to PM / Script not found (W2 not deployed)]` |
-| Frontmatter Schema Drift | `[0 violations / N violations across S schema(s) — top: schema A (count), schema B (count); offending files: path1, path2 … / Script not found (W1 not deployed)]` |
-| Distillation | `[Ran /distill — N guides created/updated, M artifacts deleted / Not needed (N artifacts, last run M days ago) / Skipped (--no-distill)]` |
-| Pushed to Remote | `[yes — branch name / no — reason]` |
-| Cross-Repo Registry (Phase 14, central-only) | `[N candidates surfaced for tagging / All known repos verified / N entries marked unreachable / Skipped — not running from ~/.claude]` |
+- **Project Tracker** — maintained / no tracker / no changes; include workstream count + dependency notes
+- **Source Indexes** — created / updated / no changes
+- **Plan Documents** — one line per file
+- **Memory** — updated / no changes (note what changed)
+- **Lessons** — trimmed N / merged M / no changes
+- **CLAUDE.md** — updated / no changes
+- **Handoffs Archived** — N moved / no cleanup
+- **Artifact Pruning (Phase 8b)** — N plans, M handoffs, K dirs (safety commit SHA) / no-op
+- **Plugin Doc-Link Health** — clean / N broken (path) / skipped (cap)
+- **Completion Archive** — N archived to YYYY-MM.md / none
+- **Architecture Atlas** — drift findings / clean / skipped; append RAG-staleness + quarterly drift-risk notes
+- **Repomap** — generated (primary) / fallback / skipped (RAG fresh); append audit-log line
+- **Preamble Sync, Query Callouts** — in-sync / N updated / failed
+- **Frontmatter Schema Drift** — 0 / N across S schemas with top offenders
+- **Distillation** — ran (N guides, M deleted) / not needed / skipped
+- **Pushed to Remote** — yes (branch) / no (reason)
+- **Cross-Repo Registry (Phase 14)** — N candidates / all verified / N unreachable / skipped
 
 #### Phase 14: Cross-Repo Registry Refresh (cwd-gated, EM-only)
 
-**Skip if `pwd` is not `~/.claude`.** Central coordinator repo only — per-project runs skip with: *"Phase 14: skipped — not running from ~/.claude."* **EM-only** — the Sonnet agent does NOT execute Phase 14. If the agent reaches it in error, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
+**Skip if `pwd` is not `~/.claude`.** Per-project runs skip with: *"Phase 14: skipped — not running from ~/.claude."* **EM-only** — the Sonnet agent does NOT execute this phase; if it reaches Phase 14, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
 
-**Purpose:** Maintain `~/.claude/tasks/repo-registry.md` — the cross-repo inventory powering peer-repo prior-art lookup. Schema and conventions: [`docs/wiki/repo-registry.md`](../docs/wiki/repo-registry.md).
-
-**Steps:**
-
-1. **Decode Claude Code invocation history.** Run `${CLAUDE_PLUGIN_ROOT}/bin/decode-claude-projects-dir.sh`. Output is tab-separated `shortname<TAB>candidate-path<TAB>encoded-dir`. The decoder is heuristic; treat output as candidates, not authoritative paths.
-
-2. **Diff against active registry block.** Read the `<!-- BEGIN repo-registry --> ... <!-- END repo-registry -->` block in `~/.claude/tasks/repo-registry.md`. For each decoded candidate:
-   - **Already in active block (by `shortname`)** → no-op for this candidate.
-   - **Not in active block** → append to `<!-- BEGIN repo-registry-candidates --> ... <!-- END repo-registry-candidates -->` block with `status: needs-pm-review`, `goals: []`, `stack_tags: []`, `relationships: []`, `last_verified: <today>`. Skip if already in candidates block.
-
-3. **Staleness check on existing entries.** For each repo in the active block:
-   - `ls "${path}"` (or equivalent reachability check). If reachable → update `last_verified: <today>`.
-   - If unreachable → flip `status: unreachable` (do NOT delete; repo may be on a disconnected drive).
-   - If currently `unreachable` and now reachable → flip back to `active` and log the transition.
-
-4. **Surface counts to PM.** End-of-phase output (count-only, no per-entry detail):
-   - `N candidates surfaced for tagging` (if any new candidates)
-   - `M entries marked unreachable` (if any flipped to unreachable this run)
-   - `K entries restored to active` (if any flipped back from unreachable)
-   - `R entries refreshed last_verified`
-
-5. **Commit.** Include `~/.claude/tasks/repo-registry.md` in the EM-side Phase 9 commit. Use `coordinator-safe-commit "registry refresh: N candidates, M unreachable"` or explicit-path staging.
-
-**Failure modes:** Decoder returns zero candidates → log warning, proceed to staleness check. Registry file missing → create from template (Schema heading + empty active + empty candidates blocks); log `"Phase 14: registry file created from scratch"`. Sentinel block malformed → surface to PM, do NOT auto-repair.
-
-**Out of scope for V1:** auto-promoting candidates, inferring stack tags from manifest files, or pruning dormant entries (PM curates and judges in `/workweek-complete`).
-
-### Style Guidelines
-
-- **Match existing style** — don't reformulate, just update
-- **Be precise** — file paths, class names, line numbers where relevant
-- **Be concise** — bullet points, not paragraphs
-- **Preserve structure** — don't reorganize documents, just update content
-- **Timestamp everything** — dates on refreshes, completion markers on plans
-
-### When to Invoke
-
-- **Periodically** — when docs have drifted from reality (not necessarily every session)
-- **After major feature implementation** — when significant code was written by one or more agents
-- **Before starting a new phase** — to ensure docs reflect the starting state
-- **Explicitly** — when you want repo-wide maintenance. `/session-end` and `/handoff` now do lightweight orientation patches (cache, tracker, action items, plan docs) for what the session touched — but `/update-docs` is still the heavyweight pass that re-derives everything, trims lessons, archives handoffs, and runs integrity checks.
+Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/cross-repo-registry-refresh.md` and follow all steps exactly.
