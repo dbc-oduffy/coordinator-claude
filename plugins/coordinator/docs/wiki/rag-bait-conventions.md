@@ -63,6 +63,73 @@ Why bad: "This module handles enrichment" is a what-comment at module scope. "Ad
 of the coordinator refactor" is task context that belongs in the PR description and will
 mislead future readers.
 
+#### 1a. Owner-File Invariant Paragraph (for files that own system properties)
+
+**Where:** Top of every module file whose code OWNS a system-level invariant — a guarantee
+the system makes that a user might ask about without knowing where to look. Examples:
+"the host loads at most one resident neural-network model into VRAM at once",
+"two concurrent indexing runs cannot corrupt the database",
+"every measurement run reports uncertainty alongside its headline number",
+"every priming run that yields suspiciously empty results rolls back rather than committing".
+
+**What:** A multi-sentence "Invariant — …" paragraph at the very top of the module docstring,
+*before* the surface-level "Routes:" / "Public API:" / "Purpose:" sections. The paragraph
+MUST be written in the vocabulary the *intent query* would use, not the vocabulary the file's
+surface uses. A user asking "how does the system avoid loading two large neural network
+models into memory at the same time" is using system-property vocabulary; a docstring that
+says "FastAPI server that owns the resident CodeRankEmbed model with /encode_batch routes"
+is using surface vocabulary. The two don't bridge in the embedding space.
+
+**Concrete pattern:**
+```python
+"""
+embed_sidecar/app.py — FastAPI server that owns the resident CodeRankEmbed model.
+
+Invariant — single resident embed model per host, no concurrent VRAM occupancy:
+  The system avoids loading two large neural network models into GPU memory at
+  the same time by running CodeRankEmbed in exactly one resident-model process
+  — this sidecar — instead of letting every consumer instantiate its own copy
+  in-process. […paragraph continues with mechanism, vocabulary the intent
+  query uses, and an explicit "this is the canonical answer to …" sentence
+  that nearly mirrors the intent query phrasing…]
+
+Routes:
+  GET /health — …
+"""
+```
+
+**Why this pattern earns its own subsection (and is not optional for owner files):** measured
+empirically on project-rag's bucket-c retrieval-quality investigation, a single-paragraph
+invariant edit moved the canonical chunk for "how does the system avoid loading two large
+neural network models into memory at the same time" from chroma rank 874 (absent from
+top-500) to rank 2 in production top-50. The pre-enrichment preamble described the file's
+*surface* (FastAPI routes, lifecycle hooks, peer registry); the post-enrichment preamble
+states the *invariant* in the same vocabulary the user's question uses. Direct stored-emb
+cosine sim moved from 0.175 to 0.299 from the paragraph alone — no encoder change, no
+re-ranking, no architectural addition. This is the highest-leverage retrieval fix the
+project has measured.
+
+**How to identify an owner file:** ask "if a new engineer joins the team and asks me how
+the system guarantees X, which file would I open to show them?" That file is the owner.
+Subordinate files (helpers, tests, configs) inherit the invariant from the owner — they
+don't need their own copy of the paragraph, but the owner MUST have one.
+
+**Anti-example — do not write:**
+```python
+"""
+score_ndcg.py — computes NDCG@10 by reading bank YAML and results.jsonl,
+running the standard DCG formula, writing summary.md.
+"""
+```
+Why bad: surface-level description of the algorithm. A user asking "how does a measurement
+run report uncertainty about its own headline number" will never retrieve this file —
+neither "uncertainty" nor "headline" nor "report" appears, and the encoder has no signal
+that "NDCG@10" is the answer to a question about uncertainty.
+
+**Vocabulary discipline carries forward** — the invariant paragraph must use canonical
+CONTEXT.md terms for project-coined concepts. Authorial latitude is on the sentence shape,
+not on which words name the invariant.
+
 ---
 
 ### 2. Function / Method Purpose Line
