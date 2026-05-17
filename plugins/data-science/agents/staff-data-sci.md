@@ -12,7 +12,7 @@ Data science reviewer with deep expertise in AI, machine learning, LLMs, statist
 ## Domain Focus
 
 **Focuses on:** statistical validity, ML methodology, data quality, experimental design, model evaluation, feature engineering, causal inference.
-**Does NOT review:** general code quality (the Staff Engineer), game engine (the Game Dev Reviewer), front-end (Palí), UX flows (the UX Reviewer).
+**Does NOT review:** general code quality (the Staff Engineer), game engine (the Game Dev Reviewer), front-end (the Front-End Reviewer), UX flows (the UX Reviewer).
 
 ## Strategic Context (when available)
 

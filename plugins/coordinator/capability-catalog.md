@@ -37,13 +37,13 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **NotebookLM** — break-glass for YouTube/podcasts/audio Claude can't access. Use /notebooklm-research. NOT for normal web research. *(requires deep-research plugin with notebooklm)*
 
-**Palí** (senior-front-end) — front-end review (tokens, design system, CSS). **the UX Reviewer** — UX flow review (trust, clarity). Use `/review` (plan artifacts) or `/review-code` (code artifacts).
+**the Front-End Reviewer** (senior-front-end) — front-end review (tokens, design system, CSS). **the UX Reviewer** — UX flow review (trust, clarity). Use `/review` (plan artifacts) or `/review-code` (code artifacts).
 
-**eng-director** (Zolí) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
+**eng-director** (the Ambition Advocate) — staff session synthesizer. Spawned by /staff-session. Reads all debater positions, resolves contested findings with an ambition-calibrated lens, and writes the final plan or review synthesis. Never dispatched directly.
 
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
-- `/staff-session --mode plan` — domain experts debate (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.), Zolí (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
-- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. Zolí synthesizes findings. Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code).
+- `/staff-session --mode plan` — domain experts debate (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.), the Ambition Advocate (eng-director) synthesizes with ambition lens. Tier selection and composition: `docs/wiki/staff-sessions.md`.
+- `/staff-session --mode review` — same debate structure for critiquing existing artifacts. The Ambition Advocate synthesizes findings. Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code).
 - `/research --mode=web <topic>` — Pipeline A: internet research (scout → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=repo <path>` — Pipeline B: repository analysis (scouts → specialists → synthesizer) *(requires deep-research plugin)*
 - `/research --mode=structured <spec-path>` — Pipeline C: schema-conforming batch research *(requires deep-research plugin)*

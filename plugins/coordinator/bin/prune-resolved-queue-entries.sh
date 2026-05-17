@@ -3,15 +3,22 @@
 #
 # Spec backlink: docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5
 #
-# Purpose: Strip two categories of resolved-state bloat from the three named queue files:
-#   Rule 1 — Entry-shape: delete any three-line entry block (main + recurring: + resolution:)
-#            whose resolution: sub-line starts with "resolved". Applies to queue files only
-#            (coordinator-improvement-queue.md, improvement-queue.md). NOT bug-backlog.md.
-#   Rule 2 — Section-body: delete any section matching ^## (Processed|Resolved) and its
+# Purpose: Strip resolved-state bloat from the three named queue files:
+#   Rule 1 — Entry-shape (queue files only): delete any entry block whose resolution:
+#            sub-line starts with "resolved" (or any non-pending/non-in_progress value),
+#            or which carries a "**Closeout:**" sub-line. Applies to
+#            coordinator-improvement-queue.md, improvement-queue.md. NOT bug-backlog.md.
+#   Rule 2 — Section-body: delete any section matching
+#            ^## (Processed|Resolved|History|Closed|Done|Archive|Closeout) and its
 #            entire body up to the next ## heading or EOF. Applies to all three files.
 #            Regex breadth catches per-run-suffixed variants like
 #            "## Resolved this run (bug-blitz 2026-05-06-22h42)".
-#   Rule 3 — Idempotent: running twice produces no further changes.
+#   Rule 3 — Ceremony-line strip (queue files only): drop trivial schema-ceremony
+#            sub-lines that never change in practice — "  recurring: 0" and
+#            "  resolution: pending" / "  resolution: in_progress". Per DR-056
+#            (amended 2026-05-17): main-line-only schema; non-zero recurring counters
+#            fold into the main line as " [recurring: N]" when needed.
+#   Rule 4 — Idempotent: running twice produces no further changes.
 #
 # Usage: prune-resolved-queue-entries.sh <queue-file>
 #
@@ -82,10 +89,13 @@ function flush_buffer(   i) {
 {
   lineno = NR
 
-  # --- Rule 2: detect a ## Processed or ## Resolved* section header ---
-  # Broad prefix match catches per-run-suffixed variants like
-  # "## Resolved this run (bug-blitz …)".
-  if ($0 ~ /^## Processed/ || $0 ~ /^## Resolved/) {
+  # --- Rule 2: detect a ## Processed / Resolved* / History / Closed / Done /
+  # Archive / Closeout section header. Broad prefix match catches per-run-suffixed
+  # variants like "## Resolved this run (bug-blitz …)" and "## History".
+  if ($0 ~ /^## Processed/ || $0 ~ /^## Resolved/ || \
+      $0 ~ /^## History/ || $0 ~ /^## Closed/ || \
+      $0 ~ /^## Done/ || $0 ~ /^## Archive/ || \
+      $0 ~ /^## Closeout/) {
     flush_buffer()
     in_resolved_section = 1
     next
@@ -118,8 +128,17 @@ function flush_buffer(   i) {
 
     # buf_count > 0 — currently gathering an entry
     if (is_subline && !is_main) {
+      # Rule 3: ceremony-line strip. Drop trivial schema-ceremony sub-lines
+      # entirely (do not even buffer them) — `recurring: 0` and
+      # `resolution: pending` / `resolution: in_progress`. Per DR-056 amended
+      # 2026-05-17, the queue schema is main-line-only by default.
+      if ($0 ~ /^  recurring: 0[[:space:]]*$/) next
+      if ($0 ~ /^  resolution: pending[[:space:]]*$/) next
+      if ($0 ~ /^  resolution: in_progress[[:space:]]*$/) next
       buf[++buf_count] = $0
-      if ($0 ~ /^  resolution: resolved /) buf_resolved = 1
+      # Rule 1: any resolution value other than pending/in_progress (already
+      # filtered above) is a closure marker — suppress the entry.
+      if ($0 ~ /^  resolution: /) buf_resolved = 1
       else if ($0 ~ /^  \*\*Closeout:\*\*/) buf_resolved = 1
       next
     }

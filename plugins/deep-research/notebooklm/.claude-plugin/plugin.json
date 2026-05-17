@@ -3,8 +3,8 @@
   "version": "1.1.0",
   "description": "Research YouTube, podcasts, and media Claude can't access directly — NotebookLM integration with structured claims extraction, adversarial coverage checking, and notebook preservation for follow-up queries.",
   "author": {
-    "name": "Dónal O'Duffy & Claude"
+    "name": "the Coordinator Authors"
   },
-  "repository": "https://github.com/oduffy-delphi/deep-research-claude",
+  "repository": "https://github.com/dbc-oduffy/deep-research-claude",
   "keywords": ["research", "youtube", "podcast", "claude-code", "notebooklm", "media-research", "mcp", "google"]
 }

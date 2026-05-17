@@ -102,7 +102,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | **staff-eng** | Opus | Senior staff engineer — rigorous review of code, plans, architecture, documentation |
 | **ambition-advocate** | Opus | Backstop reviewer — challenges conservative recommendations, never a primary reviewer |
 
-### Commands (23)
+### Commands (11)
 
 | Command | Purpose |
 |---------|---------|
@@ -126,7 +126,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (18+)
+### Skills (26)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -228,7 +228,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, Zolí, the Game Dev Reviewer, Palí, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, the Ambition Advocate, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.

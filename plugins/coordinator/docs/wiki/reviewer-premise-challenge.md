@@ -48,7 +48,7 @@ Output field: `counter_evidence: [{file, line, quote, relevance}]` or `none_foun
 
 ### W3 — the Staff Engineer Pass 0 fields
 
-Three new fields in the Staff Engineer's [reviewer output](reviewer-output-schema.md):
+Three new fields in the Staff Engineer's reviewer output:
 
 - `premise_review`: `clean | needs-justification | refuted`.
 - `alternatives_considered`: 0-3 high-level shapes the Staff Engineer names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
@@ -89,10 +89,10 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 - **Validator/parser-semantics claims from reviewers are folklore until measured.** When a reviewer claims a validator, parser, linter, or schema engine "will reject X" / "already enforces Y" / "rewrites Z under the hood", treat the claim as a hypothesis — not as load-bearing input to the disposition table. Stakes-proportionate empirical check: feed the asserted input to the actual tool and observe. For non-trivial-stakes findings (anything that gates merge, changes a schema, or removes a guard), the empirical check is mandatory before AUTO-FIX or apply. A reviewer-asserted semantic is one source; the running tool is the other; convergence between them is the green-light, not the reviewer's confidence alone. This is structurally similar to the convergence-as-confidence rule in coordinator CLAUDE.md but specifically for tool-behavior claims, which have the highest folklore rate.
 
 - **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required the Staff Engineer to judge alternatives he's explicitly not investigated — contradicting the W3 "naming is high-level only" guardrail.
-- **the Data Science Reviewer / Palí / the UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
+- **the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
 - **Calibration block schema unchanged.** Premise-challenge fields live in reviewer system prompts, not in the synced calibration block — the calibration block stays focused on confidence + AUTO-FIX/ASK routing.
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md), [reviewer-routed-workers](reviewer-routed-workers.md)
+- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
 - Source plan: `archive/specs/2026-05-04-reviewer-premise-challenge.md`

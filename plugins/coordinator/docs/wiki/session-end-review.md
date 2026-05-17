@@ -1,3 +1,11 @@
+---
+provenance:
+  - archived_spec: archive/specs/2026-05-15-ubt-compile-gate-review-trail.md
+    original_path: docs/plans/2026-05-15-ubt-compile-gate-review-trail.md
+    last_verbose_sha: af9b63e49817131fa7c88c8dcb0513271a50012d
+    distilled: 2026-05-15
+---
+
 # Session-End Review and Marker Trail
 
 <!-- spec-backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md §T9 -->
@@ -148,6 +156,66 @@ The `parallel-code-review` skill body itself is NOT modified. All scope-narrowin
 **Verdict subvariant:** when `patrik_scope` is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (patrik trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
 
 **Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (the Staff Engineer or Sonnet). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all four lenses covered" — it means "the Staff Engineer lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
+
+## Three-Surface Composition — Automated Build Verdicts (UBT pattern, 2026-05-15)
+
+The review trail accommodates automated build-quality checks via a deferred three-surface
+composition. The UBT compile gate is the first example; future automated linters (`clippy`,
+`eslint`, `pytest-coverage`) follow the same shape.
+
+### Motivation
+
+Running a UBT build (~30s incremental, low-minutes cold) at session-end blocks quick-save
+commits under the concurrent-EM cadence (`tasks/lessons.md:324` — "at most one UBT-dependent
+executor in flight"). The three-surface pattern decouples intent-capture (cheap, session-end)
+from build-execution (expensive, daily) from gate-enforcement (cheap, weekly).
+
+### Three surfaces and their roles
+
+| Surface | Role | Cost | Trigger |
+|---|---|---|---|
+| `/session-end` Step 2.9 | Write `verdict=pending` marker if chain-diff touches `control/plugin/**/Source/**/*.{cpp,h}` | Cheap (no build) | Per session |
+| `/workday-complete` Step 0c | Resolve today's pending markers — run UBT, parse result, write new resolved record | ~30s incremental | Daily |
+| `/workweek-complete` Step 4c | Refuse merge if any `verdict=pending` records have NO resolved sibling | Cheap (scan) | Weekly |
+
+### Two-record model (never-overwrite)
+
+Pending and resolved are distinct files. The pending marker is NEVER mutated after creation.
+Resolution writes a NEW `<base>.ubt-compile.resolved.json` alongside the pending file.
+`/workweek-complete` Step 4c scans for pending-without-resolved-sibling pairs (not raw
+`verdict=pending`), so a resolved pending record is not a merge blocker.
+
+**Filename shape:** `YYYY-MM-DD-<nanosecond-timestamp>-<sha-fragment>.ubt-compile.pending.json`
+and `<same-base>.ubt-compile.resolved.json`. Nanosecond precision eliminates concurrent-session
+write collisions by construction.
+
+### Automated-check reviewer naming convention
+
+Automated-check reviewers are mechanism-named (`ubt-compile`, not `automated-check`). This
+prevents enum ambiguity when `clippy`, `eslint`, or `pytest-coverage` each add one entry.
+Each adds exactly one closed-enum value to `coordinator-write-review-trail.sh`'s `--reviewer`
+enum. Pattern established by Chunk 0 of the UBT plan (DR-UBT-001).
+
+### Detection signature — file-path, not workstream name
+
+The pending-marker trigger detects diff files matching `control/plugin/**/Source/**/*.{cpp,h}`
+(including `Tests/` subdirectories — TC-6 demonstrated test-side include-rot is a real failure
+class). Workstream name / commit-message prefix matching is explicitly rejected: it would fire
+pointlessly on TS-only stubs and miss future workstreams that drop the `tc-` prefix.
+
+### Presence-detection gate
+
+Coordinator skill bodies invoke the gate via `[ -x bin/check-ubt-build-fresh.sh ] &&
+bin/check-ubt-build-fresh.sh [args]`. Absent script → graceful no-op so non-UE repos see
+no change. See `docs/wiki/holodeck-doctrine.md §7.7` for the full convention.
+
+### Verdict semantics extension
+
+`--verdict` enum extended with `pending` (alongside `ok|warn|blocked|waived`).
+`--reviewer` enum extended with `ubt-compile` (alongside `sonnet|patrik|sonnet+patrik|waived`).
+`--scope chain` (existing value — UBT verdicts are chain-scoped, not per-diff-slice).
+
+Spec backlink: `docs/plans/2026-05-15-ubt-compile-gate-review-trail.md` §Shape.
 
 ## Cross-references
 
