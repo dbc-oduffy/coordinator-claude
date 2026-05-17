@@ -440,6 +440,29 @@ Pair this with the post-executor verify rule: `git diff --stat` + `git log --one
 
 Discovering >100 LOC of unstaged changes in a shared plugin/skill/doctrine file you didn't edit means another EM is actively working in this tree. Do NOT fix-forward their broken intermediate state, do NOT `git stash` (you'll bury their work and they won't find it), do NOT `git checkout -- <path>` (destroys their work). Surface to PM ("active peer detected on `<path>` — pausing edits on this surface"). Acceptable: edit unrelated files, run read-only tooling, write to your own tasks scratch. Resume the shared surface after the peer commits or hands off.
 
+### Stash-pop primitive for cross-EM file isolation at dispatch time
+
+The "active peer session" rule above is the read-side detect; this is the write-side hygiene when an EM dispatches an executor against a file a sibling EM has uncommitted edits in. **Sequence:** `git stash push -- <paths>` *before* the dispatch — captures the sibling's working-tree state out of the way; dispatch the executor against a clean version of the file; on executor return, `git add -- <paths> && git commit -m "..." -- <paths>` for your scope; then `git stash pop`. Without the stash, an `Edit`-then-`git add -- <path>` from the executor stages everything in the file — there is no partial-path-add escape, and your commit silently absorbs the sibling's hunks under your subject. Sibling's per-chunk commit attribution is preserved by the round-trip even if their changes shipped during your window (pop becomes a no-op; their already-committed work is unaffected). Surfaced 2026-05-16 multi-src C3 vs sibling C6 on `mcp/project_rag_server.py` + `paths.py`.
+
+### Pause-snapshot attribution trailer
+
+PM-directed "pause and snapshot" blanket commits (intentional working-tree captures across sibling EMs) are legitimate, but they launder unauthorized substrate changes into history if the commit message attributes them via narrative prose. `572a548b` on project-rag captured ~940L of `cli.py` deletion (engine-index/doctor/bp-lint/probe-readiness) with no plan-or-handoff authorization in either repo; the commit message's "Spans Wave-2b cli.py port-out" attribution was author reconstruction, and three EMs each surveyed and disclaimed authorship. **Schema:** pause-snapshot commits carry a structured `Substrate-changes-attribution:` trailer. Each path-cluster that the snapshot touches gets a named source (handoff path, plan SHA, sibling EM session id) OR the literal value `unattributed` if no source can be cited. Downstream readers MUST NOT accept narrative-prose attribution at face value; the structured trailer is the only auditable record. The point of `unattributed` is to make the absence-of-attribution explicit rather than concealed in prose — surfaces forensic auditing during merge-to-main review.
+
+Trailer example:
+
+```
+Substrate-changes-attribution:
+  mcp/project_rag_server.py: handoff tasks/handoffs/2026-05-15_multi-src.md
+  cli.py: unattributed
+  scripts/download-*: handoff tasks/handoffs/2026-05-15_addon-pickup.md
+```
+
+(Surfaced 2026-05-15 `572a548b` post-mortem.)
+
+### Rename pathspec must include both sides
+
+`git mv A B && git commit -- B` leaves A's staged deletion *orphaned* — the commit applies pathspec `B` only, so the deletion of `A` remains in the index after the commit and surprises the next `git status`. Pathspec must enumerate both sides of the rename: `git commit -- A B`. Distinct from § ``git mv` + Edit ordering` above, which is about working-tree edit ordering around the rename; this is about commit-scope enumeration after the rename is staged. Existing `feedback_git_commit_explicit_path` covers pathspec discipline generally but doesn't enumerate the rename-shape gotcha — recurring 2026-05-14 holodeck on a `git mv` within a scoped commit.
+
 ---
 
 ## Plugin Distribution Note

@@ -70,7 +70,6 @@ These aren't strictly CLAUDE.md trim rules but share the "don't pay re-cost on e
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — the helper this page references.
-- [`streamline-infra.md`](./streamline-infra.md) — the snippet-sync pattern for deduplicating doctrine across consumers (a different surface of the same problem).
 - `archive/handoffs/2026-04-28_222800_2fc815ec.md`, `2026-04-28_225450_5e6c9130.md` — origin handoffs.
 
 ## Decision Records

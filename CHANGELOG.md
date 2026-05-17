@@ -18,14 +18,14 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 ### Changed
 
 - **Mandatory end-of-run Sonnet code review in mise-en-place Phase 6.** `/mise-en-place` now requires a minimum-Sonnet review on the cumulative diff before declaring the run complete; fires in both standard and hibernate modes (doctrine commit `e592b2d1`).
-- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+Patrik (chain-end escalation, EM-judged) code review on the diff. Records land in `tasks/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
+- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on the diff. Records land in `tasks/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
 - **Bare-slash skill invocations standardized for 24 coordinator skills/commands.** `name:` frontmatter doctrine captured in `docs/wiki/writing-skills.md`.
 - **`depersonalize-for-publish.sh` hardened** — extended identity-vocab and JSON coverage; sanitization sweep over 10 wikis + the 3 deferred wikis; PM-D2 placeholders, PM-D3 ue-bootstrap exclusion, PM-D4 disclaimer integrated.
 
 ### Fixed
 
-- **`bin/coordinator-safe-commit` overlap-gate** — atomic `mkdir`-lock closes the prior TOCTOU window (Patrik finding 7; `flock` unavailable on Git Bash, used `cs_claim_handoff` pattern).
-- **`bin/coordinator-safe-commit` combined-mode dead path** — `do_scope_from` now delegates to `do_scoped`, eliminating duplicated combined-mode code (Patrik finding 0).
+- **`bin/coordinator-safe-commit` overlap-gate** — atomic `mkdir`-lock closes the prior TOCTOU window (the Staff Engineer finding 7; `flock` unavailable on Git Bash, used `cs_claim_handoff` pattern).
+- **`bin/coordinator-safe-commit` combined-mode dead path** — `do_scope_from` now delegates to `do_scoped`, eliminating duplicated combined-mode code (the Staff Engineer finding 0).
 - **block-off-daily-branch hook regex** — tightened cheap-gate to stop at the `--` pathspec separator.
 - **`/percolate` post-rsync hook stdin** — always-pipe `</dev/null` to prevent blocking; pre-ci hook discovery added (Sonnet review-2 F0+F5).
 

@@ -169,7 +169,7 @@ On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos
 >
 > **2. Project type** — controls which domain agents and conventions are included:
 >    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
->    - `web-dev` — Web frameworks (adds Palí for front-end review, the UX Reviewer for UX)
+>    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
 >    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
 >    - `general` — Standard conventions only
 >

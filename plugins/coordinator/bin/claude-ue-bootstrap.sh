@@ -34,7 +34,6 @@ if [[ ! -f "$SETTINGS" ]]; then
 {
   "enabledPlugins": {
     "holodeck-control@claude-unreal-holodeck": true,
-    "holodeck-docs@claude-unreal-holodeck": true,
     "holodeck@claude-unreal-holodeck": true,
     "game-dev@claude-unreal-holodeck": true,
     "game-dev@coordinator-claude": true
@@ -49,7 +48,6 @@ fi
 # Merge path: existing settings.json present — prefer jq, fall back to node.
 EXPECTED_KEYS=(
   "holodeck-control@claude-unreal-holodeck"
-  "holodeck-docs@claude-unreal-holodeck"
   "holodeck@claude-unreal-holodeck"
   "game-dev@claude-unreal-holodeck"
   "game-dev@coordinator-claude"
@@ -60,7 +58,6 @@ if command -v jq >/dev/null 2>&1; then
   OVERRIDE='{
     "enabledPlugins": {
       "holodeck-control@claude-unreal-holodeck": true,
-      "holodeck-docs@claude-unreal-holodeck": true,
       "holodeck@claude-unreal-holodeck": true,
       "game-dev@claude-unreal-holodeck": true,
       "game-dev@coordinator-claude": true
@@ -68,7 +65,6 @@ if command -v jq >/dev/null 2>&1; then
   }'
   if jq -e '
     .enabledPlugins["holodeck-control@claude-unreal-holodeck"] == true
-    and .enabledPlugins["holodeck-docs@claude-unreal-holodeck"] == true
     and .enabledPlugins["holodeck@claude-unreal-holodeck"] == true
     and .enabledPlugins["game-dev@claude-unreal-holodeck"] == true
     and .enabledPlugins["game-dev@coordinator-claude"] == true

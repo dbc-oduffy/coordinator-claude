@@ -15,36 +15,11 @@ Daily is a branch wrap, not a release ceremony. Handoffs archive at their natura
 
 ---
 
-## Step 0: Pre-stage Validator Suite (blocking gate)
+## Step 1: `/validate` (blocking gate)
 
-Run all pre-stage validators before any staging or git operations. These validators must pass before the workday-complete ceremony proceeds. A failure here means something in the codebase is out of spec — fix it before committing.
+### Step 1 preamble: UBT Pending-Record Resolution (UE work only)
 
-### 0a: UE override drift check
-
-```bash
-# verify-ue-overrides.sh created by Phase B; if not yet present, skip 0a and run Phase B first
-${CLAUDE_PLUGIN_ROOT}/bin/verify-ue-overrides.sh
-```
-
-- **Exit 0:** all known UE-context dirs carry the expected override — proceed.
-- **Exit 1:** one or more dirs are missing the UE plugin override. Run `${CLAUDE_PLUGIN_ROOT}/bin/claude-ue-bootstrap.sh <dir>` for each flagged dir, then re-run the check before continuing.
-
-### 0b: Skill description length check
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh
-```
-
-- **Exit 0:** all skill descriptions are within their per-skill budget (see `description-budget:` frontmatter field, or ≤175 PM-gated, or ≤150 default) — proceed.
-- **Exit 1:** one or more skill descriptions exceed the limit. Fix the failing SKILL.md file(s) before proceeding. Do NOT continue to Step 1 until this passes.
-
-Both validators must exit 0. A partial pass (one OK, one failing) still blocks.
-
----
-
-### 0c: UBT pending-record resolution (UE plugin work only)
-
-If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records that have NO corresponding `*.ubt-compile.resolved.json` sibling. For each unresolved pair, run the UBT build (via the script) and write a new resolved record. Exit non-zero if any record resolves to `verdict=blocked` — this is a **blocking gate**.
+If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records that have NO corresponding `*.ubt-compile.resolved.json` sibling. For each unresolved pair, run the UBT build (via the script) and write a new resolved record. Exit non-zero if any record resolves to `verdict=blocked` — this is a **blocking gate**. Non-UE repos see no change (script absent → silent skip).
 
 ```bash
 [ -x bin/check-ubt-build-fresh.sh ] && \
@@ -53,11 +28,7 @@ If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` 
 
 - **Exit 0 (no pending records, or all resolved to ok):** proceed.
 - **Exit 1 (one or more resolved to blocked):** halt and report. Fix the C++ compile error, then run `/workday-complete` again. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM explicitly authorises bypassing the gate.
-- **Script absent:** skip silently (non-UE repos see no change). Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/session-end` Step 2.9.
-
----
-
-## Step 1: `/validate` (blocking gate)
+- **Script absent:** skip silently. Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/session-end` Step 2.9.
 
 ```bash
 python .github/scripts/run-all-checks.py
@@ -99,7 +70,28 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
    git branch --list | grep -iE "^\*? *work/$MACHINE/$TODAY"
    ```
 3. Merge siblings into current branch. Non-trivial conflicts → report and halt.
-4. Rebase on `origin/main`; fall back to merge if rebase fails with non-trivial conflicts.
+4. Reconcile with `origin/main`:
+   ```bash
+   # Precondition: Step 3 sub-step 0 (sync-main.sh) MUST have run before this
+   # block — it fetches origin/main, ensuring rev-list operates on a fresh ref.
+   # Without that fetch, the behind-check may spuriously claim "already current"
+   # when origin has moved.
+
+   # Guard: origin/main missing (fresh clone, network issue, renamed remote).
+   # rev-list against a missing ref errors to stderr + empty stdout → falls
+   # through to rebase with an opaque "unknown revision" failure.
+   if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+     echo "origin/main not present locally — skipping reconcile step"
+   # Skip rebase if HEAD already contains origin/main (ahead-only state).
+   # Blind rebase in this state walks back through merge commits and replays
+   # them needlessly — see 2026-05-15 session evidence (645 ahead / 0 behind
+   # triggered a full replay with nothing to integrate).
+   elif [[ "$(git rev-list --count HEAD..origin/main)" == "0" ]]; then
+     echo "branch already contains origin/main — no rebase needed"
+   else
+     git rebase origin/main || git merge origin/main  # fallback on non-trivial conflicts
+   fi
+   ```
 5. `git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
 6. Delete merged sibling branches:
    ```bash
@@ -154,7 +146,7 @@ Quick reference:
 | Dominant change type | Reviewer |
 |---|---|
 | Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | Palí |
+| Frontend / UI | the Front-End Reviewer |
 | Data / ML / science | the Data Science Reviewer |
 | Mixed, backend, or architecture | the Staff Engineer |
 

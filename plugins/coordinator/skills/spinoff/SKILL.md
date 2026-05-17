@@ -1,6 +1,6 @@
 ---
 name: spinoff
-description: Fork a mid-session topic into its own pickup-able handoff (a spinoff)
+description: PM-GATED. Fork a mid-session topic into its own pickup-able handoff (a spinoff). Never EM-initiated.
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "<slug> [optional one-line title]"
 ---
@@ -8,6 +8,16 @@ argument-hint: "<slug> [optional one-line title]"
 # Spinoff — Fork a Workstream Into Its Own Handoff
 
 A **spinoff** is a handoff written mid-session by the current EM, addressed to a *future* picking-up EM, describing a workstream the current session does NOT intend to execute. Synonyms used in older artifacts: "orphan-promotion handoff," "ersatz-handoff." `spinoff` is the canonical term.
+
+## Step 0 — PM-authorization gate (hard requirement)
+
+**Spinoffs require explicit PM authorization. The EM never initiates a spinoff on its own judgment.** If the PM has not typed `/spinoff`, named the skill, or explicitly said "spinoff this" / "make a spinoff for X" / one of the trigger phrases below for *this specific topic*, STOP. Do not write a spinoff file.
+
+Topic drift counts: an earlier "spinoff that auth thing" does NOT authorize a later spinoff of "the migration cleanup." Each spinoff is its own authorization.
+
+If the EM identifies a candidate workstream that *would* warrant a spinoff but the PM has not authorized one, surface it as a one-line proposal — "Candidate spinoff: <slug> — <one-line topic>. Authorize?" — and wait. Do not proceed past Step 0 until the PM says yes.
+
+Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) MUST surface the candidate list and obtain PM authorization before writing any spinoff file. The skill body following Step 0 only runs after authorization.
 
 **When to use this vs. its neighbors:**
 

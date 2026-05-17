@@ -61,7 +61,7 @@ Portable timestamp parsing matters. The 5-min quiet-gate before merge uses `gh p
 
 Two contact-points (see CLAUDE.md tripwire):
 
-1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`. Allow-list: any span-aware `work/{machine}/{date-or-span}` (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the [PreToolUse contract](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md). `validate-commit.sh` Checks 1-5 remain there for commit-content validation. **Commit-time date-enforcement (Check 6) was fully decommissioned 2026-05-07 per PM call** — the hook no longer blocks commits based on branch date.
+1. **`block-off-daily-branch.sh`** — PreToolUse Bash hook. Catches `git checkout`, `git switch`, `git branch -m/-M/--move/-c/-C/--copy`, `git stash branch`, `git worktree add`. Allow-list: any span-aware `work/{machine}/{date-or-span}` (case-insensitive) and `main`. Emits JSON `permissionDecision: "deny"` per the [PreToolUse contract](../pretooluse-deny-contract.md). `validate-commit.sh` Checks 1-5 remain there for commit-content validation. **Commit-time date-enforcement (Check 6) was fully decommissioned 2026-05-07 per PM call** — the hook no longer blocks commits based on branch date.
 2. **Doctrine** — CLAUDE.md § Concurrent-EM Git Operations, first bullet. Authoritative reference for the rule.
 
 ## Supported "park WIP" recipes
@@ -190,8 +190,7 @@ The active workstream branch is a shared bus across concurrent sessions, so hand
 ## See also
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). The two hooks are siblings on the same PreToolUse Bash matcher.
-- [`pretooluse-deny-contract.md`](../../plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md) — JSON deny mechanics.
+- [`pretooluse-deny-contract.md`](../pretooluse-deny-contract.md) — JSON deny mechanics.
 - `archive/2026-05-05_branch-sprawl-postmortem.md` (peer repo, private) — original incident.
 - `~/.claude/plans/2026-05-05-daily-branch-discipline-hook.md` — plan & rollout for the real-time enforcement hook.
 - `~/.claude/archive/specs/2026-05-01-orphan-branch-prevention.md` — orphan-branch sweep + sync-main + check-shipped-on-main pipeline (PR #57, v1.6.0).
-- [`streamline-infra.md`](./streamline-infra.md) — snippet-sync pattern that keeps the R-3 prohibition synchronized across consumers.

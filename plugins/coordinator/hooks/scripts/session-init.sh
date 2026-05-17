@@ -86,7 +86,9 @@ echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
 #
 # Recovery: for each such file, check if the consuming session is still alive. If
 # the session is dead (no .git/coordinator-sessions/<sid>/ dir, or its PID is dead),
-# and consumed_at is not in the future (sanity check), quietly git mv the file to
+# and consumed_at is not in the future (sanity check), flip deployment_state from
+# in_flight to abandoned (closure-on-archive — otherwise archived records look
+# active forever to any query over archive/handoffs/) and git mv the file to
 # archive/handoffs/. No PM ping, no WARNING line — silent recovery.
 #
 # This handles: cross-machine pickup-then-end-elsewhere, mid-workstream Claude Code
@@ -129,9 +131,25 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
       # Sanity: skip if session is still alive
       [ "$session_alive" = "true" ] && continue
 
-      # Quietly archive
+      # Flip deployment_state: in_flight → abandoned before archival.
+      # The consuming session died without /handoff or /session-end, so by
+      # definition this handoff did not complete its workstream — leaving it
+      # in_flight forever makes archived records look active to any query.
+      # `abandoned` is the honest terminal: we don't know if work shipped on
+      # the branch, only that closure ceremony never ran. If work did ship,
+      # the commit log is authoritative; deployment_state is process-state.
+      if grep -q '^deployment_state:[[:space:]]*in_flight' "$fpath" 2>/dev/null; then
+        # In-place sed; portable form (works on both GNU sed and BSD sed via tmpfile)
+        tmp_ds="${fpath}.ds.tmp.$$"
+        sed 's/^deployment_state:[[:space:]]*in_flight.*/deployment_state: abandoned/' "$fpath" > "$tmp_ds" && mv "$tmp_ds" "$fpath"
+      fi
+
+      # Quietly archive (git mv stages both the rename and the in-place sed edit above)
       fname=$(basename "$fpath")
       git -C "$GIT_ROOT" mv "tasks/handoffs/${fname}" "archive/handoffs/${fname}" 2>/dev/null || true
+      # Ensure the content modification at the new path is staged
+      # (git mv stages the rename; modified content may need an explicit add)
+      git -C "$GIT_ROOT" add "archive/handoffs/${fname}" 2>/dev/null || true
     done <<< "$consumed_paths"
 
     # Commit any moved files (only if git has staged changes from the mv above)

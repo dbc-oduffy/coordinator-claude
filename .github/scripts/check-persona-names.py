@@ -41,6 +41,7 @@ EXCLUDED_PREFIXES = (
     "docs/decisions/",
     "docs/specs/",
     ".github/scripts/check-persona-names.py",  # this file itself names the personae
+    "plugins/coordinator/bin/depersonalize-for-publish.sh",  # substitution map legitimately holds persona keys
 )
 
 ALLOWLIST_PATH = pathlib.Path(".github/.persona-names-allowlist")

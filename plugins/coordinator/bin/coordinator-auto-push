@@ -51,9 +51,41 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || exit 0
 
 log_failure() {
-  local reason="$1"
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PUSH FAILED on $BRANCH ($reason)" \
+  local route="$1" err_class="$2" attempts="$3" first_err="$4"
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PUSH FAILED on $BRANCH ($route/$err_class after $attempts) :: ${first_err:-<empty>}" \
     >> "$REPO_ROOT/.git/push-failures.log"
+}
+
+# Classify git push stderr to decide whether retry is safe.
+# Patterns sourced from git's refs.c (lock errors), receive-pack/transport (non-FF),
+# and openssh/curl network paths. Order matters — most specific first.
+classify_error() {
+  local f="$1"
+  [[ ! -s "$f" ]] && { echo "empty-stderr"; return; }
+  if grep -qE "(cannot lock ref|failed to lock|Reference has changed|reference already exists)" "$f"; then
+    echo "ref-lock"
+  elif grep -qE "(non-fast-forward|rejected.*fetch first|tip of your current branch is behind|stale info)" "$f"; then
+    echo "non-fast-forward"
+  elif grep -qE "(Could not resolve host|Connection (refused|timed out|reset)|TLS handshake|SSL_connect|Temporary failure|Network is unreachable|kex_exchange_identification|Broken pipe|early EOF)" "$f"; then
+    echo "network"
+  elif grep -qE "(Permission denied|Authentication failed|Host key verification|publickey|could not read from remote|access denied)" "$f"; then
+    echo "auth"
+  else
+    echo "unknown"
+  fi
+}
+
+# Run a single push attempt; capture stderr to the given file. Returns push exit code.
+push_once() {
+  local stderr_file="$1"
+  if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
+    REPO_ROOT="$REPO_ROOT" BRANCH="$BRANCH" \
+      powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
+      'git -C $env:REPO_ROOT push origin $env:BRANCH --set-upstream' \
+      >/dev/null 2>"$stderr_file"
+  else
+    git push origin "$BRANCH" --set-upstream >/dev/null 2>"$stderr_file"
+  fi
 }
 
 # --- Path selection -------------------------------------------------------
@@ -72,22 +104,43 @@ case "$REMOTE_URL" in
   git@*|ssh://*) is_ssh_remote=true ;;
 esac
 
+# Route label is informational only; transport choice lives in push_once.
+# PowerShell route comments: REPO_ROOT/BRANCH are passed via env so embedded
+# apostrophes in the repo path can't break out of the -Command string.
+# -NonInteractive prevents UI prompts. -WindowStyle Hidden suppresses console flash.
 if [[ "$is_windows_bash" == true && "$is_ssh_remote" == true ]]; then
-  # Route through PowerShell so Windows OpenSSH + 1Password agent pipe is used.
-  # Pass REPO_ROOT and BRANCH via environment variables so embedded apostrophes
-  # in the repo path can't break out of the -Command string. -NonInteractive
-  # prevents UI prompts. -WindowStyle Hidden suppresses the blue console flash.
-  if ! REPO_ROOT="$REPO_ROOT" BRANCH="$BRANCH" \
-       powershell.exe -NonInteractive -NoProfile -WindowStyle Hidden -Command \
-       'git -C $env:REPO_ROOT push origin $env:BRANCH --set-upstream' \
-       >/dev/null 2>&1; then
-    log_failure "powershell ssh push"
-  fi
+  route_label="powershell ssh push"
 else
-  # Direct push — HTTPS on any platform, or SSH on Linux/macOS.
-  if ! git push origin "$BRANCH" --set-upstream >/dev/null 2>&1; then
-    log_failure "direct push"
-  fi
+  route_label="direct push"
 fi
+
+# Retry policy (2026-05-17): ref-lock contention and transient network errors retry
+# with jittered backoff (sub-second). Non-FF, auth, and unknown classes fail loud
+# without retry — non-FF in particular means a concurrent push already landed work
+# we don't have, so silent retry would mask the divergence. See:
+# docs/wiki/auto-push-diagnostics.md (if added) and the push-failures.log format.
+STDERR_TMP="$REPO_ROOT/.git/.push-stderr.$$"
+trap 'rm -f "$STDERR_TMP"' EXIT
+
+max_attempts=3
+attempt=1
+while (( attempt <= max_attempts )); do
+  if push_once "$STDERR_TMP"; then
+    exit 0
+  fi
+  err_class=$(classify_error "$STDERR_TMP")
+  if (( attempt < max_attempts )) && [[ "$err_class" == "ref-lock" || "$err_class" == "network" ]]; then
+    # Jittered backoff: 200-700ms base + 100ms per attempt. Keeps total retry
+    # budget under ~2s so the post-commit hook stays snappy.
+    sleep_ms=$(( (RANDOM % 500) + 200 + (attempt * 100) ))
+    sleep "0.$(printf '%03d' "$sleep_ms")"
+    attempt=$((attempt + 1))
+    continue
+  fi
+  first_err=$(grep -v '^[[:space:]]*$' "$STDERR_TMP" 2>/dev/null | head -1 \
+    | tr -d '\r' | sed 's/[[:space:]]\+/ /g' | cut -c1-200)
+  log_failure "$route_label" "$err_class" "$attempt" "$first_err"
+  exit 0
+done
 
 exit 0

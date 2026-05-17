@@ -109,7 +109,7 @@ No other changes when file exists.
 >
 > - **general** — Software project (the Staff Engineer for code review, standard workflow)
 > - **game-dev** — Game development project (adds the Game Dev Reviewer reviewer, game-dev domain agents)
-> - **web-dev** — Web project (adds Palí for front-end review, the UX Reviewer for UX)
+> - **web-dev** — Web project (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
 > - **data-science** — ML/data project (adds the Data Science Reviewer for data science review)
 
 Then ask:
@@ -139,7 +139,7 @@ project_subtypes: [{subtype1}, {subtype2}]
 
 After the core setup, ask once:
 
-> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Palí, the UX Reviewer, Zolí). Would you like to customize their names?
+> The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate). Would you like to customize their names?
 >
 > - **Keep defaults** — Use the built-in persona names
 > - **Customize** — Choose your own names for the reviewers

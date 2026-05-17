@@ -116,7 +116,7 @@ The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.
 - `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
 - `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
 - `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
 - `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
