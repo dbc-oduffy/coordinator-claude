@@ -5,7 +5,7 @@ last_calibrated: 2026-05-03
 calibrated_against: Claude Opus 4.7 (1M context)
 type: doctrine
 related:
-  - docs/plans/2026-05-03-docs-checker-default-pre-flight.md
+  - archive/specs/2026-05-03-docs-checker-default-pre-flight.md
   - plugins/coordinator-claude/coordinator/agents/docs-checker.md
   - plugins/coordinator-claude/coordinator/snippets/docs-checker-consumption.md
 ---
@@ -113,13 +113,27 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 
 The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer (`coordinator:staff-eng`))
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer (`game-dev:staff-game-dev`))
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer (`data-science:staff-data-sci`))
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer (`web-dev:senior-front-end`))
-- `plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md` (holodeck Game Dev Reviewer variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
+
+## Enumeration scope — every spec-cited external API, not just the "complicated" subsection
+
+docs-checker dispatch briefs MUST instruct the agent to **enumerate every external API symbol/method named in the target artifact** and verify each — not just the ones in subsections the dispatching agent flags as "subtle" or "complicated."
+
+**The failure mode this prevents:** a plan cites `FBlueprintCompilationManager::HasBlueprintsToCompile()` as a load-bearing Gate A invariant. The docs-check sidecar enumerates 13 verification claims, all focused on a different "complicated" subsection (message-iteration path, severity-mapping pragmas). The Gate A API name never lands on the verification list because it sits outside that subsection. The function does not exist in the target engine version. The executor catches it at implementation time via direct header read, surfaces as Open Question, and the EM substitutes a semantically-equivalent API and amends plan AC + S2 negative spec + Build.cs rationale — ~30 minutes of executor concern + EM verification + 4 file repairs. Avoidable: docs-checker should have enumerated EVERY external symbol named in the plan, not just the message-iteration surface.
+
+**Required bucket in the sidecar:** alongside VERIFIED / UNVERIFIED / INCORRECT, the docs-checker output MUST include an **"Unverified spec-cited symbol"** bucket. Any external symbol named in the artifact and absent from the claim table goes here. The bucket forces the gap into the sidecar rather than letting it propagate silently to executor time. Pattern is analogous to the prior-art-checker's Conflicts / Compatible-but-relevant / Silent bucket schema — gaps surface in the sidecar, not three reviews downstream.
+
+**Producer-skill obligation.** The dispatch brief is the contract. Skills calling docs-checker (`coordinator:plan`, reviewer pre-flights, integrator hand-offs) MUST require the agent to: (1) enumerate every external API symbol/method named in the artifact, (2) produce a claim row for each, (3) explicitly list spec-cited symbols absent from the claim table in the Unverified-spec-cited-symbol bucket. "Trust the dispatcher's recall on which APIs are subtle" is the wrong default — recall is exactly what docs-checker exists to backstop.
+
+## Version-pinned edges
+
+When the API claim is bound to a specific engine/library version (UE 5.7.4, Python 3.12.x, torch 2.6.0+cu126), reading the engine's source at that pin beats project-RAG and docs-checker — RAG corpora drift, docs-checker queries are upstream-current. Cite the engine source path + line and the pin.
 
 ## Recalibration
 

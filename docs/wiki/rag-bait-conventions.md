@@ -140,7 +140,7 @@ getters/setters, dunder methods with no branching logic.
 **What:** One sentence. Domain vocabulary. Explain what this function *is for*, not how it
 works internally.
 
-**Why this pattern has the highest retrieval-recall leverage (per the Data Science Reviewer (`data-science:staff-data-sci`) F1):** Chunkers
+**Why this pattern has the highest retrieval-recall leverage (per the Data Science Reviewer F1):** Chunkers
 split on function boundaries. Without a purpose line, the chunk that represents a function
 embeds primarily on syntactic signal — variable names, control-flow keywords — and ranks
 poorly against natural-language queries like "how does the enricher pick its agent?".
@@ -357,4 +357,5 @@ provenance:
 | Copy-pasted purpose blocks | Module A and Module B share a name pattern; executor copies A's docstring to B. Different roles, same prose — wrong signal for both chunks. |
 | Vocabulary drift | "enrichment worker" instead of "enricher", "compress" instead of "distill". Fragments BM25 recall on project-coined terms. |
 | Task-context comments | "Added for the port-patterns flow", "handles issue #123" — belongs in PR description; misleads future readers. |
+| Cross-repo provenance backlinks in source comments | `// port of <peer-repo>:<sha>` rots during refactors; the source comment outlives the relevance of the port reference. Put cross-repo provenance in the **commit message** — git log is the durable provenance store, source comments are not. Spec backlinks (in-tree spec paths) are the exception: they survive because the spec moves to `archive/specs/` and /distill heals the path. Peer-repo SHAs have no such heal pass. |
 | Missing function purpose lines on non-trivial functions | Function chunks embed on syntactic signal only; rank poorly against natural-language queries. |

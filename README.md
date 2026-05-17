@@ -78,7 +78,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **the VP-Product Reviewer** (`coordinator:vp-product`) — scope challenger, naming optional via [`setup/name-personas.sh`](setup/name-personas.sh) — stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
 
-**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](plugins/coordinator/docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
+**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
 **Flow 3 — Resume work.** `/session-start` (or auto-fired hook) loads orientation, lessons, and pending handoffs → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
@@ -96,7 +96,7 @@ The system scales — a typo fix is a two-word instruction; a system rewrite is 
 |------|-----------------|----------|-----------|
 | **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
 | **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → the Staff Engineer (`coordinator:staff-eng`) generalist; the Director of Engineering (`coordinator:eng-director`) as backstop at High effort (sequential) | 30 min – 2 hrs |
-| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](plugins/coordinator/docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
 
 See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the full tier table, reviewer routing guide, and flow diagrams.
 
