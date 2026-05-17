@@ -236,22 +236,12 @@ exit $fail
 
 **If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
 
-#### Phase 11g: Plugin-bundled wiki validate
-
-> Spec backlink: `docs/plans/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
-> Semantics changed 2026-05-15 (Option B): no longer syncs dev-side → bundled; now verifies no plugin-cited wiki has a dev-side mirror.
-
-Verify that no plugin-doctrine wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator-claude/coordinator/docs/wiki/<name>.md` — dev-side mirrors re-introduce the write-direction trap. Wiki names are auto-discovered by grepping plugin files for `docs/wiki/<name>.md` references.
-
-```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/sync-plugin-wiki.sh
-```
-
-**If the script exits 0:** log in the Phase 13 report: "Plugin-bundled wiki: clean (N validated)."
-
-**If the script exits 5:** a dev-side mirror exists for a plugin-doctrine wiki. Output names both paths and remediation steps. Resolve before proceeding (override with `COORDINATOR_OVERRIDE_WIKI_MIRROR=1` only for wikis genuinely not belonging in the plugin tree).
-
-**If the script reports WARN (missing-bundled):** a wiki name is referenced but absent from the bundled tree. Doc-link health (Phase 11e) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+<!-- Phase 11g (Plugin-bundled wiki validate) RETIRED 2026-05-17. The invariant
+     it protected (single-tree at <plugin>/docs/wiki/) was inverted by the
+     wiki layout move to repo top-level docs/wiki/. Scripts deleted:
+     bin/sync-plugin-wiki.sh + hooks/scripts/block-dev-side-mirror-wiki.sh.
+     See docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md
+     § Stage 1.5/1.6. -->
 
 #### Phase 11c: Query Callout Refresh
 
