@@ -97,7 +97,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
    - Other / architecture → the Staff Engineer
 2. Dispatch the domain reviewer with full system scope — all files in the system. Include the atlas page as context (per Step 2.5).
 3. Reviewer grades the system and adds/updates the grade on the atlas page.
-4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/the Front-End Reviewer/the Data Science Reviewer), the Ambition Advocate for the Staff Engineer. Run backstop after applying domain reviewer findings.
+4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/the Front-End Reviewer/the Data Science Reviewer), the Director of Engineering (in backstop mode — `agents/eng-director.md`) for the Staff Engineer. Run backstop after applying domain reviewer findings.
 
 ### Systems >10 files — Haiku→Sonnet Pre-Digestion
 
@@ -117,7 +117,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 5. Reviewer grades the system and adds/updates the grade on the atlas page.
 
-6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Ambition Advocate for the Staff Engineer.
+6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Director of Engineering (in backstop mode) for the Staff Engineer.
 
 ---
 

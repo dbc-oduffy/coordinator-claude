@@ -80,7 +80,7 @@ Percolation from a Unix-authored source repo to a Windows consumer (or vice vers
 
 ## Persona-Name Guard on Percolation
 
-The meta-repo (`~/.claude/`) authors files with persona display names — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Ambition Advocate, the VP-Product Reviewer — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
+The meta-repo (`~/.claude/`) authors files with persona display names — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering, the VP-Product Reviewer — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
 
 Two paired tools enforce the boundary:
 
@@ -98,7 +98,9 @@ To add or modify a hook for a target: place an executable `*.sh` script under `s
 
 Source-side publish-content policy (`.percolate-ignore`) lives at `$SOURCE_DIR/.percolate-ignore` (gitignore-shaped, simplified subset — `**/` not supported). `publish.sh` `sync_mirror` honors it in both copy and delete phases. See `docs/wiki/percolate-setup.md` (walked by `/percolate` Branch 0 and `/setup` percolation phase) for the full audit-and-scaffold procedure, including classification taxonomy and grey-zone handling.
 
-The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Ambition Advocate → the Ambition Advocate; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
+The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Director of Engineering → the Director of Engineering; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
+
+> **Publish-repo follow-up (2026-05-17):** The `the Director of Engineering → the Director of Engineering` mapping replaces the prior `the Director of Engineering → the Ambition Advocate` mapping. The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must be updated to match — `the Ambition Advocate` is retired, `the Director of Engineering` is the new canonical role label. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic. Previously-published copies of files containing `the Ambition Advocate` will need a search-and-replace at next publish.
 
 ## Scan/Substitution Division of Labor
 
@@ -177,6 +179,39 @@ Some plugins distributed alongside language servers (or as LSP extensions of the
 
 When two plugins both expose game-dev (or any overlapping-domain) routing — for instance a `game-dev@coordinator-claude` and a stack-specific `holodeck-control@claude-unreal-holodeck` — their description-token surfaces and slash-command names collide silently. Both load, both contribute deferred-tool prefaces, and the EM picks whichever description matches first. Defense: gate domain-overlapping plugins via per-project enablement (`docs/wiki/per-project-plugin-gating.md`), so only one set is active in any given project context. Same-marketplace plugins compete the same way — overlap is a function of description, not provenance.
 
+## Module-Top Unconditional Cross-Package Imports Break Graceful-Fail
+
+Re-export shims at port-out boundaries that do `from sister_pkg import X` at module top crash hosts that don't have the sister package installed — even when the host never invokes the re-exported symbol. Lazy-only smoke checks (`if __name__ == "__main__": import sister_pkg`) miss it because the failure fires on `from shim import anything`, before the lazy guard runs.
+
+**Pattern for every port-out shim:** wrap the module-top cross-package import in `try / except ImportError`, expose a sentinel (`HAS_SISTER = True/False`) and a clear error from the re-exported callable when called without the sister installed:
+
+```python
+try:
+    from sister_pkg import _impl
+    HAS_SISTER = True
+except ImportError:
+    HAS_SISTER = False
+    _impl = None
+
+def public_symbol(*args, **kwargs):
+    if not HAS_SISTER:
+        raise RuntimeError(
+            "public_symbol requires sister_pkg; not installed in this host"
+        )
+    return _impl(*args, **kwargs)
+```
+
+Pair with a **host-only-import smoke test in CI**: a test that imports the shim package against a synthetic environment where the sister is *not* installed, and asserts no `ImportError` at import time (only at call time). Without that test, the bug only surfaces on a consumer host the author never tested against.
+
 ## GitHub Org Rename Breaks `claude plugin update`
 
 When a plugin's GitHub org/repo is renamed (`old-org/plugin` → `new-org/plugin`), GitHub auto-redirects `git clone` but `claude plugin update <plugin>` may still hit the cached old URL in `known_marketplaces.json` and silently fail (or worse, succeed against a stale fork that took over the old name). Defense: at rename time, push a final commit to the old repo whose README says "moved to <new>"; update `known_marketplaces.json` `source` URL across all consumers via a one-shot migration note; mention in the release notes that consumers must re-run `claude plugin marketplace remove/add` to pick up the new URL.
+
+## Operational Gotchas — 2026-05-17 Batch
+
+- **Plugin disable ≠ uninstall.** Disabling a plugin in `settings.json` doesn't remove the cache; both the cache entry and the settings flag need clearing.
+- **`installed_plugins.json` is managed.** Hand edits get reverted by the plugin system. Use `claude plugin` commands.
+- **MCP scope precedence: Local > Project > User > Plugin.** User-scope MCP entries silently override plugin `.mcp.json` of the same name. Fix: `claude mcp remove <name> --scope user`.
+- **Plugin hooks belong in `hooks/hooks.json`, NOT user-scope `settings.json`.** Hooks in user settings break marketplace distribution.
+- **LSP plugins don't need `.claude-plugin/plugin.json`.** The LSP plugin contract is different from the standard plugin contract.
+- **`claude plugin update` defaults to user scope.** Specify scope explicitly when updating a plugin that lives elsewhere.

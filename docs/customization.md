@@ -4,7 +4,7 @@ coordinator-claude is designed to be adapted. This guide covers the main customi
 
 ## Naming Reviewer Roles
 
-The system ships with role-based labels (the Staff Engineer, the Ambition Advocate, etc.). The behavioral descriptions are what actually matter. Naming is optional — if you find it easier to think of reviewers by personal names, run the naming script once at install time.
+The system ships with role-based labels (the Staff Engineer, the Director of Engineering, etc.). The behavioral descriptions are what actually matter. Naming is optional — if you find it easier to think of reviewers by personal names, run the naming script once at install time.
 
 ### Automated Naming (optional)
 
@@ -12,7 +12,7 @@ The system ships with role-based labels (the Staff Engineer, the Ambition Advoca
 bash setup/name-personas.sh [--dry-run] ROLE NAME [ROLE NAME ...]
 
 # Examples:
-bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"
+bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"
 bash setup/name-personas.sh --dry-run "the Data Science Reviewer" "DataBot"
 ```
 
@@ -33,7 +33,7 @@ The publish repo ships with seven role-distinct reviewers. Names are optional �
 | Role label | Subagent slug | Plugin | Agent file | Focus |
 |---|---|---|---|---|
 | the Staff Engineer | `coordinator:staff-eng` | coordinator | `agents/staff-eng.md` | Code quality, architecture |
-| the Ambition Advocate | `coordinator:ambition-advocate` | coordinator | `agents/ambition-advocate.md` | Backstop to the Staff Engineer (challenges conservative calls) |
+| the Director of Engineering | `coordinator:eng-director` | coordinator | `agents/eng-director.md` | Peer of the Staff Engineer in technical rigor; DoE altitude for cross-team / cross-repo / generic-substrate reviews. Three modes: standalone primary, backstop after the Staff Engineer, staff-session synthesizer. |
 | the VP-Product Reviewer | `coordinator:vp-product` | coordinator | `agents/vp-product.md` | Scope challenger; refactor-vs-patch backstop |
 | the Game Dev Reviewer | `game-dev:staff-game-dev` | game-dev | `agents/staff-game-dev.md` | Game dev, Unreal Engine |
 | the Front-End Reviewer | `web-dev:senior-front-end` | web-dev | `agents/senior-front-end.md` | Frontend, design systems |

@@ -34,6 +34,12 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 
 ---
 
+## Consumer Parsers Must Verify Producer's Actual Output Shape
+
+When the plan adds a consumer (parser, importer, validator) for an existing producer's output, **grep the producer's emit-site to read the actual shape — do not infer the shape from the producer's spec or doc string.** Producer specs lag implementation; a spec that describes a JSON-blob output may correspond to a producer that emits NDJSON, or a wrapped envelope, or an empty `[]` on certain branches the spec didn't anticipate. Consumer code authored against the spec then fails on inputs the producer actually emits.
+
+This is a strict extension of the no-fabrication-on-cited-fields rule above: the cited surface is the producer's *output shape* (top-level type, key names, optional-field nullability, error-branch shapes), and the canonical reference is the producer's code, not its docs. Grep the producer's serialization site (`return json.dumps(...)`, `yaml.safe_dump(...)`, the emit call) and read the actual structure before writing the consumer.
+
 ## Related
 
 - `coordinator/CLAUDE.md` § Pre-Dispatch Verification — the canonical bullet list.

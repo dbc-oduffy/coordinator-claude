@@ -63,7 +63,7 @@ Use `--non-interactive` for unattended installs.
 After installation, you can optionally bind personal names to role labels:
 
 ```bash
-bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"
+bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"
 ```
 
 This replaces role labels in prose with your chosen names — agent behavior is defined by descriptions, not names. See [docs/customization.md](customization.md) for the full role table and details.
@@ -242,7 +242,7 @@ Valid `project_type` values:
 - `game` — activates the Game Dev Reviewer (`game-dev:staff-game-dev`)
 - `pure-docs` — documentation projects, coordinator only
 
-Without a config file, the coordinator defaults to core-only mode — the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`), and the VP-Product Reviewer (`coordinator:vp-product`) as universal reviewers.
+Without a config file, the coordinator defaults to core-only mode — the Staff Engineer (`coordinator:staff-eng`), the Director of Engineering (`coordinator:eng-director`), and the VP-Product Reviewer (`coordinator:vp-product`) as universal reviewers.
 
 You can also explicitly list reviewers:
 

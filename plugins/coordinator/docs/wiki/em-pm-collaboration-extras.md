@@ -31,6 +31,16 @@ PM↔EM dialogue moments: clarifying request framing, handling scope expansion m
 
   Over-ceremonying a 2-consumer rename burns time; under-ceremonying a 20-consumer rename causes silent breakage.
 
+### PM permissive disposition is upper bound, not pick
+
+When the PM dispositions an architectural question permissively — "ask the reviewer", "fine to add an X", "go ahead with whatever shape works" — the **reviewer's** pick is binding, not the PM's upper bound. The PM's "fine" is permission, not preference. A reviewer who comes back with "you don't need an X" overrides the PM's "fine to add an X" because the PM was answering an authority question (is this in-scope?), not a design question (is this the right move?). EM error mode is treating the permissive disposition as a *floor* the reviewer can build on, when it's actually a *ceiling* the reviewer can lower.
+
+### Don't ask for engineering housekeeping — silent action with one-line notice
+
+The "Don't ask for" doctrine in CLAUDE.md § Challenging the PM enumerates the categories. The noise-discriminator extension: default-Y prompts on commit timing, branch shape, internal naming, dispatch sequencing, midnight branch rename, post-commit auto-push, archival sweep timing are noise — converting them to silent action with a one-line notice (`Renamed work branch to today's date.`) costs the PM nothing and removes a class of meaningless ratification taps. The discriminator: if you'd answer Y on every prior instance regardless of session context, the prompt is housekeeping noise. If the answer genuinely depends on session state or PM intent, keep the prompt.
+
+Sweep this pattern in any skill that gates engineering housekeeping behind a confirmation: `/workday-start`, `/workday-complete`, `/merge-to-main`, `/consolidate-git`, `/handoff`. The cost of a wrong silent action on housekeeping is bounded (`git reflog`, branch rename, etc.); the cost of a default-Y prompt is repeated across every session forever.
+
 ### Escalation timing
 
 - **Ask the PM at plan-write time, not mid-execution.** Mid-execution escalation forces a context-switch in the PM's flow and risks "just keep going" as the path of least resistance — the question that needed a real answer gets a procedural one. Front-load product/scope/policy questions into the planning phase where the PM has the bandwidth to actually weigh them.

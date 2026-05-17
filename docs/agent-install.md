@@ -85,8 +85,8 @@ The installer prints "restart Claude Code, then run /session-start." Override th
 
 ## Optional follow-ups to mention
 
-- **Name your reviewers (optional)** if the user wants personal names for role labels: `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"`. Display-only — agent behaviour is unchanged.
-- **Per-project config**: `.claude/coordinator.local.md` with `project_type: web|data-science|game|pure-docs` controls which domain reviewers activate. Without it, only the universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`)) run.
+- **Name your reviewers (optional)** if the user wants personal names for role labels: `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"`. Display-only — agent behaviour is unchanged.
+- **Per-project config**: `.claude/coordinator.local.md` with `project_type: web|data-science|game|pure-docs` controls which domain reviewers activate. Without it, only the universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Director of Engineering (`coordinator:eng-director`)) run.
 - **Plugin cache out of sync** after editing plugin source: `bash setup/dev-sync.sh`. Rare for end users — relevant if the user is contributing to the plugins themselves.
 
 ## Failure modes to watch for

@@ -221,6 +221,12 @@ When adding a step between existing team phases (e.g., atlas sketch between scou
 
 Recovery from a billing/auth gate differs by scope — a SINGLE agent's gate (1M-context billing on one Sonnet teammate) is resumed via `SendMessage` to that agent after the gate clears; a GLOBAL gate (account-wide auth expiry) requires fresh redispatch because all transcripts may be stale. Probe scope with `claude api ping` before deciding. (Refines the doctrine in CLAUDE.md § Agent Teams.)
 
+### Subagents lack the `Agent` tool — multi-phase fan-out must originate from EM
+
+A dispatched subagent does NOT have `Agent` in its tool surface; it cannot spawn other subagents. Multi-phase pipelines (scout → specialists → synthesizer, or fan-out + fan-in) must therefore originate from the EM session — each phase boundary is a Tool surface the subagent doesn't have. Authors who write "the scout dispatches the specialists" in a skill body are describing a shape the platform doesn't support; the EM must hold the wave map and re-dispatch at each phase.
+
+**Workaround for genuine teammate-to-teammate coordination:** Agent Teams (`TeamCreate` / `SendMessage` / shared `TaskList`) — that's the platform's answer for multi-agent coordination without going back through the EM. Use Teams for blocking chains (scout → specialists → synthesizer); use EM-driven re-dispatch for serial fan-out where the EM owns the wave decisions.
+
 ### MCP tool names in Agent Teams teammates may differ from parent
 
 Deferred tool names can vary by prefix convention (`mcp__notebooklm__*` vs `mcp__plugin_notebooklm_notebooklm__*`). Always use graduated `ToolSearch`: exact `select:` → keyword `+prefix` fallback → graceful failure. Never hardcode a single naming pattern.
