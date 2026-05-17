@@ -169,7 +169,7 @@ Add to `~/.claude/plugins/installed_plugins.json`:
 
 ## Writing New Skills
 
-Skills are codified behavioral protocols. Reference: [`docs/wiki/writing-skills.md`](../plugins/coordinator/docs/wiki/writing-skills.md) for conventions; [`docs/evolution/07-super-skills.md`](evolution/07-super-skills.md) for when to write a prose skill versus a decision-tree super-skill.
+Skills are codified behavioral protocols. Reference: [`docs/wiki/writing-skills.md`](../docs/wiki/writing-skills.md) for conventions; [`docs/evolution/07-super-skills.md`](evolution/07-super-skills.md) for when to write a prose skill versus a decision-tree super-skill.
 
 ### What a Skill Is
 
