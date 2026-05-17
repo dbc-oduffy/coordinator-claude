@@ -27,107 +27,15 @@ If the wrapper exits non-zero (lib not found), continue — the reaper is operat
 
 ## Step 0: Branch Setup
 
-Ensure work happens on an active workstream branch and reconcile it with `origin/main` daily. The active workstream may be either canonical (`work/{machine}/{date-or-span}`, machine always lowercase) **or** a named long-lived workstream bus (e.g. `migration/...`, `release/...`, `feature/...`) that the PM authorized. The daily ritual is **reconcile with origin/main**, not branch-rotation: as long as a single active workstream branch exists locally, keep loading work onto it until it's ready to merge. Consolidate lingering sibling `work/{machine}/...` branches into the active one.
+Ensure work happens on an active workstream branch and reconcile with `origin/main` daily. The active workstream may be canonical (`work/{machine}/{date-or-span}`, machine lowercase) **or** a named long-lived bus (`migration/...`, `release/...`, `feature/...`) the PM authorized. Daily ritual is **reconcile with origin/main**, not rotation: keep loading the same active branch until it's ready to merge.
 
-**Sync-main invariant (run first, before any branch creation or rename):**
-```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh
-```
-If `sync-main.sh` exits non-zero, abort Step 0 and surface the divergence to the PM. Do not create a branch from stale main.
+Run `bin/sync-main.sh` first — non-zero abort surfaces divergence to PM.
 
-**Step 0 precedence switch** — evaluate conditions in order; stop at the first match:
+**Precedence switch** (evaluate in order; stop at first match): (1) stale-commit (>2 days) → A/B/C Branch Reconciliation flow; (2) already-in-span → silent exit; (3) on main/detached/empty → create `work/{machine}/{today}`; (4) named long-lived bus → skip rename, proceed to reconcile; (5) midnight-rename → atomic rename procedure + one-line briefing notice.
 
-1. **Stale-commit check (runs first):** Determine the epoch of the last commit on the current branch:
-   ```bash
-   LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
-   NOW_EPOCH=$(date +%s)
-   AGE_DAYS=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
-   ```
-   If `$AGE_DAYS > 2` AND the current branch is a `work/{machine}/...` branch → do NOT prompt rename. Surface to PM via the Branch Reconciliation A/B/C flow (below). This check runs first because a stale span branch whose end-suffix happens to equal today is still dead work that warrants A/B/C triage, not a silent exit.
+Every off-daily ref operation requires `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`.
 
-2. **Already-in-span check (runs second):** Use `cs_should_prompt_rename` from the lib (sources automatically — see internals). If the current branch's end-suffix already matches today's date, exit Step 0 silently — no rename, no new branch needed.
-
-3. **On main / detached / empty branch (runs third):** If the current branch is `main` or detached HEAD OR is non-main with zero commits ahead of `origin/main`, create a fresh canonical workstream branch:
-   ```bash
-   MACHINE=$(cs_compute_machine)   # always lowercase
-   TODAY=$(date +%Y-%m-%d)
-   COORDINATOR_OVERRIDE_BRANCH=1 \
-   COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
-   git checkout -b "work/${MACHINE}/${TODAY}"
-   git push -u origin "work/${MACHINE}/${TODAY}"
-   ```
-
-4. **Named long-lived workstream (runs fourth):** If `$CURRENT` is non-main, does NOT match `work/{machine}/...`, AND is ahead of `origin/main` → treat as an active named workstream bus. **Do not** create a fresh daily — that would abandon ongoing work. Skip the rename procedure (it is `work/{machine}/...`-specific) and proceed to the **daily origin/main reconcile** below, then continue to consolidation. The PM authorizes named workstreams via the inline override at branch-create time; once they exist, workday-start treats them as legitimate buses.
-
-5. **Midnight-rename (runs last):** If the current branch is a `work/{machine}/...` branch whose last commit is ≤48h ago AND the end-suffix does NOT match today → run the rename procedure below silently and emit a one-line notice in the Morning Briefing (`Renamed work/striker/2026-05-06 → work/striker/2026-05-06to07 (crossed midnight)`). Do NOT prompt — this is engineering housekeeping, not a product call. The PM can revert via `git branch -m` if they object.
-
-**Daily origin/main reconcile (runs after precedence resolves, for ANY non-main active branch):**
-```bash
-git fetch origin main
-if git merge-base --is-ancestor origin/main HEAD; then
-  : # already includes origin/main — nothing to do
-elif COORDINATOR_OVERRIDE_BRANCH=1 \
-     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main" \
-     git merge --ff-only origin/main 2>/dev/null; then
-  echo "Fast-forwarded $(git branch --show-current) to include origin/main."
-else
-  if ! COORDINATOR_OVERRIDE_BRANCH=1 \
-       COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (merge)" \
-       git merge --no-ff origin/main -m "reconcile origin/main into $(git branch --show-current) (workday-start)"; then
-    git merge --abort
-    echo "Reconcile conflict — surface to PM via A/B/C Branch Reconciliation Decision."
-    # Fall through to conflict handling below; do not silently continue.
-  fi
-fi
-```
-This is the daily ritual that replaces "cut a fresh daily off main." Other contributors' work on `origin/main` is folded into the active workstream branch on each workday-start. Conflicts here go through the same A/B/C flow as consolidation conflicts.
-
-**Rename procedure (the Staff Engineer F5 — atomic, reversible):**
-```bash
-OLD=$(git branch --show-current)
-MACHINE=$(cs_compute_machine)
-TODAY=$(date +%Y-%m-%d)
-# Compute new name using cs_format_span_suffix from the lib
-START_DATE=$(cs_parse_branch_span "$OLD" | awk '{print $1}')
-NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
-
-# Concurrent-rename race guard: re-check before touching refs
-CURRENT=$(git branch --show-current)
-TODAY_DD=$(date +%d)
-if [[ "$CURRENT" == *"to${TODAY_DD}" ]]; then
-  echo "Branch already renamed by another session — nothing to do."
-  exit 0
-fi
-
-# Step a: local rename (cheap, reversible)
-COORDINATOR_OVERRIDE_BRANCH=1 \
-COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename across midnight" \
-git branch -m "$OLD" "$NEW"
-
-# Step b: atomic remote rename (both halves succeed or both fail; git ≥2.4)
-if ! COORDINATOR_OVERRIDE_BRANCH=1 \
-     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 atomic rename push" \
-     git push --atomic origin "${NEW}:${NEW}" ":${OLD}"; then
-  # Roll back local rename on remote failure
-  COORDINATOR_OVERRIDE_BRANCH=1 \
-  COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 rename rollback after atomic push failure" \
-  git branch -m "$NEW" "$OLD"
-  echo "ERROR: remote rename rejected; local rolled back. Manual recovery may be needed."
-  exit 1
-fi
-
-# Step c: re-wire local tracking so @{upstream} resolves correctly.
-# git push --atomic creates the remote ref but does NOT update the local
-# tracking pointer; @{upstream} stays pointed at the now-deleted OLD ref
-# until this runs. Without it, coordinator-auto-push silently misroutes.
-git branch --set-upstream-to="origin/${NEW}" "${NEW}"
-```
-
-After a successful rename, continue with the branch-consolidation flow (open unmerged `work/{machine}/*` branches, A/B/C conflict handling) using the new branch name as base.
-
-**Inline override required:** every `git checkout`, `git merge`, `git branch -m`, and `git push --atomic` in Step 0 that touches off-daily refs must carry `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`. The `block-off-daily-branch.sh` hook denies these operations without the inline override. This now includes `git branch -m` for the rename flow. See `pipelines/workday-start-internals.md` § Step 0 for the full procedure.
-
-**Full procedure, conflict handling, and rationale:** see `pipelines/workday-start-internals.md` § Step 0.
+**Full procedure (sync-main details, precedence shell code, rename atomicity + upstream rewire, daily reconcile flow):** see `pipelines/workday-start-internals.md` § Step 0.
 
 ### Step 0 conflict handling — Branch Reconciliation Decision
 
@@ -482,69 +390,36 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 - [List each mismatch: "Tracker: X is Executing — Archive: shipped YYYY-MM-DD"]
 - [List each handoff flagged as likely completed]
 
-### Orphan Sweep
-_(Omit this section entirely if orphan-branch-sweep.sh produced no WARNING or CRITICAL output.)_
-- **CRITICAL:** [branch] — PR #N merged, [M] commits added after merge. Investigate before new work.
-- **WARNING:** [branch] — no PR, [N] commits, branch date [YYYY-MM-DD]. Open a PR or consolidate.
-
-### Agent Worktrees
-_(Omit this section entirely if Step 0.6 found nothing or only `empty-clean → removed` worktrees.)_
-- [N] worktrees swept ([K] removed clean, [S] salvaged + removed, [D] dirty retained, [F] salvage-conflict).
-- Dirty retained: [list paths]. Inspect with `cd <path> && git status` and either commit, discard, or `git worktree remove --force` after triage.
-- Salvage-conflict: [list paths]. Cherry-pick stopped on a conflict; resolve manually or remove if the commits aren't worth recovering.
-
-### Auto-Push Health
-_(Omit this section entirely if Step 1.8 found `RECENT_24H == 0` AND `TOTAL < 5`.)_
-- [N] failures in last 24h (total log: [M] lines). Most recent: [last log line].
-- Investigate before opening new work — silent push failures usually indicate a credential/branch-case/agent issue that will keep firing on every commit.
+### Orphan Sweep / Agent Worktrees / Auto-Push Health
+Each section omitted unless its step (0.5 / 0.6 / 1.8) produced surfaceable findings; render only the non-empty rows from that step's structured output.
 
 ### Priority Suggestions
-Based on project state:
-1. **[If bugs exist]** Fix [top severity bug] before new feature work
-2. **[If sweep stale]** Run bug-sweep — [N] commits since last sweep
-3. **[If tests stale]** Run test suite to verify current state
-4. **[If atlas stale]** Consider running deep-architecture-audit refresh
-5. **[If tracker items ready]** [Workstream X] is ready for execution
-6. **[If debt high]** Debt backlog has [N] items — consider debt-triage
+Pull from the active state: bugs (top severity first), stale sweep, stale tests, stale atlas, tracker Ready rows, deep debt backlog. Order by urgency, not by template.
 
 ### What should today's focus be?
 [Surface tracker Ready items, handoff action items, and PM-facing options]
 ```
 
-**Set marker:** Write `tasks/.workday-start-marker` with today's date. Single location, no dependency on health tracking subsystem. Session-start checks this one file.
-```
-YYYY-MM-DD
-```
+**Set marker:** Write `tasks/.workday-start-marker` with today's date (single line). Session-start checks this one file.
 
 ## Step 5.5: Write Orientation Cache
 
-Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects in subsequent sessions instead of raw repomap/DIRECTORY content. Sections: Key Documentation (from `docs/README.md`), Structure (top 15 from repomap), Navigation (from DIRECTORY.md), Code Statistics (`scc` if available), Health Snapshot, Doc Inventory, Staleness markers, Yesterday's Strategic Review (from `archive/daily-summaries/`). Frontmatter: `generated_by`, `generated_at`, `git_head_at_generation`. Skip if `tasks/` doesn't exist.
-
-The Health Snapshot includes handoff state mirroring the Step 1 split: one line for continuation handoffs, a separate line for spinoffs (`Spinoffs: N awaiting pickup (T stale)`). Omit the spinoffs line if N=0.
+Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects instead of raw repomap/DIRECTORY content. Skip if `tasks/` doesn't exist. Health Snapshot includes a Step-1 mirrored split: one line for continuation handoffs, a separate line for spinoffs (omitted if N=0).
 
 **Full content derivation per section:** see `pipelines/workday-start-internals.md` § Step 5.5.
 
 ## What This Does NOT Do
 
-- **Run bug-sweep.** That's a dedicated operation the PM invokes when ready.
-- **Run daily-code-health.** That's the night shift (workday-complete Step 3).
-- **Run deep-architecture-audit.** That's monthly. workday-start just surfaces atlas staleness.
-- **Merge to main.** Use `/merge-to-main` for that.
-- **Choose work.** That's session-start's Engage section. workday-start prepares the ground; session-start picks the work.
-- **Replace session-start.** workday-start prepares the ground; session-start picks the work.
-- **Auto-dispatch update-docs.** It commits files, which would race with workday-start operations. Flag staleness; the PM invokes manually after workday-start completes.
+- Run bug-sweep / daily-code-health / deep-architecture-audit / update-docs — those are dedicated invocations (PM, /workday-complete, monthly, manual after this completes respectively).
+- Merge to main — use `/merge-to-main`.
+- Choose work — that's session-start's Engage section.
 
 ## Relationship to Other Commands
 
-- **`session-start`** — runs per-session (many per day). workday-start runs once. Session-start detects if workday-start ran today and skips redundant checks.
-- **`workday-complete`** — the evening counterpart. Runs update-docs, consolidates branches, runs health survey.
-- **`update-docs`** — may be recommended by workday-start if docs are stale. Not auto-dispatched.
-- **`bug-sweep`** — independent skill. workday-start surfaces backlog state but doesn't run the sweep.
+`workday-start` runs once/day; `session-start` runs per-session (many/day) and skips redundant checks when the marker is fresh. `/workday-complete` is the evening counterpart. `/update-docs` and `/bug-sweep` are recommended (not dispatched) when state warrants.
 
 ## Concurrent Session Safety
 
-workday-start is read-only for all project tracking files. It writes only one file: `tasks/.workday-start-marker`. Multiple sessions can safely read the same health files; the marker is a simple date string with no merge-conflict risk.
+Read-only for all tracking files; writes only `tasks/.workday-start-marker` (date string, no merge-conflict risk). Failure mode to avoid: acting on stale handoff items a concurrent session already shipped — Step 1.3's git reconciliation is the prevention.
 
-**Failure mode to avoid:** Acting on stale handoff items that a concurrent session already shipped. Prevention: the mandatory git log + plan status reconciliation in Step 1, item 6 — run it before propagating any inherited items into Priority Suggestions or the work menu.
-
-If `$ARGUMENTS` is provided, include it as a focus hint in the Morning Briefing: _"Requested focus: {arguments}"_
+If `$ARGUMENTS` is provided, include as a focus hint in the Briefing: _"Requested focus: {arguments}"_
