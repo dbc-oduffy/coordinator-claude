@@ -32,7 +32,8 @@ Both are equally important. A plan can be doctrinally fine and still violate a p
 Before building the corpus inventory, read the repo registry and auto-discover peer repos that should be consulted alongside the four default corpora.
 
 **Step 1 — Read the registry.**
-Read `~/.claude/tasks/repo-registry.md`. If the file is missing or unreadable (permission error, drive not mounted), emit DEGRADED with reason "(f) registry could not be read" and proceed with manual-only mode — the four default corpora remain active. Note in the sidecar: `Auto-discovered peers: 0 — registry unreadable`.
+Read `~/.claude/tasks/repo-registry.md`. If the file is missing or unreadable (permission error, drive not mounted), emit DEGRADED with reason "(f) registry could not be read" and proceed with manual-only mode — the four default corpora remain active. In `Corpora consulted:`, show `peer-wikis: none — registry unreadable` (inline on the existing `Corpora consulted:` line; do NOT add a separate summary line).
+<!-- Review: code-review (Sonnet session-end) — P1-1: separate Auto-discovered peers: N line violates plan A1 (single-location-for-peer-info invariant); note folded inline into Corpora consulted: -->
 
 **Step 2 — Identify the active project.**
 Resolve `pwd` to a registry shortname by matching `pwd` against each entry's `path` field. Before comparison, normalize both values:
@@ -44,7 +45,8 @@ Resolve `pwd` to a registry shortname by matching `pwd` against each entry's `pa
 
 After normalization, compare case-insensitively on Windows; case-sensitively on Linux/macOS. If `pwd` contains a UNC path (`\\server\share`) or a WSL mount (`/mnt/...`), emit DEGRADED with reason "(h) unsupported path shape (UNC, WSL) detected during pwd-to-shortname resolution" and fall back to manual-only mode.
 
-If no registry entry matches, fall back to manual-only mode. Note in sidecar header: `Auto-discovered peers: 0 — project not registered`.
+If no registry entry matches, fall back to manual-only mode. In `Corpora consulted:`, show `peer-wikis: none — project not registered` (inline on the existing `Corpora consulted:` line; do NOT add a separate summary line).
+<!-- Review: code-review (Sonnet session-end) — P1-1: separate Auto-discovered peers: N line violates plan A1; note folded inline into Corpora consulted: -->
 
 **Step 3 — Stage-gate precondition check.**
 After identifying the active project entry, read its `relationships:` array. If `relationships:` is empty AND the project's `path` is one of the known-interwoven set [`x:/project-rag`, `x:/project-rag-ue-addon`, `x:/claude-unreal-holodeck`], emit DEGRADED with reason "registry interwoven-set entry has empty relationships — Stage 1 may not have landed." This is a fail-loud sentinel: if Stage 1 did not complete, the registry is missing edges and auto-discovery would silently under-report peers.
@@ -166,7 +168,8 @@ plan: <plan-path-relative-to-repo-root>
 **Verdict:** COMPATIBLE | WARN | BLOCKED-SURFACE-TO-PM | DEGRADED
 **Claims checked:** N
 **Conflicts:** X | **Compatible-but-relevant:** Y | **Silent:** Z
-**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1> (edge:schema-lockstep), <shortname2> (tag:rag), <shortname3> (override) [omit entire peer-wikis segment if no peers; if all peers from same source, consolidate: `corpus_source: working_wiki for all`] | lessons.md | improvement-queue
+**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1> (edge:schema-lockstep), <shortname2> (tag:rag), <shortname3> (override) [omit entire peer-wikis segment if no peers] | lessons.md | improvement-queue
+<!-- Review: code-review (Sonnet session-end) — Nitpick: "consolidate: corpus_source: working_wiki for all" was executor-invented drift; plan only specified per-peer publish_wiki_fallback annotation, not source-consolidation hint -->
 
 ### Conflicts (plan contradicts prior art)
 
