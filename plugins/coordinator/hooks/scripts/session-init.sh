@@ -117,14 +117,64 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
       consumed_sid=$(awk '/^---$/{n++; next} n==1' "$fpath" 2>/dev/null | grep -m1 '^consumed_by:' | sed 's/consumed_by:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)
       [ -z "$consumed_sid" ] && continue
 
-      # Check if the consuming session is alive
+      # Check if the consuming session is alive.
+      #
+      # Sentinel-pulse mitigation (spec backlink:
+      #   docs/plans/2026-05-17-ws2-channel-a-narrow-activation.md § Chunk 7):
+      #
+      # The PID recorded in meta.json is $$ of the cs_init hook subshell — dead
+      # within seconds of session boot. kill -0 therefore always returns non-zero
+      # for any session older than its launch instant; session_alive=true via PID
+      # is structurally unreachable (Patrik review: lib/coordinator-session.sh:189).
+      #
+      # Fix: check last_activity recency first. session-heartbeat.sh writes
+      # last_activity on every PreToolUse:Bash (throttled to 60s). If a session
+      # is actively running a Bash command (e.g. a multi-minute extraction), its
+      # last_activity will be recent. Treat any session with last_activity within
+      # the last ALIVE_WINDOW_MINUTES minutes as live — skip archival.
+      #
+      # ALIVE_WINDOW_MINUTES=10: long enough to cover normal extraction/build runs
+      # (UE source extract passes run 5-8 min); short enough to recover real
+      # crashes promptly (a crash leaves last_activity frozen; after 10 min it
+      # will be swept by the next session-init boot).
       sid_dir="${GIT_ROOT}/.git/coordinator-sessions/${consumed_sid}"
       session_alive=false
+      ALIVE_WINDOW_MINUTES=10
+      ALIVE_WINDOW_SECONDS=$(( ALIVE_WINDOW_MINUTES * 60 ))
       if [ -d "$sid_dir" ]; then
-        # Session dir exists — check if its PID is alive
-        sid_pid=$(cat "${sid_dir}/meta.json" 2>/dev/null | grep '"pid"' | sed 's/.*"pid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -1 || true)
-        if [ -n "$sid_pid" ] && kill -0 "$sid_pid" 2>/dev/null; then
-          session_alive=true
+        # Primary liveness: last_activity recency (sentinel-pulse, Path B).
+        # Read last_activity from meta.json via sed (avoids jq dependency on this path).
+        sid_last_activity=$(sed -n 's/.*"last_activity"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+          "${sid_dir}/meta.json" 2>/dev/null | head -1 || true)
+        if [ -n "$sid_last_activity" ]; then
+          now_epoch=$(date +%s 2>/dev/null || echo 0)
+          # ISO-8601 -> epoch: try GNU date, BSD date, python fallback
+          last_epoch=$(date -u -d "$sid_last_activity" +%s 2>/dev/null) \
+            || last_epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$sid_last_activity" +%s 2>/dev/null) \
+            || last_epoch=0
+          if [ "$last_epoch" -eq 0 ]; then
+            # Python fallback (Windows/portable)
+            if command -v python3 &>/dev/null; then
+              last_epoch=$(python3 -c "import datetime,sys; ts='${sid_last_activity%Z}'; print(int(datetime.datetime.fromisoformat(ts).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+            elif command -v python &>/dev/null; then
+              last_epoch=$(python -c "import datetime,sys; ts='${sid_last_activity%Z}'; print(int(datetime.datetime.fromisoformat(ts).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+            fi
+          fi
+          inactive_for=$(( now_epoch - last_epoch ))
+          if [ "$inactive_for" -lt "$ALIVE_WINDOW_SECONDS" ]; then
+            session_alive=true  # recent last_activity — session is alive
+          fi
+        fi
+
+        # Secondary liveness: PID check (kept as defense-in-depth for the rare
+        # case where heartbeats did not fire — e.g. a session that only ran
+        # Write/Edit tools and session-heartbeat.sh was not in hooks.json yet).
+        if [ "$session_alive" != "true" ]; then
+          sid_pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            "${sid_dir}/meta.json" 2>/dev/null | head -1 || true)
+          if [ -n "$sid_pid" ] && kill -0 "$sid_pid" 2>/dev/null; then
+            session_alive=true
+          fi
         fi
       fi
 
