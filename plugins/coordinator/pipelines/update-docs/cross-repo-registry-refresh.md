@@ -12,6 +12,13 @@ Invoked from `/update-docs` Phase 14 when `pwd` is `~/.claude`. EM-only — Sonn
    - **Already in active block (by `shortname`)** → no-op.
    - **Not in active block** → append to `<!-- BEGIN repo-registry-candidates --> ... <!-- END repo-registry-candidates -->` block with `status: needs-pm-review`, `goals: []`, `stack_tags: []`, `relationships: []`, `last_verified: <today>`. Skip if already in candidates block.
 
+2a. **Sibling-mention precision hint (V2, per Zolí F10).** For each newly-surfaced candidate, if its `CLAUDE.md` contains references to other registry shortnames AND those references match one of these precise shapes:
+   - Sibling-path mention of the form `../<shortname>/` or `<drive>:/<shortname>/` (filesystem-shaped), OR
+   - Shortname appearing in the CLAUDE.md frontmatter, OR
+   - Shortname appearing in a `#` / `##` / `###` heading
+
+   Append a `note:` field to the candidate entry: `note: candidate appears related to: <shortname1>, <shortname2>` — short, actionable hint for PM tagging. Bare-prose mentions (a shortname appearing in a paragraph or list item without one of the above shapes) are explicitly NOT used as triggers — the signal-to-noise ratio is too low and PM trust in the hint matters more than recall. PM still curates `goals`, `stack_tags`, and `relationships`; the hint is a navigation aid, not auto-promotion.
+
 3. **Staleness check on existing entries.** For each repo in the active block:
    - Reachability check (`ls "${path}"`). If reachable → update `last_verified: <today>`.
    - If unreachable → flip `status: unreachable` (do NOT delete; repo may be on a disconnected drive).
