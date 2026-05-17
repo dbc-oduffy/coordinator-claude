@@ -220,6 +220,65 @@ Content-leakage scan:
 
 **False-positive caveat:** the regex set is intentionally broad. `the PM` matches any first-name use (intended). Refining is the EM's call when integrating findings — but defaulting to "surface and let PM judge" beats "silently miss a real leak."
 
+#### Step 2d — Inverse-drift detection
+
+The publish repo can accumulate commits the source doesn't have: another EM on the machine may hand-fix a bug directly in dest, a release-time edit may land there first, or a previous percolate cycle may have been followed by ad-hoc patching. Overwriting those commits silently regresses real fixes. This step surfaces them BEFORE the gate.
+
+**Anchor resolution.** `publish.sh` writes a marker on every successful real run at `~/.claude/setup/percolate-state/<target>.lastsync` containing the dest HEAD SHA at sync time. Read it; the contents are the `<since>` ref.
+
+```bash
+marker="$HOME/.claude/setup/percolate-state/<target>.lastsync"
+if [[ -f "$marker" ]]; then
+  since_ref="$(cat "$marker")"
+  anchor_mode="marker"
+else
+  since_ref=""   # fall back to 30-day window
+  anchor_mode="30day-fallback"
+fi
+```
+
+**Build the rel-path filter** from the dry-run stdout (same set as Step 2c — files about to be overwritten). Resolve relative to dest root (the 4th pipe-separated field of the matching TARGETS entry).
+
+**Run `git log` in dest** scoped to those paths:
+
+```bash
+cd "<dest>"
+if [[ "$anchor_mode" == "marker" ]]; then
+  # Validate the marker SHA still exists in dest (could have been force-pushed/rebased)
+  if git rev-parse --verify "$since_ref" &>/dev/null; then
+    git log --no-merges --format='%h %ad %s' --date=short \
+      "$since_ref..HEAD" -- $(cat /tmp/percolate-scan-files.txt | sed "s|^<dest>/||")
+  else
+    anchor_mode="marker-stale"
+    git log --no-merges --since='30 days ago' --format='%h %ad %s' --date=short \
+      -- $(cat /tmp/percolate-scan-files.txt | sed "s|^<dest>/||")
+  fi
+else
+  git log --no-merges --since='30 days ago' --format='%h %ad %s' --date=short \
+    -- $(cat /tmp/percolate-scan-files.txt | sed "s|^<dest>/||")
+fi
+```
+
+**Render the panel above the Step 3 gate** when output is non-empty:
+
+```
+Inverse drift — dest commits touching files about to be overwritten:
+  anchor: <marker SHA> [or: 30-day fallback (no marker)] [or: marker-stale (SHA not in dest history)]
+  <abbrev-sha> <date> <subject>
+  <abbrev-sha> <date> <subject>
+  ...
+  → Read each commit's diff before proceeding. If it's a real fix, back-port to source FIRST,
+    then re-run /percolate. Confirming below will OVERWRITE these changes.
+```
+
+If output is empty, skip the panel entirely.
+
+**Gate behaviour:** ≥1 inverse-drift commit forces the Step 3 gate to fire (same severity as MEDIUM content-leak), and the gate prompt notes the count. Does NOT auto-abort — PM decides whether to back-port first or proceed.
+
+**Marker-stale caveat:** if the stored SHA no longer exists in dest history (force-push, rebase, repo reinit), the 30-day fallback runs and `anchor_mode: marker-stale` renders. PM should re-percolate to refresh the anchor afterward.
+
+**First-run caveat:** on the very first `/percolate` after this step ships, no marker exists — 30-day fallback runs once and may be noisy. Subsequent runs are anchored precisely.
+
 ### Step 3 — PM Confirmation Gate
 
 **Gate fires iff any of:**
@@ -227,6 +286,7 @@ Content-leakage scan:
 - Dry-run touches ≥10 files.
 - Dry-run touches a sensitive path (`CLAUDE.md`, `settings.json`, `hooks/`, `agents/`).
 - Step 2c content-leakage scan reported ≥1 MEDIUM hit (PM/EM identity, internal path, peer-repo name). HIGH hits aborted before reaching this step; MEDIUM hits force the gate even if all other conditions are absent.
+- Step 2d inverse-drift detection reported ≥1 dest commit touching files about to be overwritten.
 
 **Zero-changes case:** if dry-run reports no files to transfer ("sending incremental file list" with no file entries, or rsync reports 0 files), skip the gate AND Step 4. Proceed directly to Step 5. The Step 6 summary reports `real-run: skipped (no-op)`.
 

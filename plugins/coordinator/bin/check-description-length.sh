@@ -17,15 +17,17 @@ PM_GATED_LIMIT=175
 while IFS= read -r skill_md; do
   # Extract frontmatter block (between the two `---` lines at top of file)
   frontmatter=$(awk '/^---$/{n++; next} n==1' "$skill_md")
-  desc=$(printf '%s\n' "$frontmatter" | grep '^description:' | sed -E 's/^description:[[:space:]]*"?(.*)"?$/\1/' | sed 's/"$//')
+  # grep returning no-match exits 1 — wrap with `|| true` so set -euo pipefail
+  # doesn't kill the loop silently for skills lacking the optional field.
+  desc=$(printf '%s\n' "$frontmatter" | { grep '^description:' || true; } | sed -E 's/^description:[[:space:]]*"?(.*)"?$/\1/' | sed 's/"$//')
   # If description spans multiple lines (folded YAML), warn and skip — single-line assumed
-  desc_lines=$(printf '%s\n' "$frontmatter" | grep -c '^description:')
-  if [[ "$desc_lines" -gt 1 ]]; then
+  desc_lines=$(printf '%s\n' "$frontmatter" | grep -c '^description:' || true)
+  if [[ "${desc_lines:-0}" -gt 1 ]]; then
     echo "WARN: $skill_md has multi-line description; skipping (validator assumes single-line)" >&2
     continue
   fi
   # Determine limit
-  budget=$(printf '%s\n' "$frontmatter" | grep '^description-budget:' | sed -E 's/^description-budget:[[:space:]]*([0-9]+).*$/\1/')
+  budget=$(printf '%s\n' "$frontmatter" | { grep '^description-budget:' || true; } | sed -E 's/^description-budget:[[:space:]]*([0-9]+).*$/\1/')
   if [[ -n "$budget" ]]; then
     limit=$budget
   elif [[ "$desc" =~ ^PM-GATED || "$desc" =~ ^\*\*PM-GATED ]]; then

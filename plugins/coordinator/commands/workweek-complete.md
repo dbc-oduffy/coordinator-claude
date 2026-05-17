@@ -56,36 +56,32 @@ Wait for completion before proceeding.
 
 ## Step 4: Improvement-Queue Triage
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. For each `- ` entry in `## Active queue`,
-parse the following fields:
+Read `~/.claude/tasks/coordinator-improvement-queue.md`. Schema (DR-056 amended 2026-05-17) is main-line-only:
 - **Main line:** `- YYYY-MM-DD | <source-repo> | <source-file>:<line> | <summary> | proposed target: <target>`
-- **`recurring:` field** (sub-line, indented two spaces): integer count of recurrence increments.
-- **`resolution:` field** (sub-line, indented two spaces): one of `pending`, `in_progress`, `resolved <date> <commit>`.
+- **Optional recurrence suffix:** ` [recurring: N]` appended to the main line when N ≥ 1.
 
 Note the oldest entry date and total active count.
 
 **Triage triggers (any condition):**
 - ≥ 5 active entries, OR
 - Oldest entry is > 14 days ago, OR
-- Any entry has `recurring: ≥3` AND `resolution: pending` (recurring-without-action threshold).
+- Any entry carries `[recurring: ≥3]` on its main line (recurring-without-action threshold).
 
 If triggered:
 1. Read the queue entries.
-2. **Prioritize recurring-without-action items first** (any with `recurring: ≥3` and `resolution: pending`).
+2. **Prioritize recurring-without-action items first** (any with `[recurring: ≥3]`).
 3. For each prioritized entry, dispatch a small executor per the `proposed target` field.
-4. Verify applied entries; delete the resolved entries from the queue.
+4. Verify applied entries; delete the resolved entries from the queue (main-line `git rm`-equivalent — do NOT annotate as resolved).
 5. Commit subject names each closed entry (`workweek triage: closed <id-or-summary>, <id-or-summary>`).
 6. If > 15 total entries to triage, treat as a `/staff-session`-style multi-executor sweep.
 
 If not triggered: note in summary — _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
 
-**Parser tolerance (the Staff Engineer F15):** The parser MUST treat absent `recurring:` as `0` and absent `resolution:` as `pending`. This handles both pre-migration entries (when the migration was skipped due to absent PM gate) AND new entries appended without the sub-lines (defensive). The triage threshold "`recurring: ≥3 AND resolution: pending`" applies to entries with explicit values; entries without sub-lines effectively count as `recurring: 0, resolution: pending` and never trigger the threshold. This is correct semantics — entries the migration didn't touch shouldn't trigger triage on their own.
-
-**Write-time discipline (the Staff Engineer F6):** When appending a NEW entry to either queue (central or per-project), ALWAYS write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent). This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`.
+**Write-time discipline (DR-056 amended 2026-05-17):** Append NEW entries as a single main line — no `recurring:` or `resolution:` sub-lines. The pruner (`/update-docs` Phase 11i) strips trivial sub-lines on every run, so writing them is wasted ceremony. Closure-log sections (`## History`, `## Resolved`, `## Processed`, `## Closed`, `## Done`, `## Archive`, `## Closeout`) are also stripped — do NOT create them.
 
 **Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
 
-**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables (exclude the `## Resolved` section and any resolved/closed rows). If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
+**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables. (Closure-log sections like `## History` / `## Resolved` are stripped by `/update-docs` Phase 11i — if any survive in your read, count them as zero open items.) If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
 
 ---
 
@@ -125,11 +121,31 @@ done)
     <sha_range from record 1>
     <sha_range from record 2>
   Remediation: run /workday-complete on the affected day(s) to resolve pending records,
-  or override with COORDINATOR_OVERRIDE_UBT_GATE=1 (same escape hatch as Step 0c).
+  or override with COORDINATOR_OVERRIDE_UBT_GATE=1 (same escape hatch as Step 1 UBT preamble).
   ```
   Do NOT proceed to Step 5 (merge) until the pending records are resolved.
 
-This step mirrors Step 4b's freshness-check pattern — cheap grep gate, expensive work deferred to /workday-complete Step 0c. Applies only when `bin/check-ubt-build-fresh.sh` exists in the repo root (non-UE repos see no pending records and this step passes silently).
+This step mirrors Step 4b's freshness-check pattern — cheap grep gate, expensive work deferred to /workday-complete Step 1 UBT preamble. Applies only when `bin/check-ubt-build-fresh.sh` exists in the repo root (non-UE repos see no pending records and this step passes silently).
+
+---
+
+## Step 4d: Skill Description Length Advisory
+
+```bash
+# Advisory only — never blocks. Both findings AND script crashes surface to stdout
+# where the EM running the ceremony can fold them into the week's summary.
+set +e
+_DESC_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh 2>&1)
+_DESC_RC=$?
+set -e
+echo "---"
+echo "description-length advisory (rc=$_DESC_RC):"
+echo "$_DESC_OUT"
+echo "---"
+# _DESC_RC is never propagated to ceremony exit
+```
+
+This is informational. A failure here is a follow-up nudge, not a blocker. Read the stdout block, note any over-budget skills in the weekly summary you're authoring at Step 1, and address them next session. A non-zero rc that produces no findings output indicates a script crash — investigate out-of-band.
 
 ---
 

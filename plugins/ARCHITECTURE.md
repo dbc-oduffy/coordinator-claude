@@ -220,4 +220,4 @@ Executors follow specs — speed and cost matter more than judgment. Reviewers m
 
 ## Authors
 
-Dónal O'Duffy & Claude
+the Coordinator Authors

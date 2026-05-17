@@ -38,7 +38,6 @@ fi
 NAMED_DIRS=("/x/DroneSim" "/x/project-rag" "/x/claude-unreal-holodeck" "$HOME/.claude")
 EXPECTED_KEYS=(
   "holodeck-control@claude-unreal-holodeck"
-  "holodeck-docs@claude-unreal-holodeck"
   "holodeck@claude-unreal-holodeck"
   "game-dev@claude-unreal-holodeck"
   "game-dev@coordinator-claude"

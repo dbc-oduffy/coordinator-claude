@@ -1,6 +1,6 @@
 # game-dev
 
-Game development domain plugin for the Donal + Claude agent hierarchy. Enable for Unreal Engine and game development projects.
+Game development domain plugin for the Coordinator Authors agent hierarchy. Enable for Unreal Engine and game development projects.
 
 ## Components
 
@@ -13,12 +13,12 @@ Game development domain plugin for the Donal + Claude agent hierarchy. Enable fo
 
 **MCP Servers:** holodeck-docs (UE documentation RAG), holodeck-control (UE Editor integration) — configured globally in `~/.claude/settings.json`
 
-**Routing:** Registers Sid for game dev signals with Patrik (coordinator) as backstop. Simple doc lookups route to holodeck-docs plugin's ue-docs-researcher (Sonnet); architecture and review route to Sid (Opus).
+**Routing:** Registers the Game Dev Reviewer for game dev signals with the Staff Engineer (coordinator) as backstop. Simple doc lookups route to holodeck-docs plugin's ue-docs-researcher (Sonnet); architecture and review route to the Game Dev Reviewer (Opus).
 
 ## Source of Truth
 
-This plugin lives in [coordinator-claude](https://github.com/oduffy-delphi/coordinator-claude) at `plugins/game-dev/`.
+This plugin lives in [coordinator-claude](https://github.com/dbc-oduffy/coordinator-claude) at `plugins/game-dev/`.
 
 ## Authors
 
-Donal O'Duffy & Claude
+the Coordinator Authors

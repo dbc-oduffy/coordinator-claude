@@ -54,7 +54,7 @@ Select the reviewer based on what changed:
 | Dominant change type | Reviewer |
 |---|---|
 | Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | Palí |
+| Frontend / UI | the Front-End Reviewer |
 | Data / ML / science | the Data Science Reviewer |
 | Mixed, backend, or architecture | the Staff Engineer |
 

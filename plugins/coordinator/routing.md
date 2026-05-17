@@ -20,10 +20,10 @@ Domain plugins register reviewers by providing a `routing.md` file at the plugin
 - **Signals:** Architectural change, new subsystem, cross-cutting (many files, new pattern), backend, security, other/unmatched
 - **Model:** opus
 - **Effort:** Medium (escalates to High for architectural changes)
-- **Backstop:** Zolí
+- **Backstop:** the Ambition Advocate
 - **Agent file:** `agents/staff-eng.md`
 
-### Zolí (ambition-advocate)
+### the Ambition Advocate (ambition-advocate)
 - **Signals:** N/A — backstop only, never primary
 - **Model:** opus
 - **Effort:** Medium
@@ -68,7 +68,7 @@ Per-project config in `coordinator.local.md`:
 
 `project_type` is a single string. `project_subtypes` is an optional list of free-form tags (e.g. `unreal`, `unity`) that enable engine-specific or stack-specific routing within the declared type. Downstream consumers do best-effort matching; unknown subtypes are silently ignored.
 
-If no `.local.md` exists, default to core-only (the Staff Engineer + Zolí).
+If no `.local.md` exists, default to core-only (the Staff Engineer + the Ambition Advocate).
 
 ## Effort Calibration
 
@@ -92,13 +92,13 @@ Not every change needs the full review pipeline:
 
 ## Backstop Reconciliation Protocol
 
-When the backstop (Zolí) returns findings after a primary review (the Staff Engineer or domain reviewer):
+When the backstop (the Ambition Advocate) returns findings after a primary review (the Staff Engineer or domain reviewer):
 
-- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. Zolí's agreement is noted but requires no action.
-- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use Zolí's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
+- **BACKSTOP_AGREES:** Pass primary reviewer's findings to review-integrator unchanged. The Ambition Advocate's agreement is noted but requires no action.
+- **BACKSTOP_CHALLENGES:** The coordinator resolves the specific tension before dispatching review-integrator. Options: accept the challenge (use the Ambition Advocate's suggested approach), reject the challenge (proceed with primary reviewer's recommendation), or escalate to PM if the decision has product implications. The review-integrator receives a single resolved work order, not two conflicting ones.
 - **BACKSTOP_OVERRIDES:** Coordinator surfaces both perspectives to PM and blocks until resolved. Overrides are rare — "ship heading for iceberg" territory.
 
-The review-integrator should never receive findings where the Staff Engineer and Zolí disagree without the coordinator having resolved the disagreement first.
+The review-integrator should never receive findings where the Staff Engineer and the Ambition Advocate disagree without the coordinator having resolved the disagreement first.
 
 ## Post-Review Synthesis (when 2+ reviewers ran)
 

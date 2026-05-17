@@ -1,5 +1,6 @@
 ---
 name: roadmap-planning
+description-budget: 400
 description: PM-GATED. Roadmap shaping from research/deep-dive/peer-repo inputs. Three-phase pipeline (Synthesize → Plan → Dispatch) producing kind:spinoff-roadmap stubs with deployment_state, blocks/blocked_by graph, machine-readable STUB-INDEX. Triggers — "shape a roadmap", "build a roadmap from these deep-dives", "plan a sprint sequence from this research".
 version: 1.0.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
