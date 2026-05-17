@@ -27,9 +27,49 @@ Prior art is anything the coordinator system has already established. Two kinds,
 
 Both are equally important. A plan can be doctrinally fine and still violate a project-specific decision; a plan can be project-fine and still violate doctrine. Check both corpora, every run.
 
+## Bootstrap: Phase 0 — Registry-driven peer discovery
+
+Before building the corpus inventory, read the repo registry and auto-discover peer repos that should be consulted alongside the four default corpora.
+
+**Step 1 — Read the registry.**
+Read `~/.claude/tasks/repo-registry.md`. If the file is missing or unreadable (permission error, drive not mounted), emit DEGRADED with reason "(f) registry could not be read" and proceed with manual-only mode — the four default corpora remain active. Note in the sidecar: `Auto-discovered peers: 0 — registry unreadable`.
+
+**Step 2 — Identify the active project.**
+Resolve `pwd` to a registry shortname by matching `pwd` against each entry's `path` field. Before comparison, normalize both values:
+- (a) Expand `~/` against `$HOME` (Linux/macOS) or `$env:USERPROFILE` (Windows).
+- (b) Resolve symlinks via `realpath` (Linux/macOS) or `Resolve-Path` (Windows).
+- (c) Convert separators to forward slashes.
+- (d) Lowercase drive letters on Windows (e.g., `X:/` → `x:/`).
+- (e) Strip trailing slash.
+
+After normalization, compare case-insensitively on Windows; case-sensitively on Linux/macOS. If `pwd` contains a UNC path (`\\server\share`) or a WSL mount (`/mnt/...`), emit DEGRADED with reason "(h) unsupported path shape (UNC, WSL) detected during pwd-to-shortname resolution" and fall back to manual-only mode.
+
+If no registry entry matches, fall back to manual-only mode. Note in sidecar header: `Auto-discovered peers: 0 — project not registered`.
+
+**Step 3 — Stage-gate precondition check.**
+After identifying the active project entry, read its `relationships:` array. If `relationships:` is empty AND the project's `path` is one of the known-interwoven set [`x:/project-rag`, `x:/project-rag-ue-addon`, `x:/claude-unreal-holodeck`], emit DEGRADED with reason "registry interwoven-set entry has empty relationships — Stage 1 may not have landed." This is a fail-loud sentinel: if Stage 1 did not complete, the registry is missing edges and auto-discovery would silently under-report peers.
+
+**Step 4 — Walk the relationships graph (Channel 1 — strong signal).**
+For each edge in the active project's `relationships:` array, resolve the `target` shortname to its registry entry. Also walk reverse edges: scan all other active entries for edges whose `target` is the active project's shortname. Each resolved entry is queued as a peer corpus to consult. **No cap on edge-discovered peers.** For each peer, note the edge kind (e.g., `edge:schema-lockstep`, `edge:dev-publish`) as the discovery reason.
+
+For each peer, read `working_wiki` as the corpus path. If `working_wiki` is unreachable (drive not mounted, path does not resolve), try `publish_wiki` if present. Annotate the sidecar with `corpus_source: publish_wiki_fallback` for any peer served from fallback. If neither resolves, skip the peer and add a DEGRADED note: "Peer <shortname> unreachable — neither working_wiki nor publish_wiki resolved."
+
+**Step 5 — Stack-tags overlap scan (Channel 2 — weak signal).**
+For each active registry entry NOT already queued by an edge, check `stack_tags` overlap with the active project. Entries with ≥1 overlapping tag are candidates. Rank by overlap count; break ties alphabetically by shortname. Queue up to **2** tag-overlap peers. Note discovery reason `tag:<overlapping-tag>` (use the highest-overlap tag if multiple; if tied, use the alphabetically first).
+
+**Step 6 — Combined ceiling check.**
+If total peers (edges + tags) exceeds 5, emit DEGRADED with reason "(g) peer count ceiling exceeded — coverage may be incomplete" and consult only the first 5 (edge-discovered peers have priority over tag-discovered peers; within each channel, preserve rank order). When the combined ceiling is hit, the EM's remediation is `peer_repos: [shortnames]` with `peer_repos_mode: replace` to consult a deliberately chosen subset.
+
+**Step 7 — `peer_repos` override.**
+If the dispatch brief includes `peer_repos: [shortname, ...]` WITHOUT `peer_repos_mode:`, that list **augments** the auto-discovered set (deduped by shortname — augment-default fails observably via an extra peer in the sidecar; replace-default would silently drop auto-discovered peers). If the dispatch brief includes `peer_repos_mode: replace`, the manual list **replaces** auto-discovery entirely — auto-discovered peers are excluded and only the manually listed peers are consulted.
+
+For augmented peers, note discovery reason `override` in the sidecar. For replace-mode, note `override:replace` on each peer.
+
+**Backward compatibility note:** Existing dispatches that pass `peer_repos: [...]` continue to work — that path becomes augment-mode by default. EM sets `peer_repos_mode: replace` for the legacy semantic (exact same peer set, no auto-discovery). The augment-default may surface one extra peer in the sidecar for dispatches that previously expected `peer_repos:` to be the only signal — verify against recent dispatches per AC11 of the plan.
+
 ## Bootstrap: corpus inventory
 
-Before scanning the plan, build an inventory of available prior-art sources. You will read across **two corpora** plus two queue/lesson sources:
+Before scanning the plan, build an inventory of available prior-art sources. You will read across **two corpora** plus two queue/lesson sources (plus any peers discovered in Phase 0 above):
 
 1. **Project wikis** — files under `docs/wiki/` in the active project. Use `docs/wiki/DIRECTORY_GUIDE.md` (if present) as your index. If absent, glob `docs/wiki/**/*.md` (recursive — subdirectories such as `marketplace/`, `opensource/`, `competitors/`, and `codebase-judgment/` are in scope).
 2. **Global wikis** — files under `~/.claude/docs/wiki/`. Use `~/.claude/docs/wiki/DIRECTORY_GUIDE.md` (if present) as the index. If the active project IS `~/.claude` (i.e., editing the coordinator central), the project and global corpora are the same — note this and avoid double-reading.
@@ -78,7 +118,7 @@ For each claim, search the corpus for prior art that bears on it:
 
 1. **Search project wikis first.** `Grep` across `docs/wiki/` for keywords from the claim's topic. Read promising matches in full.
 2. **Search global wikis next.** `Grep` across `~/.claude/docs/wiki/`. Read promising matches in full.
-3. **Search peer-repo wikis (only if `peer_repos` was supplied in the dispatch brief).** `Grep` across each peer's `docs_wiki` path. Read promising matches in full. Treat peer prior art as informative, not authoritative — the active project has primacy on conflicts.
+3. **Search peer-repo wikis** for each peer in the auto-discovered set (Phase 0), plus any `peer_repos:` entries in augment mode, or the manual list only in replace mode. Each peer's `working_wiki` is the default corpus; `publish_wiki` is fallback when `working_wiki` is unreachable. `Grep` across each peer's resolved wiki path. Read promising matches in full. Treat peer prior art as informative, not authoritative — the active project has primacy on conflicts.
 4. **Search lessons + improvement queue.** `Grep` across `tasks/lessons.md` and `~/.claude/tasks/coordinator-improvement-queue.md` for keywords. These are line-grain, not document-grain.
 5. **WebSearch is a last resort** — only when a wiki cites external doctrine (RFC, framework guide) and the plan's claim contradicts that external doctrine. Do not WebSearch for general topics; you are checking *our* prior art, not the open internet.
 
@@ -126,7 +166,7 @@ plan: <plan-path-relative-to-repo-root>
 **Verdict:** COMPATIBLE | WARN | BLOCKED-SURFACE-TO-PM | DEGRADED
 **Claims checked:** N
 **Conflicts:** X | **Compatible-but-relevant:** Y | **Silent:** Z
-**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1>, <shortname2> (only if peer_repos supplied; omit line otherwise) | lessons.md | improvement-queue
+**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1> (edge:schema-lockstep), <shortname2> (tag:rag), <shortname3> (override) [omit entire peer-wikis segment if no peers; if all peers from same source, consolidate: `corpus_source: working_wiki for all`] | lessons.md | improvement-queue
 
 ### Conflicts (plan contradicts prior art)
 
@@ -148,14 +188,14 @@ plan: <plan-path-relative-to-repo-root>
   - **Subtype:** `cite` | `wiki-may-be-outdated`
   - **Suggested action:** [add citation in plan / align vocabulary / no action — informational only]
 
-### Peer prior art (only if peer_repos was supplied)
+### Peer prior art
 
-[Omit this entire section if peer_repos was empty/absent. If peer_repos was supplied but yielded no hits, include the section with the line "No peer prior art surfaced." If a peer was unreachable, list it: "Peer <shortname> unreachable: <docs_wiki path> did not resolve."]
+[Omit this entire section if no peers were consulted (no auto-discovered peers AND no peer_repos: in brief). If peers were consulted but yielded no hits, include the section with the line "No peer prior art surfaced." If a peer was unreachable, list it: "Peer <shortname> unreachable: neither working_wiki nor publish_wiki resolved."]
 
 [For each peer hit, one block:]
 
 - **Claim #N — [topic]:** [one-line summary]
-  - **Peer (`<shortname>`):** [verbatim quote from peer's wiki, with file:line]
+  - **Peer (`<shortname>`, discovered: `edge:schema-lockstep` | `tag:rag` | `override` | `override:replace`):** [verbatim quote from peer's wiki, with file:line]
   - **Relevance:** [one sentence — what the peer establishes that bears on this claim]
   - **Suggested action:** [add citation in plan's "Prior Art" section / surface to EM as candidate pattern / informational only]
 
@@ -170,7 +210,7 @@ plan: <plan-path-relative-to-repo-root>
 - **COMPATIBLE** — zero conflicts; compatible-but-relevant items are informational only.
 - **WARN** — one or more conflicts, none severe enough to halt review. EM disposition required before Opus reviewer dispatch.
 - **BLOCKED-SURFACE-TO-PM** — one or more conflicts that contradict load-bearing doctrine (e.g., scoped-safety-commits, daily-branch-discipline, round-trip-contract-tests, sequential-review HARD RULE) OR contradict explicit institutional memory recording a past incident. EM must escalate to PM before continuing.
-- **DEGRADED** — the agent ran but with materially incomplete coverage. Emitted when any of the following occurred: (a) Phase 1 capped at 30 claims and the plan has significantly more (noted in the report), (b) Stuck Detection fired ≥1 time (≥3 consecutive empty searches on any claim), (c) a corpus was unreadable (permission error, missing directory, truncated file), (d) estimated token cost exceeded 50K (cost overrun), (e) `peer_repos` count exceeded the cap of 2 — peer corpora not consulted. Treat DEGRADED as no signal — the EM should review the plan fully against prior art rather than relying on the sidecar. DEGRADED does not block; it flags unreliable coverage.
+- **DEGRADED** — the agent ran but with materially incomplete coverage. Emitted when any of the following occurred: (a) Phase 1 capped at 30 claims and the plan has significantly more (noted in the report), (b) Stuck Detection fired ≥1 time (≥3 consecutive empty searches on any claim), (c) a corpus was unreadable (permission error, missing directory, truncated file), (d) estimated token cost exceeded 50K (cost overrun), (e) tag-channel peer count exceeded the cap of 2 tag-only peers — additional tag-overlap candidates were skipped (edge-discovered peers are not subject to this cap), (f) registry could not be read (file missing, permission error) — auto-discovery skipped, (g) total peer count (edges + tags combined) exceeded the ceiling of 5 — some peers not consulted, (h) unsupported path shape (UNC, WSL) detected during pwd-to-shortname resolution — auto-discovery skipped. Treat DEGRADED as no signal — the EM should review the plan fully against prior art rather than relying on the sidecar. DEGRADED does not block; it flags unreliable coverage.
 
 The verdict is advisory. EM judgment overrides; the only auto-action is "do not dispatch Opus reviewer until EM has read the sidecar."
 ```
@@ -217,6 +257,14 @@ Emit a cost footer at the end of the sidecar:
 ```
 
 If the estimate exceeds 50K tokens, emit verdict **DEGRADED** with rationale "cost overrun — coverage may be incomplete due to runaway corpus reads." The EM uses this footer to detect and diagnose unexpectedly large runs.
+
+## Smoke test (post-deployment validation)
+
+Three oracle-shaped checks verify Stage 2 is working correctly. These are one-time validation checks, not a regression suite.
+
+- **Oracle 1 — registry schema check:** `bin/verify-registry-schema.sh` (pure registry read — no agent involvement). Validates YAML shape, closed-enum membership, and `working_wiki` path resolution for all active entries. Must pass before Stage 2 is considered stable.
+- **Oracle 2 — single-edge dispatch:** Dispatch from `coordinator-claude` with no `peer_repos:` in the brief. Expected sidecar: `peer-wikis: claude-central (edge:dev-publish)`. Any deviation (extra peers, wrong discovery reason, no peers) means the agent's Phase 0 is broken.
+- **Oracle 3 — triad cross-check:** Dispatch from each of `project-rag`, `project-rag-ue-addon`, `claude-unreal-holodeck`. Each sidecar should show the other two members as peers with correct discovery reasons. Pairwise symmetry is required — if A→B works but B→A doesn't, the edge is missing in one direction in the registry.
 
 ## Do Not Commit
 
