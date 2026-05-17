@@ -255,4 +255,4 @@ This system's design is informed by published research and validated through con
 
 ---
 
-[Dónal O'Duffy](https://github.com/dbc-oduffy) & Claude
+[the PM O'Duffy](https://github.com/dbc-oduffy) & Claude

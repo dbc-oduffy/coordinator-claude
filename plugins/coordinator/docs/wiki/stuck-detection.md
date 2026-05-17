@@ -151,5 +151,5 @@ Option 3: `requirements-repomap.txt` with pinned versions + inline stdlib fallba
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md)
+- Related: [tiered-context-loading](tiered-context-loading.md)
 - Source plan: `archive/specs/2026-03-16-tier1-repomap-stuckdetect.md`

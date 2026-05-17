@@ -56,12 +56,12 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
 | Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: Zolí) | High |
-| Front-end, CSS, UI components | Palí | (backstop: the UX Reviewer) | Medium |
-| Front-end + architecture | Palí | the Staff Engineer | Medium → High |
+| Architectural change, new subsystem | the Staff Engineer | (backstop: the Ambition Advocate) | High |
+| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
+| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
 | ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
 | UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: Zolí) | High |
+| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Ambition Advocate) | High |
 | Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
 | Other / unmatched | the Staff Engineer | (none) | Medium |
 

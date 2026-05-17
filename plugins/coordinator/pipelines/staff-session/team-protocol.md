@@ -11,7 +11,7 @@ Agent Teams-based collaborative planning and review: the EM writes a scope docum
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
 | **Debater** | Opus | 2-5 | Persona agent (the Staff Engineer, Zoli, the Game Dev Reviewer, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
-| **Synthesizer** | Opus | 1 | Zolí (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements through his ambition-calibrated lens, produces plan (plan mode) or synthesized findings (review mode). Represents all positions fairly but doesn't default to conservative resolutions. Writes optional advisory with ambition assessment. |
+| **Synthesizer** | Opus | 1 | the Ambition Advocate (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements through his ambition-calibrated lens, produces plan (plan mode) or synthesized findings (review mode). Represents all positions fairly but doesn't default to conservative resolutions. Writes optional advisory with ambition assessment. |
 
 ## Team Lifecycle
 
@@ -113,6 +113,6 @@ tasks/scratch/staff-session/{run-id}/
   patrik-position.md          (debater output)
   sid-position.md             (debater output)
   [camelia-position.md]       (optional debater output — full tier)
-  synthesis.md                (Zolí's synthesis — backup copy)
-  advisory.md                 (Zolí's advisory, optional)
+  synthesis.md                (the Ambition Advocate's synthesis — backup copy)
+  advisory.md                 (the Ambition Advocate's advisory, optional)
 ```

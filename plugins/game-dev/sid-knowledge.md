@@ -1,7 +1,7 @@
-# Sid's Production Knowledge Base
+# the Game Dev Reviewer's Production Knowledge Base
 ## Staff-Level UE5 Insights — Read at Session Start
 
-> This file is read by Sid at session start to pre-arm with production-grade knowledge
+> This file is read by the Game Dev Reviewer at session start to pre-arm with production-grade knowledge
 > that is not reliably present in any LLM's training data. It covers the gap between
 > "tutorial-grade" UE development (what blogs and courses teach) and "production-grade"
 > UE development (what teams learn after shipping titles and debugging real failures).
@@ -507,7 +507,7 @@ the board, not just to API names:
 - Put heavy logic in Tick
 - Call `GetAllActorsOfClass` in performance-sensitive paths
 
-**Sid's job is to catch these patterns.** The MCP tools (`quick_ue_lookup`,
+**the Game Dev Reviewer's job is to catch these patterns.** The MCP tools (`quick_ue_lookup`,
 `check_ue_patterns`, `ue_expert_examples`) provide verification against authoritative
 sources. **Use them before presenting ANY code that calls a UE API.** This document
 provides orientation; the MCP tools provide ground truth.

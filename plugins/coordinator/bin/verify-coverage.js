@@ -298,6 +298,11 @@ const REF_ALLOWLIST = new Set([
   // the capability went). Body always reads "Replaces/Supersedes/absorbed".
   'coordinator:artifact-consolidation', // absorbed into /update-docs Phase 8b 2026-05-06; 5 callers are rename notes in pipelines/commands
   'coordinator:lesson-triage',          // renamed to coordinator:learn-lessons 2026-05-06; 1 caller is the rename note inside learn-lessons/SKILL.md
+  // Version-history documentation of renamed skills in super-skill-architecture.md
+  // § Version History — v2.0.0 Breaking Changes (2026-05-07). Not live dispatch refs.
+  'coordinator:writing-plans',          // renamed to coordinator:plan 2026-05-07; cited in v2.0.0 rename note
+  'coordinator:requesting-code-review', // renamed to coordinator:review-code 2026-05-07; cited in v2.0.0 rename note
+  'coordinator:using-git-worktrees',    // removed 2026-05-07 (rule lives in CLAUDE.md); cited in v2.0.0 rename note
 ]);
 
 // ---------------------------------------------------------------------------

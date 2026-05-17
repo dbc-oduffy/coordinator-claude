@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # depersonalize-for-publish.sh — scan or rewrite files to strip persona display
-# names (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Palí, the UX Reviewer, Zolí, the VP-Product Reviewer) and identity vocabulary
+# names (Patrik, Sid, Camelia, Palí, Fru, Zolí, YK) and identity vocabulary
 # (PM name forms, private GitHub org slugs) in favor of role labels and
 # canonical public identifiers.
 #
@@ -21,34 +21,34 @@
 # `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`.
 #
 # Vocabulary (matching docs/customization.md "Reviewer Roles" table):
-#   the Staff Engineer                        → the Staff Engineer
+#   Patrik                        → the Staff Engineer
 #   Zolí                          → the Ambition Advocate
-#   the VP-Product Reviewer                            → the VP-Product Reviewer
-#   the Game Dev Reviewer                           → the Game Dev Reviewer
+#   YK                            → the VP-Product Reviewer
+#   Sid                           → the Game Dev Reviewer
 #   Palí                          → the Front-End Reviewer
-#   the UX Reviewer                           → the UX Reviewer
-#   the Data Science Reviewer                       → the Data Science Reviewer
+#   Fru                           → the UX Reviewer
+#   Camelia                       → the Data Science Reviewer
 #
 # Identity vocabulary (PM name forms and private org slugs):
-#   the Coordinator Authors        → the Coordinator Authors
-#   the Coordinator Authors        → the Coordinator Authors  (ASCII variant)
-#   the Coordinator Authors                → the Coordinator Authors
-#   the PM                         → the PM  (defensive — stray first-name use)
-#   dbc-oduffy/coordinator-claude   → dbc-oduffy/coordinator-claude
-#   dbc-oduffy/deep-research-claude → dbc-oduffy/deep-research-claude
+#   Dónal O'Duffy & Claude        → the Coordinator Authors
+#   Donal O'Duffy & Claude        → the Coordinator Authors  (ASCII variant)
+#   Donal + Claude                → the Coordinator Authors
+#   Dónal                         → the PM  (defensive — stray first-name use)
+#   oduffy-delphi/coordinator-claude   → dbc-oduffy/coordinator-claude
+#   oduffy-delphi/deep-research-claude → dbc-oduffy/deep-research-claude
 #
 # --fix limitations:
 #   - Substitution is a literal find/replace per name; no awareness of
-#     possessives (the Staff Engineer's → the Staff Engineer's still works correctly
+#     possessives (Patrik's → the Staff Engineer's still works correctly
 #     because only the name token is replaced).
-#   - Sentence-initial capitalization handled (the Staff Engineer / "The Staff Engineer"
+#   - Sentence-initial capitalization handled (Patrik / "The Staff Engineer"
 #     and lowercase mid-sentence both substitute to the same target).
-#   - Historical attribution shorthand like "the Staff Engineer R1 F11" becomes
+#   - Historical attribution shorthand like "Patrik R1 F11" becomes
 #     "the Staff Engineer R1 F11" — readable but verbose. Reviewer prefers
 #     "Staff Engineer R1 F11" (drop article in attribution shorthand) — that's
 #     a hand-edit after --fix if you want the tightest form.
 #   - Identity substitutions are applied longest-first (compound forms before
-#     bare first-name) to avoid partial matches turning "the Coordinator Authors"
+#     bare first-name) to avoid partial matches turning "Dónal O'Duffy & Claude"
 #     into "the PM O'Duffy & Claude".
 #
 # Exit codes:
@@ -73,21 +73,21 @@ Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixe
   archive/, tasks/, experiments/, evals/, docs/{plans,research,decisions,specs}/.
 
 Persona vocabulary table:
-  the Staff Engineer   → the Staff Engineer
+  Patrik   → the Staff Engineer
   Zolí     → the Ambition Advocate
-  the VP-Product Reviewer       → the VP-Product Reviewer
-  the Game Dev Reviewer      → the Game Dev Reviewer
+  YK       → the VP-Product Reviewer
+  Sid      → the Game Dev Reviewer
   Palí     → the Front-End Reviewer
-  the UX Reviewer      → the UX Reviewer
-  the Data Science Reviewer  → the Data Science Reviewer
+  Fru      → the UX Reviewer
+  Camelia  → the Data Science Reviewer
 
 Identity vocabulary table:
-  the Coordinator Authors             → the Coordinator Authors
-  the Coordinator Authors             → the Coordinator Authors
-  the Coordinator Authors                     → the Coordinator Authors
-  the PM                              → the PM
-  dbc-oduffy/coordinator-claude   → dbc-oduffy/coordinator-claude
-  dbc-oduffy/deep-research-claude → dbc-oduffy/deep-research-claude
+  Dónal O'Duffy & Claude             → the Coordinator Authors
+  Donal O'Duffy & Claude             → the Coordinator Authors
+  Donal + Claude                     → the Coordinator Authors
+  Dónal                              → the PM
+  oduffy-delphi/coordinator-claude   → dbc-oduffy/coordinator-claude
+  oduffy-delphi/deep-research-claude → dbc-oduffy/deep-research-claude
 EOF
 }
 
@@ -131,48 +131,48 @@ fi
 # expressed here; the check pattern and fix loop are both derived from this
 # single source of truth.
 #
-# ORDER MATTERS for fix: compound forms (e.g. "the Coordinator Authors") must
-# be listed before their substrings (e.g. "the PM") to prevent partial-match
+# ORDER MATTERS for fix: compound forms (e.g. "Dónal O'Duffy & Claude") must
+# be listed before their substrings (e.g. "Dónal") to prevent partial-match
 # clobbering. ORDERED_KEYS enforces this sequence at fix time.
 declare -A NAME_TO_ROLE=(
   # Persona names (must match the publish-repo check-persona-names.py pattern)
-  ["the Staff Engineer"]="the Staff Engineer"
+  ["Patrik"]="the Staff Engineer"
   ["Zolí"]="the Ambition Advocate"
-  ["the VP-Product Reviewer"]="the VP-Product Reviewer"
-  ["the Game Dev Reviewer"]="the Game Dev Reviewer"
+  ["YK"]="the VP-Product Reviewer"
+  ["Sid"]="the Game Dev Reviewer"
   ["Palí"]="the Front-End Reviewer"
-  ["the UX Reviewer"]="the UX Reviewer"
-  ["the Data Science Reviewer"]="the Data Science Reviewer"
+  ["Fru"]="the UX Reviewer"
+  ["Camelia"]="the Data Science Reviewer"
   # Identity vocabulary — PM name forms (compound before bare)
-  ["the Coordinator Authors"]="the Coordinator Authors"
-  ["the Coordinator Authors"]="the Coordinator Authors"
-  ["the Coordinator Authors"]="the Coordinator Authors"
-  ["the PM"]="the PM"
+  ["Dónal O'Duffy & Claude"]="the Coordinator Authors"
+  ["Donal O'Duffy & Claude"]="the Coordinator Authors"
+  ["Donal + Claude"]="the Coordinator Authors"
+  ["Dónal"]="the PM"
   # Identity vocabulary — private org slugs
-  ["dbc-oduffy/coordinator-claude"]="dbc-oduffy/coordinator-claude"
-  ["dbc-oduffy/deep-research-claude"]="dbc-oduffy/deep-research-claude"
+  ["oduffy-delphi/coordinator-claude"]="dbc-oduffy/coordinator-claude"
+  ["oduffy-delphi/deep-research-claude"]="dbc-oduffy/deep-research-claude"
 )
 
 # Fix-application order: compound identity forms before their substrings,
 # then persona names. Assoc array iteration order is undefined in bash, so we
 # maintain an explicit ordered list here.
 ORDERED_KEYS=(
-  "the Coordinator Authors"
-  "the Coordinator Authors"
-  "the Coordinator Authors"
-  "the PM"
-  "dbc-oduffy/coordinator-claude"
-  "dbc-oduffy/deep-research-claude"
-  "the Staff Engineer"
+  "Dónal O'Duffy & Claude"
+  "Donal O'Duffy & Claude"
+  "Donal + Claude"
+  "Dónal"
+  "oduffy-delphi/coordinator-claude"
+  "oduffy-delphi/deep-research-claude"
+  "Patrik"
   "Zolí"
-  "the VP-Product Reviewer"
-  "the Game Dev Reviewer"
+  "YK"
+  "Sid"
   "Palí"
-  "the UX Reviewer"
-  "the Data Science Reviewer"
+  "Fru"
+  "Camelia"
 )
 
-# Sentence-initial capitalization: "the Staff Engineer flagged..." at sentence start would
+# Sentence-initial capitalization: "Patrik flagged..." at sentence start would
 # substitute fine to "the Staff Engineer flagged..." (lowercase t), which is
 # grammatically odd. We cannot detect sentence position reliably without an
 # NLP pass; treat the literal substitution as authoritative and let the user
@@ -272,7 +272,7 @@ for f in "${FILES[@]}"; do
     # slashes in org slugs, and single quotes in names). Key and role are passed
     # via env vars to avoid delimiter conflicts (e.g. "dbc-oduffy/coordinator-claude"
     # contains "/" which would terminate a s/…/…/g literal delimiter) and
-    # single-quote escaping issues in "the Coordinator Authors".
+    # single-quote escaping issues in "Dónal O'Duffy & Claude".
     # Three substitution branches:
     #   1. Slash-bearing keys (org slugs): plain s// — slash is a natural boundary.
     #   2. Non-ASCII keys (diacritic names like Palí, Zolí): plain s// without \b.
@@ -299,15 +299,15 @@ for f in "${FILES[@]}"; do
       ' "$f"
   done
   # Post-pass cleanups:
-  # 1. "the X" / "the X" → collapse to a single article. Fires when the
-  #    input had "the Staff Engineer" (capitalized article, sentence-initial) and the
+  # 1. "The the X" / "the the X" → collapse to a single article. Fires when the
+  #    input had "The Patrik" (capitalized article, sentence-initial) and the
   #    role substitution introduced its own "the".
   # 2. Sentence-initial lowercase "the X" after substitution should be "The X" —
-  #    detect by ". The Staff Engineer" (period-space-the-Cap), "! the X",
+  #    detect by ". the Staff Engineer" (period-space-the-Cap), "! the X",
   #    "? the X", and the file-/line-start position. We only handle the
   #    period-space and start-of-line cases; mid-paragraph fixes stay literal.
   perl -CS -i -pe '
-    s/\b(?:[Tt]he) (the) /\1 /g;                                  # the X / the X → the X
+    s/\b(?:[Tt]he) (the) /\1 /g;                                  # The the X / the the X → the X
     s/^the (Staff Engineer|Ambition Advocate|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/The \1/g;  # line-start
     s/(\. |\? |\! )the (Staff Engineer|Ambition Advocate|VP-Product Reviewer|Game Dev Reviewer|Front-End Reviewer|UX Reviewer|Data Science Reviewer)\b/\1The \2/g;  # sentence-initial
   ' "$f"

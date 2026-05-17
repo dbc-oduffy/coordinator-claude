@@ -1,13 +1,13 @@
 # data-science
 
-Data science domain plugin for the Dónal + Claude agent hierarchy. Enable when projects involve ML, AI, statistics, or data modeling.
+Data science domain plugin for the PM + Claude agent hierarchy. Enable when projects involve ML, AI, statistics, or data modeling.
 
 ## Components
 
 **Agents:** staff-data-sci (Opus) — ML/AI, statistics, data modeling, feature engineering
 
-**Routing:** Registers Camelia for data/ML signals with Patrik (coordinator) as backstop.
+**Routing:** Registers the Data Science Reviewer for data/ML signals with the Staff Engineer (coordinator) as backstop.
 
 ## Authors
 
-Dónal O'Duffy & Claude
+the Coordinator Authors

@@ -248,14 +248,14 @@ _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stu
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries where `recurring:` ≥ 3 AND `resolution: pending`.
+Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries carrying `[recurring: ≥3]` on the main line (DR-056 amended 2026-05-17 — main-line-only schema).
 
 Also read the local `tasks/improvement-queue.md` (if it exists in the current repo). Count its `## Active queue` entries.
 
 **If the combined queue is notable (any of the below):**
 - Central queue ≥ 5 active entries, OR
 - Oldest entry > 14 days old, OR
-- Any entry has `recurring: ≥3` AND `resolution: pending`, OR
+- Any entry carries `[recurring: ≥3]` on its main line, OR
 - Local queue has ≥ 1 active entry
 
 Surface in the Morning Briefing. The EM decides whether to advocate based on depth — this is judgment, not a threshold trigger. Examples:

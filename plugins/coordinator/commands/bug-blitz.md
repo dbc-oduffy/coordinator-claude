@@ -1,17 +1,17 @@
 ---
 name: bug-blitz
-description: Autonomously grind tasks/bug-backlog.md — verify each item still applies, fix small items in parallel waves, auto-spinoff big ones to handoffs.
+description: Autonomously grind tasks/bug-backlog.md — verify each item still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization.
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--dry-run | --max=N]"
 ---
 
 # Bug Blitz — Aggressively Tackle the Bug Backlog
 
-Verify-then-grind through `tasks/bug-backlog.md`. Re-check each item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, auto-spinoff anything requiring a plan. Triage is folded into this skill — there is no separate triage step.
+Verify-then-grind through `tasks/bug-backlog.md`. Re-check each item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
 
 **Operates exclusively on `tasks/bug-backlog.md`.** Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries are NOT pre-spec'd executor stubs, so triage is the spec-creation step.
 
-**Announce at start:** "Running `/bug-blitz` — verifying backlog, then aggressive autonomous parallel waves through every fixable item. The default is dispatch-and-spot-check; defer requires named evidence. Big items auto-spinoff to handoffs."
+**Announce at start:** "Running `/bug-blitz` — verifying backlog, then aggressive autonomous parallel waves through every fixable item. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written."
 
 ## Default Stance — Dispatch, Don't Defer
 
@@ -104,9 +104,23 @@ Read all chunk verifications from disk. Build the execution plan.
 
 Every `needs-investigation` row from Phase 1 gets read by the EM (cited file:line + surrounding context) and converted to `small`, `big`, or `already-fixed` here. **The skill does not exit with `needs-investigation` rows still pending** — that is the "lazy defer" failure mode the Default Stance prohibits. If a row genuinely cannot be classified after the EM reads the code (rare), reclassify as `big` and let the spinoff handoff carry it.
 
-### Step 2.1: Auto-spinoff big items
+### Step 2.1: Spinoff big items (PM-authorized)
 
-For each `big` item, write a spinoff handoff. Either invoke `/spinoff <slug>` directly, OR write the file manually using the canonical schema from `commands/spinoff.md`.
+**Spinoffs require explicit PM authorization per `skills/spinoff/SKILL.md` Step 0.** PM-invocation of `/bug-blitz` does NOT pre-authorize the resulting spinoff set — each `big` item is its own authorization.
+
+Surface the candidate spinoff list to the PM as a single message:
+
+```
+Candidate spinoffs from this bug-blitz run ({N} items):
+1. <slug-1> — <one-line topic> (backlog item #<ID>, footprint: <files>)
+2. <slug-2> — <one-line topic> (backlog item #<ID>, footprint: <files>)
+...
+Authorize all / authorize subset / none?
+```
+
+Block on PM response. Only authored spinoffs proceed; unauthorized candidates revert to `needs-investigation` in the backlog with a one-line note ("PM declined spinoff at bug-blitz <run-id>"). Do not retry without fresh PM direction.
+
+For each PM-authorized `big` item, write a spinoff handoff using the canonical schema below (or invoke `/spinoff <slug>` per-item).
 
 **Canonical spinoff frontmatter** (all fields required — do not paraphrase keys):
 

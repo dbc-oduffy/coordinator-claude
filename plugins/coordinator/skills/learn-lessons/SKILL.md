@@ -20,6 +20,56 @@ them, and surfaces queue depth to inform backlog prioritization.
 **Anti-transient framing.** The goal is doctrine evolution, not file-size reduction. Success metric:
 "did central + project doctrine and queues evolve?"
 
+## Routing Bias: Wikis Are the Default, CLAUDE.md Is Exceptional
+
+Apply **extreme skepticism** to any routing record proposing a CLAUDE.md edit or a CLAUDE.md
+pointer. The default destination for a captured lesson is **a wiki guide** — either an existing
+one (`wiki-append`) or a new one (`wiki-new`). CLAUDE.md and pointer-only additions are the
+exceptions, not the rule.
+
+**Why.** CLAUDE.md is load-bearing at every session boot. It is not a knowledge base. Every
+addition — even a one-line pointer — competes for finite boot-time attention. A plethora of
+pointers is the same anti-pattern as a plethora of inline rules: both turn CLAUDE.md into an
+index of indexes that nobody reads carefully.
+
+**The mechanism that makes wiki-only lessons land** is the prior-art-checker pre-flight in
+`coordinator:plan` (→ `docs/wiki/prior-art-checker.md`). It cross-references plans against the
+wiki + lessons + queue corpus. A lesson living in `docs/wiki/<topic>.md` will be surfaced to the
+planner when relevant — without consuming CLAUDE.md budget. **If a lesson can be found by
+prior-art-check, it does not need to be in CLAUDE.md.**
+
+### The CLAUDE.md justification gate
+
+A `doctrine-edit` (CLAUDE.md content) or `memory-pointer` (CLAUDE.md/MEMORY.md pointer line) is
+admissible **only** if the proposal can answer ALL of:
+
+1. **Cross-cutting tripwire.** Does the rule apply to multiple, named surfaces that agents touch
+   from cold boot? (Not "useful to know" — "wrong action taken without it.")
+2. **Boot-time-greppable required.** Would a planner / EM realistically fail to find this via
+   prior-art-check on a relevant plan? Wiki-routing fails ONLY if the lesson cannot be matched
+   from a plan's claim surface.
+3. **No existing wiki carries the topic.** Confirmed by `grep` against `docs/wiki/`. If a wiki
+   exists, `wiki-append` is the correct route — even if the wiki would then need a one-line
+   surfacing somewhere agents already look (which is almost never CLAUDE.md).
+4. **No existing CLAUDE.md section already covers the shape.** Demotion of a near-duplicate
+   into the proposed addition's home wiki is preferred over adding alongside it.
+
+If any check fails, downgrade the change-kind: `doctrine-edit` → `wiki-append` / `wiki-new`;
+`memory-pointer` → discard (the wiki already carries it; prior-art-check will surface it).
+
+**Substance and proposed-target are independent.** The original logging EM's `proposed target:` is a suggestion, not a verdict on the lesson's worth. When the proposed target is CLAUDE.md (or a CLAUDE.md pointer) and fails the four-check gate, the default move is **reroute** — pick the right wiki / agent prompt / hook / script surface for the substance — NOT `discard`. Discard is reserved for lessons whose *substance* is ephemeral, already covered by existing doctrine, or factually wrong from the start. "Logger proposed a rule-breaking target, therefore archive" is a category error: it conflates the lesson with its suggested destination. Ask "what problem is this lesson trying to solve, and where does that problem actually live?" before routing.
+
+**Default verdict on doctrine-edit and memory-pointer proposals is REJECT-AND-REROUTE.**
+Surface accepted exceptions to the PM with the four checks answered inline. Do NOT auto-apply
+either kind, regardless of mode.
+
+### Pointer-pollution bound
+
+The CLAUDE.md "→ `docs/wiki/<name>.md`" pointer is a tool, not a destination. A run that emits
+more than **one** new CLAUDE.md pointer across all routing records is presumptively wrong —
+the underlying lessons belong in their wikis, and the wikis are findable by prior-art-check
+without a CLAUDE.md hand-hold. Surface to the PM with the full pointer list before applying.
+
 ## Modes
 
 | Mode | Trigger | Authorization | Output |
@@ -104,14 +154,14 @@ Each lesson processed produces one record:
 
 | Kind | Meaning | Apply mechanism |
 |---|---|---|
-| `doctrine-edit` | Edit a CLAUDE.md at a named section | Plan → reviewer → executor |
+| `doctrine-edit` | **EXCEPTIONAL** — edit a CLAUDE.md at a named section. Must clear the four-check justification gate (§ Routing Bias). Default verdict on proposals: reroute to `wiki-append` / `wiki-new`. | Plan → reviewer → executor; PM surface mandatory |
 | `agent-prompt-edit` | Edit a specific agent's prompt file | Plan → reviewer → executor |
 | `hook-edit` | Edit a hook script | Plan → reviewer → executor |
 | `script-edit` | Edit a helper script in `bin/` | Plan → reviewer → executor |
 | `snippet-sync-update` | Edit a synced snippet + run propagation script | Edit + `bin/verify-*-sync.sh --fix` |
-| `wiki-new` | Create a new `docs/wiki/` guide | Plan → reviewer → executor; update `DIRECTORY_GUIDE.md` |
-| `wiki-append` | Append to existing wiki guide at named section | Direct executor (low judgment) |
-| `memory-pointer` | Add a one-line pointer to `MEMORY.md` | Direct edit |
+| `wiki-new` | Create a new `docs/wiki/` guide. **Default destination** for non-trivial cross-cutting lessons. | Plan → reviewer → executor; update `DIRECTORY_GUIDE.md` |
+| `wiki-append` | Append to existing wiki guide at named section. **Default destination** for lessons covered by an existing wiki topic. | Direct executor (low judgment) |
+| `memory-pointer` | **EXCEPTIONAL** — add a one-line pointer to MEMORY.md or CLAUDE.md. Same four-check gate as `doctrine-edit`; the prior-art-checker should be reached for first. | Direct edit; PM surface mandatory |
 | `project-structural` | Change in originating project's repo | Plan → reviewer → executor in that repo |
 | `retag-local` | Change `[universal]` → `[<domain>]` tag in place | Direct edit |
 | `strip-local` | Delete entry from source file (gated on central commit SHA) | Direct edit, ONLY after depends_on lands |
@@ -170,11 +220,11 @@ same lesson (semantic match on the rule statement, not exact string).
    ```
      **Recurrence note (YYYY-MM-DD):** lesson surfaced again; no resolution action recorded since <prior-date>.
    ```
-3. Increment the existing entry's `recurring:` counter by 1.
+3. Increment the existing entry's recurrence count. If the entry has no `[recurring: N]` suffix on the main line, append `[recurring: 1]`; otherwise bump N by 1. The standalone `  recurring:` sub-line schema is deprecated (DR-056 amended 2026-05-17) — do NOT add or update one.
 4. Log the matched pair to `tasks/learn-lessons-YYYY-MM-DD/recurrence-log.yaml` (greppable provenance for PM review).
 5. Surface to PM at end of run (see Phase 8 — Reporting).
 
-**If no match:** append as a new entry with `recurring: 0` and `resolution: pending`.
+**If no match:** append as a new entry — main line only. Do NOT write `recurring: 0` or `resolution: pending` sub-lines; the pruner strips them on the next `/update-docs` run anyway.
 
 **Semantic-pass (run after substring/exact-match first pass).** Substring match is the cheap floor — it misses semantic duplicates that share no keywords. After the first pass, for each surviving candidate ask: "Does this candidate restate, in different words, an existing rule in the queue / CLAUDE.md / target wiki?" If yes, route to "already-covered" rather than creating a new entry. Common failure mode: the same lesson phrased with different domain vocabulary (e.g. "executor fabricates commit attribution" vs "executor reports lie about which sha was committed" vs "git-log-says-X but chat-says-Y" — all the same rule, no substring overlap). Read the candidate's body against the target wiki's narrative, not just the title: keyword overlap is the floor; narrative match is the ceiling.
 
@@ -221,7 +271,10 @@ the start (e.g. cited a nonexistent file) or exact duplicates already folded —
 - Dedupe of obvious duplicates
 
 **Surface to PM (do not auto-apply):**
-- `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
+- `doctrine-edit`, `memory-pointer` — **always** surface, regardless of mode, with the
+  § Routing Bias four-check answers inline. EM's own first move is to attempt the reroute
+  to `wiki-append` / `wiki-new` and present that as the recommended path.
+- `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
 - `project-structural` outside the same repo
 - `strip-local` of `[universal]`-tagged entries (cross-repo promotion needed first)
 
@@ -232,8 +285,9 @@ When surfacing: emit a one-screen PM summary at end with surfaced records and a
 
 Present review doc to the PM. Per record, PM authorizes:
 - **(a) apply now** — proceed to apply cycle (plan → reviewer → executor)
-- **(b) defer to improvement queue** — append to `~/.claude/tasks/coordinator-improvement-queue.md`
-  with schema fields (`recurring: 0`, `resolution: pending`)
+- **(b) defer to improvement queue** — append a main-line-only entry to
+  `~/.claude/tasks/coordinator-improvement-queue.md` (DR-056 amended 2026-05-17 —
+  no `recurring:` / `resolution:` sub-lines)
 - **(c) reject** — drop with reason captured in review doc
 
 Section A (strip-only), Section B (central change), Section C (re-tag) all need PM go-ahead.
@@ -246,9 +300,19 @@ change; do not strip until the central commit SHA exists.
 
 ### Per-record apply dispatch
 
+#### CLAUDE.md justification pre-flight (gates `doctrine-edit` and `memory-pointer`)
+
+**Run the § Routing Bias four-check gate FIRST.** Size is a backstop, not the primary
+filter. If any of the four checks (cross-cutting tripwire / boot-time-greppable required /
+no wiki carries it / no CLAUDE.md section already covers it) fails, the change-kind is
+downgraded to `wiki-append` or `wiki-new` before any size measurement happens. A passing
+gate-check must be recorded inline in the PM-surfacing block; "size fits" is not a
+justification.
+
 #### CLAUDE.md char-budget pre-flight (gates `doctrine-edit` targeting any CLAUDE.md)
 
-Before dispatching a `doctrine-edit` whose `target` is a `CLAUDE.md` file, run this pre-flight:
+After the justification gate clears, before dispatching a `doctrine-edit` whose `target` is a
+`CLAUDE.md` file, run this pre-flight:
 
 1. Measure current char size: `wc -c <target>`.
 2. Estimate addition: char count of the proposed new bullet/section body.
@@ -289,13 +353,13 @@ Project-structural improvements queued by `/learn-lessons`. Consumed by `/workwe
 
 ## Format
 `- YYYY-MM-DD | <source-repo or self> | <source-file>:<line> | <one-line lesson> | proposed target: <doctrine file or "wiki" or "agent prompt" or "hook">`
-`  recurring: 0`
-`  resolution: pending`
+
+(Main-line only. Append ` [recurring: N]` to the line when N ≥ 1.)
 
 ## Active queue
 ```
 
-**When appending a NEW entry to either queue (central or per-project), write three lines: the main entry, then `  recurring: 0`, then `  resolution: pending` (two-space indent).** This applies to both `~/.claude/tasks/coordinator-improvement-queue.md` and per-project `tasks/improvement-queue.md`. Do not append bare single-line entries — the schema requires all three lines.
+**When appending a NEW entry to either queue (central or per-project), write the main line only.** DR-056 amended 2026-05-17: the `recurring:` and `resolution:` sub-lines are dropped from the schema (empirical data: 100% of central-queue entries had `recurring: 0` / `resolution: pending` — 266 lines of unchanging ceremony across 133 entries). `/update-docs` Phase 11i strips trivial sub-lines on every run regardless. If recurrence count matters, append ` [recurring: N]` to the main line when N ≥ 1.
 
 **Routing:**
 - `[universal]` entries → append to `~/.claude/tasks/coordinator-improvement-queue.md` (central).
@@ -331,7 +395,7 @@ learn-lessons run complete (mode=<mode>):
 - P entries archived to archive/lessons-archived/YYYY-MM.md
 - Q new queue entries appended (central: Q1, local: Q2)
 - R existing queue items received +1 recurrence increments:
-    <list each item that got +1 with its current recurring: count>
+    <list each item that got +1 with its current [recurring: N] count>
 ```
 
 The recurrence list is the pressure signal. PM acts or defers — no automatic block.
@@ -348,6 +412,16 @@ The recurrence list is the pressure signal. PM acts or defers — no automatic b
 - **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture.
   `learn-lessons` is the periodic process that classifies and routes.
 - **Same-session capture-and-validate-as-resolved.** Central-mode runs that capture a lesson AND mark it resolved within the same session create unverified-resolution noise — the resolution claim has not survived a context boundary. Capture in this run; validate in a later run when the lesson has had the chance to recur (or not).
+- **Default-routing a lesson to CLAUDE.md or to a CLAUDE.md pointer.** Wikis are the default;
+  `doctrine-edit` and `memory-pointer` are exceptional and must clear the four-check gate
+  (§ Routing Bias). "It's small, it'll fit" is not a justification — the prior-art-checker
+  is the mechanism that ensures wiki-only lessons land, and adding a pointer per lesson is
+  the same pollution as inlining the rule.
+- **Archiving a lesson because its proposed target violates policy.** The lesson's substance
+  and the logger's proposed target are independent. A `proposed target: CLAUDE.md` that fails
+  the lean-and-mean gate is a routing problem, not a substance problem — reroute to the right
+  wiki / agent prompt / hook / script. Only `discard` when the substance itself is ephemeral,
+  already covered, or wrong. → § Routing Bias "Substance and proposed-target are independent."
 - **Same-session capture-and-validate-as-universal.** A central `/learn-lessons` run that BOTH captures a new lesson AND validates it as universal in the same pass is a self-confirming loop — the session that surfaced the pattern is the same session asserting its cross-repo generality. Validate universality against accumulated evidence (peer repos, prior runs, recurrence count), not against the session that captured it. Capture this run; promote to `[universal]` in a later run once the pattern has recurred in a different context.
 
 ## Related
