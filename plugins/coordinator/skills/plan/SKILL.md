@@ -83,6 +83,8 @@ _Condition: substrate verified; ready to draft body. The four PM doctrinal lense
   → Add a reverse-reference scan subsection to the plan listing every consumer. _See `docs/wiki/writing-plans.md` § Shared-State Pre-Flight Gate._
 - _Plan amends an assumption that another live plan also depends on?_ (the current plan revises a path / contract / constant / sequencing decision that one or more sibling plans in `docs/plans/` reference — by `**Depends on:**` header, shared-symbol citation, or explicit cross-reference)
   → **Edit the body of every affected sibling plan in this same change** — do not let sibling plans silently drift. Procedure: (1) grep `docs/plans/` for references to the amended assumption (path, constant, contract name); (2) for each hit, open the sibling plan and edit the body inline so the assumption matches the new shape; (3) add a one-line amendment note at the top of each edited sibling: `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>`; (4) commit the amending plan and all edited siblings together. Silent drift is the failure mode this row exists to prevent — a sibling plan that still cites the old shape will be dispatched against stale substrate. _See `docs/wiki/writing-plans.md` § (c) Cross-plan reconciliation is a separate pass._
+- _Plan scaffolds a new autonomous skill / agent / command?_
+  → Apply the skill-scaffold checklist before drafting the body: (1) destructive-action prohibition block (see CLAUDE.md § Tripwires "Destructive-action prohibition in autonomous-dispatch prompts") for any write-capable autonomous skill; (2) explicit out-of-scope list; (3) spinoff-schema awareness if the skill can author handoffs (kind / predecessor / deployment_state fields per `docs/wiki/spinoff-handoffs.md`); (4) recheck-marker semantics if the skill has a cadence (recheck-due files per `coordinator:learn-lessons` mode `recheck`); (5) discovery-surface integration (where does this skill announce itself — `/session-start` mention, `/workday-start` surfacing, hook integration?). Empirical: bug-blitz the Staff Engineer R1 caught 5 majors on a skill scaffolded without this pass; the checklist exists because the failure mode is recurring. _See CLAUDE.md § Adding a Convention to the Coordinator System for the contact-point enumeration shape._
 - _Plan brief contains code blocks (shell, Python, config) the executor will consume?_
   → Mark every fenced block either `TEMPLATE` (illustrative — executor adapts paths/values) or `VERBATIM` (executor copies as-is). Convention: place a fenced comment above the block, e.g. `<!-- TEMPLATE: adapt paths -->` or `<!-- VERBATIM -->`. Unmarked pseudocode-shaped bash gets faithfully transcribed into broken shell — the convention is the fix.
 
@@ -97,6 +99,17 @@ _Condition: plan body drafted, saved to `docs/plans/YYYY-MM-DD-<slug>.md`, ready
 **The full plan-writing pipeline is:** (1) substrate verification (Branch B above), (2) body composition with the four PM doctrinal lenses (Branch C above), (3) prior-art-checker via `coordinator:review` (skip only with an EM-justified rationale in the dispatch comment), (4) the Staff Engineer review, (5) review-integrator. Skipping `coordinator:plan` skips the pipeline; "I'll just write the plan and skip review" — and "let me ask first before invoking review" — are the two failure modes this skill exists to prevent.
 
 <!-- Per docs/plans/2026-05-06-plan-super-skill.md F1 (PM lean b): coordinator:review Branch A.2 carries the auto-skip terminals. Renamed from "Branch D" to "Exit" per walk-through gap §2 — a one-row branch is shape-dishonest; this is a handoff, not a decision. -->
+
+---
+
+## Branch D — Executor BLOCKED on substrate drift
+
+_Condition: a dispatched executor returns BLOCKED citing substrate that differs from what the plan asserted (path moved, helper renamed, framework changed, contract field absent, schema column missing)._
+
+- _Default action: amend the plan or write a successor plan; do NOT silently expand executor scope to absorb the drift._
+  → Substrate drift is plan-substrate failure, not executor failure. Re-invoke `coordinator:plan` to amend (small drift, same workstream) or compose a successor (larger drift or shape change). Re-run the prior-art-checker → the Staff Engineer → review-integrator chain on the amended body — the pipeline runs again from substrate verification, not from "we already reviewed the parent." Silently expanding the executor's scope to make the BLOCKED finding go away is a doctrine violation: it bypasses the doctrinal lenses, the prior-art check, and the reviewer pass that the original plan went through.
+- _Product-risk findings during BLOCKED inspection?_
+  → Even under `/autonomous`, surface product-risk findings via `AskUserQuestion` before amending. The autonomous mode suppresses handoff nudges, not product judgment. A BLOCKED that reveals (e.g.) a privacy implication, a permission default change, or an external contract shift is exactly the case the "Ask the PM" doctrine covers — autonomous mode does not waive it.
 
 ---
 

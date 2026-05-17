@@ -81,6 +81,14 @@ When running an integration test on a partner team's release (peer-repo dogfood,
 
 Same shape applies to cross-team release validation, API integration smoke tests, and peer-repo `/dogfood` runs. The discipline is **don't hide failures, surface them** — companion principle to the round-trip-contract-tests rule that fabricated-on-each-side fixtures lie. A workaround that hides a partner bug is the cross-repo analogue of a parallel fabricated fixture.
 
+## Polyglot Workstreams Need Per-Language Compile+Test Gates
+
+When a workstream spans multiple language runtimes (TS + C++, Python + Rust, Go + JS), the shipping criterion is **per-language** compile + test green, not "the workstream passes." Single-language validation — running only the test runner of the language whose code changed last — is a process bug. The cross-language seam is where the round-trip contract lives, and a one-sided green is no signal about the seam.
+
+**Concrete shape:** a holodeck-style workstream that edits TS bridge code AND C++ UE plugin code must (1) compile the TS, (2) compile the C++ via UBT, (3) run the TS unit tests, (4) run the UE editor smoke or equivalent C++ test gate, and (5) round-trip at least one TS→C++→TS message to prove the bridge survived both edits. Skipping any one of these and asserting "the workstream is green" ships a half-validated change.
+
+Per-language gates compose with the round-trip contract test rule above: the round-trip test exercises the seam; the per-language gates prove each side can build at all. Both are required; neither substitutes for the other.
+
 ## Reference Pattern: `writing-plans` Skill Checklist
 
 When drafting a plan that introduces a new producer or consumer to an existing on-disk-artifact pipeline, the plan must name the round-trip contract test explicitly — not as a follow-up. If it isn't named in the plan, executors won't add it, and CI green will keep lying.

@@ -235,14 +235,18 @@ After each reviewer completes (and Phase 3.5 runs):
 
 ## Phase 4: Backstop Handling
 
-When effort level is High:
-1. Verify that the reviewer invoked their backstop partner
-2. If backstop was not invoked, prompt the reviewer to do so
-3. If backstop disagreed: both perspectives are surfaced to Coordinator/PM
+This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, his findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
+
+When effort level is High AND a primary reviewer (not standalone the Director of Engineering) ran:
+1. Verify that the reviewer invoked their backstop partner (the Director of Engineering for the Staff Engineer; the Staff Engineer for domain reviewers; the UX Reviewer for the Front-End Reviewer; the Staff Engineer for the UX Reviewer)
+2. If the backstop was not invoked, prompt the reviewer to do so OR dispatch the backstop directly with `mode: "backstop"`
+3. If the backstop disagreed: both perspectives are surfaced to Coordinator/PM per the routing.md reconciliation protocol
 
 When effort level is Medium:
-- Backstop invocation is at the reviewer's discretion
+- Backstop invocation is at the reviewer's (or EM's) discretion
 - No verification needed
+
+**When the Director of Engineering ran as standalone primary, skip Phase 4 entirely.** the Director of Engineering standalone is a peer-to-the Staff Engineer review with cross-team authority — there is no further backstop above the DoE chair. The terminal backstop in the system is the Director of Engineering himself; nothing wraps him.
 
 ---
 

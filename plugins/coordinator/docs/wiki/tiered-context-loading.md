@@ -189,3 +189,11 @@ When a scout dispatch deliberately restricts the read surface — "investigate <
 - **Quarantine reads of contaminated output.** When inspecting a rogue subagent's quarantined output (see scout-and-dispatch-discipline § Quarantine rogue subagent output), use `Read` with `offset`/`limit` over the quarantined copy — do not pipe through `cat` or load the whole rogue file into EM context. The whole point of quarantine is to keep the contamination off the EM's reasoning surface.
 
 Without explicit mechanics, "skip this file" instructions decay into trust-the-scout and produce the contamination they were meant to prevent.
+
+---
+
+## 11. Existing Logs Often Answer "Add A Probe" Questions Without A Rebuild
+
+Before drafting a plan that adds a diagnostic probe / log line / counter to investigate a question, Tier-0/1 should grep existing logs first. Build systems (UE's `UnrealBuildTool`, MSBuild, Cargo) and runtime daemons routinely already emit the data the probe would gather — verbose-log flags, `--diagnostics`, profiler outputs, crash dumps, structured event logs. A 30-second grep over the latest log file answers many probe-shaped questions without authoring a single line of new instrumentation.
+
+**Heuristic:** when the question is "why did X happen / what value did Y take / which path was taken at branch Z," check `Saved/Logs/`, `target/debug-logs/`, `.cache/`, `~/.config/<tool>/logs/`, or the equivalent for the tooling in play *before* planning instrumentation. Rebuilds-for-instrumentation are time-expensive (UE TS rebuilds crash the live editor per the holodeck doctrine; native builds churn caches); the log-grep alternative is free. Add the rebuild path only after the existing logs are confirmed silent on the question.
