@@ -286,6 +286,26 @@ Spike acceptance criteria must target the actual wire path being verified — no
 | "Build succeeds with the new include" | "Integration test exercises the new include path end-to-end: at least one functional call reaches the new code" |
 | "Config key is present in settings.json" | "App reads the config key and applies it: observed behavior change matches the config value" |
 
+## Close-Out Chunks Cite Specs, Don't Re-Exercise Them
+
+A close-out chunk records that a previously-shipped hardening / fix / contract is now formally acknowledged in some downstream lessons / queue / handoff surface. Its job is *citation*, not re-validation.
+
+**Default shape:** spec citation. Name the spec, name the code paths, name the review that ratified it, mark the AC as verified-shipped-by-citation. Done in minutes.
+
+**Anti-pattern:** "exercise the shipped contract end-to-end as the close-out evidence channel." This shape rides on a sibling integration test (typically a fresh validation run) and asserts that the binding path fired during that run. It looks rigorous but is fragile by construction — hardware and topology drift make the binding path unreachable on the validation host even when the contract is correct:
+
+| Drift class | Failure shape |
+|---|---|
+| Hardware ceiling never binds | A RAM-derived worker cap is unreachable on a host where the RAM:CPU ratio puts CPU as the binding constraint first. Close-out AC fails on a box that doesn't exercise the path. |
+| Shard-topology mismatch | A "delta == 0 between baseline and resume" AC assumes same shard count. Different `--jobs` produces different dedup outcomes; running validation under one configuration and resume under another fails the AC on shard-count drift, not on a resume bug. |
+| Concurrency-class mismatch | A close-out exercising a lock-reaper depends on orphan PIDs being left behind by a specific crash class; staging that crash class deterministically on a clean host is its own engineering problem. |
+
+**Rule:** if the contract was Patrik-reviewed (or equivalent) and shipped with passing tests at the time it landed, the close-out's job is to cite that fact. Plan a separate validation run if and only if the validation host can demonstrate the binding path *and* the topology can be matched cleanly. Bundling "validation that hardening still works" with "documentation that hardening shipped" creates false-fail risk on the second when the first runs on the wrong substrate.
+
+**Pre-flight check at plan-write time:** for each close-out chunk, ask "can this AC actually fire on the validation host?" If the answer requires hardware/topology/timing assumptions that aren't true today, the AC is theatre — replace it with a citation. If a reviewer's earliest finding on the plan is "close-outs ride on Chunk N's run as their only integration test" or "integration coverage by happenstance," that is the canary; reshape, don't slice-size-patch.
+
+**Field-cite (2026-05-17, ws2-narrow-activation plan):** Targets 2/3/4 close-outs were originally framed as "exercise via Chunk 1's slice extraction." Patrik flagged the shape; the EM patched with slice-sizing constraints. At execution: Target 2 hit hardware-ceiling drift (Striker is CPU-bound, never RAM-bound at `--jobs auto`); Targets 3+4 hit shard-topology drift (Chunk 1 ran `--jobs auto`/20 shards; resume validation with `--jobs 1` could not satisfy delta == 0 by construction). PM authorized Option C — consolidated spec-citation close-outs — recovering ~46 minutes of wall clock. The structural fix was reshape, not slice-sizing.
+
 ## Shared-State Pre-Flight Gate
 
 Before a plan changes the semantics of a shared symbol — a state enum, gameplay tag, public field, or exported function signature — include a reverse-reference scan in the plan: list every consumer found via grep, IDE rename-preview, or equivalent tool. Plans that mutate shared contracts without enumerating consumers are incomplete and risk silent breakage across subsystems with no obvious compile-time signal.
