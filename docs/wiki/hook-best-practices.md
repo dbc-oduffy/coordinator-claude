@@ -3,8 +3,8 @@ title: Hook best practices
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/daily-branch-discipline.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/claude-code-platform-gotchas.md
+  - plugins/coordinator/docs/wiki/daily-branch-discipline.md
+  - plugins/coordinator/docs/wiki/claude-code-platform-gotchas.md
 ---
 
 # Hook Best Practices

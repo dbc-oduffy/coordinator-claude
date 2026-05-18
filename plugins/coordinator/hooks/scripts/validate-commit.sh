@@ -91,7 +91,7 @@ JSON_FILES=$(echo "$STAGED" | grep -E '^(data|evaluation)/.*\.json$' || true)
 if [[ -n "$JSON_FILES" ]]; then
   # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
-  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
   # shellcheck source=/dev/null
   [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 
@@ -158,7 +158,7 @@ if [[ -n "$SESSION_ID" ]]; then
     # Source the session library
     LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-session.sh"
     if [[ ! -f "$LIB_PATH" ]]; then
-      LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+      LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
     fi
 
     if [[ -f "$LIB_PATH" ]]; then

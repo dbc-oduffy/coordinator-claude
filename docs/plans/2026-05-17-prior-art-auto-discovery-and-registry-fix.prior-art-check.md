@@ -13,9 +13,9 @@ plan: docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md
 **Verdict:** WARN
 **Claims checked:** 23
 **Conflicts:** 2 | **Compatible-but-relevant:** 6 | **Silent:** 15
-**Corpora consulted:** project-wikis (8 files — x:/coordinator-claude/docs/wiki/) | global-wikis (47 files indexed via DIRECTORY_GUIDE.md — ~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/) | peer-wikis: coordinator-claude (x:/coordinator-claude/docs/wiki/, 8 files) | lessons.md (searched) | improvement-queue (searched)
+**Corpora consulted:** project-wikis (8 files — x:/coordinator-claude/docs/wiki/) | global-wikis (47 files indexed via DIRECTORY_GUIDE.md — ~/.claude/plugins/coordinator/docs/wiki/) | peer-wikis: coordinator-claude (x:/coordinator-claude/docs/wiki/, 8 files) | lessons.md (searched) | improvement-queue (searched)
 
-Note: active project is claude-central (~/.claude). The bundled plugin wikis at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` ARE the global-wiki corpus for this install. The peer corpus at `x:/coordinator-claude/docs/wiki/` was also consulted per the dispatch brief; it is the dev-side sibling. The bundled and peer copies of `prior-art-checker.md` and `repo-registry.md` were both read; minor prose divergences noted below but no substantive contradictions between them.
+Note: active project is claude-central (~/.claude). The bundled plugin wikis at `~/.claude/plugins/coordinator/docs/wiki/` ARE the global-wiki corpus for this install. The peer corpus at `x:/coordinator-claude/docs/wiki/` was also consulted per the dispatch brief; it is the dev-side sibling. The bundled and peer copies of `prior-art-checker.md` and `repo-registry.md` were both read; minor prose divergences noted below but no substantive contradictions between them.
 
 ---
 
@@ -30,7 +30,7 @@ Note: active project is claude-central (~/.claude). The bundled plugin wikis at 
 
 - **Claim #14 — Sidecar `peer-wikis:` header format:** The plan adds a "Auto-discovered peers: N (edges: X, tags: Y) | Manual override: Z" discovery summary line to the sidecar header.
   - **Plan asserts:** "Discovery summary line in the header: `Auto-discovered peers: N (edges: X, tags: Y) | Manual override: Z`."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/agents/prior-art-checker.md`, lines 128–130):** The current sidecar template specifies: `**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1>, <shortname2> (only if peer_repos supplied; omit line otherwise) | lessons.md | improvement-queue`
+  - **Prior art (`~/.claude/plugins/coordinator/agents/prior-art-checker.md`, lines 128–130):** The current sidecar template specifies: `**Corpora consulted:** project-wikis (N files indexed) | global-wikis (N files indexed) | peer-wikis: <shortname1>, <shortname2> (only if peer_repos supplied; omit line otherwise) | lessons.md | improvement-queue`
   - **Why this is a conflict:** The existing `Corpora consulted:` header line already carries peer-wiki information. Adding a separate "Auto-discovered peers:" summary line duplicates the peer-wiki information at two positions in the sidecar header. The plan must decide: extend the existing `Corpora consulted:` line (e.g., tag each shortname with `(edge)` or `(tag)`), or add the new line and deprecate the peer-wiki portion of `Corpora consulted:`. Shipping both without reconciliation will make the sidecar format inconsistent.
   - **Suggested action for EM:** Fold prior art into plan — either extend `Corpora consulted:` to carry the discovery-reason annotation inline (e.g., `peer-wikis: project-rag (edge:schema-lockstep), claude-unreal-holodeck (tag:rag)`), or define the new summary line as a replacement for the current peer portion of `Corpora consulted:`. Clarify in the agent prompt edit which supersedes which. WARN severity — not load-bearing doctrine, but will produce malformed sidecars if left ambiguous.
   - **Disposition:** applied
@@ -41,42 +41,42 @@ Note: active project is claude-central (~/.claude). The bundled plugin wikis at 
 
 - **Claim #1/#2 — New `relationship.kind` enum values + enum extension procedure:**
   - **Plan covers:** Adding `schema-lockstep`, `ancestor`, `depends-on` as new closed-enum `relationship.kind` values; "PM judgment call — Open Question O-1."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/repo-registry.md`, lines 74–81):** "Both `stack_tags` and `relationships.kind` are closed. Extending requires: 1. Add the new tag/kind to this wiki's table with a one-line meaning. 2. Add a worked example. 3. Update existing registry entries that should carry the new tag (or leave for next PM review pass). 4. Commit the wiki + registry changes together. **Silent additions in `tasks/repo-registry.md` without a wiki update are doctrine drift — the wiki is the contract.**"
+  - **Prior art (`~/.claude/plugins/coordinator/docs/wiki/repo-registry.md`, lines 74–81):** "Both `stack_tags` and `relationships.kind` are closed. Extending requires: 1. Add the new tag/kind to this wiki's table with a one-line meaning. 2. Add a worked example. 3. Update existing registry entries that should carry the new tag (or leave for next PM review pass). 4. Commit the wiki + registry changes together. **Silent additions in `tasks/repo-registry.md` without a wiki update are doctrine drift — the wiki is the contract.**"
   - **Subtype:** `cite`
   - **Suggested action:** Plan already covers S1.C wiki update (step 1), but the "worked example" requirement (step 2) is not explicitly called out. Confirm the wiki update in S1.C names at least one worked example per new kind, consistent with the extension procedure. The plan references the procedure implicitly; an explicit citation or checklist alignment would tighten the stub.
   - **Disposition:** applied
 
 - **Claim #3 — Stage-gate sequencing:**
   - **Plan covers:** "Stage 2 does not start until Stage 1 ships — running auto-discovery against a registry that's missing edges produces silently incomplete results, which is worse than today's manual-pick."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md`, § Plan-First Workflow):** "**Stage gates are real** — do not start Stage 2 before Stage 1 lands and the triad is in `active` block." (This is from the plan's own Hard Constraints section, echoing coordinator doctrine on stage gates.) The coordinator doctrine supporting this is: "Survey plan-substrate state before dispatching on a not-just-authored plan."
+  - **Prior art (`~/.claude/plugins/coordinator/CLAUDE.md`, § Plan-First Workflow):** "**Stage gates are real** — do not start Stage 2 before Stage 1 lands and the triad is in `active` block." (This is from the plan's own Hard Constraints section, echoing coordinator doctrine on stage gates.) The coordinator doctrine supporting this is: "Survey plan-substrate state before dispatching on a not-just-authored plan."
   - **Subtype:** `cite`
   - **Suggested action:** No action needed — plan already enforces the gate explicitly in the Hard Constraints section. Informational alignment only.
   - **Disposition:** applied
 
 - **Claim #10/#23 — DEGRADED on registry-unreadable, not silent fallback:**
   - **Plan covers:** "No fallback escape hatches — if registry can't be read, sidecar must surface DEGRADED, never silently fall back to 4-corpus and pretend everything's fine."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/agents/prior-art-checker.md`, lines 170–173):** "**DEGRADED** — the agent ran but with materially incomplete coverage. Emitted when any of the following occurred: (a)... (b)... (c) a corpus was unreadable (permission error, missing directory, truncated file), (d)... (e) `peer_repos` count exceeded the cap of 2 — peer corpora not consulted."
+  - **Prior art (`~/.claude/plugins/coordinator/agents/prior-art-checker.md`, lines 170–173):** "**DEGRADED** — the agent ran but with materially incomplete coverage. Emitted when any of the following occurred: (a)... (b)... (c) a corpus was unreadable (permission error, missing directory, truncated file), (d)... (e) `peer_repos` count exceeded the cap of 2 — peer corpora not consulted."
   - **Subtype:** `cite`
   - **Suggested action:** The plan adds "registry unreadable" as a new DEGRADED trigger, which is consistent with the existing pattern. The executor editing the agent prompt should add this alongside the existing DEGRADED clause (c) — "corpus was unreadable" — for consistency. The plan's new combined-ceiling DEGRADED trigger ("ceiling exceeded") is additive and aligns with existing clause (e). Both additions should align with the existing enum shape.
   - **Disposition:** applied
 
 - **Claim #15 — Anti-patterns reframe ("Bypassing the cap" → tag-cap only):**
   - **Plan covers:** "Current 'Bypassing the cap' rule needs nuance... Reframe as: 'Bypassing the **tag-cap** by hand-listing more than 2 tag-only peers in `peer_repos:` overrides the cost ceiling — surface to PM.'"
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/repo-registry.md`, lines 138–141):** "**Bypassing the cap.** N=2 is a cost ceiling. If a plan genuinely needs 3+ peers, that's a signal it's too broad — surface to PM, don't extend the cap silently."
+  - **Prior art (`~/.claude/plugins/coordinator/docs/wiki/repo-registry.md`, lines 138–141):** "**Bypassing the cap.** N=2 is a cost ceiling. If a plan genuinely needs 3+ peers, that's a signal it's too broad — surface to PM, don't extend the cap silently."
   - **Subtype:** `cite`
   - **Suggested action:** The plan directly evolves this anti-pattern entry. The reframe is compatible with the spirit of the existing rule (cost ceiling exists) but changes the scope (tag-only peers, not all peers). The executor should ensure the existing anti-pattern bullet is edited, not left alongside the new reframe as a duplicate. Flag for attention in the S1.C stub.
   - **Disposition:** applied
 
 - **Claim #16 — CLAUDE.md tripwires list update:**
   - **Plan covers:** "Add 'Registry-self-read in prior-art-checker bootstrap' as a tripwire. Greppable contact-points: `agents/prior-art-checker.md`, `docs/wiki/repo-registry.md`."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md`, § Adding a Convention):** "**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`."
+  - **Prior art (`~/.claude/plugins/coordinator/CLAUDE.md`, § Adding a Convention):** "**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`."
   - **Subtype:** `cite`
   - **Suggested action:** The plan adds a new tripwire to CLAUDE.md's Tripwires list. Per the "Adding a Convention" doctrine, contact-points must be enumerated: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and ≥1 canonical artifact. The plan names `agents/prior-art-checker.md` and `docs/wiki/repo-registry.md` but does not enumerate the full contact-point set required by the convention-addition procedure. The executor for S3.A should check whether `/session-start`, `/session-end`, or `/project-onboarding` need a hint about the registry-bootstrap behavior, per the convention-addition checklist.
   - **Disposition:** applied
 
 - **Claim #20 — `project-rag-ue-addon` tagged with `mcp-server`:**
   - **Plan covers:** "`stack_tags`: `[rag, unreal-engine, python, mcp-server]` (the MCP-server tag because the addon registers tools via pluggy into project-rag's MCP)."
-  - **Prior art (`~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/repo-registry.md`, § `stack_tags`):** "`mcp-server` | Implements an MCP server" — the definition implies the repo hosts the server runtime, not that it registers tools into another repo's server.
+  - **Prior art (`~/.claude/plugins/coordinator/docs/wiki/repo-registry.md`, § `stack_tags`):** "`mcp-server` | Implements an MCP server" — the definition implies the repo hosts the server runtime, not that it registers tools into another repo's server.
   - **Subtype:** `cite`
   - **Suggested action:** The plan's rationale for the `mcp-server` tag is sound but the tag definition is "Implements an MCP server" — the addon doesn't implement the server, it contributes plugins to one. PM should confirm this is an intended extension of the tag's meaning (a docs/wiki/repo-registry.md note would help), or whether a different tag is more accurate (e.g., `rag` + `unreal-engine` + `python` may be sufficient). This is a vocabulary-alignment item, not a blocker — flag in S1.A review context.
   - **Disposition:** applied
@@ -116,7 +116,7 @@ The peer corpus at `x:/coordinator-claude/docs/wiki/` is the dev-side sibling of
 
 **WARN.** Two conflicts surfaced:
 
-1. **Claim #7 (override replaces vs. augments):** Conflicts with a queued improvement item (`recurring: 1`) proposing expansion of peer coverage. The plan's "replace" semantic is a defensible call — EM override mode should be precise — but it runs counter to the direction implied by the queued item. EM should disposition before Patrik dispatch: either close/retarget the queue item with a rationale note, or reconsider whether "augments but adds override priority" is a better semantic. Neither requires PM escalation; it is an EM architecture call.
+1. **Claim #7 (override replaces vs. augments):** Conflicts with a queued improvement item (`recurring: 1`) proposing expansion of peer coverage. The plan's "replace" semantic is a defensible call — EM override mode should be precise — but it runs counter to the direction implied by the queued item. EM should disposition before the Staff Engineer dispatch: either close/retarget the queue item with a rationale note, or reconsider whether "augments but adds override priority" is a better semantic. Neither requires PM escalation; it is an EM architecture call.
 
 2. **Claim #14 (sidecar header duplication):** The new "Auto-discovered peers:" summary line duplicates information already in `Corpora consulted:`. This is a format inconsistency that will produce ambiguous sidecars. EM should decide the reconciliation before the agent-prompt executor runs, and ensure the sidecar format section in the agent prompt is edited coherently (not having both the old peer-wiki format and the new discovery-summary format in parallel).
 

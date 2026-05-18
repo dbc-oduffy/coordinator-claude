@@ -26,7 +26,7 @@ fi
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
 # Best-effort — no-op if lib absent or no active session.
 _CS_LIB="$(cd "$(dirname "$0")/.." && pwd)/lib/coordinator-session.sh"
-[[ ! -f "$_CS_LIB" ]] && _CS_LIB="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+[[ ! -f "$_CS_LIB" ]] && _CS_LIB="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
 if [[ -f "$_CS_LIB" ]]; then
     # shellcheck source=/dev/null
     source "$_CS_LIB"

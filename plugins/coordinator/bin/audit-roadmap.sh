@@ -21,7 +21,7 @@ if [ -z "$RUN_ID" ]; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT="$PWD"
-QR="${ROOT}/plugins/coordinator-claude/coordinator/bin/query-records.js"
+QR="${ROOT}/plugins/coordinator/bin/query-records.js"
 PMG="${ROOT}/tasks/roadmap/${RUN_ID}/pm-gates.md"
 RECON="${ROOT}/tasks/roadmap/${RUN_ID}/reconciliation.md"
 
@@ -72,7 +72,7 @@ if [ -n "$READY_PATHS" ]; then
     node -e "
       const fs=require('fs');
       const path=require('path');
-      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator-claude/coordinator/bin/lib/schema.js'));
+      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator/bin/lib/schema.js'));
       const c = fs.readFileSync(path.join(process.argv[2], process.argv[3]),'utf8');
       const fm = parseFrontmatter(c).frontmatter || {};
       console.log((fm.wave === undefined || fm.wave === null) ? 'NO_WAVE' : fm.wave);
@@ -103,7 +103,7 @@ if [ -n "$PM_STUBS" ]; then
     TC=$(node -e "
       const fs=require('fs');
       const path=require('path');
-      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator-claude/coordinator/bin/lib/schema.js'));
+      const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator/bin/lib/schema.js'));
       const c = fs.readFileSync(path.join(process.argv[2], process.argv[3]),'utf8');
       const fm = parseFrontmatter(c).frontmatter || {};
       const gd = String(fm.gate_dependency || '');

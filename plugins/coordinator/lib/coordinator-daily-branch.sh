@@ -30,7 +30,7 @@
 # Source pattern (same as coordinator-session.sh):
 #   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-daily-branch.sh"
 #   if [[ ! -f "$LIB_PATH" ]]; then
-#     LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+#     LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
 #   fi
 #   [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 

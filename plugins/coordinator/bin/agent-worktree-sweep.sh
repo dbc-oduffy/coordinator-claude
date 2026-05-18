@@ -153,10 +153,26 @@ for entry in "${WORKTREES[@]:-}"; do
   fi
 
   # Detect dirty state (staged + unstaged + untracked)
-  DIRTY_LINES="$(git -C "$WT_PATH" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  DIRTY_OUT="$(git -C "$WT_PATH" status --porcelain 2>/dev/null || true)"
+  DIRTY_LINES="$(printf '%s' "$DIRTY_OUT" | grep -c . || true)"
+
+  # Benign-only classifier: every porcelain line touches a known auto-add path
+  # (Claude Code permission auto-adds, last-cleanup timestamp, etc.). When the
+  # entire dirt surface is benign, we --force the worktree away rather than
+  # leaving it to accumulate. Pattern is intentionally narrow — anything outside
+  # this allowlist falls through to "dirty" and surfaces for triage.
+  BENIGN_ONLY=0
+  if [[ "$DIRTY_LINES" -gt 0 ]]; then
+    NON_BENIGN="$(printf '%s\n' "$DIRTY_OUT" | awk '{path=$0; sub(/^...[ ]?/, "", path); sub(/^"/, "", path); sub(/"$/, "", path); print path}' | grep -Ev '^(\.claude/settings\.local\.json|\.last-cleanup)$' || true)"
+    if [[ -z "$NON_BENIGN" ]]; then
+      BENIGN_ONLY=1
+    fi
+  fi
 
   STATE=""
-  if [[ "$DIRTY_LINES" -gt 0 ]]; then
+  if [[ "$DIRTY_LINES" -gt 0 && "$BENIGN_ONLY" -eq 1 && "$COMMITS_AHEAD" -eq 0 ]]; then
+    STATE="dirty-benign"
+  elif [[ "$DIRTY_LINES" -gt 0 ]]; then
     STATE="dirty"
   elif [[ "$COMMITS_AHEAD" -gt 0 ]]; then
     STATE="commits-clean"
@@ -179,6 +195,19 @@ for entry in "${WORKTREES[@]:-}"; do
         emit "$WT_PATH" "$WT_BRANCH" "$STATE" "removed" "ahead=0 dirty=0"
       else
         emit "$WT_PATH" "$WT_BRANCH" "$STATE" "remove-failed" "git worktree remove rejected"
+        EXIT_CODE=3
+      fi
+      ;;
+
+    dirty-benign)
+      # Dirt is fully inside the known auto-add allowlist; --force removes it.
+      if git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null; then
+        if [[ -n "$WT_BRANCH" ]]; then
+          git -C "$REPO_ROOT" branch -D "$WT_BRANCH" >/dev/null 2>&1 || true
+        fi
+        emit "$WT_PATH" "$WT_BRANCH" "$STATE" "removed" "ahead=0 dirty=${DIRTY_LINES} (benign-allowlist only)"
+      else
+        emit "$WT_PATH" "$WT_BRANCH" "$STATE" "remove-failed" "git worktree remove --force rejected"
         EXIT_CODE=3
       fi
       ;;

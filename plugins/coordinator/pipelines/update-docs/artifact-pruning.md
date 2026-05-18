@@ -50,7 +50,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 Before any deletions, snapshot current state:
 
 ```bash
-CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "pre-prune checkpoint (update-docs Phase 8b)"
+CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "pre-prune checkpoint (update-docs Phase 8b)"
 ```
 
 This makes the entire prune operation revertible as a single `git revert`.
@@ -68,7 +68,7 @@ Remove any empty directories left behind on the filesystem.
 ### Step 4: Commit
 
 ```bash
-CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
+CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
 ```
 
 ### Step 5: Record Counts

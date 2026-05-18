@@ -177,7 +177,7 @@ When you receive a notification that the sweep task is complete:
 4. Read the gap report at `{scratch-dir}/gap-report.md`
 5. Commit:
    ```bash
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: Team 1 complete — {topic-slug}"
+   ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: Team 1 complete — {topic-slug}"
    ```
 6. Shut down Team 1: `TeamDelete(team_name: "research-{topic-slug}")`
 
@@ -210,7 +210,7 @@ When the Team 2 sweep completes:
 1. Read `{scratch-dir}/deepening-delta.md`; verify substantive content; read Team 2 advisory if present.
 2. **Merge delta into `{output-path}`** per the rules in `pipelines/web-research-internals.md` § Step 6.7 (Resolved Contradictions, Filled Gaps, Updated Claims, Open Questions, strip provenance markers).
 3. Write merged doc back to `{output-path}` and `{scratch-dir}/synthesis-merged.md`.
-4. Commit: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"`
+4. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"`
 5. `TeamDelete(team_name: "research-{topic-slug}-t2")`
 6. Proceed to Step 7.
 
@@ -222,7 +222,7 @@ When the Team 2 sweep completes:
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
    rm -rf {scratch-dir}
    ```
-2. Commit: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup — {topic-slug}"`
+2. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup — {topic-slug}"`
 3. Present executive summary to PM for discussion:
    - If deepening occurred: "Research complete (2 passes). Team 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); Team 2 filled {N}. See synthesis at `{output-path}`."
    - If no deepening: "Research complete (single pass). Coverage score: {coverage_score}/5. See synthesis at `{output-path}`."

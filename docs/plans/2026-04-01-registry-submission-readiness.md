@@ -8,7 +8,7 @@
 
 **Architecture:** Two-track approach — (1) fix manifest and README gaps across all plugins, (2) cleanly extract deep-research to its own standalone GitHub repo (removed from monorepo entirely). Then submit deep-research standalone and the remaining 6 via git subdirectory. Tasks 1-5 touch deep-research while it's still in the monorepo; Task 8 extracts it.
 
-**Review:** Reviewed by Patrik. 2 major, 4 minor findings applied below.
+**Review:** Reviewed by the Staff Engineer. 2 major, 4 minor findings applied below.
 
 ---
 
@@ -38,7 +38,7 @@ Add `"license": "MIT"` to every plugin.json. Root repo already has MIT LICENSE f
 
 remember is the only plugin missing `repository` and `keywords`. Add:
 ```json
-"repository": "https://github.com/oduffy-delphi/coordinator-claude",
+"repository": "https://github.com/dbc-oduffy/coordinator-claude",
 "keywords": ["session-memory", "claude-code", "temporal-memory", "session-history"]
 ```
 
@@ -82,7 +82,7 @@ Note: notebooklm `.mcp.json` confirmed to exist. These supplement auto-discovery
 **Files:** All plugin.json files **except** deep-research (its homepage will be set once in Task 8 to point directly to the standalone repo — avoids double-touch churn).
 
 ```json
-"homepage": "https://github.com/oduffy-delphi/coordinator-claude"
+"homepage": "https://github.com/dbc-oduffy/coordinator-claude"
 ```
 
 **Step 1:** Add to each file (skip deep-research).

@@ -51,11 +51,11 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 
 <!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
      legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
-0. `~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
+0. `~/.claude/plugins/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
 1. Recompute machine name lowercase for this step (the Staff Engineer F2 — do not rely on inherited shell scope):
    ```bash
    TODAY=$(date +%Y-%m-%d)
-   _LIB="$HOME/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+   _LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
    if [[ -f "$_LIB" ]]; then
      # shellcheck source=/dev/null
      source "$_LIB"
@@ -92,7 +92,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
      git rebase origin/main || git merge origin/main  # fallback on non-trivial conflicts
    fi
    ```
-5. `git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
+5. `git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch) --force-with-lease` — on rejection, fetch-rebase-retry once; second failure → report to PM.
 6. Delete merged sibling branches:
    ```bash
    git branch --merged | grep -iE "work/$MACHINE/$TODAY" | grep -v "$(git branch --show-current)" | xargs -r git branch -d
@@ -202,33 +202,7 @@ Capture exit code for the changelog `Validation:` field.
 
 ---
 
-## Step 7: Tier Usage Report
-
-```bash
-find "${HOME}/.claude/projects" -name "*.json" -path "*/tier-usage/*" 2>/dev/null | \
-while read -r f; do cat "$f"; done | \
-python3 -c "
-import json, sys
-totals = {'tier1': 0, 'tier2': 0, 'tier3': 0, 'tier4': 0}
-missing_rationale = 0; sessions = 0
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try:
-        data = json.loads(line)
-        c = data.get('counts', {})
-        for k in totals: totals[k] += c.get(k, 0)
-        missing_rationale += sum(1 for d in data.get('tier4_dispatches', []) if not d.get('rationale_present', True))
-        sessions += 1
-    except Exception: pass
-if sessions > 0:
-    print(f'Tier usage today ({sessions} sessions): tier1={totals[\"tier1\"]} tier2={totals[\"tier2\"]} tier3={totals[\"tier3\"]} tier4={totals[\"tier4\"]} ({missing_rationale} tier-4 missing rationale)')
-" 2>/dev/null || true
-```
-
-Skip silently if no tier-usage files exist.
-
----
+<!-- Step 7 intentionally removed (tier-usage telemetry rip-out, 2026-05-18). Cross-refs to Steps 8–11 in other files preserved; do not reuse this number. -->
 
 ## Step 8: Improvement-Queue Depth Nudge (read-only)
 
@@ -289,7 +263,7 @@ Commit and push — include the daily summary artifact alongside the changelog r
 ```bash
 git add -- "$CHANGELOG_FILE" "archive/daily-summaries/$TODAY.md"
 git commit -m "chore(week-changelog): daily block $TODAY $MACHINE"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 ---
@@ -297,7 +271,7 @@ git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinat
 ## Step 10: Weekly Staleness Check
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/check-weekly-staleness.sh
+~/.claude/plugins/coordinator/bin/check-weekly-staleness.sh
 ```
 
 - **STALE:** _"Weekly is stale: D days, N commits since last `/workweek-complete`. Run it when ready."_
