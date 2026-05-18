@@ -137,6 +137,7 @@ Then return to the work the current session was doing **before** the fork. A spi
 
 ## See also
 
+- `docs/wiki/cross-repo-communication.md` — decision tree for handoff vs spinoff vs cross-repo messaging; codifies PM-as-relay as the cross-repo primitive (NOT a spinoff to the other repo).
 - `commands/handoff.md` — end-of-session continuation handoffs.
 - `commands/pickup.md` — picking up a handoff (recognizes `kind: spinoff` and emits a banner).
 - `CLAUDE.md` § "Handoff Lineage — Single Predecessor, No Adjacency-Inference" — doctrine on why `predecessor: none` is correct for spinoffs.

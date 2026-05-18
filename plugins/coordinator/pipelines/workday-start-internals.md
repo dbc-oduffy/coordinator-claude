@@ -15,7 +15,7 @@ The hook polices branch *shape* at create-time, not branch *date* at workday-sta
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
-LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
 [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 ```
 
@@ -188,7 +188,7 @@ git merge {branch-name} --no-ff -m "consolidate {branch-name} into active workst
 ### Step 0.6 — Push and report
 
 ```bash
-git push -u origin "$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)"
+git push -u origin "$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)"
 ```
 
 Report:
@@ -225,34 +225,45 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 
 ## Step 5.5 — Orientation Cache Content Derivation
 
-Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart hook to inject in subsequent sessions instead of raw repomap/DIRECTORY content.
+Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
 
-1. **Key Documentation:** if `docs/README.md` exists, include a `## Key Documentation` section:
-   ```
-   ## Key Documentation
-   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
-   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
-   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
-   - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
-   ```
-   Count files in each directory. Reference `docs/guides/DIRECTORY_GUIDE.md` if present. If `docs/README.md` is absent: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
+```bash
+bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
+```
 
-2. **Structure:** read `tasks/repomap.md`, extract top 15 by rank. Note total file count.
+The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (`bin/verify-orientation-cache-sync.sh`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.
 
-3. **Navigation:** read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (name + file count + purpose).
+**Why a schema, not prose:** four writers (`/workday-start`, `/update-docs`, `/session-end`, `/handoff`) historically patched the cache with free-form sections, and there was no owner for subtraction. The cache accreted prior-session narrative ("publish-repo-topology-sync just shipped...", "the Staff Engineer R1 (9 findings folded)...", "AC7 dogfood waived by PM") that poisoned every subsequent boot. The schema below is the structural fix: every section is either (a) static template, (b) sentinel-regenerated from disk, or (c) absent. No free-form prose anywhere. See `docs/plans/2026-05-18-orientation-cache-authoring-discipline.md` for the full motivating audit.
 
-4. **Code Statistics:** `scc --no-complexity --no-cocomo --no-duplicates --sort code` if available — total LOC + top 5 languages. Skip silently if scc not installed (`~/bin/scc` is the conventional Windows install path).
+### Canonical schema
 
-5. **Health Snapshot:** compact version of Morning Briefing health data.
+| Section | Shape | Source-of-truth | Tier |
+|---|---|---|---|
+| Frontmatter | `generated_by: <slug>` (single word — no parentheticals, no "patched by"), `generated_at: <ISO-8601>`, `git_head_at_generation: <short-sha>` | writer + `git rev-parse` | both |
+| `## Project` | 1 line, project name + 1-sentence purpose | static (CLAUDE.md identity line if present, else config) | ceremony |
+| `## Trust caveats` | ≤5 lines of `- <one-line caveat>`; **omit section entirely if no detector fires** | filesystem detectors (NOT config). MVP: any `*.uproject` anywhere in repo → UE caveat starting `Unreal Engine project detected (<path>) — do NOT trust your training data on UE5 APIs/classes/Blueprint semantics; verify every claim via mcp__project-rag__* tools or dispatch game-dev:staff-game-dev (the Game Dev Reviewer). This applies to your delegates — restate it in every UE dispatch brief.` Additional framework detectors (Unity, RN, etc.) added as those projects materialise. | ceremony (static — content changes only when the routine ships a new detector) |
+| `## Counters` | Lines of the form `- **<label>:** <integer>`; **omit lines where value is 0** | derived from disk: handoffs ready_to_fire, spinoffs ready_to_fire, gated handoffs, bug-backlog depth, local improvement queue depth | ceremony |
+| `## Active workstreams` | Name-only list, one per line, max 10 entries; names only — no progress prose, no parenthetical state | `tasks/project-tracker.md` or equivalent | ceremony |
+| `## Rechecks due ≤7 days` | One line per recheck marker due within 7 days; **omit section entirely if empty** | glob `tasks/*-recheck-due-*.md`, filter by date in filename | ceremony |
+| `## Branch` | 1 line: `<branch> — <ahead>/<behind> vs origin/main`. No narrative. | `git rev-parse` + `git rev-list --count` | ceremony |
+| `## Pinboard` | exactly 0 or 1 line of `- <ISO-date> <writer-slug>: <one-line note>`; **omit section entirely if empty**. One-slot only — second mid-session write overwrites the first, never appends. | mid-session writers append-or-overwrite; cleared by every ceremony regen | mid-session |
 
-6. **Doc Inventory:** checklist of standard docs (from Step 2).
+### Writer tiers
 
-7. **Staleness markers:** repomap age, last update-docs run (from Step 2).
+**Ceremony writers** (`/workday-start` Step 5.5, `/update-docs` Phase 10) own full regeneration. Every section is re-derived from source-of-truth. The pinboard is cleared. Out-of-schema sections present in the file are discarded. **This is where bloat dies.**
 
-8. **Yesterday's Strategic Review:** glob `archive/daily-summaries/YYYY-MM-DD.md`, take most recent. If it has a `## Strategic Review` section, extract a 3-5 line excerpt for a `## Yesterday` section. Skip silently if no daily summaries exist.
+**Mid-session writers** (`/session-end` Step 2.8, `/handoff` Step 2.9) may ONLY mutate `## Pinboard`, and only by writing exactly one line. No other section. No body edits. Pinboard content rule: write a line only when next session boot MUST see this and it would otherwise be lost (e.g., a transient surface gotcha discovered this session; a critical blocker context for the picker-upper of a handoff). If you find yourself wanting to write more, that's a wiki edit or a handoff body — escalate to PM. The pinboard is automatically cleared at the next ceremony regen.
 
-**Frontmatter:** `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
+### Hard limits (verifier-enforced)
 
-**Target: 40-60 lines.** Replaces ~300 lines of raw hook injection for subsequent sessions.
+- File length ≤35 lines.
+- `## Trust caveats`: ≤5 lines.
+- `## Active workstreams`: ≤10 lines.
+- `## Pinboard`: ≤1 line.
+- Counter lines must match `^- \*\*[A-Za-z][A-Za-z0-9 /\-]*:\*\* [0-9]+(\.|$)` — integer terminated. Prose continuation ("— cleared by bug-blitz", "— 4 concurrent-EM additions") is a verifier failure.
+- Workstream lines must match `^[0-9]+\. [A-Za-z][^\n]{0,80}$` — name only.
+- Pinboard line must match `^- [0-9]{4}-[0-9]{2}-[0-9]{2} [a-z0-9-]+: [^\n]{1,120}$`.
+- `generated_by` value must be a single slug — no parenthetical annotation.
+- If `*.uproject` is present in the repo, `## Trust caveats` MUST be present and its first line MUST contain `Unreal Engine project detected` (detector-regression guard).
 
-**If `tasks/` directory doesn't exist:** skip. Not all repos use `tasks/`.
+**If `tasks/` directory doesn't exist:** skip cache generation. Not all repos use `tasks/`.

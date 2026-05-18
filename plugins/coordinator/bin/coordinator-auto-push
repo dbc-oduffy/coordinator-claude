@@ -44,6 +44,9 @@ BRANCH=$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null \
 # canonicalized $BRANCH, so the fix applies uniformly to HTTPS and SSH on Windows.
 case "$BRANCH" in
   work/*) ;;
+  migration/*|release/*|feature/*)
+    echo "coordinator-auto-push: skipping $BRANCH (recognized long-lived workstream shape; doctrine: work/* only). Push manually if intended." >&2
+    exit 0 ;;
   *) exit 0 ;;
 esac
 
@@ -51,18 +54,38 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || exit 0
 
 log_failure() {
-  local route="$1" err_class="$2" attempts="$3" first_err="$4"
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PUSH FAILED on $BRANCH ($route/$err_class after $attempts) :: ${first_err:-<empty>}" \
+  local route="$1" err_class="$2" attempts="$3" first_err="$4" stderr_src="$5"
+  # Preserve full stderr alongside the one-line summary so we can diagnose
+  # server-side rejections (GH013 push-protection, GH001 size limit, GH008 LFS
+  # quota, generic 5xx) whose real message is hidden behind GitHub's
+  # `remote: error: Trace: <hex>` preamble.
+  local stamp forensic
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  forensic="$REPO_ROOT/.git/push-stderr-$stamp.log"
+  if [[ -s "$stderr_src" ]]; then
+    cp -f "$stderr_src" "$forensic" 2>/dev/null || forensic="<copy-failed>"
+  else
+    forensic="<empty>"
+  fi
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PUSH FAILED on $BRANCH ($route/$err_class after $attempts) :: ${first_err:-<empty>} :: stderr=$forensic" \
     >> "$REPO_ROOT/.git/push-failures.log"
 }
 
 # Classify git push stderr to decide whether retry is safe.
 # Patterns sourced from git's refs.c (lock errors), receive-pack/transport (non-FF),
-# and openssh/curl network paths. Order matters — most specific first.
+# openssh/curl network paths, and GitHub server-side rejection codes (GH001/008/013).
+# Order matters — most specific first; GitHub-specific server rejections must come
+# before generic auth/network so a push-protection block doesn't classify as auth.
 classify_error() {
   local f="$1"
   [[ ! -s "$f" ]] && { echo "empty-stderr"; return; }
-  if grep -qE "(cannot lock ref|failed to lock|Reference has changed|reference already exists)" "$f"; then
+  if grep -qE "(GH013|push declined due to repository rule violations|push cannot contain secrets|Secret detected|Push Protection)" "$f"; then
+    echo "gh-push-protection"
+  elif grep -qE "(GH001|exceeds GitHub's file size limit|large files detected|file size limit)" "$f"; then
+    echo "gh-size-limit"
+  elif grep -qE "(GH008|exceed your.*(data )?quota|LFS.*quota|batch response: .*quota)" "$f"; then
+    echo "gh-lfs-quota"
+  elif grep -qE "(cannot lock ref|failed to lock|Reference has changed|reference already exists)" "$f"; then
     echo "ref-lock"
   elif grep -qE "(non-fast-forward|rejected.*fetch first|tip of your current branch is behind|stale info)" "$f"; then
     echo "non-fast-forward"
@@ -70,6 +93,11 @@ classify_error() {
     echo "network"
   elif grep -qE "(Permission denied|Authentication failed|Host key verification|publickey|could not read from remote|access denied)" "$f"; then
     echo "auth"
+  elif grep -qE "^remote: (error|rejected|fatal):" "$f"; then
+    # Catch-all for server-side rejections we haven't pattern-matched yet
+    # (HTTP 5xx via smart-http, branch-protection rules, org SSO, etc.).
+    # Distinct from "unknown" so the forensic stderr file is the obvious next read.
+    echo "gh-server-reject"
   else
     echo "unknown"
   fi
@@ -137,9 +165,22 @@ while (( attempt <= max_attempts )); do
     attempt=$((attempt + 1))
     continue
   fi
-  first_err=$(grep -v '^[[:space:]]*$' "$STDERR_TMP" 2>/dev/null | head -1 \
-    | tr -d '\r' | sed 's/[[:space:]]\+/ /g' | cut -c1-200)
-  log_failure "$route_label" "$err_class" "$attempt" "$first_err"
+  # Extract the most informative line, NOT the first non-blank line. GitHub's
+  # smart-http rejection prints `remote: error: Trace: <hex>` as a server-side
+  # support correlation ID before the actual rejection reason on subsequent
+  # `remote:` lines. Previous `head -1` grabbed the Trace preamble and threw
+  # away the real cause. Strategy: prefer the first `remote: (error|rejected|
+  # fatal):` line that ISN'T the Trace preamble; fall back to first non-blank.
+  first_err=$(grep -v '^[[:space:]]*$' "$STDERR_TMP" 2>/dev/null \
+    | grep -Ev '^remote: error: Trace:' \
+    | grep -E '^remote: (error|rejected|fatal):' \
+    | head -1 | tr -d '\r' | sed 's/[[:space:]]\+/ /g' | cut -c1-200)
+  if [[ -z "$first_err" ]]; then
+    first_err=$(grep -v '^[[:space:]]*$' "$STDERR_TMP" 2>/dev/null \
+      | grep -Ev '^remote: error: Trace:' \
+      | head -1 | tr -d '\r' | sed 's/[[:space:]]\+/ /g' | cut -c1-200)
+  fi
+  log_failure "$route_label" "$err_class" "$attempt" "$first_err" "$STDERR_TMP"
   exit 0
 done
 

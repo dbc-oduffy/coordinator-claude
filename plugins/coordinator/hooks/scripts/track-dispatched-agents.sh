@@ -67,7 +67,7 @@ EM_BACKPOINTER="${AGENT_DIR}/em-session-id.txt"
 # Init session-dir if missing (slow path mirrors track-touched-files.sh).
 if [[ ! -d "$SESSION_DIR" ]]; then
   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
-  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
   if [[ -f "$LIB_PATH" ]]; then
     # shellcheck source=/dev/null
     source "$LIB_PATH"

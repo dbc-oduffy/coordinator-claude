@@ -292,9 +292,9 @@ A close-out chunk's job is citation, not re-validation: name the spec, name the 
 
 **Anti-pattern:** riding the close-out on a sibling integration run and asserting the binding path fired. Looks rigorous; fragile by construction — hardware and topology drift make the path unreachable on the validation host even when the contract is correct (RAM cap doesn't bind on a CPU-bound host; `delta == 0` between baseline-at-`--jobs auto` and resume-at-`--jobs 1` fails on shard-count drift, not on a resume bug; a lock-reaper exercise needs an orphan-PID class that's its own engineering problem to stage).
 
-**Rule:** if the contract was Patrik-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
+**Rule:** if the contract was the Staff Engineer-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
 
-**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): Patrik flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
+**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): the Staff Engineer flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
 
 ## Shared-State Pre-Flight Gate
 

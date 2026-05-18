@@ -12,7 +12,7 @@ Cross-repo line citations use a repo qualifier:
 
 Examples:
 - `project-rag:mcp/graph/extractor.py:2980`
-- `coordinator-claude:plugins/coordinator-claude/coordinator/bin/verify-coverage.js:142`
+- `coordinator-claude:plugins/coordinator/bin/verify-coverage.js:142`
 - `holodeck-control:src/tools/manage_blueprint.py:51`
 
 ## Why bare `<path>:<line>` is wrong
@@ -114,10 +114,10 @@ When verifying a manifest field (skill path, agent path, hook script) lives wher
 
 ```bash
 # Right — verifying skill manifest against source
-rg "^path:" plugins/coordinator-claude/coordinator/skills/*/SKILL.md
+rg "^path:" plugins/coordinator/skills/*/SKILL.md
 
 # Wrong — verifying against the installed mirror
-rg "^path:" ~/.claude/plugins/coordinator-claude/coordinator/skills/*/SKILL.md
+rg "^path:" ~/.claude/plugins/coordinator/skills/*/SKILL.md
 ```
 
 Installed-tree verification masks pre-publish drift: a manifest that's wrong in the repo but right in the install will pass the wrong-tree check and ship broken.
@@ -127,7 +127,7 @@ Installed-tree verification masks pre-publish drift: a manifest that's wrong in 
 When a downstream integrator (scout, executor, or worker) needs to act on a file across multiple repos, format paths as a single token `<repo>:<path>` — not split across columns or stitched from separate fields. Integrators that split-and-rejoin lose alignment under concurrent fan-out.
 
 ```
-Right: coordinator-claude:plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
+Right: coordinator-claude:plugins/coordinator/skills/learn-lessons/SKILL.md
 Wrong: repo=coordinator-claude  path=plugins/.../SKILL.md  (two fields, must rejoin)
 ```
 

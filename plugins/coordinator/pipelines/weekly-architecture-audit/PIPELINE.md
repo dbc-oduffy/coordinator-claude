@@ -78,7 +78,7 @@ Check the system's **live file count** at dispatch time — do not use the atlas
    **Scratch verification:** Before dispatching Opus reviewer, verify Sonnet scratch files exist. Re-dispatch once on failure.
 4. **Dispatch domain reviewer (Opus)** with **summarized Sonnet findings (read from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase2-sonnet.md`)** — reviewer brings judgment and cross-cutting insight, not file-reading labor. Do NOT send raw files to the domain reviewer.
 5. Reviewer grades the system and adds/updates the grade on the atlas page
-6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Director of Engineering for the Staff Engineer.
+6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: the Staff Engineer (Opus) for domain reviewers; the Director of Engineering (Opus) for the Staff Engineer.
 
 **Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to the backstop dispatch.
 

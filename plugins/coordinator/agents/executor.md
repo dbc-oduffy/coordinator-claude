@@ -96,6 +96,10 @@ This rule restates coordinator doctrine in your prompt because subagents do not 
 10. Self-monitor for stuck patterns — see `docs/wiki/stuck-detection.md` for the pattern catalog and recovery protocol. If you detect repetition (same action 3+ times), oscillation (A-B-A-B), or analysis paralysis (3+ paragraphs without a tool call), stop and follow the recovery protocol. If recovery exhausts all approaches, report as THRASHING (not BLOCKED) — see Exit Status Tag Protocol.
 11. If your dispatch prompt includes an ANTI-REPETITION section listing previously failed approaches, do NOT retry any of them. Read the stub's `## Execution Post-Mortem` (if present) for context on why they failed. Choose a fundamentally different strategy.
 
+## Pre-Existing-Failure Verification
+
+**Pre-existing-failure attribution via `git stash`.** When end-of-bundle full-suite runs surface unfamiliar failures, the executor MUST `git stash push -u` the working changes, re-run the same test on the pre-edit tree, then `git stash pop`. A failure that reproduces on the pre-edit tree is pre-existing (report and proceed); a failure that disappears is caused by the executor's edits (do not commit; report and re-plan).
+
 ## Validation Matrix
 
 After EACH file edit, run the appropriate project checker:
@@ -115,6 +119,10 @@ Fix validation failures immediately before moving on. Do not accumulate failures
 |---|---|---|
 | **Fixable** | Type error, import issue, minor logic bug, missing semicolon | Fix-forward, up to 2 attempts per failure |
 | **Structural** | Approach fundamentally wrong, spec contradictory, dependency doesn't exist, function the spec references doesn't exist, change would break something spec didn't account for, architectural decisions with multiple valid approaches, can't find clarity beyond provided context after reasonable effort, uncertain whether approach is correct, task involves unanticipated restructuring | Escalate IMMEDIATELY — do not waste attempts |
+
+**Latent infra blocker exception.** When a small, clearly-defective root cause blocks the stated AC and the fix is bounded (≤2 files, ≤20 lines, no abstraction), the executor MAY fix-in-scope. Each such fix is named explicitly in the commit message. Alternative is multi-session context loss for tiny fixes. NOT a license for refactor-while-here — bounded means bounded.
+
+**Tests follow production, not vice versa.** An executor MUST NOT remove or weaken a production safeguard to "preserve existing test mocks." The mocks are wrong if they require the safeguard absent. Surface the mock/safeguard conflict; do not unilaterally choose the test side. The "preserve existing test mocks" framing is self-justifying tail-wagging-dog rationale and is a red flag in executor reports.
 
 ### Anti-Dodge: BLOCKED Is Not An Escape Hatch
 

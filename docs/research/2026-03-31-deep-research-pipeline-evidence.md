@@ -46,7 +46,7 @@ Most multi-agent orchestration systems are designed from intuition. The deep res
 **Decision:** The Opus sweep runs three explicit sequential phases: Assess → Fill → Frame.
 
 **Evidence:**
-- **Patrik review (2026-03-31):** Staff engineer review flagged sweep overload risk — three responsibilities (adversarial check, gap research, framing) could blur if not sequenced. Phase separation ensures the gap report exists as an artifact before gap-filling research begins.
+- **the Staff Engineer review (2026-03-31):** Staff engineer review flagged sweep overload risk — three responsibilities (adversarial check, gap research, framing) could blur if not sequenced. Phase separation ensures the gap report exists as an artifact before gap-filling research begins.
 - **Negative-space framing (OpenAI, Google, Anthropic guidance):** The sweep should look for "what's missing," not "summarize what's there." Phase 1 (Assess) produces a written gap report that makes the negative space explicit before Phase 2 (Fill) does targeted research.
 
 ### EM scoping checklist

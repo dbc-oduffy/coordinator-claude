@@ -33,6 +33,36 @@ The skill's job is to *grind the backlog down*, not to produce a triage report. 
 
 **Recovery framing.** The 2026-05-14 run resolved 2 items and deferred ~45 P2s in "summary form." On a re-run of that shape: expect to expand the summary-form entries inline during Phase 1, dispatch them in file-disjoint waves, and converge on a fix-rate of 50%+ of the verified-open backlog per run, not 5%.
 
+## Severity-Tier Dispatch Rules (PM doctrine, 2026-05-18)
+
+`/bug-blitz` is intended to be **extremely aggressive**. The failure mode is "great, I took care of 8 bugs out of 1215" — the EM does Phase 1 triage on everything, finds reasons to defer most of it, ships a thin run. Don't. Severity-tier dispatch is the structural fix:
+
+| Severity | Triage shape | Dispatch shape | Rationale |
+|----------|--------------|----------------|-----------|
+| **P2** | **No triage step** — skip Phase 1 verify for P2s; trust the backlog citation. | Direct executor dispatch in file-disjoint waves, max parallelism. | P2 false-positive rate is low and the fix cost is low — re-verifying is more expensive than just fixing. If a P2 is a phantom, the executor returns "no change needed" cheaply. |
+| **P1** | **Bulk-triage** — one Haiku per chunk of ~20 items, verify-only (still-open / already-fixed / file-removed). EM reads triage output, then dispatches aggressively. | Aggressive file-disjoint waves across the still-open set. | P1 hit rate is ~60%; bulk triage filters cheap before expensive dispatch. |
+| **P0** | **Smaller-set triage** — one Haiku per chunk of ~5 items, verify AND read the cited code line-by-line. EM spot-checks each verdict. | Aggressive dispatch on confirmed-open set; flag any verdict the EM disagrees with for re-read. | P0 false-positive rate from sweep agents is 100% historically (`bug-sweep` cites this). Need the careful verifier, not the size-classify shortcut. |
+
+**Phase 1 (Verify + Triage) is now severity-conditional, not uniform.** Split the backlog by severity at Phase 0.5 (between Preflight and Phase 1):
+
+- P2s skip Phase 1 entirely — go straight to Phase 3 with footprint declared from the backlog citation.
+- P1s get the chunks-of-20 verify-only Haiku from current Phase 1.
+- P0s get the chunks-of-5 careful Haiku from current Phase 1 with additional cited-code-read step.
+
+If the backlog lacks severity tags, the EM tags them inline at Phase 0.5 (P2 default unless `crash`, `data-loss`, `security`, or `silent-corruption` shape — those are P0; `wrong-behavior` / `breaking-flow` are P1).
+
+## Spinoff Phantom Verification (PM doctrine, 2026-05-18)
+
+**Spinoffs are last resort, not the size-overflow drawer.** Today's failure mode: PM was offered 7 candidate spinoffs; 4 were phantoms (file/symbol gone from HEAD), 1 was a 2-line fix mis-classified as `big`. Pre-surface verification is mandatory:
+
+For each `big` candidate, BEFORE adding it to the spinoff candidate list shown at Phase 2.1:
+
+1. **Phantom check.** Re-read the cited file:line on HEAD. If the symbol named in the recommended-fix is absent AND the bug pattern is absent, the spinoff is a phantom — close as `already-fixed` (or `file-removed`) with a one-line note, do not surface.
+2. **Size sanity-check.** Re-measure the footprint. Open the cited file and the recommended-fix's named imports / call sites. If the fix is genuinely 1-2 file edits totaling <50 lines net change, reclassify as `small` and route to the next wave — `big` is footprint ≥3 files OR new module/interface, not just "I'd need to think about it." Two-line fixes are never `big`.
+3. **Already-covered check.** Grep `tasks/handoffs/` and `docs/plans/*.md` for an existing handoff/plan covering the same fix scope. If one exists with `deployment_state: ready_to_fire` or `status: executing`, the spinoff is duplicate — close with a cite to the existing artifact, do not surface.
+
+Only candidates that survive all three checks go onto the PM-authorization list at Phase 2.1. Surface count must be calibrated to "PM expects ≤2 phantoms in a 5-item list" — if more than 30% of pre-surface candidates flunk a check, the EM's size-classify is mis-calibrated for this run and should be re-tightened mid-run.
+
 ## Arguments
 
 | Trigger | Mode |
@@ -54,11 +84,22 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
 5. **Read backlog header** to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
 
-## Phase 1: Verify + Triage (parallel Haiku per chunk)
+## Phase 0.5: Severity Split (EM, ~1 min)
 
-The backlog has likely drifted. Some items have been silently fixed by other workstreams. Some have changed shape. Some are no longer reachable. Verify before grinding.
+Per § Severity-Tier Dispatch Rules above, split the backlog by severity before dispatching Phase 1 chunks. Output: three lists (P2, P1, P0) routed to different downstream shapes.
 
-**Split open items into chunks of ~10.** For each chunk, dispatch one Haiku agent with `run_in_background: true` and an on-disk deliverable. See disk-first verification preamble below — inline it in every chunk-Haiku dispatch prompt.
+1. **Tag any untagged items inline.** P2 default unless the entry's shape is `crash` / `data-loss` / `security` / `silent-corruption` (→ P0) or `wrong-behavior` / `breaking-flow` (→ P1).
+2. **Route by tier:**
+   - **P2 items skip Phase 1 entirely** — go directly to Phase 3 dispatch with footprint declared from the backlog citation.
+   - **P1 items → Phase 1, chunks of ~20**, verify-only Haiku (still-open / already-fixed / file-removed).
+   - **P0 items → Phase 1, chunks of ~5**, verify + cited-code-read Haiku with EM spot-check on each verdict.
+3. **Emit the three counts** to scratch (`tasks/scratch/bug-blitz/{run-id}/severity-split.md`) so the wave-plan in Phase 2 can reconcile against them.
+
+## Phase 1: Verify + Triage (parallel Haiku per chunk, severity-conditional)
+
+The backlog has likely drifted. Some items have been silently fixed by other workstreams. Some have changed shape. Some are no longer reachable. Verify before grinding — but only for P1/P0 per Phase 0.5; P2s skip this phase and go straight to Phase 3.
+
+**Chunk size is severity-conditional** (see Phase 0.5): P1s go to chunks of ~20 (verify-only); P0s go to chunks of ~5 (verify + cited-code-read + EM spot-check). For each chunk, dispatch one Haiku agent with `run_in_background: true` and an on-disk deliverable. See disk-first verification preamble below — inline it in every chunk-Haiku dispatch prompt.
 
 **Disk-first verification preamble (inline verbatim into every Phase 1 chunk-Haiku dispatch prompt):**
 > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
@@ -70,6 +111,12 @@ The backlog has likely drifted. Some items have been silently fixed by other wor
 Verdict per item: `confirmed` | `pattern-shifted`. Write to `tasks/scratch/bug-blitz/{run-id}/chunk-N-pattern-check.md`. Reply `DONE: <path>`.
 
 After both chunk verifiers return, EM reviews `pattern-shifted` items inline before adding them to executor dispatch. Items flagged `pattern-shifted` are NOT dispatched to executors automatically — EM reads the cited file and decides: re-classify, update the backlog entry, or proceed with adjusted recommended-fix.
+
+**Pattern-shifted is a dispatch signal, not a defer reason.** Empirically (2026-05-18, project-rag-ue-addon: 0 of ~6 pattern-shifted deferrals were real moved-bugs — all were the same bug with the named symbol renamed or the surrounding code reshuffled by an unrelated edit). When the cited symbol is missing at the cited line, the high-prior interpretation is "the bug still exists, the pattern moved" — grep the recommended-fix's central noun-phrase (the buggy condition, not the symbol name) across the cited file and adjacent siblings before classifying as deferral-eligible. Closing as `file-removed` requires `ls` confirming absence; closing as `already-fixed` requires a commit SHA showing the fix. "Pattern shifted, can't find it" with neither evidence is a re-grep task, not a defer.
+
+**Backlog entries written in summary-form paragraphs are actionable items, not noise.** Dense deferred-summary sections with file:line citations are verification candidates — do not skip them at Phase 1 triage.
+
+**Pre-classification eligibility — verify status freshness, not just FIXED tagging.** An entry tagged FIXED months ago may have a fresh IN-PROGRESS continuation underneath; check `git log -- <cited-path>` since the FIXED tag's date before pruning. "Already-fixed ghost" prunes can collateral-damage in-progress work.
 
 **Per-item verification + size classification.** Each agent, for each item:
 
@@ -167,6 +214,8 @@ Update the backlog entry: `resolution: spun-off-{YYYY-MM-DD} {handoff-path}`. Th
 Delete already-fixed items from active P1/P2 tables; name them in the Phase 4 commit subject and final report.
 
 ### Step 2.3: Build small-item waves (file-disjoint)
+
+**Phase 2 — pre-bundle by file footprint.** Group bug IDs by shared file footprint and dispatch one executor per file (not per bug ID). For Phase 3 verification, prefer batched per-wave verifiers when the EM is reading each DONE line; per-DONE Haiku is overkill at that read-density. Empirical: 28 executors / 42 items / 3 waves / 0 regressions (2026-05-14 blitz).
 
 Group `small` items by file footprint:
 
@@ -288,6 +337,10 @@ After all waves complete:
 
 **Test status:** [pass/fail counts from final test run]
 ```
+
+## Post-Ship Cleanup
+
+After canonical outputs are committed, delete the working-notes scratch directory (`tasks/scratch/bug-blitz/<date>-<time>/`). Optionally write a one-line breadcrumb at `tasks/scratch/bug-blitz/<date>-receipt.txt` referencing the canonical commit SHA. Working notes leaking post-ship as untracked files is noise; commit-then-delete is a two-step waste.
 
 ## Failure Modes
 

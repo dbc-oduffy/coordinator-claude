@@ -93,7 +93,7 @@ _cs_iso_to_epoch() {
   if [[ "$epoch" == 0 ]]; then
     # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
     local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
-    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
     # shellcheck source=/dev/null
     [[ -f "$_lib" ]] && source "$_lib"
     if [[ -n "$PYTHON_BIN" ]]; then
@@ -264,7 +264,7 @@ cs_touch() {
       if [[ -n "$root" ]]; then
         # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
         local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
-        [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+        [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
         # shellcheck source=/dev/null
         [[ -f "$_lib" ]] && source "$_lib"
         if [[ -n "$PYTHON_BIN" ]]; then
@@ -348,20 +348,24 @@ cs_compute_scope() {
   # Add dirty files whose mtime is after started_at
   local root
   root=$(_cs_git_root)
-  for dfile in "${dirty_files[@]:-}"; do
-    [[ -z "$dfile" ]] && continue
-    local abs_path="${root}/${dfile}"
-    local file_mtime
-    file_mtime=$(_cs_mtime_epoch "$abs_path")
-    if [[ "$file_mtime" -ge "$started_at_epoch" ]]; then
-      # Only add if not already in touched_set
-      local already=false
-      for t in "${touched_set[@]:-}"; do
-        [[ "$t" == "$dfile" ]] && { already=true; break; }
-      done
-      [[ "$already" == false ]] && touched_set+=("$dfile")
-    fi
-  done
+  if (( ${#dirty_files[@]} > 0 )); then
+    for dfile in "${dirty_files[@]}"; do
+      [[ -z "$dfile" ]] && continue
+      local abs_path="${root}/${dfile}"
+      local file_mtime
+      file_mtime=$(_cs_mtime_epoch "$abs_path")
+      if [[ "$file_mtime" -ge "$started_at_epoch" ]]; then
+        # Only add if not already in touched_set
+        local already=false
+        if (( ${#touched_set[@]} > 0 )); then
+          for t in "${touched_set[@]}"; do
+            [[ "$t" == "$dfile" ]] && { already=true; break; }
+          done
+        fi
+        [[ "$already" == false ]] && touched_set+=("$dfile")
+      fi
+    done
+  fi
 
   # --- Step 3: Build other sessions' claim sets ---
   declare -A other_claims  # path -> session_id
@@ -384,37 +388,45 @@ cs_compute_scope() {
 
   # --- Step 4: Apply subtraction and emit MY_SCOPE ---
   local my_scope=()
-  for candidate in "${touched_set[@]:-}"; do
-    [[ -z "$candidate" ]] && continue
-    if [[ -v "other_claims[$candidate]" ]]; then
-      echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
-    else
-      my_scope+=("$candidate")
-    fi
-  done
+  if (( ${#touched_set[@]} > 0 )); then
+    for candidate in "${touched_set[@]}"; do
+      [[ -z "$candidate" ]] && continue
+      if [[ -v "other_claims[$candidate]" ]]; then
+        echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
+      else
+        my_scope+=("$candidate")
+      fi
+    done
+  fi
 
   # --- Step 5: Orphan detection ---
-  for dfile in "${dirty_files[@]:-}"; do
-    [[ -z "$dfile" ]] && continue
-    # Orphan: dirty, not in my scope, not claimed by any other session
-    local in_mine=false
-    for m in "${my_scope[@]:-}"; do
-      [[ "$m" == "$dfile" ]] && { in_mine=true; break; }
-    done
-    [[ "$in_mine" == true ]] && continue
+  if (( ${#dirty_files[@]} > 0 )); then
+    for dfile in "${dirty_files[@]}"; do
+      [[ -z "$dfile" ]] && continue
+      # Orphan: dirty, not in my scope, not claimed by any other session
+      local in_mine=false
+      if (( ${#my_scope[@]} > 0 )); then
+        for m in "${my_scope[@]}"; do
+          [[ "$m" == "$dfile" ]] && { in_mine=true; break; }
+        done
+      fi
+      [[ "$in_mine" == true ]] && continue
 
-    if [[ -v "other_claims[$dfile]" ]]; then
-      : # owned by another session — not an orphan, skip silently
-    else
-      # Dirty, not claimed — orphan
-      echo "orphan: ${dfile}" >&2
-    fi
-  done
+      if [[ -v "other_claims[$dfile]" ]]; then
+        : # owned by another session — not an orphan, skip silently
+      else
+        # Dirty, not claimed — orphan
+        echo "orphan: ${dfile}" >&2
+      fi
+    done
+  fi
 
   # --- Output: one path per line ---
-  for path in "${my_scope[@]:-}"; do
-    echo "$path"
-  done
+  if (( ${#my_scope[@]} > 0 )); then
+    for path in "${my_scope[@]}"; do
+      echo "$path"
+    done
+  fi
 
   return 0
 }

@@ -8,7 +8,7 @@
 
 **Architecture:** Prompt-level improvements to scout and specialist agents across both repos (`X:/deep-research-claude` for Pipelines A/B, `X:/coordinator-claude/plugins/notebooklm` for Pipeline D). One new capability (LLM-as-judge eval). No structural/architectural changes — the pipelines are sound; we're sharpening the prompts based on Anthropic's production learnings.
 
-**Review:** Reviewed by Patrik on 2026-04-01. 2 major + 4 minor findings applied below. Ready for execution.
+**Review:** Reviewed by the Staff Engineer on 2026-04-01. 2 major + 4 minor findings applied below. Ready for execution.
 
 **Tech Stack:** Markdown agent definitions, prompt templates, JSON eval specs
 

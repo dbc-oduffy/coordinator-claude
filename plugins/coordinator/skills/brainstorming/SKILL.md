@@ -11,6 +11,8 @@ Turn the PM's intent into a design spec through collaborative dialogue. The PM d
 
 **Announce at start:** "Using brainstorming to explore the design before we plan implementation."
 
+**When NOT to invoke:** Well-scoped follow-ups (PM is asking for a specific next step on a workstream that already has a spec, plan, or completed prior iteration) go straight to `coordinator:plan` — or just do it, if trivial. Brainstorming is for genuine *ambiguity in shape*, not for *next-step-on-known-shape*. If the request answers "what should we build?" with one sentence already, the design exists; jump to plan. If the request would require 2+ rounds of *what is this even?* clarifying questions, brainstorming applies.
+
 <HARD-GATE>
 Once brainstorming has started, do NOT invoke any implementation skill, write any code, scaffold any project, or dispatch any executor until the spec is written and PM-approved. The only exit from brainstorming is a completed spec that transitions to `coordinator:plan`.
 

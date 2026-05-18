@@ -117,8 +117,10 @@ fi
 # Update throttle timestamp (touch even if we end up not emitting anything)
 touch "$THROTTLE_SENTINEL"
 
-# Research (2026-03-21): Compaction fires at ~83.5% of context window
-# (33K token buffer reserved from 200K window → ~167K trigger point).
+# Calibration (2026-05-18, observed on Opus 1M): auto-compaction now fires at
+# ~60% of context window (e.g. 600K on a 1M window). Earlier research had it
+# at ~83.5% on a 200K window; treat 60% as the new global trigger until we
+# observe per-model divergence. Override via CONTEXT_*_THRESHOLD env vars.
 # We can't know exact token count — file size in bytes is a rough proxy.
 # Using ~5 bytes/token (conservative: real ratio is 5-8 depending on content).
 
@@ -160,8 +162,10 @@ case "$MODEL_ID" in
 esac
 
 # --- Threshold percentages ---
-ADVISORY_PCT=60
-CRITICAL_PCT=78
+# Auto-compaction trigger observed at ~60% of context window (2026-05-18).
+# CRITICAL fires just before that (~30K headroom on 1M); ADVISORY earlier.
+ADVISORY_PCT=50
+CRITICAL_PCT=57
 
 # --- Convert to file size thresholds (bytes) ---
 BYTES_PER_TOKEN=5
@@ -216,11 +220,11 @@ if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~83.5%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
   else
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~83.5% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~60% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
   fi
   exit 0

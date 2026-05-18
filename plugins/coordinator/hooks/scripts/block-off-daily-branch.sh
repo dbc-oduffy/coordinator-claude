@@ -122,7 +122,7 @@ esac
 # to avoid duplication between this hook and validate-commit.sh.
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-daily-branch.sh"
 if [[ ! -f "$LIB_PATH" ]]; then
-  LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+  LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
 fi
 if [[ -f "$LIB_PATH" ]]; then
   # shellcheck source=/dev/null

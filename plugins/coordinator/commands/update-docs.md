@@ -26,7 +26,7 @@ Phases below are the source of truth — the headings enumerate everything this 
 #### Phase 0: Quick-Save Before Docs
 
 1. **Branch guard:** If on `main`, create a work branch (`work/{machine}/{date}`) and switch. Never commit to main directly.
-2. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "pre-docs quick-save"`
+2. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "pre-docs quick-save"`
 3. If nothing to commit, move on
 4. Do not push yet — push happens in Phase 9
 
@@ -145,7 +145,7 @@ Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 #### Phase 9: Commit + Verify Remote
 
-1. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "docs maintenance"`
+1. `CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "docs maintenance"`
    (The post-commit hook will auto-push on work/feature branches.)
 2. **Verify remote is synced:** `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
    If unpushed commits remain, push explicitly.
@@ -183,17 +183,15 @@ esac
 
 #### Phase 10: Refresh Orientation Cache
 
-If `tasks/orientation_cache.md` exists, **always do a full refresh in this phase — never skip on grounds of "looks roughly current."** Stale orientation poisons every subsequent session-start:
-1. Re-derive cache content from the docs just updated (repomap, DIRECTORY, health files)
-2. Update `generated_at` and `git_head_at_generation` to current HEAD
-3. **Ensure a "Key Documentation" section is present** pointing to `docs/README.md`:
-   ```
-   ## Key Documentation
-   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, reference
-   - **Wiki guides:** [`docs/wiki/`](../docs/wiki/) — [N] living guides with embedded decision records
-   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
-   ```
-4. Include in the Phase 9 commit (or amend if already committed)
+If `tasks/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `bin/regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
+
+```bash
+bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs
+```
+
+This phase is **where bloat dies.** Any section accreted by a mid-session writer outside `## Pinboard` (a `## Recent Work` paragraph, a `## Health Snapshot` from an older schema, a `## Key Documentation` block) is discarded — only schema-conformant sections regenerate. The verifier (Phase 11b) catches any drift introduced after this phase.
+
+Include the regenerated cache in the Phase 9 commit (or amend if already committed).
 
 If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
@@ -236,19 +234,29 @@ exit $fail
 
 **If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
 
-<!-- Phase 11g (Plugin-bundled wiki validate) RETIRED 2026-05-17. The invariant
-     it protected (single-tree at <plugin>/docs/wiki/) was inverted by the
-     wiki layout move to repo top-level docs/wiki/. Scripts deleted:
-     bin/sync-plugin-wiki.sh + hooks/scripts/block-dev-side-mirror-wiki.sh.
-     See docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md
-     § Stage 1.5/1.6. -->
+#### Phase 11g: Plugin-bundled wiki validate
+
+> Spec backlink: `docs/plans/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
+> Semantics changed 2026-05-15 (Option B): no longer syncs dev-side → bundled; now verifies no plugin-cited wiki has a dev-side mirror.
+
+Verify that no plugin-doctrine wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md` — dev-side mirrors re-introduce the write-direction trap. Wiki names are auto-discovered by grepping plugin files for `docs/wiki/<name>.md` references.
+
+```bash
+~/.claude/plugins/coordinator/bin/sync-plugin-wiki.sh
+```
+
+**If the script exits 0:** log in the Phase 13 report: "Plugin-bundled wiki: clean (N validated)."
+
+**If the script exits 5:** a dev-side mirror exists for a plugin-doctrine wiki. Output names both paths and remediation steps. Resolve before proceeding (override with `COORDINATOR_OVERRIDE_WIKI_MIRROR=1` only for wikis genuinely not belonging in the plugin tree).
+
+**If the script reports WARN (missing-bundled):** a wiki name is referenced but absent from the bundled tree. Doc-link health (Phase 11e) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
 
 #### Phase 11c: Query Callout Refresh
 
 Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... -->` blocks in tracked markdown files:
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/refresh-queries.sh
+~/.claude/plugins/coordinator/bin/refresh-queries.sh
 ```
 
 **If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 13 report: "Query callouts: N file(s) updated."
@@ -264,7 +272,7 @@ The W1 PreToolUse validator runs in WARN mode — violations do NOT block writes
 Run the lint:
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/lint-frontmatter.sh --json
+~/.claude/plugins/coordinator/bin/lint-frontmatter.sh --json
 ```
 
 Parse the JSON. Three behaviors:
@@ -317,7 +325,7 @@ Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the p
 Asserts the four reviewers in the parallel-code-review skill's lens-domain manifest exist as agent files and have non-overlapping `lens_domain` values.
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh
+~/.claude/plugins/coordinator/bin/verify-parallel-review-lens-orthogonality.sh
 ```
 
 **On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. A collision means the parallel-review carve-out's preconditions no longer hold (`coordinator/CLAUDE.md` § Review Sequencing). Fix: rename the colliding lens domain or remove the reviewer from the parallel pool.
@@ -331,7 +339,7 @@ This phase is informational like 11e; does NOT halt `/update-docs`.
 Walks every super-skill SKILL.md and verifies each `CLAUDE.md § <section>` citation resolves against a heading in project-level `coordinator/CLAUDE.md`. Global citations (`~/.claude/CLAUDE.md` or "global" on the same line) are recorded as QUALIFIED and not failed.
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/verify-skill-anchor-links.sh
+~/.claude/plugins/coordinator/bin/verify-skill-anchor-links.sh
 ```
 
 **On non-zero exit (DEAD anchors found):** Surface to PM — do NOT auto-fix. Fix: lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet, or qualify the citation as global.
@@ -345,7 +353,7 @@ This phase is informational like 11e/11f; does NOT halt `/update-docs`.
 Walks the coordinator-claude plugin tree, extracts every `<plugin>:<name>` reference, `subagent_type:` assignment, and worker bullet under `## Worker Dispatch Recommendations` headers, and verifies each resolves to a real skill/agent/command on disk. External prefixes (`holodeck-control:*`, `superpowers:*`, etc.) are skipped.
 
 ```bash
-node ~/.claude/plugins/coordinator-claude/coordinator/bin/verify-coverage.js
+node ~/.claude/plugins/coordinator/bin/verify-coverage.js
 ```
 
 The script exits non-zero on any orphan reference. This phase HALTS `/update-docs` until orphans are resolved — retarget to the real artifact, add to `REF_ALLOWLIST` in `bin/verify-coverage.js` with a rationale, or create the missing artifact.
@@ -369,7 +377,7 @@ This is belt-and-suspenders. The write-time discipline (main-line-only entries; 
 for queue in tasks/coordinator-improvement-queue.md tasks/improvement-queue.md tasks/bug-backlog.md; do
   [[ -f "$queue" ]] || continue
   before=$(wc -l < "$queue")
-  ~/.claude/plugins/coordinator-claude/coordinator/bin/prune-resolved-queue-entries.sh "$queue"
+  ~/.claude/plugins/coordinator/bin/prune-resolved-queue-entries.sh "$queue"
   after=$(wc -l < "$queue")
   echo "Pruned $((before - after)) lines from $queue"
 done
