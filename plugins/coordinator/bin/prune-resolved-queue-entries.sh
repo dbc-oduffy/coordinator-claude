@@ -2,10 +2,23 @@
 # prune-resolved-queue-entries.sh — remove resolved-state bloat from improvement queues and bug-backlog.
 #
 # Spec backlink: docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5
+#                (lives in consumer-project docs/plans/, not in this plugin tree)
 #
 # Purpose: Strip resolved-state bloat from the three named queue files. Doctrine alone
 # cannot prevent drift — each EM has a non-deterministic way of marking closure in
 # markdown, so the pruner is the structural backstop.
+#
+# CASE SENSITIVITY: closure keywords are matched UPPERCASE-ONLY by convention. Mixed-case
+# "Fixed" or lowercase "fixed" in narrative survives — only the all-caps EM-closure
+# convention triggers a strip. This is intentional: lowercase usage is overwhelmingly
+# narrative ("the bug was fixed by..."), uppercase is the closure-annotation pattern.
+#
+# OUT OF SCOPE: inline closure annotations on main-line list entries like
+#   "- 2026-MM-DD | source | file | description — APPLIED to X.md"
+# are deliberately not stripped — too high false-positive risk against legitimate
+# "landed in /X" / "applied to Y" descriptions of active queue items. Doctrine
+# expects EMs to delete the line on resolution; the pruner only catches structural
+# closure-annotation patterns (heading / strikethrough / table-row shapes).
 #
 #   Rule 1 — Entry-shape (queue files only): delete any entry block whose resolution:
 #            sub-line starts with "resolved" (or any non-pending/non-in_progress value),
@@ -23,21 +36,28 @@
 #            fold into the main line as " [recurring: N]" when needed.
 #   Rule 4 — Idempotent: running twice produces no further changes.
 #   Rule 5 — H3 status-closure block (all three files): delete any H3 heading
-#            "^### " carrying a bracketed status keyword "[FIXED|RESOLVED|CLOSED|DONE|COMPLETED]"
-#            anywhere on the line, OR ending with " — (FIXED|RESOLVED|CLOSED|DONE|COMPLETED)$".
+#            "^### " carrying a bracketed status "[FIXED 2026-...]" / "[FIXED]" / "[FIXED — ...]"
+#            (keyword immediately followed by closing-bracket, date digit, or em-dash/hyphen),
+#            OR ending with bare-keyword-at-EOL (whitespace before keyword, EOL after).
 #            Body suppressed until the next ## or ### heading. Catches the
 #            holodeck-bug-backlog pattern: "### [FIXED 2026-05-16] BS-... <30 lines of forensic>".
+#            Markdown links with closure-keyword display text (e.g. "[CLOSED issue](url)")
+#            survive because the bracket-content pattern requires date/dash/close, not a word.
 #   Rule 6 — Strikethrough-closure line strip (all three files): drop any single line
-#            containing "~~" AND a closure keyword (FIXED|RESOLVED|CLOSED|DONE|COMPLETED).
+#            containing "~~" AND an UPPERCASE closure keyword (FIXED|RESOLVED|CLOSED|DONE|COMPLETED).
 #            Catches the DroneSim table-row pattern:
 #            "| ~~BS-...~~ | ... ~~P2~~ CLOSED | ... — **FIXED (sha):** ... |".
 #            Non-closure strikethrough (e.g. "~~old approach~~ — we now ...") survives
 #            because it lacks the keyword.
 #   Rule 7 — Table-row resolution strip (all three files): drop any "| BS-..." table
-#            row whose first content cell starts with a closure keyword.
-#            Catches the geneva-mvp pattern: "| BS-2026-03-19-1 | FIXED (run 2) — ... |".
-#            Rows with the keyword only inside narrative text (not as a cell value)
-#            do not match.
+#            row where COLUMN 2 (the first content cell after the id) starts with a
+#            closure keyword. Catches "| BS-2026-03-19-1 | FIXED (run 2) — ... |".
+#            Rows with the keyword in column 3+, or only in narrative text, survive.
+#   Rule 8 — Buffer-orphan guard (queue files only): when a Rule 6/7 closure line
+#            appears mid-entry-collection (between a buffered main-line and its
+#            sublines), treat the entire entry as closure-annotated — drop the main
+#            line, drop the closure line, and suppress subsequent orphaned sublines
+#            until the next non-subline. Prevents synthetic-subline corruption.
 #
 # Usage: prune-resolved-queue-entries.sh <queue-file>
 #
@@ -84,15 +104,15 @@ trap 'rm -f "$TMP"' EXIT
 
 awk -v apply_rule1="$APPLY_RULE1" -v filename="$INPUT" '
 BEGIN {
-  in_resolved_section = 0   # inside a ## Resolved/Done/... section (Rule 2)
-  in_h3_closure = 0         # inside a ### [FIXED ...] block (Rule 5)
+  in_resolved_section = 0       # inside a ## Resolved/Done/... section (Rule 2)
+  in_h3_closure = 0             # inside a ### [FIXED ...] block (Rule 5)
+  suppress_orphan_sublines = 0  # Rule 8: drop sublines belonging to a closure-orphaned entry
   # Entry buffer (Rule 1): gather a main line + all consecutive 2-space-indented
   # sub-lines, then decide whether to emit or suppress based on whether any
   # sub-line carries "resolution: resolved" or "**Closeout:**" (already-resolved
   # annotation). Handles 2-line, 3-line, and 4+-line entry shapes uniformly.
   buf_count = 0          # number of buffered lines (0 = no entry being collected)
   buf_resolved = 0       # 1 if any buffered sub-line indicates resolution
-  buf_main_lineno = 0
 }
 
 function flush_buffer(   i) {
@@ -103,18 +123,32 @@ function flush_buffer(   i) {
   }
   buf_count = 0
   buf_resolved = 0
-  buf_main_lineno = 0
 }
 
-# Match an H3 closure heading per Rule 5. Two shapes:
-#   1. "^### " with bracketed status keyword anywhere: ... [FIXED ...] ...
-#   2. "^### " ending with em-dash or hyphen suffix: ... — FIXED  (or  - FIXED)
+# Rule 8: when a closure line interrupts entry-collection, drop the buffer and
+# arm orphan-subline suppression. The next consecutive sublines belong to the
+# now-closure-annotated entry — drop them. Cleared on first non-subline.
+function discard_buffer_to_orphan() {
+  if (buf_count > 0) {
+    buf_count = 0
+    buf_resolved = 0
+    suppress_orphan_sublines = 1
+  }
+}
+
+# Match an H3 closure heading per Rule 5. Three shapes:
+#   1. "^### ... [(FIXED|...) ]"               — bare bracket-close
+#   2. "^### ... [(FIXED|...) <digit>...]"     — date suffix inside brackets
+#   3. "^### ... [(FIXED|...) (— | - )...]"    — em-dash/hyphen suffix inside brackets
+#   4. "^### ... <ws>(FIXED|...)$"             — bare keyword at EOL after whitespace
+# Markdown links like "[CLOSED issue](url)" survive because the bracket content
+# after CLOSED is a word, not a date/dash/close.
 function is_h3_closure(line) {
   if (line !~ /^### /) return 0
-  # Bracketed status keyword: "[FIXED" / "[RESOLVED" / ... followed by a non-word char or "]"
-  if (line ~ /\[(FIXED|RESOLVED|CLOSED|DONE|COMPLETED)([^A-Za-z0-9_]|$)/) return 1
-  # Em-dash or hyphen suffix at EOL: " — FIXED" or " - FIXED" (already non-word-bounded on both ends)
-  if (line ~ /(— |- )(FIXED|RESOLVED|CLOSED|DONE|COMPLETED)[[:space:]]*$/) return 1
+  # Bracketed status: keyword IMMEDIATELY followed by ], or by space+digit, or by space+dash/em-dash.
+  if (line ~ /\[(FIXED|RESOLVED|CLOSED|DONE|COMPLETED)(\]|[[:space:]]+([0-9]|—|-))/) return 1
+  # Bare keyword at EOL with whitespace prefix (em-dash, hyphen, or plain space all qualify).
+  if (line ~ /[[:space:]](FIXED|RESOLVED|CLOSED|DONE|COMPLETED)[[:space:]]*$/) return 1
   return 0
 }
 
@@ -136,17 +170,23 @@ function is_strikethrough_closure(line) {
   return 0
 }
 
-# Match a "| BS-..." table row whose first content cell starts with a closure keyword
-# per Rule 7. Pattern: "| BS-<id> | (FIXED|RESOLVED|CLOSED|DONE|COMPLETED) ..."
+# Match a "| BS-..." table row whose COLUMN 2 (first content cell after the id)
+# starts with a closure keyword per Rule 7. Single anchored pattern:
+#   "^| BS-<id>[ws]*| (FIXED|RESOLVED|CLOSED|DONE|COMPLETED)<non-word>"
+# Rows with the keyword in column 3+ or only in narrative text do not match.
 function is_table_row_closure(line) {
-  if (line !~ /^\| BS-[^ |]+[[:space:]]+\|/) return 0
-  # First content cell starts with a closure keyword (followed by non-word char)
-  if (line ~ /\| (FIXED|RESOLVED|CLOSED|DONE|COMPLETED)([^A-Za-z0-9_]|$)/) return 1
+  if (line ~ /^\| BS-[^ |]+[[:space:]]*\| (FIXED|RESOLVED|CLOSED|DONE|COMPLETED)([^A-Za-z0-9_]|$)/) return 1
   return 0
 }
 
 {
   lineno = NR
+
+  # --- Rule 8: orphan-subline suppression (runs first; mid-entry closure cleared the buf) ---
+  if (suppress_orphan_sublines) {
+    if ($0 ~ /^  /) { next }    # consecutive subline of orphaned entry → drop
+    suppress_orphan_sublines = 0  # non-subline ends suppression; fall through
+  }
 
   # --- Section-suppression handlers run first so we exit them on heading boundaries ---
 
@@ -188,7 +228,14 @@ function is_table_row_closure(line) {
   # --- Per-line closure-marker drops (Rules 6, 7) ---
 
   if (is_strikethrough_closure($0) || is_table_row_closure($0)) {
-    flush_buffer()
+    # Rule 8: if a closure line appears mid-entry-collection (queue files), treat
+    # the entry as closure-annotated — drop the main line buffer AND arm orphan
+    # subline suppression. Otherwise the closure line is standalone — just flush.
+    if (buf_count > 0) {
+      discard_buffer_to_orphan()
+    } else {
+      flush_buffer()
+    }
     next
   }
 
@@ -200,7 +247,6 @@ function is_table_row_closure(line) {
     if (buf_count == 0) {
       if (is_main) {
         buf[++buf_count] = $0
-        buf_main_lineno = lineno
       } else {
         print
       }
@@ -228,7 +274,6 @@ function is_table_row_closure(line) {
     flush_buffer()
     if (is_main) {
       buf[++buf_count] = $0
-      buf_main_lineno = lineno
     } else {
       print
     }

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # prune-resolved-queue-entries.test.sh — Fixture-based tests for the queue pruner.
 #
 # Run: bash ~/.claude/plugins/coordinator-claude/coordinator/bin/prune-resolved-queue-entries.test.sh
@@ -12,7 +12,7 @@
 #   6. Strikethrough closure lines (~~text~~ ... FIXED ...) — all three files
 #   7. Table-row resolution strip (| BS-... | FIXED ...)    — all three files
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRUNER="${SCRIPT_DIR}/prune-resolved-queue-entries.sh"
@@ -47,7 +47,7 @@ run_case() {
   else
     fail "$name"
     echo "  --- diff (expected vs actual) ---"
-    diff "$expectedfile" "$tmpfile" | sed 's/^/    /'
+    diff "$expectedfile" "$tmpfile" | sed 's/^/    /' || true
   fi
   rm -rf "$tmpdir"
 }
@@ -288,8 +288,118 @@ run_case "Rule 1 inactive on bug-backlog: sub-line entries pass through" "bug-ba
 "
 
 # ---------------------------------------------------------------------------
+# Reviewer findings — bug-fix confirmation tests
+# ---------------------------------------------------------------------------
+
+# F1: Rule 7 must NOT drop rows where closure keyword starts column 3+
+run_case "F1: Rule 7 — keyword in col 3+ survives (not col 2)" "bug-backlog.md" \
+"| BS-2026-05-18-A | OPEN | FIXED — keyword in third column | needs work |
+| BS-2026-05-18-B | FIXED — col 2, this one drops | shipped |
+" \
+"| BS-2026-05-18-A | OPEN | FIXED — keyword in third column | needs work |
+"
+
+# F2: Rule 5 must NOT drop H3 with markdown link [CLOSED issue](url) as link display text
+run_case "F2: Rule 5 — markdown link [CLOSED issue](url) survives" "bug-backlog.md" \
+"### BS-2026-05-18-X refers to [CLOSED issue](https://tracker/123) for context
+Body of the still-open entry.
+
+### [FIXED 2026-05-18] BS-Y closed
+Body suppressed.
+" \
+"### BS-2026-05-18-X refers to [CLOSED issue](https://tracker/123) for context
+Body of the still-open entry.
+
+"
+
+# F3: Rule 8 — closure line mid-entry-collection drops the orphaned entry + sublines
+run_case "F3: Rule 8 — closure line mid-entry drops whole entry + orphaned sublines" "coordinator-improvement-queue.md" \
+"- 2026-05-15 | self | foo.md:10 | thing | proposed target: wiki
+| ~~BS-Y~~ | ~~P2~~ CLOSED | ~~text~~ — **FIXED:** stuff |
+  resolution: pending
+  some: subline
+- 2026-05-15 | self | bar.md:20 | other open | proposed target: wiki
+" \
+"- 2026-05-15 | self | bar.md:20 | other open | proposed target: wiki
+"
+
+# F4: Case sensitivity — uppercase-only by convention; mixed-case 'Fixed' survives
+run_case "F4: Rule 6 case-sensitive — lowercase 'fixed' in strikethrough survives" "bug-backlog.md" \
+"| ~~BS-A~~ | fixed (lowercase narrative) |
+| ~~BS-B~~ | Fixed (mixed case narrative) |
+| ~~BS-C~~ | FIXED uppercase closure |
+" \
+"| ~~BS-A~~ | fixed (lowercase narrative) |
+| ~~BS-B~~ | Fixed (mixed case narrative) |
+"
+
+# F5: Rule 5 bare-keyword-at-EOL with whitespace prefix drops the heading
+run_case "F5: Rule 5 — bare 'DONE' at EOL with whitespace prefix drops" "bug-backlog.md" \
+"### BS-2026-05-18-X [P2] DONE
+Body suppressed under bare-EOL match.
+
+### BS-2026-05-18-Y [P3] still open
+Open body.
+" \
+"### BS-2026-05-18-Y [P3] still open
+Open body.
+"
+
+# F6: Rule 7 — tight table format (no space before second |) is also matched
+run_case "F6: Rule 7 — tight table '| BS-X| FIXED' matches" "bug-backlog.md" \
+"| BS-2026-05-18-A| FIXED — no space before pipe |
+| BS-2026-05-18-B | OPEN — still working |
+" \
+"| BS-2026-05-18-B | OPEN — still working |
+"
+
+# F8: Rule 7 — narrative mention of FIXED in col 3 survives (companion to F1)
+run_case "F8: Rule 7 — 'should be FIXED' in narrative col survives" "bug-backlog.md" \
+"| BS-2026-05-18-OPEN | OPEN | should be FIXED in v2 | not yet |
+" \
+"| BS-2026-05-18-OPEN | OPEN | should be FIXED in v2 | not yet |
+"
+
+# F9: ## Resolved with an inner ### [FIXED] heading — both suppressed by Rule 2
+run_case "F9: ## Resolved with inner ### [FIXED] — both suppressed (Rule 2 broader)" "bug-backlog.md" \
+"## Open
+- alpha
+
+## Resolved
+### [FIXED 2026-05-01] BS-X
+body of inner H3
+
+## Active
+- beta
+" \
+"## Open
+- alpha
+
+## Active
+- beta
+"
+
+# ---------------------------------------------------------------------------
 # Rule 4 — Idempotency (combined ruleset)
 # ---------------------------------------------------------------------------
+# Per-rule idempotency (F7) — already-clean inputs produce no further changes on a second pass.
+run_idempotency_case "F7: Rule 5 idempotent on already-clean H3 entries" "bug-backlog.md" \
+"### BS-OPEN-1 [P2] still working
+Body 1.
+
+### BS-OPEN-2 [P3] also working
+Body 2.
+"
+
+run_idempotency_case "F7: Rule 6 idempotent on already-clean strikethrough" "bug-backlog.md" \
+"Narrative: ~~old approach~~ — we now use the new way.
+"
+
+run_idempotency_case "F7: Rule 7 idempotent on already-clean table rows" "bug-backlog.md" \
+"| BS-2026-05-18-OPEN-1 | OPEN | needs work |
+| BS-2026-05-18-OPEN-2 | P2 | also open |
+"
+
 run_idempotency_case "Rule 4: idempotent across combined ruleset" "bug-backlog.md" \
 "# Header
 
