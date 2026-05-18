@@ -86,7 +86,7 @@ Two paired tools enforce the boundary:
 
 - **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
 
-- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator-claude/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
 
 Workflow during percolation:
 
@@ -120,7 +120,7 @@ When `publish.sh` uses `rsync --delete` to mirror source-to-dest, add `--exclude
 The `depersonalize-for-publish.sh` hook and the percolate Step 2c content scan are **safety nets for inherited content**, not authoring licenses. When writing any doc, skill, or agent file that will be percolated, never hardcode local working-tree paths — even as "doctrine source" citations. Use abstract repo references instead:
 
 - Wrong: `X:/coordinator-claude/docs/wiki/foo.md`
-- Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator-claude/coordinator/docs/wiki/foo.md` (from meta-repo root)
+- Right: `docs/wiki/foo.md` (relative to plugin root) or `plugins/coordinator/docs/wiki/foo.md` (from meta-repo root)
 
 Local path leaks survive substitution-table updates (new paths not yet in the regex) and require hand-edits at percolation time. The drift is silent until the per-publish scan catches it. Authoring discipline prevents the class entirely; the hook is the last line of defense, not the first.
 

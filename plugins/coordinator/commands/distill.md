@@ -267,6 +267,12 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 
 ---
 
+## Post-Ship Cleanup
+
+After canonical outputs are committed, delete the working-notes scratch directory (`tasks/scratch/artifact-distillation/<date>-pass<N>/`). Optionally write a one-line breadcrumb at `tasks/scratch/artifact-distillation/<date>-receipt.txt` referencing the canonical commit SHA. Working notes leaking post-ship as untracked files is noise; commit-then-delete is a two-step waste.
+
+---
+
 ## Negative AC — Silent-Loss Guard (Set-Diff Form)
 
 **Dry-run emits a content-drop diff.** The halt-condition is set-diff, not raw match.

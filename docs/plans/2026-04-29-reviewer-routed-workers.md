@@ -14,7 +14,7 @@ The principle this plan rests on:
 
 - **Personas are for distinct judgment styles that are hard to invoke as prompt addenda.** Threat-modeling, test-pyramid reasoning, release coordination — Opus-level judgment can absorb these as lenses, surfaced by the EM when the workers below produce evidence. Most of our infra exists to *help the EM make better decisions*, not to substitute additional decision-makers.
 - **Workers are for mechanical leverage with structured output.** Tight tool surface, no opinions. The `ue-blueprint-worker` shape we already use.
-- **Named reviewers (Patrik / Sid / Camelia / Palí / Fru) become the routing intelligence for workers.** The EM stays the dispatcher — we don't change the no-direct-spawn rule — but reviewers, who are already reading the artifact, name the workers the EM should dispatch next. Same shape as today's Patrik→Palí escalation; we generalize the targets to include workers, not only sibling personas.
+- **Named reviewers (the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer) become the routing intelligence for workers.** The EM stays the dispatcher — we don't change the no-direct-spawn rule — but reviewers, who are already reading the artifact, name the workers the EM should dispatch next. Same shape as today's the Staff Engineer→the Front-End Reviewer escalation; we generalize the targets to include workers, not only sibling personas.
 - **Release mechanics belong to the EM, gated by `/merge-to-main`.** Same as a real eng team where the dev cutting the release writes the notes. No coordinator persona needed.
 
 Net effect: zero new personas, four new Sonnet workers, one new reviewer-prompt section, and one extension to `/merge-to-main`. My routing surface is unchanged.
@@ -23,13 +23,13 @@ Net effect: zero new personas, four new Sonnet workers, one new reviewer-prompt 
 
 ### 2.1 Four Sonnet workers (coord-claude, always shipped)
 
-All live in `~/.claude/plugins/coordinator-claude/coordinator/agents/`. Sonnet model. Tight tool surfaces, structured output, no architectural opinions.
+All live in `~/.claude/plugins/coordinator/agents/`. Sonnet model. Tight tool surfaces, structured output, no architectural opinions.
 
 | Worker | Requested by | Job | Tool surface |
 |---|---|---|---|
-| `test-evidence-parser` | Patrik / Sid (named in their findings) | Run a test command, parse output, classify failures (real / flake / env / timeout / known-skip), return structured table | Bash, Read |
-| `security-audit-worker` | Patrik | Scan diff for path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion. Structured findings table with severity + line refs. | Read, Grep, Glob, Bash (restricted to read-only invocations of security scanners: semgrep, bandit, gitleaks, trufflehog, and equivalents) |
-| `dep-cve-auditor` | Patrik / EM (periodic + on-demand) | Run `npm audit` / `pip-audit` / equivalent for languages present in repo, normalize CVE output, classify severity vs. our actual usage | Bash, Read |
+| `test-evidence-parser` | the Staff Engineer / the Game Dev Reviewer (named in their findings) | Run a test command, parse output, classify failures (real / flake / env / timeout / known-skip), return structured table | Bash, Read |
+| `security-audit-worker` | the Staff Engineer | Scan diff for path traversal, validation-vs-rewrite traps, command injection, secret leakage, env-var ingestion. Structured findings table with severity + line refs. | Read, Grep, Glob, Bash (restricted to read-only invocations of security scanners: semgrep, bandit, gitleaks, trufflehog, and equivalents) |
+| `dep-cve-auditor` | the Staff Engineer / EM (periodic + on-demand) | Run `npm audit` / `pip-audit` / equivalent for languages present in repo, normalize CVE output, classify severity vs. our actual usage | Bash, Read |
 | `doc-link-checker` | EM (opportunistic; called from `/update-docs`) | Crawl `docs/`, validate internal markdown links + external URLs. Sleep 1s between external HEAD checks; cap at 100 external URLs per dispatch (split into multiple dispatches if more). Return broken set. | Bash, Read, WebFetch |
 
 Each worker spec includes:
@@ -40,7 +40,7 @@ Each worker spec includes:
 
 ### 2.2 Reviewer protocol — "name the worker"
 
-Patrik, Sid, and Camelia get a new section in their system prompts (Palí and Fru can grow it later if/when relevant workers exist for their domains):
+The Staff Engineer, the Game Dev Reviewer, and the Data Science Reviewer get a new section in their system prompts (the Front-End Reviewer and the UX Reviewer can grow it later if/when relevant workers exist for their domains):
 
 > **Worker Dispatch Recommendations**
 >
@@ -60,13 +60,13 @@ The command grows a checklist phase before the actual merge:
 2. **Schema / version bumps flagged?** EM scans for version sidecars, manifest bumps, `package.json` / `pyproject.toml` version changes.
 3. **Install / setup scripts touched?** If yes, run them in a sandbox before merge. Phase 2 adds `install-script-sandbox` worker; until then, EM runs manually or flags as gap.
 4. **CHANGELOG / release-notes section updated where applicable?** EM checks; warns if missing for repos that have one.
-5. **Patrik review of the release artifact?** Required if ANY of: (a) public API additions detected (e.g. by api-surface-diff if/when added, otherwise EM grep), (b) version sidecar / manifest version bumped, (c) install or setup script touched in the diff, (d) >50 commits since last release tag, (e) CHANGELOG entries marked breaking. Otherwise EM judgment.
+5. **the Staff Engineer review of the release artifact?** Required if ANY of: (a) public API additions detected (e.g. by api-surface-diff if/when added, otherwise EM grep), (b) version sidecar / manifest version bumped, (c) install or setup script touched in the diff, (d) >50 commits since last release tag, (e) CHANGELOG entries marked breaking. Otherwise EM judgment.
 
 Phase 1 ships the checklist with EM-manual handling for steps 1 and 3. Phase 2 adds the optional workers when the next release exercises the command.
 
 ## 3. What this plan explicitly does not ship
 
-- **No `Sam` / `Kira` / `Lee` personas.** Threat-modeling discipline and test-pyramid judgment are absorbed by the EM and Patrik when worker output surfaces evidence to consider. Release coordination belongs to `/merge-to-main`.
+- **No `Sam` / `Kira` / `Lee` personas.** Threat-modeling discipline and test-pyramid judgment are absorbed by the EM and the Staff Engineer when worker output surfaces evidence to consider. Release coordination belongs to `/merge-to-main`.
 - **No `/review-dispatch` classifier rewrite.** Current EM-picks-reviewer flow is fine. Reviewer-routed workers add specialist coverage *downstream* of reviewer judgment, not upstream of it.
 - **No multi-human `team-state.json` infrastructure.** Speculative for users we don't have. The scoped-safety-commits work plus `coordinator-safe-commit` already cover the only multi-EM problem we've actually hit. Revisit when a real multi-human consumer surfaces.
 - **No multi-human workers** (`branch-state-auditor`, `code-owner-mapper`, `pr-conformance-checker`, `release-train-sequencer`). Same reason.
@@ -80,21 +80,21 @@ If any of these gaps prove costly in practice, we add the specific missing piece
 ### Phase 1 — Four workers + reviewer protocol (1 session)
 
 **Scope:**
-- Write four worker specs in `~/.claude/plugins/coordinator-claude/coordinator/agents/`:
+- Write four worker specs in `~/.claude/plugins/coordinator/agents/`:
   - `test-evidence-parser.md`
   - `security-audit-worker.md`
   - `dep-cve-auditor.md`
   - `doc-link-checker.md`
-- Update Patrik, Sid, Camelia system prompts with the `## Worker Dispatch Recommendations` section
+- Update the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer system prompts with the `## Worker Dispatch Recommendations` section
 - Update `review-integrator` agent brief with the matching preserve-and-surface paragraph
 - Brief addition: enumerate the four workers in `coordinator/CLAUDE.md` under a small new section ("Reviewer-Routed Workers") so the convention is greppable from the surfaces agents touch (per CLAUDE.md "Adding a Convention to the Coordinator System")
 
 **Validation:**
-- Replay a recent security-touched commit (e.g. one of the path-security port-sweep findings from 2026-04-26) through Patrik. Confirm Patrik names `security-audit-worker`, EM dispatches, and worker produces useful structured output.
-- Replay a recent test-touched commit through Patrik or Sid. Confirm `test-evidence-parser` gets named and returns a useful failure classification table.
+- Replay a recent security-touched commit (e.g. one of the path-security port-sweep findings from 2026-04-26) through the Staff Engineer. Confirm the Staff Engineer names `security-audit-worker`, EM dispatches, and worker produces useful structured output.
+- Replay a recent test-touched commit through the Staff Engineer or the Game Dev Reviewer. Confirm `test-evidence-parser` gets named and returns a useful failure classification table.
 - Run `dep-cve-auditor` once standalone against `plugins/coordinator-claude/` and `plugins/claude-unreal-holodeck/` to seed a baseline.
 
-**Delta-vs-baseline acceptance criterion** (per Patrik's review): for each replay, compare worker output against the original review's findings. Acceptance requires the worker either (a) surfaces an issue not in the original review, (b) confirms an issue with stronger mechanical evidence than the reviewer had, or (c) cleanly rules out a class of concern the reviewer flagged speculatively. If three replays produce none of (a)/(b)/(c), reconsider that worker before percolating to publish.
+**Delta-vs-baseline acceptance criterion** (per the Staff Engineer's review): for each replay, compare worker output against the original review's findings. Acceptance requires the worker either (a) surfaces an issue not in the original review, (b) confirms an issue with stronger mechanical evidence than the reviewer had, or (c) cleanly rules out a class of concern the reviewer flagged speculatively. If three replays produce none of (a)/(b)/(c), reconsider that worker before percolating to publish.
 
 **Rollback:** Four agent files + three system-prompt edits + one CLAUDE.md edit. All clean reverts. Personas don't cascade.
 
@@ -127,10 +127,10 @@ Phase 2 percolates the same way after the first release exercises it.
 ## 6. Acceptance criteria
 
 - [ ] Four worker specs exist in coord-claude with structured-output contracts and DONE-after-write protocol
-- [ ] Patrik / Sid / Camelia system prompts include the `Worker Dispatch Recommendations` section
+- [ ] the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer system prompts include the `Worker Dispatch Recommendations` section
 - [ ] `review-integrator` agent preserves and surfaces worker recommendations
 - [ ] `coordinator/CLAUDE.md` has a "Reviewer-Routed Workers" section enumerating the four workers and the protocol
-- [ ] Phase 1 validation: at least one recent commit replayed through Patrik produces a worker recommendation that fires usefully
+- [ ] Phase 1 validation: at least one recent commit replayed through the Staff Engineer produces a worker recommendation that fires usefully
 - [ ] Phase 2 (when triggered): `/merge-to-main` checklist runs on next release without disrupting flow
 - [ ] No new persona files in `agents/` for Sam / Kira / Lee — confirmed absent
 
@@ -146,11 +146,11 @@ Two workers in security-adjacent territory. Boundary: `security-audit-worker` re
 
 ### 7.3 Periodic dispatch for `dep-cve-auditor`
 
-Should `dep-cve-auditor` run periodically or only on Patrik recommendation? Recommendation: both. Use the existing scheduled-recheck pattern — first run drops a `tasks/cve-recheck-due-YYYY-MM-DD.md` marker dated +7 days; `/workday-start` already globs `tasks/*-recheck-due-*.md` (per Step 1.6) and surfaces due rechecks to the EM. This keeps the cadence discoverable, skippable, and out of the daily-flow tax. Patrik can also name the worker on dependency-touching diffs as usual.
+Should `dep-cve-auditor` run periodically or only on the Staff Engineer recommendation? Recommendation: both. Use the existing scheduled-recheck pattern — first run drops a `tasks/cve-recheck-due-YYYY-MM-DD.md` marker dated +7 days; `/workday-start` already globs `tasks/*-recheck-due-*.md` (per Step 1.6) and surfaces due rechecks to the EM. This keeps the cadence discoverable, skippable, and out of the daily-flow tax. The Staff Engineer can also name the worker on dependency-touching diffs as usual.
 
-### 7.4 Cross-plugin edit for Sid's prompt
+### 7.4 Cross-plugin edit for the Game Dev Reviewer's prompt
 
-Sid lives in the holodeck plugin (`~/.claude/plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`), but the worker-dispatch protocol section is mechanical (~5 lines, identical wording to Patrik's section minus references to UE-specific workers, which the holodeck team will add later). Phase 1 includes this cross-plugin edit so Sid's reviewer dispatches produce worker recommendations from day one — without it, dispatching Sid as a reviewer on UE work would be a silent capability gap. The holodeck team can layer their UE-specific workers on top in a follow-up plan; the protocol section itself ships now.
+The Game Dev Reviewer lives in the holodeck plugin (`~/.claude/plugins/claude-unreal-holodeck/game-dev/agents/staff-game-dev.md`), but the worker-dispatch protocol section is mechanical (~5 lines, identical wording to the Staff Engineer's section minus references to UE-specific workers, which the holodeck team will add later). Phase 1 includes this cross-plugin edit so the Game Dev Reviewer's reviewer dispatches produce worker recommendations from day one — without it, dispatching the Game Dev Reviewer as a reviewer on UE work would be a silent capability gap. The holodeck team can layer their UE-specific workers on top in a follow-up plan; the protocol section itself ships now.
 
 ## 8. Estimated effort
 
@@ -165,10 +165,10 @@ Compare original plan: 9–14 sessions, 15–18 new agents, one phase rated High
 ## 9. Cross-references
 
 - Predecessor draft (holodeck side): `X:/claude-unreal-holodeck/docs/plans/2026-04-29-personas-workers-expansion.md`
-- Existing reviewer pattern (Patrik→Palí escalation): `~/.claude/plugins/coordinator-claude/coordinator/agents/staff-eng.md`
+- Existing reviewer pattern (the Staff Engineer→the Front-End Reviewer escalation): `~/.claude/plugins/coordinator/agents/staff-eng.md`
 - Worker shape reference: `~/.claude/plugins/claude-unreal-holodeck/game-dev/agents/ue-blueprint-worker.md`
-- Coordinator doctrine on convention propagation: `~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md` § "Adding a Convention to the Coordinator System"
-- Disk-first verification protocol: `~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md` § "Verifying Scout Deliverables"
+- Coordinator doctrine on convention propagation: `~/.claude/plugins/coordinator/CLAUDE.md` § "Adding a Convention to the Coordinator System"
+- Disk-first verification protocol: `~/.claude/plugins/coordinator/CLAUDE.md` § "Verifying Scout Deliverables"
 
 ---
 

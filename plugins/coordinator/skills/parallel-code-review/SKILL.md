@@ -74,7 +74,7 @@ At weekly cadence (`/workweek-complete`), the typical week has 500-2000 changed 
 Before dispatch, assert that agent files exist and no two reviewers share a lens domain:
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh || {
+~/.claude/plugins/coordinator/bin/verify-parallel-review-lens-orthogonality.sh || {
   echo "Lens-orthogonality assertion failed; refusing to dispatch."
   exit 1
 }

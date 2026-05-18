@@ -26,7 +26,7 @@ fi
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
 # Best-effort — no-op if lib absent or no active session.
 _CS_LIB="$(cd "$(dirname "$0")/.." && pwd)/lib/coordinator-session.sh"
-[[ ! -f "$_CS_LIB" ]] && _CS_LIB="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+[[ ! -f "$_CS_LIB" ]] && _CS_LIB="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
 if [[ -f "$_CS_LIB" ]]; then
     # shellcheck source=/dev/null
     source "$_CS_LIB"
@@ -85,6 +85,7 @@ MODE="${1:-verify}"
 # The holodeck game-dev copy is listed for completeness; if the file does not exist it is skipped.
 HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/agents/staff-eng.md"
+    "$PLUGIN_ROOT/agents/eng-director.md"
     "$PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md"
     "$PLUGIN_ROOT/../data-science/agents/staff-data-sci.md"
     "$PLUGIN_ROOT/../web-dev/agents/senior-front-end.md"

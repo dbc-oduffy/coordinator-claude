@@ -58,7 +58,7 @@ command -v scc 2>/dev/null || command -v "$HOME/bin/scc" 2>/dev/null || echo "no
 Check if the deep-research plugin is installed:
 
 ```bash
-ls ~/.claude/plugins/coordinator-claude/deep-research/commands/web.md 2>/dev/null || \
+ls ~/.claude/plugins/deep-research/commands/web.md 2>/dev/null || \
 ls ~/.claude/plugins/cache/*/deep-research/*/commands/web.md 2>/dev/null || \
 echo "not_found"
 ```
@@ -81,7 +81,7 @@ grep -c "coordinator.*CLAUDE.md" ~/.claude/CLAUDE.md 2>/dev/null || echo "0"
 - If found: ready — the coordinator operating doctrine is being imported.
 - If not found: recommend adding the import. The coordinator CLAUDE.md contains operating norms (session orientation, plan-first workflow, review sequencing, etc.) that improve how Claude works with the coordinator. Suggest adding this line to their global `~/.claude/CLAUDE.md`:
   ```
-  @~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md
+  @~/.claude/plugins/coordinator/CLAUDE.md
   ```
   Or, if installed from marketplace cache, point to the cache path.
 
@@ -144,19 +144,9 @@ After the core setup, ask once:
 > - **Keep defaults** — Use the built-in persona names
 > - **Customize** — Choose your own names for the reviewers
 
-If the user wants to customize, note that they can run the rename script:
+If the user wants to customize, note that a `rename-personas.sh` helper is not currently shipped. Customization requires hand-editing the persona names in the agent files (one file per persona) and any prompts/skills that reference them by name. The canonical persona-to-role vocabulary lives in the `NAME_TO_ROLE` table in `plugins/coordinator/bin/depersonalize-for-publish.sh`; that table is the source of truth for which strings are persona-named and what their role labels are. Search-and-replace each persona name across the plugin tree (excluding the depersonalize script itself, which would self-corrupt).
 
-```bash
-bash ~/.claude/plugins/coordinator-claude/setup/rename-personas.sh OldName "NewName"
-```
-
-Or from the repo clone:
-
-```bash
-bash setup/rename-personas.sh --dry-run the Staff Engineer "Alex" the Game Dev Reviewer "Jordan"
-```
-
-This is a one-time cosmetic choice. Skip if `--check-only`.
+This is a one-time cosmetic choice. Skip if `--check-only`. A future helper to automate this is queued; for now it's manual.
 
 ---
 

@@ -89,15 +89,15 @@ The plan only specified: "Annotate the sidecar with `corpus_source: publish_wiki
 ## What was implemented correctly (sampling)
 
 - **Bidirectional graph walk** (agent Step 4) is correctly specified — "Also walk reverse edges: scan all other active entries for edges whose `target` is the active project's shortname." This is what makes AC7 oracle pass despite the registry's directional `ancestor` declarations.
-- **OS-aware path normalization** (agent Step 2) — five-step normalization (~/expansion, symlink resolve, separator convert, drive-letter lowercase, trailing-slash strip) with UNC/WSL fail-loud-DEGRADED clause (h). Faithful to plan + Zolí F3.
-- **Stage-gate precondition check** (agent Step 3) — hardcoded interwoven-set fail-loud check faithful to Zolí F2 Option A.
+- **OS-aware path normalization** (agent Step 2) — five-step normalization (~/expansion, symlink resolve, separator convert, drive-letter lowercase, trailing-slash strip) with UNC/WSL fail-loud-DEGRADED clause (h). Faithful to plan + the Director of Engineering F3.
+- **Stage-gate precondition check** (agent Step 3) — hardcoded interwoven-set fail-loud check faithful to the Director of Engineering F2 Option A.
 - **Augment-default override semantic** (agent Step 7) — peer_repos: augments by default, peer_repos_mode: replace overrides. Discovery reason `override` / `override:replace`. Faithful to PM F4 ruling.
 - **DEGRADED clause extensions** — (f) registry-unreadable, (g) ceiling-exceeded, (h) unsupported-path-shape — extended at existing list position (line 213), not parallel structure. Faithful to A3.
 - **Anti-pattern reframe in wiki** — "Bypassing the tag-cap" replaces "Bypassing the cap"; existing bullet edited rather than parallel addition. Faithful to A4.
 - **CLAUDE.md tripwire entry** (Stage 3) — contact-points enumerated: agent prompt, doctrine wiki, registry data file. Faithful to A5.
-- **Three-oracle smoke test referenced** in agent prompt (lines 261–267) — Oracle 1 (registry schema check), Oracle 2 (single-edge from coordinator-claude), Oracle 3 (triad cross-check). Faithful to Zolí F6 and plan Test Surface.
+- **Three-oracle smoke test referenced** in agent prompt (lines 261–267) — Oracle 1 (registry schema check), Oracle 2 (single-edge from coordinator-claude), Oracle 3 (triad cross-check). Faithful to the Director of Engineering F6 and plan Test Surface.
 - **Stage 1.6 script retirement** — `bin/sync-plugin-wiki.sh`, `block-dev-side-mirror-wiki.sh`, hook registration, CLAUDE.md tripwire entry, update-docs.md Phase 11g all removed in a single commit. Rationale documented in commit message. Clean reversal point.
-- **Closed-enum extensions** — `schema-lockstep`, `ancestor`, `depends-on`, `mcp-plugin` added to both wiki and data file with worked examples. `peer` narrowed to residual kind in both. Faithful to A2 and Zolí F9.
+- **Closed-enum extensions** — `schema-lockstep`, `ancestor`, `depends-on`, `mcp-plugin` added to both wiki and data file with worked examples. `peer` narrowed to residual kind in both. Faithful to A2 and the Director of Engineering F9.
 
 ## Verdict
 
@@ -105,6 +105,6 @@ The plan only specified: "Annotate the sidecar with `corpus_source: publish_wiki
 
 ## Coverage
 - **Reviewed:** implementation fidelity of all 4 in-scope commits (53cc9d7 agent prompt, 4fcb76c doctrine wiki, 9cd29dd3 registry data, 087c70a script retirement, bf9ce0c CLAUDE.md + Phase 14); cross-artifact consistency between agent prompt, registry data, doctrine wiki; AC1–AC9 spec-vs-shipped check; the two executor-flagged judgment calls
-- **Not reviewed:** design choices (out of scope per dispatch — Zolí covered); the 75-file wiki layout move (mechanical); 2-line CLAUDE.md strips in 3 sister repos (mechanical); plan body itself; the doc-link-checker sidecar
+- **Not reviewed:** design choices (out of scope per dispatch — the Director of Engineering covered); the 75-file wiki layout move (mechanical); 2-line CLAUDE.md strips in 3 sister repos (mechanical); plan body itself; the doc-link-checker sidecar
 - **Confidence:** HIGH on P1-1 (verbatim contradiction with A1 directive); MEDIUM-HIGH on P2-1 (semantic, bidirectional walk masks symptom); LOW on nitpicks
 - **Gaps:** Did not exercise the three-oracle smoke test; the empirical-validation gap called out in the plan's status note remains (first real dispatch from a triad member will be the first end-to-end test). Not in scope to run.

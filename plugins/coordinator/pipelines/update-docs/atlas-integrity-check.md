@@ -29,7 +29,7 @@ Detect where the atlas narrative may have drifted from the codebase's current re
 2. **Read `tasks/architecture-atlas/systems-index.md`** — identify the named systems and their descriptions.
 
 3. **For each changed file, determine which system it belongs to:**
-   - Use the changed file's directory path to infer its system (e.g., `plugins/coordinator-claude/coordinator/commands/` → coordinator-pipeline).
+   - Use the changed file's directory path to infer its system (e.g., `plugins/coordinator/commands/` → coordinator-pipeline).
    - If unsure, skip (don't guess).
 
 4. **Read the narrative description for that system** from `tasks/architecture-atlas/systems/{system-name}.md` — specifically the "System Narrative" or "Purpose" section.

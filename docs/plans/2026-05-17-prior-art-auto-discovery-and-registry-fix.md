@@ -8,7 +8,7 @@ scope_mode: feature
 shipped_in: a1d38e1,f7d46fa,4fcb76c,087c70a,53cc9d7,bf9ce0c (coordinator-claude work/striker/2026-05-07); 9cd29dd3 (claude-central work/striker/2026-05-07to15); 94b25c00 (project-rag); 7507f2a3d (project-rag-ue-addon); 6e486bdb (claude-unreal-holodeck)
 ---
 
-> **Status: ALL STAGES SHIPPED 2026-05-17** — 10 commits across 5 repos. See `shipped_in:` frontmatter for the commit ledger. Stage 1.B (registry data), 1.C (doctrine wiki), 1.C-pre (3 sister-repo CLAUDE.md strips), 1.5 (wiki layout move), 1.6 (wiki-mirror scripts retired), 2 (agent prompt rewrite), 3 (CLAUDE.md tripwires + Phase 14 hint) all in. Outstanding empirical question per Zolí F6/F8: the augment-default override semantic and three-oracle smoke test haven't been exercised yet — first real-world prior-art-checker dispatch from the triad will be the first end-to-end validation.
+> **Status: ALL STAGES SHIPPED 2026-05-17** — 10 commits across 5 repos. See `shipped_in:` frontmatter for the commit ledger. Stage 1.B (registry data), 1.C (doctrine wiki), 1.C-pre (3 sister-repo CLAUDE.md strips), 1.5 (wiki layout move), 1.6 (wiki-mirror scripts retired), 2 (agent prompt rewrite), 3 (CLAUDE.md tripwires + Phase 14 hint) all in. Outstanding empirical question per the Director of Engineering F6/F8: the augment-default override semantic and three-oracle smoke test haven't been exercised yet — first real-world prior-art-checker dispatch from the triad will be the first end-to-end validation.
 
 # Prior-Art Auto-Discovery + Registry Fix
 
@@ -71,7 +71,7 @@ Update `~/.claude/tasks/repo-registry.md`:
 
 4. **Update existing active entries for the schema rename:**
    - `coordinator-claude`: `working_wiki: x:/coordinator-claude/docs/wiki/` (post-Stage-1.5 location). No `publish_wiki` — publish target is claude-central, where wikis aren't actively maintained.
-   - `claude-central`: `working_wiki: c:/users/oduffy/.claude/docs/wiki/`, `publish_wiki: c:/users/oduffy/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` (stale bundled copy; prior-art-checker falls back here only if working_wiki unreachable).
+   - `claude-central`: `working_wiki: c:/users/oduffy/.claude/docs/wiki/`, `publish_wiki: c:/users/oduffy/.claude/plugins/coordinator/docs/wiki/` (stale bundled copy; prior-art-checker falls back here only if working_wiki unreachable).
 
 5. **Stack_tags audit on existing actives** — `claude-central` and `coordinator-claude` currently have `[claude-plugin, agent-orchestration, doctrine]`. No change needed; the `dev-publish` edge already covers them.
 
@@ -127,7 +127,7 @@ Edit `docs/wiki/repo-registry.md` (canonical: `x:/coordinator-claude/docs/wiki/r
 
 **Status: executed 2026-05-17 by EM-dispatched executor; staged but not committed.**
 
-PM directive (mid-review): canonical working wiki layout is top-level `docs/wiki/` for every repo. The 8 stale dev-tree duplicates and 62 plugin-bundled wikis previously split across `x:/coordinator-claude/docs/wiki/` (8 files) and `x:/coordinator-claude/plugins/coordinator/docs/wiki/` (62 files) are consolidated at top-level. Plugin source no longer carries the doctrine wiki; consumers of the published plugin will see a stale wiki at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` (PM-accepted tradeoff — most percolation does not move wikis).
+PM directive (mid-review): canonical working wiki layout is top-level `docs/wiki/` for every repo. The 8 stale dev-tree duplicates and 62 plugin-bundled wikis previously split across `x:/coordinator-claude/docs/wiki/` (8 files) and `x:/coordinator-claude/plugins/coordinator/docs/wiki/` (62 files) are consolidated at top-level. Plugin source no longer carries the doctrine wiki; consumers of the published plugin will see a stale wiki at `~/.claude/plugins/coordinator/docs/wiki/` (PM-accepted tradeoff — most percolation does not move wikis).
 
 **What was done:**
 - Audit + merge of 8 dev-tree top-level files against plugin-bundled counterparts. Result: 6 plugin-wins (newer/larger), 1 dev-tree-only (no plugin counterpart; net no-change), 1 merged-substantive (`workday-workweek-cadence.md` — unique content from both sides folded).
@@ -157,7 +157,7 @@ Edit `agents/prior-art-checker.md` (canonical: `x:/coordinator-claude/plugins/co
    <!-- Review: review-integrator — A3: new DEGRADED triggers extend existing list at existing position -->
 5. **Override** — if dispatch brief includes `peer_repos: [...]`, that list **augments** auto-discovery by default (deduped by shortname — the EM is contributing additional knowledge on top of what the registry knows). If the dispatch brief also includes `peer_repos_mode: replace`, the manual list **replaces** auto-discovery entirely — the EM gets precise control and auto-discovered peers are excluded. Document both modes explicitly in agent prompt and dispatch contract.
    <!-- Review: zoli — F4 (PM-ruled 2026-05-17): flip to augment-default. Replace-by-default was legacy-calibrated to today's behavior; augment-default is the correct shape once the registry is authoritative. Augment-default fails observably (one extra peer in sidecar); replace-default fails invisibly (missed peer finding, discovered three weeks later). PM: replace-default is a silent-data-loss surface. -->
-   <!-- Decision rationale: replace-by-default would silently drop auto-discovered peers (invisible failure mode — the surface is a missed finding three weeks later). Augment-by-default fails observably (one extra peer in sidecar header). Either way EM keeps full control via the mode flag. Decision made on Zolí's recommendation (review-stage P1) and PM ruling 2026-05-17. -->
+   <!-- Decision rationale: replace-by-default would silently drop auto-discovered peers (invisible failure mode — the surface is a missed finding three weeks later). Augment-by-default fails observably (one extra peer in sidecar header). Either way EM keeps full control via the mode flag. Decision made on the Director of Engineering's recommendation (review-stage P1) and PM ruling 2026-05-17. -->
 
 **Queue disposition (improvement-queue item `2026-05-16 | project-rag-ue-addon | tasks/lessons.md:113`):** With augment-default now the standard behavior (per F4 PM ruling), this plan's auto-discovery IS coverage expansion — the queue item's primary intent is addressed. The item's remaining scope is narrower: extending the corpus consulted during augment-mode to include peer `docs/plans/` (active plans) in addition to `docs/wiki/`. Retarget the queue entry as: "extend augment-mode corpus to include peer docs/plans/ for status:active plans." Do not close it; update the description in the queue file as part of the Stage 2 commit.
 <!-- Review: zoli — F4 queue update: with augment-default, the recurring queue item is now MORE aligned (augment-mode IS coverage expansion); docs/plans/ corpus extension is the remaining follow-up scope. -->
@@ -282,16 +282,16 @@ Reviewed via prior-art-checker on 2026-05-17 — sidecar at `x:/coordinator-clau
 
 Doc-link-checker on 2026-05-17 — verdict WARN, 3 path-shorthand fixes applied (plugins/coordinator/ infix); load-bearing paths now resolve.
 
-Zolí standalone review on 2026-05-17 — review at `x:/coordinator-claude/docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.zoli-review.md`. Verdict APPROVE-WITH-REVISIONS, 5 P1s and 5 P2/P3s applied, F4 PM-resolved (flip to augment-default per Zolí + EM recommendation).
+The Director of Engineering standalone review on 2026-05-17 — review at `x:/coordinator-claude/docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.zoli-review.md`. Verdict APPROVE-WITH-REVISIONS, 5 P1s and 5 P2/P3s applied, F4 PM-resolved (flip to augment-default per the Director of Engineering + EM recommendation).
 
 Stage 1.5 wiki layout move executed 2026-05-17 by EM-dispatched executor; 75 files staged, not committed. Plan body amended in third integration pass to capture the move retroactively and rename schema field docs_wiki → working_wiki + publish_wiki.
 
 ## Next Step (per coordinator:plan exit)
 
-Prior-art-checker and Zolí standalone review both complete on 2026-05-17 — all findings integrated (see Prior-Art Cross-Check above). All open questions resolved by PM (F4 augment-default ruling).
+Prior-art-checker and the Director of Engineering standalone review both complete on 2026-05-17 — all findings integrated (see Prior-Art Cross-Check above). All open questions resolved by PM (F4 augment-default ruling).
 
-Next: dispatch **doc-link-checker** (worker dispatch per Zolí Worker Dispatch Recommendations — verify plan's path citations before Stage 1 dispatch). Once doc-link-checker passes, dispatch Stage 1 stub for PM approval.
+Next: dispatch **doc-link-checker** (worker dispatch per the Director of Engineering Worker Dispatch Recommendations — verify plan's path citations before Stage 1 dispatch). Once doc-link-checker passes, dispatch Stage 1 stub for PM approval.
 
-## Worker Dispatch Recommendations (from Zolí review)
+## Worker Dispatch Recommendations (from the Director of Engineering review)
 
 - **doc-link-checker** — verify the plan's path citations (registry path field formats, three external CLAUDE.md paths, wiki paths) all resolve before Stage 1 dispatch. Cheap, mechanical, catches the kind of citation-rot that aged plans accumulate.

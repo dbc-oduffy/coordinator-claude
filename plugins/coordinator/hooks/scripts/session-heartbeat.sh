@@ -69,7 +69,7 @@ fi
 
 # --- Write last_activity heartbeat (source lib for _cs_update_meta_field) ---
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
-[[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+[[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
 
 if [[ -f "$LIB_PATH" ]]; then
   # shellcheck source=/dev/null

@@ -81,6 +81,8 @@ Run this before every WebFetch call to an external URL. Do not batch external ch
 6. **Verify the file exists** with `Bash ls -la <path>`
 7. Reply `DONE: <path>` — nothing else
 
+**Re-verify file-existence within-session.** Doc-link-checker verdicts can be stale within a session: orphan-sweep ceremonies (session-init, workday-start Step 0.6, /pickup chain-archival) can move handoff/spec files between checker run and EM consumption. When a "file not found" verdict contradicts an earlier `ls` from the same session, re-`ls` against current HEAD before dismissing as false-positive.
+
 ## Structured Output Contract
 
 Write output as a markdown file with this exact structure:
@@ -185,6 +187,10 @@ Do NOT count redirects as broken. Do NOT omit them from the Findings Table — t
 1. Write the output file to the path specified in the dispatch prompt (default: `tasks/doc-link-check-<timestamp>.md`)
 2. Run `Bash ls -la <path>` to confirm the file is present and non-zero size
 3. Reply exactly: `DONE: <path>` — no prose, no summary, no analysis after this line
+
+## Within-Session Stale-Verdict Warning
+
+**Re-verify file-existence within-session.** doc-link-checker verdicts can be stale within a session: orphan-sweep ceremonies (session-init, workday-start Step 0.6, /pickup chain-archival) can move handoff/spec files between checker run and EM consumption. When a doc-link-checker "file not found" verdict contradicts an earlier `ls` from the same session, re-`ls` against current HEAD before dismissing as false-positive.
 
 ## Rules
 

@@ -117,7 +117,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 5. Reviewer grades the system and adds/updates the grade on the atlas page.
 
-6. Backstop receives summarized Sonnet findings, not raw files. Backstop is mandatory: the Staff Engineer for domain reviewers, the Director of Engineering (in backstop mode) for the Staff Engineer.
+6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: the Staff Engineer (Opus) for domain reviewers; the Director of Engineering (in backstop mode, Opus) for the Staff Engineer.
 
 ---
 

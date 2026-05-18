@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prune-resolved-queue-entries.test.sh — Fixture-based tests for the queue pruner.
 #
-# Run: bash ~/.claude/plugins/coordinator-claude/coordinator/bin/prune-resolved-queue-entries.test.sh
+# Run: bash ~/.claude/plugins/coordinator/bin/prune-resolved-queue-entries.test.sh
 #
 # Covers all seven rules:
 #   1. Entry-shape (resolution: / **Closeout:** sub-lines)  — queue files only

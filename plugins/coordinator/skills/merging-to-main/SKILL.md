@@ -61,7 +61,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    ```bash
    # Sync-main invariant: verify origin/main is reachable before creating branch.
    # If local main is ahead of origin/main, abort rather than creating a stale branch.
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh || {
+   ~/.claude/plugins/coordinator/bin/sync-main.sh || {
      echo "sync-main.sh failed — local main has diverged. Investigate before creating a recovery branch."
      exit 1
    }
@@ -85,7 +85,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 3. **Verify remote is up-to-date:**
    ```bash
-   _BR=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+   _BR=$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
    git log origin/"$_BR"..HEAD 2>/dev/null
    ```
    If unpushed commits exist, push explicitly:
@@ -220,7 +220,7 @@ If `project_type` is not `game-dev` or `project_subtypes` does not contain `unre
 ### Step 2: Create PR
 
 ```bash
-BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+BRANCH=$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 
 # Title based on branch type
 # work/<machine>/2026-03-13 → "Work: <machine> 2026-03-13"
@@ -313,7 +313,7 @@ Auto-recover — do NOT stop or ask:
 ```bash
 git fetch origin main
 git merge origin/main -m "merge main into work branch"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 gh pr merge <pr-number> --merge --delete-branch  # retry
 ```
 
@@ -362,7 +362,7 @@ If on a worktree: `git worktree remove <path>` instead.
 **Other unmerged branches:**
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
+~/.claude/plugins/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
 ```
 
 If any output: include in the report and recommend: _"Multiple work branches in flight — verify these don't carry work intended for this PR."_

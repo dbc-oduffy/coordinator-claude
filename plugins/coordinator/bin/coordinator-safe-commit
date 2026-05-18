@@ -677,6 +677,49 @@ ERR
   local _pre_head
   _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
   git add -A
+
+  # Destructive-shape gate (soft-warn through 2026-06-01, then promote to fail).
+  # Catches blanket commits laundering unauthorized substrate changes (572a548b class):
+  # ≥3 files with deletion-heavy diffs AND no plan/handoff/PR/lessons/queue ref in subject.
+  # Override: COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 silences the warning.
+  # Strict (fail-loud): COORDINATOR_BLANKET_SHAPE_STRICT=1.
+  # Spec backlink: tasks/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry).
+  # Note: _blanket_check_destructive_shape is defined nested inside do_blanket
+  # for locality with its single caller. `exit 3` inside the nested function
+  # terminates the calling script (do_blanket → main), not just the function —
+  # intentional behavior, but non-obvious. If extracting, preserve that semantic.
+  _blanket_check_destructive_shape() {
+    [[ "${COORDINATOR_OVERRIDE_BLANKET_SHAPE:-}" == "1" ]] && return 0
+    local subj="$1"
+    # Subject-reference grep — word-boundary anchored tokens only. Bare substrings
+    # like `plan`/`queue`/`review` were false-positive magnets (matched `workplan`,
+    # `dequeue`, `code review style comments`). Word-boundary tokens: handoff,
+    # spinoff, learn-lessons, update-docs, session-end, distill. Word-anchored
+    # forms: plan/, plan #, lessons.md, queue file paths, review-trail.
+    if echo "$subj" | grep -qiE '(\bhandoff\b|\bspinoff\b|\blearn-lessons\b|\bupdate-docs\b|\bsession-end\b|\bdistill\b|\bPR[ #]|#[0-9]+|\bplan/|plan #|\blessons\.md\b|\bqueue\.md\b|\breview-trail\b|\bworkday-(complete|start)\b|\bworkweek-(complete|start)\b)'; then
+      return 0
+    fi
+    # Count files with deletion-heavy diffs in the staged set.
+    # Threshold N=10 lines deleted per file (line-count proxy for the queue
+    # entry's "N named symbols" calibration — line count is greppable from
+    # numstat without parsing ASTs). M=3 files. `$2 > $1` requires net-deletion
+    # shape (more deletions than insertions in the file). Binary files report
+    # `-` in $1/$2 and are skipped by the `^[0-9]+$` guard.
+    local heavy_count
+    heavy_count=$(git diff --cached --numstat 2>/dev/null \
+      | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $2 >= 10 && $2 > $1 { c++ } END { print c+0 }')
+    [[ "${heavy_count:-0}" -lt 3 ]] && return 0
+    if [[ "${COORDINATOR_BLANKET_SHAPE_STRICT:-}" == "1" ]]; then
+      echo "FAIL: blanket-commit destructive-shape gate: ${heavy_count} files with deletion-heavy diffs and no plan/handoff/PR/lessons/queue reference in subject." >&2
+      echo "  Subject: ${subj}" >&2
+      echo "  Set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 to bypass, or add a reference token to the subject." >&2
+      exit 3
+    fi
+    echo "WARN: blanket-commit destructive-shape: ${heavy_count} files with deletion-heavy diffs; subject lacks plan/handoff/PR/lessons/queue reference." >&2
+    echo "  Subject: ${subj}" >&2
+    echo "  This warning becomes a hard fail after 2026-06-01. Add a reference token now to suppress, or set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1." >&2
+  }
+  _blanket_check_destructive_shape "$SUBJECT"
   # Sentinel 2: wrap commit call so mid-call failures (hook reject, detached HEAD)
   # surface as a FAIL line rather than a silent non-zero exit.
   # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.

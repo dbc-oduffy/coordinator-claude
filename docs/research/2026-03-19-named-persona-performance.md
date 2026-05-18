@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-This synthesis examines whether named AI personas with strong characteristics perform measurably better at LLM tasks than unnamed generic agents. The evidence is nuanced and context-dependent: **naming itself has no demonstrated independent causal effect** on output quality, but **rich behavioral description** does, and **structured role specialization** in multi-agent pipelines provides real coverage benefits. The Patrik/Sid/Zolí architecture is defensible engineering — not theater — but for reasons the naming literature doesn't support. The architecture works because of coverage specialization and attention direction, not because of the names. Several concrete improvements to the current design are supported by the evidence.
+This synthesis examines whether named AI personas with strong characteristics perform measurably better at LLM tasks than unnamed generic agents. The evidence is nuanced and context-dependent: **naming itself has no demonstrated independent causal effect** on output quality, but **rich behavioral description** does, and **structured role specialization** in multi-agent pipelines provides real coverage benefits. The Staff Engineer/the Game Dev Reviewer/the Director of Engineering architecture is defensible engineering — not theater — but for reasons the naming literature doesn't support. The architecture works because of coverage specialization and attention direction, not because of the names. Several concrete improvements to the current design are supported by the evidence.
 
 ---
 
@@ -18,7 +18,7 @@ This synthesis examines whether named AI personas with strong characteristics pe
 
 **Key finding:** The Jekyll & Hyde ensemble (persona-prompted + neutral-prompted responses adjudicated by a third LLM) achieves +9.98% on GPT-4 across 12 reasoning benchmarks — but this is an *architectural* gain, not a pure persona gain. Persona alone yields +0.91% over neutral alone on GPT-4. — CONFIDENCE: HIGH
 
-**Key finding (negative):** Automatic persona selection performs at chance level. No optimization strategy reliably identifies the best persona for a given task. Manual design (as in Patrik/Sid/Zolí) is the de facto state of the art. — CONFIDENCE: HIGH
+**Key finding (negative):** Automatic persona selection performs at chance level. No optimization strategy reliably identifies the best persona for a given task. Manual design (as in the Staff Engineer/the Game Dev Reviewer/the Director of Engineering) is the de facto state of the art. — CONFIDENCE: HIGH
 
 **Key finding (model-specific):** Claude 3 Haiku's refusal rate for persona adoption is 8.5x higher than the next most resistant model. Claude 3.5 Sonnet performs robustly. If personas are used with Haiku as executor, expect degraded persona adherence. — CONFIDENCE: HIGH
 
@@ -28,7 +28,7 @@ This synthesis examines whether named AI personas with strong characteristics pe
 
 ### B: Named vs Unnamed
 
-**Consensus:** No peer-reviewed study directly compares named personas ("Patrik") vs equally-described unnamed roles ("a rigorous code reviewer") in zero-shot prompting. This gap is significant. The research community has focused on persona type and specificity, not on naming per se — suggesting researchers haven't found naming to be the interesting variable.
+**Consensus:** No peer-reviewed study directly compares named personas ("the Staff Engineer") vs equally-described unnamed roles ("a rigorous code reviewer") in zero-shot prompting. This gap is significant. The research community has focused on persona type and specificity, not on naming per se — suggesting researchers haven't found naming to be the interesting variable.
 
 **Key finding:** Framing/behavioral description drives effects; name is a label that anchors the description. Verified: removing character names from jailbreak personas while preserving behavioral trait descriptions maintains effect. The behavioral characterization is the active ingredient. — CONFIDENCE: HIGH
 
@@ -66,7 +66,7 @@ This synthesis examines whether named AI personas with strong characteristics pe
 
 **Key finding:** Engagement lift from personalized AI wears off in ~2 weeks (longitudinal study, arXiv 2602.23688). Initial novelty effects do not persist. — CONFIDENCE: MEDIUM-HIGH
 
-**Key finding (positive, unintuitive):** Named personas create *accountability anchors* — over time, users can build calibrated mental models of "what Patrik catches and misses." This reliability modeling benefit is unstudied but follows from the naming consistency. Anonymous AI reviews don't allow this calibration. — CONFIDENCE: MEDIUM (inference from general trust calibration literature)
+**Key finding (positive, unintuitive):** Named personas create *accountability anchors* — over time, users can build calibrated mental models of "what the Staff Engineer catches and misses." This reliability modeling benefit is unstudied but follows from the naming consistency. Anonymous AI reviews don't allow this calibration. — CONFIDENCE: MEDIUM (inference from general trust calibration literature)
 
 **Recommendation for our project:** Keep names for reliability calibration. Add explicit coverage/confidence declarations to each persona output to counteract over-acceptance. Monitor for developer engagement decay (reviews accepted without pushback = wear-off signal).
 
@@ -74,11 +74,11 @@ This synthesis examines whether named AI personas with strong characteristics pe
 
 ### E: Mechanisms and Counterarguments
 
-**Consensus:** The causal mechanism behind persona effects is training data cluster activation, implemented at the neural level as persona vectors. Rich behavioral descriptions create genuine differences in activation patterns — this is the strongest justification for the Patrik/Sid/Zolí architecture. However, this mechanism also creates risks: implicit bias activation, sycophancy amplification, and domain-bias interference.
+**Consensus:** The causal mechanism behind persona effects is training data cluster activation, implemented at the neural level as persona vectors. Rich behavioral descriptions create genuine differences in activation patterns — this is the strongest justification for the Staff Engineer/the Game Dev Reviewer/the Director of Engineering architecture. However, this mechanism also creates risks: implicit bias activation, sycophancy amplification, and domain-bias interference.
 
 **Key finding (causal proof):** Persona vectors are causally verified by Anthropic: injecting trait vectors into model activations produces predicted behavioral changes. Personas genuinely steer the model's behavior, not just its style. This is real engineering, not placebo. — CONFIDENCE: HIGH
 
-**Key finding (sycophancy risk):** Roleplay/persona framing specifically activates sycophancy vectors (Anthropic research). First-person framing ("I, Patrik, believe") amplifies sycophancy more than third-person. This is a structural risk in review personas — they are supposed to find problems but are steered toward agreement. — CONFIDENCE: HIGH
+**Key finding (sycophancy risk):** Roleplay/persona framing specifically activates sycophancy vectors (Anthropic research). First-person framing ("I, the Staff Engineer, believe") amplifies sycophancy more than third-person. This is a structural risk in review personas — they are supposed to find problems but are steered toward agreement. — CONFIDENCE: HIGH
 
 **Key finding (bias risk):** Personas activate implicit biases bypassing explicit alignment. Personas with demographic salience (disability, religion, gender) cause 35-69% accuracy drops on domain-specific tasks. Role personas (not demographic) have lower risk but not zero risk — "game developer" or "data scientist" still carries associations. — CONFIDENCE: HIGH
 
@@ -121,21 +121,21 @@ This synthesis examines whether named AI personas with strong characteristics pe
 
 ## Implications for Our Persona Architecture
 
-**Is Patrik/Sid/Zolí naming and characterization engineering or theater?**
+**Is the Staff Engineer/the Game Dev Reviewer/the Director of Engineering naming and characterization engineering or theater?**
 
 **It's engineering — but not for the reason usually assumed.**
 
-The names themselves provide no demonstrated performance advantage. If you stripped "Patrik" and called the same description "Reviewer A," the output quality would likely be statistically indistinguishable. The theater hypothesis would be correct about naming.
+The names themselves provide no demonstrated performance advantage. If you stripped "the Staff Engineer" and called the same description "Reviewer A," the output quality would likely be statistically indistinguishable. The theater hypothesis would be correct about naming.
 
 But the *architecture* is sound engineering for four defensible reasons:
 
-1. **Coverage specialization creates genuine diversity of attention.** Patrik looking for security/logic/performance, Sid looking for game dev feasibility, Zolí looking for ambition under-reach — this is functionally different from running a single generic reviewer three times. The different behavioral descriptions activate different training data clusters, producing genuinely different output patterns (confirmed by persona vectors research).
+1. **Coverage specialization creates genuine diversity of attention.** the Staff Engineer looking for security/logic/performance, the Game Dev Reviewer looking for game dev feasibility, the Director of Engineering looking for ambition under-reach — this is functionally different from running a single generic reviewer three times. The different behavioral descriptions activate different training data clusters, producing genuinely different output patterns (confirmed by persona vectors research).
 
 2. **Sequential review catches different error classes than parallel review.** The failure modes literature (2503.13657) shows that structured role differentiation prevents certain failure modes that homogeneous agents fall into.
 
-3. **Named personas enable human calibration.** Over time, a PM who reads Patrik's reviews regularly builds a mental model of what Patrik reliably catches and misses. This meta-level calibration is a real operational benefit that anonymous AI reviews cannot provide.
+3. **Named personas enable human calibration.** Over time, a PM who reads the Staff Engineer's reviews regularly builds a mental model of what the Staff Engineer reliably catches and misses. This meta-level calibration is a real operational benefit that anonymous AI reviews cannot provide.
 
-4. **Manual persona design is the state of the art.** Automatic persona selection performs at chance. The careful design of each persona's focus area (Patrik: security + logic + performance; Sid: game dev feasibility; Zolí: ambition sufficiency) is genuinely better than any automated alternative.
+4. **Manual persona design is the state of the art.** Automatic persona selection performs at chance. The careful design of each persona's focus area (the Staff Engineer: security + logic + performance; the Game Dev Reviewer: game dev feasibility; the Director of Engineering: ambition sufficiency) is genuinely better than any automated alternative.
 
 **The current architecture's main weakness:** No synthesis/adjudication layer. The full value of diverse perspectives only materializes when a synthesis pass reads all persona outputs and adjudicates between them. This is the gap.
 
@@ -153,15 +153,15 @@ But the *architecture* is sound engineering for four defensible reasons:
 ### Modify (evidence suggests adjustment)
 
 - **Add explicit synthesis/adjudication layer** — After all persona reviews, run a synthesis pass that reads all outputs and produces consolidated findings, flagging where personas agree/disagree. The +9.98% gain requires adjudication, not just concatenation. — Priority: HIGH
-- **Shift to third-person persona framing** — "Patrik's review should identify..." rather than "You are Patrik..." — reduces first-person sycophancy amplification. — Priority: MEDIUM
+- **Shift to third-person persona framing** — "the Staff Engineer's review should identify..." rather than "You are the Staff Engineer..." — reduces first-person sycophancy amplification. — Priority: MEDIUM
 - **Add completion signals to each persona output** — Require each persona to output a checklist completion signal (reviewed: security ✓, performance ✓, error handling — not reviewed). This catches the 86% of failures that prompt refinement can't fix. — Priority: HIGH
-- **Enrich persona behavioral descriptions with explicit attention directives** — "Patrik focuses on: SQL injection, authentication flaws, privilege escalation. Patrik does NOT focus on style or naming. Patrik assumes the author made mistakes." Tighter steering = more reliable activation. — Priority: HIGH
+- **Enrich persona behavioral descriptions with explicit attention directives** — "the Staff Engineer focuses on: SQL injection, authentication flaws, privilege escalation. The Staff Engineer does NOT focus on style or naming. The Staff Engineer assumes the author made mistakes." Tighter steering = more reliable activation. — Priority: HIGH
 - **Add explicit coverage/confidence declarations to persona output** — "HIGH confidence on items 1-3; item 4 speculative; did not review X." Counteracts developer over-acceptance. — Priority: MEDIUM
 
 ### Investigate Further
 
-- **A/B test named vs unnamed persona** — Run the same task with "Patrik, rigorous code reviewer: [description]" vs "A rigorous code reviewer: [identical description, no name]." Measure output quality. This experiment doesn't exist in the literature; run it internally.
-- **Sequential persona order effects** — Does having the security reviewer (Patrik) first vs last change what the subsequent reviewers find? Understudied.
+- **A/B test named vs unnamed persona** — Run the same task with "the Staff Engineer, rigorous code reviewer: [description]" vs "A rigorous code reviewer: [identical description, no name]." Measure output quality. This experiment doesn't exist in the literature; run it internally.
+- **Sequential persona order effects** — Does having the security reviewer (the Staff Engineer) first vs last change what the subsequent reviewers find? Understudied.
 - **Developer engagement decay monitoring** — Track whether review findings are accepted without pushback after weeks of use. If yes, consider rotating persona framing or adding challenge prompts.
 - **Anti-sycophancy persona vector engineering** — The Anthropic mechanism suggests it should be possible to design a persona description specifically calibrated to be resistant to agreement bias. Worth prototyping.
 

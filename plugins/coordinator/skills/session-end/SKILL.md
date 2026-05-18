@@ -9,63 +9,13 @@ argument-hint: "[optional context]"
 
 Close out a finished vein of work: capture lessons and update documentation to reflect completion. No handoff — this is for work that's *done*, not being passed forward.
 
+> **`/session-end` and `/handoff` are mutually exclusive — never combined.** `/session-end` caps a workstream; `/handoff` passes one on. A session terminates via exactly one of them (or via `/workday-complete` / `/merge-to-main` / commit-and-stop). If the work is in-flight and needs a successor, STOP — invoke `/handoff` instead and do not run this skill. If you are tempted to run both ("end the session AND write a handoff"), the underlying state is two workstreams: end the finished one here, hand off the in-flight one separately with `/handoff`, framing which is which.
+
 ## Instructions
 
-When invoked, capture lessons and update plan/project documentation to reflect completion status. If work is incomplete and needs to be picked up later, use `/handoff` instead.
+When invoked, capture lessons and update plan/project documentation to reflect completion status. If work is incomplete and needs to be picked up later, use `/handoff` instead — not in addition.
 
 **Design note:** Multiple agents may be running concurrently. This skill closes out ONE agent's session without heavy repo-wide operations that could conflict with other agents.
-
-### Step 0: Tier Usage Report
-
-Before capturing lessons, emit the tier usage summary for this session. This closes the W3 telemetry loop — the PM sees whether the tiered-context-loading doctrine was followed.
-
-```bash
-# Resolve the current session's tier-usage JSON.
-# Review: the Staff Engineer — prefer CLAUDE_SESSION_ID env var (if exported) over sentinel to avoid
-# sentinel race with concurrent same-repo sessions; sentinel is fallback for when env var absent.
-GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-SESSION_ID="${CLAUDE_SESSION_ID:-}"
-if [[ -z "$SESSION_ID" && -n "$GIT_ROOT" && -f "${GIT_ROOT}/.git/coordinator-sessions/.current-session-id" ]]; then
-  SESSION_ID=$(cat "${GIT_ROOT}/.git/coordinator-sessions/.current-session-id" 2>/dev/null)
-fi
-
-if [[ -z "$SESSION_ID" ]]; then
-  echo "Tier usage: telemetry unavailable (no CLAUDE_SESSION_ID and no sentinel; session-init hook may not have run)"
-else
-  # session_id is unique across all projects, so search by session_id and accept the first hit.
-  SESSION_JSON=$(find "${HOME}/.claude/projects" -name "${SESSION_ID}.json" -path "*/tier-usage/*" 2>/dev/null | head -1)
-  if [[ -z "$SESSION_JSON" || ! -f "$SESSION_JSON" ]]; then
-    echo "Tier usage: telemetry unavailable (no JSON for session ${SESSION_ID:0:8} — writer hook may not have fired)"
-  else
-    # Resolve Python via shared lib (python3 → python → py -3).
-    LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
-    [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
-    if [[ -z "$PYTHON_BIN" ]]; then
-      if command -v py &>/dev/null && ! py -3 --version &>/dev/null; then
-        echo "Tier usage: telemetry unavailable (py launcher present but no Python 3 registered — run \`py -0\` to list installed versions)"
-      else
-        echo "Tier usage: telemetry unavailable (no Python on PATH — tried python3, python, py -3)"
-      fi
-    else
-      SESSION_JSON_PATH="$SESSION_JSON" "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "
-import json, os, sys
-try:
-    with open(os.environ['SESSION_JSON_PATH']) as f:
-        data = json.load(f)
-    c = data.get('counts', {})
-    t4 = data.get('tier4_dispatches', [])
-    missing = sum(1 for d in t4 if not d.get('rationale_present', True))
-    print(f\"Tier usage this session: tier1={c.get('tier1',0)} tier2={c.get('tier2',0)} tier3={c.get('tier3',0)} tier4={c.get('tier4',0)} ({missing} tier-4 missing rationale)\")
-except Exception as e:
-    print(f'Tier usage: telemetry parse failed ({type(e).__name__}: {e})', file=sys.stderr)
-    sys.exit(1)
-"
-    fi
-  fi
-fi
-```
-
-If telemetry is genuinely unavailable (no session sentinel, no JSON, no Python), Step 0 prints a one-line diagnostic — never empty.
 
 ### Step 1: Capture Lessons
 
@@ -174,17 +124,23 @@ The move folds into the existing session-end commit at Step 3 — no separate co
 
 ### Step 2.8: Refresh Orientation Documents
 
-Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. These are lightweight, targeted patches based on what THIS session accomplished, not a full regeneration.
+Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`.
 
-1. **Orientation cache** (`tasks/orientation_cache.md`): If it exists, patch sections affected by this session's work:
-   - Update `Active Workstreams` if workstreams completed or progressed
-   - Update `Health Snapshot` if bugs were fixed, debt resolved, or issues closed
-   - Update `Doc Freshness` — set `git_head_at_generation` to current HEAD, update last-run dates for any commands invoked this session
-   - Don't regenerate from scratch — that's `/workday-start`'s job. Patch what changed.
-   - If the cache doesn't exist, skip — the project hasn't run `/workday-start` yet.
-   - **Do not claim the cache is absent based on intuition.** If the SessionStart orientation hook failed to inject output (a known past failure mode), you may have no in-context evidence of the cache. Before asserting "no orientation cache in this repo," run `ls tasks/orientation_cache.md` and read the result. Assertions about existence require a verification step, not a recollection.
-   - **Stale is not a skip condition — it's a refresh trigger.** If `generated_at` is older than today, or `git_head_at_generation` doesn't match current HEAD, or the SessionStart hook flagged the cache as stale, do a full refresh (re-derive Active Workstreams, Health Snapshot, Recent Work, Doc Freshness from current repo state) before concluding session-end. Leaving a stale cache in place means the next session boots on misleading orientation. The process owns freshness.
-   - **Dedup-verify after append.** After patching, grep the orientation cache (and `archive/completed/YYYY-MM.md` if you touched it in Step 3) for duplicate entries with the same `date + slug` pair — a concurrent `/update-docs` run can double-append in the race window. If duplicates are present, keep the first occurrence and delete the rest in place before committing.
+1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections. Do not re-derive content section-by-section.** The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`). `/session-end` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append.
+
+   **Pinboard rule (the only cache mutation permitted here):** if this session surfaced something the next session boot MUST see, and it would otherwise be lost (a transient surface gotcha; a critical blocker context; an environment-specific caveat that fooled this session and will fool the next), write exactly one line to `## Pinboard` via the routine:
+
+   ```bash
+   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+       --invoker session-end \
+       --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
+   ```
+
+   The pinboard is a one-slot escape valve. A second mid-session write overwrites; it does not append. The pinboard is cleared at every ceremony regen (`/workday-start`, `/update-docs`). If you find yourself wanting to write more than one line, that's not a cache edit — it's a wiki edit, a handoff body, or a lessons.md entry. Escalate to PM.
+
+   If you have nothing pinboard-worthy, **do nothing.** Counters, workstreams, branch state, doc-freshness, "recent work" prose — none of this is a mid-session concern. The ceremony writers regenerate all of it from disk on the next boot.
+
+   If the cache file doesn't exist, skip — the project hasn't run `/workday-start` yet. **Do not claim the cache is absent based on intuition** — `ls tasks/orientation_cache.md` before asserting absence.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
 
@@ -204,24 +160,32 @@ Assess whether this session's diff warrants a code review pass before committing
 |---|---|
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
-| Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **Sonnet** (review-code Branch A.2 single reviewer) |
-| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **Sonnet** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **Sonnet + the Staff Engineer** (EM-judged escalation) |
+| Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
+| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
+| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff**, with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal — see § Post-code-reviewer the Staff Engineer-escalation criteria |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
 **Anchored-ranges note:** the numeric anchors (50 LOC, 500 LOC, ≥3 segments) are decision anchors, not hard thresholds. An EM seeing a 51-LOC change with a clean shape should not feel obliged to escalate; an EM seeing a 49-LOC change touching a public schema seam should not feel released from review.
 
-**Anti-ceremony-bias tripwire:**
-> "If you're considering Sonnet-only because escalation feels like ceremony rather than because the diff is genuinely shallow — escalate. The Staff Engineer is one dispatch away; the cost of redundant review is one Opus call. The cost of unreviewed integration risk shipping to main is hours of debugging."
+**Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end):**
+Default after `code-reviewer` returns is *no the Staff Engineer*. Escalate iff the report shows one or more of:
+- A high-volume finding count (rough anchor: ≥5 substantive findings, not nits).
+- Any finding flagged as architectural, strategic, cross-system, or boundary/seam/taxonomy-shaped — i.e. not a tactical fix the integrator can fold mechanically.
+- The reviewer itself recommends a deeper second pass, OR EM reads the report and is genuinely uncertain whether a flagged issue is tactical or structural.
 
-**Symmetric anti-ceremony tripwire (row 3+):**
-> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. The anti-ceremony tripwire fires symmetrically: 'Sonnet-after-already-doing-review feels like ceremony, skip' is the same motion as 'Sonnet feels like ceremony, escalate' — running in reverse. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the four-point shape above, not the row number. See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
+Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without the Staff Engineer at session-end.
+
+**Anti-ceremony-bias tripwire (`code-reviewer`-skip direction — still load-bearing):**
+> "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
+
+**Symmetric anti-ceremony tripwire (row 3+ — `code-reviewer` floor):**
+> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` the Staff Engineer escalation is a separate question — governed by the actual report per § Post-code-reviewer the Staff Engineer-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
 
 **Chain-end detection:**
 - Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Additional escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — that's a strong escalation signal toward Sonnet+the Staff Engineer.
+- **Additional the Staff Engineer-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
 
 **Diff scope:**
 - Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
@@ -236,9 +200,9 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 
 **Marker write:** after review integration completes, invoke:
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-write-review-trail.sh \
-  --sha-range <A..B> --reviewer <sonnet|patrik|sonnet+patrik> \
-  --scope <chain|session> --verdict <ok|warn|blocked> --diff-loc <N>
+~/.claude/plugins/coordinator/bin/coordinator-write-review-trail.sh \
+  --sha-range <A..B> --reviewer <code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile> \
+  --scope <chain|session> --verdict <ok|warn|blocked|waived|pending> --diff-loc <N>
 ```
 
 **Negative-spec:**
@@ -263,7 +227,7 @@ After integration, the trail's `--verdict` field still records the reviewer's or
    - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
    - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
 2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
-3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
+3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
 6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
@@ -275,7 +239,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 

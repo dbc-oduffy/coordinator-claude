@@ -55,17 +55,20 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
-| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
-| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
-| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
-| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
-| Other / unmatched | the Staff Engineer | (none) | Medium |
+| Sonnet-tier code review (session-end, handoff, mise-en-place, mid-session quick review) | `code-reviewer` (Sonnet, locked) | (none) | Low |
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer (Opus only) | the Staff Engineer (Opus only) | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer (Opus only) | (backstop: the Director of Engineering, Opus only) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude, Opus only) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude, Opus only) | (none) | High |
+| Front-end, CSS, UI components | the Front-End Reviewer (Opus only) | (backstop: the UX Reviewer, Opus only) | Medium |
+| Front-end + architecture | the Front-End Reviewer (Opus only) | the Staff Engineer (Opus only) | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer (Opus only) | the Staff Engineer (Opus only) | High → High |
+| UX flow, user-facing feature | the UX Reviewer (Opus only) | (backstop: the Staff Engineer, Opus only) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer (Opus only) | (backstop: the Director of Engineering, Opus only) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer (Opus only) | the Staff Engineer (Opus only) | High → High |
+| Other / unmatched | `code-reviewer` (Sonnet) for shape-only diffs (no domain signal, no cross-system boundary); the Staff Engineer (Opus only) when the diff carries architectural shape (new abstraction, cross-system seam, new pattern, schema/security boundary) | (none) | Low → Medium |
+
+**Personas are Opus-only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; dispatching them at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Sonnet-tier mechanical analysis uses the relevant worker (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`). The persona's value is structured judgment under Opus context; running it at Sonnet costs the prompt complexity without the judgment payoff — empirically the result is a degraded "Sonnet-flavored the Staff Engineer" that produces persona affect without the architectural lens. → `agents/code-reviewer.md` for the Sonnet-tier surface.
 
 **the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch the Director of Engineering **standalone** with `mode: "standalone"` in the prompt — do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The "(backstop: the Director of Engineering)" entries above are the chained-after-the Staff Engineer usage for High-effort architectural reviews; that mode is still in play but does not exhaust the Director of Engineering's role.
 
@@ -75,7 +78,7 @@ Match tier to complexity, not importance. Routing every "important" diff to a st
 
 | Situation | Correct tier |
 |---|---|
-| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer (auto-detects domain from routing table above). For known-target single-reviewer cases (e.g., obvious the Staff Engineer or the Game Dev Reviewer match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. |
+| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer. **Sonnet-tier (post-implementation, mid-session, no architectural call):** `code-reviewer`. **Opus-tier (domain-flagged, architectural, named-persona match):** dispatch the matching persona at Opus. For known-target single-reviewer cases, direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. **Never** dispatch a persona with `model: "sonnet"` — that is the violation `code-reviewer` exists to replace. |
 | Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural code change with ≥2 valid implementations AND PM authorized | `/staff-session` review-mode |
 | "This is important, I want it done right" | One reviewer (auto-detects domain) |
@@ -145,6 +148,8 @@ Walk each finding against the triage table — it lands in exactly one row:
 - _Default / unmatched?_
   → Apply via integrator. Default is to integrate, not to ratify.
   _See `docs/wiki/receiving-code-review.md` (triage tables, push-back patterns, performative-agreement guard) and CLAUDE.md § Reviewer findings — apply, don't ratify._
+
+**Executor brief out-of-scope reminder.** When building an executor brief from these findings, include this constraint: Removing/weakening production safeguards to satisfy pre-existing test mocks is OUT OF SCOPE. Tests follow production; surface the conflict instead.
 
 ---
 
