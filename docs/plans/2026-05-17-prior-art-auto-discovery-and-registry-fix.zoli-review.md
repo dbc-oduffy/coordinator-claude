@@ -1,5 +1,5 @@
 ---
-title: Zolí Standalone Review — Prior-Art Auto-Discovery + Registry Fix
+title: the Director of Engineering Standalone Review — Prior-Art Auto-Discovery + Registry Fix
 created: 2026-05-17
 reviewer: zoli
 mode: standalone
@@ -7,11 +7,11 @@ plan: docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md
 verdict: APPROVE-WITH-REVISIONS
 ---
 
-# Zolí Review — Prior-Art Auto-Discovery + Registry Fix
+# the Director of Engineering Review — Prior-Art Auto-Discovery + Registry Fix
 
 ## Summary
 
-The plan is structurally sound and architecturally correct on the load-bearing call: registry as single source of truth is the right cross-team boundary, and Patrik-altitude hedging on "what the other repos' EMs prefer" would be wrong here. Three cross-team repos consume coordinator doctrine; coordinator doctrine sets the contract; the registry shape is coordinator-owned. The plan asserts that correctly.
+The plan is structurally sound and architecturally correct on the load-bearing call: registry as single source of truth is the right cross-team boundary, and the Staff Engineer-altitude hedging on "what the other repos' EMs prefer" would be wrong here. Three cross-team repos consume coordinator doctrine; coordinator doctrine sets the contract; the registry shape is coordinator-owned. The plan asserts that correctly.
 
 What needs revision is mostly mechanism, not direction: a few claims of atomicity and enforcement that don't have actual mechanisms behind them, an OS-aware path-matching rule that is one paragraph short of being implementable, a smoke-test plan that does not survive its own recursion meta-risk, and one genuine under-ambition call on the override semantics. None of these require a reshape. All are addressable in-place before Stage 1 dispatch.
 
@@ -217,7 +217,7 @@ The plan asserts cross-repo doctrine in three places. I'm confirming each:
 
 3. **The single-source-of-truth claim.** This is the load-bearing one and the plan asserts it correctly. The right cross-team posture is "the registry is the contract; CLAUDE.md is human-readable narrative." External EMs that disagree should surface to PM; the default is not negotiable per-repo. **Authority confirmed.**
 
-If a Patrik-altitude review hedges any of these as "ask the external EMs whether they're open to this," that hedging should be overridden. The plan has it right.
+If a the Staff Engineer-altitude review hedges any of these as "ask the external EMs whether they're open to this," that hedging should be overridden. The plan has it right.
 
 ---
 

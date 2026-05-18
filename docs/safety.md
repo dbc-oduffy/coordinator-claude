@@ -59,7 +59,7 @@ Source: `register_settings()`, `setup/install.sh` lines 897–931.
 The coordinator plugin ships a `hooks.json` at:
 
 ```
-~/.claude/plugins/coordinator-claude/coordinator/hooks/hooks.json
+~/.claude/plugins/coordinator/hooks/hooks.json
 ```
 
 Claude Code reads this automatically when the plugin is enabled. No separate hook registration step is required. The hooks registered are:
@@ -159,7 +159,7 @@ jq '.extraKnownMarketplaces["coordinator-claude"]' ~/.claude/settings.json
 ### List installed hook scripts
 
 ```bash
-ls ~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/
+ls ~/.claude/plugins/coordinator/hooks/scripts/
 ```
 
 ### Check for backup files (from collision handling)

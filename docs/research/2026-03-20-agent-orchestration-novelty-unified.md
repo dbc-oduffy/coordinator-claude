@@ -18,7 +18,7 @@ The key architectural patterns assessed:
 2. **Sequential multi-persona review with fix gates** — domain expert reviews, ALL fixes applied, then generalist reviews clean artifacts
 3. **PM/EM authority partitioning (First Officer Doctrine)** — standing, domain-scoped authority boundaries that persist across sessions
 4. **Selective tool withholding** — MCP tools deliberately withheld from the orchestrator, forcing delegation
-5. **Named reviewer personas (Character Personas)** — Patrik, Sid, Camelia, Fru, Pali, Zoli — not role labels but named characters with expertise profiles
+5. **Named reviewer personas (Character Personas)** — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the UX Reviewer, Pali, Zoli — not role labels but named characters with expertise profiles
 6. **Plugin-based capability composition** — modular packages injecting agents, skills, commands, hooks with per-project scoping
 7. **Tiered context injection (warm RAM)** — ephemeral orientation cache with L1/L2/L3 context hierarchy
 8. **Dispatch-not-absorb** — commands as dispatch stubs, pipeline intelligence lives in branded orchestrator agents
@@ -52,7 +52,7 @@ Different workers can already have different roles, contexts, and tool access; t
 
 The repo's review order may be more structured than mainstream product defaults, but staged review and iterative critique loops are already part of the broader agent-systems landscape.
 
-**What it is:** Domain expert reviews first (e.g., Sid for game code), ALL findings applied to the artifact, then generalist reviews (Patrik) the clean version. Each reviewer sees corrected work, not drafts with known issues stapled on.
+**What it is:** Domain expert reviews first (e.g., the Game Dev Reviewer for game code), ALL findings applied to the artifact, then generalist reviews (the Staff Engineer) the clean version. Each reviewer sees corrected work, not drafts with known issues stapled on.
 
 **Prior art context:** Most surveyed tools use parallel+aggregate (Anthropic's own March 2026 code review, CodeRabbit, Qodo) or single-pass (GitHub Copilot). ChatDev's "communicative dehallucination" uses intra-phase negotiation. GitHub's own Copilot code review now describes an agentic review architecture.
 
@@ -90,9 +90,9 @@ The PM/EM metaphor is useful, but the underlying idea of differentiated human-AI
 #### 5. Character Personas in Engineering Review
 **Classification:** Prompt-design choice. Persona-based specialization is established; the specific reviewer cast and prompt styles are local implementation choices.
 
-**What it is:** Named characters with backstory and expertise profiles (Patrik the exacting senior engineer, Camelia the data scientist), not functional role labels (Engineer, QA). The academic taxonomy (2404.18231) classifies these as "Character Personas" (tier 2).
+**What it is:** Named characters with backstory and expertise profiles (the Staff Engineer the exacting senior engineer, the Data Science Reviewer the data scientist), not functional role labels (Engineer, QA). The academic taxonomy (2404.18231) classifies these as "Character Personas" (tier 2).
 
-**PM note:** The *naming* of personas is primarily for the human's cognitive convenience — easier to say "dispatch Patrik" than "dispatch the code-quality-review-agent." The *persona depth* (specific expertise profile, review style, domain knowledge) is what produces better review output. Prior research confirmed Character Personas lead to better results.
+**PM note:** The *naming* of personas is primarily for the human's cognitive convenience — easier to say "dispatch the Staff Engineer" than "dispatch the code-quality-review-agent." The *persona depth* (specific expertise profile, review style, domain knowledge) is what produces better review output. Prior research confirmed Character Personas lead to better results.
 
 **Prior art:** MetaGPT and ChatDev use functional roles (tier 1). DennisKennedy's Operational Protocol Method uses named character personas as single-user personal advisors. paperreview.ai uses "epistemic reviewer personas" for academic paper review. Persona-based specialization is well-established across the field.
 

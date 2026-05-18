@@ -16,7 +16,7 @@ Prepare the day's session-start calls to be maximally efficient. Ensure context 
 Run the session reaper before any other work to bound stale-session accumulation. Capture stdout to a log file; do not echo the reaped-session lines into the Morning Briefing prose.
 
 ```bash
-REAP_LOG=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-reap-sessions 2>/dev/null)
+REAP_LOG=$(~/.claude/plugins/coordinator/bin/coordinator-reap-sessions 2>/dev/null)
 if [[ -n "$REAP_LOG" ]]; then
   mkdir -p ~/.claude/logs
   printf '%s  %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$REAP_LOG" >> ~/.claude/logs/coordinator-reap.log
@@ -36,6 +36,35 @@ Run `bin/sync-main.sh` first — non-zero abort surfaces divergence to PM.
 Every off-daily ref operation requires `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`.
 
 **Full procedure (sync-main details, precedence shell code, rename atomicity + upstream rewire, daily reconcile flow):** see `pipelines/workday-start-internals.md` § Step 0.
+
+**Step 0 is not EM-skippable on judgment.** "Reconcile not rotate" governs whether to *abandon* the branch (no), not whether to *rename* the suffix at midnight (yes, via Check 4). Legitimate skips are only the precedence outcomes: already-in-span (Check 2), on main/detached/empty (Check 3), or named long-lived bus (Check 3.5). Any other path MUST execute the rename when Check 4 fires; Step 0.45 below is the tripwire catching silent skips.
+
+### Step 0.45: Post-Step-0 Span Assertion
+
+After the precedence switch resolves, verify the active branch's name covers today. This catches EM judgment-skips, rename failures, and silent fall-throughs — the library helpers (`cs_should_prompt_rename`, `cs_format_span_suffix`) return correct results, but a Step 0 path that never invokes the rename procedure leaves the working tree out of sync with the doctrine.
+
+```bash
+source ~/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh
+CURRENT=$(git branch --show-current)
+TODAY=$(date +%Y-%m-%d)
+SPAN_ASSERT_FAIL=
+SPAN_ASSERT_MSG=
+
+if cs_parse_branch_span "$CURRENT" > /dev/null 2>&1; then
+  END_DATE=$(cs_parse_branch_span "$CURRENT" | awk '{print $2}')
+  if [[ "$END_DATE" != "$TODAY" ]]; then
+    SPAN_ASSERT_FAIL=1
+    EXPECTED="work/$(cs_compute_machine)/$(cs_format_span_suffix "$(cs_parse_branch_span "$CURRENT" | awk '{print $1}')" "$TODAY")"
+    SPAN_ASSERT_MSG="Active branch \`$CURRENT\` does not cover today ($TODAY) — end=$END_DATE, expected rename to \`$EXPECTED\`. Step 0 Check 4 did not fire. The library helpers work; the rename was skipped at the command level. Re-run \`/workday-start\` Step 0 manually or rename inline."
+  fi
+fi
+```
+
+- **If `$SPAN_ASSERT_FAIL` is set:** surface `$SPAN_ASSERT_MSG` as a top-line `### Branch Span Mismatch` block in the Morning Briefing (above `### Context Freshness`). Do NOT auto-rename here — the assertion is a tripwire, not a retry mechanism.
+- **If the branch does not parse as `work/{machine}/...`** (named long-lived workstream, `main`, or other authorized shape): skip the assertion silently. Check 3.5 in Step 0 already covered this case by design.
+- **If the branch parses and end-DD == today:** skip silently — Step 0 did its job.
+
+Rationale: empirical drift (2026-05-18) — an EM ran `/workday-start`, wrote the marker, regenerated orientation, produced a briefing, but never executed Check 4 — citing "reconcile not rotate" as authorization to leave the suffix alone. Misreads the doctrine: reconcile-not-rotate forbids *abandoning* the branch for a fresh `work/{machine}/{today}` off main, not skipping the midnight suffix bump.
 
 ### Step 0 conflict handling — Branch Reconciliation Decision
 
@@ -69,39 +98,93 @@ Claude Code 2.1.x auto-creates per-dispatch worktrees under `<repo>/.claude/work
 Run the sweep in `--reap` mode to consolidate and remove:
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/agent-worktree-sweep.sh --reap --format text
+~/.claude/plugins/coordinator/bin/agent-worktree-sweep.sh --reap --format text
 ```
 
 Per-worktree disposition:
 - **`empty-clean`** (no commits ahead of the active branch, no dirty files) → removed silently.
 - **`commits-clean`** (commits ahead, no dirty files) → cherry-picked onto the active workstream branch (carries `COORDINATOR_OVERRIDE_BRANCH=1` for the off-daily hook), then removed. Cherry-pick conflict aborts the pick, leaves the worktree intact, exit 3.
-- **`dirty`** (uncommitted changes) → left alone. Almost always benign bystander dirt (e.g. `.claude/settings.local.json` permission auto-adds), but the EM does not auto-discard.
+- **`dirty-benign`** (uncommitted changes confined to the known auto-add allowlist: `.claude/settings.local.json`, `.last-cleanup`) → `git worktree remove --force`. This is the common "Claude Code permission auto-add" residue and discarding it is correct — the same file in the main worktree is authoritative.
+- **`dirty`** (anything outside the benign allowlist, including commits-ahead-AND-dirty) → left alone. EM must triage.
 
-**Surface in the Morning Briefing under a new `### Agent Worktrees` section** if anything other than `empty-clean → removed` was reported:
+**Surface in the Morning Briefing under a new `### Agent Worktrees` section** only when something other than `empty-clean → removed` / `dirty-benign → removed` happened. Pure benign-discard runs are silent — clearing residue is the point, not a reportable event.
 
 ```
 ### Agent Worktrees
-- [N] worktrees swept ([K] removed clean, [S] salvaged + removed, [D] dirty retained, [F] salvage-conflict).
+- [N] worktrees swept ([K] removed clean, [B] benign-dirty removed, [S] salvaged + removed, [D] dirty retained, [F] salvage-conflict).
 - Dirty retained: [list paths]. Inspect with `cd <path> && git status` and either commit, discard, or `git worktree remove --force` after triage.
 - Salvage-conflict: [list paths]. Cherry-pick stopped on a conflict; resolve manually or remove if the commits aren't worth recovering.
 ```
 
-If every worktree was clean (or none existed), omit the section.
+All-clean or all-benign-discarded runs omit the section entirely. **Do not** emit "dirty retained" lines under "probably benign" framing — if it were benign by the allowlist, the script removed it; outside the allowlist, the EM triages.
 
-**Why here, not Step 0.5:** Orphan-branch-sweep (Step 0.5) operates on user-owned `work/*` and `feature/*` branches — agent-isolation worktrees use ephemeral `worktree-agent-*` branches that don't match those patterns, so they're invisible to that pass.
+**Why here, not Step 0.5:** orphan-branch-sweep matches `work/*` / `feature/*`; agent worktrees use ephemeral `worktree-agent-*` branches invisible to that pass.
 
 ## Step 0.7: Consumed-Marker Frontmatter Sync
 
 Belt-and-suspenders against the most common handoff-frontmatter drift: EMs sometimes mark work shipped with an inline `<!-- consumed: YYYY-MM-DD [notes] -->` body marker but forget to flip `status:` / `deployment_state:` in frontmatter. Step 1's `query-records` calls read frontmatter as authoritative, so unflipped records surface in `ready_to_fire` queries and waste triage attention.
 
 ```bash
-node ~/.claude/plugins/coordinator-claude/coordinator/bin/normalize-consumed-frontmatter.js
+node ~/.claude/plugins/coordinator/bin/normalize-consumed-frontmatter.js
 ```
 
-The script is idempotent; prints a one-line no-drift notice to stderr when nothing changes. Each surfaced change line names the file and the field flips; if more than a handful surface, mention the count in the Morning Briefing — recurring drift is a doctrine signal worth surfacing to the PM (consider `coordinator:learn-lessons` if it recurs across days).
-<!-- Review: the Staff Engineer F6 — "silent on no-op" was inaccurate; the script writes "No drift" to stderr. Updated to accurate phrasing. Do not redirect stderr — the diagnostic has value when an EM debugs why nothing flipped. -->
+Idempotent; prints a one-line no-drift notice to stderr when nothing changes. Each change line names the file and the field flips; if more than a handful surface, mention the count — recurring drift is a doctrine signal worth surfacing to the PM (consider `coordinator:learn-lessons` if it recurs across days). Scans handoffs + plans + decisions + reviews. Strips `gate_dependency:` on flipped records (only meaningful while `awaiting_gate`); preserves terminal states (`status: superseded`, `deployment_state: abandoned`).
 
-Scans handoffs + plans + decisions + reviews. Also strips `gate_dependency:` on flipped records — the field is only meaningful while `deployment_state: awaiting_gate` and is stale noise once shipped. Terminal states (`status: superseded`, `deployment_state: abandoned`) are preserved.
+## Step 0.8: Stale-Executing Plan Nudge
+
+*Lesson 2026-05-16, project-rag — session-init orphan-sweep archives handoffs without running workstream-end ceremony.* When `session-init.sh` silently archives an orphaned handoff (consumed_by session died), the driving plan body in `docs/plans/` stays `status: executing` forever. Step 0.7 already flips frontmatter where consumed-markers exist; this step catches the inverse — plans whose handoff was silently archived without ceremony.
+
+```bash
+# Per-file WARN advisory — list plans with status: executing that have not been
+# touched (git mtime, not file mtime) in >3 days. Stale-executing is a strong
+# signal that the driving handoff was archived without ceremony, or that the
+# work shipped but no one updated the plan body. EM surfaces the list to the
+# PM in the Morning Briefing for a 30-second triage pass.
+stale_executing=$(
+  for plan in docs/plans/*.md; do
+    [[ -f "$plan" ]] || continue
+    awk '/^---$/{n++; next} n==1' "$plan" 2>/dev/null \
+      | grep -qE '^status:[[:space:]]*executing' || continue
+    last_commit=$(git log -1 --format=%ct -- "$plan" 2>/dev/null)
+    [[ -z "$last_commit" ]] && continue
+    now=$(date +%s)
+    age_days=$(( (now - last_commit) / 86400 ))
+    if [[ "$age_days" -gt 3 ]]; then
+      echo "  - $plan (status: executing, untouched ${age_days}d)"
+    fi
+  done
+)
+if [[ -n "$stale_executing" ]]; then
+  echo "---"
+  echo "Stale-executing plan advisory (status:executing untouched >3d — likely orphaned):"
+  echo "$stale_executing"
+  echo "Triage: flip to status:shipped + cite SHA, status:abandoned, or pick back up."
+  echo "---"
+fi
+```
+
+Advisory only — never blocks the ceremony. Recurring entries across multiple `/workday-start` runs are the doctrine signal.
+
+**Also read `tasks/orphan-sweep-notes.md` if present** — `session-init.sh` appends a line per orphan-archive event. Surface those alongside the stale-executing list in the Morning Briefing, then rotate the file:
+
+```bash
+# Header written by session-init.sh is 4 lines: title, blank, description, blank.
+# Threshold ">4" triggers display when at least 1 event line is present (5 lines).
+# tail offset matches the post-header start (line 5); rotation preserves the
+# full 4-line header so the next event lands on line 5 again (consistent shape
+# across rotation cycles).
+if [[ -f tasks/orphan-sweep-notes.md ]] && [[ $(wc -l < tasks/orphan-sweep-notes.md) -gt 4 ]]; then
+  echo "---"
+  echo "Orphan handoffs archived by session-init since last workday-start:"
+  tail -n +5 tasks/orphan-sweep-notes.md
+  echo "---"
+  # Rotate (preserve full 4-line header, clear event list)
+  head -n 4 tasks/orphan-sweep-notes.md > tasks/orphan-sweep-notes.md.new \
+    && mv tasks/orphan-sweep-notes.md.new tasks/orphan-sweep-notes.md
+fi
+```
+
+The list typically empty on most days; non-empty indicates concurrent sessions died mid-pickup overnight.
 
 ## Step 1: Handoff Triage
 
@@ -138,7 +221,7 @@ bin/query-records --type handoff \
 - **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
 - **If none exist:** skip silently.
 
-Threshold rationale: six days is roughly one working week. Long enough that a gate that hasn't cleared deserves a glance; short enough to catch drift before it ossifies. The prior 14-day threshold + only-emit-if-stale pattern buried gated handoffs that the PM needed for cross-workstream planning.
+Threshold rationale: six days ≈ one working week — long enough that an uncleared gate deserves a glance, short enough to catch drift before it ossifies.
 
 ### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
 
@@ -152,7 +235,7 @@ Read `archive/completed/YYYY-MM.md` (current month, plus previous month if withi
 
 _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {G} awaiting_gate (of which {M} >6 days) [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
 
-**Why query, not grep (doctrine reversal documented 2026-05-08, revised 2026-05-15):** the prior "surface everything, archive nothing" policy assumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Filtering to `ready_to_fire` for the primary actionable list remains correct; `awaiting_gate` items now surface as their own subsection (count always, list always when present) rather than hiding behind a staleness gate, so cross-workstream gate awareness reaches the PM.
+**Why query, not grep (doctrine reversal 2026-05-08, revised 2026-05-15):** `deployment_state` exists to obviate grep-walks. `ready_to_fire` for the primary list; `awaiting_gate` surfaces as its own subsection (count always, list when present) so cross-workstream gate awareness reaches the PM.
 
 ## Step 1.5: Coordinator-Improvement Queue Check
 
@@ -197,7 +280,7 @@ If no marker files exist, skip silently. Do not auto-execute the recheck procedu
 
 ## Step 1.7: Project-RAG Preamble Drift Check
 
-Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator-claude/coordinator/bin/verify-preamble-sync.sh`).
+Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-preamble-sync.sh`).
 
 - **If no consumers found** (script exits 0 with "no consumers found" message): skip silently.
 - **If all consumers OK** (exit 0, all lines show `OK`): skip silently.
@@ -235,9 +318,9 @@ Format:
 
 **If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently — the log is either empty or carries old, already-resolved entries.
 
-**Cross-repo extension (deferred):** the handoff that drove this section calls for scanning *all* coordinator-tracked repos, but no registry of tracked repos exists yet. V1 checks the current repo only. If a registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
+**Cross-repo extension (deferred):** V1 checks the current repo only. If a tracked-repos registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
 
-- **Last session-end review (informational):** if `tasks/review-trail/` has any records, surface the most recent one (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
+- **Last session-end review (informational):** if `tasks/review-trail/` has records, surface the most recent (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing where the un-reviewed gap begins.
 
 ## Step 2: Doc Freshness
 
@@ -297,10 +380,7 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
-**Skip silently** if `ToolSearch` does not find any `mcp__project-rag__*`
-tool. This is the same gate pattern used in Step (project-rag block) of
-`session-start.md` — coordinator does not depend on the project-rag plugin; it
-only adapts when the plugin is present. No warning emitted on skip.
+**Skip silently** if `ToolSearch` finds no `mcp__project-rag__*` tool — same gate pattern as `session-start.md`. Coordinator does not depend on project-rag; it only adapts when present.
 
 When present:
 
@@ -308,11 +388,9 @@ When present:
    ```bash
    python -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); print(d['mcpServers']['project-rag']['args'][-1])"
    ```
-   This returns the `--project-root` value passed to the MCP server boot.
+   Returns the `--project-root` value passed to the MCP server boot.
 
-2. Locate the project-rag plugin's cli.py. The path is recorded in
-   `~/.claude.json` → `mcpServers.project-rag.args` (the script path).
-   Use the same parse as step 1 to extract it.
+2. Locate the plugin's cli.py via `~/.claude.json` → `mcpServers.project-rag.args` (script path; same parse as step 1).
 
 3. Invoke the staleness survey:
    ```bash
@@ -332,19 +410,12 @@ the recommendation manually after `/workday-start` completes.
 Run the deterministic priority script and let it frame the opening surface:
 
 ```bash
-bash plugins/coordinator-claude/coordinator/bin/whats-next.sh
+bash plugins/coordinator/bin/whats-next.sh
 ```
 
-The script emits three sections: improvement-queue head (top 5 entries),
-`docs/project-tracker.md` rows with status Ready or Executing, and open
-handoffs (filename + line-1 heading). Use the output as-is — do not
-reconstruct it from prose. Frame the output for the PM in the Morning
-Briefing under § Priority Suggestions.
+The script emits three sections: improvement-queue head (top 5 entries), `docs/project-tracker.md` rows with status Ready or Executing, and open handoffs (filename + line-1 heading). Use as-is — frame for the PM under § Priority Suggestions; do not reconstruct from prose.
 
-**Reconcile active work against completed archive:** Read
-`archive/completed/YYYY-MM.md` (current month + previous month if within
-first 7 days). Cross-reference tracker Ready/Executing items and open
-handoffs against the completed archive:
+**Reconcile active work against completed archive:** Read `archive/completed/YYYY-MM.md` (current month + previous month if within first 7 days). Cross-reference tracker Ready/Executing items and open handoffs against the completed archive:
 - **Tracker items** marked Ready/Executing → do any match completed archive entries? Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
 - **Open handoffs** → do any appear in the archive as shipped? Flag the same way.
 - This is a **fuzzy match on names/descriptions**, not an exact ID join. When unsure, flag as "possible match — verify" rather than auto-resolving.
@@ -359,6 +430,9 @@ Present a concise morning report:
 
 **Date:** YYYY-MM-DD
 **Branch:** [current branch]
+
+### Branch Span Mismatch
+_(Omit this section entirely unless Step 0.45's `$SPAN_ASSERT_FAIL` was set. When present, render `$SPAN_ASSERT_MSG` verbatim — this is the loudest tripwire in the briefing and PM should see it first.)_
 
 ### Context Freshness
 - Handoffs: [N] actionable for today, [M] stale (flagged for /update-docs archival)

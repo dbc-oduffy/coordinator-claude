@@ -136,7 +136,7 @@ Dispatches missing the preamble are flagged as `rationale_present: false` by the
 
 ## 8. Telemetry
 
-`~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/track-tier-usage.sh` runs as a PostToolUse hook on every tool call matching `Read|Grep|Glob|Bash|Agent|mcp__.*`. It classifies each call into a tier and increments per-session counters persisted to:
+`~/.claude/plugins/coordinator/hooks/scripts/track-tier-usage.sh` runs as a PostToolUse hook on every tool call matching `Read|Grep|Glob|Bash|Agent|mcp__.*`. It classifies each call into a tier and increments per-session counters persisted to:
 
 ```
 ~/.claude/projects/<project-slug>/tier-usage/<session_id>.json

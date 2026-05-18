@@ -19,9 +19,9 @@ Tiered: start cheapest, escalate one step at a time, never skip. → `docs/wiki/
 
 **Tier-4 rationale rule (hard requirement).** Every `Agent` dispatch with `subagent_type` in `{Explore, general-purpose, deep-research:*, feature-dev:code-explorer}` MUST begin with:
 ```
-Tier 1-3 attempted: <what each returned>; insufficient because <reason>.
+Tier 1-3 attempted: <results, or spec+disposition paths for execution>; <why insufficient/applicable>.
 ```
-Telemetry hook flags missing preambles as `rationale_present: false`. Exceptions: reading a known file before editing; 1–2 call confirmation of a known symbol; dispatch overhead exceeds lookup.
+Exceptions: reading a known file before editing; 1–2 call confirmation of a known symbol; dispatch overhead exceeds lookup.
 
 **Spec backlinks outlive their cited spec.** Confirm file exists before quoting; check `archive/`.
 
@@ -30,6 +30,8 @@ Telemetry hook flags missing preambles as `rationale_present: false`. Exceptions
 ### Verifying Handoff Premises
 
 Handoff framing is hypothesis, not ground truth. Symptom timing and bug-layer attributions are observation, not diagnosis — read the cited code first. Snapshot-handoffs written DURING work paper over unverified state. Cleanup-recommendation premises age out of sync; grep call sites before deleting.
+
+**"Broken today" claims need HEAD verification before action.** Stale dogfood-run logs, predecessor-handoff carryover items, and bug-backlog entries can describe a broken state already fixed on branch. Before treating a cited failure as live work: `git log --oneline -- <cited-paths>` since the report's authoring date, then re-run the failing command on current HEAD. A "broken-today" framing that hasn't been re-verified is hypothesis, not signal — surfacing it to the PM as live wastes a question.
 
 ## Live Queries vs. Scaffolded Indices
 
@@ -51,22 +53,7 @@ Subagents see only their dispatch prompt — CLAUDE.md is invisible. Any rule go
 
 Conventions decay unless greppable from surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and ≥1 canonical artifact agents encounter.
 
-**Tripwire call-shape coverage.** Static-grep tripwires must enumerate every call shape: literal string, array form, kwarg-split, here-doc.
-
-**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`.
-
-**Tripwires** (full detail in linked wiki):
-
-- **the Staff Engineer UE block** (`staff-eng.md`): gated on `project_type: game-dev` AND `project_subtypes` contains `unreal`; names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`).
-- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz`, `/dogfood` carry inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
-- **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, siblings.
-- **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
-- **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, orthogonal lenses, no-rewrite synthesizer. Skill: `coordinator:parallel-code-review`. Surface: `/workweek-complete` Step 7 only.
-- **Prior-art-checker pre-flight:** Sonnet recall agent cross-references plan vs. project/global wikis, lessons, central queue. Sidecar at `<plan-path>.prior-art-check.md`. → `docs/wiki/prior-art-checker.md`.
-- **Registry-self-read in prior-art-checker bootstrap:** agent reads `~/.claude/tasks/repo-registry.md` on every dispatch, resolves `pwd` → active shortname, walks the relationships graph for auto-discovery. EM does not pass `peer_repos:` in the common case. Contact-points: `agents/prior-art-checker.md` (bootstrap Phase 0), `docs/wiki/repo-registry.md` (schema + discovery channels + caps), `~/.claude/tasks/repo-registry.md` (data file). → `docs/wiki/repo-registry.md`.
-- **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no programmatic consumers.
-- **Daily-branch discipline:** → `docs/wiki/daily-branch-discipline.md`. Hook `block-off-daily-branch.sh` blocks create/switch/rename/stash-branch/worktree-add (override `COORDINATOR_OVERRIDE_BRANCH=1`). Inline-override: `/workday-start`, `/merge-to-main`, `/consolidate-git`. `/bug-blitz` and `/dogfood` fail-closed-only.
-- **Working wiki canonical layout:** Coordinator doctrine wikis live at repo top-level `docs/wiki/<name>.md` (post 2026-05-17 layout move). The published plugin's bundled copy at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` is stale leftover from before the move; not actively maintained. Prior wiki-mirror hook (`block-dev-side-mirror-wiki.sh`) retired — invariant inverted by the move.
+**Tripwires registry → `docs/wiki/coordinator-tripwires.md`.** When adding a new tripwire (hook, agent-prompt rule, override env var): register there AND update the relevant agent / hook / skill in the same commit. Active hooks at this time: `block-off-daily-branch.sh`, `block-dev-side-mirror-wiki.sh`, `block-unauthorized-handoff.sh`, `nudge-improvement-queue-write.sh`. Override env vars are documented per-tripwire in the wiki. Static-grep tripwires must enumerate every call shape (literal, array, kwarg-split, here-doc) — see the wiki's call-shape-coverage section. Snippet-sync flow (edit `snippets/<name>.md` → run `bin/verify-<name>-sync.sh --fix` → commit all touched together) also in the wiki. Two static-grep tripwires added 2026-05-18: **swappable-sink-check** (SWAPPABLE-SINK-CHECK — contact-points `/merge-to-main`, `/session-end`); **cross-repo-halves-check** (CROSS-REPO-HALVES-CHECK — contact-points `/handoff`, `/workday-complete`). Full detail in wiki.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -85,6 +72,7 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 - **Write fallback (Sonnet permission errors):** `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
 - **Size threshold:** 1–2KB when brief expected order-of-magnitude larger = summary masquerading as deliverable.
 - **Verify worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`, e.g. `Explore`) produce inline "failures" that aren't TEXT-ONLY hallucination — accept inline and persist EM-side, or escalate to `general-purpose` Sonnet.
+- **Haiku TEXT-ONLY hallucination on a write-capable worker: escalate or self-execute, don't redispatch.** *2026-05-18, claude-unreal-holodeck.* When a Haiku worker WITH `Write` in its tool surface still returns inline text and never writes the file, redispatching at Haiku is the wrong recovery — empirically the second Haiku hallucinates the same way ~30% of the time, and even when it writes, the deliverable bears the hallmarks of the first reply rather than a fresh read. Correct recoveries: (a) persist the inline text EM-side via `Bash` `node -e "require('fs').writeFileSync(...)"` if the inline content is salvageable; (b) escalate to Sonnet for a fresh run if the inline content is incomplete or suspect. Re-Haiku-on-the-same-prompt is the wrong shape — the hallucination signal predicts recurrence, not transience.
 - **Worktree-isolated subagents honor literal absolute paths in Write calls.** A scout dispatched with worktree isolation that writes to an absolute path lands the file in the main project tree, not the worktree. Either pass relative paths or expect main-tree writes; verify with `ls` post-completion.
 - **Resumed worktree agents can re-fire post-completion with hallucinated TEXT-ONLY runs.** Disk-first verification is load-bearing — a "DONE" reply from a resumed worktree agent does not mean the file was written this run. `ls -la`/size before accepting.
 
@@ -99,6 +87,7 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 ## Roster Doctrine
 
 - **Workers > personas.** Default new agents to unnamed Sonnet workers. Personas earn names only when *judgment* is the value.
+- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering) are Opus-only. → `agents/code-reviewer.md`.
 - **Distributed abstention, centralized routing.** Each agent abstains on fit-mismatch. One read-only orchestrator owns the routing table; no domain agent names other agents in its prompt.
 
 ## Verifying Executor Output After a Crash or Timeout
@@ -114,6 +103,8 @@ Files written before failure persist — partial output is the common case. When
 **Test files written by a killed executor must be RUN, not just read.** Latent bugs cluster at imports, fixture return shapes, helper assertions.
 
 **Apply-agent stall recovery: redispatch vs resume differs on disk, not in chat.** `git diff --stat` + `git log --oneline -- <expected-paths>`: substantive work → `SendMessage`; zero tool-use → redispatch.
+
+**Constraint-adherence verification applies to every executor return, not just failures.** Spot-check immutable paths (sidecars, plan/handoff frontmatter, `.claude/settings.json`, archive files); `git checkout HEAD -- <paths>` to revert out-of-scope edits before the work commit, name reverted paths in commit msg.
 
 ## Executor Dispatch Mode
 
@@ -159,6 +150,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 - **Audit symptom is correct; locus may be wrong.** Verify producer code before accepting the audit's proposed fix-locus.
 - **6-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All green or stop.
 - **Re-run mechanical pre-flights after material plan amendments.** path-scout, prior-art, docs-checker findings age if the plan changes between review and integration; re-run before the next reviewer.
+- **Reviewer rationale must discriminate between the chosen shape and its alternatives.** When a reviewer accepts a design decision with a rationale that's equally true of the rejected alternative (e.g., "PersistentClient needs a directory" — true of both old and new directory layouts), the review ratified a non-decision. Test: *what about the rationale would change if we picked the opposite shape?* If "nothing", re-decide explicitly or flag deferred — the apparent approval is non-load-bearing. _See `docs/wiki/writing-plans.md` § Substrate-Migration Sequencing for the layout-decision case where this empirically bit._
 
 ## Self-Improvement Loop
 
@@ -213,6 +205,7 @@ Predecessor is **whatever handoff this session was opened with — period** (the
 - **Spinoffs are forks, not continuations.** Frontmatter: `kind: spinoff` or `kind: spinoff-roadmap`, `predecessor: none`, `authoring_session`, `workstream`, `deployment_state: ready_to_fire`. Author via `/spinoff <slug>` or `coordinator:roadmap-planning`.
 - **Spinoffs are PM-authorized only, per topic.** EM-identified candidates surface as `Candidate spinoff: <slug> — <topic>. Authorize?` and block. Autonomous callers surface a candidate list, not authored files. Gate: `skills/spinoff/SKILL.md` Step 0.
 - **Handoffs are checkpoints, not workstream-endings.** Either a mid-workstream save forced by context pressure, or a starting point for intended work (spinoff, recovery). Not a "tidy stopping point" — if the session can act, act. Shipped work ends via `/workday-complete`, `/merge-to-main`, or commit-and-stop.
+- **`/handoff` and `/session-end` are mutually exclusive.** `/session-end` caps a done workstream; `/handoff` passes an in-flight one. Pick exactly one. "Wrap with /session-end + handoff" is a doctrine violation — if there are two workstreams, close each separately, naming which is which.
 
 ## Documentation and Knowledge System
 
@@ -229,7 +222,7 @@ Predecessor is **whatever handoff this session was opened with — period** (the
 
 **Memory is for cross-session pointers, not decision content.** Decisions/frameworks/strategies belong in plans/wikis/DRs.
 
-**Coordinator doctrine wikis.** Live at repo top-level `docs/wiki/<name>.md` (canonical post 2026-05-17 layout move). Plugin files cite `docs/wiki/<name>.md` as a prose reference — agents resolve against the active project's wiki directory at read time. Consumer projects keep their own wikis at `~/.claude/docs/wiki/` (user-level cross-project notes, distinct from coordinator doctrine). The published plugin at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/` carries a stale snapshot from before the move; not actively maintained per PM-accepted tradeoff (percolation does not actively push wikis). See `docs/plans/2026-05-17-prior-art-auto-discovery-and-registry-fix.md` § Stage 1.5.
+**Plugin-bundled wikis.** When a plugin file cites a wiki guide, the wiki MUST live at `<plugin-root>/docs/wiki/<name>.md`. References use `docs/wiki/<name>.md` relative to plugin root. Project-level wikis stay in consumer's `~/.claude/docs/wiki/`. Validate: `bin/sync-plugin-wiki.sh`. Never both — dev-side mirrors of plugin-doctrine wikis re-introduce the write-direction trap.
 
 ## Verification Before Done
 
@@ -237,7 +230,7 @@ Never mark complete without proving it works — run tests, check logs. Verify a
 
 **"Shipped" means on `origin/main`, not on a branch tip.** Run `bin/check-shipped-on-main.sh <commit>` before asserting shipped. PR-merged-from-this-branch is shipping IFF no further commits landed on source branch after merge.
 
-Concurrent sweeps silently overwrite edits — verify parallel work via `git log -p`, not chat. Tool self-health checks lie — smoke tests prove dispatch, not useful results. Producer/consumer schemas need round-trip tests. Iteration-debugging signal is failure-mode shift, not failure count. Green unit tests aren't runtime-readiness for HTTP apps unless tests import the app. → `docs/wiki/round-trip-contract-tests.md`. UE plugin work touching `control/plugin/**/Source/**/*.{cpp,h}`: build gate `bin/check-ubt-build-fresh.sh` (invoked from `/session-end` Step 2.9, `/workday-complete` Step 1 UBT preamble, `/workweek-complete` Step 4c).
+Concurrent sweeps silently overwrite edits — verify parallel work via `git log -p`, not chat. Tool self-health checks lie; smoke tests prove dispatch, not useful results. Green unit tests aren't runtime-readiness for HTTP apps unless tests import the app. → `docs/wiki/round-trip-contract-tests.md` + `docs/wiki/test-design-discipline.md` (rules 7, 16 cover iteration-debugging and real-shell semantics). UE plugin work in `control/plugin/**/Source/**/*.{cpp,h}` runs `bin/check-ubt-build-fresh.sh` at `/session-end`, `/workday-complete`, `/workweek-complete`.
 
 ## Build For Someone Else's Machine
 
@@ -257,6 +250,7 @@ Default: code runs on a machine you've never seen. Path resolution: explicit fla
 ## Review Sequencing
 
 - **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.
+- **Pre-flight sidecars are not a sequential reviewer.** docs-checker, prior-art-checker, and external-pattern-checker write sidecars consumed alongside the plan; they do not trigger an integrator pass between themselves and the first named reviewer. docs-checker AUTO-FIX corrections land inline per its own contract. prior-art-checker sidecars travel with the artifact — the Opus reviewer's judgment is what we want shaping direction-of-correction on Conflicts (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`); EM pre-disposition in the dispatch brief is optional, not required, and a reviewer recommendation that disagrees with an EM pre-disposition escalates as ASK per `agents/review-integrator.md § Prior-Art Conflict Resolution`. Integration of prior-art-side edits happens in the post-reviewer integrator pass, not before.
 - **Exception — merge-gate code review on frozen diff:** When (a) artifact is a frozen diff at a merge boundary, (b) all reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses combined output, reviewers MAY run in parallel. Plan/stub/doc review remains sequential.
 - **After every review, dispatch the review-integrator — do not integrate manually.** EM reviews escalation list, spot-checks diff. Exceptions to full integration: items needing PM input or genuine disagreement.
 - **Cross-session reviews converge on one canonical artifact.** When superseding, dispatch integrator with loser's findings + winner-target.
@@ -264,7 +258,8 @@ Default: code runs on a machine you've never seen. Path resolution: explicit fla
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
 - **Two-pipeline review on shared artifacts** combines per-stub depth (the Staff Engineer on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
-- **Session-end review and marker trail.** `/session-end` and `/handoff` consider Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on diff before commit. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow the Staff Engineer's scope. → `docs/wiki/session-end-review.md`.
+- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; the Staff Engineer escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow the Staff Engineer's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
+- **Personas run at Opus only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
 
 ## Synthesis Discipline
 
@@ -297,7 +292,8 @@ Tradeoff-free correctness fixes (wrong API name, precedence, factual error, miss
 Two Sonnet pre-flights before an Opus reviewer — different questions, not substitutes:
 
 - **`docs-checker`** — verifies external API claims against authoritative sources (Context7, LSP, project-RAG). AUTO-FIX authority for low-judgment corrections, sidecar-logged. → `docs/wiki/docs-checker-pre-review.md`.
-- **`prior-art-checker`** — cross-references plan claims against prior art (project/global wikis, lessons, central queue, peer-repo wikis). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. **Registry-driven auto-discovery (default 2026-05-17):** agent resolves `pwd` → active shortname in `~/.claude/tasks/repo-registry.md`, walks the relationships graph bidirectionally (edges always-consulted), and adds up to 2 `stack_tags`-overlap peers. Combined ceiling 5 → DEGRADED. EM does NOT need to pass `peer_repos:` for the common case. Override: `peer_repos: [shortname, ...]` AUGMENTS auto-discovery by default (fail-loud); `peer_repos_mode: replace` for precise-control override (silent-drop risk; reserve for cases requiring exact corpus). → `docs/wiki/prior-art-checker.md`. Registry schema: `docs/wiki/repo-registry.md`.
+- **`prior-art-checker`** — cross-references plan claims against prior art (project/global wikis, lessons, central queue, optional peer-repo wikis). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. Optional `peer_repos:` block (≤2) expands to 5th corpus via `stack_tags` in `~/.claude/tasks/repo-registry.md`; >2 → DEGRADED. → `docs/wiki/prior-art-checker.md`. Registry: `docs/wiki/repo-registry.md`.
+- **`plan-coverage-checker`** — verifies the plan's fix slate covers its own audit/found-facts oracle, flags appetite-based hedges, and checks in-repo substrate citations against disk. REPORT-ONLY; sidecar with Missed / Ambiguous / Weak-OOS / Hedges / Substrate-drift buckets + verdict. **Trigger is skill-internal — no EM Decision Step table, no opt-out.** Unlike docs-checker (EM-discretion table) and prior-art-checker (silent skip), plan-coverage-checker runs unconditionally on any plan with an oracle table; empirical motivation is that EM confidence is exactly the failure mode (36/9/4 miss rate on a confident EM plan, 2026-05-18). **Fold posture also diverges from prior-art-checker:** INCOMPLETE findings fold BEFORE named-reviewer dispatch (not after), because coverage gaps have three EM-mechanical resolutions (add-to-slate / architectural-OOS / oracle-was-wrong) that don't benefit from reviewer judgment the way prior-art Conflicts do. BLOCKED-SURFACE-TO-PM halts review. → `docs/wiki/plan-coverage-checker.md`.
 
 ## Convergence as Confidence
 

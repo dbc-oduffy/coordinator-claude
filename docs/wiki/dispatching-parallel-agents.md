@@ -3,9 +3,9 @@ title: Dispatching parallel agents
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator/CLAUDE.md
   - docs/wiki/delegate-execution.md
-  - plugins/coordinator-claude/coordinator/commands/mise-en-place.md
+  - plugins/coordinator/commands/mise-en-place.md
 ---
 
 # Dispatching Parallel Agents

@@ -29,8 +29,11 @@ Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK.
 
 **Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant from disk, the executor MUST `ls` / `Read` the cited path before proceeding — defense-in-depth, the cited file may have moved or churned between review-time and dispatch-time.
 
+**Review-staleness pre-flight.** Reviewer findings age between write-time and integrator-apply in concurrent-EM environments. Before integrator dispatch, the EM re-verifies named paths and shape claims against current HEAD; if substrate has shifted, brief the drift in the integrator dispatch prompt explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
+
 **SSOT claims have a scope.** Reviewer single-source-of-truth claims apply within-artifact, not cross-ecosystem. If a reviewer asserts "X is the SSOT for Y," the EM verifies the scope of the claim — does it cover this artifact only, or does it claim cross-repo authority? Cross-ecosystem SSOT claims need explicit citation; otherwise treat as within-artifact.
 
 **False-positive patterns to suppress.**
 
 - `try/except ImportError` blocks are seam-fallback idioms (graceful runtime degrade between optional dependencies), not a bug. Reviewers should not flag these unless the fallback path is unsound.
+- Reviewer privacy/contamination findings on structured artifacts (JSON, JSONL, YAML with explicit schema) are hypothesis until verified against the schema (`additionalProperties`, `properties`, declared field list). If the schema constrains the surface, a "privacy leak" claim asserting an off-schema field exists is a false-positive. Verify the schema before scoping fix work.

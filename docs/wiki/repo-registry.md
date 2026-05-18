@@ -198,6 +198,6 @@ Not in V2. When a future need arises (e.g., a security-sensitive repo declining 
 
 - `~/.claude/tasks/repo-registry.md` — the registry file itself
 - `${CLAUDE_PLUGIN_ROOT}/bin/decode-claude-projects-dir.sh` — projects-dir decoder used by Phase 14 (bundled with the coordinator plugin)
-- `~/.claude/plugins/coordinator-claude/coordinator/agents/prior-art-checker.md` — peer_repos consumer
-- `~/.claude/plugins/coordinator-claude/coordinator/commands/update-docs.md` — Phase 14 host
-- `~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md` § Pre-Review Mechanical Verification — EM dispatch heuristic doctrine
+- `~/.claude/plugins/coordinator/agents/prior-art-checker.md` — peer_repos consumer
+- `~/.claude/plugins/coordinator/commands/update-docs.md` — Phase 14 host
+- `~/.claude/plugins/coordinator/CLAUDE.md` § Pre-Review Mechanical Verification — EM dispatch heuristic doctrine

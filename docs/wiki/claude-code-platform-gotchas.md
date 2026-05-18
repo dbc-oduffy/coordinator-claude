@@ -20,7 +20,7 @@ case "$model" in
 esac
 ```
 
-Source: `plugins/coordinator-claude/coordinator/hooks/scripts/context-pressure-advisory.sh`.
+Source: `plugins/coordinator/hooks/scripts/context-pressure-advisory.sh`.
 
 ### PreCompact fires without real shrink on subagent-result integration
 

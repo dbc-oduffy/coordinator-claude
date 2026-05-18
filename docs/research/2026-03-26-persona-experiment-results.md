@@ -78,7 +78,7 @@ Similarly, the Phase 1 agents in `/code-health` scan for patterns mechanically. 
 
 ### Where we DO use personas: review and planning
 
-The coordinator's personas (Patrik, Sid, Camelia, Fru, Pali, Zoli) are used in two contexts:
+The coordinator's personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the UX Reviewer, Pali, Zoli) are used in two contexts:
 
 1. **`/review-dispatch`** — Quality-gating artifacts (plans, code changes, enriched stubs). The reviewer examines a known artifact and provides structured feedback. This is a judgment task, not a detection task.
 
@@ -90,7 +90,7 @@ The next experiment to run is **structured disagreement** — does debate betwee
 
 ### Concrete change made
 
-Removed "Assume the code has defects. A review finding no issues is almost certainly incomplete." from the Patrik (staff-eng) agent prompt. This priming was the most likely cause of the false positive increase and provides no detection benefit.
+Removed "Assume the code has defects. A review finding no issues is almost certainly incomplete." from the Staff Engineer (staff-eng) agent prompt. This priming was the most likely cause of the false positive increase and provides no detection benefit.
 
 ---
 

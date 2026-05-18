@@ -94,7 +94,7 @@ If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) a
 
 Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
 
-**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
+**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
 **Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
@@ -108,6 +108,14 @@ Capture these as part of the Phase 1 profile. If `coordinator.local.md` already 
 ### Phase 1.5: INVESTIGATE — Read substrate, draft proposals
 
 Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no top-level manifest).
+
+**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold:
+
+- **1.5a:** Read project root `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present.
+- **1.5b:** If `tasks/handoffs/` exists, scan the most-recent 5 handoffs for stack/tooling clues.
+- **1.5c:** Peer-repo scout — if `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
+- Output: a 5–10 line "onboarding substrate snapshot" (toolchain, active workstreams, known conventions, sibling-repo context) to scratch before Phase 2.
+- Onboard from substrate before asking the PM; cold-ask is the fallback when substrate is empty.
 
 Otherwise:
 
@@ -358,7 +366,7 @@ cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/bash
 # Auto-push to remote on work/* or feature/* branches — crash insurance.
 # Delegates to coordinator-auto-push helper.
-exec "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push"
+exec "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
 HOOK
 chmod +x .git/hooks/post-commit
 ```
@@ -367,7 +375,7 @@ If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the e
 
 ```bash
 # === Auto-push (crash insurance) ===
-( "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push" ) &
+( "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push" ) &
 exit 0
 ```
 

@@ -54,7 +54,7 @@ mkdir -p "$SESSIONS_DIR" 2>/dev/null || exit 0
 
 # --- Source the lib and call cs_init for proper session-dir setup ---
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
-[[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+[[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
 
 if [[ -f "$LIB_PATH" ]]; then
   # shellcheck source=/dev/null
@@ -99,7 +99,7 @@ echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
 # coverage" rule, raw grep misses quoted/whitespace variants. query-records uses
 # the schema parser.
 
-QR="${HOME}/.claude/plugins/coordinator-claude/coordinator/bin/query-records.js"
+QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
 if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
   # Find all consumed handoffs still in tasks/handoffs/
   consumed_paths=$(node "$QR" --type handoff --where "status=consumed" --format paths --root "$GIT_ROOT" 2>/dev/null || true)
@@ -200,6 +200,21 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
       # Ensure the content modification at the new path is staged
       # (git mv stages the rename; modified content may need an explicit add)
       git -C "$GIT_ROOT" add "archive/handoffs/${fname}" 2>/dev/null || true
+
+      # Per-archive WARN marker — workday-start Step 0.8 consumes this list to
+      # surface stale-executing plans whose driving handoff was archived without
+      # ceremony. The marker is append-only; workday-start rotates it after read.
+      # Spec backlink: tasks/coordinator-improvement-queue.md (2026-05-16, session-init
+      # orphan-sweep workstream-end ceremony).
+      marker_dir="${GIT_ROOT}/tasks"
+      mkdir -p "$marker_dir" 2>/dev/null || true
+      marker_file="${marker_dir}/orphan-sweep-notes.md"
+      if [ ! -f "$marker_file" ]; then
+        printf '# Orphan sweep notes\n\nArchive events from session-init.sh. /workday-start Step 0.8 reads and rotates.\n\n' > "$marker_file"
+      fi
+      printf -- '- %s | archived %s (consumed_by=%s, deployment_state flipped to abandoned)\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$fname" "$consumed_sid" >> "$marker_file"
+      git -C "$GIT_ROOT" add "tasks/orphan-sweep-notes.md" 2>/dev/null || true
     done <<< "$consumed_paths"
 
     # Commit any moved files (only if git has staged changes from the mv above)

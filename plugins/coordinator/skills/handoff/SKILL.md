@@ -14,6 +14,8 @@ Capture the current session state so future sessions (or other agents) can pick 
 > **Continuation vs. fork.** This skill writes a *continuation* handoff — work the current session was doing that someone (often you, next session) will resume. To carve off a *different* mid-session topic for someone else to pick up cold, use `/spinoff` instead — that produces `kind: spinoff`, `predecessor: none` handoffs, designed for fork rather than continuation.
 >
 > **Recovery flavor.** If you are writing this handoff to resume from a crash, kill, or other unclean termination of a prior session — not a clean stopping point — set `kind: recovery` in frontmatter. Point `predecessor:` at the crashed handoff or its last commit SHA when known; null is permitted when no recoverable predecessor exists. Recovery handoffs follow the standard continuation lifecycle (deployment_state, /pickup flow, archival); the tag exists so `/workday-start` surfaces them with a `(recovery)` marker and so the audit trail distinguishes crash-driven continuations from deliberate ones.
+>
+> **Recovery-flavor crash-rescue sweep (required when `kind: recovery`).** Before exiting the recovery handoff write, sweep ALL files in `tasks/handoffs/` for gate/state that the crash may have invalidated. The crash that motivated this recovery handoff likely also broke premises in concurrent or downstream handoffs: an `awaiting_gate: <X>` where X was the crashed work; an `in_flight` handoff whose source branch the crash left in an unknown state; a `ready_to_fire` next-step that assumed the crashed work had landed. For each affected sibling: edit the body inline with a one-line crash-invalidation note (`**Crash-invalidated <YYYY-MM-DD>:** <one-line>`) and flip `deployment_state` if needed (most commonly `ready_to_fire` → `awaiting_gate` with `gate_dependency: recovery from <this-handoff-slug>`). Authoring only the new rescue handoff while leaving stale siblings as live work strands the next session on a false premise. Skip the sweep only if the crashed work is a leaf with no concurrent or downstream handoffs — confirm by grep, not by recall. Specific grep targets: search `tasks/handoffs/*.md` and `docs/plans/*.md` for (a) the crashed handoff's filename slug, (b) the crashed session's branch name (`work/{machine}/{date}` shape), (c) the crashed workstream name from its frontmatter `workstream:` field, and (d) any `gate_dependency:` value naming the crashed work. Zero hits across all four = leaf, sweep may be skipped. Any hit = read that file before declaring the rescue handoff complete.
 
 ## Instructions
 
@@ -47,6 +49,8 @@ If none of these hold, STOP. Take the next action in this session instead. "Plan
 - The work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
 - All in-flight chunks of the active plan have landed and the plan doc is marked complete.
 - **Plan is reviewed/approved but the executor hasn't been dispatched yet in this session.** A reviewed plan is scaffolding, not a deliverable — the next action belongs in *this* session (dispatch the executor), not in a successor's. Framing the session as winding down at plan-approval inverts the doctrine: plans exist to produce executed code. If acceptance criteria are still empirically unverified and no executor has run, STOP — dispatch, don't hand off. Handoff is legitimate only after the executor has run and there is genuine in-progress executor/integrator/test work for a successor to resume.
+- **You are also planning to invoke `/session-end` for this same workstream.** `/handoff` and `/session-end` are mutually exclusive — never combined. `/session-end` caps a workstream that is *done*; `/handoff` passes an *in-flight* workstream to a successor. The same workstream cannot be both. If the work is finished, STOP and run `/session-end` alone. If it is in-flight, run `/handoff` alone — `/session-end` will not also run on this workstream. If you genuinely have two workstreams (one finished, one in-flight), end the finished one with `/session-end` *separately*, naming it explicitly, then write the in-flight handoff here for the other one — never bundle the two surfaces in one closing motion.
+- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/session-end` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `tasks/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
 
 ### YES-tests — only consulted if all NO-tests fail
 
@@ -110,8 +114,8 @@ reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
                                     # OPTIONAL. Written by /session-end (Step 2.8) or
                                     # /handoff (Step 2.X) after running coordinator:review-code
                                     # on this session's diff. Format: "<sha-range> <reviewer>
-                                    # <YYYY-MM-DD>" — e.g. "abc123..def456 sonnet 2026-05-08".
-                                    # reviewer is one of: sonnet | patrik | sonnet+patrik | waived.
+                                    # <YYYY-MM-DD>" — e.g. "abc123..def456 code-reviewer 2026-05-18".
+                                    # reviewer is one of: code-reviewer | patrik | code-reviewer+patrik | waived.
                                     # Omit on spinoffs (kind: spinoff / spinoff-roadmap) — the
                                     # field applies to continuation handoffs only.
 ---
@@ -221,7 +225,17 @@ If the project uses a compiled language with a running IDE or editor (e.g., Unre
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
 
-1. **Orientation cache** (`tasks/orientation_cache.md`): If it exists, patch sections affected by this session's work (Active Workstreams, Health Snapshot, Doc Freshness with current HEAD). Don't regenerate — just patch what changed. Skip if cache doesn't exist.
+1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections.** `/handoff` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append (one line, overwrite-or-omit). The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`).
+
+   **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
+
+   ```bash
+   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+       --invoker handoff \
+       --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
+   ```
+
+   Otherwise do nothing — the handoff body is where pickup-state lives, not the cache. The pinboard is cleared at the next ceremony regen. Skip if cache doesn't exist.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows.
 
@@ -241,7 +255,7 @@ reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
 ```
 Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the optional schema field added in `schemas/handoff.yaml`). Add this field to the frontmatter block written in Step 1.
 
-**Edge case (PM-flagged):** when `/handoff` is written because the EM is bailing on a workstream they don't want to finish, the successor benefits from a Sonnet review of what landed. Treat the bailing case the same as any other non-trivial handoff — the diff-shape table determines the scale.
+**Edge case (PM-flagged):** when `/handoff` is written because the EM is bailing on a workstream they don't want to finish, the successor benefits from a `code-reviewer` pass on what landed. Treat the bailing case the same as any other non-trivial handoff — the diff-shape table determines the scale.
 
 **Staging discipline:** any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`.
 
@@ -273,7 +287,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
+3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 
@@ -282,7 +296,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 
@@ -305,6 +319,15 @@ Remind the user:
 - Keep it concise — aim for under 50 lines. The next session will also have MEMORY.md and project context.
 - Focus on state that MEMORY.md doesn't capture: in-progress work, blockers, uncommitted changes
 - If the user provides arguments (e.g., `/handoff focus on auth refactor`), incorporate that context
+- **Cross-repo communication is not a handoff use-case.** Telling another repo's EM something routes through the PM as relay (copy-paste in chat, or `archive/cross-repo/<topic>.md` link for big briefs). See `docs/wiki/cross-repo-communication.md`.
 - **Cleanup:** During `/handoff`, archive the predecessor after carrying forward its unresolved items. General handoff archiving (48-hour sweep) is handled by `/update-docs` — no broader sweep here.
 - **Active vs archived:** Active handoffs live in `tasks/handoffs/` (available for pickup). Archived handoffs live in `archive/handoffs/` (paper trail). Both are git-tracked.
 - **User context:** If `$ARGUMENTS` is provided (e.g., `/handoff focus on auth refactor`), incorporate that context into the handoff's "In-Progress Work" and "Recommended Next Steps" sections.
+
+### Crash-Rescue Checklist
+
+When writing a recovery handoff after a crash or unclean termination:
+
+**Sweep all live handoffs for gate/state invalidation.** Do not only author the new rescue handoff. For each existing handoff in `tasks/handoffs/` with `deployment_state` in `{ready_to_fire, in_flight, awaiting_gate}`, re-verify the gate predicate and stated substrate against current HEAD. Update frontmatter or add a comment block for any entry whose gate has cleared, whose substrate has changed, or whose stated in-progress state is now inconsistent with the branch.
+
+**Enumerate dirty/untracked files AND `git reflog` across all sibling repos under the same machine.** Cross-repo concurrent crashes leave fragments in N repos; stopping at the most-recent handoff misses N-1 crash sites. For each sibling repo in `~/.claude/tasks/repo-registry.md` that shares `stack_tags` or was in-flight this session, run `git status` and `git reflog --since="2 hours ago"` to surface uncommitted fragments.

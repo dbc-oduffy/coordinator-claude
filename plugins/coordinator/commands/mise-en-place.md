@@ -241,7 +241,7 @@ rm -f /tmp/autonomous-run-${SESSION_ID}
 Every /mise run ends with at minimum a Sonnet code review of the run's cumulative diff. Per-item Haiku verifiers check footprint + AC compliance; they do NOT replace a real review pass. Dispatch this BEFORE the tracker sweep and BEFORE the tail action (standard or hibernate) so findings can be addressed while the EM is still on the branch.
 
 1. Compute the run's cumulative diff range — first commit SHA of the run through HEAD (the goal task records the starting SHA; if missing, use `git log --oneline` to identify the boundary).
-2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (or, if invoking inline, `Agent` with `subagent_type: "coordinator:staff-eng"` for a generalist pass — escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per session-end review doctrine).
+2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (or, if invoking inline, `Agent` with `subagent_type: "coordinator:code-reviewer"` for a Sonnet-tier obsessive review — escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per session-end review doctrine).
 3. Persist the review record to `tasks/review-trail/<timestamp>-mise-<run-id>.json` per `docs/wiki/session-end-review.md`.
 4. **Integrate ALL findings before the tail fires. No deferred nitpicks. No deferred P3. No deferred P2. No "follow-up session."** The review fired because the work is happening *now*; the run is not done until the diff is clean. Dispatch the review-integrator (`mode: "acceptEdits"`) on the full findings list — every severity, including style nitpicks. Integrator commits land on the same branch via plain git (`git add -- <paths> && git commit -m "<subject>" -- <paths>`, SC-DR-008). Per global CLAUDE.md ("Acting on review findings"), the EM ensures *all* findings get implemented, not just P0s, and does not offer the PM a "defer to follow-up" path.
 5. **Re-review gate.** After the integrator returns, re-dispatch the same reviewer on the post-integration cumulative diff to confirm the findings are resolved and integration didn't introduce new issues. Loop integrator + re-review until the reviewer returns clean (zero findings of any severity), or until two integration passes fail to converge — at which point treat as a structural failure under "When to Stop" and surface to the PM. Persist each iteration's record to `tasks/review-trail/`.
@@ -262,7 +262,7 @@ Verify that ALL canonical trackers reflect the run's outcomes — this is the EM
 1. Done. Per-wave commits already pushed. The PM runs `/update-docs` (and later `/workday-complete` or `/merge-to-main`) separately when ready to integrate. Rationale: `/update-docs` now absorbs the tracker-maintenance, handoff-archival, and atlas-integrity-check subroutines inline, making it a heavier operation than it was when /mise tailed it automatically. PM-gated invocation is the right shape.
 
 **Hibernate:**
-1. Verify push: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null` should be empty for all session work
+1. Verify push: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null` should be empty for all session work
 2. If unpushed commits remain, push explicitly. If push fails, do NOT hibernate — stop and report.
 3. Hibernate the machine:
 

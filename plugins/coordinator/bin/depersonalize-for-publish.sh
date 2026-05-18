@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# depersonalize-for-publish.sh — scan or rewrite files to strip persona display
-# names (Patrik, Sid, Camelia, Palí, Fru, Zolí, YK) and identity vocabulary
-# (PM name forms, private GitHub org slugs) in favor of role labels and
-# canonical public identifiers.
+# depersonalize-for-publish.sh — scan or rewrite files to normalize meta-repo
+# content for publish: strip persona display names, rewrite dev-tree plugin
+# paths to publish-tree form, substitute identity vocabulary.
 #
 # Use case: percolating files from the meta-repo (`~/.claude/`) to the publish
 # repo (`X:/coordinator-claude` or any open-source consumer mirror). Persona
 # names and PM-identity strings live in the meta-repo where they were authored;
-# the publish repo's canonical layer must ship nameless. This script is the
-# meta-repo-side pre-percolation gate that pairs with
-# `.github/scripts/check-persona-names.py` in the publish repo.
+# the publish repo's canonical layer must ship nameless. Dev-tree plugin paths
+# (`plugins/coordinator-claude/<plugin>/`) must be rewritten to publish-tree
+# form (`plugins/<plugin>/`) because the `coordinator-claude/` middle segment is
+# stripped at percolate time. This script is the meta-repo-side pre-percolation
+# gate that pairs with `.github/scripts/check-persona-names.py` in the publish
+# repo.
+#
+# Spec backlink: docs/plans/2026-05-18-publish-time-path-rewriting.md
 #
 # Modes:
 #   --check  PATH    scan files; print file:line:hit; exit 1 if any hit (default)
@@ -37,6 +41,14 @@
 #   oduffy-delphi/coordinator-claude   → dbc-oduffy/coordinator-claude
 #   oduffy-delphi/deep-research-claude → dbc-oduffy/deep-research-claude
 #
+# Path mapping (dev-tree → publish-tree):
+#   plugins/coordinator-claude/coordinator/ → plugins/coordinator/  (two-segment collapse, applied first)
+#   plugins/coordinator-claude/data-science/ → plugins/data-science/
+#   plugins/coordinator-claude/deep-research/ → plugins/deep-research/
+#   plugins/coordinator-claude/game-dev/ → plugins/game-dev/
+#   plugins/coordinator-claude/web-dev/ → plugins/web-dev/
+#   plugins/coordinator-claude/<discovered>/ → plugins/<discovered>/  (additional plugins found under $TARGET/plugins/)
+#
 # --fix limitations:
 #   - Substitution is a literal find/replace per name; no awareness of
 #     possessives (Patrik's → the Staff Engineer's still works correctly
@@ -50,11 +62,13 @@
 #   - Identity substitutions are applied longest-first (compound forms before
 #     bare first-name) to avoid partial matches turning "Dónal O'Duffy & Claude"
 #     into "the PM O'Duffy & Claude".
+#   - Path rewrites run BEFORE persona substitution (structural-first).
 #
 # Exit codes:
 #   0 — clean (--check) or rewrite applied (--fix)
 #   1 — hits found (--check) or rewrite error (--fix)
 #   2 — usage error
+#   3 — state/environment fault (self-corruption detected — restore from source)
 
 set -euo pipefail
 
@@ -64,13 +78,24 @@ Usage: depersonalize-for-publish.sh --check PATH
        depersonalize-for-publish.sh --fix PATH
 
   --check  Scan PATH (file or dir); print file:line:hit; exit 1 if any persona
-           names or identity strings found. Default mode if --check / --fix omitted.
+           names, identity strings, or dev-tree plugin paths found. Default mode
+           if --check / --fix omitted.
   --fix    Rewrite files in-place, substituting persona names and identity strings
-           for role labels and canonical public identifiers.
+           for role labels and canonical public identifiers, and rewriting dev-tree
+           plugin paths to publish-tree form.
            Backups written to <file>.bak before rewrite.
+           Path rewrite runs BEFORE persona substitution (structural-first).
 
 Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixes:
   archive/, tasks/, experiments/, evals/, docs/{plans,research,decisions,specs}/.
+
+Path-mapping table (static floor — always applied):
+  plugins/coordinator-claude/coordinator/ → plugins/coordinator/
+  plugins/coordinator-claude/data-science/ → plugins/data-science/
+  plugins/coordinator-claude/deep-research/ → plugins/deep-research/
+  plugins/coordinator-claude/game-dev/ → plugins/game-dev/
+  plugins/coordinator-claude/web-dev/ → plugins/web-dev/
+  plugins/coordinator-claude/<discovered>/ → plugins/<discovered>/  (additional plugins found at $TARGET/plugins/)
 
 Persona vocabulary table:
   Patrik   → the Staff Engineer
@@ -191,7 +216,54 @@ if [[ "$self_corrupted" == "true" ]]; then
   echo "  Restore from the meta-repo source:" >&2
   echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-for-publish.sh \\" >&2
   echo "       \$(realpath \"\$0\")" >&2
-  exit 2
+  # Review: code-reviewer — exit 2 is usage error; self-corruption is a state/environment fault.
+  exit 3
+fi
+
+# ---------------------------------------------------------------------------
+# Path-rewrite static seed — the floor applied regardless of discovery results.
+# Order: longest/most-specific first (coordinator two-segment collapse before
+# bare plugin-name mappings). SOURCE patterns contain "plugins/coordinator-claude/"
+# which is the canonical dev-tree prefix; DEST patterns are publish-tree form.
+#
+# Self-validation guard (parallel to ORDERED_KEYS guard above): if every source
+# in the static seed already starts with "plugins/" and does NOT contain
+# "coordinator-claude", the map has been replaced by publish-form keys — this
+# script was already depersonalized and its path-rewrite map is now wrong.
+# Refuse to run; instruct restore from source.
+# ---------------------------------------------------------------------------
+PATH_REWRITE_SOURCES=(
+  "plugins/coordinator-claude/coordinator/"
+  "plugins/coordinator-claude/data-science/"
+  "plugins/coordinator-claude/deep-research/"
+  "plugins/coordinator-claude/game-dev/"
+  "plugins/coordinator-claude/web-dev/"
+)
+PATH_REWRITE_DESTS=(
+  "plugins/coordinator/"
+  "plugins/data-science/"
+  "plugins/deep-research/"
+  "plugins/game-dev/"
+  "plugins/web-dev/"
+)
+
+# Self-validation guard for the path-rewrite seed.
+path_map_corrupted=true
+for src in "${PATH_REWRITE_SOURCES[@]}"; do
+  if [[ "$src" == "plugins/coordinator-claude/"* ]]; then
+    path_map_corrupted=false
+    break
+  fi
+done
+if [[ "$path_map_corrupted" == "true" ]]; then
+  echo "depersonalize-for-publish: FATAL — PATH_REWRITE_SOURCES look already-substituted." >&2
+  echo "  The path-rewrite seed no longer contains 'coordinator-claude' in any source pattern." >&2
+  echo "  This script's path-rewrite map has been corrupted by a past depersonalize run." >&2
+  echo "  Restore from the meta-repo source:" >&2
+  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-for-publish.sh \\" >&2
+  echo "       \$(realpath \"\$0\")" >&2
+  # Review: code-reviewer — exit 2 is usage error; self-corruption is a state/environment fault.
+  exit 3
 fi
 
 # Sentence-initial capitalization: "Patrik flagged..." at sentence start would
@@ -242,15 +314,89 @@ else
   done < <(find "$TARGET" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.py' -o -name '*.json' \) -print0)
 fi
 
+# ---------------------------------------------------------------------------
+# Discovery: if TARGET is a directory with a plugins/ subdirectory, enumerate
+# plugins not already in the static seed and append to the rewrite arrays.
+# If plugins/ exists but is empty, emit a non-fatal warning and proceed with
+# the static 5 floor only.
+# ---------------------------------------------------------------------------
+# Build a set of already-seeded plugin names for fast membership test.
+declare -A _SEEDED_PLUGINS=(
+  ["coordinator"]=1
+  ["data-science"]=1
+  ["deep-research"]=1
+  ["game-dev"]=1
+  ["web-dev"]=1
+)
+
+if [[ -d "$TARGET" && -d "$TARGET/plugins" ]]; then
+  # Review: code-reviewer — old discovered_count counted ALL dirs including the 5 seeded ones,
+  # so WARNING only fired when plugins/ was completely empty — never when only the floor existed.
+  # Renamed to new_plugin_count and incremented only inside the non-seeded guard so the WARNING
+  # fires when no plugins beyond the static floor were found, which is the meaningful signal.
+  new_plugin_count=0
+  while IFS= read -r -d '' plugin_dir; do
+    plugin_name="$(basename "$plugin_dir")"
+    if [[ -z "${_SEEDED_PLUGINS[$plugin_name]+_}" ]]; then
+      new_plugin_count=$((new_plugin_count + 1))
+      PATH_REWRITE_SOURCES+=("plugins/coordinator-claude/${plugin_name}/")
+      PATH_REWRITE_DESTS+=("plugins/${plugin_name}/")
+    fi
+  done < <(find "$TARGET/plugins" -mindepth 1 -maxdepth 1 -type d -print0)
+  if (( new_plugin_count == 0 )); then
+    echo "depersonalize-for-publish: WARNING — $TARGET/plugins/ exists but no plugins beyond the static floor were discovered; only the 5 floor mappings will be applied." >&2
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# rewrite_plugin_paths: apply PATH_REWRITE_SOURCES → PATH_REWRITE_DESTS across
+# FILES. Uses perl env-var injection (matching the existing slash-bearing-key
+# pattern below) to handle '/' in source and dest patterns without delimiter
+# conflicts. Returns the count of files modified.
+# ---------------------------------------------------------------------------
+rewrite_plugin_paths() {
+  local path_fixed=0
+  local n="${#PATH_REWRITE_SOURCES[@]}"
+  for f in "${FILES[@]}"; do
+    # Quick check: does this file contain any dev-tree plugin path prefix?
+    if ! grep -qF "plugins/coordinator-claude/" "$f" 2>/dev/null; then continue; fi
+    for (( i=0; i<n; i++ )); do
+      local src="${PATH_REWRITE_SOURCES[$i]}"
+      local dst="${PATH_REWRITE_DESTS[$i]}"
+      # Pass src/dst via env vars to avoid delimiter conflicts with '/' in the
+      # pattern. Use quotemeta on the source to escape regex metacharacters.
+      DEPERSONALIZE_PATH_SRC="$src" DEPERSONALIZE_PATH_DST="$dst" \
+        perl -CS -i -pe '
+          my $s = $ENV{DEPERSONALIZE_PATH_SRC};
+          # Escape ASCII regex metacharacters for literal matching.
+          # Review: code-reviewer — [ and ] omitted; unescaped [ causes fatal perl parse error
+          # if any future source key contains a bracket. Add both to the escape set.
+          $s =~ s/([.+*?^\${}()|[\]])/\\$1/g;
+          s/$s/$ENV{DEPERSONALIZE_PATH_DST}/g;
+        ' "$f"
+    done
+    path_fixed=$((path_fixed + 1))
+  done
+  echo "$path_fixed"
+}
+
 # Build a grep alternation pattern from all substitution keys.
 # Identity tokens with slashes or special chars are matched as literals (no \b
 # needed — slash is already a natural boundary). Persona names use \b word
 # boundary. The pattern is a single alternation so one grep pass catches all.
-PATTERN="("
+# Also includes the dev-tree plugin path prefix for --check mode detection.
+PATTERN="(plugins/coordinator-claude/"
 for i in "${!ORDERED_KEYS[@]}"; do
-  if (( i > 0 )); then PATTERN+="|"; fi
+  PATTERN+="|"
   # Escape regex metacharacters in the key for literal matching.
-  escaped_key=$(printf '%s' "${ORDERED_KEYS[$i]}" | sed 's/[.+*?^${}()|[\]\\]/\\&/g; s/'"'"'/['"'"']/g')
+  # Review: code-reviewer — the previous sed apostrophe workaround produced ['] in the ERE
+  # (a single-char class) rather than a bare apostrophe, making debug output confusing.
+  # Switch to perl env-var injection to produce a literal apostrophe in PATTERN.
+  escaped_key=$(DEPERSONALIZE_ESC_KEY="${ORDERED_KEYS[$i]}" perl -e '
+    my $k = $ENV{DEPERSONALIZE_ESC_KEY};
+    $k =~ s/([.+*?^\${}()|[\]\\])/\\$1/g;
+    print $k;
+  ')
   PATTERN+="${escaped_key}"
 done
 PATTERN+=")"
@@ -269,10 +415,14 @@ if [[ "$MODE" == "check" ]]; then
 
   if (( hits > 0 )); then
     echo ""
-    echo "depersonalize-for-publish: $hits file(s) carry persona names or identity strings."
+    echo "depersonalize-for-publish: $hits file(s) carry persona names, identity strings, or dev-tree plugin paths."
     echo "  Run with --fix to rewrite, or hand-edit using the vocabulary table:"
     for name in "${ORDERED_KEYS[@]}"; do
       printf "    %-40s → %s\n" "$name" "${NAME_TO_ROLE[$name]}"
+    done
+    echo "  Path mappings (static floor):"
+    for (( i=0; i<${#PATH_REWRITE_SOURCES[@]}; i++ )); do
+      printf "    %-50s → %s\n" "${PATH_REWRITE_SOURCES[$i]}" "${PATH_REWRITE_DESTS[$i]}"
     done
     exit 1
   fi
@@ -282,10 +432,22 @@ if [[ "$MODE" == "check" ]]; then
 fi
 
 # --fix mode
+# Path rewrite runs BEFORE persona substitution — structural transforms first,
+# naming transforms second. This matches the script's existing compound-before-
+# substring ordering precedent and ensures a path like
+# "plugins/coordinator-claude/coordinator/agents/Patrik.md" is rewritten to
+# "plugins/coordinator/agents/the Staff Engineer.md" in the correct order.
+path_fixed_count="$(rewrite_plugin_paths)"
+if (( path_fixed_count > 0 )); then
+  echo "path-rewrote: $path_fixed_count file(s) (dev-tree plugin paths → publish-tree form)"
+fi
+
 fixed=0
 for f in "${FILES[@]}"; do
   # Quick check first; skip files with no hits.
-  if ! grep -qP "$PATTERN" "$f" 2>/dev/null; then continue; fi
+  # Review: code-reviewer — grep -qP is PCRE-only; macOS BSD grep lacks -P and silently passes,
+  # making --fix a no-op on macOS. Use -qE to match the check-mode grep at line 395.
+  if ! grep -qE "$PATTERN" "$f" 2>/dev/null; then continue; fi
 
   cp -p "$f" "${f}.bak"
   for name in "${ORDERED_KEYS[@]}"; do
@@ -310,7 +472,9 @@ for f in "${FILES[@]}"; do
         my $k = $ENV{DEPERSONALIZE_KEY};
         # Escape only ASCII regex metacharacters (not non-ASCII, which quotemeta
         # would over-escape and break under -CS Unicode mode).
-        $k =~ s/([.+*?^\${}()|])/\\$1/g;
+        # Review: code-reviewer — [ and ] omitted; unescaped [ causes fatal perl parse error
+        # if any future identity key contains a bracket. Add both to the escape set.
+        $k =~ s/([.+*?^\${}()|[\]])/\\$1/g;
         if ($ENV{DEPERSONALIZE_KEY} =~ m{/}) {
           s/$k/$ENV{DEPERSONALIZE_ROLE}/g;
         } elsif ($ENV{DEPERSONALIZE_KEY} =~ /[^\x00-\x7F]/) {
@@ -337,11 +501,14 @@ for f in "${FILES[@]}"; do
   echo "rewrote: $f (backup: ${f}.bak)"
 done
 
-if (( fixed == 0 )); then
+if (( fixed == 0 && path_fixed_count == 0 )); then
   echo "depersonalize-for-publish: no files needed rewriting."
+elif (( fixed == 0 )); then
+  echo ""
+  echo "depersonalize-for-publish: path rewrites applied to $path_fixed_count file(s); no persona/identity substitutions needed."
 else
   echo ""
-  echo "depersonalize-for-publish: rewrote $fixed file(s). Review diffs:"
+  echo "depersonalize-for-publish: rewrote $fixed file(s) (persona/identity). Review diffs:"
   echo "  for f in ${TARGET}/**/*.bak; do diff \"\$f\" \"\${f%.bak}\"; done"
   echo "  (or use git diff if files are tracked)"
 fi

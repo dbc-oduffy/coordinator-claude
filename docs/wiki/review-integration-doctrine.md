@@ -3,10 +3,10 @@ title: Review integration doctrine
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/receiving-code-review.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-premise-challenge.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/prior-art-checker.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/docs-checker-pre-review.md
+  - plugins/coordinator/docs/wiki/receiving-code-review.md
+  - plugins/coordinator/docs/wiki/reviewer-premise-challenge.md
+  - plugins/coordinator/docs/wiki/prior-art-checker.md
+  - plugins/coordinator/docs/wiki/docs-checker-pre-review.md
 ---
 
 # Review Integration Doctrine

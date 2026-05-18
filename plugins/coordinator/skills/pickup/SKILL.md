@@ -168,7 +168,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
    3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
       ```bash
-      source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh
+      source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
       cs_claim_handoff "$(basename tasks/handoffs/<file>)"
       ```
    4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
@@ -196,6 +196,12 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/session-end` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
 
 ---
+
+## Cross-Repo MOVE and Tracker-Residual Discipline
+
+**Cross-repo MOVE of a roadmap stub requires a source-side residual audit before archiving the original.** Scan source scope vs destination need; if any scope is not transported (e.g., framework-agnostic detector when destination only needs UE overlay), file a successor stub for the residual on the source side BEFORE archiving the original. Update downstream `blocked_by:` lists to reference the successor.
+
+**Tracker entry naming a non-existent plan file is a closure signal, not a missing-file bug.** Verify on-disk; if the workstream shipped without leaving a plan, write a closing DR and resolve the tracker row. Do not re-author the plan from scratch.
 
 ## Notes
 

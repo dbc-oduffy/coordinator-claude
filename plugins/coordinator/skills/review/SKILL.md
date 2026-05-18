@@ -41,6 +41,17 @@ Both checks fire independently. A plan can be non-trivial AND cite C++/UE APIs �
 
 _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
 
+**Check 3 — Plan internal completeness (plan-coverage-checker)** _(runs independently of Checks 1 and 2)_
+
+| Plan shape | plan-coverage-checker? |
+|---|---|
+| Plan contains an audit/findings/issues table (any size) | **Run.** |
+| Plan is greenfield design with no found-facts oracle | Skip — agent emits `SCOPE-MISMATCH`. |
+| Plan is single-file mechanical fix | Skip. |
+| Plan is doc redesign / wiki rewrite | Skip. |
+
+_See `docs/wiki/plan-coverage-checker.md` for trigger rationale and lens details. Skip is silent — no flag, no justification._
+
 ### A.2 — Reviewer selection and dispatch
 
 **Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the artifact's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
@@ -83,7 +94,8 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
 
-**Pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → 2.7b → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
+**Pipeline phases (docs-checker, (prior-art-checker ∥ plan-coverage-checker), external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → (2.7b ∥ 2.7d) → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
+<!-- Review: code-reviewer — listed phases as a flat sequence, obscuring that prior-art-checker and plan-coverage-checker run in parallel; updated to (prior-art-checker ∥ plan-coverage-checker) to match the runtime shape. -->
 
 ### A.3 — Sequencing (HARD RULE for plan reviews)
 
@@ -133,6 +145,14 @@ Walk each finding against the triage table below — it lands in exactly one row
 - _Default / unmatched?_
   → Apply via integrator. Default is to integrate, not to ratify.
   _See `docs/wiki/receiving-code-review.md` (triage tables, push-back patterns, performative-agreement guard) and CLAUDE.md § Reviewer findings — apply, don't ratify._
+
+---
+
+## Prior-Art Mutability and Reviewer Elevation
+
+**Prior-art mutability as first-class deliverable.** When the PM authorizes prior-art mutation as an explicit deliverable of the review (i.e., the plan is intended to *update* settled doctrine, not simply comply with it), the DoE-elevated reviewer (typically the Director of Engineering) MAY override the prior-art-checker sidecar's `update-plan` / `update-prior-art` recommendation with an explicit cross-reference to the PM authorization in their findings. Default mode is still "plan adapts to prior art"; prior-art mutation is opt-in and requires PM sign-off stated in the dispatch brief.
+
+**Reviewer elevation must be stated verbatim in the dispatch brief.** Elevating a reviewer past their charter (e.g., the Director of Engineering from ambition-backstop to DoE-with-mutation-authority) without verbatim brief language reverts at integrator-apply — the reviewer's prompt-defined charter is the default boundary. If the PM authorizes elevation, the EM must include the exact authorization phrase (e.g., "PM-authorized to override prior-art-checker on this run") in the dispatch brief to the reviewer; otherwise the integrator will treat the override as out-of-charter and escalate as ASK.
 
 ---
 

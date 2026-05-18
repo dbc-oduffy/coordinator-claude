@@ -10,7 +10,7 @@
 # Usage:
 #   coordinator-write-review-trail.sh \
 #     --sha-range A..B \
-#     --reviewer sonnet|patrik|sonnet+patrik|waived|ubt-compile \
+#     --reviewer code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile \
 #     --scope chain|session \
 #     --verdict ok|warn|blocked|waived|pending \
 #     --diff-loc <integer>
@@ -74,7 +74,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "ERROR: Unknown argument: $1" >&2
-      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer sonnet|patrik|sonnet+patrik|waived|ubt-compile --scope chain|session --verdict ok|warn|blocked|waived|pending --diff-loc <integer>" >&2
+      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile --scope chain|session --verdict ok|warn|blocked|waived|pending --diff-loc <integer>" >&2
       exit 1
       ;;
   esac
@@ -90,7 +90,7 @@ if [[ -z "$SHA_RANGE" ]]; then
 fi
 
 if [[ -z "$REVIEWER" ]]; then
-  echo "ERROR: --reviewer is required; allowed: sonnet | patrik | sonnet+patrik | waived | ubt-compile" >&2
+  echo "ERROR: --reviewer is required; allowed: code-reviewer | patrik | code-reviewer+patrik | waived | ubt-compile" >&2
   exit 1
 fi
 
@@ -114,9 +114,9 @@ fi
 # ---------------------------------------------------------------------------
 
 case "$REVIEWER" in
-  sonnet|patrik|sonnet+patrik|waived|ubt-compile) ;;
+  code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile) ;;
   *)
-    echo "ERROR: --reviewer value '${REVIEWER}' is invalid; allowed: sonnet | patrik | sonnet+patrik | waived | ubt-compile" >&2
+    echo "ERROR: --reviewer value '${REVIEWER}' is invalid; allowed: code-reviewer | patrik | code-reviewer+patrik | waived | ubt-compile" >&2
     exit 1
     ;;
 esac

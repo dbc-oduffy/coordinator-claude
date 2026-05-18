@@ -20,6 +20,16 @@ them, and surfaces queue depth to inform backlog prioritization.
 **Anti-transient framing.** The goal is doctrine evolution, not file-size reduction. Success metric:
 "did central + project doctrine and queues evolve?"
 
+**No-defer rule (load-bearing).** A `learn-lessons` run that classifies records and then defers
+the actionable subset to "the next pass" is a doctrine violation. The defer-chain pattern —
+each run pointing at the next-you to do the wiki work — is how lessons.md grows without
+doctrine evolving. **If a record carries `change_kind: wiki-append` or `change_kind: wiki-new`
+with a named destination file + section, apply it in THIS run.** The only legitimate deferrals
+are (a) cross-mode handoffs that are structurally required (e.g. `strip-local` gated on a
+central commit SHA that does not yet exist) and (b) records surfaced to the PM for product or
+architectural authorization. "Time-budget" and "scope of this pass" are not legitimate
+reasons to defer wiki promotions — the wiki promotion is the work.
+
 ## Routing Bias: Wikis Are the Default, CLAUDE.md Is Exceptional
 
 Apply **extreme skepticism** to any routing record proposing a CLAUDE.md edit or a CLAUDE.md
@@ -81,6 +91,8 @@ without a CLAUDE.md hand-hold. Surface to the PM with the full pointer list befo
 **Mode default detection.** `/learn-lessons` without `--mode` arg detects cwd: running from `~/.claude`
 central → default `central`; else default `local`. Always log the detected mode in the announce-at-start
 line.
+
+**Morning-brief framing is advisory.** The skill body's mode-default logic above is authoritative — if cwd is a project repo, mode is `local` even if the morning brief surfaced the central queue depth. PM can override explicitly.
 
 ## When to Trigger / Don't Trigger
 
@@ -166,6 +178,10 @@ Each lesson processed produces one record:
 | `retag-local` | Change `[universal]` → `[<domain>]` tag in place | Direct edit |
 | `strip-local` | Delete entry from source file (gated on central commit SHA) | Direct edit, ONLY after depends_on lands |
 | `discard` | Archive-then-delete (no migration) | Archive append + direct edit |
+
+## Phase 0.5 — Dedupe Pass (central mode only)
+
+Re-Read the queue from disk; build a hash-set of normalized one-line summaries; flag entries with semantic-duplicate matches for merge before Phase 3 routes them as independent entries.
 
 ## Phase 1 — Discovery
 
@@ -262,21 +278,42 @@ the start (e.g. cited a nonexistent file) or exact duplicates already folded —
 
 ## Phase 5 — Authorization and Apply
 
+Before applying any queue entry, re-Read the queue from disk to catch concurrent edits since Phase 3 routing.
+
 ### Local mode — auto-apply bounds
 
 **Auto-apply without PM prompt:**
 - `discard` of pure-ephemeral entries (archive first per Phase 4)
-- `wiki-append` to existing guides
+- `wiki-append` to existing guides — **mandatory same-run apply when destination is named**
+- `wiki-new` when (a) destination filename is named in the record, (b) the lesson's substance
+  is concrete enough for the executor to draft a first version, and (c) the new file does not
+  cross into doctrine surfaces (CLAUDE.md, agent prompts). Add `DIRECTORY_GUIDE.md` entry in
+  the same executor dispatch. PM-surfacing on `wiki-new` is reserved for genuinely novel
+  topics where the wiki home is itself a design call — not for every new-file creation.
 - `retag-local` within the same file
 - Dedupe of obvious duplicates
+
+**Same-run apply is the default, not the exception.** When a record lands in the auto-apply
+bucket, dispatch the apply this run. Emitting a "next local pass should fold these" line in
+the end-of-run summary is the defer-chain anti-pattern. If parallel-dispatch budget is tight,
+serialize — do not defer.
 
 **Surface to PM (do not auto-apply):**
 - `doctrine-edit`, `memory-pointer` — **always** surface, regardless of mode, with the
   § Routing Bias four-check answers inline. EM's own first move is to attempt the reroute
   to `wiki-append` / `wiki-new` and present that as the recommended path.
-- `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
+- `wiki-new` ONLY when the wiki home is itself an unresolved design question (not the common
+  case — most `wiki-new` records auto-apply per the bullet above).
+- `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
 - `project-structural` outside the same repo
 - `strip-local` of `[universal]`-tagged entries (cross-repo promotion needed first)
+
+**Universals-pending escalation.** If a local-mode run finds ≥ 20 unactioned `[universal]`-tagged
+entries that have accumulated since the last central-mode commit (`git log` on
+`~/.claude/tasks/coordinator-improvement-queue.md` and `~/.claude/CLAUDE.md`), the run does NOT
+exit with a "run central later" pointer. It surfaces the count to the PM with a single
+question: *"Backlog of N universals — invoke central mode now?"* — and waits. Local mode
+cannot strip these, but it can refuse to launder the backlog into another "next pass" notice.
 
 When surfacing: emit a one-screen PM summary at end with surfaced records and a
 "run /learn-lessons --mode=central to action these" pointer.
@@ -325,7 +362,7 @@ After the justification gate clears, before dispatching a `doctrine-edit` whose 
 | 38,001 – 40,000 | **Gate: identify a demote target first.** The plan must name a specific section to compress to a wiki pointer (or an existing wiki to extend) and include the demote in the same plan. No PM ratification needed if the demote is mechanical (existing wiki carries the topic); surface to PM if creating a new wiki. |
 | > 40,000 | **Hard refuse.** The pre-commit hook (`validate-commit.sh` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
 
-The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator-claude/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
+The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
 
 **Rationale.** The two trims in 2026-05-06/07 both held; doctrine creep refilled the budget through ~25 small additions. The hook catches the symptom; this gate catches the cause at the only step where coordinator-doctrine additions are routed (`doctrine-edit` is the closed-enum kind for CLAUDE.md edits per Phase 0 taxonomy).
 
@@ -400,6 +437,17 @@ learn-lessons run complete (mode=<mode>):
 
 The recurrence list is the pressure signal. PM acts or defers — no automatic block.
 
+**Forbidden report shapes.** The end-of-run report must NOT include:
+- "N candidates for the next local pass" or similar defer-chain language.
+- "Run /learn-lessons later to action these" as a substitute for action this run.
+- "Modest by design" / "scope limited to this pass" framing that justifies non-apply on
+  records that match the auto-apply contract.
+
+If the report would otherwise have included such a line, the corresponding records belong in
+one of three buckets: (a) applied this run, (b) PM-surfaced with a decision request, (c) mode
+escalated (universals-pending → central mode invocation request). Any record that does not fit
+those three is a routing error — fix the routing, not the report.
+
 ## Anti-Patterns
 
 - **Auto-applying central promotions.** PM gates every apply in central mode.
@@ -422,6 +470,18 @@ The recurrence list is the pressure signal. PM acts or defers — no automatic b
   the lean-and-mean gate is a routing problem, not a substance problem — reroute to the right
   wiki / agent prompt / hook / script. Only `discard` when the substance itself is ephemeral,
   already covered, or wrong. → § Routing Bias "Substance and proposed-target are independent."
+- **Defer-chaining wiki promotions to "next pass."** A run that classifies records with named
+  wiki destinations and then writes "next local pass should fold these via wiki-append" in the
+  end-of-run summary is the pattern this skill exists to prevent. The "next pass" never happens
+  because each successor inherits the same defer-bias. Wiki-append/wiki-new with named destinations
+  apply IN THIS RUN — that is the auto-apply contract from Phase 5. The only legitimate same-run
+  non-apply for a wiki record is PM authorization gate (genuinely novel wiki home) or a missing
+  precondition that is itself in-flight in the same run.
+- **End-of-run summary listing "candidates for the next pass."** Any line in the Phase 8 report
+  that names records the current run did not apply but "should be folded by next run" is a
+  doctrine violation. Either apply them (auto-apply bucket), surface them to the PM with a
+  decision request (gated bucket), or escalate the mode (universals-pending escalation). The
+  three buckets are exhaustive; "informational candidates for later" is not a fourth.
 - **Same-session capture-and-validate-as-universal.** A central `/learn-lessons` run that BOTH captures a new lesson AND validates it as universal in the same pass is a self-confirming loop — the session that surfaced the pattern is the same session asserting its cross-repo generality. Validate universality against accumulated evidence (peer repos, prior runs, recurrence count), not against the session that captured it. Capture this run; promote to `[universal]` in a later run once the pattern has recurred in a different context.
 
 ## Related

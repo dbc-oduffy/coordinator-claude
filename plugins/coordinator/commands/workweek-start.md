@@ -143,14 +143,14 @@ If `Last /workweek-start:` is set AND no `/workweek-complete` has occurred since
 ```bash
 git add -- tasks/week-changelog/HEADER.md
 git commit -m "chore(workweek-start): set week priorities $(date +%Y-%m-%d)"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 If a full reset moved daily files, include them in the same commit:
 ```bash
 git add -- tasks/week-changelog/ archive/week-changelogs/<prior-week-start>/
 git commit -m "chore(workweek-start): archive prior week, reset changelog $(date +%Y-%m-%d)"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

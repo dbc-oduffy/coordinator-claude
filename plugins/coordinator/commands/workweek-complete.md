@@ -79,7 +79,7 @@ If not triggered: note in summary — _"Improvement queue: K entries, oldest YYY
 
 **Write-time discipline (DR-056 amended 2026-05-17):** Append NEW entries as a single main line — no `recurring:` or `resolution:` sub-lines. The pruner (`/update-docs` Phase 11i) strips trivial sub-lines on every run, so writing them is wasted ceremony. Closure-log sections (`## History`, `## Resolved`, `## Processed`, `## Closed`, `## Done`, `## Archive`, `## Closeout`) are also stripped — do NOT create them.
 
-**Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as "override." Any wiki cited ≥3 times in override dispositions is a candidate for revision — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "False-positive arbitration."
+**Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times across those dispositions is a candidate for revision — surface to PM. Repeated `update-prior-art` against the same wiki is the strongest staleness signal (two plans correcting the same entry within a quarter ⇒ the entry is structurally stale, not just occasionally wrong). Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution" and § "False-positive arbitration — feedback loop on wiki quality."
 
 **Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables. (Closure-log sections like `## History` / `## Resolved` are stripped by `/update-docs` Phase 11i — if any survive in your read, count them as zero open items.) If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
 
@@ -145,7 +145,7 @@ echo "---"
 # _DESC_RC is never propagated to ceremony exit
 ```
 
-This is informational. A failure here is a follow-up nudge, not a blocker. Read the stdout block, note any over-budget skills in the weekly summary you're authoring at Step 1, and address them next session. A non-zero rc that produces no findings output indicates a script crash — investigate out-of-band.
+Informational. Note over-budget skills in the weekly summary (Step 1); address next session. A non-zero rc with no findings indicates a script crash — investigate out-of-band.
 
 ---
 
@@ -169,9 +169,42 @@ if [[ -f scripts/lint-owner-file-invariants.py ]]; then
 fi
 ```
 
-This is informational. A non-zero rc means one or more files in `scripts/owner_files.yaml` lost their `Invariant —` marker (rename, refactor, or accidental docstring rewrite). Note over-budget files in the weekly summary; address next session. The lint is fail-soft here by design — the convention is new (shipped 2026-05-17) and weekly drift detection is the right friction level until empirical add-cadence data justifies promotion to `/validate` or pre-commit.
+Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `Invariant —` marker (rename, refactor, or accidental docstring rewrite). Note in the weekly summary; address next session. Fail-soft by design — convention shipped 2026-05-17, weekly drift detection is the right friction level. Pattern mirrors Step 4d; cadence doctrine: `docs/wiki/workday-workweek-cadence.md` lines 56–75 (weekly-only advisories).
 
-Citation: pattern mirrors Step 4d (description-length advisory). See `docs/wiki/super-skill-architecture.md` line 96 (description-budget advisory precedent) and `docs/wiki/workday-workweek-cadence.md` lines 56–75 (cadence doctrine: ShellCheck, scc, queue triage, and description-length advisories are weekly-only — do not belong in the daily wrap).
+---
+
+## Step 4f: enabledPlugins Drift Audit Advisory
+
+*Lesson 2026-05-14 — `enabledPlugins: true` entries drift silently across repos.* Plugin installs write `true` lines into the active project's `settings.json` without review; cross-contamination compounds over months (e.g., `/build-mcp*` polluting holodeck; `data-science` enabled on UE projects). **Per-repo advisory** — audits THE CURRENT REPO's `enabledPlugins` against its declared `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`. Cross-machine drift surfaces only via the central queue if multiple repos report.
+
+```bash
+# Advisory only — never blocks. Lists enabledPlugins keys present in this repo's
+# settings.json that the repo's project_type / stack_tags don't justify.
+set +e
+if [[ -f .claude/settings.json ]]; then
+  _EP_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/audit-enabled-plugins.sh 2>&1)
+  _EP_RC=$?
+else
+  _EP_OUT="(no .claude/settings.json — skipped)"
+  _EP_RC=0
+fi
+set -e
+echo "---"
+echo "enabledPlugins drift advisory (rc=$_EP_RC):"
+echo "$_EP_OUT"
+echo "---"
+# _EP_RC is never propagated to ceremony exit
+```
+
+The helper reads `.claude/settings.json` + `coordinator.local.md` frontmatter (`project_type`/`stack_tags`) and emits a line per unjustified `enabledPlugins: true` entry (e.g., `mcp-server-dev` on a non-MCP repo, `data-science` on UE). `project_type: meta` short-circuits — `~/.claude` intentionally enables all plugins per global CLAUDE.md. Justification table is the tuning surface inside the script.
+
+**Full uninstall is a 3-step ceremony** (removing the `enabledPlugins` line alone leaves the plugin discoverable on next install retry):
+
+1. Remove the `enabledPlugins` entry from **every project's** `.claude/settings.json` (not just this one).
+2. Remove the plugin's entry from `~/.claude/plugins/installed_plugins.json`.
+3. Delete the cache dir: `rm -rf ~/.claude/plugins/cache/<marketplace>/<plugin>/`.
+
+Missing any step leaves a partial-install state where the next `enable` re-arms the entries without re-prompting. EM surfaces the 3-step recipe when the advisory reports drift; PM authorizes the uninstall. Pattern mirrors Step 4d; lesson source `tasks/lessons.md:302` (claude-central, 2026-05-14).
 
 ---
 
@@ -206,11 +239,10 @@ done
 
 ### Step 7 prelude — trail-reading and scope computation
 
-Before invoking `parallel-code-review`, compute the Staff Engineer's narrowed scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) ALWAYS see the full week diff — only the Staff Engineer's lens narrows.
+Before invoking `parallel-code-review`, compute the Staff Engineer's narrowed scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the Staff Engineer's lens narrows.
 
 ```bash
-# Review: the Staff Engineer — WEEK_START parsing must be fail-loud; date -d is GNU-specific and
-# the old silent fallback to today violated the detect-then-silently-pick footgun rule.
+# WEEK_START parsing is fail-loud; silent fallback to today violated the detect-then-silently-pick rule.
 HEADER_FILE="tasks/week-changelog/HEADER.md"
 if [[ ! -f "$HEADER_FILE" ]]; then
   echo "ERROR: $HEADER_FILE not found — run /workweek-start to initialise." >&2
@@ -231,9 +263,6 @@ export TRAIL_FILES
 
 # 2-7. Compute scope in Python: set subtraction, cross-segment seam detection,
 #      and JSON output — all fail-loud on any subprocess error.
-# Review: the Staff Engineer — pseudocode steps 4-6 replaced with runnable Python block that
-# performs real set subtraction and pairwise seam intersection, then writes the
-# actual scope JSON (previously emitted literal placeholder "<patrik_scope_sha_list>").
 python3 - <<'PYEOF'
 import json, os, subprocess, sys
 
@@ -336,7 +365,7 @@ PYEOF
 
 After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
 
-Read `~/.claude/plugins/coordinator-claude/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the no-rewrite synthesizer narrates 'the Staff Engineer scoped to gap+seams; mechanical workers full diff' in the BLOCKED|WARN|OK verdict.
+Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the no-rewrite synthesizer narrates 'the Staff Engineer scoped to gap+seams; mechanical workers full diff' in the BLOCKED|WARN|OK verdict.
 
 - **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
 - **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
@@ -403,9 +432,7 @@ Archive and reset the week's state:
 1. Determine the current `Week starting:` date from HEADER.md — this is the archive path key.
 2. Create `archive/week-changelogs/<week-starting>/`.
 3. Move all daily files (`tasks/week-changelog/YYYY-MM-DD-*.md`) to the archive path. HEADER.md is NOT moved — it gets rewritten in place.
-4. Create `archive/review-trail/<week-starting>/` and move `tasks/review-trail/*.json` (excluding `.gitkeep` and `.weekly-reviewer-scopes.json`) into it. The `.gitkeep` stays in `tasks/review-trail/` so the directory remains tracked. The transient `.weekly-reviewer-scopes.json` (written by Step 7's prelude) is deleted, not archived — it is regenerated each week.
-
-   > **Archival ordering matters:** this MUST happen AFTER Step 7 has consumed the trail (otherwise Step 7 reads an empty trail on the week it runs). Step 13 is correctly downstream — Step 7 runs at line ~135 of this file; Step 13 archives at the end.
+4. Create `archive/review-trail/<week-starting>/` and move `tasks/review-trail/*.json` (excluding `.gitkeep` and `.weekly-reviewer-scopes.json`) into it. `.gitkeep` stays so the dir remains tracked; transient `.weekly-reviewer-scopes.json` is deleted, not archived. **Archival ordering matters:** must run AFTER Step 7 consumes the trail (Step 13 is correctly downstream).
 
 5. Write a fresh HEADER.md with the released version and a cleared `Last /workweek-start:` line:
 
@@ -426,7 +453,7 @@ Archive and reset the week's state:
 git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/ \
            tasks/review-trail/ archive/review-trail/<week-starting>/
 git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog + review-trail vX.Y.Z"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 ---
@@ -457,17 +484,16 @@ git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinat
 
 ### What This Does NOT Do
 
-- **Auto-fire.** This is PM-invoked. `/workday-complete` surfaces the staleness signal.
-- **Re-author the week from git log.** The week-changelog is the canonical record.
-- **Push directly to main.** Step 11 delegates to `/merge-to-main` which handles the PR.
-- **Delete release notes or handoffs.** Only daily changelog files are archived; release artifacts stay.
-- **`/distill` and `/update-docs/handoff-archival` do not touch trail records.** Trail records follow the week-changelog lifecycle (archived here in Step 13), not the handoff lifecycle. They are per-session JSON files written by `coordinator-write-review-trail.sh` and consumed by Step 7's prelude — never by handoff archival.
+- **Auto-fire.** PM-invoked; `/workday-complete` surfaces the staleness signal.
+- **Re-author from git log.** The week-changelog is the canonical record.
+- **Push directly to main.** Step 11 delegates to `/merge-to-main`.
+- **Delete release notes or handoffs.** Only daily changelog files are archived.
+- **Touch trail records via `/distill` or `/update-docs/handoff-archival`.** Per-session JSON written by `coordinator-write-review-trail.sh`, consumed by Step 7's prelude, archived here in Step 13 — never by handoff archival.
 
 ### Relationship to Other Commands
 
 - **`/workday-complete`** — daily wrap; feeds the changelog this command reads.
-- **`/workweek-start`** — weekly orient; detects the HEADER reset done in Step 13 and re-inits cleanly.
-- **`/merge-to-main`** — invoked in Step 11; not duplicated.
-- **Artifact pruning** — formerly Step 12 (`coordinator:artifact-consolidation`); absorbed into `/update-docs` Phase 8b 2026-05-06. Step 3's `/update-docs` invocation now handles it.
-- **`/update-docs`** — invoked in Step 3; not duplicated.
-- **`bin/check-weekly-staleness.sh`** — the informational script surfaced by `/workday-complete` to nudge PM toward this command.
+- **`/workweek-start`** — weekly orient; detects Step 13's HEADER reset and re-inits.
+- **`/merge-to-main`** — invoked in Step 11.
+- **`/update-docs`** — invoked in Step 3; absorbed prior artifact-consolidation (Step 12) into Phase 8b 2026-05-06.
+- **`bin/check-weekly-staleness.sh`** — informational script `/workday-complete` uses to nudge PM here.
