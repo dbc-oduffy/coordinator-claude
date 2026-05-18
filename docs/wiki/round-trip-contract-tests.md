@@ -89,6 +89,31 @@ When a workstream spans multiple language runtimes (TS + C++, Python + Rust, Go 
 
 Per-language gates compose with the round-trip contract test rule above: the round-trip test exercises the seam; the per-language gates prove each side can build at all. Both are required; neither substitutes for the other.
 
+## Golden-Snapshot Identifier Normalization
+
+A golden-snapshot test that inlines file content captures per-install identifiers (40-char hex SHAs, PIDs, install-id UUIDs, floating-point timing) verbatim. Every commit between capture and run breaks the test with a one-character diff even though the assertion the test is *trying* to make is "this file has the expected shape," not "this file contains exactly this SHA."
+
+**Rule:** round-trip contract tests that rely on golden snapshots must run inputs through an identifier normalizer before comparison:
+- 40-char hex SHA → `__GIT_SHA__` (regex: `\b[0-9a-f]{40}\b`)
+- PID shapes → `__PID__`
+- ISO-8601 timestamps → `__TIMESTAMP__`
+- UUID4 → `__UUID__`
+- Floating-point timing values → `__DURATION__`
+
+Maintain an **excluded-paths list** for log/transient directories that the snapshot should not attempt to compare at all — consume the exclusions at the glob layer, not the per-line layer.
+
+The normalizer itself must be test-covered: feed in real CI outputs and assert that two captures from different installs produce byte-identical normalized output. A snapshot suite without this self-test silently re-introduces flake every time install infrastructure adds a new per-install identifier.
+
+→ Full concrete failure and composition rules: `docs/wiki/test-design-discipline.md` §19.
+
+## Auto-Registration Macros and Framework-Prefix Encoding Drift
+
+Macros that auto-register types by stringifying their names also stringify any framework prefixes attached to the type (e.g. `UCLASS` prefixes, `T`/`F`/`U` naming conventions). A round-trip test that asserts "registered name equals expected string" will fail when the macro-stringified name includes the prefix but the expected string was hand-written without it — or vice versa.
+
+**Rule:** strip or alias both the bare type name *and* the framework-prefixed form in any round-trip assertion over auto-registered names. The encoding drift is only visible at execution time — a shape test that compares compile-time constants against each other will not catch it.
+
+Corollary: when debugging auto-registration round-trip failures, always print the raw stringified name before asserting — the drift is almost always a prefix/suffix encoding difference, not a logic error.
+
 ## Reference Pattern: `writing-plans` Skill Checklist
 
 When drafting a plan that introduces a new producer or consumer to an existing on-disk-artifact pipeline, the plan must name the round-trip contract test explicitly — not as a follow-up. If it isn't named in the plan, executors won't add it, and CI green will keep lying.

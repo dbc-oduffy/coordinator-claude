@@ -23,6 +23,21 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
 
+## Sub-plan delegation under a master plan
+
+**Master + N sub-plans: EM holds the problem space.** When a plan's scope crosses ≥3 logical workstreams that would normally each spinoff to their own session but the architectural integration is tight enough that a spinoff would lose context, an alternative shape is one master plan with N sub-plans dispatched in sequence by the same EM. The master plan owns the problem space (cross-workstream invariants, sequencing, integration checks); each sub-plan owns one workstream's body.
+
+**Distinct from spinoffs and monolithic plans.** Spinoffs fork to new sessions and are appropriate when workstreams are genuinely independent. Monolithic plans walk every workstream linearly in one document and become unwieldy at ≥3 workstreams. The master+sub-plan shape sits between them: shared EM context without a single unwieldy document.
+
+**Use when all three hold:**
+- (a) Sub-workstreams share invariants that no single sub-plan should re-derive independently.
+- (b) The same EM has corpus and tool access to execute them in-session without context loss.
+- (c) Spinoff overhead (session boundary, handoff, pickup ceremony) would exceed the per-sub-plan size.
+
+**Shape:** The master plan body is a ≤40-line orchestration brief (cross-workstream invariants, integration checks, sequencing rationale) plus links to the N sub-plans. Each sub-plan is a normal plan body following all the standard plan conventions in this wiki. Order of dispatch is declared in the master plan — it is not a freestyle EM decision made at execution time.
+
+**Source:** `tasks/lessons.md` 2026-05-17 (project-rag).
+
 ## Scope Mode (required header field)
 
 Every plan declares one scope mode. The mode shapes review depth, acceptable tradeoffs, and what counts as "done." Don't skip — pick one before drafting tasks.
@@ -83,6 +98,10 @@ Before dispatching a build-task agent or entering plan mode for a non-trivial fe
 
 Five greens → dispatch. Any red → loop back to investigation tier 1-3 or escalate to PM.
 
+**Validation floors derive from emission shape, not author intuition.** Setting `≥N items emitted` as a gate when N is chosen by feel produces false-negatives (gate passes on a near-empty output) and false-positives (gate blocks a legitimately sparse but correct result). Before writing a count gate, trace the emission path: identify the producer loop or query and derive the minimum expected output from the logic, not from a gut estimate. Source: 2026-05-14 project-rag-ue-addon.
+
+**Sibling-team archive memos collapse cross-repo coordination cost.** When sizing cross-repo work, READ sibling-team `archive/*proposal*` / `*coordination*` / `*authority*` memos before estimating bump cost. Tri-repo ratification is often over-cost for unilateral-authority shapes already established in a peer's archive — the authority decision may already be made and the bump is unilateral. Skipping the archive read produces inflated complexity estimates and unnecessary PM escalations. Source: 2026-05-15 claude-unreal-holodeck.
+
 ## Domain Language
 
 Read `CONTEXT.md` if present at the project root; if absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms throughout the plan — and for any term on the `_Avoid_:` lists, substitute the canonical term silently. If the plan introduces a new domain term that will recur across sessions, append it to `CONTEXT.md` as part of the plan-writing pass.
@@ -105,10 +124,18 @@ This gives you the structural context to make informed file-mapping decisions wi
 
 **Substrate-verification at plan time.** Verify substrate facts (file paths, framework names, helper APIs, line numbers) via `ls`/`grep` while authoring — not at completion. Two minutes of disk verification prevents the substrate-fact errors reviewers will catch on R1.
 
+**Reviewer pre-resolved substrate values need executor `ls` confirmation.** A reviewer citing a `@import` path as authority for a manifest `functional_probe.path` field is hypothesis based on indirect evidence — the `@import` is the local-install path; the manifest's path field is schema-defined as repo-source path. Reviewer pre-resolution is never authoritative on schema-distinct fields. Pre-resolution of any path-typed field requires an executor `ls` confirmation step in the plan. Source: 2026-05-08 project-rag.
+
 **Periodic baselines drift — instruct read-current-and-increment, not match-spec.** When a stub names a count, version, or baseline ("bump from 55 to 56"), absolute values rot between enrichment and execution. Phrase as "read current value and increment" so the math survives the gap.
+
+**Plunge vs. plan split by substrate certainty, not appetite.** Verified-on-disk parts of a workstream may plunge directly to execution. Parts that depend on foreign-repo substrate (paths, APIs, schema fields in a sibling repo you haven't grepped) require a plan with an explicit verification step before execution dispatch. Certainty is the gate, not effort estimate. Source: 2026-05-18 project-rag.
+
+**Satisfy schema constraints by construction before relaxing.** When a closed-enum schema gate appears to block a new entity type, ask "can the producer satisfy the constraint?" before "should we relax the constraint?" Relaxation carries cross-consumer blast radius; satisfaction by construction is local and reversible. Document the construction path in the plan before entertaining schema changes. Source: 2026-05-15 claude-unreal-holodeck.
 
 - Scaffolded config files (templates the plan instructs an executor to write) must self-disclose which fields they actually support — silent ignoring of unrecognized fields breeds downstream debugging cost. Plans citing config templates should require the template carry a `# Supported fields:` comment listing the keys.
 - Plans extending an existing pipeline (e.g. adding a new wave to /distill, a new phase to /update-docs) MUST grep the pipeline's existing scratch-path conventions before declaring output paths — silent collision with sibling waves' scratch namespaces breaks parallel safety.
+
+**TEMPLATE blocks with substrate-divergent specifics are worse than no TEMPLATE.** Concrete assertions in TEMPLATE blocks (file paths, version strings, flag names, count thresholds) must be substrate-checked at plan-time, or stripped to truly skeletal pseudocode. A TEMPLATE that carries specific values not verified on disk becomes a fabrication vector — executors treat TEMPLATE content as authoritative. Pre-review audit: walk every concrete value in a TEMPLATE block and confirm it against `ls`/grep, or replace with a `<placeholder>` that forces the executor to resolve it. Source: 2026-05-16 project-rag.
 
 ## Negative-Search Before Drafting
 
@@ -127,6 +154,10 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 4. **Reversal-verb hint:** If §1 Objective uses any of `restore`, `reintroduce`, `reconstitute`, `undo`, `re-add`, or `bring back`, the plan author should *consider suggesting* a staff-session to the PM before approval. This is a suggestion only — the PM owns the call. Frame it as: "This plan reverses prior direction; PM may want a staff-session before approving execution."
 
 5. **External-doctrine proposals — independent location-challenge.** When a peer audit or external review recommends a fix, never adopt the proposed *location* uncritically — proposals frame fixes from where they noticed the problem, which is rarely the cheapest place to apply them. Run an independent location-challenge before drafting: would an upstream surface (producer skill, hook, dispatch template) prevent the class of problem more cheaply than the proposed downstream patch?
+
+**Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. The Staff Engineer-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
+
+**Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
 
 ## File Structure
 
@@ -310,6 +341,19 @@ Before writing a plan or dispatching agents on a debugging or fix task, identify
 
 **Diagnose-then-design sequence.** Don't author architectural plans for unknown root causes. When the symptom is observed but the mechanism is unverified, the first plan is a diagnostic plan — not a mitigation/refactor plan. Architectural plans built on guessed-at root causes optimize the wrong surface and bury the actual fault under structural churn; the structural work then has to be unwound when the real mechanism surfaces. Sequence is diagnostic spike → mechanism identified → design plan. Skipping the diagnostic step because "we already know it's the X layer" is exactly the heuristic that produces wrong-locus mitigations.
 
+## Substrate-Migration Sequencing
+
+*Lesson 2026-05-18, project-rag-ue-addon.* When a plan introduces a layout change (directory shape, file naming, schema location, persistence path) that a downstream producer depends on, the layout-creation work MUST be its own explicit task that lands BEFORE the producer task — not assumed to "exist by the time the producer runs." Plan-documented and reviewer-approved layout invariants do not guarantee runtime existence; the executor for the producer task will hit `ENOENT` / `IsADirectoryError` / `FileNotFoundError` at first run and the recovery shape (create directory inline, fall back to old path, etc.) is exactly the silent-pick footgun this rule prevents.
+
+**Procedure at plan-write time:**
+
+1. Walk every layout assumption the plan makes (new directories, new schemas, new persistence paths, new registry entries, renamed/moved files).
+2. For each, ask: *does this exist at the moment the producer task runs?* If "yes, because Task K creates it" — Task K must precede the producer task explicitly, with `depends_on: <Task K>` in the producer's task header.
+3. If "yes, because the substrate is naturally present" — grep the substrate to confirm. Don't assume; tests in CI run on clean checkouts.
+4. If the answer is genuinely "no, the producer creates it" — that producer task's spec MUST include the creation step explicitly. Not a side-effect, not "it'll mkdir as needed" — an explicit step in the task body.
+
+**Non-discriminating reviewer rationale is the warning sign.** When a reviewer's rationale for accepting a layout decision is true of multiple shapes (e.g., "PersistentClient needs a directory" — true of both old and new shapes), the reviewer didn't actually pick the right shape; they ratified a non-decision. Plan reviewers should be asked: *what about your rationale would change if we picked the OPPOSITE layout?* If the answer is "nothing," the rationale is non-discriminating and the layout decision isn't actually grounded in this review. Re-decide explicitly, or flag the decision as deferred.
+
 ## Roadmap and Cross-Repo Plan Hazards
 
 These apply when a plan is part of a multi-stub roadmap or moves work between repos.
@@ -352,6 +396,18 @@ When plan A depends on plan B — shared paths, asset names, API contracts — a
 
 **In the plan document itself:** If interlocking plans exist, add a `**Depends on:**` line in the header and a reconciliation checklist as the final pre-execution step. Do not leave this implicit.
 
+**Cross-plan conflict scan before executor dispatch (procedure).** A `**Depends on:**` header is insufficient when sibling plans were authored concurrently and neither knew about the other. Before dispatching any executor on a freshly-written plan, run a mechanical scan over `docs/plans/*.md` that have been touched since the plan-author last reconciled (or are still in `## Active` state):
+
+1. **File-overlap grep.** For each chunk-scope file in the new plan, grep sibling plans for the same path. Any sibling that names an overlapping file is a candidate conflict — read the sibling's relevant section.
+2. **Architectural-seam grep.** For each new abstraction, registry entry, hookspec, schema field, or contract the new plan introduces, grep sibling plans for the seam's central noun. A sibling that mentions the same seam (even with a different name) is a candidate conflict.
+3. **Fold into `## Cross-plan coordination` section.** Add a section to the new plan body enumerating: (a) each sibling plan touched on the same file or seam, (b) what assumption each carries, (c) whether the new plan amends, defers to, or supersedes the sibling. No conflicts found → write the section with this body:
+
+   > **Cross-plan coordination:** scanned `docs/plans/*.md` — no overlapping file scope or seam citations.
+
+   Empty-but-present section is fine; missing section is the failure mode.
+
+A reviewer (the Staff Engineer / domain reviewer) will dispatch against the assumption that this scan has happened; surfacing a sibling-plan conflict at executor time is plan-substrate failure, not executor failure. Source: 2026-05-18, project-rag.
+
 ### (d) Tool resolution in teammate prompts
 
 When a plan step dispatches a teammate agent that needs MCP tools, use graduated ToolSearch in the teammate's prompt — never hardcode a single tool name prefix. MCP tool names vary across teammate spawn contexts (e.g., `mcp__notebooklm__*` vs `mcp__plugin_notebooklm_notebooklm__*`).
@@ -372,6 +428,8 @@ When a plan proposes shared-file appends across N machines or sessions, prefer *
 
 Plans that claim "fully independent files" still need EM-side file-overlap analysis before parallel executor dispatch. Trust-but-verify: a 30-second cross-check against the plan's file lists prevents two executors from racing the same file under independence assumptions.
 
+**Index files are hidden shared substrate.** `docs/README.md`, `docs/wiki/DIRECTORY_GUIDE.md`, and any central index get rewritten by every chunk that touches them. These files never appear in per-chunk file lists yet every chunk that adds a new wiki page, doc, or plan entry implicitly writes to them. In mise/parallel-dispatch file-overlap analysis, the anchor chunk must own all index rows and forward-references. If no anchor is designated, index files must be committed by the EM after all chunks land — never by individual parallel executors. Source: 2026-05-15 project-rag.
+
 ### (h) Plan-time dispatch decisions go stale
 
 Dispatch-shape decisions written into a plan (Haiku/Sonnet/Opus, parallel/serial, scout vs general-purpose) are valid at plan-write time only. Phase-2 dispatch must re-check that the chosen shape still fits the substrate; staleness window is ~24h.
@@ -391,6 +449,10 @@ Any plan that ships with `TBD` / `???` / `<placeholder>` in a threshold position
 ### (l) Plan frontmatter is EM-only territory
 
 Plan frontmatter (`status:`, `landed_in:`, `reviewed_by:`) is EM-only territory. Executor dispatch briefs MUST include verbatim "DO NOT modify plan frontmatter — that is the EM's bookkeeping surface." Even with this, audit `git diff` on plan files in the post-dispatch verification step.
+
+### (m) Seam Contract for cross-stub symbols
+
+In a multi-stub plan, every cross-stub symbol dependency — a function in Stub-1 that calls a symbol Stub-2 is supposed to produce — is a *seam*. The producer stub MUST ship its symbol in the same wave as the consumer that references it. A `getattr(module, "X", None)` or `try/except AttributeError` graceful-degrade clause against a planned primitive is a permanent fallback, not a temporary bridge: once the consumer ships and the producer hasn't, the degrade clause silently becomes load-bearing infrastructure and the call path permanently no-ops. If the producer is genuinely not in the same wave, the consumer stub MUST include a task that ships the symbol — not a degrade clause. Distinct from (e): (e) governs runtime fallbacks; (m) governs plan-time forward-references.
 
 ## Self-Modifying Infrastructure
 

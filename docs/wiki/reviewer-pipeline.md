@@ -16,6 +16,53 @@ This wiki is the single authoritative source for the phases that run identically
 
 ---
 
+## Phase 2.4: Comprehensiveness Auditor (Sonnet, DRAFT — not yet wired)
+
+> **Status: DRAFT.** PM has approved the concept; the implementation has not landed yet. The design below is the spec for a follow-up session to pick up and wire — standard `/plan` + reviewer chain applies. Not staff-session-gated; this is a normal new-skill scaffold, not an architectural decision.
+
+**Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. The Staff Engineer reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + the Staff Engineer review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
+
+**Why a Sonnet mechanical auditor, not an Opus reviewer:** The work is enumerative — walk a checklist of canonical coverage areas (rollback, migration, observability, security boundary, error paths, test surface, concurrency, performance, accessibility, docs/changelog impact), grep the plan body for evidence of each area being addressed, emit a sidecar listing which areas are silent. This is mechanical pattern-matching, not architectural judgment; Sonnet at low temperature is the right altitude. Opus reviewers can then use the gap-list as input rather than re-deriving it.
+
+**Sequencing — between plan-draft and prior-art-check:**
+
+```
+plan.write → comprehensiveness-auditor (Sonnet) → docs-checker (Sonnet) → prior-art-checker (Sonnet) → Opus reviewer → integrator
+```
+
+The auditor runs BEFORE docs-checker and prior-art-checker because gap findings often reshape the plan body (the EM adds a Rollback section, a Migration section), which means docs-checker and prior-art-checker should run on the AMENDED body, not the original. Running comprehensiveness-auditor last (post-Opus) is the wrong shape — it would force a second Opus pass after gap-fill.
+
+**Coverage checklist (initial draft — to be tuned empirically):**
+
+| Area | Trigger | What "addressed" looks like |
+|------|---------|----------------------------|
+| Rollback | Plan changes shipped behavior, contract, or schema | Section names a revert/disable path, names what state survives the rollback |
+| Migration | Plan changes a producer-consumer contract or persisted format | Section addresses existing data / existing consumers / version-aware logic |
+| Observability | Plan ships a new code path, hook, or background process | Section names log/metric/trace surface OR explicitly notes "no observability needed and why" |
+| Security boundary | Plan reads/writes external input, executes shell, or crosses a privilege boundary | Section names the validation surface OR explicitly notes "trusted internal path" with grep evidence |
+| Error paths | Plan adds error-prone surface (I/O, network, parse, exec) | Section names each failure mode + handling shape |
+| Test surface | Any code change | Section names test files OR documents "no test, because <reason>" |
+| Concurrency | Plan touches shared state, files appended by multiple actors, async dispatch | Section addresses lock/order/idempotency strategy |
+| Docs impact | Plan changes user-visible behavior or operator-visible interface | Section names doc files to update OR notes none-needed |
+
+**Output sidecar:** `tasks/review-findings/{timestamp}-comprehensiveness.md` with a Silent / Addressed / N/A verdict per area + evidence quote (file:line within plan). Empty Silent column = green light. Non-empty Silent column blocks dispatch of downstream reviewers until EM either fills the gaps or annotates each as N/A with rationale.
+
+**Failure modes to watch for** (when this phase ships, calibrate against these):
+
+1. **False-positive Silent on N/A areas.** A trivial single-file fix doesn't need a Rollback section. The auditor must NOT block trivial work; tune the area-trigger column to fire only when the plan's scope mode (prototype / production-patch / feature / architecture / spike — see writing-plans.md) justifies the check.
+2. **Coverage checklist becomes ceremony.** If every plan ships with an empty Observability section just to clear the gate, the section is decorative. Calibrate the trigger so the area only surfaces on genuine scope; null-result audit at 4-week cadence to retire areas that never fire on real plans.
+3. **Auditor competes with the Staff Engineer.** If the auditor surfaces gaps that the Staff Engineer would have surfaced anyway, it's pure overhead. Calibrate by tracking which gaps the Staff Engineer flags that the auditor DIDN'T pre-surface — those are the ones the auditor needs to learn; ones the Staff Engineer never flags are the ones the auditor over-surfaces.
+
+**Open design questions (PM input pending):**
+
+- Should this run on plan-mode `coordinator:plan` exit, or only when the plan is `architecture` / `feature` scope? Default proposal: only on `feature` and `architecture` (skip for `prototype`, `production-patch`, `spike`).
+- Should Silent areas auto-amend the plan body with `## TODO: <area> coverage` stubs, or just emit the sidecar and let the EM author? Default proposal: sidecar-only, EM authors — auto-amend invites ceremony.
+- Cumulative-effect: this adds a 4th pre-flight to the plan→review pipeline. Combined with docs-check + prior-art + external-pattern, the pre-review chain is now ~2-3 minutes of Sonnet dispatch. Acceptable cost vs. expected Opus-reviewer savings? Empirical calibration after first 10 dispatches.
+
+Lesson source: `project-rag/tasks/lessons.md` (2026-05-18, comprehensiveness-auditor between plan-draft and prior-art-check).
+
+---
+
 ## Phase 2.5: Write-Ahead Status Update
 
 Before dispatching reviewers, mark the artifact's review status. If the artifact has a status header (plan doc, stub doc), update it:
@@ -94,19 +141,53 @@ Before dispatching expensive Opus reviewers, decide whether to run the **prior-a
 1. Dispatch `prior-art-checker` agent with the plan path.
 2. prior-art-checker reads project wikis, global wikis, lessons, and the improvement queue; cross-references the plan; writes a sidecar at `<plan-path>.prior-art-check.md`.
 3. Sidecar verdict is `COMPATIBLE`, `WARN`, or `BLOCKED-SURFACE-TO-PM`.
-4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed, fold prior art into the plan, or escalate to PM.
+4. **EM reads the sidecar before dispatching the Opus reviewer.** This step is mandatory — the verdict determines whether to proceed or escalate to PM. It does NOT require EM pre-disposition of Conflicts; the Opus reviewer's judgment is the primary input on direction-of-correction (per `snippets/prior-art-check-consumption.md` and `docs/wiki/prior-art-checker.md § Bidirectional resolution`).
    - **COMPATIBLE:** include the sidecar path in the Opus reviewer's dispatch prompt and proceed.
-   - **WARN:** EM dispositions each conflict (fold-in, override-and-document, or PM consult). For overrides, append a one-line entry to the plan's "Considered alternatives" section. Include the sidecar in the Opus reviewer dispatch.
+   - **WARN:** include the sidecar in the Opus reviewer's dispatch prompt and proceed. The reviewer recommends a direction-of-correction per Conflict (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). EM pre-disposition in the dispatch brief is OPTIONAL — use it when the right direction is mechanically obvious (e.g., a Conflict against load-bearing doctrine that's already settled), and leave it for the reviewer when the call is architectural. A reviewer recommendation contrary to an EM pre-disposition escalates as ASK in the integrator pass (see `agents/review-integrator.md § Prior-Art Conflict Resolution`).
    - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with the sidecar quote(s). Do NOT dispatch the Opus reviewer until PM has decided fold-in or authorized override.
 5. Include the following verbatim in the Opus reviewer's dispatch prompt:
 
-   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. Conflicts (if any) have been dispositioned by the EM — see the plan for any overrides — the EM may have added a Considered Alternatives section or annotated the relevant phase inline. Use the sidecar's Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability.
+   > A prior-art-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. The sidecar is unintegrated — your judgment is the primary input on direction-of-correction per Conflict. Recommend `update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed` per Conflict with one-sentence reasoning. Use the Compatible-but-relevant section to identify wikis the plan should cite; flag missing citations as findings if they would aid maintainability. (Any EM pre-disposition appears in this dispatch brief; if your judgment differs, say so — the integrator will escalate as ASK.)
 
 **On prior-art-checker failure:** Proceed to Phase 2.8 and Phase 3 without the sidecar. Reviewers fall back to their own doctrine recall (which is the pre-2026-05-06 baseline). This phase is additive, not blocking.
 
 **The prior-art-checker is a feedback loop on wiki quality.** Repeated false-positive conflicts on a wiki entry are signal — surface to PM as a candidate for wiki revision (the wiki may be outdated, vague, or wrong). This is the recall side of the capture-recall loop; without it, captured wikis decay silently.
 
-**Phase 2.7b integrator note:** The review-integrator does NOT process prior-art-check findings directly — those are EM-dispositioned before the Opus reviewer sees the plan. The integrator continues to handle Opus reviewer findings as today. The prior-art-check sidecar is part of the review record archived alongside the review findings.
+**Phase 2.7b integrator note:** The review-integrator processes prior-art-side edits AFTER the Opus reviewer pass, per the direction-of-correction the reviewer (and optionally the EM) named. No integrator pass runs *between* the prior-art-checker and the first named reviewer — pre-flight sidecars are not a sequential reviewer. See `agents/review-integrator.md § Prior-Art Conflict Resolution` for the integrator's authority on wiki/registry/lessons edits. The prior-art-check sidecar is archived alongside the review findings. Note: this contract applies to prior-art-checker WARN (Conflicts with five valid directions, passing through the reviewer unintegrated); plan-coverage-checker INCOMPLETE has a different contract — see Phase 2.7d.
+
+---
+
+## Phase 2.7d: Plan Coverage Verification (plan-coverage-checker pre-flight)
+
+**The plan-coverage-checker is a completeness pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
+
+**Trigger (skill-internal — no EM opt-out):**
+
+| Plan shape | Run? | Why |
+|---|---|---|
+| Plan contains an audit/findings/issues table with ≥5 items | **Run.** | The oracle exists; coverage is checkable; the empirical 36/9/4 case lives here. |
+| Plan contains an audit table with 1–4 items | Run. | Cheap. False-skip cost is higher than false-run cost. |
+| Plan contains no audit/findings table (pure greenfield design) | Skip silently. | Agent would emit `SCOPE-MISMATCH`; no point spending the dispatch. |
+| Plan is single-file mechanical fix (no design content) | Skip silently. | Same as prior-art-checker triviality skip. |
+| Plan is a doc redesign / wiki rewrite | Skip silently. | No fix-slate shape. |
+
+**Dispatch:**
+1. Dispatch `plan-coverage-checker` agent with the plan path.
+2. Agent parses oracle + slate, runs three lenses, writes sidecar at `<plan-path>.plan-coverage-check.md`.
+3. EM reads sidecar before dispatching the Opus reviewer.
+   - **COMPLETE:** include sidecar path in Opus reviewer dispatch and proceed.
+   - **INCOMPLETE:** fold findings into the plan BEFORE Opus reviewer dispatch. Missed items added to slate or OOS with architectural reason. Weak-OOS rewritten or promoted to slate. Substrate-drift amended.
+   - **BLOCKED-SURFACE-TO-PM:** STOP. Surface to PM with verbatim findings.
+   - **SCOPE-MISMATCH / DEGRADED:** proceed; no fold needed.
+4. Include verbatim in Opus reviewer dispatch prompt:
+
+   > A plan-coverage-check pre-flight ran on this plan. Sidecar: [path]. Verdict: [verdict]. If INCOMPLETE, the EM has folded findings into the plan body — review the amended version. The sidecar is included as audit trail; coverage gaps are not yours to re-litigate, but if you spot a NEW gap the lens missed, flag it.
+
+**On plan-coverage-checker failure:** Proceed without the sidecar. Phase is additive, not blocking.
+
+**Doctrine note — divergence from Phase 2.7b sidecar contract.** The Phase 2.7b note that "the Opus reviewer's judgment is what we want shaping direction-of-correction" applies to **prior-art Conflicts**, which have five valid directions (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). It does NOT apply to plan-coverage-check Missed findings, which have three valid EM-mechanical resolutions: (1) add-to-slate, (2) architectural-OOS, (3) oracle-was-wrong (amend the audit table with explanatory note). None of these three require reviewer judgment. The mechanical nature of a missed audit item makes pre-fold the correct posture; reviewer judgment adds no value on a question the EM can resolve mechanically. Same shape for substrate-drift (amend or explain). This is the architectural distinction between recall (prior art) and coverage (this lens). Note: this contract applies to prior-art-checker WARN, not to all pre-flight findings.
+
+**Phase 2.7b and 2.7d run in parallel** when the plan triggers both. They are independent — neither reads the other's sidecar. **Phase 2.7c still gates on 2.7b completion (unchanged from existing doctrine)** — external-pattern-checker reads the prior-art sidecar as input. So the runtime shape is: (2.7b ∥ 2.7d) → 2.7c → 2.8 → named reviewer. The EM consumes all available sidecars before dispatching the named Opus reviewer.
 
 ---
 
@@ -281,9 +362,12 @@ For major surface additions where the spec author was substrate-blind (no on-dis
 
 1. **Plan-author negative-search** (W1, `writing-plans` SKILL). Prohibitions and prior reversals surfaced before reviewer dispatch.
 2. **docs-checker pre-flight** (Phase 2.7). External-API claim verification, AUTO-FIX inline.
-3. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
+3a. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
+3b. **plan-coverage-checker pre-flight** (Phase 2.7d). Oracle-vs-slate completeness, hedge detection, in-repo substrate drift. Skill-internal trigger — runs unconditionally on plans with oracle tables. Runs in parallel with layer 3a (prior-art-checker).
 4. **the Staff Engineer Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
 5. **Domain reviewer (the Game Dev Reviewer for game-dev / the Data Science Reviewer for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
+
+<!-- Review: code-reviewer — plan-coverage-checker (Phase 2.7d) was absent from the five-layer topology list; added as 3b parallel to prior-art-checker, matching the (2.7b ∥ 2.7d) runtime shape documented in Phase 2.7d. -->
 
 Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (test-evidence-parser, security-audit-worker, dep-cve-auditor, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
 
@@ -320,6 +404,20 @@ A common false positive: reviewers flag `try: import X / except ImportError: ...
 The integrator does not auto-apply import-fallback findings — they always land in the EM disposition table.
 
 ---
+
+## Reviewer Elevation Past Charter
+
+*2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking the Staff Engineer with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
+
+**Required form:**
+
+> *"You are dispatched in elevated mode: [DoE / cross-repo authority / prior-art-override / other]. This dispatch grants [specific authority]. Your default charter ([brief restatement]) does NOT apply for this artifact."*
+
+Without the verbatim elevation, the reviewer falls back to default charter — even if the dispatching EM verbally framed the dispatch as elevated. The brief is the contract; chat context is not.
+
+**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier the Director of Engineering, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
+
+**Companion:** `prior-art-checker.md § Prior-art mutability` — for one specific elevated authority (DoE-override of prior-art-checker findings).
 
 ## Problems-Only Mode
 

@@ -29,7 +29,23 @@ result = functools.reduce(lambda acc, fn: fn(acc), transformers, x)
 
 Designing any pluggy hookspec whose name reads like a verb-on-the-argument (`transform_*`, `enrich_*`, `filter_*`, `rewrite_*`). Audit the hookspec: if the intent is "each plugin gets to modify X in turn," the hookspec is wrong-shaped — return the transformer, reduce outside.
 
+## Grep ratified cross-repo DRs BEFORE drafting a hookspec
+
+When a hookspec spans repos — producer in repo A, consumer in repo B, addon in repo C — there may already be a ratified spec for the same seam from days or weeks earlier. Drafting fresh and reconciling later is the documented near-miss: prior-art-checker catches the name collision *after* drafting, the planner has already shaped the surface around the now-superseded name, and a rename pass becomes part of the dispatch.
+
+**Concrete failure (project-rag, 2026-05-16):** C7 spec drafted `project_rag_declare_kind_sources` without checking D-5's already-ratified `project_rag_register_corpus_provider` from three days prior (memo lines 823, 879). Both addressed the same seam — registering a corpus provider into the host. Prior-art-checker caught the collision in the review pass; better discipline catches it before any text is written.
+
+**Rule (before drafting):**
+
+1. Grep ratified DRs in the originating repo: `rg "@hookspec.*<seam-shape>" docs/decisions/ archive/specs/`.
+2. Grep peer-repo memos for the seam name family: `rg -n '\b(project_rag_|<peer-prefix>_)?<verb-noun>' <peer-repo>/docs/`.
+3. Grep the central improvement queue and any open spinoff handoffs for the same surface: `rg -n '<seam-shape>' ~/.claude/tasks/coordinator-improvement-queue.md ~/.claude/tasks/handoffs/`.
+4. If any hit names a ratified seam: cite it in the new spec's "prior art" frontmatter and either *extend* the ratified name (preferred) or document why this is a distinct seam in the same neighborhood (rare).
+
+Cheap pre-flight; expensive to do as integrator-pass rewrite.
+
 ## Related
 
 - `~/.claude/CLAUDE.md` § Implementation Standards — Extensions (detect-then-fail-loud-when-ambiguous)
 - `docs/wiki/round-trip-contract-tests.md` — for verifying multi-plugin pipelines end-to-end
+- `docs/wiki/cross-repo-citation-conventions.md` — how to cite the ratified DR once you find it

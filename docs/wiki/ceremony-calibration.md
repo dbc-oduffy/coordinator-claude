@@ -30,6 +30,8 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 **Wait for instance #3 before extracting a pattern into a skill.** One-off looks like noise. Two might be coincidence. Three is a pattern. The cost of premature extraction is a skill that codifies the wrong invariant — and once codified, the wrong invariant is harder to correct than the original ad-hoc behavior. Hold instance-#1 and instance-#2 in `tasks/lessons.md` with a `recurring:` count; promote on the third surfacing. (Codified in `coordinator/CLAUDE.md` § Self-Improvement Loop.)
 
+**Exception — low-invariant-risk + high-magnitude (instance-#1 promotion justified).** The wait-for-#3 rule exists to prevent codifying the wrong invariant. That risk is substantially lower when (a) the invariant being codified is mechanical and low-misclassification-risk (the invariant is a structural cross-ref, not a judgment call), AND (b) the motivating incident magnitude is qualitatively distinct from typical near-miss noise — e.g., 36-of-50 items missed in a single artifact versus 1–2 items in a near-miss. When both conditions hold, the wait-for-#3 gate re-instantiates the EM-confidence failure mode the agent exists to prevent: the EM would judge each near-miss as "still not enough evidence," and the structural gap persists until the third incident. Instance-#1 promotion is warranted; override must be documented with explicit rationale at the extraction site. (the Staff Engineer review 2026-05-18, Conflict #15 update-prior-art follow-up.)
+
 **Null-result audits fold the rule into the producer skill, not just the report.** When an audit finds "this didn't happen because X," the producer-side surface (the skill that should have made X happen) is where the rule belongs — the audit report itself is read once and dies. Audit reports without producer-side fixes are observation theater.
 
 ## Retirement calibration
@@ -90,6 +92,10 @@ When a phase's smoke-test would re-prove something a sibling phase already prove
 Linear-run verification budgets — "we'll spend N sessions of verification across this multi-handoff chain" — collapse when **shared evidence axes are identified first**. Before sizing a multi-session handoff chain, enumerate the shared evidence: test files exercised by multiple handoffs, build artifacts referenced by multiple stubs, schema columns multiple parsers consume, config values multiple subsystems read. Each shared axis can be verified once and reused across the dependent handoffs; without enumeration, each session re-verifies the same evidence and the budget inflates by the dependency factor.
 
 **Sizing-pass procedure** (run during `coordinator:roadmap-planning` Phase 2 or before authoring a multi-session plan): (1) list every handoff / stub in the chain; (2) for each, list the evidence it asserts on (files, commits, schema state, build artifacts); (3) compute set-union; (4) re-cost the chain assuming each shared-axis verification runs *once*, not per-handoff. The gap between linear-cost and shared-axis-cost is the room the sizing pass buys back.
+
+## Reviewer-dispatch calibration
+
+Reviewer auto-dispatch surfaces accumulate triggers; calibrate against who actually applies the lens. Demote auto-dispatch hooks for reviewers whose lens is PM-owned (e.g., vp-product when PM is Head of Product) to explicit-ask only.
 
 ## Companion doctrine
 

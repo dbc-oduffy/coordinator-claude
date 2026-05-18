@@ -144,6 +144,12 @@ Two distinct cadences operate on the same queue file:
 
 This split enforces "don't theatre the queue daily" — entries either get acted on at weekly cadence or they're explicitly deferred. Promoting through the queue solely for symmetry is theater (see [DR-007](#dr-007)).
 
+### Backlog entries in summary-form paragraphs are still actionable
+
+Dense deferred-summary paragraphs that include file:line citations — the kind written when a session ran out of time to act — are **verification candidates, not noise**. Two instances (2026-05-14 project-rag, queue line 325; 2026-05-17 project-rag, queue line 410) were skipped during triage because the prose looked like a narrative summary rather than a discrete action item. Both contained grep-able citations and reproducible failure modes.
+
+Operational rule: `/bug-blitz` Phase 1 verification and `/learn-lessons` Phase 1 discovery must treat dense deferred-summary paragraphs as actionable backlog entries — open them, extract the file:line citations, and run the verification step before classifying as ALREADY-DONE or QUICK-WIN. The paragraph form is a formatting choice, not a skip signal.
+
 ### Triage verdict taxonomy
 
 A 144-entry triage in 2026-05-05 produced this empirical distribution:

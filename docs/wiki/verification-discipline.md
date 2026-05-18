@@ -44,6 +44,10 @@ Any workstream that diagnoses a failure, validates a fix, writes an acceptance-c
 
 - **When `git commit` reports "no changes added," check `git reflog` before re-staging.** The staged set was empty — but the reason may be that a peer session already committed the work. Re-staging without checking creates duplicate commits or, worse, resurrects content the peer session intentionally dropped.
 
+## Crash recovery: artifact-survey-first across peer repos
+
+- **Re-extraction as crash recovery is process theater when versioned artifacts already exist.** Before re-running an expensive producer (extractor, indexer, generator) on crash recovery, survey every peer repo in the cohort for already-shipped versioned artifacts. The three-repo split case: producer crashed mid-run, EM reflex was to re-run the extraction — but two sibling repos already carried fresh artifacts from the prior successful pass. Cost of survey is one `ls` per repo + a freshness grep; cost of unnecessary re-run is hours of producer time plus the chance of a worse output. Generalizes to any post-crash decision where "re-run the producer" is one option: artifact-survey-first across the full cohort, then decide.
+
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).

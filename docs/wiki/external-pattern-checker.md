@@ -27,9 +27,10 @@ It writes a sidecar at `<plan-path>.external-pattern.md` with four buckets: `Sig
 |---|---|---|---|
 | **docs-checker** | "Are the external API claims correct?" | Context7, LSP, project-RAG | Run by default for C++/UE; EM discretion otherwise |
 | **prior-art-checker** | "Have *we* already learned this?" | Project + global wikis, lessons, central queue | Run by default for plans |
+| **plan-coverage-checker** | "Does the plan's fix slate cover its own audit oracle, with no hedges or substrate drift?" | The plan itself (oracle vs. slate cross-ref + in-repo disk check) | **Skill-internal trigger — runs unconditionally on any plan with an oracle table; no EM opt-out** |
 | **external-pattern-checker** | "Is there enough external signal here that we should dispatch deeper research — and is there a quick caution worth surfacing now?" | Bounded triage scan (≤ 5 WebFetch, ≤ 2 WebSearch, ≤ 6 topics) | **Opt-in only — never default-on** |
 
-These three agents are not substitutes. They answer different questions, consult different corpora, and produce different outputs. Running one does not reduce the value of running another.
+These four agents are not substitutes. They answer different questions, consult different corpora, and produce different outputs. Running one does not reduce the value of running another.
 
 ## Why Not Fold Into prior-art-checker?
 

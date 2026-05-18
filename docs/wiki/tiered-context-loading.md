@@ -12,10 +12,7 @@ The existing "Codebase Investigation" section in `coordinator/CLAUDE.md` describ
 
 **The goal of this doctrine is not to name what we do. It is to make the escalation order visible and measurable so that violations are detectable.**
 
-Two behavioral levers operationalize this:
-
-1. **Tier-4 rationale rule** — every Agent dispatch for investigation must include a one-line preamble stating what tiers 1–3 returned and why they were insufficient.
-2. **Session-end telemetry** — a PostToolUse hook counts tool calls by tier; `/session-end` emits a per-session report. Trends across sessions reveal whether the doctrine is followed or drifting.
+The behavioral lever is the **tier-4 rationale rule**: every Agent dispatch for investigation must include a one-line preamble stating what tiers 1–3 returned and why they were insufficient. (A telemetry hook counted tier usage per session from ~2026-05-01 to 2026-05-18; the final report at `docs/research/2026-05-18-tier-usage-telemetry-final-report.md` aggregates ~1k sessions before the hook was removed for measuring the wrong agent population.)
 
 ---
 
@@ -31,7 +28,13 @@ Two behavioral levers operationalize this:
 
 **Tier 0 — Boot context** is always present before the first tool call. It costs nothing at investigation time because it was loaded at session start: `orientation_cache.md` gives the project's current state, `lessons.md` records accumulated gotchas, and session memory pointers anchor any cross-session continuity. Boot context is not a lookup tier; it is the baseline from which escalation begins.
 
-Files Tier-0-loaded at every session boot (orientation_cache, lessons, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context — orientation_cache should cap at ~3K tokens via `/update-docs` trim; `lessons.md` trims via `/learn-lessons`; MEMORY.md trims via auto-memory consolidation. Quarterly verify file sizes.
+Files Tier-0-loaded at every session boot (orientation_cache, lessons, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context.
+
+- **`orientation_cache.md`** is regenerated from a fixed schema (`pipelines/workday-start-internals.md` § 5.5) by `bin/regenerate-orientation-cache.sh` and verified by `bin/verify-orientation-cache-sync.sh`. **Hard ceiling: 35 lines.** The schema permits only seven sections (`Project`, `Trust caveats`, `Counters`, `Active workstreams`, `Rechecks due ≤7 days`, `Branch`, `Pinboard`); all are either static, derived-from-disk, or absent. **No free-form prose anywhere.** Schema drift fails the verifier at `/update-docs` Phase 11b. Writer tiers: ceremony writers (`/workday-start`, `/update-docs`) own full regen; mid-session writers (`/session-end`, `/handoff`) may only write a single line to `## Pinboard` (one-slot, overwrite-or-omit, auto-cleared on next ceremony). The `## Trust caveats` section is filesystem-detector-driven (e.g. presence of any `*.uproject` in repo triggers a UE training-data-trust warning instructing the EM and its delegates to verify via `mcp__project-rag__*` or dispatch the Game Dev Reviewer) — content is owned by the routine, not the writer.
+- **`lessons.md`** trims via `/learn-lessons`.
+- **MEMORY.md** trims via auto-memory consolidation.
+
+Quarterly verify file sizes.
 
 **Tier 1 — Curated narrative** contains human-authored and distilled documents that describe how subsystems work at a level above code: wiki guides, architecture atlas pages, decision records. These are the product of previous investigation cycles — they exist precisely so future sessions don't have to re-derive the same structural knowledge from grep. A tier-1 read of `tasks/architecture-atlas/systems/auth.md` is almost always more informative than ten tier-3 Greps across the same system.
 
@@ -94,13 +97,13 @@ The guiding test: **could a cheaper tier have answered this question?** If yes a
 | 3 | `Read` of any other path; `Grep`; `Glob` |
 | 4 | `Agent` with `subagent_type` in {`Explore`, `general-purpose`, `deep-research:*`, `feature-dev:code-explorer`} |
 
-Note: `Bash` calls that are not `bin/query-records` or RAG-adjacent fall outside the tier classification and are not tracked. Telemetry ignores them.
+Note: `Bash` calls that are not `bin/query-records` or RAG-adjacent fall outside the tier classification and don't count toward escalation accounting.
 
 ---
 
 ## 6. Failure Modes
 
-**Skip-to-scout (most common).** Dispatching a tier-4 agent when tier 2 or tier 3 would have answered the question. Symptoms: scout returns a brief that could have come from a single Grep; tier-usage report shows tier4 >> tier2+tier3; dispatch prompt contains no rationale preamble. Fix: run the tier-4 rationale rule check before every Agent dispatch.
+**Skip-to-scout (most common).** Dispatching a tier-4 agent when tier 2 or tier 3 would have answered the question. Symptoms: scout returns a brief that could have come from a single Grep; dispatch prompt contains no rationale preamble. Fix: run the tier-4 rationale rule check before every Agent dispatch.
 
 **Redundant tier.** Re-running a tier after it already returned a clean answer. The most common variant is re-grepping after a tier-2 RAG call returned the symbol location. Wastes tokens without adding information.
 
@@ -130,41 +133,11 @@ Tier 1-3 attempted: wiki guide covers auth at a high level, RAG symbol search re
 
 The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that the Staff Engineer and the review-integrator can flag if the rationale is implausible.
 
-Dispatches missing the preamble are flagged as `rationale_present: false` by the telemetry hook (see §8).
+The rationale preamble is a writing discipline, not an enforced gate — no hook blocks dispatch when it is missing. The earlier telemetry attempt (removed 2026-05-18) tried to measure compliance via regex on dispatch prompts and conflated investigation scouts with the rest of the `Agent` tool surface; the final report at `docs/research/2026-05-18-tier-usage-telemetry-final-report.md` walks through why the measurement was wrong-shaped. Future enforcement should either block dispatch on a missing preamble or not exist as compliance theater.
 
 ---
 
-## 8. Telemetry
-
-`~/.claude/plugins/coordinator/hooks/scripts/track-tier-usage.sh` runs as a PostToolUse hook on every tool call matching `Read|Grep|Glob|Bash|Agent|mcp__.*`. It classifies each call into a tier and increments per-session counters persisted to:
-
-```
-~/.claude/projects/<project-slug>/tier-usage/<session_id>.json
-```
-
-JSON shape:
-```json
-{
-  "session_id": "...",
-  "started_at": "ISO-date",
-  "counts": { "tier1": 0, "tier2": 0, "tier3": 0, "tier4": 0 },
-  "tier4_dispatches": [
-    { "ts": "...", "subagent_type": "...", "rationale_present": true }
-  ]
-}
-```
-
-At `/session-end` and `/workday-complete`, the session's tier-usage JSON is read and a one-line report is emitted before the wrap-up:
-
-```
-Tier usage this session: tier1=N tier2=N tier3=N tier4=N (X tier-4 missing rationale)
-```
-
-This report is the data that prevents W3 from being ceremonial. If after several sessions the counters show tier4 >> tier2+tier3 or consistent missing-rationale counts, the doctrine is not being followed — revise the enforcement, not the doctrine.
-
----
-
-## 9. Scout Deliverable Format — Surface Premises as Questions
+## 8. Scout Deliverable Format — Surface Premises as Questions
 
 Tier-4 scouts that recommend "defer X" or "skip Y for now" are emitting hypotheses about scope, not verdicts. The dispatch brief MUST require the scout to surface each defer with its unverified premise inline:
 
@@ -180,7 +153,7 @@ The pattern composes with the Tier-4 rationale rule in §7 — the rationale pre
 
 ---
 
-## 10. Quarantine-Read Mechanics for Tier-4 Briefs
+## 9. Quarantine-Read Mechanics for Tier-4 Briefs
 
 When a scout dispatch deliberately restricts the read surface — "investigate <feature> but DO NOT load <other-file>", or "summarize section N of a long artifact" — the brief must specify *how* the scope restriction works at the tool level, not just state it as a "skip" instruction:
 
@@ -192,7 +165,7 @@ Without explicit mechanics, "skip this file" instructions decay into trust-the-s
 
 ---
 
-## 11. Existing Logs Often Answer "Add A Probe" Questions Without A Rebuild
+## 10. Existing Logs Often Answer "Add A Probe" Questions Without A Rebuild
 
 Before drafting a plan that adds a diagnostic probe / log line / counter to investigate a question, Tier-0/1 should grep existing logs first. Build systems (UE's `UnrealBuildTool`, MSBuild, Cargo) and runtime daemons routinely already emit the data the probe would gather — verbose-log flags, `--diagnostics`, profiler outputs, crash dumps, structured event logs. A 30-second grep over the latest log file answers many probe-shaped questions without authoring a single line of new instrumentation.
 
