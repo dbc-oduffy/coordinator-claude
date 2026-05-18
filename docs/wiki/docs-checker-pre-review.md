@@ -114,6 +114,7 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
 - `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
 - `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
 - `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
 - `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)

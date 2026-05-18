@@ -27,19 +27,31 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 |---|---|
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
-| Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **Sonnet** (review-code Branch A.2 single reviewer) |
-| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **Sonnet** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **Sonnet + the Staff Engineer** (EM-judged escalation) |
+| Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
+| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
+| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff**, with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal (§ Post-code-reviewer the Staff Engineer-escalation criteria) |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
 **Anchored-ranges note:** the numeric thresholds (50 LOC, 500 LOC, ≥3 segments) are worked examples for EM calibration, not gates that auto-dispatch or auto-skip. The executor-dispatch trigger in row 3 is mechanical; the diff-size dimension in rows 4–5 is judgment.
 
-## Anti-ceremony-bias tripwire
+## Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end)
 
-> "If you're considering Sonnet-only because escalation feels like ceremony rather than because the diff is genuinely shallow — escalate. The Staff Engineer is one dispatch away; the cost of redundant review is one Opus call. The cost of unreviewed integration risk shipping to main is hours of debugging."
+Row 5's default after `code-reviewer` returns is *no the Staff Engineer*. `code-reviewer` on the chain diff is the floor; the EM reads `code-reviewer`'s output and escalates to the Staff Engineer iff one or more of:
 
-**Doctrine-table defaults are defaults, not negotiation starting points.** Each row in the diff-shape table above specifies a *default review scale*. The EM has waive authority for genuinely shallow diffs — a one-line rename, a mechanical typo fix — but "I already did plan-time review" and "the workstream felt small" are not waive grounds; they are the rationalization shapes the anti-ceremony bias takes. Plan-time review and post-implementation review catch different defect classes (see § Why post-implementation review is not redundant with plan-time review below). The table row that matches the session shape is the starting point; the EM must articulate a diff-shape reason to waive below it, not a coverage-completeness reason.
+- **High-volume findings** — rough anchor: ≥5 substantive findings, not nits. Volume itself signals the diff is denser than `code-reviewer` alone can confidently close out.
+- **Architectural / strategic shape** — any finding that names a cross-system boundary, an abstraction-level question, a taxonomy/enum/failure-reason refactor, a seam between independently-implemented chunks, or a tradeoff that the review-integrator cannot fold mechanically. Tactical fixes (wrong API name, missing import, precedence, factual paraphrase) do not trigger escalation.
+- **`code-reviewer`-recommended escalation** — `code-reviewer`'s own writeup recommends a deeper second pass, OR the EM reads `code-reviewer`'s output and is genuinely uncertain whether a flagged issue is tactical or structural.
+
+Tactical-only or clean `code-reviewer` → fold via `coordinator:review-integrator`, write the marker trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review is the structural backstop for chain-end work that reaches `main` without the Staff Engineer at session-end.
+
+**Why the default flipped.** Auto-defaulting row 5 to `code-reviewer`+the Staff Engineer front-loaded Opus cost on every heavy chain-end, including the many cases where `code-reviewer`'s actual output was clean or surfaced only tactical fixes. The new shape preserves the Staff Engineer on the diffs that *empirically* need a second lens (where `code-reviewer` found something the Staff Engineer-shaped) while letting the routine heavy-but-clean chain-ends close out on `code-reviewer` alone. The weekly parallel-code-review backstop catches what session-end the Staff Engineer-skip might miss before code reaches `main`.
+
+## Anti-ceremony-bias tripwire (code-reviewer-skip direction)
+
+> "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run `code-reviewer`. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
+
+**Doctrine-table defaults are defaults, not negotiation starting points** — for `code-reviewer`. The EM has waive authority for genuinely shallow diffs (one-line rename, mechanical typo fix), but "I already did plan-time review" and "the workstream felt small" are not waive grounds for *`code-reviewer`*; they are the rationalization shapes the anti-ceremony bias takes. Plan-time and post-implementation review catch different defect classes (§ Why post-implementation review is not redundant). The Staff Engineer-escalation above `code-reviewer` is a separate question governed by `code-reviewer`'s actual output, not by ceremony intuition — see § Post-code-reviewer the Staff Engineer-escalation criteria.
 
 ## Why post-implementation review is not redundant with plan-time review
 
@@ -48,21 +60,33 @@ EM judgment on row 3+ keeps waive authority for genuinely shallow diffs (a one-l
 **1. Plan-time review and post-implementation review catch different defect classes.** They are complementary, not substitutional.
 
 - Plan-time (prior-art-checker + the Staff Engineer on the plan): catches architectural shape, prior-art conflicts, substrate verification — *what we're about to do*.
-- Post-implementation Sonnet on the diff: catches what executors actually did vs. what the plan said — substitution misses, integration-seam mismatches between workstreams, scope creep, executor cleverness where mechanical was wanted.
+- Post-implementation `code-reviewer` on the diff: catches what executors actually did vs. what the plan said — substitution misses, integration-seam mismatches between workstreams, scope creep, executor cleverness where mechanical was wanted.
 
 If a waive rationale boils down to "the plan was already reviewed," that's the substitution error: the plan is reviewed; the diff is not.
 
 **2. Mechanical executor self-acceptance gates are not review proxies.** Grep returns 0, pytest passes, `bash -n` clean — these are correctness floors, not the lens a reviewer brings. None of them exercise cross-file integration, schema-vs-consumer agreement (e.g. did the producer schema in segment 2 actually match the consumer probe in segment 4 — *both green individually* doesn't mean *consistent across the seam*), or scope-creep detection. Treating mechanical gates as a stand-in for review collapses two distinct safety properties into one.
 
-**3. The anti-ceremony tripwire fires symmetrically.** The existing tripwire ("if Sonnet feels like ceremony rather than because the diff is genuinely shallow — escalate to the Staff Engineer") catches the *escalate-direction* hedge. The reverse direction — "if Sonnet-after-already-doing-plan-review feels like ceremony — skip" — is the same motion running backwards. Same shape, opposite sign. The tripwire applies in both directions: ceremony-feeling is the tell either way.
+**3. "`code-reviewer`-after-already-doing-plan-review feels like ceremony — skip" is the ceremony-bias shape that matters at session-end.** (An older version of this doctrine paired this with a symmetric "feels like ceremony — escalate to the Staff Engineer" tripwire; that auto-escalation has since been retired in favor of post-code-reviewer EM judgment per § Post-code-reviewer the Staff Engineer-escalation criteria. The *`code-reviewer`-skip* direction remains the live tripwire — ceremony-feeling is the tell for skipping a review that should happen.)
 
 **4. "We've done a lot of review already" is the shape wrap-up pressure takes.** At `/session-end`, token-budget anxiety and session-fatigue create implicit "close out" pressure. Dressed up, that becomes "distributed coverage upstream was sufficient." Bare, it's: one more dispatch felt like one more thing. Naming this pattern explicitly is the durable fix — future EMs hitting the same pressure can recognize the shape.
 
-**The pattern-match tell:** if the EM is drafting a "waiving with rationale" sentence on a row-3+ session, the rationale itself is the tell. Compose the sentence; read it back; if it leans on plan-time coverage, executor gates, distributed/heavy upstream review, or "we've already done a lot" — run the Sonnet review. It's one dispatch. The marker trail records `verdict=ok` in seconds and downstream load-shedding still benefits.
+**The pattern-match tell:** if the EM is drafting a "waiving with rationale" sentence on a row-3+ session, the rationale itself is the tell. Compose the sentence; read it back; if it leans on plan-time coverage, executor gates, distributed/heavy upstream review, or "we've already done a lot" — run the `code-reviewer`. It's one dispatch. The marker trail records `verdict=ok` in seconds and downstream load-shedding still benefits.
 
-**Summary.** Plan-time review (writing-plans pre-flight) and post-impl review (session-end review) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop session-end review because "pre-flight passed."
+**Summary.** Plan-time review (writing-plans pre-flight) and post-impl review (session-end `code-reviewer`) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop session-end review because "pre-flight passed."
 
-**Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived session-end Sonnet on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh Sonnet lens on the actual diff catches.
+**Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived session-end `code-reviewer` on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh `code-reviewer` lens on the actual diff catches.
+
+## Dogfood as a structurally distinct review surface
+
+*2026-05-18, self.* For code that runs against the operator's live environment — doctor probes, installers, MCP wiring, CLIs that mutate user state — plan-review and post-implementation code-review are *not* sufficient. Dogfooding (running the code end-to-end against a real environment, per `dogfooding-doctrine.md`) catches a distinct class of defects:
+
+- Plan-review catches design errors.
+- Post-impl code-review catches integration errors.
+- **Dogfood catches reality errors** — assumptions about the operator's machine state that no static review can verify (interpreter resolution, registry layout, network timing, file-system permissions).
+
+Three cycles on the same artifact (plan-review + code-review + dogfood) routinely surface progressively different defect classes on operator-environment code. Dogfood should be treated as a **required review surface** for any code in this class, not an optional last step. Operator-environment code includes: `doctor` skills, install/setup scripts, MCP server bootstrap, CLI commands that mutate user state outside the working tree.
+
+Companion: `dogfooding-doctrine.md` carries the binary-outcome rule and the smoke-driven fix-through loop.
 
 ## Findings disposition — fix everything, including nitpicks
 
@@ -83,17 +107,13 @@ Every completed session-end review writes a small JSON record to disk. The trail
 ```json
 {
   "sha_range": "abc123..def456",
-  "reviewer": "sonnet|patrik|sonnet+patrik|waived",
+  "reviewer": "code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile",
   "scope": "chain|session",
-  "verdict": "ok|warn|blocked|waived",
+  "verdict": "ok|warn|blocked|waived|pending",
   "diff_loc": 247,
   "session_id": "..."
 }
 ```
-
-<!-- Review: the Staff Engineer — reviewer field example previously showed "sonnet|patrik" (incomplete);
-     updated to show all four valid enum values: sonnet|patrik|sonnet+patrik|waived,
-     matching the --reviewer enum in coordinator-write-review-trail.sh. -->
 
 Records land at `tasks/review-trail/YYYY-MM-DD-HHMMSS-{session-id-short}.json` (git-tracked, per-session, no concurrent-write risk — one file per session).
 
@@ -102,7 +122,7 @@ Records land at `tasks/review-trail/YYYY-MM-DD-HHMMSS-{session-id-short}.json` (
 ```sh
 coordinator-write-review-trail.sh \
   --sha-range abc123..def456 \
-  --reviewer sonnet \
+  --reviewer code-reviewer \
   --scope chain \
   --verdict ok \
   --diff-loc 247
@@ -155,7 +175,7 @@ The `parallel-code-review` skill body itself is NOT modified. All scope-narrowin
 
 **Verdict subvariant:** when `patrik_scope` is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (patrik trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
 
-**Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (the Staff Engineer or Sonnet). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all four lenses covered" — it means "the Staff Engineer lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
+**Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (the Staff Engineer or `code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all four lenses covered" — it means "the Staff Engineer lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
 
 ## Three-Surface Composition — Automated Build Verdicts (UBT pattern, 2026-05-15)
 
@@ -212,23 +232,23 @@ no change. See `docs/wiki/holodeck-doctrine.md §7.7` for the full convention.
 ### Verdict semantics extension
 
 `--verdict` enum extended with `pending` (alongside `ok|warn|blocked|waived`).
-`--reviewer` enum extended with `ubt-compile` (alongside `sonnet|patrik|sonnet+patrik|waived`).
+`--reviewer` enum extended with `ubt-compile` (alongside `code-reviewer | patrik | code-reviewer+patrik | waived`).
 `--scope chain` (existing value — UBT verdicts are chain-scoped, not per-diff-slice).
 
 Spec backlink: `docs/plans/2026-05-15-ubt-compile-gate-review-trail.md` §Shape.
 
-## Boundary-relabeling defect class — chain-end catches what mid-stream reviewers miss
+## Boundary-relabeling defect class — a the Staff Engineer-escalation signal
 
-Chain-end Sonnet+the Staff Engineer review on row-5 criteria empirically catches **boundary-relabeling** bugs — where a refactor renames a failure-reason enum, retypes an error code, or relabels a status taxonomy, and four prior mid-stream reviews fail to spot the relabel because each reviewer saw only their slice of the diff. The relabeled boundary surfaces only when the full chain is read in one pass.
+Chain-end review on row-5 diffs empirically catches **boundary-relabeling** bugs — where a refactor renames a failure-reason enum, retypes an error code, or relabels a status taxonomy, and prior mid-stream reviews fail to spot the relabel because each reviewer saw only their slice of the diff. The relabeled boundary surfaces only when the full chain is read in one pass.
 
 Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and downstream consumers that pattern-match on the old labels silently fall through to a default arm. Per-commit review confirms each individual rename is correct in isolation; chain-end review reads enough of the chain to notice the relabel happened at all.
 
-Anti-ceremony tripwire: "we did a lot of review already" framing at chain end is wrap-up pressure, not a real signal. The post-implementation review catches a different defect class than mid-stream review — they are not substitutes. Universal across project types whenever failure-reason taxonomies are refactored.
+**How this maps to the current doctrine:** `code-reviewer` on the chain diff is the floor. If `code-reviewer` flags a boundary / seam / taxonomy / enum / failure-reason shift — or if the EM reads the diff and sees a taxonomy refactor that `code-reviewer`'s findings don't fully exercise — that is a strong post-code-reviewer the Staff Engineer-escalation signal under § Post-code-reviewer the Staff Engineer-escalation criteria. The defect class is real and universal across project types whenever failure-reason taxonomies are refactored; it does not by itself force *every* row-5 diff to pay an Opus call, but it is exactly the kind of structural finding the escalation criteria are designed to catch.
 
 ## Cross-references
 
-- `coordinator:review-code` Branch A.2 — the dispatch surface for the actual Sonnet/the Staff Engineer review invoked from Step 2.8 and Step 2.10
+- `coordinator:review-code` Branch A.2 — the dispatch surface for the actual `code-reviewer`/the Staff Engineer review invoked from Step 2.8 and Step 2.10
 - `coordinator:parallel-code-review` — the merge-gate carve-out doctrine that this trail integrates with (without modifying); Step 7's prelude is the external interface between the trail and this skill
-- `docs/wiki/ceremony-calibration.md` § "Session-end-as-defer is hedging in disguise" — **complementary doctrine**: ceremony-calibration prevents using `/session-end` itself as a deferral mechanism; this guide prevents using "Sonnet-only" as deferral within `/session-end`. The two framings are paired: one catches session-level hedging, the other catches review-scale hedging. Future EMs should read both.
+- `docs/wiki/ceremony-calibration.md` § "Session-end-as-defer is hedging in disguise" — **complementary doctrine**: ceremony-calibration prevents using `/session-end` itself as a deferral mechanism; this guide prevents using "`code-reviewer`-only" as deferral within `/session-end`. The two framings are paired: one catches session-level hedging, the other catches review-scale hedging. Future EMs should read both.
 - `coordinator/CLAUDE.md` § Review Sequencing — top-level pointer that names this wiki as the authoritative doctrine source
 - `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` — the original spec whose Non-goals required Step 7 scope-narrowing to be implemented externally (not inside the parallel-code-review skill body)

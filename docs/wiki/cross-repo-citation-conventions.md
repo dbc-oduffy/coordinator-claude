@@ -24,11 +24,24 @@ Bare `<path>:<line>` is ambiguous across the install chain — multiple peer rep
 
 The repo qualifier fixes this. Grep then targets the right repo.
 
-## When to qualify
+## When to qualify — two co-equal rules
 
-- ALWAYS qualify in handoffs, lessons, plans, and decision records that may be read from a different repo.
+**Cross-repo citations** (handoffs, lessons, plans, decision records that may be read from a different repo) — ALWAYS qualify with `<repo>:<path>:<line>`. The qualifier is for human disambiguation across the install chain; no automated rewrite covers this case.
+
+**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator/<...>`) directly. The publish-time hook (`bin/depersonalize-for-publish.sh`, invoked from `setup/percolate-hooks/coordinator-claude/post-rsync/10-depersonalize.sh`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
+<!-- Review: code-reviewer — folded the code-block caveat inline so an author who stops at the contract statement still sees it. Previously the note was a separate paragraph after "Additional qualifications". -->
+
+Additional qualifications:
 - Optional in commit messages within a single repo (context is implicit).
 - ALWAYS qualify in `~/.claude/tasks/coordinator-improvement-queue.md` (cross-repo by construction).
+
+## Plugin-wiki vs publish-native-wiki authoring — a third rule pair
+
+**Plugin-wiki authoring vs publish-repo-wiki authoring is a third rule pair.** Plugin-side wikis are authored against meta-repo paths and persona names; the publish pipeline rewrites both at sync time. Publish-side wikis (allowlisted) are authored against publish-tree paths and depersonalized names directly — they bypass the sync pipeline's rewrite layer because they were never in dev form. When citing across the boundary: a plugin wiki referring to a publish-native wiki cites the post-sync path (`docs/wiki/task-tier-guidance.md` from the publish-repo root); a publish-native wiki referring to a plugin wiki cites the post-sync path on the publish side (`plugins/coordinator/docs/wiki/X.md`).
+
+The allowlist (`setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`) is the registry of files with publish-native authorship. Files not on the allowlist are treated as plugin-sourced and will be overwritten on the next sync. See `docs/wiki/plugin-extraction-and-distribution.md` § Auxiliary Sync for the full mechanism.
+
+Spec backlink: `docs/plans/2026-05-18-publish-repo-toplevel-wiki-sync.md` § Chunk 3.
 
 ## Migration patterns — one-shot cross-repo deletion
 
@@ -133,6 +146,14 @@ Wrong: repo=coordinator-claude  path=plugins/.../SKILL.md  (two fields, must rej
 
 The line-citation form `<repo>:<path>:<line>` is the same shape with the line tail appended. Tools that grep for the qualifier prefix work uniformly on both.
 
+## Grep ratified cross-repo DRs before authoring a new hookspec
+
+Before drafting a new hookspec or seam interface, grep the peer-repo ratified DRs and coordination memos from recent days. Authoring without this check produces collisions: e.g., drafting `project_rag_declare_kind_sources` while a peer repo's already-ratified `project_rag_register_corpus_provider` (D-5) covers the same seam. The prior-art-checker catches the collision after the draft exists; this discipline catches it before. One grep run against `docs/decisions/` and `tasks/handoffs/` in each peer repo is sufficient.
+
+## Donor-module excision: check consumer imports before celebrating the split
+
+After excising a donor module from a repo, grep consumers for `from <excised_module>.` imports before declaring the split complete. Module-top imports break the consumer at load time, not at first use — a green unit-test suite on the donor side does not prove the consumer is intact. The post-split smoke is a green import test run against the consumer (`python -c "import <consumer_module>"`), not just the donor. Source: 2026-05-17 project-rag-ue-addon excision post-mortem.
+
 ## Sentinels carry preconditions inline
 
 Cross-repo sentinel blocks (auto-generated regions marked with `<!-- BEGIN ... -->` / `<!-- END ... -->`) MUST document their refresh preconditions inside the sentinel — not in a sibling wiki the maintainer might not read.
@@ -155,4 +176,37 @@ Without inline preconditions, sentinel blocks become orphan auto-generated regio
 ...candidates...
 <!-- END repo-registry-candidates -->
 ```
+
+## Sibling-layout convention for vendored code
+
+**Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `X:/`, `C:/`, `D:/` etc. are all illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `/c/Users/.../`.
+
+Two reasons:
+
+- (a) Absolute paths break for any developer with a different layout (CI, peer machines, anyone else picking up the repo).
+- (b) Absolute paths fail the depersonalize/sanitize hooks at publish time even when those hooks know about the substring keys.
+
+**Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `/Users/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/`, `D:/` matches aren't missed) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it.
+
+Source: `project-rag-ue-addon:tasks/lessons.md:121` (2026-05-16).
+
+## Peerless installs — env-var opt-in for peer-repo paths
+
+Most installs place `~/.claude`, the publish target (`X:/coordinator-claude`), and peer dev repos (`E:/dev/claude-unreal-holodeck`, etc.) such that sibling-relative paths (`$PLUGIN_ROOT/../../claude-unreal-holodeck/...`) resolve correctly. Sync scripts default to this layout.
+
+The `~/.claude/` install on a Windows user-profile root (`C:\Users\<name>\.claude\`) is structurally peerless: there is no sibling-capable parent, and no companion dev folder lives next to it. Sync scripts that assume a sibling peer silently skip verification on this install (skip-if-absent guard — looks fine, never actually checks the peer copy).
+
+**Rule:** keep sibling-relative as the default in scripts (matches every normal-layout deployment). Deviant installs opt in via an explicit env var:
+
+```bash
+# Default: sibling-relative (correct for most installs)
+HOLODECK_REPO_ROOT="${HOLODECK_REPO_ROOT:-../claude-unreal-holodeck}"
+
+# Override for peerless installs (e.g. C:/-rooted ~/.claude):
+# export HOLODECK_REPO_ROOT=/x/claude-unreal-holodeck
+```
+
+**Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the C:/ edge case by hardcoding an absolute path breaks what already works everywhere else.
+
+Source: `tasks/lessons.md` § "C:/-rooted `~/.claude` is structurally peerless" (2026-05-18, claude-coordinator).
 

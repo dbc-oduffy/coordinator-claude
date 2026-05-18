@@ -16,11 +16,25 @@ Any time the EM dispatches a scout or subagent — Tier-4 investigation, fan-out
 
 - **Verify scout "X is missing" / "X is present" claims via cheapest probe before acting.** Research-scout briefs frequently report absence/presence of a symbol, file, or surface. Treat as hypothesis: confirm with a one-shot `Grep` or `Read` against the cited path before the finding propagates into a plan, deletion list, or follow-up dispatch. False-absence claims are common when the scout's read window missed the file; false-presence claims appear when the scout paraphrases an adjacent symbol as the queried one.
 
+- **Default to named Haiku for any ≥3 parallel disk-first fan-out.** Haiku TEXT-ONLY hallucination rate is ~30% on 3-way parallel disk-first deliverables even with inlined recovery preamble (empirical: `/distill` 2026-05-14 first wave — 1 of 3 hallucinated, 1 partial). Named agents (`Agent({name: "haiku-batch1"})`) enable `SendMessage` resume on failure; anonymous parallel Haiku forces redispatch-from-scratch. Use named Haiku by default on any ≥3 parallel disk-first fan-out.
+
 - **Stub-inventory recovery for idle Haiku scouts in long pipelines.** When a Pipeline B / Agent Teams Haiku scout idles or returns TEXT-ONLY hallucination instead of the expected on-disk deliverable, do NOT re-dispatch from scratch. Walk the expected output paths and write *stub inventories* enumerating what the scout was asked to find — even an empty stub with the headers in place lets the downstream synthesizer proceed without re-billing the whole upstream wave. Re-dispatch is a last resort after a single resume attempt via `SendMessage`.
 
 - **Scout reachability claims require function-envelope evidence, not block-local snippets.** When a scout cites "the literal block at line N has no orphan check" or "this branch never executes," read the enclosing function envelope before trusting the claim. A guard one level up — early-return, caller-side wrapper, decorator — frequently invalidates the block-local reachability conclusion. Require scout briefs to quote the function signature + the conditional gate, not just the literal lines.
 
+- **Fix scout brief at instance #3, not per-directory classifier READMEs.** When scouts misread the same structural shape in 3 separate dispatches, fix the scout brief (e.g. the workstream-classification heuristic in `/session-start`) — do NOT write per-directory README files to correct the misread. Per-dir corrections decay in isolation and do not propagate to future dispatches; brief corrections compound across every future scout run.
+
 - **Readiness / defer-recommendation scouts must name the unverified premise behind every defer.** "Defer X to follow-up" is a hypothesis about scope, not a verdict. The scout brief must surface each defer as a question with the premise inline: *"Defer Y assuming Z (unverified) — confirm before acting."* Defers without named premises age into mystery cuts; the next session re-investigates from zero.
+
+### Worktree-isolated subagent caveats
+
+- **Worktree-isolated subagents honor literal absolute Write paths.** A scout dispatched with worktree isolation that writes to an absolute path (e.g. `C:/Users/.../scratch/result.json`) lands the file in the main project tree, not the worktree. Either pass relative paths or expect main-tree writes; verify with `ls` post-completion. Polling the worktree dir for a file the scout wrote to an absolute path is a deadlock waiting to happen.
+
+- **Resumed worktree agents can re-fire post-completion with hallucinated TEXT-ONLY runs.** Disk-first verification is load-bearing — a "DONE" reply from a resumed worktree agent does NOT mean the file was written this run. Always `ls -la`/size before accepting `DONE` on a resumed run. The hallucination signature is identical to the cold TEXT-ONLY case but appears in agents that wrote successfully on a prior run before being resumed.
+
+- **Bound scout briefs by target output size, not just record count.** Sonnet scouts producing dense per-entry inline content can hit the 32k output cap before the final `Write`, leaving an empty file and a `DONE` reply. Specify the expected output shape in token-size terms — e.g. "≤30 records, one-line summaries, target ~5KB total" — and verify file size, not just existence, on the EM side. The failure mode is silent: scout reports `DONE`, disk has the path, file is empty or truncated. (2026-05-18, self.)
+
+- **Sonnet/Haiku scouts on bounded-enumeration tasks hallucinate IDs not in the input list** — distinct from TEXT-ONLY hallucination. When the brief is "verify each of items [A, B, C, D]" the scout may report on items [A, B, X, Y] where X/Y were not in the input. EM-direct crossover threshold for verifier tasks may be N>50 rather than the usual N>10 — the cost of post-hoc audit against the original list exceeds the dispatch savings below that bound. Mitigation: brief MUST quote the input list verbatim in a `## Items to verify` block and instruct the scout to copy each ID from that block into its output, not regenerate from memory. (2026-05-18, project-rag-ue-addon.)
 
 ### Agent fit — tool surface beats description prose
 

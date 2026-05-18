@@ -184,6 +184,47 @@ When a doctrine flips a *value-class* (preferred Python interpreter, default bra
 
 **Defense:** the doctrine-flip plan enumerates (a) every guard/test that mentions the value-class — sweep for inversion; (b) every write-site that consumes the value — sweep for orthogonal-property regression. Both go in the plan body before dispatch, both are verified post-flip, neither is "we'll catch it in CI" territory.
 
+## 21. Producer-Rename Sweep: Test Files Split Into Three Buckets
+
+When renaming a producer symbol (function, class, module), the test-file sweep splits into **three distinct buckets**, not one — and bucket 2 is the silent-failure trap.
+
+1. **Consumer-shape tests** — tests that call the renamed symbol directly. `from <module> import <old_name>` becomes `from <module> import <new_name>`. Greppable, mechanical, low risk; rename or fail loudly at import time.
+2. **Patch-target-shape tests** — tests that `@patch('<module>.<old_name>')` or `monkeypatch.setattr('<module>.<old_name>', ...)`. **These fail SILENTLY.** The patch target is a string; the stale string resolves to nothing; the patch decorator no-ops; the test runs against the *real* (renamed) symbol while *believing* it's running against a mock. Often passes for the wrong reason and ratifies the rename as green.
+3. **Fixture-shape tests** — tests that build fixture data (dataclass instances, dict literals, mock objects) shaped against the old name's surface. These usually fail loudly when the renamed surface changes shape — but if the rename is name-only and the shape is unchanged, fixtures still resolve and the test passes against stale assumptions.
+
+**Rule:** producer-rename sweeps must grep for all three patterns independently:
+
+```bash
+# Bucket 1: consumer
+rg -n '\bold_name\b' tests/
+
+# Bucket 2: patch target — string-typed, escapes the AST grep
+rg -n "['\"](<module>\.)?old_name['\"]" tests/
+rg -n "patch\(['\"].*old_name['\"]" tests/
+rg -n "monkeypatch\.setattr\(['\"].*old_name" tests/
+
+# Bucket 3: fixture references (case-by-case; usually class/dataclass names)
+rg -n 'OldClassName\(' tests/
+```
+
+Bucket 2 is the one that ages out of doctrine. Bucket 1 is muscle memory; bucket 3 fails at the next assertion. Bucket 2 is the silent residue.
+
+Composes with §11 (consumer rewrite — grep imports before celebrating) and §13 (renumber/rename requires multi-pattern reverse-reference scan) — all three are the same family: a rename's blast radius lives in surfaces a literal-name grep misses.
+
+*Provenance: 2026-05-16, project-rag.* Auditing a producer-rename sweep confirmed that patch-decorator string references (bucket 2) were systematically missed — tests passed as import but asserted nothing. Audit each test file against all three buckets independently before declaring the rename complete.
+
+## 22. Distill Scaffolding-Deletion: Shipped-Status Check Is Not Enough [recurring: 1]
+
+*2026-05-01, project-rag.* A tasks directory whose dominant workstream has shipped may still be load-bearing for a separate active workstream. Shipped-status alone does not clear the directory for deletion. Grep for active references before any `rm -rf tasks/<dir>/` — same as §1, but the recurrence signals this check is being skipped in practice.
+
+**Rule:** shipped-status + zero active-reference grep hits = safe to delete. Shipped-status alone = not safe.
+
+## 23. Convention-Paired Scripts Are Unenforced Contracts
+
+*2026-05-08, self.* A convention documented in a wiki + a script that "should run alongside it" is not the same as the convention being enforced. If the script is opt-in (manually invoked, named in a procedure step a successor must read), the convention decays the first session the successor forgets the step. Pair the convention with one of: a hook that auto-runs the script at the right tool boundary, a CI/pre-commit gate that fails-loud on the unmet convention, or an audit step in the ceremony skill that owns the surface (`/update-docs`, `/workday-complete`).
+
+**Rule:** when documenting a convention that has a script-shaped enforcer, name the auto-run mechanism in the same edit. If no such mechanism exists, file the gap as an improvement-queue entry rather than declaring the convention shipped.
+
 ## Skill Checklist Reference
 
 `/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class.
