@@ -132,6 +132,46 @@ not on which words name the invariant.
 
 ---
 
+#### 1b. Parity-Pair Convention (for cross-platform sibling files)
+
+**Where:** When an owner file has a cross-platform sibling implementing the same invariant
+on a different OS — `install.{ps1,sh}`, `select-python.{ps1,sh}`, `fix-torch-cuda.{ps1,sh}`,
+etc. — both siblings MUST carry equivalent §1a invariant preambles. "Equivalent" means same
+lead vocabulary, same intent-query phrasing, same "this is the canonical answer to ..."
+sentence; only the OS-specific mechanism details (path separators, command names) differ.
+
+**Why this is required, not optional:** measured empirically on project-rag's
+§1a-coverage-expansion remeasurement (2026-05-18). Tuning the `.ps1` sibling's invariant
+preamble in isolation while leaving the `.sh` sibling un-tuned produced asymmetric
+retrieval: the `.ps1` surfaced at rank 5 for `py-graded-install-interpreter-e2e-conceptual`
+while the `.sh` was outside top-100 despite both being indexed under the same chunker.
+After parity-tuning the `.sh` to mirror the `.ps1` vocabulary, the `.sh` landed at rank 6
+(score 0.464) versus the `.ps1` at rank 5 (score 0.4657) — a <1% score delta. One sibling
+tuned is a measurement asymmetry that cross-platform users will notice as Mac/Linux users
+getting worse retrieval than Windows users (or vice versa). Both siblings tuned is parity.
+
+**Anti-pattern — what NOT to do:** tune one sibling for retrieval ranking, leave the other
+as a "control" or "for later". This pattern was deliberately attempted as the Data Science Reviewer's
+asymmetric-enrichment doctrine call; the resulting evidence settled the call — parity
+enrichment is required, not optional.
+
+**How to identify a parity-pair:** if two files differ only in file extension (`.ps1`/`.sh`)
+or platform suffix (`-windows.py` / `-unix.py`) and implement the same user-facing capability
+on different OSes, they're a parity-pair. When you author or tune the §1a preamble on one,
+update the other in the same commit. The §1a lint should flag missing parity (follow-on
+work; not yet enforced).
+
+**Driver/orchestrator vs focused-mechanism distinction (related amendment 2026-05-18):**
+the §1a AC-A3 retrieval gate accepts rank ≤5 for `text_preamble` driver/orchestrator scripts
+(e.g., `install-project-rag-plugin.{ps1,sh}`) versus rank ≤2 for focused mechanism files
+(e.g., `read-claude-pin.py`, `select-python.sh`). Drivers get out-competed in re-ranking by
+focused mechanism files under tightly-scoped queries — that's the corpus telling the truth
+about which file is the mechanism vs which is the orchestrator. The rank-5 gate matches
+retrieval reality for drivers; the rank-2 gate continues to apply for mechanisms. Both gates
+apply per-sibling under the parity-pair convention.
+
+---
+
 ### 2. Function / Method Purpose Line
 
 **Where:** Every non-trivial public function and method. Trivial = pure pass-throughs,

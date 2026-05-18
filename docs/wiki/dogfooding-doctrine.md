@@ -125,6 +125,32 @@ Each caught **only when the actual end-to-end flow ran** — the producer was ac
 
 **Multi-stage plan corollary.** For a plan with α / β / β.5 / γ / δ / ε waves, β.5 (the e2e gate) is **more valuable than δ (the consumer-side test) for catching producer-side bugs** — schedule the e2e gate as early as the producer can compile, even with a partial-AC fixture form. The full integration test downstream is for the consumer surface; the early e2e gate is for the producer surface, and the producer surface is the bug-rich one.
 
+## 8. Sacrificial Warmup Probe for Environmental Cold-Boot
+
+When running a tool-test suite against a freshly-spawned MCP server (or any process subject to first-fork JIT, lazy imports, or startup-state initialization), **include a sacrificial first call whose result is intentionally discarded**. The first-position probe is not graded — it exists solely to absorb cold-boot artifacts that would otherwise pollute the first real measurement.
+
+Without the warmup probe, a test suite that grades the first call conflates two distinct failure modes: "the capability is broken" vs. "the process was still warming up." The distinction matters because the remediation is different: a broken capability needs a fix; a warmup artifact needs a re-run after the process is warm, or a formal warmup step in the test setup.
+
+Pattern (2026-05-16 project-rag-ue-addon): emit probe call → discard result → emit a summary-bucket classifier that distinguishes `cold_boot_warm` from `real_failure` before entering the graded run. The classifier is the signal; the discarded probe is the enabling infrastructure. Apply to any test harness that spins up a server fresh for each suite run.
+
+## 9. Dogfood as a Distinct Review Surface
+
+Dogfood is structurally distinct from plan-review and post-implementation code-review — not a substitute for either, and not subsumed by either.
+
+- **Plan-review** catches architecture defects against a written body.
+- **Code-review** catches diff-level defects against a frozen change.
+- **Dogfood** catches runtime defects against the operator's live environment.
+
+The three lenses find progressively different defect classes. A clean plan-review and a clean code-review do NOT constitute a passed dogfood. The defects each surface are different in kind, not in severity.
+
+**Empirical evidence (2026-05-18 pynvml probe):** A multi-interpretation pynvml probe shipped through three review cycles, plan-review, and code-review with zero findings. Dogfood found a probe-startup crash on the first real-environment run. No static review surface could have caught it — the failure was a runtime-environment interaction invisible to the review lens.
+
+**Rule:** Any code that runs against the operator's live environment — doctor probes, installer scripts, MCP servers, CLI helpers, hook scripts — MUST pass a dogfood pass before declaring done. The dogfood gate is not optional after review; it is structurally additive to review.
+
+**Dogfood-as-review-floor vs. dogfood-as-feature-validation.** These are distinct framings. Even when a feature works as designed (correct behavior for happy-path inputs), the dogfood pass catches runtime-environment defects that no static review can reach: wrong process start-up order, unavailable system resource, environment-specific import failure, cold-boot timing bug. The review-floor framing applies to ALL operator-facing code, not just new features under design validation.
+
+---
+
 ## Cross-References
 
 - **`/dogfood` skill** — `coordinator/skills/dogfood/SKILL.md` — the full operational procedure: three-tier gate (narrow/broad/shakedown), pre-flight gates (idempotency, machine-parseable progress, framing audit, coverage matrix), loop mechanics, switch-gears protocol, convergence criteria, commit doctrine, flight recorder directory structure.

@@ -120,6 +120,14 @@ Check each of the following before treating any premise as ground truth:
 - Routine path-rename with clear mapping → fix forward and note in pickup report.
 - Scope pathspec returns empty glob → STOP, surface to PM; do not mutate.
 
+### Verify semantic fit of handoff-named target files before writing
+
+When a handoff names a target file (e.g., "extend `docs/wiki/X.md`"), `Read` that file and confirm the topic and section actually fit before writing. Stale handoff-named targets accumulate when the wiki has been refactored between handoff-author time and pickup time — the file may still exist but now cover a different scope, or the relevant section may have moved to a sibling file. Source: 2026-05-15 project-rag-ue-addon pickup.
+
+### Parked-tracker rows: framing is hypothesis, substrate is ground truth
+
+When resuming work that names "parked" tracker rows, project-board items, or backlog entries with framing like "Y is blocked on X" or "this is parked pending Z", verify the substrate before accepting the parking framing. Stale advisory/call-note markdowns and project-tracker rows accumulate over weeks; the parking premise may have been overtaken (the blocker shipped, the scope was rolled in elsewhere, the row references files that have moved). Run a git-log spot-check on the cited paths before treating the parked state as live work. Source: 2026-05-16 claude-unreal-holodeck resume.
+
 ### Empirical baseline
 
 Expect 30–60% of inherited items to be already closed (pickup SKILL Step 3 empirical note). Premise decay compounds on top of this: a 24h-old handoff may have 1–2 stale file assertions; a 7d-old handoff routinely has more. Treat unverified premises as blocking gaps, not deferrals.

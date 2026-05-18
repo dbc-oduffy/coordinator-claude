@@ -323,3 +323,9 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 | Drift check finds no ignore file | `find -newer` returns nothing (file missing, not just no drift) | Treat as missing; run full Step 3 audit |
 | Sonnet audit subagent TEXT-ONLY failure | Deliverable not written to disk; subagent returned summary inline | Re-dispatch with `snippets/text-only-recovery-preamble.md`; verify `DONE: <path>` |
 | Partial hook scaffold (dirs partially created) | Some `pre-rsync`/`post-rsync`/`pre-ci` present, others missing | Step 4 is idempotent — re-run; it creates missing dirs and skips existing ones |
+
+---
+
+## Known Hazards
+
+**One-way mirror percolate silently reverts direct edits in publish repo** (2026-05-16 self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.
