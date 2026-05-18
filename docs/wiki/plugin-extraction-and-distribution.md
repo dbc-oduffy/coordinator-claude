@@ -64,6 +64,24 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 
 A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it. User-scope settings is for non-plugin overrides only. Treat this as a portability check at extraction time: grep `~/.claude/settings.json` for any hook entry whose script lives under the plugin tree, and migrate it to the plugin's `hooks/hooks.json` before shipping.
 
+### 11. Port-time absolute-path sweep + sibling-layout convention
+
+Incomplete migrations leak absolute paths (`C:/Users/.../source-repo/...`, `~/work/src/...`) into the vendored code, hooks, and config. Symbol parity passes; runtime breaks on every consumer machine. **At extraction time, sweep absolute repo prefixes across the carved-out tree** and replace with sibling-layout relative references (`../<sibling-repo>/<path>`) where cross-repo references are unavoidable. Document the sibling-layout convention in the plugin's CLAUDE.md so `../sibling/...` is a contract — not an implementation detail downstream consumers have to reverse-engineer.
+
+Grep recipe for the sweep:
+
+```bash
+grep -rn "C:[\\/]" <new-plugin-tree>
+grep -rn "$HOME/.*[/]src[/]" <new-plugin-tree>
+grep -rn "/Users/.*/" <new-plugin-tree>
+```
+
+(2026-05-16, project-rag-ue-addon.)
+
+### 12. Cross-repo port: prefer registration-seam over parallel-surface
+
+When porting a feature from a host repo into a plugin/addon, default to **using the host's registration hookspec or seam** rather than authoring a parallel front-end on the plugin side. A parallel-surface port creates two registration paths the host has to reconcile at runtime and routinely results in one path silently winning while the other looks active. Before authoring a plugin-side surface that mirrors an existing host surface, grep the host's registration corpus (hookspec discovery, pluggy entry points, plugin-manifest readers) and route through the existing seam. (2026-05-16, project-rag-ue-addon.)
+
 ## Test From a Clean Profile
 
 The single highest-leverage validation: run the install script from a profile that has never used Claude Code before. Anything that "just worked" on the author's machine from prior manual setup will fail loudly. This catches gaps 1, 6, 8, 9, and 10 in one pass.
@@ -78,6 +96,8 @@ Plugin-extraction PRs need an explicit atlas-sweep step before merge: grep the c
 
 Percolation from a Unix-authored source repo to a Windows consumer (or vice versa) silently swaps line endings under the wrong git config, producing whole-file diffs that read as no-op edits but change every line of every file. "Agent reported clean" is not enough — verify percolation by per-file diff with `git diff --stat` and a spot-check on a handful of files; a clean diff under `core.autocrlf=true` may hide the entire reformatted file. Establish `.gitattributes` rules early, and run a verification pass after every cross-platform percolation.
 
+**Contract: per-file `git diff --stat`, not aggregate "no changes."** CRLF/LF differences on Windows can produce a clean-looking percolation summary that doesn't match upstream at the file level — the line-ending swap touches every byte but registers as zero semantic changes under some diff modes. Per-file `git diff --stat` is the verification contract; an aggregate "no changes" report from the percolation agent is advisory only.
+
 ## Persona-Name Guard on Percolation
 
 The meta-repo (`~/.claude/`) authors files with persona display names — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering, the VP-Product Reviewer — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
@@ -87,6 +107,8 @@ Two paired tools enforce the boundary:
 - **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
 
 - **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+
+**`publish.sh` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `bash ~/.claude/setup/publish.sh <target>`, not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.sh` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
 
 Workflow during percolation:
 
@@ -102,11 +124,23 @@ The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the pu
 
 > **Publish-repo follow-up (2026-05-17):** The `the Director of Engineering → the Director of Engineering` mapping replaces the prior `the Director of Engineering → the Ambition Advocate` mapping. The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must be updated to match — `the Ambition Advocate` is retired, `the Director of Engineering` is the new canonical role label. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic. Previously-published copies of files containing `the Ambition Advocate` will need a search-and-replace at next publish.
 
+## Auxiliary Sync — Publish-Repo Top-Level `docs/wiki/`
+
+**Auxiliary sync — publish-repo top-level `docs/wiki/`.** The publish repo also carries a public-facing wiki at `<publish-repo>/docs/wiki/` (separate from the plugin tree under `<publish-repo>/plugins/coordinator/docs/wiki/`). This auxiliary surface is synced from the plugin's `docs/wiki/` via a second publish-target row (`coordinator-claude-toplevel-wiki`) with `flat-mirror` mode plus a publish-native allowlist. The allowlist lives at `setup/percolate-hooks/coordinator-claude-toplevel-wiki/post-rsync/publish-native-allowlist.txt`; files named there are backed up before rsync and restored after, so publish-native authoring on the public side (including uncommitted edits) survives meta-repo syncs. Verification gate at `30-verify-toplevel-wiki.sh` enforces canary survival, forbidden-shape grep, and rewrite-target sanity.
+
+**Allowlist lives in `setup/percolate-hooks/<target>/post-rsync/` (hook-local) rather than in the publish repo** because (1) the consumer is the meta-repo hook — locality with the consumer beats locality with the protected data; (2) it documents the allowlist mechanism alongside the hook, making the existence of an allowlist visible to anyone reading `percolate-hooks/`; (3) future plugins with publish-native allowlists organize under one tree.
+
+**When to add a file to the allowlist:** the file is authored on the publish-repo side (its git history lives in `/x/coordinator-claude/`), and it is not a copy of any plugin wiki. Today: `task-tier-guidance.md` is the sole entry.
+
+**When NOT to use the allowlist:** if a plugin-side wiki and a publish-side wiki need to converge into one canonical source, move the publish-side authoring back to the plugin and remove from allowlist. The allowlist is for genuinely divergent lifecycles, not for resisting normalization.
+
+Spec backlink: `docs/plans/2026-05-18-publish-repo-toplevel-wiki-sync.md` § Shape decision A*.
+
 ## Scan/Substitution Division of Labor
 
 Two tools enforce the publish boundary; they solve different failure modes and are not interchangeable:
 
-- **`depersonalize-for-publish.sh --fix`** (substitution): rewrites known persona names and identity tokens that were deliberately used in the meta-repo. Catches static vocabulary the author knew was persona-named. Table-driven; must be updated when new identity tokens are added.
+- **`depersonalize-for-publish.sh --fix`** (substitution): rewrites known persona names, identity tokens, and dev-tree plugin paths that were deliberately used in the meta-repo. Catches static vocabulary the author knew was persona-named or dev-tree-scoped. Table-driven; must be updated when new identity tokens or path patterns are added.
 - **Percolate Step 2c content-leakage scan** (per-publish detection): catches dynamic drift — a path slipping into a wiki body, a peer-repo name embedded in a snippet, a machine name in a code comment. These accumulate through normal authoring between substitution-table updates; no static list can anticipate them.
 
 The substitution hook handles the expected case; the per-publish scan handles the unexpected case. Removing either leaves the corresponding failure class uncaught. Per-publish detection earns its keep on every run because authoring drift precedes substitution-table updates; do not treat the scan as redundant once the hook is in place.
@@ -114,6 +148,20 @@ The substitution hook handles the expected case; the per-publish scan handles th
 Scan-vs-substitute division of labor: the content scan (regex inventory pass) is for *detection*; the substitute pass is for *correction*. Scan earns its keep on day 1 because it catches new patterns the substitute hasn't been taught — a `WARN:` line in scan output is a signal to extend the substitute, not silenced noise.
 
 When `publish.sh` uses `rsync --delete` to mirror source-to-dest, add `--exclude=<pattern>` for files the dest has already shipped that the source intentionally lacks (e.g. dest's own README, CHANGELOG generated by release tooling). Without excludes, `--delete` strips the dest's local artifacts.
+
+## Path-Rewrite Mechanics at Percolate Time
+
+The substitution pass in `depersonalize-for-publish.sh --fix` handles more than persona names — it also normalizes dev-tree plugin path references into publish-tree form. This collapse happens at `post-rsync` as part of the same hook invocation.
+
+**Dev-tree → publish-tree path form.** In the meta-repo, plugin files are authored under `plugins/coordinator-claude/<plugin>/` (one extra segment for the upstream source repo). The publish tree drops that segment: the canonical install path is `plugins/<plugin>/`. The substitution table rewrites every occurrence of the dev-tree form to the publish-tree form across all percolated `.md`, `.sh`, and `.py` files.
+
+**Two-segment collapse for the central plugin.** The coordinator plugin itself lives at `plugins/coordinator/` in the dev tree. At percolate time this collapses to `plugins/coordinator/` — a two-segment reduction, not one. The substitution table carries this as a separate rule from the general one-segment drop, because the intermediate `coordinator-claude/coordinator` path is the coordinator plugin's dev-side nesting and must not survive into publish artifacts.
+
+**Plugin enumeration — floor plus discovery.** The substitution pass seeds its path-rewrite table from a static floor of five known plugins: `coordinator`, `data-science`, `deep-research`, `game-dev`, `web-dev`. It then discovers additional published plugins by enumerating `$TARGET/plugins/*/` in the destination tree. The static floor is a correctness guarantee for the core set; the enumeration step picks up plugins that were added since the floor was last updated without requiring a table edit.
+
+**Idempotency.** Re-running `--fix` on an already-percolated tree produces no further changes. Path references already in publish-tree form (`plugins/<plugin>/`) do not match the dev-tree patterns, so the substitution is a no-op on a clean destination.
+
+**Post-percolate verification gate.** `10-depersonalize.sh` runs a `--check` pass after `--fix` and asserts zero residual occurrences of `plugins/coordinator-claude` in any `.md` file under the publish tree. A non-zero result aborts the publish with a clear diagnostic. This gate locks the wiki rule to the substrate: if the substitution table falls out of sync with a new dev-tree path pattern, the abort surfaces the gap immediately rather than silently shipping a malformed reference.
 
 ## Authoring Discipline — No Local Paths in Percolation-Destined Content
 
@@ -129,6 +177,10 @@ Local working-tree paths (`C:/Users/<name>/...`, `/home/<name>/...`) in authored
 ## Versioning Extraction Churn
 
 Removing one optional plugin from a distribution is a MINOR bump, not MAJOR. Semver major implies breaking changes to core API or to every consumer's setup — not "we removed an opt-in surface that was enabled-by-default in our own settings." Reserve MAJOR for the extraction event itself when it changes the install-script contract (path layout moves, MCP server names rename, env-var shape changes that consumers must mirror). Iterative cleanup of the extracted plugin's own surface is MINOR or PATCH.
+
+## Release Notes on Every Merge
+
+At LLM speeds, the human heuristic of "batch small release notes" no longer applies — per-merge release notes are cheap enough that skipping them creates audit gaps with no cost savings. Every merge to main gets a release-notes entry, regardless of size. This discipline is encoded in `/merge-to-main` Step 1.5 and applies equally to `/publish-coord-claude`, `/publish-deep-research`, and any other release or publish skill: write the entry at merge time, not retrospectively.
 
 ## Plugin-Bundled Wiki Authoring Direction
 
@@ -207,11 +259,27 @@ Pair with a **host-only-import smoke test in CI**: a test that imports the shim 
 
 When a plugin's GitHub org/repo is renamed (`old-org/plugin` → `new-org/plugin`), GitHub auto-redirects `git clone` but `claude plugin update <plugin>` may still hit the cached old URL in `known_marketplaces.json` and silently fail (or worse, succeed against a stale fork that took over the old name). Defense: at rename time, push a final commit to the old repo whose README says "moved to <new>"; update `known_marketplaces.json` `source` URL across all consumers via a one-shot migration note; mention in the release notes that consumers must re-run `claude plugin marketplace remove/add` to pick up the new URL.
 
+**Unexpected 404s from `gh` calls: check for org rename before blaming the handle.** When a sub-repo's remote `gh` CLI calls return 404 unexpectedly, verify whether the GitHub org has been renamed before assuming the stored handle is wrong. Org renames redirect on the web UI but break the REST API — `gh repo view old-org/plugin` fails while the browser silently forwards. Stale-handle diagnosis: `gh api repos/old-org/plugin` vs `gh api repos/new-org/plugin`; update `known_marketplaces.json` and local git remote after confirming.
+
 ## Operational Gotchas — 2026-05-17 Batch
 
 - **Plugin disable ≠ uninstall.** Disabling a plugin in `settings.json` doesn't remove the cache; both the cache entry and the settings flag need clearing.
 - **`installed_plugins.json` is managed.** Hand edits get reverted by the plugin system. Use `claude plugin` commands.
 - **MCP scope precedence: Local > Project > User > Plugin.** User-scope MCP entries silently override plugin `.mcp.json` of the same name. Fix: `claude mcp remove <name> --scope user`.
 - **Plugin hooks belong in `hooks/hooks.json`, NOT user-scope `settings.json`.** Hooks in user settings break marketplace distribution.
-- **LSP plugins don't need `.claude-plugin/plugin.json`.** The LSP plugin contract is different from the standard plugin contract.
-- **`claude plugin update` defaults to user scope.** Specify scope explicitly when updating a plugin that lives elsewhere.
+- **Pure-LSP plugins don't need `.claude-plugin/plugin.json`.** A pure-LSP plugin is configured via `mcp` settings or LSP host config — it does not participate in the Claude Code plugin enablement system. Adding a `plugin.json` shim creates a phantom entry in `installed_plugins.json` that decays into orphan state when the LSP plugin is uninstalled via its own tooling. Contrast with LSP-*adjacent* Claude Code plugins (see `## LSP-Style Plugins Without plugin.json` above), which do need `plugin.json` because they integrate with the Claude Code plugin lifecycle.
+- **`claude plugin update` defaults to user scope.** When running `claude plugin update <name>` from inside a project directory, the command updates the user-scope installation, not the project-scope one — the default does not infer scope from cwd. If the plugin was installed at project scope (e.g. `claude plugin install <name> --scope project`), pass `--scope project` explicitly on update or the user-scope version is bumped while the project-scope copy stays stale.
+
+## Parity Audit: Host→Plugin Direct-Import Grep
+
+**Plugin migration parity audits must grep host→plugin direct imports as a separate check.** When extracting a subsystem from a host repo into its own plugin, the migration is incomplete until you've grepped the host's source tree for any direct imports, direct path references, or direct symbol usage of the now-plugin code.
+
+Wiki-level redirection and routing-layer wrapping are NOT sufficient — the host can still reach past the wrapper through a direct import that the registration seam doesn't intercept. Audit shape:
+
+1. Enumerate the plugin's exported symbol set.
+2. Grep each symbol across the host tree (exclude the wrapper file itself).
+3. Each hit is a residual coupling to fix before declaring migration parity.
+
+This check is symmetric for cross-repo plugins: the host-side consumer tree must be grepped for direct references to the plugin's internal symbols, not just the public seam.
+
+**Do this BEFORE declaring migration parity.** Deferring to "we'll catch it in CI" is how host→plugin direct imports survive months undetected — the wrapper intercepts runtime routing but direct imports bypass both the wrapper and any registration seam entirely.

@@ -156,7 +156,7 @@ else echo "ERROR: no Python found" >&2; exit 1; fi
 
 Use `$PYTHON_BIN` everywhere instead of hardcoding `python3`. For JSON: prefer Python-with-fallback-resolver over `jq` since jq is not guaranteed.
 
-Source: `tasks/tier-usage-telemetry-fix/spec.md`, `archive/completed/2026-05.md`.
+Source: `archive/completed/2026-05.md`.
 
 ### Windows console window flash — process window flags
 
@@ -168,6 +168,14 @@ Processes spawned from hooks (post-commit, SessionStart) may open console window
 - Registry: `HKCU\Console\%%Startup\Delegation{Console,Terminal}` — switch from Windows Terminal to Console Host so allocations don't open focus-stealing WT tabs
 
 Source: `archive/completed/2026-05.md` (2026-05-07 PowerShell flash fix).
+
+### Windows bootstrap test harnesses must set `windowsHide` / `CREATE_NO_WINDOW` explicitly
+
+Bootstrap test harnesses on Windows (e.g., Python `subprocess.Popen`, Node `child_process.spawn`) must set `windowsHide=True` or the `CREATE_NO_WINDOW` creation flag explicitly — changing the Windows Terminal default profile does NOT suppress console windows for spawned processes. The registry key that controls actual delegation behavior is `HKCU\Console\%%Startup\Delegation` (both `DelegationConsole` and `DelegationTerminal`); flipping it from Windows Terminal to Console Host prevents focus-stealing WT tabs from appearing on every subprocess spawn.
+
+**Rule:** never assume a WT profile change has made subprocess windows invisible. Flag `windowsHide` / `CREATE_NO_WINDOW` is the only reliable per-process suppression.
+
+Source: central improvement queue (2026-05-06).
 
 ## Plugins
 
@@ -291,6 +299,43 @@ When a Bash script passes `/foo/bar` as an argument to a non-MSYS binary (e.g. `
 
 Killing the Claude Code session does NOT kill backgrounded `node`/`python` workers or watch-mode TS builds that the session spawned. They keep holding file locks, port bindings, and stale compiled `.js` output until the host OS reaps them or the user kills them by hand. The next session sees "files updated but behavior unchanged" — that's the prior session's daemon still serving from memory. Defense: `taskkill /F /IM node.exe` (Windows) or `pkill -f node` (POSIX) at session boundaries when long-running watchers were in play; never trust "I rebuilt the TS" if the watch-mode build from the prior session is still resident.
 
+### Auto-discovery globs sweep stale backups in "env var → glob fallback" config layers
+
+Config loaders that resolve via `env var → fallback to glob` (e.g., path discovery for plugin roots, project config) will match `*backup*`, `*.bak*`, `*-bak*`, and `*.partial` files alongside live config — stale backups silently shadow the canonical config and produce hard-to-diagnose misbehavior.
+
+**Mitigation:** either exclude backup-pattern suffixes explicitly in the glob, OR require explicit registration (no glob-based auto-discovery at all). Applies to any layered config system where a glob serves as last-resort discovery.
+
+Source: central improvement queue (2026-04-29, claude-unreal-holodeck).
+
+### Externally-visible action scripts need an env-var bypass for /dev/tty-less environments
+
+*2026-05-17, project-rag-ue-addon.* Scripts that gate destructive or irreversible actions on an interactive `read` from `/dev/tty` (e.g. "Are you sure? [y/N]") fail loudly when run from Claude Code's Bash tool, CI runners, headless workers, or any environment where `/dev/tty` is not available — `read` errors immediately and the script aborts before the confirmation can be supplied.
+
+**Defense:** action scripts that ship as part of a plugin or operator-facing tool must accept an env-var bypass (e.g. `CONFIRM_DESTRUCTIVE=1`, `ALLOW_NO_TTY=1`, or a script-specific name). The bypass replaces the `/dev/tty read` step; the env-var presence serves as affirmative confirmation. Document the bypass in the script's `--help` and any operator-facing docs.
+
+```bash
+if [[ -z "${CONFIRM_DESTRUCTIVE:-}" ]]; then
+  read -p "Confirm destructive action [y/N] " ans </dev/tty
+  [[ "$ans" =~ ^[Yy]$ ]] || { echo "aborted"; exit 1; }
+fi
+```
+
+Same pattern for `gum confirm`, `whiptail`, `dialog`, and any other TTY-bound primitive.
+
 ### Cross-platform script portability — `#!/usr/bin/env bash` is necessary but not sufficient
 
 A shell script that uses `realpath`, `readlink -f`, GNU-extension flags (`sed -i ''` vs `sed -i`), `mktemp` without `-d`, or assumes `/dev/stdin` works the same way on every platform will fail loudly on macOS or Windows Git-Bash even with a portable shebang. Defense: pin to documented-portable subset, or detect host (`uname -s`) at top and dispatch. Treat "works on Linux CI" as a non-claim about author/consumer machines.
+
+### `gh release upload` aborts the entire batch on a 0-byte asset
+
+*2026-05-17, project-rag-ue-addon.* When `gh release upload <tag> file1 file2 ...` receives any zero-byte file in the argument list, the GitHub API rejects that asset with a 422 and `gh` exits non-zero — every remaining asset in the batch is dropped, not just the empty one. Defense: filter `-size +0c` (or `find ... -not -empty`) before the call, or run one-asset-per-call with `|| true` and a tally at the end. Surfaces empirically when a release-builder writes placeholder files for "no work this round" cases.
+
+### Self-rewriting tools need a self-validation guard, not just a filename-exclusion
+
+*2026-05-17, claude-central.* Sanitizers, sed-fleet linters, and codegen passes that process their own source need TWO defenses against self-corruption, not one. Filename-exclusion (`case "$base" in *<self>*) return 0 ;;`) prevents NEW corruption from this point forward but cannot detect EXISTING corruption from before the exclusion was added — and the script's "rewrote N file(s)" log typically fires unconditionally after the I/O block, hiding the no-op. Defense:
+
+1. **Self-exclusion** to prevent future corruption.
+2. **Self-validation guard at script start** that detects already-substituted state (e.g. canonical key fingerprint missing, or substitution targets present where keys should be) and exits loud with `"restore <self> from <upstream-source> before re-running"`.
+3. **Conditional success log** — `cmp` before/after the I/O block and report `"rewrote: N file(s) (M unchanged)"`, not unconditional `"rewrote: <count>"`.
+
+Two-phase failure shape: corruption happens once, then becomes invisible. "Rewrote" log fired = file touched, not = file changed.

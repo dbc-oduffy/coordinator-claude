@@ -68,14 +68,39 @@ if [[ "$CLAUDE_MODEL" == *opus*4*6* ]]; then ...  # breaks on next minor release
 
 Pinned arms like `opus*4*6*` break silently on the next version bump — the branch falls through to the else case with no error and wrong behavior. Family fallbacks (`*opus*`, `*sonnet*`, `*haiku*`) survive minor version bumps and new model releases.
 
-## Disabled hook scripts must be removed from hooks.json
+## Disabled hook scripts: clean BOTH registration surfaces
 
-Removing a hook script from disk without removing its entry from `hooks/hooks.json` (or `settings.json`, for user-scope hooks) leaves a dangling reference. When the script is restored or a file with the same name appears (e.g., from a plugin reinstall), the hook re-activates — often at a much later date with no one remembering why it was disabled.
+Hook scripts have two registration surfaces: `hooks/hooks.json` (plugin-distributed, travels with the plugin) and `~/.claude/settings.json` (user-scope, machine-local). Removing or disabling a hook script on disk without cleaning BOTH surfaces is silent breakage:
 
-Two-place cleanup is the rule: remove the script AND remove its entry from the hooks config in the same commit. If the intent is temporary disable rather than permanent removal, comment out the entry in the config rather than deleting the script.
+- **Dangling `hooks/hooks.json` entry:** when the script (or a same-named file from a plugin reinstall) reappears, the hook re-activates — often at a much later date with no one remembering why it was disabled.
+- **Dangling `settings.json` entry:** every PreToolUse/PostToolUse fire produces a `Hook error` until the entry is removed. Not a "harmless stale reference" — it fires on every tool call.
+
+Doctrinal pair: disable in BOTH surfaces AND remove the script file in the same commit. If you remove the script first, the registration edits follow in the same commit. For temporary disable rather than permanent removal, comment out the entries rather than deleting the script.
+
+## Friction-as-warning needs a typed override, not a toggle
+
+When you want a hook to *change EM behavior* (not just leave a paper trail), block-with-typed-justification is the only shape that works. Warn-only fails silent — stderr at exit 0 goes to the user's terminal, not back into the model's context, so the EM never reads it.
+
+The two effective shapes:
+
+1. **Hard block + typed env-var override.** Hook emits a JSON deny (`{"permissionDecision":"deny", "permissionDecisionReason":"<four questions>"}`) unless `COORDINATOR_<SCOPE>_PUNT="<plain-English sentence>"` is set. Trivial overrides ("1", "ok", strings under ~12 chars) are rejected by the reason-parser — the cognitive load IS the design point. The EM must articulate *what is being punted* while the deny reason sits in context.
+
+2. **Exit 2 with stderr.** The Claude Code runtime treats exit 2 as "feed stderr into the model's next turn." This is the only non-block channel that actually reaches the model. Useful for nudges that should *inform* without *blocking*.
+
+Stderr at exit 0 is the failure mode — the message lands in the user terminal but never reaches the model that just made the decision. If the EM is the audience, the EM has to be forced to read it.
+
+The cost isn't keystrokes — it's the moment of friction that surfaces the lazy-punt before it becomes a queue entry. If writing the override sentence feels harder than just fixing the underlying thing, the hook worked.
+
+Pattern generalizes to any "don't reflexively reach for this surface" tripwire: `block-unauthorized-handoff.sh`, `block-off-daily-branch.sh`, `nudge-improvement-queue-write.sh` — all use block-with-override or exit-2-with-stderr; none use stderr-at-exit-0.
 
 ## Plugin-owned hooks belong in hooks/hooks.json, not user-scope settings
 
 Hook entries placed in user-scope `settings.json` are invisible to other machines and break marketplace distribution. Plugin hooks must live at `hooks/hooks.json` inside the plugin directory — this is the path the plugin system reads on install and the path that travels with the plugin to new machines.
 
 User-scope `settings.json` hooks are for machine-local overrides that intentionally should not distribute. If a hook is load-bearing for a plugin's behavior, it belongs in the plugin's `hooks/hooks.json`.
+
+## Script names encode invariants — if the invariant inverts, retire don't rename
+
+When a hook or validator script's name encodes a now-defunct invariant (e.g., `block-X-mirror`, `verify-Y-single-tree`), the right move is retirement, not repurposing. Changing a path constant or condition inside the script while leaving the filename intact produces a script whose name lies — it will false-positive-block legitimate writes in any session where the name is read without the body.
+
+Retirement protocol: (1) read the spec backlink to confirm the invariant is genuinely defunct, not just locally disabled; (2) retire the script file; (3) delete the hook registration from `hooks/hooks.json` and any `settings.json` entries; (4) update doctrine references — all in one commit. Running the unupdated hook post-inversion is silent breakage: the block fires on correct writes with no error message pointing at the stale invariant.

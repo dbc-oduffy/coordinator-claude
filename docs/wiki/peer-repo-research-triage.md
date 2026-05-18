@@ -9,7 +9,9 @@ Filters are applied in order of signal-to-noise. Always exhaust content-shape fi
 1. **Topic match** — `stack_tags` overlap with the plan's domain (e.g. `rag`, `unreal`, `pytest`).
 2. **Vocabulary match** — repo wiki uses the same domain nouns/verbs as the plan claim.
 3. **Author/lineage match** — peer repo was authored by the same operator or forked from a shared ancestor.
-4. **Transport shape** (HTTP / gRPC / CLI / MCP) — **filter of last resort**.
+4. **Transport shape / substrate** (HTTP / gRPC / CLI / MCP; Python / Go / Rust) — **filter of last resort**.
+
+**Transport shape and substrate are filters of last resort, not first** (2026-05-03 project-rag). Transport (HTTP vs MCP vs filesystem) and substrate (Python vs Go vs Rust) are cheap to evaluate but noisy — filtering on either early discards relevant prior art whose underlying problem-shape and architectural-fit match. Exhaust topic and vocabulary filters first; treat transport/substrate hits as candidates requiring manual review, not confirmed prior art.
 
 ## The transport-shape trap
 
