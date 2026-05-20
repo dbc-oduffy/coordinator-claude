@@ -158,40 +158,15 @@ Where `${OPERATOR_NAME}` is the value read from the existing file (Step 1) or ca
 
 **Step 4 — Discover working repos.**
 
-The rendered `CLAUDE.local.md` includes a "Your working repos" section so the EM (operating as DoE in the meta-repo) knows which sibling projects exist. Three-tier discovery, stop at first non-empty result:
-
-**Tier A — Claude Code's own activity record (preferred).** `~/.claude/projects/` contains one directory per folder Claude Code has been active in, encoded path-as-name (`:` `\` `/` `.` → `-`; drive roots therefore look like `X--Foo` for `X:\Foo`, `C--Users-oduffy--claude` for `C:\Users\oduffy\.claude`). mtime ≈ most recent activity.
+The rendered `CLAUDE.local.md` includes a "Your working repos" section so the EM (operating as DoE in the meta-repo) knows which sibling projects exist. Three-tier discovery (stop at first non-empty), encapsulated in a helper:
 
 ```bash
-# Enumerate, decode heuristically, filter to existing dirs that look like working repos
-ls -1dt ~/.claude/projects/*/ 2>/dev/null | head -50 | while read -r p; do
-    base="$(basename "$p")"
-    # Heuristic decoder: single dash → path separator; leading "X--" → "X:\".
-    # Reverse the encoding by replacing dashes with backslashes, then collapse "\\." → "\." patterns.
-    # (Lossy — verify with -d test below.)
-    case "$base" in
-        [A-Za-z]--*) decoded="${base:0:1}:\\${base:3}"; decoded="${decoded//-/\\}";;
-        *) decoded="${base//-/\\}";;
-    esac
-    # Convert Windows path to /-form for test (Git-Bash/WSL)
-    posix="$(echo "$decoded" | sed -E 's|^([A-Za-z]):\\|/\L\1/|; s|\\|/|g')"
-    [[ -d "$posix" ]] && echo "$decoded"
-done | sort -u
+WORKING_REPOS=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/lib/discover-working-repos.sh")
 ```
 
-Filter out the meta-repo itself (`~/.claude`), `AppData/Local/Temp`, and any bare drive root (e.g. `X:\` with no subdir) — these aren't working repos. Keep at most ~20 most-recent candidates.
+The helper runs **Tier A** (`~/.claude/projects/` activity record — path-encoded directory names, `X--Foo` → `X:\Foo`) then **Tier B** (common dev-folder layouts: `~/dev`, `~/Projects`, `/x`, etc.) and stops at first non-empty result. Filters meta-repo, `AppData/Local/Temp`, bare drive roots. Returns up to 20 (Tier A) or 30 (Tier B) candidates.
 
-**Tier B — Common dev-folder layouts (if Tier A empty).** Probe a small set of conventional locations for git/GitHub repos:
-
-```bash
-for cand in ~/dev ~/Dev ~/code ~/Code ~/src ~/Source ~/Projects ~/projects ~/workspace ~/repos ~/Documents/GitHub /c/dev /d/dev /e/dev /x; do
-    [[ -d "$cand" ]] && find "$cand" -maxdepth 2 -name .git -type d 2>/dev/null | sed 's|/\.git$||'
-done | sort -u | head -30
-```
-
-If any results: surface them and use as the working-repos list.
-
-**Tier C — Ask the operator (if both empty).** The operator is likely new to coding or keeps their work somewhere non-standard.
+**Tier C — Ask the operator** (if helper returned empty). Operator is likely new to coding or keeps work somewhere non-standard.
 
 <!-- D4 annotation: default-with-warning — empty list is the documented neutral default. Under --non-interactive, skip the prompt, emit status row: working_repos: defaulted to empty (non-interactive). The CLAUDE.local.md gets a placeholder note that the operator can fill in later. -->
 
@@ -253,220 +228,68 @@ On success, surface a one-line confirmation: `Meta-repo doctrine installed at ~/
 
 ## Phase 3 — Machine-local registry substrate
 
-Lay down the `~/.claude/machine-local/` substrate and the `bin/machine-local` reader. Idempotent — safe to re-run; never overwrites a live `registry.toml` or `registry.local.toml`.
+Lay down the `~/.claude/machine-local/` substrate and the `bin/{machine-local, claude-home}` resolvers. Idempotent — safe to re-run; never overwrites a live `registry.toml`, `registry.local.toml`, or operator-customized file.
 
-**Source of truth:** `coordinator/templates/machine-local/` (the canonical plugin-tree templates authored by Task 1) and `coordinator/templates/bin/` (the reader, authored by Task 2). The installer copies from these template paths into the operator's `~/.claude/` install location.
+**Sources of truth:**
+- `coordinator/templates/machine-local/` — tracked files (README, .gitignore, both `.example` registries)
+- `coordinator/templates/bin/` — `machine-local` family + `python3.cmd` shim
+- `coordinator/lib/claude-home/` — load-bearing `claude-home` module (`lib/<module>/` shape signals "cross-repo contract surface, do not customize"); see `coordinator/lib/claude-home/README.md`
 
-**Steps (each step idempotent on re-run):**
+Skip under `--check-only`. Under `--non-interactive`, run all mechanical work but skip Step 3's seed prompt.
 
-### Step 1 — Check-and-create the directory
+### Step 1 — Run install-substrate helper
 
-If `~/.claude/machine-local/` is absent, create it. If present, no-op.
-
-```bash
-mkdir -p ~/.claude/machine-local
-```
-
-If `${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local/` does not exist, emit a clear error and skip the remaining steps of this phase:
-
-> Phase 3 error: coordinator template directory not found at ${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local/. Cannot lay down machine-local substrate. Ensure the coordinator plugin is fully installed and CLAUDE_PLUGIN_ROOT is set correctly.
-
-### Step 2 — Lay down tracked files if absent
-
-For each of `README.md`, `.gitignore`, `registry.toml.example`, `registry.local.toml.example`:
-
-- Compare live file at `~/.claude/machine-local/<file>` against `${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local/<file>`.
-- If absent or identical → copy template → live.
-- If differ → leave live untouched, emit one-line notice:
-
-  > [machine-local] operator-customized `<file>` preserved; template at `${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local/<file>` for diff reference.
+The mechanical work — directory creation, tracked-file install, bin/ resolver install, Windows PATH integration, Windows Python-resolution health check — is encapsulated in `coordinator/lib/install-substrate.sh`. Invoke it:
 
 ```bash
-_ml_src="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local"
-_ml_dst="$HOME/.claude/machine-local"
-for _f in README.md .gitignore registry.toml.example registry.local.toml.example; do
-    if [[ ! -f "${_ml_dst}/${_f}" ]]; then
-        cp "${_ml_src}/${_f}" "${_ml_dst}/${_f}"
-    elif ! diff -q "${_ml_src}/${_f}" "${_ml_dst}/${_f}" >/dev/null 2>&1; then
-        echo "[machine-local] operator-customized ${_f} preserved; template at ${_ml_src}/${_f} for diff reference"
-    fi
-done
+bash "${CLAUDE_PLUGIN_ROOT}/coordinator/lib/install-substrate.sh"
 ```
 
-### Step 3 — Drop the reader
+The helper:
 
-For each of `bin/machine-local`, `bin/_machine_local.py`, `bin/machine-local.cmd`, and `bin/python3.cmd`:
+- **Fails-loud and halts the entire setup chain** if any source-of-truth directory is missing — this is a hard precondition for downstream skills (project-rag, holodeck, deep-research all shell out to `bin/machine-local`); silently skipping leaves the operator with a broken-and-undiagnosable install. The helper writes `Phase 3 FATAL:` to stderr (naming the missing path and remediation paths: reinstall plugin, verify `CLAUDE_PLUGIN_ROOT`, confirm meta-repo working tree) and exits non-zero. The skill catches the non-zero exit and renders the Phase 7 status row: `machine_local_substrate: FATAL (templates missing)`.
+- **Honors `CLAUDE_HOME`** (same precedence as `bin/claude-home` — see `docs/wiki/machine-local-registry.md § 4a`) so test sandboxes and CI redirect cleanly.
+- **Preserves operator-customized files** with one-line notices; for `claude-home` artifacts, the notice is louder (cross-repo contract surface — customization is anti-doctrine).
+- **Skips Windows PATH + AppX checks** on non-Windows operators; honors `COORDINATOR_NON_INTERACTIVE=1` to suppress the AppX-stub deletion consent prompt.
 
-- Compare live file at `~/.claude/bin/<file>` against `${CLAUDE_PLUGIN_ROOT}/coordinator/templates/bin/<file>`.
-- If absent or identical → copy template → live. Apply `chmod +x` after copy for `bin/machine-local`.
-- If differ → leave live untouched + notice (same format as Step 2).
+The seven installed bin/ artifacts and their sources:
 
-The two `.cmd` files are Windows shims for the extensionless `machine-local` script and the `python3` name. They prevent the "Select an app to open 'machine-local'/'python3'" picker that fires when Windows `ShellExecute` falls back to file-association lookup. Harmless to drop on Linux/macOS (they sit unused). Reason captured at `coordinator/docs/wiki/windows-cmd-shims.md`.
+| Live file | Source-of-truth |
+|---|---|
+| `~/.claude/bin/{machine-local, _machine_local.py, machine-local.cmd}` | `coordinator/templates/bin/` |
+| `~/.claude/bin/{claude-home, _claude_home.py, claude-home.cmd}` | `coordinator/lib/claude-home/` |
+| `~/.claude/bin/python3.cmd` | `coordinator/templates/bin/` |
 
-```bash
-_bin_src="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/bin"
-_bin_dst="$HOME/.claude/bin"
-mkdir -p "${_bin_dst}"
-for _f in machine-local _machine_local.py machine-local.cmd python3.cmd; do
-    if [[ ! -f "${_bin_dst}/${_f}" ]]; then
-        cp "${_bin_src}/${_f}" "${_bin_dst}/${_f}"
-        [[ "${_f}" == "machine-local" ]] && chmod +x "${_bin_dst}/${_f}"
-    elif diff -q "${_bin_src}/${_f}" "${_bin_dst}/${_f}" >/dev/null 2>&1; then
-        [[ "${_f}" == "machine-local" ]] && chmod +x "${_bin_dst}/${_f}"
-    else
-        echo "[machine-local] operator-customized ${_f} preserved; template at ${_bin_src}/${_f} for diff reference"
-    fi
-done
-```
+The three `.cmd` files are Windows shims for the extensionless scripts and the `python3` name; they prevent the "Select an app to open" picker when Windows `ShellExecute` falls back to file-association lookup. Harmless on Linux/macOS (unused). Rationale: `coordinator/docs/wiki/windows-cmd-shims.md`.
 
-### Step 3b — Windows PATH integration (Windows operators only)
+**Windows Python-resolution health** (Step 1's Windows branch) catches three configurations that defeat the shims: orphan AppX stubs (zero-byte reparse-points from uninstalled Store Python), Store-alias-on-PATH (Get-Command resolving under `WindowsApps`), and no-Python-at-all. The helper surfaces remediation; only the orphan-stub deletion is mutating, and it requires explicit `[y/N]` consent on a TTY.
 
-The `.cmd` shims dropped in Step 3 only help if `~/.claude/bin` is on the **Windows user PATH** (not just the MSYS/git-bash PATH). On Windows, check and add:
-
-```bash
-# $OSTYPE == "msys" / "cygwin"  → git-bash / MSYS2 on Windows
-# $OS == "Windows_NT"           → native cmd.exe / PowerShell execution (no $OSTYPE set)
-# WSL or plain Linux            → $OSTYPE matches "linux*", $OS unset, guard skips
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OS" == "Windows_NT" ]]; then
-    # Push path-equality test to PowerShell — bash glob over a Windows-PATH string
-    # is fragile under separator/case drift between re-runs.
-    _already_set=$(powershell.exe -NoProfile -Command \
-        "\$p=[Environment]::GetEnvironmentVariable('PATH','User'); \
-         \$t=\$env:USERPROFILE+'\.claude\bin'; \
-         if (\$p -split ';' | Where-Object {\$_ -ieq \$t}) {'yes'} else {'no'}" \
-        2>/dev/null | tr -d '\r')
-    if [[ "$_already_set" != "yes" ]]; then
-        powershell.exe -NoProfile -Command "\$p = [Environment]::GetEnvironmentVariable('PATH','User'); [Environment]::SetEnvironmentVariable('PATH', \"\$env:USERPROFILE\.claude\bin;\$p\", 'User')"
-        echo "[setup] added ~/.claude/bin to Windows user PATH — restart shells/Claude sessions for it to take effect"
-    fi
-fi
-```
-
-Skip on non-Windows operators (idempotent: the conditional guard handles re-runs cleanly).
-
-### Step 3c — Windows Python-resolution health check (Windows operators only)
-
-The `.cmd` shims and PATH integration in Steps 3 + 3b only help if the AppX App-Execution-Alias subsystem doesn't intercept `python3` first (per `docs/wiki/windows-cmd-shims.md`). Three configurations cause the picker to fire even after Steps 3 + 3b:
-
-1. **Orphan AppX stub** — zero-byte reparse-point at `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` (or `python.exe`) from an uninstalled Store Python package. Windows still consults the stub before PATH on `ShellExecute("python3")`. Cleanest fix: delete the stub. Reversible (regenerates if Store Python is reinstalled).
-2. **Store-alias on MSYS PATH** — `WindowsApps` directory on git-bash's PATH means `command -v python3` returns the alias path. Runtime scripts that don't filter `WindowsApps` paths invoke the alias → picker.
-3. **No Python at all** — neither `py.exe` (Python Launcher) nor a real `python.exe` is reachable. Shims can't help because they need an underlying interpreter to call.
-
-Detect and surface remediation. Do NOT delete the stub silently — offer with explicit consent.
-
-```bash
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OS" == "Windows_NT" ]]; then
-    # 1. Orphan AppX stub detection
-    # NOTE on escaping: in the powershell.exe -Command "..." strings below, `\$` escapes the
-    # $ from bash (passing literal $ to PowerShell). Single backslashes before path components
-    # like \Microsoft \WindowsApps are LITERAL — not bash escapes — and reach PowerShell as
-    # valid backslash separators. Do NOT double them to \\Microsoft \\WindowsApps; that would
-    # produce double-backslash PowerShell paths. The single \\${_stub_name} below IS doubled
-    # because that one bash-expands ${_stub_name}, so the \\ collapses to one backslash.
-    for _stub_name in python.exe python3.exe; do
-        _stub_path=$(powershell.exe -NoProfile -Command \
-            "\$p = \"\$env:LOCALAPPDATA\Microsoft\WindowsApps\\${_stub_name}\"; \
-             if (Test-Path -LiteralPath \$p) { \$i = Get-Item -LiteralPath \$p -Force; \
-             if (\$i.Length -eq 0 -and \$i.LinkType -eq 'ReparsePoint' -and -not \$i.Target) { Write-Output \$p } }" \
-            2>/dev/null | tr -d '\r')
-        if [[ -n "$_stub_path" ]]; then
-            echo "[setup] Detected orphan AppX stub: ${_stub_path}"
-            echo "[setup]   This zero-byte reparse-point is left over from an uninstalled"
-            echo "[setup]   Microsoft Store Python package. It intercepts python3/python"
-            echo "[setup]   invocations via the AppX App-Execution-Alias system and pops"
-            echo "[setup]   the Windows 'Select an app to open' picker (no PATH lookup runs)."
-            echo "[setup]   If you reinstall Store Python, the stub will regenerate."
-            # Guard: tty present AND not running under COORDINATOR_NON_INTERACTIVE.
-            # `read -p` blocks indefinitely when stdin is not a terminal (Claude Bash tool
-            # context, CI, here-doc invocation), so check [[ -t 0 ]] before prompting.
-            if [[ -t 0 ]] && [[ -z "$COORDINATOR_NON_INTERACTIVE" ]]; then
-                read -r -p "[setup] Delete this orphan stub? [y/N] " _consent
-                if [[ "$_consent" =~ ^[Yy] ]]; then
-                    # Pass stub path into a PowerShell variable rather than interpolating into
-                    # the outer double-quoted command string — confines bash expansion to a
-                    # single-quoted PS assignment, avoiding quote-injection edge cases.
-                    powershell.exe -NoProfile -Command "\$p='${_stub_path}'; Remove-Item -LiteralPath \$p -Force"
-                    echo "[setup]   Deleted."
-                fi
-            else
-                echo "[setup]   (non-interactive context: skipping deletion; re-run /setup in an interactive shell"
-                echo "[setup]    without COORDINATOR_NON_INTERACTIVE set to clean up)"
-            fi
-        fi
-    done
-
-    # 2. Store-alias-on-PATH detection
-    _py_resolved=$(powershell.exe -NoProfile -Command \
-        "\$c = Get-Command python3 -ErrorAction SilentlyContinue; \
-         if (-not \$c) { \$c = Get-Command python -ErrorAction SilentlyContinue }; \
-         if (\$c) { Write-Output \$c.Source }" 2>/dev/null | tr -d '\r')
-    case "$_py_resolved" in
-        *WindowsApps*)
-            echo "[setup] WARNING: python/python3 resolves under WindowsApps: ${_py_resolved}"
-            echo "[setup]   Runtime scripts that don't filter WindowsApps paths may invoke"
-            echo "[setup]   the Store alias and pop the picker. Recommended: install Python"
-            echo "[setup]   from python.org so a real python.exe takes precedence on PATH,"
-            echo "[setup]   OR disable App Execution Aliases for python.exe/python3.exe via"
-            echo "[setup]   Settings → Apps → Advanced app settings → App execution aliases."
-            ;;
-    esac
-
-    # 3. No-Python detection (must have py.exe OR a real python on PATH)
-    _have_py=$(powershell.exe -NoProfile -Command \
-        "\$p = Get-Command py -ErrorAction SilentlyContinue; \
-         if (\$p) { Write-Output 'yes' } else { Write-Output 'no' }" 2>/dev/null | tr -d '\r')
-    if [[ "$_have_py" != "yes" && -z "$_py_resolved" ]]; then
-        echo "[setup] WARNING: neither py.exe (Python Launcher) nor python/python3 found."
-        echo "[setup]   Install Python 3 from https://www.python.org/downloads/windows/ —"
-        echo "[setup]   the installer ships py.exe by default. Without one of these, the"
-        echo "[setup]   ~/.claude/bin/python3.cmd shim has nothing to call."
-    fi
-fi
-```
-
-Skip on non-Windows operators. Honors `COORDINATOR_NON_INTERACTIVE=1` for unattended re-runs.
-
-### Step 4 — Never overwrite live registry files
+### Step 2 — Never overwrite live registry files
 
 If `~/.claude/machine-local/registry.toml` or `~/.claude/machine-local/registry.local.toml` exists, leave both untouched regardless of `.example` updates. Same rule for any `<concern>.toml` and `<concern>.local.toml`. The operator's machine-local values are theirs.
 
-### Step 5 — Optional seed prompt (declinable, interactive mode only)
+### Step 3 — Optional seed prompt (declinable, interactive only)
 
 <!-- D4 annotation (seed prompt): skip-with-note — seed is elective; --non-interactive skips it and notes that the operator should copy .example → real by hand. -->
 
-**Condition:** Skip entirely if either `~/.claude/machine-local/registry.toml` or `~/.claude/machine-local/registry.local.toml` exists (idempotency — never re-prompt once seeded).
+**Skip entirely** if either `~/.claude/machine-local/registry.toml` or `registry.local.toml` already exists (idempotency).
 
-Under `--non-interactive`: skip the prompt, emit status row `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`. Do NOT create `registry.toml` or `registry.local.toml`.
+Under `--non-interactive`: skip; emit status row `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`.
 
-Under interactive (default), if neither file exists, ask via `AskUserQuestion`:
+Under interactive, ask once via `AskUserQuestion`:
 
-> Would you like to seed the registry with the four most common `repos.*` keys (coordinator, project-rag, project-rag-ue-addon, claude-unreal-holodeck)? You can fill paths now or leave them blank to edit later. Key declarations go to `registry.toml` (shared, tracked); your machine's path values go to `registry.local.toml` (per-machine, gitignored). Single-machine operators who don't share their `~/.claude` across machines may put everything in `registry.toml` — no harm in that. [Y/n]
+> Would you like to seed the registry with the four most common `repos.*` keys (coordinator, project-rag, project-rag-ue-addon, claude-unreal-holodeck)? Key declarations go to `registry.toml` (shared, tracked); per-machine path values to `registry.local.toml` (gitignored). Single-machine operators may put everything in `registry.toml`. [Y/n]
 
-**On Y:** write `~/.claude/machine-local/registry.toml` with the four key declarations + `schema = 1`, and `~/.claude/machine-local/registry.local.toml` with the operator's typed paths (or empty strings on skip-per-key). For each key, ask the path inline — operator may leave blank to fill later.
+**On Y:** write `registry.toml` with the four keys + `schema = 1`, and `registry.local.toml` with the operator's typed paths (asked inline per key; blank allowed). **On N:** leave both absent.
 
-**On N:** leave both absent — operator copies `.example` → real by hand later.
+### Step 4 — Test surface (expected behavior; do not actually run setup)
 
-### Step 6 — Idempotency contract
+- **Fresh install:** directory, all tracked files, all 7 bin/ artifacts present after Step 1. Seed prompt fires interactively.
+- **Re-run on populated install:** no overwrites, no prompts.
+- **`--non-interactive`:** substrate laid down, no seed prompt, no `registry.toml`, no `registry.local.toml`.
+- **Operator-modified file:** preserved; one-line notice; no overwrite.
 
-Re-running `/coordinator:setup` must be safe:
-
-- No destructive overwrites of operator-customized files.
-- No duplicate prompts — skip seed prompt entirely if either `registry.toml` or `registry.local.toml` exists.
-- No error if operator authored either file by hand before running setup.
-- `--check-only` reports what exists and what would be created without creating anything.
-
-### Step 7 — `--non-interactive` mode
-
-Skip the seed prompt. Lay down all tracked files (README.md, .gitignore, both `.example` files, reader and its Python module). Do NOT create `registry.toml` or `registry.local.toml`. Suitable for CI / scripted re-runs.
-
-**Test surface (expected behavior — do not actually run setup):**
-
-- **(a) Fresh install on scratch HOME:** directory, README, .gitignore, both .example files, `bin/machine-local`, `bin/_machine_local.py` all present after phase. Seed prompt fires (interactive). On Y, both `registry.toml` + `registry.local.toml` written. On N, neither written.
-- **(b) Re-run on populated install:** no overwrites, no prompts, all idempotency checks pass.
-- **(c) `--non-interactive` on fresh install:** substrate laid down, no seed prompt, no `registry.toml`, no `registry.local.toml`.
-- **(d) Operator-modified-file detection:** pre-placed modified `README.md` preserved; one-line notice emitted; no overwrite.
-
-**See:** `docs/wiki/machine-local-registry.md` for the substrate doctrine; `bin/machine-local` for the reader contract; `docs/wiki/coordinator-doctor.md` for post-install verification probes (P-1 through P-4 cover this substrate).
+**See:** `docs/wiki/machine-local-registry.md` (substrate doctrine + § 4a CLAUDE_HOME resolver), `coordinator/lib/install-substrate.sh` (mechanical contract), `coordinator/lib/claude-home/README.md` (claude-home module), `docs/wiki/coordinator-doctor.md` (post-install probes).
 
 ---
 
@@ -632,6 +455,11 @@ Present a summary table:
 | Operator identity           | ... (`ready` / `would write` / `failed (...)`) |
 | Working repos               | ... (`ready (N from tier A\|B\|C)` / `defaulted to empty`) |
 | Meta-repo CLAUDE.local.md   | ... |
+| Machine-local directory     | ... (`ready` / `created` / `FATAL`) |
+| Machine-local tracked files | ... (`ready (4/4)` / `partial (N/4: <missing>)` / `customized (<file> preserved)` / `FATAL`) |
+| bin/ resolvers              | ... (`ready (7/7)` / `partial (N/7: <missing>)` / `FATAL`) — `machine-local` (registry reader) + `claude-home` (path resolver) + `python3.cmd` shim, plus three `.cmd` Windows shims |
+| Windows PATH + Python shims | ... (n/a non-Windows / `ready` / `PATH-added, restart shells` / `WARNING: <stub\|alias\|no-python>`) |
+| Registry seed               | ... (`seeded (Y)` / `declined (N)` / `skipped (non-interactive)` / `pre-existing`) |
 | `~/.claude` git tracking    | ... |
 | coordinator.local.md        | ... |
 | Percolation                 | ... (n/a if not a percolation source) |
@@ -664,6 +492,8 @@ These wikis are referenced from plugin files (CLAUDE.md, skills, commands) and t
 
 If any **required** items are missing (git), note them prominently.
 If any **recommended** items are missing (Agent Teams, CLAUDE.md import), list concrete next steps.
+
+**Hard-precondition rows.** The four Machine-local rows are non-optional: any `FATAL` value means Phase 3 halted the chain (the table is partial) and downstream skills will not function. The `Registry seed` row is informational only — neither absence nor decline blocks downstream skills, since `bin/machine-local` is registry-agnostic at the file level (operators can author keys later by hand-editing or copying `.example` → real).
 
 End with: _"`/setup` is environment-only. Run `/project-onboarding` to scaffold a new project (CLAUDE.md, tracker, sessions directory, lessons file). Then run `/session-start` to begin work."_
 

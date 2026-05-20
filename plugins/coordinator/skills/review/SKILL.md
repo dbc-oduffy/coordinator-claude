@@ -82,10 +82,11 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
 
 | Situation | Correct tier |
 |---|---|
-| Single-domain plan (new feature, doc redesign, refactor) | One reviewer (auto-detects domain from routing table above) |
-| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
+| Single-domain plan (new feature, doc redesign, refactor) | One Opus-persona reviewer (auto-detects domain from routing table above) |
+| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential Opus-persona reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | One reviewer (auto-detects domain) |
+| "This is important, I want it done right" | One Opus-persona reviewer (auto-detects domain) |
+| "the Staff Engineer feels heavy for this; route to code-reviewer instead" | **Not a valid row.** `code-reviewer` is the Sonnet diff reviewer, not a plan reviewer. The fork is named Opus persona OR skip review (implement and let `code-reviewer` catch issues on the diff at `/session-end`). Sonnet-on-plan-body is not on the menu. _See `skills/plan/SKILL.md` § Exit ¶ Reviewer altitude is binary._ |
 
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
   → No review needed; commit and proceed.
@@ -159,3 +160,5 @@ Walk each finding against the triage table below — it lands in exactly one row
 ## Cross-reference exit
 
 After Branch B completes for a multi-reviewer review and Reviewer 1 is integrated, return to **A.2** to dispatch Reviewer 2. This skill is re-entrant — each pass walks one direction.
+
+When all reviewer integration is complete and the plan is ready for execution, the EM owns the **dispatch-gate graph** before the first executor dispatch: enumerate touched files per task, mark file-overlap / output-consumption / contract-change gates (and only those — narrative causality is not a gate), size per-executor scope to ~15-25 min, and author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5. Taxonomy: `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy and § Peer-Scope Prohibition in Parallel-Wave Prompts.

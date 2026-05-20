@@ -41,23 +41,17 @@ bash ~/.claude/plugins/coordinator/bin/workday-start-step0.sh
 
 The script encapsulates sync-main, the precedence switch (Checks 1–4 + 3.5), the rename procedure (Step 0.4), and the reconcile flow (Step 0.4.5).
 
-**Stdout shape:** the script emits **one or two status lines** depending on the precedence path:
-- **One line** when the path terminates at Check 2 (IN-SPAN — no reconcile needed) or when reconcile finds origin/main already merged (ALREADY-CURRENT does not fire on the IN-SPAN early-exit path).
-- **Two lines** on FRESH-CUT / NAMED-WORKSTREAM / RENAMED paths: the precedence status, then a reconcile status (`ALREADY-CURRENT`, `RECONCILED-FF`, or `RECONCILED-MERGE`). Surface both in the Morning Briefing.
+**Stdout shape:** one line on IN-SPAN (no reconcile needed); two lines on FRESH-CUT / NAMED-WORKSTREAM / RENAMED (precedence status + reconcile status: `ALREADY-CURRENT`, `RECONCILED-FF`, or `RECONCILED-MERGE`). Surface both in the Morning Briefing.
 
-Exit codes:
-- `0` — succeeded (stdout from {`IN-SPAN`, `FRESH-CUT`, `NAMED-WORKSTREAM`, `RENAMED`} × optionally {`ALREADY-CURRENT`, `RECONCILED-FF`, `RECONCILED-MERGE`}).
-- `2` — `STALE-NEEDS-ABC` — invoke the A/B/C Branch Reconciliation Decision flow below.
-- `3` — `RECONCILE-CONFLICT` — PM resolves before workday-start continues.
-- `1` — sync-main aborted or unexpected error; halt and investigate.
+Exit codes: `0` success; `2` `STALE-NEEDS-ABC` → invoke A/B/C flow below; `3` `RECONCILE-CONFLICT` → PM resolves; `1` unexpected error → halt.
 
-**Why a script, not inline bash:** the procedure was empirically EM-skippable when expressed as "see pipelines/workday-start-internals.md" — on 2026-05-20 an EM ran Step 0.45's assertion but never executed Check 4, leaving the working tree on a stale-suffix branch. Concentrating precedence + rename + reconcile in a single invokable removes EM judgment from a deterministic procedure. Full prose explanation of each check remains in `pipelines/workday-start-internals.md` § Step 0 for readers who want the rationale.
+**Why a script, not inline bash:** the procedure was empirically EM-skippable when expressed as a prose reference — concentrating precedence + rename + reconcile in a single invokable removes EM judgment from a deterministic procedure. Full rationale: `pipelines/workday-start-internals.md` § Step 0.
 
 **Step 0 is not EM-skippable on judgment.** "Reconcile not rotate" governs whether to *abandon* the branch (no), not whether to *rename* the suffix at midnight (yes, via Check 4). Legitimate skips are only the precedence outcomes the script reports (`IN-SPAN`, `NAMED-WORKSTREAM`, `FRESH-CUT`). Any other path MUST execute the rename when Check 4 fires; Step 0.45 below is the tripwire catching silent skips.
 
 ### Step 0.45: Post-Step-0 Span Assertion
 
-After the precedence switch resolves, verify the active branch's name covers today. This catches EM judgment-skips, rename failures, and silent fall-throughs — the library helpers (`cs_should_prompt_rename`, `cs_format_span_suffix`) return correct results, but a Step 0 path that never invokes the rename procedure leaves the working tree out of sync with the doctrine.
+After the precedence switch resolves, verify the active branch's name covers today. This catches EM judgment-skips, rename failures, and silent fall-throughs — the library helpers return correct results, but a Step 0 path that never invokes rename leaves the working tree out of sync.
 
 ```bash
 source ~/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh
@@ -80,22 +74,18 @@ fi
 - **If the branch does not parse as `work/{machine}/...`** (named long-lived workstream, `main`, or other authorized shape): skip the assertion silently. Check 3.5 in Step 0 already covered this case by design.
 - **If the branch parses and end-DD == today:** skip silently — Step 0 did its job.
 
-Rationale: empirical drift (2026-05-18) — an EM ran `/workday-start`, wrote the marker, regenerated orientation, produced a briefing, but never executed Check 4 — citing "reconcile not rotate" as authorization to leave the suffix alone. Misreads the doctrine: reconcile-not-rotate forbids *abandoning* the branch for a fresh `work/{machine}/{today}` off main, not skipping the midnight suffix bump.
+Rationale: empirical drift (2026-05-18) — EM cited "reconcile not rotate" to skip the suffix bump. That doctrine forbids *abandoning* the branch, not skipping the midnight rename.
 
 ### Step 0 conflict handling — Branch Reconciliation Decision
 
 When `git merge --no-ff` of a lingering branch hits a conflict, **do not silently continue**. Abort the merge and produce a **Branch Reconciliation Decision** block in the Morning Briefing naming each conflicting branch:
 
 **Interactive sessions (TTY attached):** Hard-block until the PM chooses one of:
-- **Option A — Consolidate now:** PM accepts the conflict and runs `/consolidate-git` immediately. The skill chains into it; workday-start resumes after consolidation completes.
-- **Option B — Defer:** PM explicitly defers the branch. Write one entry to `tasks/.deferred-branches.md`:
-  ```
-  {branch} | reason: {PM-provided reason} | re-check: {today + 7 days} | deferred-by: workday-start {today}
-  ```
-  The next workday-start will surface this entry prominently if the re-check date has passed.
-- **Option C — Archive (abandon):** PM signals the branch is dead. Rename it `archive/{machine}/{today}/{original-branch-name}` locally; push the renamed ref; delete the old ref. Stop tracking.
+- **A — Consolidate now:** run `/consolidate-git`; resume after.
+- **B — Defer:** write `tasks/.deferred-branches.md` entry: `{branch} | reason: {reason} | re-check: {today+7d} | deferred-by: workday-start {today}`. Surfaced next morning if re-check date passed.
+- **C — Archive (abandon):** rename `archive/{machine}/{today}/{branch}` locally; push; delete old ref.
 
-**Non-interactive sessions (no TTY — overnight/mise-en-place chained):** Auto-defer unresolved branches with `reason=auto-deferred, awaiting PM` and `re-check={today}`. Emit a note in the Morning Briefing. The next interactive workday-start will surface them prominently and force the A/B/C decision.
+**Non-interactive sessions (no TTY):** Auto-defer with `reason=auto-deferred, awaiting PM` and `re-check={today}`; emit note in the Morning Briefing. Next interactive run forces A/B/C.
 
 ## Step 0.5: Orphan Branch Sweep
 
@@ -109,7 +99,7 @@ Append the rendered section to the Morning Briefing template in Step 5 (after `#
 
 ## Step 0.6: Agent Worktree Sweep
 
-Claude Code 2.1.x auto-creates per-dispatch worktrees under `<repo>/.claude/worktrees/agent-<hash>/` for backgrounded `Agent` calls. They persist locked until session deletion (no auto-cleanup on agent completion) and accumulate across days. Doctrine forbids worktrees as a parallelism mechanism — see `docs/wiki/dispatching-parallel-agents.md` § Worktree vs. Same-Worktree Dispatch — so any agent worktree on disk is unintended residue.
+Claude Code 2.1.x auto-creates per-dispatch worktrees under `<repo>/.claude/worktrees/agent-<hash>/` that accumulate and are never auto-cleaned. Doctrine forbids worktrees as a parallelism mechanism (→ `docs/wiki/dispatching-parallel-agents.md` § Worktree vs. Same-Worktree Dispatch); any on disk is unintended residue.
 
 Run the sweep in `--reap` mode to consolidate and remove:
 
@@ -151,11 +141,8 @@ Idempotent; prints a one-line no-drift notice to stderr when nothing changes. Ea
 *Lesson 2026-05-16, project-rag — session-init orphan-sweep archives handoffs without running workstream-end ceremony.* When `session-init.sh` silently archives an orphaned handoff (consumed_by session died), the driving plan body in `docs/plans/` stays `status: executing` forever. Step 0.7 already flips frontmatter where consumed-markers exist; this step catches the inverse — plans whose handoff was silently archived without ceremony, or where the code landed on branch without the EM flipping the plan to `implemented`.
 
 ```bash
-# Per-file WARN advisory — list plans with status: executing that have not been
-# touched (git mtime, not file mtime) in >3 days. Stale-executing is a strong
-# signal that the driving handoff was archived without ceremony, or that the
-# work shipped but no one updated the plan body. EM surfaces the list to the
-# PM in the Morning Briefing for a 30-second triage pass.
+# Advisory: list plans with status:executing untouched >3 days (git mtime).
+# Stale-executing = orphaned handoff or shipped work with unfipped plan.
 stale_executing=$(
   for plan in docs/plans/*.md; do
     [[ -f "$plan" ]] || continue
@@ -163,19 +150,14 @@ stale_executing=$(
       | grep -qE '^status:[[:space:]]*executing' || continue
     last_commit=$(git log -1 --format=%ct -- "$plan" 2>/dev/null)
     [[ -z "$last_commit" ]] && continue
-    now=$(date +%s)
-    age_days=$(( (now - last_commit) / 86400 ))
-    if [[ "$age_days" -gt 3 ]]; then
-      echo "  - $plan (status: executing, untouched ${age_days}d)"
-    fi
+    age_days=$(( ($(date +%s) - last_commit) / 86400 ))
+    [[ "$age_days" -gt 3 ]] && echo "  - $plan (status: executing, untouched ${age_days}d)"
   done
 )
 if [[ -n "$stale_executing" ]]; then
-  echo "---"
   echo "Stale-executing plan advisory (status:executing untouched >3d — likely orphaned):"
   echo "$stale_executing"
-  echo "Triage: flip to status:implemented (code on branch is enough — main-landing is a release concern, not a plan-status concern), status:abandoned, or pick back up."
-  echo "---"
+  echo "Triage: flip to status:implemented, status:abandoned, or pick back up."
 fi
 ```
 
@@ -184,23 +166,17 @@ Advisory only — never blocks the ceremony. Recurring entries across multiple `
 **Also read `tasks/orphan-sweep-notes.md` if present** — `session-init.sh` appends a line per orphan-archive event. Surface those alongside the stale-executing list in the Morning Briefing, then rotate the file:
 
 ```bash
-# Header written by session-init.sh is 4 lines: title, blank, description, blank.
-# Threshold ">4" triggers display when at least 1 event line is present (5 lines).
-# tail offset matches the post-header start (line 5); rotation preserves the
-# full 4-line header so the next event lands on line 5 again (consistent shape
-# across rotation cycles).
+# Header is 4 lines; ">4" means at least 1 event line is present.
+# Rotation preserves the 4-line header so the next event lands on line 5.
 if [[ -f tasks/orphan-sweep-notes.md ]] && [[ $(wc -l < tasks/orphan-sweep-notes.md) -gt 4 ]]; then
-  echo "---"
   echo "Orphan handoffs archived by session-init since last workday-start:"
   tail -n +5 tasks/orphan-sweep-notes.md
-  echo "---"
-  # Rotate (preserve full 4-line header, clear event list)
   head -n 4 tasks/orphan-sweep-notes.md > tasks/orphan-sweep-notes.md.new \
     && mv tasks/orphan-sweep-notes.md.new tasks/orphan-sweep-notes.md
 fi
 ```
 
-The list typically empty on most days; non-empty indicates concurrent sessions died mid-pickup overnight.
+Non-empty on days when concurrent sessions died mid-pickup overnight.
 
 ## Step 1: Handoff Triage
 
@@ -237,7 +213,7 @@ bin/query-records --type handoff \
 - **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
 - **If none exist:** skip silently.
 
-Threshold rationale: six days ≈ one working week — long enough that an uncleared gate deserves a glance, short enough to catch drift before it ossifies.
+Threshold: six days ≈ one working week — uncleared gates deserve a glance before they ossify.
 
 ### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
 
@@ -250,7 +226,7 @@ Query the completed archive for recent entries:
 query-completions --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json
 ```
 
-**Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists (pre-migration repo that has not yet run the `git mv` migration), read the legacy monolith for this reconciliation check only. This fallback ensures a smooth transition window; it is read-only and does not write to the legacy path.
+**Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists, read the legacy monolith for this reconciliation check only (read-only; no writes to the legacy path).
 
 For each `ready_to_fire` handoff, check whether the work it describes appears as completed in the query results — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely already done — pick up to confirm and archive, or close out?"_
 
@@ -276,9 +252,7 @@ Render the results under a fixed subsection heading in the Morning Briefing (Ste
 <results — one bullet per row, or "(none)" when the query returns zero rows>
 ```
 
-The `(none)` case is expected on brand-new repos or repos that haven't yet run the completion-log migration. Surface the heading regardless — count-always.
-
-**Thin-wrapper alternative:** `bin/query-completions.sh` with equivalent flags is also accepted; either form is correct.
+The `(none)` case is expected on brand-new or un-migrated repos. Surface the heading regardless — count-always. `bin/query-completions.sh` with equivalent flags is also accepted.
 
 ## Step 1.6: Coordinator-Improvement Queue Check
 
@@ -286,29 +260,11 @@ Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `-
 
 Also read the local `tasks/improvement-queue.md` (if it exists in the current repo). Count its `## Active queue` entries.
 
-**If the combined queue is notable (any of the below):**
-- Central queue ≥ 5 active entries, OR
-- Oldest entry > 14 days old, OR
-- Any entry carries `[recurring: ≥3]` on its main line, OR
-- Local queue has ≥ 1 active entry
-
-Surface in the Morning Briefing. The EM decides whether to advocate based on depth — this is judgment, not a threshold trigger. Examples:
-
-- Light: _"Coordinator-improvement queue has [K] entries (oldest: YYYY-MM-DD)."_
-- Deep: _"Improvement queue is at [K] central + [L] local. [N] items have recurring ≥ 3 — urgency for those to become structural fixes is building. Want to dedicate some time today to clearing some?"_
-
-If the file does not exist or both queues are empty, skip silently.
+Surface in the Morning Briefing when notable: central ≥ 5 entries, oldest >14 days, any `[recurring: ≥3]`, or local ≥ 1. EM advocates based on depth — judgment, not a threshold trigger. Skip silently when both queues are empty or absent.
 
 ## Step 1.65: Bug Backlog Depth Check
 
-Read `tasks/bug-backlog.md` (if it exists). Count table rows in the P1 and P2 sections, stopping before any `## Resolved` section. Exclude header rows and separator lines — count only data rows.
-
-If the combined P1+P2 open count is ≥ 10, surface in the Morning Briefing. The EM advocates based on depth:
-
-- Moderate (10–19): _"Bug backlog has [N] open P1/P2 items. `/bug-blitz` can grind these down autonomously."_
-- Heavy (≥ 20): _"Bug backlog is at [N] open P1/P2 items — grinding pressure is building. Worth dedicating a session to `/bug-blitz` before it compounds."_
-
-If the file does not exist, or the P1+P2 count is < 10, skip silently.
+Read `tasks/bug-backlog.md` (if it exists). Count P1+P2 data rows (stop before `## Resolved`; exclude headers and separators). Surface in the Morning Briefing when ≥ 10: moderate (10–19) → `/bug-blitz` suggestion; heavy (≥ 20) → stronger nudge. Skip silently if absent or <10.
 
 ## Step 1.7: Scheduled Rechecks
 
@@ -404,11 +360,10 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 2. If no backlog exists: no sweep has ever run. Check codebase substance:
    ```bash
-   # Count source files (not docs, configs, or generated files)
-   find . -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" | grep -v node_modules | grep -v __pycache__ | wc -l
+   find . \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" \) \
+     | grep -v node_modules | grep -v __pycache__ | wc -l
    ```
-   If the repo has >50 source files, suggest a first sweep: _"No bug sweep has ever run on this codebase ([N] source files). Recommend running bug-sweep."_
-   If <50 source files, skip silently — small repos don't need formal sweeps.
+   If >50 source files: _"No bug sweep has ever run on this codebase ([N] source files). Recommend running bug-sweep."_ If <50, skip silently.
 3. If backlog exists, count commits since the sweep's anchor commit:
    ```bash
    git rev-list --count <sweep-commit>..HEAD
@@ -419,7 +374,7 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
    - _"Bug sweep last ran [date] ([N] commits ago). Recommend running bug-sweep before new feature work."_
 5. If few commits since last sweep: "Bug sweep is current ([N] commits since last sweep)."
 
-**The trigger is churn, not calendar.** A repo with no commits in 2 months doesn't need sweeping. A repo with 80 commits in a week might, but we wait at least 7 days to avoid suggestion fatigue during intensive work.
+**The trigger is churn, not calendar** — wait the 7-day floor to avoid suggestion fatigue during sprint-mode work.
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
@@ -489,11 +444,7 @@ _(Omit this section entirely unless Step 0.45's `$SPAN_ASSERT_FAIL` was set. Whe
 - Tools: [missing optional tools, if any — see below]
 
 ### Tool Availability
-Check for optional tools that enhance the pipeline. Surface missing ones as install suggestions:
-- **scc** (code statistics): Check `scc` on PATH, then `~/bin/scc`. If missing: _"scc not installed — code statistics won't appear in orientation. Install: `winget install BenBoyter.scc` (or download to ~/bin/scc)."_
-- **shellcheck** (shell linting): Check `shellcheck` on PATH. If missing: _"shellcheck not installed — .sh files won't be linted on commit. Install: `winget install koalaman.shellcheck`."_
-
-If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for missing tools — don't repeat if already installed.
+Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint for each missing tool (`winget install BenBoyter.scc` / `winget install koalaman.shellcheck`). When both present: _"Tools: scc + shellcheck available."_ Only nag when missing.
 
 ### Handoffs
 - **Continuation:** [N active, M aging, K likely-consumed]

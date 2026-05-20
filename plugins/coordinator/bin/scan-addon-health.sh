@@ -82,7 +82,7 @@ for sentinel in "$PLUGINS_ROOT"/*/data/doctor-last-run.json; do
   # Parse fields with python (portable JSON across platforms; jq not always present on Windows).
   # Read file in bash and pipe to python via stdin to dodge MSYS-Windows path translation
   # quirks (`/tmp/...` and `/c/...` style paths embedded in -c strings don't reach Windows python).
-  parsed=$(cat "$sentinel" 2>/dev/null | python -c "
+  parsed=$(cat "$sentinel" 2>/dev/null | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -113,7 +113,7 @@ except Exception as e:
   [[ -n "$plugin_field" ]] && plugin="$plugin_field"
 
   # Compute staleness (best-effort; ran_at parse failure → treat as stale).
-  ran_at_epoch=$(printf '%s' "$ran_at" | python -c "
+  ran_at_epoch=$(printf '%s' "$ran_at" | python3 -c "
 from datetime import datetime
 import sys
 try:

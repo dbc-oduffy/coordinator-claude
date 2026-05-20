@@ -66,6 +66,83 @@ repo=$(machine-local get repos.claude_unreal_holodeck --default "$(cd "$(dirname
 
 Consumers that want the full resolution chain (registry → sibling-relative → error with remediation) compose it themselves using `--default` or by checking the exit code of `machine-local has <key>` before the fallback.
 
+## 4a. `CLAUDE_HOME` — canonical escape hatch for `~/.claude` path resolution
+
+The machine-local registry resolves *values* with a documented precedence chain (§4). The companion question — *where does `~/.claude` itself live?* — has the same shape and is formalized here as cross-repo doctrine so peer plans (project-rag F11, holodeck, deep-research, future Python/TS/Rust consumers) adopt one convention instead of inventing N variants.
+
+**Filesystem layout — `.claude.json` and `.claude/` are siblings under `$HOME`, not nested.** Reads matter here:
+
+```
+$HOME/
+  .claude.json        <-- Claude Code's config (a single JSON file)
+  .claude/            <-- Claude Central directory (this wiki's subject)
+    machine-local/
+    plugins/
+    bin/
+```
+
+`CLAUDE_HOME` is a **`$HOME` substitute**, not a `.claude/` substitute. Setting `CLAUDE_HOME=/tmp/sandbox` redirects `.claude.json` to `/tmp/sandbox/.claude.json` and the entire `.claude/` install to `/tmp/sandbox/.claude/`. This matches `plugins/project-rag/scripts/_claude_config.py`'s long-standing semantics; the coordinator-side resolver was authored to be coherent with it.
+
+**Resolution order for the `$HOME` analog.** Any tool that reads or writes `~/.claude.json` or anything inside `~/.claude/` MUST resolve the base directory in this order, most-specific first:
+
+```
+1. CLAUDE_HOME   — $HOME substitute (test sandboxes, CI runners, alt installs)
+2. HOME          — POSIX-canonical (Linux/macOS/git-bash/MSYS/WSL)
+3. USERPROFILE   — Windows-canonical fallback (native cmd.exe / PowerShell without HOME)
+4. Path.home()   — language-stdlib last resort (Python `pathlib.Path.home()`, Node `os.homedir()`, etc.)
+5. exit 1        — refuse to guess; emit remediation pointing here
+```
+
+From the resolved `$HOME` analog, the four downstream paths derive trivially: `<home>/.claude.json`, `<home>/.claude/`, `<home>/.claude/machine-local/`, `<home>/.claude/plugins/`.
+
+**Why `CLAUDE_HOME` ranks above `HOME`.** Unlike `MACHINE_LOCAL_<KEY>` env vars (which rank *below* the registry because the registry is the deliberate audited source — §4), `CLAUDE_HOME` ranks *above* `HOME` because it answers a different question: not "what is this value" but "where does the entire Claude install live for this invocation". Test sandboxes, CI runners, scratch installs, and per-user-on-shared-machine setups all need to point the resolution at an alternate root without polluting the operator's real `$HOME`. There is no "registry of registries" to consult above it; `CLAUDE_HOME` *is* the deliberate audited override at this layer.
+
+**Canonical resolver — `bin/claude-home`.** Installed by `/coordinator:setup` Phase 3 Step 3 alongside `bin/machine-local`. Same shape: shell shim → Python module → Windows `.cmd`. Source-of-truth at `coordinator/lib/claude-home/` (load-bearing module: README + tests + artifacts co-located); install destination `~/.claude/bin/`. The `lib/<module>/` location is deliberate — it signals "cross-repo contract surface, do not customize" rather than "template scaffolding the operator may modify." Use from any coordinator-installed environment:
+
+```bash
+# Resolve the $HOME analog (CLAUDE_HOME if set, else $HOME)
+home=$(claude-home home)
+
+# Resolve the ~/.claude.json path
+config_path=$(claude-home path)
+
+# Resolve the ~/.claude directory itself
+claude_dir=$(claude-home dir)
+
+# Resolve sub-locations directly (avoids dirname/basename gymnastics)
+ml_dir=$(claude-home machine-local)
+plugins_dir=$(claude-home plugins)
+```
+
+Python callers can import the module instead of shelling out (it sits at `~/.claude/bin/_claude_home.py` after install):
+
+```python
+import os
+import sys
+from pathlib import Path
+
+# Resolve the bin/ location using the same precedence as the module itself.
+# CLAUDE_HOME wins over HOME; do NOT use Path.home() unconditionally because it
+# ignores CLAUDE_HOME and risks importing the wrong copy under test sandboxes.
+_base = Path(os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or Path.home())
+sys.path.insert(0, str(_base / ".claude" / "bin"))
+
+from _claude_home import (
+    claude_home_dir, claude_config_path, machine_local_dir,
+    read_config, write_config,
+)
+```
+
+The shell-out form is preferred for cross-language portability AND avoids the dual-identity hazard (§8(a)) — if anything else also imports `_claude_home` via a different `sys.path` insertion, two module copies live in `sys.modules` with separate state. The import form is fine for Python-only callers that want to avoid subprocess startup cost (~50ms cold-start on Windows) AND are confident they are the only importer in their process.
+
+**Generic JSON I/O surface.** `_claude_home.py` ships the two generic primitives any install script touching `~/.claude.json` needs: `read_config()` (BOM-tolerant, returns `{}` for absent files, enriches `JSONDecodeError` with the file path) and `write_config()` (atomic tempfile + `os.replace`, creates parent dir, cleans up tmp files on failure). Higher-level shape-specific helpers — e.g., "update a single `mcpServers` entry under global vs `projects.<root>.mcpServers`" — stay with their consumer; those carry policy decisions (key-collision rules, project-key normalization) that don't generalize.
+
+**Cross-repo alignment — coordinator is canonical.** `bin/claude-home` (path resolver) plus the JSON I/O primitives ship with `/coordinator:setup`. Peer repos that previously inlined a CLAUDE_HOME precedence chain (notably `plugins/project-rag/scripts/_claude_config.py`) should consume this surface and retire their local copies; the only thing that stays peer-side is the *shape-specific* layer (e.g., project-rag's `update_mcp_entry()`). Test coverage lives at `coordinator/tests/test_claude_home.py` (stdlib-only `unittest`, 16 tests, no pytest dep).
+
+**What this unblocks.** Peer plans previously deferred the CLAUDE_HOME pattern as "host-side only, not cross-repo doctrine" (e.g., holodeck's review of project-rag F11). With §4a formalized, `bin/claude-home` installed by coordinator setup, and the JSON I/O primitives shipped alongside, the pattern IS coordinator doctrine with a first-class resolver. Peer repos adopt by shelling out to `claude-home {home|path|dir|machine-local|plugins}` or importing the Python helpers — no precedence chain re-derivation, no duplicate test surface to maintain.
+
+**Out of scope.** `CLAUDE_HOME` resolves *where the directory lives*, not *what is inside it*. Values inside (sibling-repo roots, vendor SDK paths, etc.) continue to resolve through the machine-local registry chain (§4). The two chains are orthogonal and compose cleanly: `CLAUDE_HOME` selects which `~/.claude/machine-local/registry.toml` the reader opens; the reader's own precedence chain then resolves keys within it.
+
 ## 5. Relationship to `plugin-extraction-and-distribution.md` and `cross-repo-citation-conventions.md`
 
 These two wikis define the **port-time cleanup contract** for the coordinator install chain: when extracting a plugin or porting vendored code, sweep absolute paths and replace them with sibling-relative references (`../<sibling-repo>/<path>`). That contract is **unchanged by this wiki** — at port time, the consumer does not yet exist to be told about machine-local. Sibling-relative is the correct vocabulary for the extraction step.
@@ -101,6 +178,39 @@ The reader (`bin/machine-local`) returns string values. No nested types. No per-
 This is a deliberate choice: the substrate is a flat string-typed key/value store. If your consumer needs structured values (a list of targets, a typed enum), parse the string in your consumer. The reader stays small so every language and script environment can call it without ceremony.
 
 The reader is **read-only**. It never writes, never caches to disk, never mutates the registry. Write authority belongs to the operator, always.
+
+## Ergonomic helpers
+
+Two thin wrappers over `bin/machine-local` make the registry-correct shape shorter than the hardcoded literal. Both shell out to the reader CLI — they do NOT import `_machine_local.py` directly (per §8(a) and `docs/wiki/dual-identity-module-hazard.md`).
+
+**Python** — `~/.claude/bin/claude_machine_local.py`:
+
+```python
+from claude_machine_local import repos
+config_path = repos.project_rag / "subdir/file.toml"
+```
+
+Missing keys raise `AttributeError` with a remediation message. Process-local memoization amortizes the ~50ms shell-out cost.
+
+**Shell** — source once per session:
+
+```sh
+source ~/.claude/bin/claude-machine-local.sh
+echo "$REPO_PROJECT_RAG/subdir/file.py"
+```
+
+Exports `$REPO_<NAME>` for every declared `repos.*` key (note: prefix is singular `REPO_`, not `REPOS_`). Hyphens in keys are normalized to underscores; identifiers that fail POSIX validation are skipped with a stderr warning.
+
+**PowerShell** — dot-source:
+
+```powershell
+. ~/.claude/bin/claude-machine-local.ps1
+"$($env:REPO_PROJECT_RAG)/subdir/file.py"
+```
+
+Same contract; OS-detects between `machine-local.cmd` (Windows) and the bash wrapper elsewhere.
+
+Templates at `~/.claude/plugins/coordinator/templates/bin/` are byte-identical mirrors of these — they publish to consumer projects via `setup/publish.sh` alongside the reader.
 
 ## 8. Anti-patterns
 
