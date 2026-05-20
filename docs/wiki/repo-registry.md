@@ -141,6 +141,34 @@ This is a peer-repo *output* consumption, distinct from peer-repo *wiki* consump
 - **Reading peer wikis from a non-listed repo.** The registry is the contract; ad-hoc dispatches that name unlisted paths bypass the staleness check and the closed-enum discipline.
 - **Treating `last_verified` as freshness of content.** It tracks `path` resolution, not wiki freshness. Use peer wikis as recall hints, not authority.
 
+## Periodic cross-repo summaries
+
+At workday-start in any registered repo, the EM can enumerate sibling repos and query each for recent roadmap completions — producing a one-screen "what shipped in sibling repos this week" view.
+
+### Invocation pattern
+
+```bash
+for repo in $(awk '/<!-- BEGIN repo-registry -->/,/<!-- END repo-registry -->/' \
+    ~/.claude/tasks/repo-registry.md \
+    | grep -E '^\s*path:' | awk '{print $2}'); do
+  (cd "$repo" && query-completions --since "7d" --where "nature=roadmap" --format markdown-list)
+done
+```
+
+This yields a per-repo markdown list of roadmap-tagged completion records from the last 7 days. Adjust `--since` and `--where` to taste (e.g., `nature=shipped` for cross-repo release summaries).
+
+### Schema mismatch warning — do NOT use yq
+
+`tasks/repo-registry.md` is a **markdown file** with YAML-list blocks inside HTML comment sentinels (`<!-- BEGIN repo-registry -->` / `<!-- END repo-registry -->`). It is NOT a top-level YAML document. `yq '.repos[].path'` will silently return nothing or error — do not use it for registry parsing.
+
+The sentinel-bounded `awk` pattern above is the canonical extraction method. It respects the sentinel boundaries and is safe to run on any machine in the coreutils dependency surface (DR-016 — `yq` is explicitly excluded from the coreutils surface).
+
+### Invocation context
+
+- **When:** `/workday-start` if the EM wants cross-repo situational awareness before planning. Also useful before dispatching `prior-art-checker` — a recent sibling completion in the same domain may have established art the plan should reference.
+- **Scope:** runs only against `status: active` entries; `unreachable` paths will cause `cd` to fail — wrap in `if [ -d "$repo" ]` guard if the registry may contain unreachable entries.
+- **Cost:** one `query-completions` call per active repo. Cheap — `query-completions` reads `archive/completed/` frontmatter, no LLM calls. Skip if no completions log is present in a sibling (query will return empty; that's fine).
+
 ## Related
 
 - `~/.claude/tasks/repo-registry.md` — the registry file itself
