@@ -192,9 +192,9 @@ On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos
 > _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
->    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
->    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
->    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
+>    - `game-dev` — Game development (adds Sid reviewer, game-dev domain agents)
+>    - `web-dev` — Web frameworks (adds Palí for front-end review, Fru for UX)
+>    - `data-science` — Notebooks, pipelines (adds Camelia reviewer)
 >    - `general` — Standard conventions only
 >
 > **3. Initial workstreams** (1-3) — what are you working on? For each:
