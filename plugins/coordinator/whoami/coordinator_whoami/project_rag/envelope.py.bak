@@ -4,7 +4,7 @@ R2 (PM 2026-05-19): CLI emits envelope; persist() stores envelope under whoami_p
 R3 (PM 2026-05-19): addon contributions lift to first-class extras keys (extras.<ns>),
 NOT nested under extras.project_rag.addons.<ns>.
 
-Status field placeholder semantics (the Director of Engineering F-Minor 2 2026-05-19):
+Status field placeholder semantics (Zolí F-Minor 2 2026-05-19):
 status.state defaults to "healthy" and status.since defaults to None. Neither
 reflects a real liveness probe. A future plan adding a state-tracker may set
 both fields meaningfully; until then, status.since=None is the correct shape
@@ -60,7 +60,7 @@ def compose_envelope() -> dict[str, Any]:
         binding={"kind": binding_kind, "target": binding_target},
         status={
             "state": "healthy",  # placeholder — no liveness probe yet; see module docstring
-            "since": None,       # placeholder per the Director of Engineering F-Minor 2 — null is correct when no state-tracker
+            "since": None,       # placeholder per Zolí F-Minor 2 — null is correct when no state-tracker
             "reason": None,
         },
         plugin_extras=project_rag_extras,
