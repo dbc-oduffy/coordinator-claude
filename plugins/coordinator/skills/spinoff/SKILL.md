@@ -82,6 +82,14 @@ Body sections (adapted from the regular handoff template):
 - `## Anti-scope` — failure modes a context-less EM might hit. Negative scope.
 - (Optional) `## Out of scope` — adjacent work explicitly NOT included.
 
+**Related-chain discovery (optional, run while authoring the body).** Before writing `## Reference materials`, query for completion records in the same chain so the picking-up EM has concrete prior-work context:
+
+```bash
+bin/query-records --type completion --where "chain~<topic-slug>"
+```
+
+Replace `<topic-slug>` with the spinoff's `workstream` slug. If the query returns matches, surface the most relevant entries as a `### Prior completed work in this chain` subsection under `## Reference materials` — one line per entry with its date and summary. This is optional: if the query returns zero rows, omit the subsection (no zero-row rendering required here; the absence is informative). The `predecessor: none` frontmatter rule is unchanged — body-level citation of related chains is orientation aid only, not lineage.
+
 End the file with a single-line HTML comment marker for greppability:
 
 ```html

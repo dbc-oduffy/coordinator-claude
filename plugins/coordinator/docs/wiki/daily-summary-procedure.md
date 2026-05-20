@@ -19,10 +19,10 @@ Route to a reviewer based on the dominant domain of today's work:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
-| Data / ML / science | the Data Science Reviewer |
-| Mixed, backend, or architecture | the Staff Engineer |
+| Game dev / Unreal Engine | Sid |
+| Frontend / UI | Palí |
+| Data / ML / science | Camelia |
+| Mixed, backend, or architecture | Patrik |
 
 Dispatch the selected reviewer as a **Sonnet** agent. This is a strategic check, not a deep code
 review — Sonnet is sufficient and appropriate.

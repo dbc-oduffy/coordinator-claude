@@ -9,7 +9,7 @@
 #   main                            (read-only, PR-only)
 # Policy oracle is cs_is_allowed_branch in coordinator-daily-branch.sh.
 #
-# Commit-time branch enforcement (formerly Check 6, consolidated here by the Staff Engineer F11)
+# Commit-time branch enforcement (formerly Check 6, consolidated here by Patrik F11)
 # was REMOVED 2026-05-07 per PM call. See docs/wiki/daily-branch-discipline.md.
 # The orphan-branch-creation prevention (checkout -b, branch -m, stash branch,
 # worktree add, --orphan) remains unchanged.
@@ -130,7 +130,7 @@ if [[ -f "$LIB_PATH" ]]; then
 else
   # Fallback: inline the helpers if lib is missing (should not happen in normal install).
   # Mirrors coordinator-daily-branch.sh — keep in sync if lib changes.
-  # Drift-check (the Staff Engineer R-code follow-up): the inline copy below is a manual
+  # Drift-check (Patrik R-code follow-up): the inline copy below is a manual
   # mirror. Whenever cs_compute_machine / cs_parse_branch_span / cs_is_allowed_branch /
   # cs_is_canonical_branch change in the lib, update the fallback below in the
   # same commit. Verification: diff the lib body against the function bodies

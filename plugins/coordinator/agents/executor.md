@@ -236,12 +236,22 @@ Lines without a status marker stay untouched. The grep is best-effort; the dispa
 
 If no tracker path was provided in your dispatch prompt, **log to the completion archive instead.** All completed work must be recorded somewhere — tracker for spec'd work, archive for everything else.
 
-- On completion, append to `archive/completed/YYYY-MM.md` (relative to project root, create if needed)
-- Use this format under today's date heading:
+- On completion, write a per-entry file at `archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md` (relative to project root). If the `YYYY-MM/` subdirectory does not exist, create it — do NOT fall back to a flat monolith append.
+- Use this minimal frontmatter:
+  ```markdown
+  ---
+  title: "<Concise past-tense description>"
+  created: YYYY-MM-DD
+  nature: ad-hoc-bug-fix | ad-hoc-task | ad-hoc-refactor
+  nature_inferred: true
+  chain: <chain-slug or "none">
+  commits: [<hash>]
+  status: pending-release
+  chain_terminal: true
+  authored_by: executor
+  ---
   ```
-  - **[Concise past-tense description]** — ad-hoc [bug fix|task|refactor] | commit: [hash]
-  ```
-- If today's date heading already exists, append under it
+- **Do NOT append to a flat monthly monolith under any circumstances.** The per-entry file at `archive/completed/YYYY-MM/<filename>.md` is the canonical path. Writing a single shared `YYYY-MM.md` file at the `archive/completed/` root is a removed pattern — the tripwire `bin/check-no-monolith-completion-append.sh` will fire on it.
 
 ### Hard Exit Criterion
 

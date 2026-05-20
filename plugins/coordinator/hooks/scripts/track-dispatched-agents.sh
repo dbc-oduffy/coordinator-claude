@@ -3,20 +3,36 @@
 # enabling later coordinator-safe-commit invocations to union the executors'
 # touched-file lists into scope.
 #
-# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, the Staff Engineer
+# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, Patrik
 # APPROVED_WITH_NOTES v3 2026-05-06).
+#
+# Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
+# § Chunk 1 — extends record shape with model and subagent_type columns.
 #
 # Mechanism:
 #   - Anchor extraction inside tool_response (Probe 0.3 confirmed EM-side
 #     payload uses `tool_response.agentId` — camelCase — NOT top-level
 #     `agent_id` (which is the subagent-side field per Probe 0.1).
+#   - model and subagent_type extracted from tool_input (confirmed: agent-
+#     completion-log.sh reads tool_input.subagent_type; model lives at the
+#     same level per Phase 2 Chunk 1 probe). Graceful-degrade to "unknown"
+#     if either field absent (legacy/future payloads, conservative default).
 #   - Write two files:
 #       <git_root>/.git/coordinator-sessions/<em_sid>/dispatched-agents.txt
 #       <git_root>/.git/coordinator-sessions/.agents/<agentId>/em-session-id.txt
 #     The em-session-id.txt back-pointer is the durable linkage that makes
 #     the read path sentinel-independent (helper enumerates .agents/* and
 #     matches against the candidate em-sid set built from cs_live_session_ids).
-#   - Atomic temp+rename for the back-pointer (the Staff Engineer v2 finding 3).
+#   - Record shape (tab-delimited, newline-terminated):
+#       <agentId>\t<model>\t<subagent_type>
+#     Legacy 1-column records (bare agentId, no tabs) still parse: Chunk 2's
+#     read helper treats missing model column as "unknown" (Sonnet for LoE
+#     purposes — conservative default per plan line 79).
+#   - Dedup guard compares column 1 only (cut -f1 | grep -qxF) so both legacy
+#     bare-agentId lines AND new tab-delimited lines are deduped uniformly.
+#     (Patrik F1/F11: old grep -qxF on full line always mismatched tab-
+#     delimited records, causing unbounded re-append.)
+#   - Atomic temp+rename for the back-pointer (Patrik v2 finding 3).
 #   - Always exits 0 — advisory bookkeeping, never blocks tool calls.
 
 if command -v timeout &>/dev/null; then
@@ -55,6 +71,27 @@ if [[ ! "$AGENT_ID" =~ ^[a-f0-9]{12,}$ ]]; then
   exit 0
 fi
 
+# Extract model and subagent_type from tool_input. Both live in tool_input
+# (confirmed: agent-completion-log.sh reads tool_input.subagent_type at the
+# same level). Degrade to "unknown" gracefully if field absent.
+MODEL="unknown"
+SUBAGENT_TYPE="unknown"
+if [[ "$INPUT" == *'"tool_input"'* ]]; then
+  _ti="${INPUT#*\"tool_input\":}"
+  # Extract model field
+  if [[ "$_ti" == *'"model"'* ]]; then
+    _tmp="${_ti#*\"model\":\"}"
+    MODEL="${_tmp%%\"*}"
+    [[ -z "$MODEL" ]] && MODEL="unknown"
+  fi
+  # Extract subagent_type field
+  if [[ "$_ti" == *'"subagent_type"'* ]]; then
+    _tmp="${_ti#*\"subagent_type\":\"}"
+    SUBAGENT_TYPE="${_tmp%%\"*}"
+    [[ -z "$SUBAGENT_TYPE" ]] && SUBAGENT_TYPE="unknown"
+  fi
+fi
+
 GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 [[ -z "$GIT_ROOT" ]] && exit 0
 
@@ -77,7 +114,7 @@ if [[ ! -d "$SESSION_DIR" ]]; then
   fi
 fi
 
-# Init agent-dir + write back-pointer atomically (the Staff Engineer v2 finding 3).
+# Init agent-dir + write back-pointer atomically (Patrik v2 finding 3).
 # `-s` test: file exists AND is non-empty. Empty back-pointers (partial-write
 # survivors) trigger re-write. The temp+rename pattern means a concurrent
 # fire either succeeds-second-or-cleans-up — no orphan temp files.
@@ -92,9 +129,12 @@ if [[ ! -s "$EM_BACKPOINTER" ]]; then
 fi
 
 # Dedup append to dispatched-agents.txt.
+# Column-1 comparison handles both legacy bare-agentId lines AND new
+# tab-delimited records uniformly. (Patrik F1/F11: grep -qxF on the full
+# line always mismatched tab-delimited records, causing unbounded re-append.)
 [[ -f "$DISPATCHED" ]] || touch "$DISPATCHED" 2>/dev/null
-if grep -qxF "$AGENT_ID" "$DISPATCHED" 2>/dev/null; then
+if cut -f1 "$DISPATCHED" 2>/dev/null | grep -qxF "$AGENT_ID"; then
   exit 0
 fi
-echo "$AGENT_ID" >> "$DISPATCHED"
+printf '%s\t%s\t%s\n' "$AGENT_ID" "$MODEL" "$SUBAGENT_TYPE" >> "$DISPATCHED"
 exit 0

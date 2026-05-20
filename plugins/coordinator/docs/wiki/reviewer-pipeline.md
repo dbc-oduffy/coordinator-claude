@@ -20,7 +20,7 @@ This wiki is the single authoritative source for the phases that run identically
 
 > **Status: DRAFT.** PM has approved the concept; the implementation has not landed yet. The design below is the spec for a follow-up session to pick up and wire — standard `/plan` + reviewer chain applies. Not staff-session-gated; this is a normal new-skill scaffold, not an architectural decision.
 
-**Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. The Staff Engineer reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + the Staff Engineer review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
+**Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. Patrik reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + Patrik review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
 
 **Why a Sonnet mechanical auditor, not an Opus reviewer:** The work is enumerative — walk a checklist of canonical coverage areas (rollback, migration, observability, security boundary, error paths, test surface, concurrency, performance, accessibility, docs/changelog impact), grep the plan body for evidence of each area being addressed, emit a sidecar listing which areas are silent. This is mechanical pattern-matching, not architectural judgment; Sonnet at low temperature is the right altitude. Opus reviewers can then use the gap-list as input rather than re-deriving it.
 
@@ -51,7 +51,7 @@ The auditor runs BEFORE docs-checker and prior-art-checker because gap findings 
 
 1. **False-positive Silent on N/A areas.** A trivial single-file fix doesn't need a Rollback section. The auditor must NOT block trivial work; tune the area-trigger column to fire only when the plan's scope mode (prototype / production-patch / feature / architecture / spike — see writing-plans.md) justifies the check.
 2. **Coverage checklist becomes ceremony.** If every plan ships with an empty Observability section just to clear the gate, the section is decorative. Calibrate the trigger so the area only surfaces on genuine scope; null-result audit at 4-week cadence to retire areas that never fire on real plans.
-3. **Auditor competes with the Staff Engineer.** If the auditor surfaces gaps that the Staff Engineer would have surfaced anyway, it's pure overhead. Calibrate by tracking which gaps the Staff Engineer flags that the auditor DIDN'T pre-surface — those are the ones the auditor needs to learn; ones the Staff Engineer never flags are the ones the auditor over-surfaces.
+3. **Auditor competes with Patrik.** If the auditor surfaces gaps that Patrik would have surfaced anyway, it's pure overhead. Calibrate by tracking which gaps Patrik flags that the auditor DIDN'T pre-surface — those are the ones the auditor needs to learn; ones Patrik never flags are the ones the auditor over-surfaces.
 
 **Open design questions (PM input pending):**
 
@@ -316,10 +316,10 @@ After each reviewer completes (and Phase 3.5 runs):
 
 ## Phase 4: Backstop Handling
 
-This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, his findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
+This phase applies when the primary reviewer (Patrik or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when Zolí was the standalone primary reviewer — in that case, his findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
 
-When effort level is High AND a primary reviewer (not standalone the Director of Engineering) ran:
-1. Verify that the reviewer invoked their backstop partner (the Director of Engineering for the Staff Engineer; the Staff Engineer for domain reviewers; the UX Reviewer for the Front-End Reviewer; the Staff Engineer for the UX Reviewer)
+When effort level is High AND a primary reviewer (not standalone Zolí) ran:
+1. Verify that the reviewer invoked their backstop partner (Zolí for Patrik; Patrik for domain reviewers; Fru for Palí; Patrik for Fru)
 2. If the backstop was not invoked, prompt the reviewer to do so OR dispatch the backstop directly with `mode: "backstop"`
 3. If the backstop disagreed: both perspectives are surfaced to Coordinator/PM per the routing.md reconciliation protocol
 
@@ -327,7 +327,7 @@ When effort level is Medium:
 - Backstop invocation is at the reviewer's (or EM's) discretion
 - No verification needed
 
-**When the Director of Engineering ran as standalone primary, skip Phase 4 entirely.** the Director of Engineering standalone is a peer-to-the Staff Engineer review with cross-team authority — there is no further backstop above the DoE chair. The terminal backstop in the system is the Director of Engineering himself; nothing wraps him.
+**When Zolí ran as standalone primary, skip Phase 4 entirely.** Zolí standalone is a peer-to-Patrik review with cross-team authority — there is no further backstop above the DoE chair. The terminal backstop in the system is Zolí himself; nothing wraps him.
 
 ---
 
@@ -364,32 +364,32 @@ For major surface additions where the spec author was substrate-blind (no on-dis
 2. **docs-checker pre-flight** (Phase 2.7). External-API claim verification, AUTO-FIX inline.
 3a. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
 3b. **plan-coverage-checker pre-flight** (Phase 2.7d). Oracle-vs-slate completeness, hedge detection, in-repo substrate drift. Skill-internal trigger — runs unconditionally on plans with oracle tables. Runs in parallel with layer 3a (prior-art-checker).
-4. **the Staff Engineer Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
-5. **Domain reviewer (the Game Dev Reviewer for game-dev / the Data Science Reviewer for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
+4. **Patrik Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
+5. **Domain reviewer (Sid for game-dev / Camelia for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
 
 <!-- Review: code-reviewer — plan-coverage-checker (Phase 2.7d) was absent from the five-layer topology list; added as 3b parallel to prior-art-checker, matching the (2.7b ∥ 2.7d) runtime shape documented in Phase 2.7d. -->
 
 Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (test-evidence-parser, security-audit-worker, dep-cve-auditor, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
 
-### Architectural review chain — the Staff Engineer, the Game Dev Reviewer, enricher catch different bugs
+### Architectural review chain — Patrik, Sid, enricher catch different bugs
 
 Within the layer-5 envelope, the three roles divide the work:
 
-- **the Staff Engineer catches structural problems.** Plan coherence, missing seams, architectural inversions, premise refutation.
-- **the Game Dev Reviewer (or domain-equivalent) catches existing-codebase-pattern violations.** "We don't do it that way here" — patterns the plan invented when the codebase already had a convention.
+- **Patrik catches structural problems.** Plan coherence, missing seams, architectural inversions, premise refutation.
+- **Sid (or domain-equivalent) catches existing-codebase-pattern violations.** "We don't do it that way here" — patterns the plan invented when the codebase already had a convention.
 - **The enricher catches callsite reality.** What the code actually does at the consumer end — function envelopes, reachability, guard conditions the plan paraphrased.
 
 All three are needed on architecturally-loaded stubs. Dropping any one of them produces a known failure class.
 
 ### Sequential two-reviewer on architecturally-loaded stubs
 
-For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist the Staff Engineer + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
+For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist Patrik + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
 
 ### Two-pipeline review on shared artifacts: per-stub + per-cohort + docs-check
 
 When a cohort of stubs is enriched in parallel from a shared spec, **two pipelines on the same artifacts** beats picking one lens:
 
-- **Per-stub depth:** the Staff Engineer (or domain reviewer) on each stub independently. Catches local correctness, premise validity, structural soundness.
+- **Per-stub depth:** Patrik (or domain reviewer) on each stub independently. Catches local correctness, premise validity, structural soundness.
 - **Per-cohort coherence:** one reviewer across the whole cohort. Catches contradictions between stubs, shared-API gaps, sibling-surface drift, cross-stub seam violations.
 - **docs-check pre-flight:** every external-API claim verified across the cohort, once.
 
@@ -407,7 +407,7 @@ The integrator does not auto-apply import-fallback findings — they always land
 
 ## Reviewer Elevation Past Charter
 
-*2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking the Staff Engineer with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
+*2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking Zolí not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking Patrik with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
 
 **Required form:**
 
@@ -415,7 +415,7 @@ The integrator does not auto-apply import-fallback findings — they always land
 
 Without the verbatim elevation, the reviewer falls back to default charter — even if the dispatching EM verbally framed the dispatch as elevated. The brief is the contract; chat context is not.
 
-**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier the Director of Engineering, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
+**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier Zolí, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
 
 **Companion:** `prior-art-checker.md § Prior-art mutability` — for one specific elevated authority (DoE-override of prior-art-checker findings).
 

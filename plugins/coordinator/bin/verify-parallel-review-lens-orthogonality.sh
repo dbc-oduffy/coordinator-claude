@@ -80,7 +80,7 @@ while IFS='|' read -r _ reviewer lens_domain _ rest; do
   REVIEWER_COUNT=$(( REVIEWER_COUNT + 1 ))
 
   # Extract the bare agent filename from the reviewer cell.
-  # Cells look like: "the Staff Engineer (`agents/staff-eng.md`)"
+  # Cells look like: "Patrik (`agents/staff-eng.md`)"
   # or:              "security-audit-worker (`agents/security-audit-worker.md`)"
   agent_path=""
   if [[ "${reviewer}" =~ \`agents/([^\`]+)\` ]]; then

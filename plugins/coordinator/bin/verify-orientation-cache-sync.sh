@@ -99,6 +99,9 @@ done < <(grep -E '^## ' "$CACHE_FILE" || true)
 COUNTER_LINES=$(awk '/^## Counters$/{in_s=1; next} /^## /{in_s=0} in_s && /^- /{print}' "$CACHE_FILE")
 if [[ -n "$COUNTER_LINES" ]]; then
     while IFS= read -r line; do
+        # Review: code-reviewer — counter labels are restricted to [A-Za-z0-9 /-] by verifier
+        # convention. Any label using characters outside this set is a deliberate schema extension
+        # that requires updating this verifier, the routine, AND the schema table together.
         if ! [[ "$line" =~ ^-\ \*\*[A-Za-z][A-Za-z0-9\ /\-]*:\*\*\ [0-9]+(\.|$) ]]; then
             VIOLATIONS+=("counter line fails integer-terminated regex: '$line'")
         fi
@@ -150,6 +153,8 @@ fi
 UPROJECT_PATH=""
 if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     UPROJECT_PATH="$(git -C "$REPO_ROOT" ls-files '*.uproject' 2>/dev/null | head -1)"
+    # Review: code-reviewer — exclusions must match the producer's find exactly to avoid false
+    # verifier failures when a *.uproject sits inside node_modules/ or .git/.
     [[ -z "$UPROJECT_PATH" ]] && UPROJECT_PATH="$(find "$REPO_ROOT" -maxdepth 6 -name '*.uproject' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -1)"
 else
     UPROJECT_PATH="$(find "$REPO_ROOT" -maxdepth 6 -name '*.uproject' 2>/dev/null | head -1)"

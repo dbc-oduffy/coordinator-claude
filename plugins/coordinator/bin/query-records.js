@@ -4,9 +4,10 @@
  * query-records.js — Frontmatter-indexed query CLI for coordinator tracked records.
  *
  * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W2 (Query Tool)
+ * Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md §Chunk6
  *
  * Usage:
- *   query-records --type <handoff|handoff-archived|decision|plan|review|lesson>
+ *   query-records --type <handoff|handoff-archived|decision|plan|review|lesson|handoff-ledger>
  *                 [--where "<expr>"]
  *                 [--sort "<field>|-<field>"]
  *                 [--limit N]
@@ -35,6 +36,14 @@
  * `deployment_state: shipped` (with `consumed_at` / `shipped_in` derived from
  * the marker). Existing terminal frontmatter values (`superseded`, `abandoned`)
  * are preserved.
+ *
+ * handoff-ledger synthetic type: parses `## Session Ledger` markdown table blocks
+ * from handoff bodies (both tasks/handoffs/*.md and tasks/handoffs/archive/**) and
+ * returns one synthetic record per block. A handoff with N Session Ledger blocks
+ * yields N records, disambiguated by path fragment (#ledger-0, #ledger-1, ...).
+ * All standard query expressions (--where, --since, --sort) apply to synthetic
+ * record fields (agent_dispatches, opus_dispatches, em_tokens, tshirt, commits,
+ * session_id, created).
  */
 
 const fs = require('fs');
@@ -51,12 +60,17 @@ const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./
 // Schema-to-glob mapping (must match schema applies_to)
 // ---------------------------------------------------------------------------
 const TYPE_TO_GLOB = {
-  handoff:           'tasks/handoffs/*.md',
-  'handoff-archived':'archive/handoffs/*.md',  // post-/pickup home; used by /distill enumeration
-  decision:          'docs/decisions/*.md',
-  plan:              'docs/plans/*.md',
-  review:            'tasks/reviews/*.md',
-  lesson:            'tasks/lessons.md', // special
+  handoff:            'tasks/handoffs/*.md',
+  'handoff-archived': 'archive/handoffs/*.md',  // post-/pickup home; used by /distill enumeration
+  decision:           'docs/decisions/*.md',
+  plan:               'docs/plans/*.md',
+  review:             'tasks/reviews/*.md',
+  lesson:             'tasks/lessons.md', // special
+  completion:         'archive/completed/*/*.md', // per-entry completion log (Phase 1)
+  // handoff-ledger: synthetic type — parses ## Session Ledger table blocks from handoff bodies.
+  // Globs BOTH live and archived handoff directories; parser runs instead of standard frontmatter path.
+  // Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md §Chunk6
+  'handoff-ledger':   'tasks/handoffs/*.md', // primary glob; archive glob added in queryRecords()
 };
 
 // Markdown-list format columns per type (field name → label)
@@ -67,6 +81,8 @@ const TYPE_DISPLAY = {
   plan:              (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'}`,
   review:            (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — reviewer: ${fm.reviewer || '?'}, findings: ${fm.findings_count ?? '?'}`,
   lesson:            (p, fm) => `- **${fm.title || p}** [${fm.tier || 'untagged'}]`,
+  completion:        (p, fm) => `- **${fm.title}** [${fm.nature}] (chain: ${fm.chain || 'none'}) — ${fm.commits?.join(', ') || 'no-commit'}`,
+  'handoff-ledger':  (p, fm) => `- [${p}] tshirt=${fm.tshirt || '?'} agents=${fm.agent_dispatches ?? '?'} opus=${fm.opus_dispatches ?? '?'} session=${fm.session_id || '?'} created=${fm.created || '?'}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -247,27 +263,88 @@ function matchesWhere(fm, clauses) {
 // ---------------------------------------------------------------------------
 // Glob file walker (no external deps)
 // ---------------------------------------------------------------------------
+/**
+ * Expand a glob pattern against the filesystem rooted at `root`.
+ * Handles wildcards in both directory and filename segments (e.g. archive/completed/*-/*.md).
+ * Each segment is matched independently; only `*` and `?` wildcards are recognised.
+ */
 function walkGlob(root, globPattern) {
-  // Convert glob to a simple two-part: prefix dir + filename pattern
-  // Our globs are always "some/path/*.md" — handle that form.
   const normalised = globPattern.replace(/\\/g, '/');
+
+  // Latent-bug fix (2026-05-19): original implementation treated the glob as a
+  // literal dir prefix + filename wildcard, failing silently when any intermediate
+  // directory segment contained a `*` (e.g. archive/completed/*/*.md). Replaced
+  // with a recursive segment-walker that handles wildcards at any path depth.
+  // Fix scope: this function only; no new abstractions. Spec: Chunk 2 notes.
   const parts = normalised.split('/');
-  const filePattern = parts[parts.length - 1];
-  const dirParts = parts.slice(0, -1);
+  return walkSegments(root, parts);
+}
 
-  const dir = path.join(root, ...dirParts);
-  if (!fs.existsSync(dir)) return [];
+/**
+ * Recursively expand glob segments against the filesystem.
+ * Supports `*`, `?`, and `**` (globstar — matches zero or more path segments).
+ * @param {string} base  Absolute directory to search within.
+ * @param {string[]} segments  Remaining glob path segments (may contain `*`/`?`/`**`).
+ * @returns {string[]} Absolute paths of matching files.
+ */
+function walkSegments(base, segments) {
+  if (segments.length === 0) return [];
+  if (!fs.existsSync(base)) return [];
 
-  const stat = fs.statSync(dir);
-  if (!stat.isDirectory()) {
-    // It's a file path directly (e.g., tasks/lessons.md)
-    return fs.existsSync(path.join(root, normalised)) ? [path.join(root, normalised)] : [];
+  const [head, ...tail] = segments;
+  const isLast = tail.length === 0;
+
+  // Globstar `**` — matches zero or more directory levels.
+  // Expands to: try zero-levels (skip `**` and continue with tail at same base),
+  // then enumerate entries and recurse with `**` still in front for deeper descent.
+  if (head === '**') {
+    const results = [];
+    // Zero-level match: skip `**` and continue matching tail at current base
+    if (tail.length > 0) {
+      results.push(...walkSegments(base, tail));
+    }
+    // One-or-more-levels: descend into each subdirectory with `**` still leading
+    let entries;
+    try { entries = fs.readdirSync(base); } catch { return results; }
+    for (const entry of entries) {
+      const next = path.join(base, entry);
+      try {
+        if (fs.statSync(next).isDirectory()) {
+          results.push(...walkSegments(next, segments)); // keep `**` to recurse deeper
+        }
+      } catch { /* skip */ }
+    }
+    return results;
   }
 
-  const fileRe = filePatternToRegex(filePattern);
-  return fs.readdirSync(dir)
-    .filter(f => fileRe.test(f))
-    .map(f => path.join(dir, f));
+  // Literal segment — fast path (guard statSync with existsSync to avoid ENOENT throw)
+  if (!head.includes('*') && !head.includes('?')) {
+    const next = path.join(base, head);
+    if (!fs.existsSync(next)) return [];
+    if (isLast) {
+      try { return !fs.statSync(next).isDirectory() ? [next] : []; } catch { return []; }
+    }
+    try { return fs.statSync(next).isDirectory() ? walkSegments(next, tail) : []; } catch { return []; }
+  }
+
+  // Wildcard segment — enumerate directory entries that match
+  const headRe = filePatternToRegex(head);
+  let entries;
+  try { entries = fs.readdirSync(base); } catch { return []; }
+
+  const results = [];
+  for (const entry of entries) {
+    if (!headRe.test(entry)) continue;
+    const next = path.join(base, entry);
+    if (isLast) {
+      // Last segment — must be a file
+      try { if (!fs.statSync(next).isDirectory()) results.push(next); } catch { /* skip */ }
+    } else {
+      // Intermediate segment — must be a directory
+      try { if (fs.statSync(next).isDirectory()) results.push(...walkSegments(next, tail)); } catch { /* skip */ }
+    }
+  }
+  return results;
 }
 
 function filePatternToRegex(pattern) {
@@ -358,6 +435,114 @@ function parseLessonsFile(filePath) {
 }
 
 // ---------------------------------------------------------------------------
+// Handoff-ledger parser
+// ---------------------------------------------------------------------------
+/**
+ * Parse all `## Session Ledger` table blocks from a handoff body.
+ * Returns one synthetic record per block, with path fragment #ledger-N to
+ * disambiguate multiple blocks in one file (Patrik F5 multi-ledger requirement).
+ *
+ * Session Ledger table shape (from skills/handoff/SKILL.md §Session Ledger):
+ *   | Field            | Value      |
+ *   |------------------|------------|
+ *   | agent_dispatches | 26         |
+ *   | opus_dispatches  | 4          |
+ *   | em_tokens        | 482,000    |
+ *   | tshirt           | L          |
+ *   | commits          | abc1, def2 |
+ *   | session_id       | <em_sid>   |
+ *   | created          | 2026-05-19 |
+ *
+ * @param {string} filePath  Absolute path to the handoff file.
+ * @param {string} relPath   Repo-relative path (for record path field).
+ * @param {string} content   Full file content.
+ * @returns {{ path: string, frontmatter: object }[]}
+ */
+function parseHandoffLedger(filePath, relPath, content) {
+  const records = [];
+  const lines = content.split('\n');
+
+  // State machine: scan for "## Session Ledger" headings, then parse the
+  // table rows that follow until a blank line or next heading.
+  let blockIdx = -1;
+  let inTable = false;
+  let currentFields = null;
+
+  const flushBlock = () => {
+    if (currentFields && Object.keys(currentFields).length > 0) {
+      blockIdx++;
+      // Normalise numeric string fields to their raw string value (matchesClause
+      // uses compareValues which handles numeric coercion at comparison time).
+      // Normalise comma-separated em_tokens: strip commas so numeric comparison works.
+      if (typeof currentFields.em_tokens === 'string') {
+        currentFields.em_tokens = currentFields.em_tokens.replace(/,/g, '');
+      }
+      records.push({
+        path: `${relPath}#ledger-${blockIdx}`,
+        frontmatter: currentFields,
+      });
+    }
+    currentFields = null;
+    inTable = false;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Detect "## Session Ledger" heading (exact or with trailing whitespace/punctuation)
+    if (/^##\s+Session Ledger\s*$/.test(trimmed)) {
+      // Flush any previous block before starting a new one
+      flushBlock();
+      currentFields = {};
+      inTable = false;
+      continue;
+    }
+
+    if (currentFields === null) continue; // not inside a ledger block yet
+
+    // Blank line ends the table only AFTER we have started seeing table rows.
+    // The blank line between the heading and the table header is part of markdown
+    // formatting and must not terminate the block prematurely.
+    // A next heading always ends the block regardless.
+    if (/^#+\s/.test(trimmed)) {
+      flushBlock();
+      continue;
+    }
+    if (trimmed === '' && inTable) {
+      flushBlock();
+      continue;
+    }
+    if (trimmed === '' && !inTable) {
+      // blank line before table rows — skip, stay in block
+      continue;
+    }
+
+    // Skip the separator row (|---|---|)
+    if (/^\|[-\s|]+\|$/.test(trimmed)) continue;
+
+    // Parse a table row: | Field | Value |
+    const rowMatch = trimmed.match(/^\|([^|]+)\|([^|]+)\|/);
+    if (rowMatch) {
+      inTable = true;
+      const field = rowMatch[1].trim().toLowerCase().replace(/[\s-]+/g, '_');
+      const value = rowMatch[2].trim();
+      // Skip the header row (Field | Value)
+      if (field === 'field' && value.toLowerCase() === 'value') continue;
+      currentFields[field] = value;
+    } else if (inTable) {
+      // Non-table content after table rows started — end of block
+      flushBlock();
+    }
+  }
+
+  // Flush final block if file ends while inside a ledger
+  flushBlock();
+
+  return records;
+}
+
+// ---------------------------------------------------------------------------
 // Main query function (exported for use by refresh-queries)
 // ---------------------------------------------------------------------------
 function queryRecords(opts, root) {
@@ -369,8 +554,31 @@ function queryRecords(opts, root) {
     const lessonsPath = path.join(root, 'tasks', 'lessons.md');
     const parsed = parseLessonsFile(lessonsPath);
     records = parsed.map(r => ({ path: r.path, frontmatter: r.frontmatter }));
+  } else if (opts.type === 'handoff-ledger') {
+    // Synthetic type: parse ## Session Ledger blocks from handoff bodies.
+    // Crawl BOTH live handoffs (tasks/handoffs/*.md) and archived handoffs
+    // (tasks/handoffs/archive/**/*.md) since the query surface spans the full chain.
+    const liveFiles = walkGlob(root, 'tasks/handoffs/*.md');
+    const archiveFiles = walkGlob(root, 'tasks/handoffs/archive/**/*.md');
+    const allFiles = [...liveFiles, ...archiveFiles];
+    records = [];
+    for (const file of allFiles) {
+      let content;
+      try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
+      const relPath = path.relative(root, file).replace(/\\/g, '/');
+      const ledgerRecords = parseHandoffLedger(file, relPath, content);
+      records.push(...ledgerRecords);
+    }
   } else {
-    const files = walkGlob(root, glob);
+    let files = walkGlob(root, glob);
+    // Absence-as-signal: completion queries skip the legacy/ monolith bucket.
+    // Glob `archive/completed/*/*.md` matches `archive/completed/legacy/<month>.md`
+    // because legacy is a valid `*` segment; the migration helper preserves these
+    // pre-Phase-1 monoliths but they are not per-entry records and must not pollute
+    // results.
+    if (opts.type === 'completion') {
+      files = files.filter(f => !f.replace(/\\/g, '/').includes('/archive/completed/legacy/'));
+    }
     records = [];
     for (const file of files) {
       let content;
