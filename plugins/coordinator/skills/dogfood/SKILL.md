@@ -1,6 +1,6 @@
 ---
 name: dogfood
-description: Smoke-driven fix-through loop — invoke a newly-built thing (skill, script, pipeline, install process) and fix bugs until it works or gets replanned. Binary outcome only: converge or switch gears.
+description: "Smoke-driven fix-through loop — invoke a newly-built thing (skill, script, pipeline, install process) and fix bugs until it works or gets replanned. Binary outcome only: converge or switch gears."
 description-budget: 250
 triggers:
   - /dogfood
@@ -168,7 +168,7 @@ Each iteration also appends a tee'd log to `tasks/dogfood-<target>-<date>/pass-<
 
 **Non-negotiable; learned from `/bug-blitz` Phase 3 remediation.** Parallel executors that each call `coordinator-safe-commit` produce concurrent-commit absorption and scope sweep.
 
-**`--narrow` (no fanout, single-committer):** EM commits each fix directly via `coordinator-safe-commit "<subject>"` on the daily branch. Each commit carries empirical smoke evidence in the message body — the iteration's stdout/exit/probe transition that proves the fix landed. Smoke-evidence-in-commit is not optional.
+**`--narrow` (no fanout, single-committer):** EM commits each fix directly via plain git on the daily branch (SC-DR-008, lessons.md:207) — `git add -- <explicit paths> && git commit -m "<subject>" -- <explicit paths>`. Each commit carries empirical smoke evidence in the message body — the iteration's stdout/exit/probe transition that proves the fix landed. Smoke-evidence-in-commit is not optional.
 
 **`--broad` and `--shakedown` (fanout-capable, autonomous):** Executors and fix agents are **edit-and-report only — no commit, no `coordinator-safe-commit` invocation**. The EM serializes commits at wave gates using a single fused Bash call:
 ```bash

@@ -77,9 +77,9 @@ Fill ALL `[BRACKETED_FIELD]` placeholders before spawning.
 | Failure | Action |
 |---------|--------|
 | Single debater crashes (no position written) | Synthesizer works with remaining positions. Note the gap: "Missing perspective: {persona}." EM can supplement manually. |
-| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). `TeamDelete`, fall back to `/review-dispatch`. |
+| Majority debater failure (>50% crash) | EM is notified (only 1 or fewer debater tasks completed). `TeamDelete`, fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code). |
 | Synthesizer fails | EM reads raw debater positions from scratch dir. Manual synthesis is feasible — positions are structured. |
-| Team creation fails | Report to PM. Fall back to `/review-dispatch` or EM-authored plan. |
+| Team creation fails | Report to PM. Fall back to single-reviewer dispatch via `/review` (plan) or `/review-code` (code), or EM-authored plan. |
 | DONE not received (debater complete but synthesizer not woken) | Synthesizer polls `TaskList`; if all debaters `completed` but no DONE after 2 min, proceeds anyway. EM may `SendMessage` nudge if synthesizer appears stalled. |
 | Debate loops without converging | Ceiling time is hard cutoff; diminishing-returns detection also triggers convergence after 2 no-change exchanges. Position docs capture the disagreement; synthesizer resolves or presents as dissent. |
 | Unknown persona slug in `--members` | Halt before team creation. Report unknown slug, list valid slugs. Do not create a partial team. |

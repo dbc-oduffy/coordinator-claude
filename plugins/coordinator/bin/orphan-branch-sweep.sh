@@ -140,7 +140,14 @@ emit_result() {
     fi
   else
     # JSON line
-    echo "{\"branch\":\"${branch}\",\"ahead\":${ahead},\"age_h\":${age_h},\"pr\":${pr_json},\"orphan_after_merge\":${orphan_after_merge},\"severity\":\"${severity}\"}"
+    jq -cn \
+      --arg branch "$branch" \
+      --argjson ahead "$ahead" \
+      --argjson age_h "$age_h" \
+      --argjson pr "$pr_json" \
+      --argjson orphan_after_merge "$orphan_after_merge" \
+      --arg severity "$severity" \
+      '{branch: $branch, ahead: $ahead, age_h: $age_h, pr: $pr, orphan_after_merge: $orphan_after_merge, severity: $severity}'
   fi
 }
 
@@ -298,7 +305,7 @@ if prs:
     # parsing the branch-name start-date. This prevents false-positive WARNING
     # noise on legitimate active span branches like work/striker/2026-05-01to07
     # where the start-date is days old but the branch is still actively committed.
-    # (Staff Engineer R1 F6 — promoted from anti-scope "verify only" to explicit fix.)
+    # (Patrik R1 F6 — promoted from anti-scope "verify only" to explicit fix.)
     branch_age_days=$(( age_secs / 86400 ))
 
     if [[ $branch_age_days -ge 2 || $age_h -gt 36 ]]; then

@@ -63,6 +63,113 @@ Why bad: "This module handles enrichment" is a what-comment at module scope. "Ad
 of the coordinator refactor" is task context that belongs in the PR description and will
 mislead future readers.
 
+#### 1a. Owner-File Invariant Paragraph (for files that own system properties)
+
+**Where:** Top of every module file whose code OWNS a system-level invariant — a guarantee
+the system makes that a user might ask about without knowing where to look. Examples:
+"the host loads at most one resident neural-network model into VRAM at once",
+"two concurrent indexing runs cannot corrupt the database",
+"every measurement run reports uncertainty alongside its headline number",
+"every priming run that yields suspiciously empty results rolls back rather than committing".
+
+**What:** A multi-sentence "Invariant — …" paragraph at the very top of the module docstring,
+*before* the surface-level "Routes:" / "Public API:" / "Purpose:" sections. The paragraph
+MUST be written in the vocabulary the *intent query* would use, not the vocabulary the file's
+surface uses. A user asking "how does the system avoid loading two large neural network
+models into memory at the same time" is using system-property vocabulary; a docstring that
+says "FastAPI server that owns the resident CodeRankEmbed model with /encode_batch routes"
+is using surface vocabulary. The two don't bridge in the embedding space.
+
+**Concrete pattern:**
+```python
+"""
+embed_sidecar/app.py — FastAPI server that owns the resident CodeRankEmbed model.
+
+Invariant — single resident embed model per host, no concurrent VRAM occupancy:
+  The system avoids loading two large neural network models into GPU memory at
+  the same time by running CodeRankEmbed in exactly one resident-model process
+  — this sidecar — instead of letting every consumer instantiate its own copy
+  in-process. […paragraph continues with mechanism, vocabulary the intent
+  query uses, and an explicit "this is the canonical answer to …" sentence
+  that nearly mirrors the intent query phrasing…]
+
+Routes:
+  GET /health — …
+"""
+```
+
+**Why this pattern earns its own subsection (and is not optional for owner files):** measured
+empirically on project-rag's bucket-c retrieval-quality investigation, a single-paragraph
+invariant edit moved the canonical chunk for "how does the system avoid loading two large
+neural network models into memory at the same time" from chroma rank 874 (absent from
+top-500) to rank 2 in production top-50. The pre-enrichment preamble described the file's
+*surface* (FastAPI routes, lifecycle hooks, peer registry); the post-enrichment preamble
+states the *invariant* in the same vocabulary the user's question uses. Direct stored-emb
+cosine sim moved from 0.175 to 0.299 from the paragraph alone — no encoder change, no
+re-ranking, no architectural addition. This is the highest-leverage retrieval fix the
+project has measured.
+
+**How to identify an owner file:** ask "if a new engineer joins the team and asks me how
+the system guarantees X, which file would I open to show them?" That file is the owner.
+Subordinate files (helpers, tests, configs) inherit the invariant from the owner — they
+don't need their own copy of the paragraph, but the owner MUST have one.
+
+**Anti-example — do not write:**
+```python
+"""
+score_ndcg.py — computes NDCG@10 by reading bank YAML and results.jsonl,
+running the standard DCG formula, writing summary.md.
+"""
+```
+Why bad: surface-level description of the algorithm. A user asking "how does a measurement
+run report uncertainty about its own headline number" will never retrieve this file —
+neither "uncertainty" nor "headline" nor "report" appears, and the encoder has no signal
+that "NDCG@10" is the answer to a question about uncertainty.
+
+**Vocabulary discipline carries forward** — the invariant paragraph must use canonical
+CONTEXT.md terms for project-coined concepts. Authorial latitude is on the sentence shape,
+not on which words name the invariant.
+
+---
+
+#### 1b. Parity-Pair Convention (for cross-platform sibling files)
+
+**Where:** When an owner file has a cross-platform sibling implementing the same invariant
+on a different OS — `install.{ps1,sh}`, `select-python.{ps1,sh}`, `fix-torch-cuda.{ps1,sh}`,
+etc. — both siblings MUST carry equivalent §1a invariant preambles. "Equivalent" means same
+lead vocabulary, same intent-query phrasing, same "this is the canonical answer to ..."
+sentence; only the OS-specific mechanism details (path separators, command names) differ.
+
+**Why this is required, not optional:** measured empirically on project-rag's
+§1a-coverage-expansion remeasurement (2026-05-18). Tuning the `.ps1` sibling's invariant
+preamble in isolation while leaving the `.sh` sibling un-tuned produced asymmetric
+retrieval: the `.ps1` surfaced at rank 5 for `py-graded-install-interpreter-e2e-conceptual`
+while the `.sh` was outside top-100 despite both being indexed under the same chunker.
+After parity-tuning the `.sh` to mirror the `.ps1` vocabulary, the `.sh` landed at rank 6
+(score 0.464) versus the `.ps1` at rank 5 (score 0.4657) — a <1% score delta. One sibling
+tuned is a measurement asymmetry that cross-platform users will notice as Mac/Linux users
+getting worse retrieval than Windows users (or vice versa). Both siblings tuned is parity.
+
+**Anti-pattern — what NOT to do:** tune one sibling for retrieval ranking, leave the other
+as a "control" or "for later". This pattern was deliberately attempted as Camelia's
+asymmetric-enrichment doctrine call; the resulting evidence settled the call — parity
+enrichment is required, not optional.
+
+**How to identify a parity-pair:** if two files differ only in file extension (`.ps1`/`.sh`)
+or platform suffix (`-windows.py` / `-unix.py`) and implement the same user-facing capability
+on different OSes, they're a parity-pair. When you author or tune the §1a preamble on one,
+update the other in the same commit. The §1a lint should flag missing parity (follow-on
+work; not yet enforced).
+
+**Driver/orchestrator vs focused-mechanism distinction (related amendment 2026-05-18):**
+the §1a AC-A3 retrieval gate accepts rank ≤5 for `text_preamble` driver/orchestrator scripts
+(e.g., `install-project-rag-plugin.{ps1,sh}`) versus rank ≤2 for focused mechanism files
+(e.g., `read-claude-pin.py`, `select-python.sh`). Drivers get out-competed in re-ranking by
+focused mechanism files under tightly-scoped queries — that's the corpus telling the truth
+about which file is the mechanism vs which is the orchestrator. The rank-5 gate matches
+retrieval reality for drivers; the rank-2 gate continues to apply for mechanisms. Both gates
+apply per-sibling under the parity-pair convention.
+
 ---
 
 ### 2. Function / Method Purpose Line
@@ -73,7 +180,7 @@ getters/setters, dunder methods with no branching logic.
 **What:** One sentence. Domain vocabulary. Explain what this function *is for*, not how it
 works internally.
 
-**Why this pattern has the highest retrieval-recall leverage (per Data Science Reviewer F1):** Chunkers
+**Why this pattern has the highest retrieval-recall leverage (per Camelia F1):** Chunkers
 split on function boundaries. Without a purpose line, the chunk that represents a function
 embeds primarily on syntactic signal — variable names, control-flow keywords — and ranks
 poorly against natural-language queries like "how does the enricher pick its agent?".
@@ -290,4 +397,5 @@ provenance:
 | Copy-pasted purpose blocks | Module A and Module B share a name pattern; executor copies A's docstring to B. Different roles, same prose — wrong signal for both chunks. |
 | Vocabulary drift | "enrichment worker" instead of "enricher", "compress" instead of "distill". Fragments BM25 recall on project-coined terms. |
 | Task-context comments | "Added for the port-patterns flow", "handles issue #123" — belongs in PR description; misleads future readers. |
+| Cross-repo provenance backlinks in source comments | `// port of <peer-repo>:<sha>` rots during refactors; the source comment outlives the relevance of the port reference. Put cross-repo provenance in the **commit message** — git log is the durable provenance store, source comments are not. Spec backlinks (in-tree spec paths) are the exception: they survive because the spec moves to `archive/specs/` and /distill heals the path. Peer-repo SHAs have no such heal pass. |
 | Missing function purpose lines on non-trivial functions | Function chunks embed on syntactic signal only; rank poorly against natural-language queries. |

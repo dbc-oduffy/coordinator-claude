@@ -1,0 +1,40 @@
+# loe-thresholds.yaml — T-shirt LoE sizing thresholds for coordinator sessions.
+#
+# Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
+# § Chunk 2 — threshold table (plan lines 115–133).
+#
+# Consumer: bin/coordinator-session-loe.sh reads this file to apply the
+# threshold table when computing a session's LoE t-shirt size.
+
+tshirt_thresholds:
+  XS: { agent_dispatches: 0,  opus_dispatches: 0, em_tokens: 50000 }
+  S:  { agent_dispatches: 5,  opus_dispatches: 1, em_tokens: 150000 }
+  M:  { agent_dispatches: 15, opus_dispatches: 2, em_tokens: 300000 }
+  L:  { agent_dispatches: 30, opus_dispatches: 3, em_tokens: 600000 }
+  XL: { agent_dispatches: 50, opus_dispatches: 6, em_tokens: 1000000 }
+# Each row's values are LOWER BOUNDS for that tier.
+# T-shirt = highest tier T such that for at least one criterion C, session[C] >= thresholds[T][C].
+#
+# Review: patrik — F8: rewritten to remove ambiguity.
+# Dogfood-fix 2026-05-19: S.opus_dispatches was 0, which under any-criterion
+# semantics made XS structurally unreachable (every session trivially has
+# opus_dispatches >= 0, so every session qualified for S). Tightened to
+# S.opus_dispatches: 1 and M.opus_dispatches: 2 to preserve the original
+# escalation curve. XS is now the correct floor (no criterion crossed beyond
+# zero baselines), S kicks in at first opus dispatch OR 5+ workers OR 150k tokens.
+#
+# Worked examples:
+#   XS session: agent_dispatches=2, opus_dispatches=0, em_tokens=30_000
+#     -> meets XS (2>=0 ✓, 0>=0 ✓; 30k<50k ✗): qualifies XS via dispatches
+#     -> does NOT meet S (2<5, 0<1, 30k<150k): no criterion crossed
+#     -> result: XS
+#   M session: agent_dispatches=18, opus_dispatches=2, em_tokens=250_000
+#     -> meets M (18>=15 ✓, 2>=2 ✓); does NOT meet L (18<30, 2<3, 250k<600k)
+#     -> result: M
+#   XL session: agent_dispatches=55, opus_dispatches=8, em_tokens=1_200_000
+#     -> meets XL (55>=50, 8>=6, 1_200_000>=1_000_000)
+#     -> result: XL
+#
+# em_tokens note: CLAUDE_SESSION_INPUT_TOKENS / CLAUDE_SESSION_OUTPUT_TOKENS are
+# speculative env vars — coordinator-session-loe.sh degrades gracefully to
+# em_tokens: null when they are absent, sizing via dispatch counts alone.

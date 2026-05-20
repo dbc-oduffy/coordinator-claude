@@ -1,6 +1,6 @@
 # Enricher Survey Fragment — Unreal Engine
 
-Domain-specific survey steps for UE projects. Included in enricher dispatch prompts when `project_type` includes `unreal` or `game-docs`.
+Domain-specific survey steps for UE projects. Included in enricher dispatch prompts when `project_type` is `game-dev` AND `project_subtypes` contains `unreal`.
 
 ## UE Survey Steps
 

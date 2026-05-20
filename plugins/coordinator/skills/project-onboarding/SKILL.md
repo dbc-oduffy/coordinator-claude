@@ -34,7 +34,7 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── docs/wiki/                          — wiki guides (LAZY — created by coordinator:distill on first guide extraction)
 ├── docs/wiki/DIRECTORY_GUIDE.md        — guide index with decision record mapping
 ├── docs/plans/                         — implementation plans (LAZY — created when first plan is copied from ~/.claude/plans/)
-├── docs/research/                      — research outputs (LAZY — created by coordinator:deep-research on first run)
+├── docs/research/                      — research outputs (LAZY — created by deep-research:research on first run)
 ├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:session-end on first lesson)
 ├── archive/completed/                  — completion archive (LAZY — created by coordinator:session-end on first completion)
 ├── tasks/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
@@ -47,21 +47,143 @@ Check for each of these and record status (exists / missing / incomplete):
 
 **Global detection:** Check if `~/.claude/CLAUDE.md` exists. If yes, the generated CLAUDE.md will include an "extends global" reference. If not, the template is fully self-contained — no dependency on global config.
 
-**Distribution repo detection:** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `tasks/handoffs/`). If 2+ of these are gitignored, this is likely a **distribution repo** — a public/shared repo where session artifacts are intentionally excluded from version control (e.g., an open-source release, a template repo, a package).
+**Repo classification (PM ask):** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `tasks/handoffs/`). Capture this as a hint string — do not make a decision from it:
 
-**If distribution repo detected: STOP.** Do not proceed to Phase 2. Report:
+- 2+ of these are gitignored → hint = `_(detected: 2+ of 3 session dirs gitignored — looks like a distribution repo)_`
+- Fewer or none gitignored → hint = `_(detected: standard working-tree layout)_`
 
-> _"This looks like a distribution repo — `.gitignore` excludes session directories (`tasks/`, `archive/`, `tasks/handoffs/`). Onboarding infrastructure doesn't belong here — it's a product, not a workspace. Track work on this repo from your parent project's tracker instead."_
+Always ask the PM:
 
-This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it.
+> **Is this repo:**
+> - **(a) a working repo** — for active development, with session artifacts tracked
+> - **(b) a published artifact / template** — distributed for downstream consumers; no session infrastructure
+> - **(c) both** — a working repo that publishes itself as the artifact
+>
+> _(detected: {hint})_
+
+**Branch on the PM's answer:**
+
+- **(a)** → proceed to Phase 1.5 / Phase 2 unchanged. No injection.
+- **(b)** → STOP. Do not proceed to Phase 2. Report:
+  > _"You answered (b) — distribution repo. Onboarding infrastructure doesn't belong here — it's a product, not a workspace. Track work on this repo from your parent project's tracker instead."_
+  >
+  > _This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it._
+- **(c)** → proceed exactly like (a), AND inject a one-line note in the generated CLAUDE.md (Phase 3a) and the generated tracker (Phase 3b):
+  > _"This repo is published as its own working artifact — consumers see the full directory shape including `tasks/` and `archive/`."_
+  >
+  > <!-- TODO: inject (c) note into Phase 3a CLAUDE.md header block here -->
+  > <!-- TODO: inject (c) note into Phase 3b tracker header block here -->
 
 Report what exists and what needs to be created before proceeding.
 
+**Project type short-circuit:** Check if `coordinator.local.md` exists at the repo root:
+
+```bash
+test -f coordinator.local.md && echo "exists" || echo "missing"
+```
+
+If it exists, read it and capture `project_type` and `project_subtypes` (if present). Emit a one-line confirmation:
+
+> Project type: {type}{ +subtypes: [{subtypes}] if any}. From coordinator.local.md — skipping Phase 2 question 2.
+
+If `coordinator.local.md`'s `project_type` differs from the `detected_type` derived from the marker scan, append this one-line challenge immediately after the confirmation (PM remains authoritative — this is informational only, not a re-ask):
+
+> *`coordinator.local.md` says `{type}` but detected stack is mostly `{detected_type}` — keeping the file value (PM authoritative). If wrong, edit `coordinator.local.md` and re-run.*
+
+If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) as normal.
+
+Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
+
 **Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
-### Phase 2: ASK — PM Input (3 Questions)
+**Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
-Present all three questions together to minimize back-and-forth:
+- `*.uplugin` or `*.uproject` present → `detected_type: game-dev`, `detected_subtypes: [unreal]`
+- `package.json` + any of `next.config.js`, `vite.config.*`, `nuxt.config.*`, `svelte.config.*`, `remix.config.*` present → `detected_type: web-dev`
+- `requirements.txt` or `pyproject.toml` present (and no UE markers) → `detected_type: data-science`
+- `Cargo.toml`, `go.mod`, or none of the above → `detected_type: general`
+
+Capture these as part of the Phase 1 profile. If `coordinator.local.md` already exists and its `project_type` differs from `detected_type`, emit a one-line challenge inline in the Phase 1 report (see **Project type short-circuit** block above for the exact wording).
+
+### Phase 1.5: INVESTIGATE — Read substrate, draft proposals
+
+Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no top-level manifest).
+
+**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold:
+
+- **1.5a:** Read project root `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present.
+- **1.5b:** If `tasks/handoffs/` exists, scan the most-recent 5 handoffs for stack/tooling clues.
+- **1.5c:** Peer-repo scout — if `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
+- Output: a 5–10 line "onboarding substrate snapshot" (toolchain, active workstreams, known conventions, sibling-repo context) to scratch before Phase 2.
+- Onboard from substrate before asking the PM; cold-ask is the fallback when substrate is empty.
+
+**Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items to orient on what this repo has shipped in the last quarter — especially valuable when joining cold.
+
+```bash
+bin/query-records --type completion --since "90d" --where "nature=roadmap" \
+  --sort "-loe.tshirt" --limit 10 --format markdown-list
+```
+
+Render under a fixed subsection heading in the Phase 4 REPORT (per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern):
+
+```markdown
+#### Recent roadmap (last 90d, top-10 by size)
+<results — one bullet per row, or "(none)" when the query returns zero rows>
+```
+
+The `(none)` case is expected on new repos or repos that haven't run the completion-log migration. Render the heading regardless — count-always.
+
+Otherwise:
+
+1. Read top-level `README.md` / `README.rst` / `README.txt` if present.
+2. Read `CONTRIBUTING.md` if present.
+3. Read top-level manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `*.uplugin`, `*.uproject`, etc. — whichever exist.
+4. Skim recent commit subjects: `git log --oneline -20`.
+
+Draft proposals from what you read:
+
+- **Project name** — from README H1 or repo directory name.
+- **Project type + subtypes** — from manifest signals + README role description, reconciled with the Phase 1 runtime-marker output. If the README/manifest-based proposal differs from `detected_type`, surface both with the proposed type winning (README role description is richer signal than file-presence heuristics), and emit this inline challenge in the ratification block:
+
+  > *Detected stack suggests `{detected_type}`. README/manifests suggest `{proposed_type}`. Going with `{proposed_type}` — confirm or override.*
+- **Initial workstreams (1-3)** — derived from README "what this does" + recent commit subjects + any "Roadmap" / "TODO" / "Status" sections. If the repo names sibling repos (path on disk, GitHub URL, or "split" / "addon" / "upstream" / "downstream" language), capture each as `peer_repo_candidates`.
+
+Present proposals to the PM for ratification:
+
+> Before I scaffold, here's what I found:
+>
+> **Project name:** {proposed}
+> **Project type:** {proposed}{, subtypes: [...] if any}
+> **Workstreams (proposed):**
+> 1. {WS1} — {2-3 deliverables}
+> 2. {WS2} — {...}
+>
+> **Sibling repos referenced:** {list with file:line citations from README/CONTRIBUTING}
+>
+> Ratify, correct, or say "go cold" to skip this and ask from scratch.
+
+On ratification: skip Phase 2's name + workstreams questions; only ask if PM corrected something or said "go cold."
+
+On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos before drafting the tracker? (recommended — they often carry schema-version, ship-state, and integration-contract context this repo doesn't.)"* If yes, dispatch Explore on each peer with a brief: *"Read README, CONTRIBUTING, and recent commits. Identify shared schemas, integration contracts, and shipped vs in-flight work relevant to {this repo's name}. Reply with file:line citations."* Wait for results before drafting tracker workstreams.
+
+### Phase 2: ASK — PM Input
+
+**Skip questions Phase 1.5 already ratified. Phase 1.5 may have already pinned project name and/or workstreams; only ask the questions whose answers are still missing.**
+
+**If `coordinator.local.md` was found in Phase 1**, skip question 2 entirely — project type is already pinned. Present the remaining questions:
+
+> I need two things to set up this project:
+>
+> **1. Project name** — short name for headers and references (e.g., "Geneva MVP", "DroneSim")
+>
+> **2. Initial workstreams** (1-3) — what are you working on? For each:
+>    - Name (short noun-phrase)
+>    - 2-3 immediate deliverables
+>    - (Optional: dependencies, blockers)
+>
+> If you're not sure about workstreams yet, say "stubs" and I'll create placeholder sections you can fill in later.
+
+**If `coordinator.local.md` was NOT found in Phase 1** (cold-ask path), present all three questions:
 
 > I need three things to set up this project:
 >
@@ -70,9 +192,9 @@ Present all three questions together to minimize back-and-forth:
 > _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
->    - `game-dev` — Unreal Engine, Blueprint/C++, the Game Dev Reviewer (`game-dev:staff-game-dev`)
->    - `web-dev` — Web frameworks, the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`)
->    - `data-science` — Notebooks, pipelines, the Data Science Reviewer (`data-science:staff-data-sci`)
+>    - `game-dev` — Game development (adds Sid reviewer, game-dev domain agents)
+>    - `web-dev` — Web frameworks (adds Palí for front-end review, Fru for UX)
+>    - `data-science` — Notebooks, pipelines (adds Camelia reviewer)
 >    - `general` — Standard conventions only
 >
 > **3. Initial workstreams** (1-3) — what are you working on? For each:
@@ -112,14 +234,69 @@ LAZY items are NOT created here. Each has a designated "create on first use" own
 
 #### 3a. CLAUDE.md (if missing)
 
-Use `templates/CLAUDE.md.template`. Process conditionals:
+Use `templates/CLAUDE.md.template` via `bin/render-template.sh`. The template contains ONLY literal `{{KEY}}` substitutions — no conditionals. Construct the substitution values before calling the helper:
 
-1. Replace `[PROJECT_NAME]` with the PM's project name
-2. Replace `{{PROJECT_TYPE}}` with the PM's project type
-3. **Include** blocks for all selected project types (remove the `{{IF type}}` / `{{/IF type}}` markers). A project can have multiple types (e.g., `unreal` + `data-science`). For `general` type: no conditional block exists in the template — skip steps 3 and 4.
-4. **Remove** blocks for project types not in the list
-5. **If global `~/.claude/CLAUDE.md` exists:** Keep the `{{IF_GLOBAL}}` content (remove markers). This tells the EM that global principles apply.
-6. **If no global exists:** Remove the `{{IF_GLOBAL}}` line entirely. The template is self-contained.
+**1. Construct `GLOBAL_EXTENDS_LINE`:**
+- If `~/.claude/CLAUDE.md` exists: set to `Extends global \`~/.claude/CLAUDE.md\`.`
+- If no global CLAUDE.md exists: set to empty string `""`
+
+**2. Construct `PROJECT_TYPE_BLOCK`:**
+Concatenate the block body for each selected project type (in selection order). Block bodies are literal strings — include a trailing newline between blocks when concatenating multiple.
+
+- **`game-dev` block:**
+  ```
+  ## Unreal Engine Conventions
+
+  - **Engine version:** UE5.x (specify)
+  - **Build command:** <!-- e.g., UnrealBuildTool invocation -->
+  - **Cook command:** <!-- platform-specific cook -->
+  - **Blueprint vs C++:** <!-- project policy on when to use each -->
+  - **Naming conventions:** <!-- UE naming standards: A_ for assets, BP_ for blueprints, etc. -->
+  - **Key modules:** <!-- list primary C++ modules -->
+  ```
+
+- **`web-dev` block:**
+  ```
+  ## Web Development
+
+  - **Framework:** <!-- e.g., Next.js, React, Vue, Svelte -->
+  - **Dev server:** <!-- e.g., npm run dev, port -->
+  - **Component conventions:** <!-- file structure, naming, styling approach -->
+  - **State management:** <!-- e.g., Zustand, Redux, signals -->
+  - **CSS approach:** <!-- e.g., Tailwind, CSS Modules, styled-components -->
+  - **Key routes/pages:** <!-- list primary routes -->
+  ```
+
+- **`data-science` block:**
+  ```
+  ## Data Science Conventions
+
+  - **Notebook conventions:** <!-- naming, cell organization, output clearing policy -->
+  - **Data pipelines:** <!-- tools, orchestration, storage locations -->
+  - **Model versioning:** <!-- MLflow, DVC, manual, etc. -->
+  - **Environment management:** <!-- conda, venv, poetry -->
+  - **Key datasets:** <!-- list primary data sources -->
+  ```
+
+- **`general` type:** no block body — `PROJECT_TYPE_BLOCK` is empty string `""`.
+- **Multi-type projects** (e.g., `game-dev` + `data-science`): concatenate both block bodies with a blank line between them.
+
+**3. Call the render helper:**
+
+```bash
+bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/render-template.sh" \
+  "$HOME/.claude/plugins/coordinator-claude/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
+  -o CLAUDE.md \
+  PROJECT_NAME="<derived-name>" \
+  PROJECT_TYPE="<type>" \
+  SUBTYPES="<comma-separated-list-or-empty>" \
+  GLOBAL_EXTENDS_LINE="<line-or-empty>" \
+  PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
+```
+
+The helper substitutes all `{{KEY}}` placeholders and exits non-zero if any remain unsubstituted after render — this is the guard against template/key drift. Use absolute `$HOME`-anchored paths because this skill runs inside the target project's cwd, where relative paths resolve against the project root, not the coordinator plugin directory.
+
+<!-- Review: code-reviewer — relative paths fail when skill runs in project cwd; bracket token [PROJECT_NAME] not substituted by render-template.sh which only handles {{KEY}} shape -->
 
 Write the processed template to `CLAUDE.md` at the project root.
 
@@ -226,29 +403,35 @@ mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 - `archive/completed/` — created by `coordinator:session-end` on first archived completion
 - `docs/wiki/` — created by `coordinator:distill` when the first guide is extracted
 - `docs/plans/` — created when the first plan is copied from `~/.claude/plans/`
-- `docs/research/` — created by `coordinator:deep-research` on first research run
+- `docs/research/` — created by `deep-research:research` on first research run
+- **`tasks/review-trail/`:** created on first session-end review. Contains per-session JSON marker records consumed by `/workday-complete` Step 9 and `/workweek-complete` Step 7. Lifecycle parallels `tasks/week-changelog/` — archived to `archive/review-trail/<week-starting>/` at workweek-complete.
 
 Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory (they see it exists but empty, rather than understanding it is built lazily).
 
 #### 3f. .gitignore handling
 
-Check if `.gitignore` exists and contains an entry for `.claude/settings.local.json`:
+Ensure `.gitignore` contains the universal entries every working repo needs. The canonical block (per `docs/wiki/gitignore-policy.md`):
 
-1. **If `.gitignore` exists but lacks the entry:** Append:
-   ```
-   # Machine-specific Claude settings (do not commit)
-   .claude/settings.local.json
-   ```
+```
+# Machine-specific Claude settings (do not commit)
+.claude/settings.local.json
 
-2. **If `.gitignore` doesn't exist:** Create it with:
-   ```
-   # Machine-specific Claude settings (do not commit)
-   .claude/settings.local.json
-   ```
+# Scratch — transient agent output, investigation notes, workstream byproduct.
+# `scratch/` matches at any depth (top-level scratch/, tasks/scratch/, etc.)
+scratch/
+tasks/_*.log
+```
 
-3. **If the entry already exists:** Skip silently.
+Procedure:
 
-**Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
+1. **If `.gitignore` doesn't exist:** Create it with the canonical block above.
+2. **If `.gitignore` exists but is missing any of the three rules:** Append only the missing rules under a single comment header (`# Coordinator universal — scratch + machine-local settings`).
+3. **If all three rules are present:** Skip silently.
+
+**Warning checks:**
+
+- If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
+- If the repo already has tracked content under `scratch/` or matching `tasks/_*.log`, surface count and offer `git rm --cached -r` cleanup as a follow-up step (do not auto-untrack during onboarding — confirm with the PM first).
 
 #### 3f.5. Auto-push post-commit hook
 
@@ -280,6 +463,8 @@ Do NOT create this file directly. It requires source file analysis that `/update
 
 ### Phase 4: REPORT
 
+If Phase 1.5 dispatched peer-repo scouts, ensure the tracker's workstream blocks include `file:line` citations from the scout reports.
+
 Present what was done:
 
 ```
@@ -293,6 +478,9 @@ Present what was done:
 
 ### Needs Attention
 - [any warnings — .gitignore issues, incomplete CLAUDE.md sections to fill in]
+
+### Recent Roadmap (last 90d, top-10 by size)
+_(Results from Phase 1.5 roadmap orientation query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
 
 ### Next Steps
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details

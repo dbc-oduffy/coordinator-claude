@@ -45,7 +45,7 @@ Anthropic's subagents work independently and report back to the lead. Our Sonnet
 
 ### 5. Persona-based review (our addition)
 
-Anthropic's system doesn't mention named personas or behavioral profiles for agents. Our reviewers (Patrik, Sid, Camelia, etc.) carry rich behavioral descriptions that shape their review lens. Research supports both the [persona mechanism](2026-03-19-named-persona-performance.md) and the multi-agent review gains.
+Anthropic's system doesn't mention named personas or behavioral profiles for agents. Our reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, etc.) carry rich behavioral descriptions that shape their review lens. Research supports both the [persona mechanism](2026-03-19-named-persona-performance.md) and the multi-agent review gains.
 
 ### 6. Write-ahead status protocol (our addition)
 

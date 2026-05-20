@@ -130,13 +130,13 @@ description: "This skill should be used when coordinator work on a branch is com
 Add after the frontmatter `---` line, before the `# Requesting Code Review` heading:
 
 ```markdown
-> **Foundation:** This skill extends `superpowers:requesting-code-review`. The superpowers skill provides core review patterns (when to review, how to prepare, act on all feedback). This skill adds coordinator-specific routing: `/review-dispatch` command integration and named reviewer pool (Patrik, Sid, Camelia, Pali, Fru).
+> **Foundation:** This skill extends `superpowers:requesting-code-review`. The superpowers skill provides core review patterns (when to review, how to prepare, act on all feedback). This skill adds coordinator-specific routing: `/review-dispatch` command integration and named reviewer pool (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Pali, the UX Reviewer).
 ```
 
 Update description:
 
 ```yaml
-description: "This skill should be used when the coordinator needs to route work to a named reviewer — extends superpowers:requesting-code-review with /review-dispatch routing and named reviewer pool (Patrik, Sid, Camelia, Pali, Fru). Triggers on: 'review this', 'get a review', 'dispatch to reviewer'."
+description: "This skill should be used when the coordinator needs to route work to a named reviewer — extends superpowers:requesting-code-review with /review-dispatch routing and named reviewer pool (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Pali, the UX Reviewer). Triggers on: 'review this', 'get a review', 'dispatch to reviewer'."
 ```
 
 **Step 5: Edit `plugins/coordinator/skills/receiving-code-review/SKILL.md`**
@@ -150,7 +150,7 @@ Add after the frontmatter `---` line, before the `# Code Review Reception` headi
 Update description:
 
 ```yaml
-description: "This skill should be used when receiving review feedback from Opus reviewer agents (Patrik, Zoli, Sid, Pali, Fru, Camelia) — extends superpowers:receiving-code-review with triage tables, Disposition tracking (Applied/Captured/Dismissed), and debt tracker integration."
+description: "This skill should be used when receiving review feedback from Opus reviewer agents (the Staff Engineer, Zoli, the Game Dev Reviewer, Pali, the UX Reviewer, the Data Science Reviewer) — extends superpowers:receiving-code-review with triage tables, Disposition tracking (Applied/Captured/Dismissed), and debt tracker integration."
 ```
 
 **Step 6: Commit**

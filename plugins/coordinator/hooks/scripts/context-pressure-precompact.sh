@@ -41,6 +41,7 @@ fi
 PRE_SIZE=""
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
   PRE_SIZE=$(stat -c '%s' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%z' "$TRANSCRIPT_PATH" 2>/dev/null || true)
+  PRE_SIZE="${PRE_SIZE//$'\r'/}"
 fi
 echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}" || \
   echo "[precompact] sentinel write failed; advisory may be missed" >&2

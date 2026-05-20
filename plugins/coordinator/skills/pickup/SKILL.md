@@ -1,4 +1,5 @@
 ---
+name: pickup
 description: Resume work from a handoff — grab the baton and run
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[handoff-file-path]"
@@ -16,14 +17,20 @@ Pick up a handoff document and continue executing where the previous session lef
 
 Minimal — just enough to not lose work.
 
-1. Run `git status` — if there are ANY uncommitted changes, commit immediately. Pickup is workstream-specific: stage only the paths belonging to the workstream you're resuming, never `git add -A` or `git add .`. The handoff doc you'll read in Step 2 declares the workstream scope in its `scope:` frontmatter — once read, prefer the helper with `--scope-from`:
-   ```
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "pickup: <workstream> — resume"
+1. Run `git status` — if there are ANY uncommitted changes, commit immediately. Pickup is workstream-specific: stage only the paths belonging to the workstream you're resuming, never `git add -A` or `git add .`. The handoff doc you'll read in Step 2 declares the workstream scope in its `scope:` frontmatter — once read, extract the scope and commit via plain git (SC-DR-008, lessons.md:43, lessons.md:207):
+   ```bash
+   HANDOFF=<handoff-doc-path>
+   # Extract scope paths from YAML frontmatter (  - <path> lines under scope: key)
+   SCOPE=$(awk '/^scope:/{found=1; next} found && /^  - /{print substr($0, 5)} found && /^[a-z]/{exit}' "$HANDOFF")
+   if [ -z "$SCOPE" ]; then
+     echo "FAIL: handoff frontmatter scope: block missing or empty — cannot enumerate paths" >&2
+     exit 1
+   fi
+   git add -- $SCOPE && git commit -m "pickup: <workstream> — resume" -- $SCOPE
    ```
    If the handoff isn't yet identified, stage the specific files explicitly by path:
-   ```
-   git add <path1> <path2> ...
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pickup safety commit"
+   ```bash
+   git add -- <path1> <path2> ... && git commit -m "pickup safety commit" -- <path1> <path2> ...
    ```
    Leave files outside this workstream alone — they belong to another concurrent session.
 
@@ -114,6 +121,23 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    c. **Drop confirmed-closed items.** Items verified as already shipped do NOT go into your session execution queue. Optionally note them inline as _"verified-closed since handoff"_ for the paper trail.
 
+   d. **Gate-source re-read for `awaiting_gate` handoffs.** If the handoff frontmatter carries `deployment_state: awaiting_gate` with a `gate_dependency: <path>` one-liner, Read the gate path before treating the handoff as still-pending. Gates clear silently between handoff-write and pickup — a PR merges, a sibling stub ships, a flag flips. If the gate has cleared, flip `deployment_state: ready_to_fire` in the mutation pass (Step 5) and proceed; if it's still closed, surface the gate status to the PM before queuing further work.
+
+      **Aging reconcile:** compute `now − created_at` from handoff frontmatter (`created:` field per `docs/wiki/spinoff-handoffs.md` schema). If ≥14 days AND `deployment_state: awaiting_gate` AND no `last_gate_recheck:` field (or `last_gate_recheck` ≥7 days ago), the gate is **stale** — force a re-check of the named gate even if the prior re-read in this step would otherwise have been a quick literal-string match. After the re-check, write `last_gate_recheck: <ISO date>` into frontmatter in the mutation pass (Step 5). If the gate has cleared, flip to `ready_to_fire` as above; if still closed but the gate text no longer accurately names the blocker (e.g., the named sibling stub has been archived without shipping), surface to PM with the discrepancy — do NOT silently retain a stale gate. See `docs/wiki/spinoff-handoffs.md` § "Awaiting_gate aging" for full rationale and the 14d / 7d threshold derivation.
+
+   e. **Premise verification — paths, commits, scope claims.** The handoff body is hypothesis, not ground truth (per coordinator CLAUDE.md § Verifying Handoff Premises). Before executing:
+
+      - **Paths cited as "modified" or "needs editing":** `ls` / `Read` each one. Files move, get renamed, or get deleted between handoff-write and pickup. A handoff that says "edit `foo/bar.py`" against a renamed file is a false-premise dispatch.
+      - **Commit SHAs cited as "shipped" or "landed":** `git cat-file -e <sha>` to confirm reachable; `git branch --contains <sha>` to confirm landing claim. Cherry-picks and rebases invalidate SHA assertions across sessions.
+      - **Scope frontmatter pathspecs:** glob each pathspec. An empty glob means the workstream substrate has moved — surface to PM before mutation, do not proceed silently.
+      - **Premises that include "X is true" / "Y already done" / "Z was decided":** for each load-bearing premise, identify the witness (a file, a commit, a doc section) and confirm it. Premise drift is the dominant failure mode for >24h-old handoffs.
+
+      See `docs/wiki/spinoff-handoffs.md` § "Pickup-side premise check" for the full discipline. Treat unverified premises as same-session blocking gaps, not deferrals.
+
+   f. **Stealth-skip detection — pickup-as-defer-via-rationale.** A handoff that marks an item `shipped` with prose rationale instead of a commit SHA ("rule covered semantically by adjacent bullet", "subsumed by the X workstream", "naturally addressed by Y") is the doctrine-forbidden defer disposition disguised as productive pickup. The rationale-prose `shipped_in:` value bypasses the literal acceptance criterion. **Detection:** any `shipped_in:` value that is not a 7+ hex character commit SHA (or an explicit `substantively-shipped-no-commit:<PM-ack-date>` token) is suspect. **Action:** treat such items as still-pending, re-verify the literal acceptance criterion against current `HEAD`, and surface the schema violation to the PM. Pickup means doing the work or surfacing a real blocker — never authoring a rationale that defers.
+
+   g. **Prereq tables: executable verification, not visual checkmark.** Handoff prereq tables that list `✅ verified` against prerequisites are themselves hypothesis at pickup time, even when the checkmark is fresh. Re-run the verification commands or grep the asserted state before consuming the prereq downstream. A prereq verified at handoff-write can age out by pickup time (a sibling session merged a conflicting change, a dependency rotated, an env var got unset). Visual ✅ in a prose table is paper-trail, not gate. The actual gate is whichever command would have produced the ✅ — re-run it.
+
    **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means redoing shipped work, conflicting with landed commits, or spawning duplicate executors.
 
    **Partial-completion claims** (DroneSim T1.2): Before redoing any work the handoff describes as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. Treat the handoff's status as a hypothesis, not ground truth — work often persisted despite the handoff saying otherwise.
@@ -128,27 +152,63 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    ```
    This is a spinoff — predecessor is none by design. Treat the handoff body as ground-truth spec; do not look for in-progress work to resume.
    ```
-   Counters the default assumption that a handoff describes already-in-progress work.
+   Counters the default assumption that a handoff describes already-in-progress work. Note: `kind: spinoff` and `kind: spinoff-roadmap` both carry `predecessor: none` — when premise verification (Step 3.4e) cannot find a continuity ancestor, that is correct by design for spinoffs and not a stale-handoff signal. See `docs/wiki/spinoff-handoffs.md` § "Pickup-side premise check — spinoff exemption".
 
-5. **Pre-flight: respect `pickup_ready: true`.** If the handoff frontmatter contains `pickup_ready: true`, this handoff is a fresh orphan-promotion and should not be stamped on this invocation unless the pickup is genuine. Two cases:
-   - **You ARE genuinely picking it up:** remove the `pickup_ready` field from the frontmatter (or set it to `false`) before appending the consumed marker below, then continue.
-   - **You opened it by mistake or are just reviewing it:** STOP — do not append the marker. Surface to the PM before proceeding.
-
-   **Mark as consumed:** Append a consumed marker to the handoff file so `/update-docs`'s archival phase knows it's been picked up:
-   ```bash
-   echo "" >> <handoff-file>
-   echo "<!-- consumed: $(date +%Y-%m-%d) -->" >> <handoff-file>
+   **Recovery banner:** If the handoff frontmatter has `kind: recovery`, prepend one extra line:
    ```
-   This is the signal that triggers archival on the next `/update-docs` run. The handoff stays in `tasks/handoffs/` for the duration of this session (in case you need to re-read it), but it's now marked for cleanup.
+   This is a recovery handoff — prior session terminated uncleanly (crash/kill). Verify on-disk state against the handoff body before resuming; partial work may exist that the author could not commit.
+   ```
+   Recovery handoffs follow the standard continuation flow, but the successor's first move is disk verification (uncommitted edits, orphan `.tmp.*` files, partial executor output) per CLAUDE.md § "Verifying Executor Output After a Crash or Timeout". A null `predecessor:` on `kind: recovery` is permitted (no recoverable predecessor existed) and is NOT a stale-handoff signal.
 
-6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list.
+5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/session-end` Step 2.7).
+
+   ### Pre-mutation safety gates (sequential, all must pass before any write)
+
+   1. **`git fetch origin <branch>` + re-read frontmatter.** Closes the cross-machine race window — if a peer already mutated and pushed, the fetch pulls their version and the next gate sees `consumed_by:` populated.
+   2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
+   3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
+      ```bash
+      source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh
+      cs_claim_handoff "$(basename tasks/handoffs/<file>)"
+      ```
+   4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
+      _"⚠ handoff `<basename>` lacks `pickup_ready: true` — proceeding anyway. (Author may not have explicitly authorized pickup; verify the workstream is yours to resume.)"_
+      Do NOT prompt. Do NOT block. Continue to mutation.
+
+   ### Frontmatter mutation (in place at `tasks/handoffs/<file>`)
+
+   - `status: active` → `status: consumed`
+   - `deployment_state: <whatever>` → `deployment_state: in_flight`
+   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_SESSION_ID` first (if exported), falling back to `cat .git/coordinator-sessions/.current-session-id` (the sentinel written by `session-init.sh`). Never the machine name. Same resolution pattern as `/session-end` Step 2.7.
+   - Do NOT remove `pickup_ready: true` if present — it stays as authorial-intent record on the consumed handoff.
+
+   ### Commit
+
+   Single explicit-path commit of the mutation only — **no `git mv`** (SC-DR-008):
+   ```bash
+   git add -- tasks/handoffs/<file> && git commit -m "pickup: <workstream> — frontmatter mutation" -- tasks/handoffs/<file>
+   ```
+
+   The handoff remains in `tasks/handoffs/`. Archival happens at one of two successor moments:
+   - **`/handoff` chain-archival** — when this session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
+   - **`/session-end` Step 2.7** — when this session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
+
+6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/session-end` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
 
 ---
 
+## Cross-Repo MOVE and Tracker-Residual Discipline
+
+**Cross-repo MOVE of a roadmap stub requires a source-side residual audit before archiving the original.** Scan source scope vs destination need; if any scope is not transported (e.g., framework-agnostic detector when destination only needs UE overlay), file a successor stub for the residual on the source side BEFORE archiving the original. Update downstream `blocked_by:` lists to reference the successor.
+
+**Tracker entry naming a non-existent plan file is a closure signal, not a missing-file bug.** Verify on-disk; if the workstream shipped without leaving a plan, write a closing DR and resolve the tracker row. Do not re-author the plan from scratch.
+
 ## Notes
 
+- **T3 handoff detection.** If the handoff frontmatter shows `cost: T3` OR the handoff body contains ≥7 numbered implementation steps AND ≥3 distinct architectural seams, surface the following before executing: _"This handoff is T3 in scope. Recommend forking via `/coordinator:spinoff` and running `/coordinator:plan` before dispatching executors. Proceed directly or fork-and-plan?"_ **Wait for PM response.** The "grab the baton and run" default applies to T1/T2 handoffs; T3 scope warrants decomposition + Patrik review on the plan first.
 - This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/session-start` territory. Pickup is laser-focused on the handoff.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
-- **Archiving:** The consumed marker (Step 5) signals that this handoff has been picked up. It will be archived on the next `/update-docs` run. Handoffs are never archived based on age alone — only when consumed via pickup, superseded by a successor, or when the PM explicitly directs it.
+- **`git mv` after Edit stages only the rename, not the content change.** If a future revision of this skill (or a sibling skill) ever needs to both rename AND edit a file, the correct order is: `git mv src dst` FIRST, THEN Edit `dst`, THEN `git add -- dst`, THEN commit. Edit-then-`git mv` stages only the rename and silently drops the content delta.
+- **Archiving:** `/pickup` mutates frontmatter in place at `tasks/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/session-end` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
 - **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

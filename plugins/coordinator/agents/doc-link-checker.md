@@ -74,12 +74,14 @@ Run this before every WebFetch call to an external URL. Do not batch external ch
 ## Workflow
 
 1. **Discover markdown files** in the scope path using `Bash find <path> -name "*.md" -type f | sort`
-2. **Extract links** from each file — both `[text]\(url\)` and `[text][ref]` / `[ref]: url` reference-style links
+2. **Extract links** from each file — both `[text]\(url\)` and `[text][ref]` / `[ref]: url` reference-style links. **Skip fenced code blocks by default** — links inside ```` ``` ```` or ```` ~~~ ```` fences are typically templates that the consuming skill writes into a downstream file (relative paths resolve in the materialized output, not from the plugin source). To force inclusion of a fenced block, the source file may carry an explicit opt-in sentinel before the fence: `<!-- doc-link-check: include-fenced -->`. Without that sentinel, treat fenced links as out-of-scope (do not flag as broken).
 3. **Validate internal links** (file + anchor existence) — no sleep needed, no cap
 4. **Validate external links** — 1s sleep between each, stop at 100 URLs
 5. **Write the structured output file** to the path specified in the dispatch prompt (default: `tasks/doc-link-check-<timestamp>.md`)
 6. **Verify the file exists** with `Bash ls -la <path>`
 7. Reply `DONE: <path>` — nothing else
+
+**Re-verify file-existence within-session.** Doc-link-checker verdicts can be stale within a session: orphan-sweep ceremonies (session-init, workday-start Step 0.6, /pickup chain-archival) can move handoff/spec files between checker run and EM consumption. When a "file not found" verdict contradicts an earlier `ls` from the same session, re-`ls` against current HEAD before dismissing as false-positive.
 
 ## Structured Output Contract
 
@@ -185,6 +187,10 @@ Do NOT count redirects as broken. Do NOT omit them from the Findings Table — t
 1. Write the output file to the path specified in the dispatch prompt (default: `tasks/doc-link-check-<timestamp>.md`)
 2. Run `Bash ls -la <path>` to confirm the file is present and non-zero size
 3. Reply exactly: `DONE: <path>` — no prose, no summary, no analysis after this line
+
+## Within-Session Stale-Verdict Warning
+
+**Re-verify file-existence within-session.** doc-link-checker verdicts can be stale within a session: orphan-sweep ceremonies (session-init, workday-start Step 0.6, /pickup chain-archival) can move handoff/spec files between checker run and EM consumption. When a doc-link-checker "file not found" verdict contradicts an earlier `ls` from the same session, re-`ls` against current HEAD before dismissing as false-positive.
 
 ## Rules
 

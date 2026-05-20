@@ -31,3 +31,7 @@ node_modules/
 # IDE
 .vscode/
 .idea/
+
+# Coordinator universal scratch rule (added 2026-05-20)
+scratch/
+tasks/_*.log

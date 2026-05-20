@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# standup.sh — Deterministic daily inventory for /daily-review Phase A
+# standup.sh — Deterministic daily inventory for /workday-complete Step 4a
 #              and /workday-start Step 1 reconciliation.
 #
 # Spec backlink: archive/specs/2026-05-05-script-first-deterministic-ops.md §T1
 #
-# Purpose: Replace the Haiku scout dispatch in /daily-review Phase A with a
-# deterministic shell script. Emits raw inventory (commits, file-change summary,
-# touched handoffs/todos, active handoffs) to stdout. Phase B (Sonnet analyst)
-# clusters and narrates.
+# Purpose: Produce a deterministic inventory for /workday-complete Step 4a.
+# Emits raw inventory (commits, file-change summary, touched handoffs/todos,
+# active handoffs) to stdout. Step 4b (Sonnet analyst) clusters and narrates.
 #
 # Output sections (in order):
 #   > Baseline: <sha> (<ISO-timestamp>)   ← parsed by Phase B for git diff baseline
@@ -37,14 +36,14 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 cd "$REPO_ROOT"
 
 # ---------------------------------------------------------------------------
-# Baseline detection: last workday-complete / daily-review / workday-start
+# Baseline detection: last workday-complete / workday-start
 # commit within the past 3 days; fallback 24 hours ago.
 # ---------------------------------------------------------------------------
 BASELINE_SHA=""
 BASELINE_TS=""
 
 BASELINE_SHA=$(git log --oneline \
-  -E --grep="^(workday-complete|daily-review|workday-start):" \
+  -E --grep="^(workday-complete|workday-start):" \
   --since="3 days ago" -1 --format="%H" 2>/dev/null || true)
 
 if [[ -n "$BASELINE_SHA" ]]; then
