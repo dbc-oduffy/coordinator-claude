@@ -15,7 +15,7 @@ The hook polices branch *shape* at create-time, not branch *date* at workday-sta
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
-LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
 [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 ```
 
@@ -188,7 +188,7 @@ git merge {branch-name} --no-ff -m "consolidate {branch-name} into active workst
 ### Step 0.6 — Push and report
 
 ```bash
-git push -u origin "$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)"
+git push -u origin "$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)"
 ```
 
 Report:
@@ -228,7 +228,7 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
 
 ```bash
-bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
+bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
 ```
 
 The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (`bin/verify-orientation-cache-sync.sh`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.

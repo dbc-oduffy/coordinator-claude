@@ -194,7 +194,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 SID=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")
 
 # Get LoE metrics
-LOE=$(bash plugins/coordinator-claude/coordinator/bin/coordinator-session-loe.sh \
+LOE=$(bash plugins/coordinator/bin/coordinator-session-loe.sh \
       --session-id "$SID" --format json 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,"em_tokens":null,"tshirt":"XS"}')
 
 # Extract fields (requires jq or inline bash parsing)
@@ -275,7 +275,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
 
    ```bash
-   bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh \
+   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker handoff \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
@@ -332,7 +332,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
+3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 
@@ -341,7 +341,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 

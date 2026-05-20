@@ -168,7 +168,7 @@ A 144-entry triage in 2026-05-05 produced this empirical distribution:
 
 When the synthesis produces multi-file changes (the "promote universals into N files" surface), the canonical shape is:
 
-1. **Reviewer (Patrik) BEFORE dispatch, not after first executor returns.** Patrik's pre-dispatch pass detects cluster-disjointness (last-writer-wins risk between parallel executors). 16 findings on a 35-finding plan, 6 of which were P0/P1 cluster disjointness, is a typical hit rate. See [DR-009](#dr-009).
+1. **Reviewer (the Staff Engineer) BEFORE dispatch, not after first executor returns.** the Staff Engineer's pre-dispatch pass detects cluster-disjointness (last-writer-wins risk between parallel executors). 16 findings on a 35-finding plan, 6 of which were P0/P1 cluster disjointness, is a typical hit rate. See [DR-009](#dr-009).
 2. **Pre-create shared parent dirs** rather than letting one executor own a directory two executors will write to. Race avoidance > serialization.
 3. **Cross-cluster findings register** identifies which findings intentionally land in 2+ files. Don't treat as duplicates during deduplication passes.
 4. **Executors return canonical-phrase JSON for deterministic post-execution grep.** EM verifies via `grep -F` against the exact phrase list. Don't trust free-text summaries.
@@ -253,11 +253,11 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Decision:** Frontmatter drift sweep is a visibility tool. Schema violations frequently encode intentional decisions (record predates schema, deprecation in flight). Carve-out: tradeoff-free fixes on records the EM authored *this same session*.
 **Source:** `archive/handoffs/2026-05-01_193000_pickup01.md`
 
-### DR-009 — Patrik review BEFORE dispatch on multi-file sweeps
+### DR-009 — the Staff Engineer review BEFORE dispatch on multi-file sweeps
 
 **Status:** accepted
 **Context:** 35-finding sweep across 7 executors hit 16 review findings (6 P0/P1) at the cluster-disjointness layer. Without pre-dispatch review, parallel executors would have stomped each other's edits.
-**Decision:** Run Patrik review pre-dispatch when sweep targets >5 files in parallel; pre-create shared parent dirs.
+**Decision:** Run the Staff Engineer review pre-dispatch when sweep targets >5 files in parallel; pre-create shared parent dirs.
 **Source:** `archive/handoffs/2026-04-27_164304_sweep-resume.md`
 
 ### DR-010 — Stand down on concurrent peer absorption

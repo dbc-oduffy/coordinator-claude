@@ -53,7 +53,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Model Selection Rubric
 
-**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (Sid/Camelia/Palí corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
+**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
 
 | Stub character | Model | Rationale |
 |---|---|---|

@@ -426,7 +426,7 @@ loe:
   tshirt: XL
 ---
 
-Dispatched Patrik, Sid, security-audit-worker, and dep-cve-auditor in a
+Dispatched the Staff Engineer, the Game Dev Reviewer, security-audit-worker, and dep-cve-auditor in a
 4-reviewer fanout. Integration pass by review-integrator. Gate wired into
 workweek-complete Step 7. 31 agent dispatches across the session, 7 Opus.
 ```

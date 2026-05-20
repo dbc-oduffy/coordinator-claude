@@ -262,7 +262,7 @@ EOF
         cat <<EOF
 
 ## Trust caveats
-- Unreal Engine project detected (\`$UPROJECT_PATH\`) — do NOT trust your training data on UE5 APIs, classes, or Blueprint semantics. Verify every claim via \`mcp__project-rag__*\` tools or dispatch \`game-dev:staff-game-dev\` (Sid). This applies to your delegates — restate it in every UE dispatch brief.
+- Unreal Engine project detected (\`$UPROJECT_PATH\`) — do NOT trust your training data on UE5 APIs, classes, or Blueprint semantics. Verify every claim via \`mcp__project-rag__*\` tools or dispatch \`game-dev:staff-game-dev\` (the Game Dev Reviewer). This applies to your delegates — restate it in every UE dispatch brief.
 EOF
     fi
 

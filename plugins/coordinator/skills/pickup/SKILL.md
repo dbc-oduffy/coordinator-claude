@@ -168,7 +168,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
    3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
       ```bash
-      source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh
+      source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
       cs_claim_handoff "$(basename tasks/handoffs/<file>)"
       ```
    4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:

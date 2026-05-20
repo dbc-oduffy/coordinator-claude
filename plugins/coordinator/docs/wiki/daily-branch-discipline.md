@@ -39,7 +39,7 @@ Both modes are caught by `bin/orphan-branch-sweep.sh` with three severity tiers:
 
 Flags: `--format json|text`, `--severity-min ok|warning|critical`, `--include-remote`, `--max-age-days N` (default 30).
 
-The companion `bin/sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per Patrik F5). `--strict` makes the >50-commits-behind warning a hard error.
+The companion `bin/sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per the Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
 
 ### `/workday-start` Step 0 — Branch Reconciliation Decision (A/B/C)
 
