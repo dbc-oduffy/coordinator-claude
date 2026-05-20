@@ -125,8 +125,13 @@ for dir in "${NAMED_DIRS[@]}"; do
     continue
   fi
 
-  # $HOME/.claude has no .claude sub-dir; its settings.json is directly at .claude/settings.json
-  SETTINGS="$dir/.claude/settings.json"
+  # $HOME/.claude has no .claude sub-dir; its settings.json is at $dir/settings.json directly.
+  # All other named dirs are UE-context project roots with a .claude/settings.json sub-path.
+  if [[ "$dir" == "$HOME/.claude" ]]; then
+    SETTINGS="$dir/settings.json"
+  else
+    SETTINGS="$dir/.claude/settings.json"
+  fi
   if [[ ! -f "$SETTINGS" ]]; then
     echo "MISSING: $SETTINGS — run ~/.claude/bin/claude-ue-bootstrap.sh $dir" >&2
     FAIL=1
