@@ -70,9 +70,6 @@ Always ask the PM:
   > _This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it._
 - **(c)** → proceed exactly like (a), AND inject a one-line note in the generated CLAUDE.md (Phase 3a) and the generated tracker (Phase 3b):
   > _"This repo is published as its own working artifact — consumers see the full directory shape including `tasks/` and `archive/`."_
-  >
-  > <!-- TODO: inject (c) note into Phase 3a CLAUDE.md header block here -->
-  > <!-- TODO: inject (c) note into Phase 3b tracker header block here -->
 
 Report what exists and what needs to be created before proceeding.
 
@@ -296,8 +293,6 @@ bash "$HOME/.claude/plugins/coordinator/bin/render-template.sh" \
 
 The helper substitutes all `{{KEY}}` placeholders and exits non-zero if any remain unsubstituted after render — this is the guard against template/key drift. Use absolute `$HOME`-anchored paths because this skill runs inside the target project's cwd, where relative paths resolve against the project root, not the coordinator plugin directory.
 
-<!-- Review: code-reviewer — relative paths fail when skill runs in project cwd; bracket token [PROJECT_NAME] not substituted by render-template.sh which only handles {{KEY}} shape -->
-
 Write the processed template to `CLAUDE.md` at the project root.
 
 **Important:** The template has `<!-- Fill in -->` comments — these are prompts for the PM to complete, not for the skill to guess at. Leave them as-is.
@@ -332,15 +327,11 @@ If PM said "stubs": create one placeholder workstream:
 
 #### 3c. tasks/lessons.md — SKIP (lazy)
 
-Do NOT create this file during onboarding. It has no meaningful day-1 content — it is a header and a comment until the first real lesson is captured. Creating it empty trains agents to ignore the directory.
-
-**Create on first use:** `coordinator:session-end` creates `tasks/lessons.md` (using `templates/lessons.md.template`) the first time a lesson is captured, if the file does not already exist. `coordinator:learn-lessons` also handles a missing file gracefully.
+Do NOT create this file during onboarding — no meaningful day-1 content. Created by `coordinator:session-end` on first lesson capture.
 
 #### 3d. docs/README.md (if missing)
 
-Create a documentation index at `docs/README.md`. This is the top-level entry point for all project documentation — the first thing any agent or human should find when looking for docs.
-
-Use the project name and type from Phase 2 to populate the initial structure:
+Create a documentation index at `docs/README.md` — the top-level entry point for all project documentation, maintained by `/update-docs`. Structure:
 
 ```markdown
 # [Project Name] — Documentation Index
@@ -350,39 +341,27 @@ Central entry point for all project documentation. Maintained by `/update-docs`.
 ---
 
 ## Wikis and Guides
-
-Living technical reference — distilled from session artifacts by `/distill`.
-
 → **[`docs/wiki/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
-
-_No guides yet. Guides are created by `/distill` as knowledge accumulates from session artifacts._
+_No guides yet. Created by `/distill` as knowledge accumulates._
 
 ---
 
 ## Plans
-
-Implementation and design plans. Plans start in `~/.claude/plans/` during plan mode, then are copied here as the canonical location.
-
-→ [`docs/plans/`](plans/)
+→ [`docs/plans/`](plans/) — plans start in `~/.claude/plans/`, copied here on approval.
 
 ---
 
 ## Research
-
-Timestamped research outputs from `/deep-research` pipelines. Preserved permanently; key findings extracted into guides by `/distill`.
-
-→ [`docs/research/`](research/)
+→ [`docs/research/`](research/) — `/deep-research` outputs; key findings extracted by `/distill`.
 
 ---
 
 ## Reference Documentation
-
 | Doc | Purpose |
 |-----|---------|
 | [project-tracker.md](project-tracker.md) | Active workstreams and priorities |
 
 ---
-
 *Last updated: [DATE]. Maintained by `/update-docs`.*
 ```
 
@@ -397,16 +376,7 @@ mkdir -p docs   # for project-tracker.md (3b) and README.md (3d)
 mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 ```
 
-**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, or `docs/research/` with `.gitkeep` files. These are lazy directories — created by the skill that first writes to them:
-
-- `tasks/handoffs/` — created by `coordinator:handoff` on first session hand-off
-- `archive/completed/` — created by `coordinator:session-end` on first archived completion
-- `docs/wiki/` — created by `coordinator:distill` when the first guide is extracted
-- `docs/plans/` — created when the first plan is copied from `~/.claude/plans/`
-- `docs/research/` — created by `deep-research:research` on first research run
-- **`tasks/review-trail/`:** created on first session-end review. Contains per-session JSON marker records consumed by `/workday-complete` Step 9 and `/workweek-complete` Step 7. Lifecycle parallels `tasks/week-changelog/` — archived to `archive/review-trail/<week-starting>/` at workweek-complete.
-
-Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory (they see it exists but empty, rather than understanding it is built lazily).
+**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, or `tasks/review-trail/` with `.gitkeep` files — these are lazy directories, each created by the skill that first writes to them (see lazy-creation table above). Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory.
 
 #### 3f. .gitignore handling
 
@@ -486,7 +456,7 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
 2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
 3. **Run `/session-start`** — verifies everything is wired up correctly
-4. **Introspect coordinator / plugin bindings** — `coordinator_whoami` is the canonical introspection surface; run `python3 -m coordinator_whoami --human` to verify the coordinator sees this project correctly. Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
+4. **Introspect coordinator / plugin bindings** — `coordinator_whoami` is the canonical introspection surface; run `python3 -m coordinator_whoami.project_rag --human` (or `py -3 -m coordinator_whoami.project_rag --human` on Windows Git Bash) to verify the coordinator sees this project correctly. Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
 5. **If `machine-local get repos.*` fails** — the machine-local registry is not yet bootstrapped for this project. See [`coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md) probes P-1 through P-4 to bootstrap the registry.
 
 ### Documentation System

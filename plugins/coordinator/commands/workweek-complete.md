@@ -103,29 +103,15 @@ This check is informational when the marker is fresh; it is a **blocking gate** 
 
 ## Step 4c: UBT Pending-Record Merge Gate (UE plugin work only)
 
-Scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records created this week that have NO corresponding `*.ubt-compile.resolved.json` sibling.
+Scan for `*.ubt-compile.pending.json` records in `tasks/review-trail/` with no `.resolved.json` sibling:
 
 ```bash
-# Find unresolved pending records (pending without a .resolved.json sibling)
 UNRESOLVED=$(find tasks/review-trail -maxdepth 1 -name "*.ubt-compile.pending.json" -type f 2>/dev/null | while read -r f; do
-  base="${f%.pending.json}"
-  [[ ! -f "${base}.resolved.json" ]] && echo "$f"
+  base="${f%.pending.json}"; [[ ! -f "${base}.resolved.json" ]] && echo "$f"
 done)
 ```
 
-- **No unresolved records:** Step 4c passes silently. Proceed to Step 5.
-- **All pending records have resolved siblings:** Step 4c passes silently. Proceed to Step 5.
-- **One or more pending records lack a resolved sibling:** Halt and emit the unresolved `sha_range` list:
-  ```
-  ERROR: UBT pending records without resolved siblings:
-    <sha_range from record 1>
-    <sha_range from record 2>
-  Remediation: run /workday-complete on the affected day(s) to resolve pending records,
-  or override with COORDINATOR_OVERRIDE_UBT_GATE=1 (same escape hatch as Step 1 UBT preamble).
-  ```
-  Do NOT proceed to Step 5 (merge) until the pending records are resolved.
-
-This step mirrors Step 4b's freshness-check pattern — cheap grep gate, expensive work deferred to /workday-complete Step 1 UBT preamble. Applies only when `bin/check-ubt-build-fresh.sh` exists in the repo root (non-UE repos see no pending records and this step passes silently).
+Passes silently when none found. If any are unresolved, halt and emit their `sha_range` values with remediation: _"run /workday-complete on the affected day(s) or override with `COORDINATOR_OVERRIDE_UBT_GATE=1`."_ Non-UE repos have no pending records; this step passes silently. Mirrors Step 4b pattern.
 
 ---
 
@@ -175,36 +161,20 @@ Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `
 
 ## Step 4f: enabledPlugins Drift Audit Advisory
 
-*Lesson 2026-05-14 — `enabledPlugins: true` entries drift silently across repos.* Plugin installs write `true` lines into the active project's `settings.json` without review; cross-contamination compounds over months (e.g., `/build-mcp*` polluting holodeck; `data-science` enabled on UE projects). **Per-repo advisory** — audits THE CURRENT REPO's `enabledPlugins` against its declared `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`. Cross-machine drift surfaces only via the central queue if multiple repos report.
+*Lesson 2026-05-14 — `enabledPlugins: true` entries drift silently across repos.* Plugin installs write `true` lines without review; cross-contamination compounds over months. **Per-repo advisory** — audits the current repo's `enabledPlugins` against its `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
 
 ```bash
-# Advisory only — never blocks. Lists enabledPlugins keys present in this repo's
-# settings.json that the repo's project_type / stack_tags don't justify.
 set +e
 if [[ -f .claude/settings.json ]]; then
-  _EP_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/audit-enabled-plugins.sh 2>&1)
-  _EP_RC=$?
+  _EP_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/audit-enabled-plugins.sh 2>&1); _EP_RC=$?
 else
-  _EP_OUT="(no .claude/settings.json — skipped)"
-  _EP_RC=0
+  _EP_OUT="(no .claude/settings.json — skipped)"; _EP_RC=0
 fi
 set -e
-echo "---"
-echo "enabledPlugins drift advisory (rc=$_EP_RC):"
-echo "$_EP_OUT"
-echo "---"
-# _EP_RC is never propagated to ceremony exit
+echo "---"; echo "enabledPlugins drift advisory (rc=$_EP_RC):"; echo "$_EP_OUT"; echo "---"
 ```
 
-The helper reads `.claude/settings.json` + `coordinator.local.md` frontmatter (`project_type`/`stack_tags`) and emits a line per unjustified `enabledPlugins: true` entry (e.g., `mcp-server-dev` on a non-MCP repo, `data-science` on UE). `project_type: meta` short-circuits — `~/.claude` intentionally enables all plugins per global CLAUDE.md. Justification table is the tuning surface inside the script.
-
-**Full uninstall is a 3-step ceremony** (removing the `enabledPlugins` line alone leaves the plugin discoverable on next install retry):
-
-1. Remove the `enabledPlugins` entry from **every project's** `.claude/settings.json` (not just this one).
-2. Remove the plugin's entry from `~/.claude/plugins/installed_plugins.json`.
-3. Delete the cache dir: `rm -rf ~/.claude/plugins/cache/<marketplace>/<plugin>/`.
-
-Missing any step leaves a partial-install state where the next `enable` re-arms the entries without re-prompting. EM surfaces the 3-step recipe when the advisory reports drift; PM authorizes the uninstall. Pattern mirrors Step 4d; lesson source `tasks/lessons.md:302` (claude-central, 2026-05-14).
+Advisory only — never blocks. `project_type: meta` short-circuits (all plugins intentional). When drift is reported, **full uninstall requires 3 steps** (removing the `enabledPlugins` line alone leaves a partial-install state): (1) remove entry from every project's `.claude/settings.json`; (2) remove from `~/.claude/plugins/installed_plugins.json`; (3) `rm -rf ~/.claude/plugins/cache/<marketplace>/<plugin>/`. EM surfaces the recipe; PM authorizes.
 
 ---
 
@@ -241,125 +211,19 @@ done
 
 Before invoking `parallel-code-review`, compute the Staff Engineer's narrowed scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the Staff Engineer's lens narrows.
 
+Run the helper (fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`):
+
 ```bash
-# WEEK_START parsing is fail-loud; silent fallback to today violated the detect-then-silently-pick rule.
-HEADER_FILE="tasks/week-changelog/HEADER.md"
-if [[ ! -f "$HEADER_FILE" ]]; then
-  echo "ERROR: $HEADER_FILE not found — run /workweek-start to initialise." >&2
-  exit 1
-fi
-WEEK_START=$(grep -E '^\*\*Week starting:\*\*' "$HEADER_FILE" | sed -E 's/^\*\*Week starting:\*\* +([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/' | head -1)
-if [[ -z "$WEEK_START" || ! "$WEEK_START" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-  echo "ERROR: cannot parse 'Week starting:' YYYY-MM-DD from $HEADER_FILE" >&2
-  exit 1
-fi
-TODAY=$(date -u +%Y-%m-%d)
-export WEEK_START TODAY
-
-# 1. Glob all trail records; filter by date-prefix in the Python block below.
-# (find -newermt requires GNU date arithmetic; filename-prefix comparison is portable.)
-TRAIL_FILES=$(find tasks/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
-export TRAIL_FILES
-
-# 2-7. Compute scope in Python: set subtraction, cross-segment seam detection,
-#      and JSON output — all fail-loud on any subprocess error.
-python - <<'PYEOF'
-import json, os, subprocess, sys
-
-week_start = os.environ.get("WEEK_START", "")
-today      = os.environ.get("TODAY", "")
-trail_env  = os.environ.get("TRAIL_FILES", "")
-
-if not week_start or not today:
-    print("ERROR: WEEK_START and TODAY must be set before invoking this block", file=sys.stderr)
-    sys.exit(1)
-
-# ---- (a) Load trail records for this week (filename-prefix range filter) ------
-trail_files = [f.strip() for f in trail_env.split("\n") if f.strip() and f.strip().endswith(".json")]
-# Keep only files whose date prefix falls within [WEEK_START, TODAY] (inclusive).
-week_records = []
-for f in trail_files:
-    basename = os.path.basename(f)
-    date_prefix = basename[:10]  # "YYYY-MM-DD"
-    if week_start <= date_prefix <= today:
-        try:
-            with open(f) as fh:
-                rec = json.load(fh)
-            week_records.append(rec)
-        except Exception as e:
-            print(f"ERROR: could not parse trail record {f}: {e}", file=sys.stderr)
-            sys.exit(1)
-
-# ---- (b) Expand each trail record to its SHA list and file-touch set -----------
-def run(cmd):
-    result = subprocess.run(cmd, capture_output=True, text=True, shell=False)
-    if result.returncode != 0:
-        print(f"ERROR: command failed: {' '.join(cmd)}\n{result.stderr}", file=sys.stderr)
-        sys.exit(1)
-    return result.stdout.strip()
-
-segment_shas   = []   # list of sets, one per segment
-segment_files  = []   # list of sets, one per segment
-
-for rec in week_records:
-    sha_range = rec.get("sha_range", "")
-    if not sha_range or ".." not in sha_range:
-        print(f"ERROR: trail record has invalid sha_range: {sha_range!r}", file=sys.stderr)
-        sys.exit(1)
-    shas_out   = run(["git", "rev-list", sha_range])
-    files_out  = run(["git", "diff", "--name-only", sha_range])
-    shas_set   = set(shas_out.splitlines()) if shas_out else set()
-    files_set  = set(files_out.splitlines()) if files_out else set()
-    segment_shas.append(shas_set)
-    segment_files.append(files_set)
-
-# ---- (c) reviewed_set = union of all segment SHA sets -------------------------
-reviewed_set = set()
-for s in segment_shas:
-    reviewed_set |= s
-
-# ---- (d) weekly_diff_shas = commits on HEAD not yet on origin/main ------------
-weekly_raw = run(["git", "log", "origin/main..HEAD", "--format=%H"])
-weekly_diff_shas = set(weekly_raw.splitlines()) if weekly_raw else set()
-
-# ---- (e) unreviewed_set = weekly_diff_shas - reviewed_set ---------------------
-unreviewed_set = weekly_diff_shas - reviewed_set
-
-# ---- (f) cross_segment_seams = files touched by ≥2 distinct segments ----------
-cross_segment_seams = set()
-for i in range(len(segment_files)):
-    for j in range(i + 1, len(segment_files)):
-        cross_segment_seams |= segment_files[i] & segment_files[j]
-
-# ---- (g) patrik_scope = unreviewed_set ∪ seam SHAs (deduped list) -------------
-# For file seams we include the SHAs from any segment that touched those files.
-seam_shas = set()
-for k, fset in enumerate(segment_files):
-    if fset & cross_segment_seams:
-        seam_shas |= segment_shas[k]
-
-patrik_shas  = sorted(unreviewed_set | seam_shas)
-seam_files   = sorted(cross_segment_seams)
-
-# ---- (h) Write the scope file --------------------------------------------------
-scope_path = "tasks/review-trail/.weekly-reviewer-scopes.json"
-scope_obj  = {
-    "patrik":           patrik_shas,
-    "patrik_seam_files": seam_files,
-    "mechanical_workers": "full"
-}
-try:
-    with open(scope_path, "w") as fh:
-        json.dump(scope_obj, fh, indent=2)
-except Exception as e:
-    print(f"ERROR: could not write {scope_path}: {e}", file=sys.stderr)
-    sys.exit(1)
-
-print(f"Scope written: {len(patrik_shas)} patrik SHA(s), {len(seam_files)} seam file(s) → {scope_path}")
-PYEOF
+bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
 ```
 
-**Cross-segment-seam definition:** A *segment* is the sha-range of one trail record (one session-end review). `cross_segment_seams` is the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The file-touch set per segment is derived from `git diff --name-only <sha-range>`.
+**Contract:** The helper parses `Week starting:` from HEADER.md, filters trail records to the current week by filename date-prefix, then computes:
+- `reviewed_set` — union of all segment SHA sets
+- `unreviewed_set` — weekly `origin/main..HEAD` SHAs minus `reviewed_set`
+- `cross_segment_seams` — file paths touched by ≥2 distinct trail segments (pairwise intersection)
+- `patrik_scope` — `unreviewed_set ∪ seam_SHAs`
+
+Output JSON shape: `{ "patrik": [sha...], "patrik_seam_files": [path...], "mechanical_workers": "full" }`. Fail-loud on missing HEADER.md, unparseable `Week starting:` date, missing `sha_range`, or any git subprocess error. Implementation: `coordinator/lib/workweek-trail-scope.sh`.
 
 ---
 
@@ -465,60 +329,43 @@ Collect all entries with `status: pending-release` from the past 7 days. If the 
 
 ### 9.2 Dispatch Sonnet editorial worker
 
-Dispatch a Sonnet worker with the entry corpus and the following bucketing rules:
+Dispatch a Sonnet worker with the entry corpus. The worker assigns each entry to exactly one bucket and writes `tasks/week-changelog/YYYY-MM-DD-pending-release.md`.
 
-**Bucket definitions:**
+**Default bucket rules** (primary key: `nature`; refined by `loe.tshirt` when present):
 
-| Bucket | Default rule | Examples |
-|--------|-------------|---------|
-| **Highlights** | `nature: roadmap` — new capabilities, features, or commands that advance the product roadmap | new skill, new command, new agent, new pipeline stage |
-| **Notable** | `nature: bugfix` AND user-visible; OR PM-override | fix that changes user-observed behaviour, UX improvement |
-| **Other** | `nature: tech-debt`, `nature: infra`, or invisible-to-users | internal refactor, dependency bump, doc update, test improvement |
+| nature | tshirt | Bucket |
+|--------|--------|--------|
+| roadmap | L, XL | **Highlights** |
+| roadmap | S, M | **Notable** |
+| roadmap | XS | **Other** |
+| bugfix (user-visible) | any | **Notable** |
+| bugfix | XL | **Notable** |
+| bugfix | S, M, L | **Other** |
+| tech-debt / infra | non-XL | **Other** |
+| tech-debt / infra | XL | **Notable** (EM call) |
 
-**Worker instructions (inline these verbatim in the dispatch):**
+EM override permitted for any entry — state overrides explicitly in the dispatch.
 
-> For each entry in the corpus, assign it to exactly one bucket (Highlights / Notable / Other) using the default rules above. Produce a structured file at `tasks/week-changelog/YYYY-MM-DD-pending-release.md` (use today's date). Format:
->
-> ```markdown
-> # Pending Release — YYYY-MM-DD
->
-> _Source entries queried: N_
-> _Code-review gate verdict: [OK | WARN <verdict-line> | not-run]_
->
-> ## Highlights
->
-> - <summary> — [source](relative/path/to/per-entry-file.md)
->
-> ## Notable
->
-> - <summary> — [source](relative/path/to/per-entry-file.md)
->
-> ## Other
->
-> - <summary> — [source](relative/path/to/per-entry-file.md)
-> - ... and assorted fixes  _(collapse long tails with this line)_
-> ```
->
-> If a bucket is empty, include the `## Heading` with `_none this week_` beneath it.
-> Each entry MUST cite its source per-entry file via a relative path.
-> If the parallel-code-review gate (Step 7) produced a WARN verdict, include the verdict line verbatim under `_Code-review gate verdict:_`.
+**Worker output format** (`tasks/week-changelog/YYYY-MM-DD-pending-release.md`):
 
-**Bucketing rules (refined with LoE):** When `loe.tshirt` is present on an entry, use it to sharpen the bucket assignment beyond the nature-only defaults above:
+```markdown
+# Pending Release — YYYY-MM-DD
 
-| nature | tshirt | Default bucket | Rationale |
-|--------|--------|----------------|-----------|
-| roadmap | L, XL | **Highlights** | Almost always — large roadmap work defines the week |
-| roadmap | S, M | **Notable** | Meaningful roadmap progress, not landmark |
-| roadmap | XS | **Other** | Likely a doc/spec roadmap entry, not a shipped capability |
-| bugfix | XL | **Notable** | Emergency that took serious work — call it out |
-| bugfix | S, M, L | **Other** | Unless user-visible — EM override applies |
-| tech-debt or infra | any | **Other** | Unless XL — XL infra warrants Notable or Highlights call-out |
+_Source entries queried: N_
+_Code-review gate verdict: [OK | WARN <verdict-line> | not-run]_
 
-EM judgment override always permitted; these rules are defaults.
+## Highlights
+- <summary> — [source](relative/path/to/per-entry-file.md)
 
-**EM override:** EM of ceremony may reclassify any entry before the worker writes the file (e.g. promote a tech-debt entry to Highlights if it unblocks a roadmap item). State overrides explicitly in the worker dispatch.
+## Notable
+- <summary> — [source](relative/path/to/per-entry-file.md)
 
-**"…and assorted fixes" collapse:** acceptable for Other-bucket long tails (≥5 entries of similar nature). Do not collapse Highlights or Notable.
+## Other
+- <summary> — [source](relative/path/to/per-entry-file.md)
+- ... and assorted fixes  _(collapse long tails ≥5 similar entries; not for Highlights/Notable)_
+```
+
+Empty buckets: include the `## Heading` with `_none this week_`. Each entry cites its source file. WARN verdict from Step 7 goes verbatim under `_Code-review gate verdict:_`.
 
 ### 9.3 Worker writes pending-release file
 
