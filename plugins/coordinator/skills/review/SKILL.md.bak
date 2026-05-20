@@ -60,19 +60,19 @@ _See `docs/wiki/plan-coverage-checker.md` for trigger rationale and lens details
 
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
-| Game dev / Unreal / DroneSim | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
-| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
-| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
-| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Major DroneSim feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
-| Other / unmatched | the Staff Engineer | (none) | Medium |
+| Game dev / Unreal / DroneSim | Sid | Patrik | Medium → Medium |
+| Architectural change, new subsystem | Patrik | (backstop: Zolí) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | Zolí (standalone — DoE altitude) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | Zolí (standalone — DoE altitude) | (none) | High |
+| Front-end, CSS, UI components | Palí | (backstop: Fru) | Medium |
+| Front-end + architecture | Palí | Patrik | Medium → High |
+| ML/AI pipeline, model serving, RAG | Camelia | Patrik | High → High |
+| UX flow, user-facing feature | Fru | (backstop: Patrik) | Low → Medium |
+| Cross-cutting (many files, new pattern) | Patrik | (backstop: Zolí) | High |
+| Major DroneSim feature / new game mode | Sid | Patrik | High → High |
+| Other / unmatched | Patrik | (none) | Medium |
 
-**the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch the Director of Engineering **standalone** with `mode: "standalone"` in the prompt — do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The "(backstop: the Director of Engineering)" entries above are the chained-after-the Staff Engineer usage for High-effort architectural reviews; that mode is still in play but does not exhaust the Director of Engineering's role.
+**Zolí standalone vs. Zolí backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch Zolí **standalone** with `mode: "standalone"` in the prompt — do NOT run Patrik first. Standalone Zolí is a peer of Patrik in technical rigor with the additional cross-team authority Patrik's EM altitude would hedge on. The "(backstop: Zolí)" entries above are the chained-after-Patrik usage for High-effort architectural reviews; that mode is still in play but does not exhaust Zolí's role.
 
 If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
 
@@ -150,9 +150,9 @@ Walk each finding against the triage table below — it lands in exactly one row
 
 ## Prior-Art Mutability and Reviewer Elevation
 
-**Prior-art mutability as first-class deliverable.** When the PM authorizes prior-art mutation as an explicit deliverable of the review (i.e., the plan is intended to *update* settled doctrine, not simply comply with it), the DoE-elevated reviewer (typically the Director of Engineering) MAY override the prior-art-checker sidecar's `update-plan` / `update-prior-art` recommendation with an explicit cross-reference to the PM authorization in their findings. Default mode is still "plan adapts to prior art"; prior-art mutation is opt-in and requires PM sign-off stated in the dispatch brief.
+**Prior-art mutability as first-class deliverable.** When the PM authorizes prior-art mutation as an explicit deliverable of the review (i.e., the plan is intended to *update* settled doctrine, not simply comply with it), the DoE-elevated reviewer (typically Zolí) MAY override the prior-art-checker sidecar's `update-plan` / `update-prior-art` recommendation with an explicit cross-reference to the PM authorization in their findings. Default mode is still "plan adapts to prior art"; prior-art mutation is opt-in and requires PM sign-off stated in the dispatch brief.
 
-**Reviewer elevation must be stated verbatim in the dispatch brief.** Elevating a reviewer past their charter (e.g., the Director of Engineering from ambition-backstop to DoE-with-mutation-authority) without verbatim brief language reverts at integrator-apply — the reviewer's prompt-defined charter is the default boundary. If the PM authorizes elevation, the EM must include the exact authorization phrase (e.g., "PM-authorized to override prior-art-checker on this run") in the dispatch brief to the reviewer; otherwise the integrator will treat the override as out-of-charter and escalate as ASK.
+**Reviewer elevation must be stated verbatim in the dispatch brief.** Elevating a reviewer past their charter (e.g., Zolí from ambition-backstop to DoE-with-mutation-authority) without verbatim brief language reverts at integrator-apply — the reviewer's prompt-defined charter is the default boundary. If the PM authorizes elevation, the EM must include the exact authorization phrase (e.g., "PM-authorized to override prior-art-checker on this run") in the dispatch brief to the reviewer; otherwise the integrator will treat the override as out-of-charter and escalate as ASK.
 
 ---
 
