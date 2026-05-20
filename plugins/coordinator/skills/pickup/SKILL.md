@@ -85,7 +85,7 @@ After reading the handoff, extract the handoff's date from its filename (`YYYY-M
 - **Prior day (handoff date < today):** glob `tasks/week-changelog/*.md`, excluding `HEADER.md`. Filter to daily files whose filename date is strictly after the handoff date. For each matching file, emit one line:
 
   ```
-  <date> (<hostname>): <Scope field value> — <Plans touched: shipped entries, if any>
+  <date> (<hostname>): <Scope field value> — <Plans touched: implemented entries, if any>
   ```
 
   Cap the surface at ~10 lines. If more files exist than the cap:

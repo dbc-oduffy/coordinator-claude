@@ -74,7 +74,7 @@ Enricher-specific pattern: If you've searched for a file/symbol 3+ different way
 
 Before beginning file discovery via Glob/Grep, check what's already been mapped. Read these in order, skipping any that don't exist:
 
-1. **Architecture atlas** — `tasks/architecture-atlas/systems-index.md` and `file-index.md`. These map the entire codebase by system: which files belong to which systems, cross-system dependencies, connectivity. If the stub's domain maps to a known system, read its system page at `tasks/architecture-atlas/systems/{system-name}.md`.
+1. **Architecture atlas** — `docs/architecture/systems-index.md` and `file-index.md`. These map the entire codebase by system: which files belong to which systems, cross-system dependencies, connectivity. If the stub's domain maps to a known system, read its system page at `docs/architecture/systems/{system-name}.md`.
 
 2. **Wiki guides** — `docs/wiki/DIRECTORY_GUIDE.md` for the guide index, then any guide relevant to the stub's domain. These contain distilled technical knowledge — design decisions, patterns in use, integration points.
 

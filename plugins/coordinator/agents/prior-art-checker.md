@@ -123,7 +123,7 @@ The sidecar opens with frontmatter so the frontmatter linter does not flag it. U
 title: Prior-Art Check — <plan slug>
 created: <YYYY-MM-DD>
 author: prior-art-checker
-status: shipped
+status: implemented
 kind: prior-art-check
 plan: <plan-path-relative-to-repo-root>
 ---

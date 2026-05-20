@@ -108,17 +108,33 @@ Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system
 
 **After reading:** Note the count. No need to recite principles — they're in CLAUDE.md.
 
-### Addon health (RED only)
+### Addon health (RED only + bootstrap notice)
 
 Plugins that ship a doctor skill may write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Session-start surfaces RED verdicts only — stale-but-green is workday-start's beat, not every-session noise.
 
 ```bash
 ~/.claude/plugins/coordinator/bin/scan-addon-health.sh --red-only
+~/.claude/plugins/coordinator/bin/scan-addon-health.sh --check-sentinel-presence
 ```
 
-If any lines are emitted, surface them verbatim under an **Addon Health** heading early in the orient output — RED on a registered MCP corpus (e.g. project-rag engine modules) means downstream tools will silently fall back, so the operator needs to see it before choosing work. The corresponding doctor skill is the remediation surface (e.g. `/project-rag-ue-addon:doctor`); the EM may dispatch it directly when surfaced. If empty, skip silently.
+If any lines are emitted by either call, surface them verbatim under an **Addon Health** heading early in the orient output. The `--red-only` call flags active RED verdicts; the `--check-sentinel-presence` call emits a one-time bootstrap notice when plugins are installed but no doctor has been run yet (fresh install). The notice is silent on every subsequent session once any sentinel exists. If both calls produce empty output, skip the heading silently.
+
+- RED verdict: the corresponding doctor skill is the remediation surface (e.g. `/project-rag-ue-addon:doctor`); the EM may dispatch it directly when surfaced.
+- Bootstrap notice: prompts the operator to run `/coordinator:setup` and plugin doctors to establish a health baseline.
 
 Schema and convention: `docs/wiki/addon-health-sentinel.md`.
+
+### Coordinator / project-rag binding spot-check
+
+**Conditional on project-rag plugin:** Only if `coordinator_whoami` is importable (i.e. the `coordinator-whoami` package was installed by `setup.sh`). Skip silently if the import fails.
+
+```bash
+python3 -m coordinator_whoami.project_rag --human 2>/dev/null | head -20 || true
+```
+
+This surfaces the live binding between coordinator and project-rag — registered project root, MCP server args, and addon-health verdict — without launching a full doctor run. Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6.
+
+If the command emits nothing (package absent or project-rag not registered), skip silently — the addon-health block above already covers the sentinel-presence case.
 
 ### Handoffs
 
@@ -253,18 +269,20 @@ Report briefly: _"Project subsystems: {N} available via project_subsystem_profil
 
 **Key behavior change:** When you need to understand a subsystem before delegating work, call `project_subsystem_profile("<name>")` instead of dispatching an Explore agent. The profile returns C++ surface, BP surface, dependencies, and complexity signals — all deterministic SQL at <200ms, replacing 150-300K token Explore dispatches.
 
-**Freshness nudge:** Also invoke the staleness-survey script:
+**Freshness nudge:** Also invoke the staleness-survey script. Resolve the plugin CLI path and project root from `~/.claude.json` (same resolution as `commands/workday-start.md` Step 3.6 — do not duplicate threshold logic):
 
 ```bash
-python <plugin-cli-path> staleness-survey --project-root <project-root> --json
+# Resolve plugin CLI path and project root from ~/.claude.json MCP server args
+_rag_cli=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); args=d['mcpServers']['project-rag']['args']; print(next(a for a in args if a.endswith('.py') or a.endswith('cli')))" 2>/dev/null)
+_rag_root=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); args=d['mcpServers']['project-rag']['args']; print(args[-1])" 2>/dev/null)
+python3 "$_rag_cli" staleness-survey --project-root "$_rag_root" --json
 ```
 
 If verdict ≠ `current`, append one line to the orientation brief:
 
 > _"Project-RAG last scanned {age}. Verdict: {verdict}. Recommend: {recommendation_command}."_
 
-Use the same script as `workday-start.md` Step 3.6 — do not duplicate threshold logic.
-Skip silently if verdict is `current`.
+Skip silently if verdict is `current`, or if either path could not be resolved from `~/.claude.json`.
 
 ---
 

@@ -18,7 +18,7 @@ Rotate through project systems ensuring complete coverage. Uses a weighted scori
 
 ### Step 1: Calculate Rotation Scores
 
-**Prerequisite check:** If no health ledger exists (`tasks/health-ledger.md`) AND no atlas exists (`tasks/architecture-atlas/systems-index.md`):
+**Prerequisite check:** If no health ledger exists (`tasks/health-ledger.md`) AND no atlas exists (`docs/architecture/systems-index.md`):
 
 > _"No baseline exists. Use /architecture-audit first to bootstrap the atlas and health ledger."_
 
@@ -52,7 +52,7 @@ Read `tasks/debt-backlog.md` for the target system. If open items exist:
 
 Before dispatching the reviewer, check for atlas context on the target system:
 
-1. Check for `tasks/architecture-atlas/systems/{target-system}.md`
+1. Check for `docs/architecture/systems/{target-system}.md`
 2. **If it exists:** Include the atlas page content in the reviewer's dispatch prompt as background context. This gives the reviewer structural knowledge — function inventory, flow diagrams, boundary catalog — so they focus on changes since last mapping and quality assessment, not rediscovery.
 3. **If it doesn't exist:** Proceed without atlas context. The reviewer discovers the system from scratch (pre-atlas behavior).
 
@@ -123,7 +123,7 @@ For findings that represent real debt:
 
 ### Step 6.5: Update Atlas Page
 
-If `tasks/architecture-atlas/systems/{target-system}.md` exists, the coordinator (not the reviewer) reads the reviewer's findings and mechanically patches the atlas page:
+If `docs/architecture/systems/{target-system}.md` exists, the coordinator (not the reviewer) reads the reviewer's findings and mechanically patches the atlas page:
 
 1. Add/remove functions mentioned in review findings
 2. Update boundary entries if cross-system connections changed

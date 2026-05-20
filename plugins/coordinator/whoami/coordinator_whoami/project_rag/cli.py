@@ -267,8 +267,11 @@ def _probe_claude() -> dict[str, Any]:
         """Return health verdict for a single mcpServers entry, or None if absent."""
         if entry is None:
             return None
-        command = entry.get("command") or entry.get("args")
-        if not command:
+        # HTTP-transport entries carry "url" instead of "command"/"args"
+        # (post-multi-RAG MCP daemon shape); accept either as evidence of a
+        # configured entry. Cf. project-rag-ue-addon dogfood F4 (2026-05-20).
+        endpoint = entry.get("command") or entry.get("args") or entry.get("url")
+        if not endpoint:
             return "broken"
         return "healthy"
 
@@ -439,6 +442,11 @@ def _find_best_registry_entry() -> dict | None:
         if registry_path_env:
             registry_path = Path(registry_path_env)
         else:
+            # Verified canonical 2026-05-20: project-rag's installer writes here
+            # (core/source_registry.py:56, project_rag_scripts/_register_source.py:45,
+            # wire.py:44 all concur). Audit ref: coordinator-doctor.md L-1 finding.
+            # If project-rag migrates this path, update here and the docstrings for
+            # _resolve_bound_project_root and _probe_source below.
             registry_path = Path.home() / ".project-rag" / "projects.json"
 
         if not registry_path.exists():

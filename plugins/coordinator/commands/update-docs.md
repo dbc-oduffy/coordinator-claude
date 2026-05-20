@@ -213,7 +213,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `tasks/architecture-atlas/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 13: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
+**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `docs/architecture/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 13: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -401,7 +401,7 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
    PLANS=$(find docs/plans/ -name "*.md" 2>/dev/null | wc -l)
    HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
    COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
-   TASKS=$(find tasks/ -mindepth 2 -name "*.md" -not -path "tasks/architecture-atlas/*" -not -name "lessons.md" -not -name "health-ledger.md" -not -name "bug-backlog.md" -not -name "debt-backlog.md" 2>/dev/null | wc -l)
+   TASKS=$(find tasks/ -mindepth 2 -name "*.md" -not -name "lessons.md" -not -name "health-ledger.md" -not -name "bug-backlog.md" -not -name "debt-backlog.md" 2>/dev/null | wc -l)
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```
 

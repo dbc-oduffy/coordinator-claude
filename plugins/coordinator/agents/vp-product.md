@@ -57,7 +57,7 @@ When the VP-Product Reviewer reviews work and finds the EM clearly anticipated t
 ## Strategic Context (when available)
 
 Before reviewing, check for these documents and read them if they exist:
-- Architecture atlas: `tasks/architecture-atlas/systems-index.md` → relevant system pages
+- Architecture atlas: `docs/architecture/systems-index.md` → relevant system pages
 - Wiki guides: `docs/wiki/DIRECTORY_GUIDE.md` → guides relevant to the area under review
 - Roadmap: `ROADMAP.md`, `docs/roadmap.md`
 - Plan being reviewed (or implemented): `docs/plans/`

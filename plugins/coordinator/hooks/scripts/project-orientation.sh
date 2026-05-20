@@ -27,7 +27,7 @@ if [ -f "$CACHE" ]; then
         # These are the paths whose state the orientation cache summarizes.
         # --quiet short-circuits on the first differing path (no name list materialized).
         if git diff --quiet "${CACHE_HEAD}..HEAD" -- \
-            plugins/ tasks/health-*.md tasks/architecture-atlas/ \
+            plugins/ tasks/health-*.md docs/architecture/ \
             .github/ CLAUDE.md DIRECTORY.md tasks/ 2>/dev/null; then
             # No cache-relevant changes since generation — cache is fresh
             echo ""
@@ -40,7 +40,7 @@ if [ -f "$CACHE" ]; then
         # Cache-relevant files changed — compute a sample file name for the banner,
         # then emit stale cache with warning.
         CHANGED=$(git diff --name-only "${CACHE_HEAD}..HEAD" -- \
-            plugins/ tasks/health-*.md tasks/architecture-atlas/ \
+            plugins/ tasks/health-*.md docs/architecture/ \
             .github/ CLAUDE.md DIRECTORY.md tasks/ \
             2>/dev/null | head -1)
         echo ""

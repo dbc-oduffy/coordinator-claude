@@ -14,8 +14,12 @@
 #   }
 #
 # Modes:
-#   --red-only         emit lines only for RED verdicts (session-start)
-#   --red-and-stale    emit lines for RED + stale (>24h) + missing sentinels (workday-start, default)
+#   --red-only                emit lines only for RED verdicts (session-start)
+#   --red-and-stale           emit lines for RED + stale (>24h) + missing sentinels (workday-start, default)
+#   --check-sentinel-presence fresh-install bootstrap check (session-start, alongside --red-only):
+#                               exit 0 + empty output  → no plugins installed, OR sentinels exist
+#                               exit 0 + one-line msg  → plugins installed but no sentinel in any data/ dir
+#                             Fires at most once per install life (sentinels appear after first doctor run).
 #
 # Output: zero or more lines, each of the form
 #   [health] <plugin>: <message>
@@ -30,8 +34,10 @@ if [[ "${1:-}" == "--red-only" ]]; then
   MODE="--red-only"
 elif [[ "${1:-}" == "--red-and-stale" ]]; then
   MODE="--red-and-stale"
+elif [[ "${1:-}" == "--check-sentinel-presence" ]]; then
+  MODE="--check-sentinel-presence"
 elif [[ -n "${1:-}" ]]; then
-  echo "scan-addon-health.sh: unknown mode '$1' (expected --red-only or --red-and-stale)" >&2
+  echo "scan-addon-health.sh: unknown mode '$1' (expected --red-only, --red-and-stale, or --check-sentinel-presence)" >&2
   exit 2
 fi
 
@@ -39,6 +45,28 @@ STALE_SEC="${COORDINATOR_HEALTH_STALE_SEC:-86400}"
 PLUGINS_ROOT="${COORDINATOR_PLUGINS_ROOT:-$HOME/.claude/plugins}"
 
 [[ -d "$PLUGINS_ROOT" ]] || exit 0
+
+# --check-sentinel-presence: bootstrap notice for fresh installs that have never run a doctor.
+# Logic: count installed plugin dirs, then count existing sentinels. If plugins exist but no
+# sentinel is present anywhere, emit a one-line bootstrap notice; otherwise stay silent.
+if [[ "$MODE" == "--check-sentinel-presence" ]]; then
+  shopt -s nullglob 2>/dev/null || true
+  plugin_dirs=( "$PLUGINS_ROOT"/*/ )
+  installed_count=${#plugin_dirs[@]}
+  if [[ "$installed_count" -eq 0 ]]; then
+    # No plugins installed — genuine empty state; nothing to nag about.
+    exit 0
+  fi
+  # Count sentinels across all installed plugins.
+  sentinel_count=0
+  for sentinel in "$PLUGINS_ROOT"/*/data/doctor-last-run.json; do
+    [[ -f "$sentinel" ]] && (( sentinel_count++ )) || true
+  done
+  if [[ "$sentinel_count" -eq 0 ]]; then
+    echo "addon-health: no doctor sentinels found across ${installed_count} installed plugin(s) — run /coordinator:setup and your plugin doctors to bootstrap"
+  fi
+  exit 0
+fi
 
 NOW=$(date +%s)
 

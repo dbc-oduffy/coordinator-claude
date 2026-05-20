@@ -64,14 +64,61 @@ admissible **only** if the proposal can answer ALL of:
 4. **No existing CLAUDE.md section already covers the shape.** Demotion of a near-duplicate
    into the proposed addition's home wiki is preferred over adding alongside it.
 
-If any check fails, downgrade the change-kind: `doctrine-edit` → `wiki-append` / `wiki-new`;
-`memory-pointer` → discard (the wiki already carries it; prior-art-check will surface it).
+If any check fails (during DoE adjudication of a worker-flagged escalation, or during DoE
+self-review of a proposed doctrine-edit plan), downgrade: `doctrine-edit` → `wiki-append` /
+`wiki-new` + `doe_escalation: true` (preserve the signal for DoE's separate downstream
+consideration — NOT for further apply steps in the current run); `memory-pointer` →
+`wiki-append` to the wiki that already carries the topic (the prior-art-checker will surface
+it from there — no separate pointer needed).
 
 **Substance and proposed-target are independent.** The original logging EM's `proposed target:` is a suggestion, not a verdict on the lesson's worth. When the proposed target is CLAUDE.md (or a CLAUDE.md pointer) and fails the four-check gate, the default move is **reroute** — pick the right wiki / agent prompt / hook / script surface for the substance — NOT `discard`. Discard is reserved for lessons whose *substance* is ephemeral, already covered by existing doctrine, or factually wrong from the start. "Logger proposed a rule-breaking target, therefore archive" is a category error: it conflates the lesson with its suggested destination. Ask "what problem is this lesson trying to solve, and where does that problem actually live?" before routing.
 
-**Default verdict on doctrine-edit and memory-pointer proposals is REJECT-AND-REROUTE.**
-Surface accepted exceptions to the PM with the four checks answered inline. Do NOT auto-apply
-either kind, regardless of mode.
+**Workers MUST NOT emit `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** Route
+to `wiki-append` / `wiki-new` and set `doe_escalation: true` (with a one-line
+`escalation_reason:`) when the worker believes CLAUDE.md placement deserves DoE consideration.
+The EM/consolidator treats any record arriving with either change-kind as a routing error
+and downgrades it to the corresponding `wiki-*` before the record reaches PM surfacing.
+DoE-authored exceptions (a separate downstream plan, not lifted from worker output) require
+all four justification checks answered inline. **Do NOT auto-apply `doctrine-edit` or
+`memory-pointer` records, regardless of mode** — they always require DoE authoring, the Staff Engineer
+review, and PM surface.
+
+### DoE-only adjudication on CLAUDE.md edits
+
+CLAUDE.md is the largest blast radius surface in the coordinator setup outside Claude Code
+internals — every session boot loads it. The cost of getting a CLAUDE.md edit wrong is paid
+across every future session in every project, by every agent. The receive-side gate must
+match that asymmetry.
+
+**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.**
+Those change-kinds are reserved for the Director of Engineering (the Director of Engineering or the EM operating
+at Claude Central with explicit DoE authority for this run). Worker output that uses either
+change-kind is treated as a routing error and downgraded by the consolidator / EM before
+PM surfacing:
+
+- A worker who believes a lesson is so cross-cutting that CLAUDE.md placement deserves
+  consideration sets `doe_escalation: true` on a `wiki-append` or `wiki-new` record, with a
+  one-line `escalation_reason:` field. The wiki routing is the DEFAULT outcome — escalation
+  is a flag for DoE attention, not a substitute for wiki placement.
+- The wiki edit lands regardless of the escalation flag. The DoE separately considers whether
+  ALSO to add CLAUDE.md content; that is a distinct downstream change, not a replacement.
+- If the DoE accepts the escalation, the CLAUDE.md edit becomes a separate `doctrine-edit`
+  plan authored by the DoE (NOT lifted from worker output), reviewed by the Staff Engineer, and gated
+  on the four-check justification gate + char-budget pre-flight. Many gates before any
+  CLAUDE.md byte changes.
+
+**Why this framing.** EMs writing entries in `tasks/lessons.md` during normal session work
+will continue to suggest CLAUDE.md as the target — we can ameliorate that habit but not stop
+it, and trying to stop it pollutes session work. The load-bearing change is on the *receive*
+side: `learn-lessons` filters those proposals down to a small set the DoE actually considers,
+rather than letting worker-altitude judgment route directly into the highest-blast-radius
+surface in the setup. EMs should only propose CLAUDE.md edits in their own work when they
+have genuine confidence the DoE would approve — most of the time the answer is "this is a
+wiki lesson, write it as one."
+
+The four-check justification gate (above) still applies to DoE-authored doctrine-edit
+proposals. The DoE does not get to bypass it; the gate exists because CLAUDE.md is shared
+infrastructure across every project, not because workers are presumptively careless.
 
 ### Pointer-pollution bound
 
@@ -160,20 +207,29 @@ Each lesson processed produces one record:
       priority: HIGH | MEDIUM | LOW
       depends_on: "<optional id pointer>"
   open_questions: []
+  doe_escalation: false           # workers set true on a wiki-* record when they
+                                  # believe DoE should reconsider CLAUDE.md placement
+  escalation_reason: ""            # one-line; only meaningful if doe_escalation: true
 ```
+
+`doe_escalation` is the worker-side flag for "this might be CLAUDE.md-worthy — DoE please
+look." It rides on a `wiki-append` or `wiki-new` record; the wiki edit lands regardless.
+Workers MUST NOT use `change_kind: doctrine-edit` or `change_kind: memory-pointer` (see
+§ Routing Bias). Records arriving with those change-kinds are treated as routing errors
+and downgraded by the consolidator.
 
 ## Change-Kind Taxonomy (closed enum)
 
 | Kind | Meaning | Apply mechanism |
 |---|---|---|
-| `doctrine-edit` | **EXCEPTIONAL** — edit a CLAUDE.md at a named section. Must clear the four-check justification gate (§ Routing Bias). Default verdict on proposals: reroute to `wiki-append` / `wiki-new`. | Plan → reviewer → executor; PM surface mandatory |
+| `doctrine-edit` | **DoE-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for DoE authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | DoE-authored plan → the Staff Engineer review → executor; PM surface mandatory |
 | `agent-prompt-edit` | Edit a specific agent's prompt file | Plan → reviewer → executor |
 | `hook-edit` | Edit a hook script | Plan → reviewer → executor |
 | `script-edit` | Edit a helper script in `bin/` | Plan → reviewer → executor |
 | `snippet-sync-update` | Edit a synced snippet + run propagation script | Edit + `bin/verify-*-sync.sh --fix` |
 | `wiki-new` | Create a new `docs/wiki/` guide. **Default destination** for non-trivial cross-cutting lessons. | Plan → reviewer → executor; update `DIRECTORY_GUIDE.md` |
 | `wiki-append` | Append to existing wiki guide at named section. **Default destination** for lessons covered by an existing wiki topic. | Direct executor (low judgment) |
-| `memory-pointer` | **EXCEPTIONAL** — add a one-line pointer to MEMORY.md or CLAUDE.md. Same four-check gate as `doctrine-edit`; the prior-art-checker should be reached for first. | Direct edit; PM surface mandatory |
+| `memory-pointer` | **DoE-ONLY** — add a one-line pointer to MEMORY.md or CLAUDE.md. Workers MUST NOT propose; reserved for DoE authoring. Same four-check gate as `doctrine-edit`; prior-art-checker should be reached for first. | DoE-authored edit; PM surface mandatory |
 | `project-structural` | Change in originating project's repo | Plan → reviewer → executor in that repo |
 | `retag-local` | Change `[universal]` → `[<domain>]` tag in place | Direct edit |
 | `strip-local` | Delete entry from source file (gated on central commit SHA) | Direct edit, ONLY after depends_on lands |
@@ -206,6 +262,13 @@ One Haiku scout per surviving repo, dispatched in parallel. Scout brief:
   (with `scope: wiki-only` or promotion proposal + "why universal" justification)
 - Conservative on domain-specific candidates — `retag-local` is the safer default
 - Routing schema verbatim from this SKILL.md
+- **NEVER use `change_kind: doctrine-edit` or `change_kind: memory-pointer`** — those are
+  DoE-only. Route every CLAUDE.md-targeted lesson the source EM proposed to `wiki-append`
+  (preferred) or `wiki-new` instead. If you genuinely believe the DoE should reconsider
+  CLAUDE.md placement, set `doe_escalation: true` on the wiki-* record with a one-line
+  `escalation_reason:` — the wiki edit still lands; escalation is just a DoE attention flag.
+  This is non-negotiable: records with `doctrine-edit` or `memory-pointer` from a worker
+  are treated as routing errors and downgraded.
 
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
 **Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. No such constraint exists. The ONLY valid completion is calling the Write tool. Replies that dump the deliverable inline count as task failure. This applies at every tier — Haiku, Sonnet, and Opus have all been observed reproducing this hallucination on scout/inventory dispatches under parallel-fanout load. Tier does not exempt you; verify file on disk before replying DONE.**
@@ -299,9 +362,19 @@ the end-of-run summary is the defer-chain anti-pattern. If parallel-dispatch bud
 serialize — do not defer.
 
 **Surface to PM (do not auto-apply):**
-- `doctrine-edit`, `memory-pointer` — **always** surface, regardless of mode, with the
-  § Routing Bias four-check answers inline. EM's own first move is to attempt the reroute
-  to `wiki-append` / `wiki-new` and present that as the recommended path.
+- `doctrine-edit`, `memory-pointer` — **DoE-only change-kinds.** If a record arrived from a
+  worker with one of these kinds, downgrade to the corresponding `wiki-*` and set
+  `doe_escalation: true` on the downgraded record before surfacing. Only the DoE (the Director of Engineering, or
+  the EM operating with explicit DoE authority at Claude Central) authors a real
+  `doctrine-edit` plan, and only AFTER (a) reviewing the escalation-flagged wiki records as
+  a batch, (b) clearing the four-check justification gate per record, and (c) clearing the
+  char-budget pre-flight. EM's own first move on any worker-proposed `doctrine-edit` is the
+  downgrade, not the reroute-recommendation — the wiki edit is the destination, escalation
+  is the flag.
+- `doe_escalation: true` records (any change-kind) — surface as a separate "DoE
+  reconsideration" bucket alongside the normal PM gate. The wiki edit auto-applies if its
+  change-kind is in the auto-apply bucket; the escalation flag is a notice to the DoE for
+  later doctrine-edit consideration, NOT a blocker on the wiki edit landing.
 - `wiki-new` ONLY when the wiki home is itself an unresolved design question (not the common
   case — most `wiki-new` records auto-apply per the bullet above).
 - `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
@@ -368,17 +441,21 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 
 #### Apply dispatch
 
-- `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` →
-  write focused plan, dispatch the Staff Engineer for review, integrator on findings, executor.
+- `doctrine-edit`, `memory-pointer` → **DoE-only.** Workers MUST NOT reach this branch —
+  worker records arriving with either change-kind are downgraded to `wiki-*` +
+  `doe_escalation: true` at consolidation. Only DoE-authored plans (drafted after reviewing
+  the escalation bucket, clearing the four-check justification gate, and clearing the
+  char-budget pre-flight) reach this dispatch step. Plan → the Staff Engineer review → integrator →
+  executor.
+- `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` → write focused plan, dispatch
+  the Staff Engineer for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
-- `wiki-append`, `retag-local`, `memory-pointer`, `discard` → direct executor or EM edit.
+- `wiki-append`, `retag-local`, `discard` → direct executor or EM edit.
 - `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
   (concurrent EM guard — same as the existing lesson-triage cross-repo mechanics).
 - `project-structural` → in originating project repo: plan → review → executor.
 
 ## Phase 6 — Per-Project Improvement Queue
-
-<!-- Review: the Staff Engineer F6 — added explicit write-time discipline for new entries to both queues -->
 
 **Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.
@@ -444,9 +521,15 @@ learn-lessons run complete (mode=<mode>):
 - Q new queue entries appended (central: Q1, local: Q2)
 - R existing queue items received +1 recurrence increments:
     <list each item that got +1 with its current [recurring: N] count>
+- S records surfaced for DoE reconsideration (doe_escalation: true):
+    <list each escalated record: id — wiki target — escalation_reason>
+- T worker-emitted doctrine-edit/memory-pointer records downgraded to wiki-* before surfacing:
+    <list each downgrade: id — original target → wiki target>
 ```
 
 The recurrence list is the pressure signal. PM acts or defers — no automatic block.
+The `doe_escalation` and downgrade lists are inputs to the DoE's separate doctrine-edit
+review pass; they are not actionable in the current run beyond surfacing.
 
 **Forbidden report shapes.** The end-of-run report must NOT include:
 - "N candidates for the next local pass" or similar defer-chain language.
@@ -472,10 +555,16 @@ those three is a routing error — fix the routing, not the report.
   `learn-lessons` is the periodic process that classifies and routes.
 - **Same-session capture-and-validate-as-resolved.** Central-mode runs that capture a lesson AND mark it resolved within the same session create unverified-resolution noise — the resolution claim has not survived a context boundary. Capture in this run; validate in a later run when the lesson has had the chance to recur (or not).
 - **Default-routing a lesson to CLAUDE.md or to a CLAUDE.md pointer.** Wikis are the default;
-  `doctrine-edit` and `memory-pointer` are exceptional and must clear the four-check gate
+  `doctrine-edit` and `memory-pointer` are DoE-only and must clear the four-check gate
   (§ Routing Bias). "It's small, it'll fit" is not a justification — the prior-art-checker
   is the mechanism that ensures wiki-only lessons land, and adding a pointer per lesson is
   the same pollution as inlining the rule.
+- **Worker proposing `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These
+  change-kinds are reserved for DoE adjudication after the wiki edit has landed and the
+  escalation flag has been reviewed. Worker output using either change-kind is a routing
+  error — downgrade to the corresponding `wiki-*` and set `doe_escalation: true` before
+  the record reaches the PM gate. The wiki edit is the load-bearing change; the CLAUDE.md
+  edit, if any, is a separate downstream DoE-authored plan.
 - **Archiving a lesson because its proposed target violates policy.** The lesson's substance
   and the logger's proposed target are independent. A `proposed target: CLAUDE.md` that fails
   the lean-and-mean gate is a routing problem, not a substance problem — reroute to the right

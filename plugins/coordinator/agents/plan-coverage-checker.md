@@ -156,7 +156,7 @@ Write the sidecar to `<plan-path>.plan-coverage-check.md`. Use the format specif
 title: Plan Coverage Check — <plan slug>
 created: <YYYY-MM-DD>
 author: plan-coverage-checker
-status: shipped
+status: implemented
 kind: plan-coverage-check
 plan: <plan-path-relative-to-repo-root>
 ---

@@ -35,7 +35,7 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 2. **Select patterns** from the Pattern Library (end of this document) based on detected stack. Universal patterns always apply. Language-specific patterns apply per detected language.
 
-3. **Define search chunks** — split codebase into 3-6 chunks by directory/system. If architecture atlas exists (`tasks/architecture-atlas/systems-index.md`), use its system boundaries. Otherwise, derive from `DIRECTORY.md` or directory structure.
+3. **Define search chunks** — split codebase into 3-6 chunks by directory/system. If architecture atlas exists (`docs/architecture/systems-index.md`), use its system boundaries. Otherwise, derive from `DIRECTORY.md` or directory structure.
 
 4. **Hot-zone identification — rank chunks by recent bugfix density (YOU do this):**
 

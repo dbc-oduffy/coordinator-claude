@@ -33,11 +33,11 @@ Treat the three as one workflow seen from different time horizons (in-session �
 
 | Mode | Trigger | Authority | Output |
 |---|---|---|---|
-| **project-local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `tasks/lessons.md`, append-only wiki edits |
-| **cross-project** | PM-invoked from `~/.claude` central root | PM gate on every apply (even auto-apply class) | Routing manifest grouped by destination repo + change_kind |
-| **recheck** | `tasks/lesson-triage-recheck-*.md` marker via `/workday-start` | Auto-extends cadence if delta ≤5 new universals; otherwise dispatches cross-project | Updated marker or cross-project dispatch |
+| **local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `tasks/lessons.md`, append-only wiki edits |
+| **central** | PM-invoked from `~/.claude` central root | PM gate on every apply (even auto-apply class) | Routing manifest grouped by destination repo + change_kind |
+| **recheck** | `tasks/lesson-triage-recheck-*.md` marker via `/workday-start` | Auto-extends cadence if delta ≤5 new universals; otherwise dispatches central | Updated marker or central dispatch |
 
-**Default mode detection:** `/lesson-triage` without args inspects cwd. Running from `~/.claude` central → default cross-project; else default project-local.
+**Default mode detection:** `/learn-lessons` without `--mode` arg inspects cwd. Running from `~/.claude` central → default `central`; else default `local`. (Skill renamed from `lesson-triage` to `learn-lessons` 2026-05-06; modes renamed from `project-local`/`cross-project` to `local`/`central` for alignment with the `--mode=` flag.)
 
 ## Improvement Queue Discipline
 
@@ -90,11 +90,16 @@ destinations:
     priority: HIGH | MEDIUM | LOW
     depends_on: <other id|null>
 open_questions: [...]
+doe_escalation: false                  # workers set true on a wiki-* record when they
+                                       # believe DoE should reconsider CLAUDE.md placement
+escalation_reason: ""                   # one-line; only meaningful if doe_escalation: true
 ```
 
 ## Change-kind taxonomy (closed enum, 12 kinds)
 
-`doctrine-edit`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer`, `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
+`doctrine-edit` (**DoE-only**), `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer` (**DoE-only**), `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
+
+**DoE-only annotation.** Workers (Haiku scouts, Sonnet consolidators, EMs running the skill outside Claude Central with DoE authority) MUST NOT emit `doctrine-edit` or `memory-pointer`. Records arriving with either kind are downgraded to `wiki-*` + `doe_escalation: true` before PM surfacing. CLAUDE.md edits are authored only by the DoE as a separate downstream plan after reviewing escalation-flagged records. See `skills/learn-lessons/SKILL.md` § Routing Bias for the full gate.
 
 ## Mode-conditional authorization
 
@@ -102,11 +107,11 @@ open_questions: [...]
 
 **project-local SURFACES (no auto-apply):** doctrine-edit, wiki-new, agent-prompt-edit, hook-edit, script-edit, project-structural outside same repo.
 
-**cross-project PM-gates EVERY apply** — even auto-apply class. PM authorization is the load-bearing surface; the synthesis is the authorization document, not an execution kickoff.
+**central mode PM-gates EVERY apply** — even auto-apply class. PM authorization is the load-bearing surface; the synthesis is the authorization document, not an execution kickoff.
 
-## Cross-project six-phase pipeline
+## Central-mode six-phase pipeline
 
-- **Phase 0 — Configuration:** read `lesson_triage:` block in `~/.claude/coordinator.local.md` (roots, exclude, glob, recheck_cadence_days). Never hardcode `X:/`.
+- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/tasks/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `bin/learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
 - **Phase 1 — Discovery:** glob configured roots, count tagged universals.
 - **Phase 2 — Fan-out scouts:** one per repo, parallel `general-purpose` Sonnet, two-pass extraction (tagged + untagged candidates), themes section, DONE protocol.
 - **Phase 3 — Synthesis:** EM directly produces the four-section A/B/C/D structure (see below).
@@ -177,7 +182,7 @@ When the synthesis produces multi-file changes (the "promote universals into N f
 
 ### Promotion patterns observed
 
-- **In-place to CLAUDE.md** is acceptable even when it grows the file (293→396 lines = 35% growth). CLAUDE.md is the surface agents read; wiki guides are second-class for invariants. The `lessons-trim` pattern can prune later.
+- **In-place to CLAUDE.md** was historically observed (293→396 lines = 35% growth in May 2026). **SUPERSEDED 2026-05-20 by the char-budget gate** in `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight — projected size > 40K is hard-refused, 38K–40K requires a demote target, and the DoE-only gate on `doctrine-edit` filters most CLAUDE.md proposals to wiki-* before they reach this surface. Wiki guides are first-class via the `prior-art-checker` mechanism; CLAUDE.md is reserved for cross-cutting tripwires.
 - **Three commits per integration round, not one bundled.** When R2 produces auto-fixes + W1 polish + architecture refactor, three commits make the audit trail per category greppable.
 - **Phase 11d frontmatter-drift sweep reports only, never auto-fixes.** Schema violations frequently encode an intentional decision; auto-fix would silently corrupt those. Carve out: tradeoff-free fixes on records the EM authored *this same session*.
 
@@ -266,12 +271,13 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Decision:** When a peer EM is detected absorbing the same mandate during a sweep, stand down rather than push on. Cost of merge conflict > cost of stopping. Promote the lesson; hand off.
 **Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
 
-### DR-011 — Promotion in-place to CLAUDE.md is acceptable
+### DR-011 — Promotion in-place to CLAUDE.md is acceptable [SUPERSEDED 2026-05-20]
 
-**Status:** accepted
+**Status:** superseded
 **Context:** 7 cluster groups all targeted CLAUDE.md; one big executor produced +103 lines (35% file growth).
-**Decision:** Accept growth in CLAUDE.md when every line is a unique lesson. The file is the surface agents read; wiki guides are second-class. `lessons-trim` can prune later.
+**Decision (historical):** Accept growth in CLAUDE.md when every line is a unique lesson. The file is the surface agents read; wiki guides are second-class. `lessons-trim` can prune later.
 **Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
+**Superseded by:** `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) + § Routing Bias DoE-only adjudication on `doctrine-edit`/`memory-pointer`. The blanket acceptance no longer applies — most CLAUDE.md proposals filter to wiki-* via the DoE gate; survivors must clear both the four-check justification gate AND the char-budget gate.
 
 ### DR-012 — Three commits per integration round, not one bundled
 
