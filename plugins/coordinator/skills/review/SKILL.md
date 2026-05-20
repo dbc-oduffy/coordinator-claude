@@ -41,18 +41,51 @@ Both checks fire independently. A plan can be non-trivial AND cite C++/UE APIs �
 
 _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
 
+**Check 3 — Plan internal completeness (plan-coverage-checker)** _(runs independently of Checks 1 and 2)_
+
+| Plan shape | plan-coverage-checker? |
+|---|---|
+| Plan contains an audit/findings/issues table (any size) | **Run.** |
+| Plan is greenfield design with no found-facts oracle | Skip — agent emits `SCOPE-MISMATCH`. |
+| Plan is single-file mechanical fix | Skip. |
+| Plan is doc redesign / wiki rewrite | Skip. |
+
+_See `docs/wiki/plan-coverage-checker.md` for trigger rationale and lens details. Skip is silent — no flag, no justification._
+
 ### A.2 — Reviewer selection and dispatch
 
-**Matching review tier to plan complexity** (table absorbed from the deleted `coordinator:requesting-code-review` skill; the code-reviews tier-matching counterpart lives in `coordinator:review-code` Branch A.2):
+**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the artifact's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
+
+**Composite routing table (reference — assembled at dispatch time from fragment discovery):**
+
+| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
+|--------|---------------------|------------------------|--------|
+| Game dev / Unreal / DroneSim | Sid | Patrik | Medium → Medium |
+| Architectural change, new subsystem | Patrik | (backstop: Zolí) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | Zolí (standalone — DoE altitude) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | Zolí (standalone — DoE altitude) | (none) | High |
+| Front-end, CSS, UI components | Palí | (backstop: Fru) | Medium |
+| Front-end + architecture | Palí | Patrik | Medium → High |
+| ML/AI pipeline, model serving, RAG | Camelia | Patrik | High → High |
+| UX flow, user-facing feature | Fru | (backstop: Patrik) | Low → Medium |
+| Cross-cutting (many files, new pattern) | Patrik | (backstop: Zolí) | High |
+| Major DroneSim feature / new game mode | Sid | Patrik | High → High |
+| Other / unmatched | Patrik | (none) | Medium |
+
+**Zolí standalone vs. Zolí backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch Zolí **standalone** with `mode: "standalone"` in the prompt — do NOT run Patrik first. Standalone Zolí is a peer of Patrik in technical rigor with the additional cross-team authority Patrik's EM altitude would hedge on. The "(backstop: Zolí)" entries above are the chained-after-Patrik usage for High-effort architectural reviews; that mode is still in play but does not exhaust Zolí's role.
+
+If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
+
+**Matching review tier to plan complexity:**
 
 Match tier to complexity, not importance. Routing every "important" plan to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
 | Situation | Correct tier |
 |---|---|
-| Single-domain plan (new feature, doc redesign, refactor) | `/review-dispatch <plan-path> plan` → one reviewer |
-| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | `/review-dispatch <plan-path> plan --reviewers "<domain>,patrik"` → two sequential reviewers |
+| Single-domain plan (new feature, doc redesign, refactor) | One reviewer (auto-detects domain from routing table above) |
+| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | `/review-dispatch <plan-path> plan` → one reviewer |
+| "This is important, I want it done right" | One reviewer (auto-detects domain) |
 
 - _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
   → No review needed; commit and proceed.
@@ -60,6 +93,9 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
   → Exit; this skill does not run. Log the waiver in the plan frontmatter (`review: skipped per PM direction YYYY-MM-DD`).
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
+
+**Pipeline phases (docs-checker, (prior-art-checker ∥ plan-coverage-checker), external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → (2.7b ∥ 2.7d) → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
+<!-- Review: code-reviewer — listed phases as a flat sequence, obscuring that prior-art-checker and plan-coverage-checker run in parallel; updated to (prior-art-checker ∥ plan-coverage-checker) to match the runtime shape. -->
 
 ### A.3 — Sequencing (HARD RULE for plan reviews)
 
@@ -109,6 +145,14 @@ Walk each finding against the triage table below — it lands in exactly one row
 - _Default / unmatched?_
   → Apply via integrator. Default is to integrate, not to ratify.
   _See `docs/wiki/receiving-code-review.md` (triage tables, push-back patterns, performative-agreement guard) and CLAUDE.md § Reviewer findings — apply, don't ratify._
+
+---
+
+## Prior-Art Mutability and Reviewer Elevation
+
+**Prior-art mutability as first-class deliverable.** When the PM authorizes prior-art mutation as an explicit deliverable of the review (i.e., the plan is intended to *update* settled doctrine, not simply comply with it), the DoE-elevated reviewer (typically Zolí) MAY override the prior-art-checker sidecar's `update-plan` / `update-prior-art` recommendation with an explicit cross-reference to the PM authorization in their findings. Default mode is still "plan adapts to prior art"; prior-art mutation is opt-in and requires PM sign-off stated in the dispatch brief.
+
+**Reviewer elevation must be stated verbatim in the dispatch brief.** Elevating a reviewer past their charter (e.g., Zolí from ambition-backstop to DoE-with-mutation-authority) without verbatim brief language reverts at integrator-apply — the reviewer's prompt-defined charter is the default boundary. If the PM authorizes elevation, the EM must include the exact authorization phrase (e.g., "PM-authorized to override prior-art-checker on this run") in the dispatch brief to the reviewer; otherwise the integrator will treat the override as out-of-charter and escalate as ASK.
 
 ---
 

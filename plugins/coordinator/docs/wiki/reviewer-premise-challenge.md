@@ -20,7 +20,7 @@ distilled_run: 2026-05-06-13h00
 
 1. **W1 — Negative-search rule** in the `writing-plans` SKILL (plan author).
 2. **W2 — Counter-evidence pass** in `repo-specialist` (research stage).
-3. **W3 — Staff Engineer Pass 0** premise review (reviewer stage).
+3. **W3 — Patrik Pass 0** premise review (reviewer stage).
 4. **W4 — Reversal-verb suggested staff-session escalation** (PM-discretion).
 5. **W5 — review-integrator REJECTED handling** (integration stage).
 
@@ -46,23 +46,23 @@ After the positive analysis, search for prior-decision artifacts arguing AGAINST
 
 Output field: `counter_evidence: [{file, line, quote, relevance}]` or `none_found`. **Specialists do not adjudicate — they surface.**
 
-### W3 — Staff Engineer Pass 0 fields
+### W3 — Patrik Pass 0 fields
 
-Three new fields in the Staff Engineer's [reviewer output](reviewer-output-schema.md):
+Three new fields in Patrik's reviewer output:
 
 - `premise_review`: `clean | needs-justification | refuted`.
-- `alternatives_considered`: 0-3 high-level shapes the Staff Engineer names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
+- `alternatives_considered`: 0-3 high-level shapes Patrik names *without investigation*. Bare bullets with mandatory disclaimer "I haven't gone deep on this." Flat list, no ranking, no comparison, no judgment.
 - `planning_quality`: one sentence max, only when a specific structural signal is present (zero alternatives, no negative-search, single-source).
 
 A new verdict — `REJECTED` — fires only when premise is `refuted`.
 
 ### W3 hard guardrails (verbatim)
 
-- The Staff Engineer does NOT investigate alternatives.
-- The Staff Engineer does NOT pick winners.
-- The Staff Engineer does NOT run a planning session.
+- Patrik does NOT investigate alternatives.
+- Patrik does NOT pick winners.
+- Patrik does NOT run a planning session.
 - "I haven't gone deep on this" framing mandatory.
-- The Staff Engineer does NOT rank or compare alternatives — list flat, no comparative judgments.
+- Patrik does NOT rank or compare alternatives — list flat, no comparative judgments.
 
 ### W5 — review-integrator REJECTED handling
 
@@ -84,11 +84,15 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 
 ## Gotchas
 
-- **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required the Staff Engineer to judge alternatives not explicitly investigated — contradicting the W3 "naming is high-level only" guardrail.
-- **Data Science / Front-End / UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
+- **Empirical audit before fix code when a reviewer mandates a specific mechanism.** When a reviewer finding prescribes a concrete mechanism (e.g. "use X pattern", "add Y guard"), verify that the mechanism is applicable before writing fix code. A one-hour audit beats a half-day of wrong-fix code. The W3 Pass 0 finding is a hypothesis based on the plan text; the executor verifying at the code level often discovers the scope is narrower or the mechanism doesn't apply. Auditability rule: if the fix has structural side-effects, audit first, then fix.
+
+- **Validator/parser-semantics claims from reviewers are folklore until measured.** When a reviewer claims a validator, parser, linter, or schema engine "will reject X" / "already enforces Y" / "rewrites Z under the hood", treat the claim as a hypothesis — not as load-bearing input to the disposition table. Stakes-proportionate empirical check: feed the asserted input to the actual tool and observe. For non-trivial-stakes findings (anything that gates merge, changes a schema, or removes a guard), the empirical check is mandatory before AUTO-FIX or apply. A reviewer-asserted semantic is one source; the running tool is the other; convergence between them is the green-light, not the reviewer's confidence alone. This is structurally similar to the convergence-as-confidence rule in coordinator CLAUDE.md but specifically for tool-behavior claims, which have the highest folklore rate.
+
+- **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required Patrik to judge alternatives he's explicitly not investigated — contradicting the W3 "naming is high-level only" guardrail.
+- **Camelia / Palí / Fru Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
 - **Calibration block schema unchanged.** Premise-challenge fields live in reviewer system prompts, not in the synced calibration block — the calibration block stays focused on confidence + AUTO-FIX/ASK routing.
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md), [reviewer-routed-workers](reviewer-routed-workers.md)
+- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
 - Source plan: `archive/specs/2026-05-04-reviewer-premise-challenge.md`

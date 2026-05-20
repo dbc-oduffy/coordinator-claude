@@ -35,17 +35,16 @@ else
   exit 1
 fi
 
-NAMED_DIRS="/x/DroneSim /x/project-rag /x/claude-unreal-holodeck $HOME/.claude"
+NAMED_DIRS=("/x/DroneSim" "/x/project-rag" "/x/claude-unreal-holodeck" "$HOME/.claude")
 EXPECTED_KEYS=(
   "holodeck-control@claude-unreal-holodeck"
-  "holodeck-docs@claude-unreal-holodeck"
   "holodeck@claude-unreal-holodeck"
   "game-dev@claude-unreal-holodeck"
   "game-dev@coordinator-claude"
 )
 FAIL=0
 
-for dir in $NAMED_DIRS; do
+for dir in "${NAMED_DIRS[@]}"; do
   [[ -d "$dir" ]] || {
     echo "skip: $dir does not exist (acceptable if dir was moved/removed)" >&2
     continue

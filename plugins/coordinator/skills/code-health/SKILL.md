@@ -1,12 +1,13 @@
 ---
-description: Night-shift code health review — scans today's commits, dispatches a reviewer, applies findings, and updates health tracking for next session-start
+name: code-health
+description: Night-shift code health review — queries today's completion entries for touched surfaces, dispatches a reviewer, applies findings, and updates health tracking for next session-start
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---
 
 # Code Health — Night Shift Commit Review
 
-The "night shift colleague." Reads the health ledger's last-check timestamp to find new commits, dispatches a domain-appropriate reviewer with `--problems-only`, applies findings inline via review-integrator, defers complex findings to the debt backlog, updates the health ledger with current grades, and writes a morning-ready summary. Results are waiting at the next session-start.
+The "night shift colleague." Queries today's completion entries to identify the surfaces that saw recorded work, dispatches a domain-appropriate reviewer with `--problems-only`, applies findings inline via review-integrator, defers complex findings to the debt backlog, updates the health ledger with current grades, and writes a morning-ready summary. Results are waiting at the next session-start.
 
 **Announce at start:** "I'm using /code-health to review recent commits."
 
@@ -18,25 +19,39 @@ The strongest predictor of a bug-filled review is a small commit count, not a la
 
 **Run this review on every committed day, regardless of commit count.** The cost-benefit is asymmetric: a 5-minute review on a quiet day catches the silent regression a fix introduced on a parallel handler; skipping a busy day misses bugs the next session will trip on.
 
-The only valid skip condition is the one already in the Failure Modes table: **zero new commits since last check.** Anything else — even a single commit — run the review.
+The only valid skip condition is the one already in the Failure Modes table: **zero new commits since last check** (on the git-log fallback path) or **zero completion entries today with no fallback commits either.** Anything else — even a single completion entry or commit — run the review.
 
 ---
 
-## Step 1: Find New Commits
+## Step 1: Identify Surfaces from Today's Completion Entries
 
-Determine the scope of commits to review:
+Determine the scope of surfaces to review from today's completion log, not from raw commit history:
 
-1. Read `tasks/health-ledger.md` header for the `Last daily check:` date.
-   - If no health ledger exists: this is the first run — use the last 24 hours as scope.
-2. Get commits since last check:
+1. Query today's completion entries:
+   ```bash
+   bin/query-completions --where "created=<YYYY-MM-DD>" --format json
+   ```
+   Substitute today's date for `<YYYY-MM-DD>`.
+2. Extract the file paths or subsystem names mentioned in the entries' `title`, `description`, and any `files` fields.
+3. **If no entries for today:** Read `tasks/health-ledger.md` header for the `Last daily check:` date and fall back to:
    ```bash
    git log --since="<last-check-date>" --oneline --stat
    ```
-3. **If no new commits:** Update the `Last daily check` timestamp in the health ledger, report "No new commits since last health check," and exit.
+   Update the `Last daily check` timestamp in the health ledger, report "No completion entries for today — fell back to git log scope," and continue with the commit-based surface list.
+
+The completion-entry approach reduces tokens spent re-reviewing unchanged code by scoping the review to only the surfaces that saw recorded work today.
 
 ---
 
 ## Step 2: Generate Diff Scope
+
+Scope the diff to the surfaces identified in Step 1:
+
+```bash
+git diff HEAD -- <file1> <file2> ...
+```
+
+If Step 1 yielded a subsystem or directory name rather than individual files, use the directory prefix (e.g., `skills/code-health/`). If the fallback git-log path was taken, use:
 
 ```bash
 git diff <last-check-commit>..HEAD
@@ -52,10 +67,10 @@ Select the reviewer based on what changed:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer (`game-dev:staff-game-dev`) |
-| Frontend / UI | the Front-End Reviewer (`web-dev:senior-front-end`) |
-| Data / ML / science | the Data Science Reviewer (`data-science:staff-data-sci`) |
-| Mixed, backend, or architecture | the Staff Engineer (`coordinator:staff-eng`) |
+| Game dev / Unreal Engine | Sid |
+| Frontend / UI | Palí |
+| Data / ML / science | Camelia |
+| Mixed, backend, or architecture | Patrik |
 
 If multiple domains are present, route to the dominant one (most files changed / most critical path).
 
@@ -179,7 +194,7 @@ Write results to `tasks/health-summary.md` — this is what session-start reads 
 
 ```bash
 git add tasks/health-ledger.md tasks/health-summary.md tasks/debt-backlog.md
-git commit -m "daily-code-health: review of commits since [date]"
+git commit -m "daily-code-health: review of surfaces from completion entries [date]"
 ```
 
 The post-commit hook pushes automatically.
@@ -191,7 +206,9 @@ The post-commit hook pushes automatically.
 | Situation | Action |
 |---|---|
 | No health ledger on first run | Create from template, use last 24 hours as scope |
-| No new commits since last check | Update timestamp, report, and exit — no reviewer dispatch |
+| No completion entries for today | Fall back to `git log --since=<last-check>` scope; report fallback in health summary |
+| `bin/query-completions` not found | Fall back to git-log scope; note missing binary in health summary |
+| No new commits since last check (fallback path) | Update timestamp, report, and exit — no reviewer dispatch |
 | Reviewer returns no findings | Skip Steps 4-5, proceed directly to Step 6 |
 | Debt backlog doesn't exist | Create from template before adding entries |
 | Complex finding can't be fixed inline | Add to debt backlog with severity and effort estimate |
@@ -210,5 +227,5 @@ The post-commit hook pushes automatically.
 
 - **`/workday-complete`** — primary trigger for this command; runs code-health as part of its end-of-day health survey phase. The normal path is to let `/workday-complete` invoke this, not to run it standalone.
 - **`/session-start`** — reads `tasks/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
-- **`/review-dispatch`** — this command dispatches a reviewer directly with `--problems-only`; it does not go through `/review-dispatch`, which is for feature-level reviews. Don't substitute one for the other.
+- **`/review-code`** — this command dispatches a reviewer directly with `--problems-only` for targeted code health assessment; it does not go through the full `/review-code` feature-review workflow. Don't substitute one for the other.
 - **`pipelines/daily-code-health/PIPELINE.md`** — the pipeline definition this command executes. If you need to customize routing or scope, read it directly.

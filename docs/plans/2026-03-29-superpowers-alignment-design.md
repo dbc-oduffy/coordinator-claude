@@ -47,7 +47,7 @@ These skills have genuine coordinator-specific additions beyond the superpowers 
 | `writing-plans` | `writing-plans` (keep name) | Status write-ahead protocol, mandatory `/review-dispatch` gate, executor-driven vs parallel execution options, plan destination conventions |
 | `dispatching-parallel-agents` | `dispatching-parallel-agents` (keep name) | Background-by-default policy, Opus tech lead supervision pattern, worktree vs same-worktree decision matrix, `/delegate-execution` integration |
 | `finishing-a-development-branch` | `finishing-a-development-branch` (keep name) | CI-gated PR merge via `merging-to-main`, automated cleanup |
-| `requesting-code-review` | `requesting-code-review` (keep name) | `/review-dispatch` routing, named reviewer pool (Patrik, Sid, Camelia, Pali, Fru) |
+| `requesting-code-review` | `requesting-code-review` (keep name) | `/review-dispatch` routing, named reviewer pool (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, Pali, the UX Reviewer) |
 | `receiving-code-review` | `receiving-code-review` (keep name) | Opus agent triage tables, Disposition tracking (Applied/Captured/Dismissed), debt tracker integration |
 
 **Naming decision:** Keep the same names. The skills are namespaced by plugin (`coordinator:writing-plans` vs `superpowers:writing-plans`). The differentiation comes from trigger descriptions — coordinator versions trigger on orchestration-specific phrases; superpowers versions trigger on generic phrases. Claude resolves which to use based on context.

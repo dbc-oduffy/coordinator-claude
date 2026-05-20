@@ -1,4 +1,5 @@
 ---
+name: workweek-start
 description: Weekly strategic orient — surface last week's results, set this week's priorities, update HEADER.md
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: ""
@@ -73,7 +74,11 @@ Surface stalled workstreams (zero recent commits) as a bulleted list. This gives
 
 Scan for aging artefacts that may need pruning or deferral:
 
-1. **Stale handoffs:** `tasks/handoffs/*.md` older than 7 days (by filename date). List filenames.
+1. **Stale handoffs:** query, don't grep:
+   ```bash
+   bin/query-records --type handoff --where "status=active" --older-than 7d --format markdown-list
+   ```
+   Lists ready_to_fire and awaiting_gate handoffs older than 7 days.
 2. **Draft plans without recent commits:** `docs/plans/*.md` with `status: draft` (grep frontmatter or body) and no commits to their referenced paths in >14 days.
 
 Surface as a brief list for PM awareness. No archival action — this command is read-and-surface only.
@@ -138,14 +143,14 @@ If `Last /workweek-start:` is set AND no `/workweek-complete` has occurred since
 ```bash
 git add -- tasks/week-changelog/HEADER.md
 git commit -m "chore(workweek-start): set week priorities $(date +%Y-%m-%d)"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 If a full reset moved daily files, include them in the same commit:
 ```bash
 git add -- tasks/week-changelog/ archive/week-changelogs/<prior-week-start>/
 git commit -m "chore(workweek-start): archive prior week, reset changelog $(date +%Y-%m-%d)"
-git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 ---

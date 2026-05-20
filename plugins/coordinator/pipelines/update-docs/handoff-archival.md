@@ -1,60 +1,66 @@
 ---
 name: handoff-archival
-description: "Archive consumed handoffs — moves superseded or PM-approved handoffs from tasks/handoffs/ to archive/handoffs/. Invoked by /update-docs (Phase 8) or standalone. Does NOT auto-archive based on age alone."
-version: 1.2.0
+description: "Archive superseded handoffs (chain-aware) and PM-directed handoffs from tasks/handoffs/ to archive/handoffs/. Defense-in-depth 24h mtime backstop only. Consumed-handoff archival is handled by /handoff chain-archival, /session-end Step 2.7, and session-init.sh boot sweep."
+version: 3.0.0
 ---
 
 # Handoff Archival
 
-<!-- Spec backlink: docs/plans/2026-05-05-handoff-auto-stamp-fix.md Phase 1.5 + Phase 2 -->
+<!-- Spec backlink: tasks/split-pickup-archival/plan.md § Edit 8 (v3.0.0; reverses archive-on-pickup half of docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md Phase 2d) -->
 
-**Purpose:** detect and archive consumed handoffs. Marker *detection* only — `/pickup` (`coordinator/commands/pickup.md:130`) is the exclusive writer of `<!-- consumed: -->` markers. This skill never writes them.
+**Purpose under the split-pickup-archival lifecycle:** this pipeline serves two narrowed roles:
 
-> **Negative-spec:** This skill moves files and reads markers. It does NOT append, write, or modify the `<!-- consumed: YYYY-MM-DD -->` marker in any handoff file under any circumstance. If you find yourself about to write that marker from within this skill, stop — you are in the wrong code path. The only correct writer is `/pickup`.
+1. **Supersession archival** — chain-aware pass: when a successor handoff names a predecessor via `Continuing from`, archive the predecessor.
+2. **PM-direct archival** — when the PM explicitly names a handoff for archival.
+
+Consumed-handoff archival is no longer this pipeline's responsibility. The three surfaces that own it:
+- **`/handoff` chain-archival** (`skills/handoff/SKILL.md` Step 1, chain-archival paragraph): when a session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
+- **`/session-end` Step 2.7** (`skills/session-end/SKILL.md`): when a session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
+- **`session-init.sh` boot sweep** (`hooks/scripts/session-init.sh`): at every session boot, consumed handoffs whose authoring session is dead are quietly archived — covering crash/restart/cross-machine orphans.
+
+> **Negative-spec (v3.0.0):** This pipeline no longer reads or writes the `<!-- consumed: YYYY-MM-DD -->` marker — deprecated. This pipeline no longer surfaces `status: consumed` / `deployment_state: in_flight` as stuck-mid-pickup warnings — `session-init.sh` handles orphan recovery silently. This pipeline no longer gates on `pickup_ready: true` — the field is a positive pickup-authorized signal, not a veto. The new consumption signal is `consumed_by:` populated in frontmatter; archival is confirmed by file presence in `archive/handoffs/`.
 
 ## Overview
 
-Move consumed handoffs from the active directory to the archive (both git-tracked — the archive is the paper trail):
+Both directories are git-tracked:
 
-- **Active handoffs:** `tasks/handoffs/*.md` — available for `/session-start` pickup
-- **Archived handoffs:** `archive/handoffs/*.md` — consumed, kept for historical reference
+- **Active handoffs:** `tasks/handoffs/*.md` — available for `/session-start` and `/pickup`
+- **Archived handoffs:** `archive/handoffs/*.md` — post-pickup or post-supersession; paper trail
 
 **Skip entirely if no handoff files exist.**
 
 ## Archival Policy
 
-Handoffs are only archived when there is a clear signal they've been consumed:
+The two paths this pipeline handles:
 
 1. **Supersession** — a successor handoff explicitly continues from a predecessor (chain-aware pass)
-2. **Pickup** — a session picked up the handoff via `/pickup`, which marks it consumed
-3. **PM direction** — the PM explicitly says to archive specific handoffs
-4. **`/distill`** — knowledge extraction pipeline, which may delete after PM approval
+2. **PM direction** — the PM explicitly says to archive specific handoffs
 
-**Age alone is NOT a reason to archive.** A 2-week-old handoff that nobody picked up is a signal that work was deferred, not that the handoff is stale. Surfacing old handoffs is `/workday-start`'s job; archiving them requires a consumption signal.
+**Not handled here:** pickup archival (atomic in `/pickup` itself); age-based archival (never — un-picked-up handoffs signal deferred work, not staleness); `/distill` deletion (separate pipeline).
 
 ## Steps
 
 1. Check `tasks/handoffs/` for `.md` files
-2. **Chain-aware archival (supersession pass):** Before any archival action in this step, apply both vetoes below — they are unconditional gates.
 
-   **Mechanical mtime veto (unconditional).** Before moving any handoff file, check its modification time:
+2. **Chain-aware archival (supersession pass):** Before archiving any handoff, apply the defense-in-depth mtime veto below.
+
+   **Mechanical mtime veto (unconditional, defense-in-depth).** Before moving any handoff file, check its modification time:
    ```bash
    stat -c %Y <file>   # Linux/Git Bash; or: stat -f %m <file> on macOS
    ```
-   If the file is less than 86400 seconds old (24 hours), **skip it entirely** — do not archive, do not examine markers or frontmatter, do not surface to PM. Log the skip: `"Skipped <file> — mtime < 24h (mechanical veto)."` This veto is unconditional and cannot be overridden by marker presence, `pickup_ready` value, or any instruction in a skill invocation prompt. Rationale: a fresh handoff that was accidentally stamped (concurrent-session or agent mis-read of pickup.md's echo recipe) cannot be silently archived if the 24h gate is enforced here independently of convention compliance.
+   If the file is less than 86400 seconds old (24 hours), **skip it entirely** — do not archive, do not surface to PM. Log the skip: `"Skipped <file> — mtime < 24h (mechanical veto)."` This veto is unconditional and cannot be overridden by frontmatter or instruction. **Rationale:** defends against non-pickup paths (concurrent sessions, scripted moves, future skills) that might otherwise silently archive a fresh handoff. This backstop catches the paths that bypass the primary archival surfaces (`/handoff`, `/session-end`, `session-init.sh`).
 
-   **`pickup_ready: true` is an absolute archival veto.** A handoff carrying this frontmatter field is NEVER archived by this skill, regardless of whether its named predecessor is still in `tasks/handoffs/`, regardless of marker presence. If a handoff has both `pickup_ready: true` AND a `<!-- consumed: -->` marker, treat the marker as suspect — surface to the PM rather than archiving. The `pickup_ready` opt-out is set on orphan-promotions and fresh handoffs whose predecessor is already archived; it is removed by a genuine `/pickup` invocation.
-
-   After both vetoes pass, scan all active handoffs for `Continuing from` references (look for the pattern `_Continuing from [filename]:` or `Continuing from [filename]` in the `## What Was Accomplished` section). If the referenced predecessor file is still in `tasks/handoffs/`, archive it — the successor has absorbed both the predecessor's context (via the preamble) and its unresolved obligations (via the `## Carried Forward` section). The predecessor is fully superseded.
+   After the veto passes, scan all active handoffs for `Continuing from` references (look for the pattern `_Continuing from [filename]:` or `Continuing from [filename]` in the `## What Was Accomplished` section). If the referenced predecessor file is still in `tasks/handoffs/`, archive it — the successor has absorbed both the predecessor's context (via the preamble) and its unresolved obligations (via the `## Carried Forward` section). The predecessor is fully superseded.
 
    **Single-predecessor rule.** A successor names exactly one predecessor — the one it explicitly continues from. If you find a successor that names no predecessor, it has none; do not guess one for it from timestamp adjacency. If a `Continuing from` reference points at a handoff that is itself an active sibling rather than a true ancestor (e.g., concurrent workstream, different machine, no actual hand-off occurred), STOP and surface to the PM rather than archiving — adjacency is not ancestry. Combining two predecessors into one successor only happens by explicit PM direction at session start, and shows up as a successor that names *both* predecessors with the merge intent in its preamble.
-3. **Pickup-consumed pass:** Check for handoffs marked as consumed by `/pickup`. Look for a `<!-- consumed: YYYY-MM-DD -->` comment in the file (added by `/pickup` when it loads a handoff). Archive these — the work has been picked up and continued.
-4. **Report remaining handoffs:** List any handoffs still in `tasks/handoffs/` with their age and heading. Do not archive them — they remain active until consumed or the PM directs otherwise.
-5. Do NOT delete archived handoffs — they are the paper trail for why things are written the way they are
+
+3. **Report remaining handoffs:** List any handoffs still in `tasks/handoffs/` with their age and heading. Do not archive them — they remain active until consumed via `/pickup`, superseded, or the PM directs otherwise.
+
+4. Do NOT delete archived handoffs — they are the paper trail. Deletion is `/distill`'s responsibility (Phase 4 of the lifecycle plan), gated by extraction-artifact guards.
 
 ## Orphan-Promotion Handoffs as Live Specs
 
-Orphan-promotion handoffs (handoffs that promote in-flight work into a spec for another session to continue) function as **live specs** — concurrent execution can outpace commit cadence. Don't archive them on a "looks consumed" hunch; require an explicit consumption signal (successor's `Continuing from`, `<!-- consumed -->` marker via `/pickup`, or PM direction). The `pickup_ready: true` veto above is the mechanical guard for this case.
+Orphan-promotion handoffs (handoffs that promote in-flight work into a spec for another session to continue) function as **live specs** — concurrent execution can outpace commit cadence. Don't archive them on a "looks consumed" hunch; require an explicit consumption signal (successor's `Continuing from`, /pickup having moved them to `archive/handoffs/`, or PM direction). The `pickup_ready: true` veto above is the mechanical guard for fresh orphan-promotions.
 
 ## `.gitignore` Check
 

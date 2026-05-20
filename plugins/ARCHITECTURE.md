@@ -31,7 +31,7 @@ A research subagent that surveys codebases, traces dependencies, and fills in th
 | Reviewer | Domain | Focus |
 |----------|--------|-------|
 | **the Staff Engineer** (`coordinator:staff-eng`) | Code quality, architecture, security | Correctness, documentation completeness, architectural soundness, error handling. Adversarial framing: assumes the code has defects. |
-| **the Ambition Advocate** (`coordinator:ambition-advocate`) | Ambition backstop | Challenges conservative recommendations when AI execution capacity changes the cost calculus. Only invoked as a backstop to the Staff Engineer, never as a primary reviewer. |
+| **the Director of Engineering** (`coordinator:eng-director`) | Cross-team authority, generic substrate, ambition calibration | Peer of the Staff Engineer in technical rigor with the additional DoE altitude to set cross-team / cross-repo boundaries the Staff Engineer would hedge on, and to enforce generic-substrate / no-consumer-leak discipline on producer-side surfaces. Three modes: standalone primary reviewer (default for cross-team / consumer-producer reviews), backstop after the Staff Engineer (chained for High-effort architectural reviews), staff-session synthesizer (resolves contested topics through organizational / customer / velocity lens). |
 | **the Game Dev Reviewer** (`game-dev:staff-game-dev`) | Game development, Unreal Engine | Engine-appropriate patterns, Blueprint/C++ architecture, game performance, replication. Researches UE documentation rather than guessing. |
 | **the Front-End Reviewer** (`web-dev:senior-front-end`) | Front-end architecture | Design system adherence, token validation, component patterns, CSS architecture. Pragmatic — "close enough" to design specs is often correct when it means using standard utilities. |
 | **the UX Reviewer** (`web-dev:staff-ux`) | UX flow review | Trust signals, clarity assessment, cognitive load, accessibility. Reviews user-facing features for whether they make sense to a human. |
@@ -62,7 +62,7 @@ Role labels ("the Staff Engineer", "the Game Dev Reviewer") carry the domain foc
            |
     [Code Quality Review]    Agent: the Staff Engineer (+ domain reviewer if applicable)
            |
-   [Ambition Backstop]       Agent: the Ambition Advocate challenges conservative recommendations (optional)
+   [DoE Backstop]            Agent: the Director of Engineering (backstop mode) challenges conservatism or sets cross-team boundaries (optional)
            |
       [Ship / Merge]         Skill: finish branch, create PR, merge
 ```
@@ -154,7 +154,7 @@ The catalog is the primer; the CLAUDE.md files are the deep reference. Both are 
 
 The review dispatch system uses a **composable routing table**:
 
-1. The coordinator plugin defines universal reviewers (the Staff Engineer, the Ambition Advocate) in its `routing.md`
+1. The coordinator plugin defines universal reviewers (the Staff Engineer, the Director of Engineering) in its `routing.md`
 2. Each enabled domain plugin contributes a routing fragment (e.g., game-dev registers the Game Dev Reviewer)
 3. At dispatch time, `/review-dispatch` merges all fragments into a composite table
 4. The changed code's signals (front-end? game logic? architecture?) determine which reviewer gets it
@@ -169,7 +169,7 @@ For post-execution code review and per-stub enrichment reviews:
 1. Domain specialist reviews first (if signal matches)
 2. Coordinator incorporates feedback
 3. The Staff Engineer catches regressions (generalist pass)
-4. The Ambition Advocate challenges conservatism (backstop, when warranted)
+4. The Director of Engineering challenges conservatism or sets cross-team boundaries (backstop mode after the Staff Engineer; standalone for cross-team / consumer-producer reviews)
 
 This mirrors how real teams work: the domain expert reviews for correctness, then a senior generalist reviews for quality and architecture.
 
@@ -220,4 +220,4 @@ Executors follow specs — speed and cost matter more than judgment. Reviewers m
 
 ## Authors
 
-Dónal O'Duffy & Claude
+the Coordinator Authors

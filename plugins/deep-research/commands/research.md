@@ -1,28 +1,40 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks for deep research; if the EM thinks it's warranted, ask first. NEVER invoke from a subagent. Run a deep research pipeline on a topic across internet sources (Pipeline A), a repository (Pipeline B), or structured research with schema-conforming output (Pipeline C). Use for studying codebases, building knowledge bases, evaluating libraries, or investigating multi-source technical topics with verified findings. For batch structured research campaigns, use /structured-research instead."
-allowed-tools: ["Read", "Bash"]
-argument-hint: "'repo' <repo-path> [--compare <project-path>] | 'web' <topic> | 'structured' <spec-path> [subject-key]"
+description: "PM-GATED: ask first; never from subagent. Deep research — web/repo/structured. Triggers: deep research, research the repo, structured research campaign."
+allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "TeamCreate", "TeamDelete", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
+argument-hint: "--mode={web,repo,structured} <args> [--deepest]"
 ---
 
-# Deep Research — Router
+# Deep Research — Unified Entry Point
 
-This command routes to the appropriate pipeline-specific driver.
+This is the single entry point for all deep-research pipelines. Route by `--mode`.
+
+## Arguments
+
+`$ARGUMENTS`:
+- `--mode=web <topic>` — Pipeline A (internet research, Agent Teams)
+- `--mode=repo <path> [--compare <path>] [--survey] [--deeper] [--deepest]` — Pipeline B (repo research, Agent Teams)
+- `--mode=structured <spec-path> [subject-key]` — Pipeline C (structured research, Agent Teams); use `create` sub-mode to build a new spec (see below)
+
+**Auto-detect (legacy):** if `--mode` is absent, the first argument is used:
+- path that exists on disk → `--mode=repo`
+- otherwise → `--mode=web`
 
 ## Step 1: Parse Arguments
 
-`$ARGUMENTS` determines the pipeline:
+Parse `--mode` from `$ARGUMENTS`. If absent, apply auto-detect. Extract remaining arguments to pass through to the driver.
 
-- **`web <topic>`** — Pipeline A (internet research, Agent Teams)
-- **`repo <path> [--compare <path>]`** — Pipeline B (repo research, Agent Teams)
-- **`structured <spec-path> [subject-key]`** — Pipeline C (structured research, Agent Teams)
-- **Auto-detect:** if the first argument is a path that exists on disk → repo; otherwise → web
+For `--mode=structured`, check whether remaining arguments start with `create` — if so, run Create Mode (see driver file Step 0) before the normal dispatch.
 
-## Step 2: Route
+## Step 2: Route to Driver
 
-Use the Skill tool to invoke the appropriate sub-command, passing through all arguments:
+Read the appropriate driver file and follow its steps, passing through all remaining arguments:
 
-- **Pipeline A:** `skill: "deep-research:web", args: "<remaining arguments>"`
-- **Pipeline B:** `skill: "deep-research:repo", args: "<remaining arguments>"`
-- **Pipeline C:** `skill: "deep-research:structured", args: "<remaining arguments>"`
+- **`--mode=web`:** Read `${CLAUDE_PLUGIN_ROOT}/pipelines/web-driver.md` and follow all steps exactly
+- **`--mode=repo`:** Read `${CLAUDE_PLUGIN_ROOT}/pipelines/repo-driver.md` and follow all steps exactly
+- **`--mode=structured`:** Read `${CLAUDE_PLUGIN_ROOT}/pipelines/structured-driver.md` and follow all steps exactly
 
-That's it. The driver handles everything from here.
+The driver handles everything from here — team creation, spawn, completion, archival.
+
+## Migration note
+
+The former `/web`, `/repo`, and `/structured` slash-commands have been removed. Use `--mode=web`, `--mode=repo`, `--mode=structured` respectively. The former coordinator-side create-spec invocation is now `/research --mode=structured create <output-dir>`.

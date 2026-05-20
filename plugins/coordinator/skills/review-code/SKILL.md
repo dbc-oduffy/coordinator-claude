@@ -11,7 +11,7 @@ spec_backlink: docs/plans/2026-05-06-review-code-super-skill.md
 
 **Trigger:** EM has a code change ready for review (outgoing): mid-session diff before commit, completed task before next dispatch, branch ready for `/merge-to-main`, PR landing inline. OR a code-review's findings have landed and need processing (incoming).
 
-**When NOT to use:** Plan / design doc / RFC review → `coordinator:review`. Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-implementation (no clean review surface yet) → keep coding. Stuck pattern → `coordinator:stuck-detection`. Pure mechanical citation check with no Opus → run `docs-checker` directly. Pure mechanical test-output classification → dispatch `test-evidence-parser` directly.
+**When NOT to use:** Plan / design doc / RFC review → `coordinator:review`. Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-implementation (no clean review surface yet) → keep coding. Stuck pattern → see `docs/wiki/stuck-detection.md`. Pure mechanical citation check with no Opus → run `docs-checker` directly. Pure mechanical test-output classification → dispatch `test-evidence-parser` directly.
 
 ---
 
@@ -26,7 +26,7 @@ Three independent checks. Each fires or skips on its own condition; multiple can
 **Check 1 — TDD compliance (self-check, no agent)**
 
 - _Code introduces new behavior (feature, fix, refactor that changes externally observable behavior)?_
-  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a Staff Engineer finding.
+  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a Patrik finding.
   _See `docs/wiki/test-driven-development.md` § Verification Checklist._
 - _Code is config-only / doc-only / generated code?_
   → Skip TDD self-check.
@@ -49,15 +49,40 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 
 ### A.2 — Reviewer selection and dispatch
 
+**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the diff's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
+
+**Composite routing table (reference — assembled at dispatch time from fragment discovery):**
+
+| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
+|--------|---------------------|------------------------|--------|
+| Sonnet-tier code review (session-end, handoff, mise-en-place, mid-session quick review) | `code-reviewer` (Sonnet, locked) | (none) | Low |
+| Game dev / Unreal / DroneSim | Sid (Opus only) | Patrik (Opus only) | Medium → Medium |
+| Architectural change, new subsystem | Patrik (Opus only) | (backstop: Zolí, Opus only) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | Zolí (standalone — DoE altitude, Opus only) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | Zolí (standalone — DoE altitude, Opus only) | (none) | High |
+| Front-end, CSS, UI components | Palí (Opus only) | (backstop: Fru, Opus only) | Medium |
+| Front-end + architecture | Palí (Opus only) | Patrik (Opus only) | Medium → High |
+| ML/AI pipeline, model serving, RAG | Camelia (Opus only) | Patrik (Opus only) | High → High |
+| UX flow, user-facing feature | Fru (Opus only) | (backstop: Patrik, Opus only) | Low → Medium |
+| Cross-cutting (many files, new pattern) | Patrik (Opus only) | (backstop: Zolí, Opus only) | High |
+| Major DroneSim feature / new game mode | Sid (Opus only) | Patrik (Opus only) | High → High |
+| Other / unmatched | `code-reviewer` (Sonnet) for shape-only diffs (no domain signal, no cross-system boundary); Patrik (Opus only) when the diff carries architectural shape (new abstraction, cross-system seam, new pattern, schema/security boundary) | (none) | Low → Medium |
+
+**Personas are Opus-only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in their agent frontmatter; dispatching them at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Sonnet-tier mechanical analysis uses the relevant worker (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`). The persona's value is structured judgment under Opus context; running it at Sonnet costs the prompt complexity without the judgment payoff — empirically the result is a degraded "Sonnet-flavored Patrik" that produces persona affect without the architectural lens. → `agents/code-reviewer.md` for the Sonnet-tier surface.
+
+**Zolí standalone vs. Zolí backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch Zolí **standalone** with `mode: "standalone"` in the prompt — do NOT run Patrik first. Standalone Zolí is a peer of Patrik in technical rigor with the additional cross-team authority Patrik's EM altitude would hedge on. The "(backstop: Zolí)" entries above are the chained-after-Patrik usage for High-effort architectural reviews; that mode is still in play but does not exhaust Zolí's role.
+
+If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
+
 Match tier to complexity, not importance. Routing every "important" diff to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
 | Situation | Correct tier |
 |---|---|
-| Single-subsystem code change (one feature, one bug fix, one refactor) | `/review-dispatch <range> code` → one reviewer (auto-detects domain). For known-target single-reviewer cases (e.g., obvious Staff Engineer or Game Dev Reviewer match), direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; `/review-dispatch` is preferred for routing intelligence. |
-| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | `/review-dispatch <range> code --reviewers "<domain>,staff-eng"` → two sequential reviewers |
+| Single-subsystem code change (one feature, one bug fix, one refactor) | One reviewer. **Sonnet-tier (post-implementation, mid-session, no architectural call):** `code-reviewer`. **Opus-tier (domain-flagged, architectural, named-persona match):** dispatch the matching persona at Opus. For known-target single-reviewer cases, direct `Agent(subagent_type=...)` dispatch is an acceptable shortcut; routing table is preferred for routing intelligence. **Never** dispatch a persona with `model: "sonnet"` — that is the violation `code-reviewer` exists to replace. |
+| Cross-subsystem code change (e.g., UE + Python pipeline; front-end + auth backend) | Two sequential reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural code change with ≥2 valid implementations AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | `/review-dispatch <range> code` → one reviewer |
-| Code touches auth, security, billing — high stakes but clear approach | `/review-dispatch <range> code` → one reviewer |
+| "This is important, I want it done right" | One reviewer (auto-detects domain) |
+| Code touches auth, security, billing — high stakes but clear approach | One reviewer (auto-detects domain) |
 
 - _Code change is genuinely trivial?_ (typo, comment-only, single-line config bump with no behavior change)
   → No review needed; commit and proceed.
@@ -65,6 +90,8 @@ Match tier to complexity, not importance. Routing every "important" diff to a st
   → Exit; this skill does not run. Log the waiver in commit message or PR description: `review: skipped per PM direction YYYY-MM-DD` (greppable).
 
 _See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
+
+**Pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → 2.7b → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
 
 ### A.3 — Sequencing
 
@@ -121,6 +148,8 @@ Walk each finding against the triage table — it lands in exactly one row:
 - _Default / unmatched?_
   → Apply via integrator. Default is to integrate, not to ratify.
   _See `docs/wiki/receiving-code-review.md` (triage tables, push-back patterns, performative-agreement guard) and CLAUDE.md § Reviewer findings — apply, don't ratify._
+
+**Executor brief out-of-scope reminder.** When building an executor brief from these findings, include this constraint: Removing/weakening production safeguards to satisfy pre-existing test mocks is OUT OF SCOPE. Tests follow production; surface the conflict instead.
 
 ---
 

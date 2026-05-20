@@ -6,7 +6,12 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 Spec backlink: `docs/plans/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
 
-The goal is to ensure today is within the active workstream branch's span — not to create a new branch every day. A span-form branch (`work/striker/2026-05-06to07`) is the normal shape when work runs across midnight. The hook polices branch *shape*, not branch *date*; `cs_is_allowed_branch` is the policy oracle.
+The goal is to ensure the active workstream branch reconciles with `origin/main` daily — not to create a new branch every day. The active workstream may be either:
+
+- **Canonical** — `work/{machine}/{date-or-span}` (e.g. `work/striker/2026-05-06to07`). Span form is the normal shape when work runs across midnight.
+- **Named long-lived workstream** — `migration/...`, `release/...`, `feature/...`, etc., authorized at create-time via the inline `COORDINATOR_OVERRIDE_BRANCH=1`. Once it exists with commits ahead of main, workday-start treats it as a legitimate workstream bus.
+
+The hook polices branch *shape* at create-time, not branch *date* at workday-start. Daily ritual is **reconcile with origin/main**, applicable to both branch types. One active workstream branch per machine, kept current with main, until it's ready to merge.
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
@@ -21,12 +26,12 @@ Run `sync-main.sh` first; abort if it exits non-zero. Never create or rename bra
 ### Step 0.2 — Determine machine and today's date
 
 ```bash
-MACHINE=$(cs_compute_machine)   # always lowercase (Staff Engineer F11; lib Phase 1)
+MACHINE=$(cs_compute_machine)   # always lowercase (Patrik F11; lib Phase 1)
 TODAY=$(date +%Y-%m-%d)
 CURRENT=$(git branch --show-current)
 ```
 
-`MACHINE` is used in every branch name constructed below. Because `cs_compute_machine` lowercases its output unconditionally, new branches are always `work/striker/...` regardless of `$COMPUTERNAME` case.
+`MACHINE` is used in every branch name constructed below. Because `cs_compute_machine` lowercases its output unconditionally, new branches are always `work/<machine>/...` regardless of `$COMPUTERNAME` case.
 
 ### Step 0.3 — Precedence switch (evaluate in order; stop at first match)
 
@@ -46,8 +51,8 @@ SHOULD_PROMPT=$?
 ```
 If `$SHOULD_PROMPT` is **1** and the branch is a valid `work/{machine}/...` form → exit Step 0 silently. Today is already within the branch's span. Proceed to Step 1.
 
-**Check 3 — On main / no workstream branch (runs third):**
-If `$CURRENT == "main"` or `cs_parse_branch_span "$CURRENT"` returns non-zero (branch is not a valid daily/span form) → create a fresh workstream branch:
+**Check 3 — On main / detached / empty branch (runs third):**
+If `$CURRENT == "main"` OR HEAD is detached OR `$CURRENT` is non-main with zero commits ahead of `origin/main` → create a fresh canonical workstream branch:
 ```bash
 COORDINATOR_OVERRIDE_BRANCH=1 \
 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 create workstream branch" \
@@ -55,7 +60,16 @@ git checkout -b "work/${MACHINE}/${TODAY}"
 
 git push -u origin "work/${MACHINE}/${TODAY}"
 ```
-Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.5 (consolidation)**.
+Name collision with an already-merged branch: append `-2`. Then proceed to **Step 0.4.5 (reconcile)** and **Step 0.5 (consolidation)**.
+
+**Why "empty branch" qualifies for fresh-cut:** a non-main branch with zero commits ahead is structurally indistinguishable from `main` for workstream purposes — it's an empty container, not work-in-progress. Cutting fresh from main is fine; nothing is being abandoned.
+
+**Check 3.5 — Named long-lived workstream (runs between 3 and 4):**
+If `$CURRENT` is non-main, `cs_parse_branch_span "$CURRENT"` returns non-zero (not `work/{machine}/...`), AND `git rev-list --count origin/main..HEAD` > 0 → this is an active named workstream bus (e.g. `migration/from-holodeck-...`, `release/v2.0`). Skip the rename procedure (which is `work/{machine}/...`-specific). Proceed directly to **Step 0.4.5 (reconcile)**, then **Step 0.5 (consolidation)** with this branch as base.
+
+**Why not force a fresh daily here:** creating `work/{machine}/{today}` off main and abandoning the named workstream branch would strand potentially weeks of work on an inactive ref. The PM authorized this branch at create-time via the inline override; daily reconciliation keeps it current with main without forking.
+
+**Consolidation scope for named workstreams:** Step 0.5 (merge open `work/{machine}/...` siblings into the active branch) is **skipped** when the active branch is a named long-lived workstream. The named bus is deliberately scoped (e.g. a migration, a release); folding generic daily work into it cross-pollutes the workstream history. Sibling `work/{machine}/...` branches stay where they are until their own session consolidates them, or until they're explicitly merged via `/consolidate-git`.
 
 **Check 4 — Midnight-rename (runs last):**
 Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0. This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
@@ -66,7 +80,7 @@ Renamed $OLD → $NEW (crossed midnight)
 ```
 PM can revert via `git branch -m` if they object.
 
-### Step 0.4 — Rename procedure (Staff Engineer F5 — atomic, reversible)
+### Step 0.4 — Rename procedure (Patrik F5 — atomic, reversible)
 
 ```bash
 OLD=$(git branch --show-current)
@@ -106,20 +120,59 @@ else
     exit 1
   fi
 
-  # Rename complete — update tracking to the new remote branch
-  git branch --set-upstream-to="origin/${NEW}" "$NEW" 2>/dev/null || true
+  # Rename complete — update tracking to the new remote branch.
+  # Surface (don't swallow) failures: --set-upstream-to should succeed because
+  # the atomic push above already published origin/${NEW}; unexpected failure
+  # is worth a visible warning rather than a silent || true.
+  if ! git branch --set-upstream-to="origin/${NEW}" "$NEW" 2>/dev/null; then
+    echo "WARN: could not set upstream to origin/${NEW}; check remote tracking manually."
+  fi
 fi
 ```
 
 **Override rationale:** `git branch -m` and `git push --atomic` are both hook-blocked ops when the target name is being mutated. The inline `COORDINATOR_OVERRIDE_BRANCH=1` is required on each of the three git commands (rename, push, rollback). Never export this variable — set it inline per command.
 
+### Step 0.4.5 — Reconcile with origin/main (daily ritual)
+
+Applies to any non-main active branch — canonical `work/{machine}/...` or named long-lived workstream. Runs after the precedence switch resolves and after any rename, before consolidation.
+
+```bash
+git fetch origin main
+CURRENT=$(git branch --show-current)
+
+if git merge-base --is-ancestor origin/main HEAD; then
+  # Already includes origin/main — nothing to do.
+  :
+elif COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (ff)" \
+     git merge --ff-only origin/main 2>/dev/null; then
+  echo "Fast-forwarded $CURRENT to include origin/main."
+else
+  if COORDINATOR_OVERRIDE_BRANCH=1 \
+     COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 reconcile origin/main (merge)" \
+     git merge --no-ff origin/main \
+       -m "reconcile origin/main into $CURRENT (workday-start)"; then
+    echo "Merged origin/main into $CURRENT."
+  else
+    git merge --abort
+    echo "Reconcile conflict with origin/main — surface via A/B/C Branch Reconciliation Decision."
+    # Do not proceed to Step 0.5; PM resolves first.
+    exit 1
+  fi
+fi
+```
+
+**Why this replaces "cut a fresh daily off main":** other contributors push to `origin/main` independently. The active workstream branch needs that work folded in daily to stay mergeable — abandoning the branch and cutting a fresh one off main would lose the in-progress workstream. Conflicts on reconcile use the same A/B/C decision flow as consolidation conflicts (`commands/workday-start.md` § Step 0 conflict handling).
+
+**Override rationale:** `git merge origin/main` does not mutate a branch ref, but the hook surface includes `git merge` in some shells (compound parsing). Inline override is cheap insurance; remove if hook coverage analysis confirms it's not needed.
+
 ### Step 0.5 — Consolidate open branches
 
-Find open (unmerged) work branches for this machine:
+Find open (unmerged) work branches for this machine. Use a case-insensitive glob (the legacy uppercase transition period is over but mixed-case strays still appear from manual branch creates):
 ```bash
-git branch --list "work/${MACHINE}/*" --no-merged main
+# shopt is bash-only; case-fold the listing portably with grep -i over a wider glob
+git branch --list "work/*" --no-merged main | grep -i "^[* ]*work/${MACHINE}/"
 ```
-(Also check `work/$(echo "$MACHINE" | tr '[:lower:]' '[:upper:]')/*` for legacy uppercase branches during the transition period.)
 
 Exclude the current active branch from the result list. For each remaining branch:
 ```bash
@@ -148,7 +201,7 @@ Report:
 
 ## Step 1 — Handoff reconciliation (rationale + procedure)
 
-**Why surface-only:** handoffs are archived only when consumed (`/pickup` marks them) or when the PM explicitly directs archival. An old handoff that nobody picked up is a signal that work was deferred — not that the handoff is stale. workday-start surfaces the state; the PM decides what to do.
+**Why filter to `ready_to_fire` for the primary actionable list, with `awaiting_gate` always surfaced as its own subsection (doctrine reversal 2026-05-08, revised 2026-05-15):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability for the actionable list requires a clear filter. The original 2026-05-08 revision hid `awaiting_gate` behind a 14-day staleness gate; empirical use (2026-05-15) showed this buried gated work the PM needed for cross-workstream planning — clear-gate, retarget, or pick-up-early decisions never reached the briefing. Revised behavior: `awaiting_gate` items always surface as a "Gated handoffs" subsection (count + list when present), with a >6-day flag for items where the gate may be stuck. Six days ≈ one working week — long enough to filter normal in-flight gates, short enough to catch ossification. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
 
 **Why cross-reference completed archive:** handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 
@@ -168,38 +221,49 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 
 **Empirical baseline:** expect 30–60% of inherited items to be already closed. Skipping means the Morning Briefing recommends ghost work.
 
-**Partial-completion claims** (DroneSim T1.2 pattern): before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
+**Partial-completion claims:** before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
 
 ## Step 5.5 — Orientation Cache Content Derivation
 
-Generate `tasks/orientation_cache.md` — a compact summary for the SessionStart hook to inject in subsequent sessions instead of raw repomap/DIRECTORY content.
+Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
 
-1. **Key Documentation:** if `docs/README.md` exists, include a `## Key Documentation` section:
-   ```
-   ## Key Documentation
-   - **Master docs index:** [`docs/README.md`](../docs/README.md) — wikis, research, specs, plans, reference
-   - **Wiki guides:** [`docs/guides/`](../docs/guides/) — [N] living guides with embedded decision records
-   - **Research outputs:** [`docs/research/`](../docs/research/) — [N] timestamped research files
-   - **Plans:** [`docs/plans/`](../docs/plans/) — [N] implementation and design plans
-   ```
-   Count files in each directory. Reference `docs/guides/DIRECTORY_GUIDE.md` if present. If `docs/README.md` is absent: _"No docs/README.md — run `/update-docs` or `/project-onboarding` to create one."_
+```bash
+bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
+```
 
-2. **Structure:** read `tasks/repomap.md`, extract top 15 by rank. Note total file count.
+The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (`bin/verify-orientation-cache-sync.sh`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.
 
-3. **Navigation:** read `DIRECTORY.md` or `docs/DIRECTORY.md`, summarize at directory level (name + file count + purpose).
+**Why a schema, not prose:** four writers (`/workday-start`, `/update-docs`, `/session-end`, `/handoff`) historically patched the cache with free-form sections, and there was no owner for subtraction. The cache accreted prior-session narrative ("publish-repo-topology-sync just shipped...", "Patrik R1 (9 findings folded)...", "AC7 dogfood waived by PM") that poisoned every subsequent boot. The schema below is the structural fix: every section is either (a) static template, (b) sentinel-regenerated from disk, or (c) absent. No free-form prose anywhere. See `docs/plans/2026-05-18-orientation-cache-authoring-discipline.md` for the full motivating audit.
 
-4. **Code Statistics:** `scc --no-complexity --no-cocomo --no-duplicates --sort code` if available — total LOC + top 5 languages. Skip silently if scc not installed (`~/bin/scc` is the conventional Windows install path).
+### Canonical schema
 
-5. **Health Snapshot:** compact version of Morning Briefing health data.
+| Section | Shape | Source-of-truth | Tier |
+|---|---|---|---|
+| Frontmatter | `generated_by: <slug>` (single word — no parentheticals, no "patched by"), `generated_at: <ISO-8601>`, `git_head_at_generation: <short-sha>` | writer + `git rev-parse` | both |
+| `## Project` | 1 line, project name + 1-sentence purpose | static (CLAUDE.md identity line if present, else config) | ceremony |
+| `## Trust caveats` | ≤5 lines of `- <one-line caveat>`; **omit section entirely if no detector fires** | filesystem detectors (NOT config). MVP: any `*.uproject` anywhere in repo → UE caveat starting `Unreal Engine project detected (<path>) — do NOT trust your training data on UE5 APIs/classes/Blueprint semantics; verify every claim via mcp__project-rag__* tools or dispatch game-dev:staff-game-dev (Sid). This applies to your delegates — restate it in every UE dispatch brief.` Additional framework detectors (Unity, RN, etc.) added as those projects materialise. | ceremony (static — content changes only when the routine ships a new detector) |
+| `## Counters` | Lines of the form `- **<label>:** <integer>`; **omit lines where value is 0** | derived from disk: handoffs ready_to_fire, spinoffs ready_to_fire, gated handoffs, bug-backlog depth, local improvement queue depth | ceremony |
+| `## Active workstreams` | Name-only list, one per line, max 10 entries; names only — no progress prose, no parenthetical state | `tasks/project-tracker.md` or equivalent | ceremony |
+| `## Rechecks due ≤7 days` | One line per recheck marker due within 7 days; **omit section entirely if empty** | glob `tasks/*-recheck-due-*.md`, filter by date in filename | ceremony |
+| `## Branch` | 1 line: `<branch> — <ahead>/<behind> vs origin/main`. No narrative. | `git rev-parse` + `git rev-list --count` | ceremony |
+| `## Pinboard` | exactly 0 or 1 line of `- <ISO-date> <writer-slug>: <one-line note>`; **omit section entirely if empty**. One-slot only — second mid-session write overwrites the first, never appends. | mid-session writers append-or-overwrite; cleared by every ceremony regen | mid-session |
 
-6. **Doc Inventory:** checklist of standard docs (from Step 2).
+### Writer tiers
 
-7. **Staleness markers:** repomap age, last update-docs run (from Step 2).
+**Ceremony writers** (`/workday-start` Step 5.5, `/update-docs` Phase 10) own full regeneration. Every section is re-derived from source-of-truth. The pinboard is cleared. Out-of-schema sections present in the file are discarded. **This is where bloat dies.**
 
-8. **Yesterday's Strategic Review:** glob `archive/daily-summaries/YYYY-MM-DD.md`, take most recent. If it has a `## Strategic Review` section, extract a 3-5 line excerpt for a `## Yesterday` section. Skip silently if no daily summaries exist.
+**Mid-session writers** (`/session-end` Step 2.8, `/handoff` Step 2.9) may ONLY mutate `## Pinboard`, and only by writing exactly one line. No other section. No body edits. Pinboard content rule: write a line only when next session boot MUST see this and it would otherwise be lost (e.g., a transient surface gotcha discovered this session; a critical blocker context for the picker-upper of a handoff). If you find yourself wanting to write more, that's a wiki edit or a handoff body — escalate to PM. The pinboard is automatically cleared at the next ceremony regen.
 
-**Frontmatter:** `generated_by`, `generated_at` (ISO 8601), `git_head_at_generation` (current HEAD short hash).
+### Hard limits (verifier-enforced)
 
-**Target: 40-60 lines.** Replaces ~300 lines of raw hook injection for subsequent sessions.
+- File length ≤35 lines.
+- `## Trust caveats`: ≤5 lines.
+- `## Active workstreams`: ≤10 lines.
+- `## Pinboard`: ≤1 line.
+- Counter lines must match `^- \*\*[A-Za-z][A-Za-z0-9 /\-]*:\*\* [0-9]+(\.|$)` — integer terminated. Prose continuation ("— cleared by bug-blitz", "— 4 concurrent-EM additions") is a verifier failure.
+- Workstream lines must match `^[0-9]+\. [A-Za-z][^\n]{0,80}$` — name only.
+- Pinboard line must match `^- [0-9]{4}-[0-9]{2}-[0-9]{2} [a-z0-9-]+: [^\n]{1,120}$`.
+- `generated_by` value must be a single slug — no parenthetical annotation.
+- If `*.uproject` is present in the repo, `## Trust caveats` MUST be present and its first line MUST contain `Unreal Engine project detected` (detector-regression guard).
 
-**If `tasks/` directory doesn't exist:** skip. Not all repos use `tasks/`.
+**If `tasks/` directory doesn't exist:** skip cache generation. Not all repos use `tasks/`.

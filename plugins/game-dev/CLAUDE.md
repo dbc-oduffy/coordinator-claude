@@ -1,10 +1,19 @@
 # Game Dev Plugin
 
+## Consumer Context
+
+This plugin ships to **two consumers** with different MCP tool surfaces:
+
+- **`claude-unreal-holodeck` (specialized):** holodeck-docs + holodeck-control MCP are registered; UE-semantic project-rag tools land per the jetbrains sprint (Stream D / G / F-L1/2/3/4, ~W2–W6 of 2026-05). The `mcp__holodeck-docs__*` tools listed below resolve and the documented workflows operate normally.
+- **`coordinator-claude` (naked):** only `holodeck-control` may be registered (optional). `mcp__holodeck-docs__*` does NOT resolve. The MCP Health Gate in `agents/staff-game-dev.md` aborts UE reviews — that is the intentional fail-loud behavior for high-stakes UE correctness work without verified docs. Low-stakes generic UE discussion is a PM override, not an agent default.
+
+Peer-repo polarity doctrine (UE-specialization lives in the addon; common-language indexing stays in core) is at `coordinator/docs/wiki/peer-repo-polarity.md`. The agent-routing table (`X:/claude-unreal-holodeck/tasks/agent-routing-table.md`) lives in the specialized consumer; coordinator-claude owns the doctrine, not the table.
+
 ## UE Documentation
 
-**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (10 tools, 421,935 vectors, hybrid BM25+semantic search).
+**Full tool hierarchy and retrieval strategy:** See the **holodeck-docs** plugin CLAUDE.md. That plugin owns the documentation lookup workflow (10 tools, 421,935 vectors, hybrid BM25+semantic search). Available only in the specialized consumer per the table above.
 
-**Quick reference** (tool names for inline use):
+**Quick reference** (tool names for inline use — resolve only when `holodeck-docs` MCP is registered):
 
 | Tool | Purpose |
 |------|---------|
@@ -25,13 +34,13 @@
 - GAS deep-dive → `/tranek/gasdocumentation`
 - UE C++ patterns → `/mrrobinofficial/guide-unrealengine`
 
-## The Game Dev Reviewer's Role
+## Sid's Role
 
-The Game Dev Reviewer (`game-dev:staff-game-dev`) is the **architect and reviewer** for game development work. The role uses holodeck-docs MCP tools as part of deeper analysis — design decisions, code review, anti-pattern recognition, architecture recommendations.
+Sid (this plugin's agent) is the **architect and reviewer** for game development work. He uses holodeck-docs MCP tools as part of deeper analysis — design decisions, code review, anti-pattern recognition, architecture recommendations.
 
-For **simple documentation lookups** that don't need the Game Dev Reviewer's judgment, use the `ue-docs-researcher` agent from the holodeck-docs plugin instead. It's a Sonnet subagent optimized for fast, context-isolated doc retrieval.
+For **simple documentation lookups** that don't need Sid's judgment, use the `ue-docs-researcher` agent from the holodeck-docs plugin instead. It's a Sonnet subagent optimized for fast, context-isolated doc retrieval.
 
-**Routing rule:** Architecture and design → the Game Dev Reviewer. Factual lookups and doc retrieval → ue-docs-researcher.
+**Routing rule:** Architecture and design → Sid. Factual lookups and doc retrieval → ue-docs-researcher.
 
 ## UE Editor Authoring (holodeck-control)
 

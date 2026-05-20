@@ -5,7 +5,7 @@
 # matcher). Records the modified file path into the per-session touch list at
 # .git/coordinator-sessions/<session_id>/touched.txt.
 #
-# Design notes (per Staff Engineer P0-3):
+# Design notes (per Patrik P0-3):
 #   - Bash tool calls are NOT parsed — mtime fallback at commit time handles
 #     Bash-driven edits. Parsing arbitrary shell for write effects is unsound.
 #   - Hook matcher in hooks.json already restricts to edit tools. This script
@@ -106,7 +106,7 @@ TOUCHED_FILE="${SESSION_DIR}/touched.txt"
 # ---------------------------------------------------------------------------
 if [[ ! -d "$SESSION_DIR" ]]; then
   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
-  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
   if [[ -f "$LIB_PATH" ]]; then
     # shellcheck source=/dev/null
     source "$LIB_PATH"
@@ -136,7 +136,7 @@ if [[ "$FILE_PATH" == /* || "$FILE_PATH" == [A-Za-z]:* ]]; then
   if [[ -z "$REL" ]]; then
     # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
     LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
-    [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
     # shellcheck source=/dev/null
     [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
     if [[ -n "$PYTHON_BIN" ]]; then
@@ -171,7 +171,7 @@ _atomic_dedup_append() {
   if ! declare -f cs_atomic_dedup_append &>/dev/null; then
     local _lib
     _lib="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
-    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
     if [[ -f "$_lib" ]]; then
       # shellcheck source=/dev/null
       source "$_lib"

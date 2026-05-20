@@ -1,7 +1,7 @@
 # PM-Native Positioning & Doctrine Plan
 
 **Date:** 2026-05-05
-**Status:** Complete — shipped 2026-05-05 in coordinator-claude PR #28 (1.11.0). All five phases landed: README rewrite, doctrine extensions (Challenging the PM, escalation triggers, scope modes, DoR/DoD), YK reviewer, ship verdict + demo path, evolution doc set. Mirrored to Claude Prime via PR #64.
+**Status:** Complete — shipped 2026-05-05 in coordinator-claude PR #28 (1.11.0). All five phases landed: README rewrite, doctrine extensions (Challenging the PM, escalation triggers, scope modes, DoR/DoD), the VP-Product Reviewer reviewer, ship verdict + demo path, evolution doc set. Mirrored to Claude Prime via PR #64.
 **Source:** `coordinator_claude_deep_recommendations.md` (external review, 2026-05-05) — triaged with skepticism, not adopted wholesale.
 
 ## Premise
@@ -65,7 +65,7 @@ These are real changes to plugin doctrine, not just docs. All fold into existing
 
 ### Phase 3 — Product-risk reviewer (1–2 sessions)
 
-3.1. **New persona: product-risk reviewer.** This is genuinely additive — Patrik (staff eng), Sid (UE), Camelia (data sci), Palí (front-end), Fru (UX) cover code/UE/data/FE/UX, but none own *"does this solve the user problem and is it safe to ship to a real user?"* That's a real gap. Reviewer answers: fit-to-intent, UX clarity for non-trivial behavior changes, edge cases with product impact, support burden, trust/safety/privacy implications, scope discipline (over/under/drift), launch readiness verdict.
+3.1. **New persona: product-risk reviewer.** This is genuinely additive — the Staff Engineer (staff eng), the Game Dev Reviewer (UE), the Data Science Reviewer (data sci), the Front-End Reviewer (front-end), the UX Reviewer (UX) cover code/UE/data/FE/UX, but none own *"does this solve the user problem and is it safe to ship to a real user?"* That's a real gap. Reviewer answers: fit-to-intent, UX clarity for non-trivial behavior changes, edge cases with product impact, support burden, trust/safety/privacy implications, scope discipline (over/under/drift), launch readiness verdict.
 
 3.2. **Integrate into existing review pipeline.** Runs after technical reviewer when work is user-visible. Routed via `/review-dispatch`. Carries the synced calibration block like other reviewers.
 
@@ -108,7 +108,7 @@ These appear in the external review and we are *not* adopting:
 ## Open questions for PM
 
 1. **Phase 1 voice.** Evolution docs can read as "war stories" (informal, character-driven) or as "engineering changelog" (clinical, dispassionate). Recommend war-stories voice — matches the project's existing tone in research artifacts and is more memorable. Confirm?
-2. **Product-risk reviewer naming.** Existing personas have names (Patrik, Sid, Camelia, Palí, Fru, Zolí). Do we name this one? If yes, what role/personality fits — a Director of Product? A senior PM? Recommend a senior PM character so the dynamic is "PM-reviewer cross-checks PM-user," which is genuinely useful.
+2. **Product-risk reviewer naming.** Existing personas have names (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering). Do we name this one? If yes, what role/personality fits — a Director of Product? A senior PM? Recommend a senior PM character so the dynamic is "PM-reviewer cross-checks PM-user," which is genuinely useful.
 3. **Phase 0 scope.** Tempting to also rewrite `docs/architecture.md` and `docs/getting-started.md` while we're in there. Recommend deferring — README change is the keystone; downstream doc rewrites are easier once it lands.
 
 ## What we're not solving here
