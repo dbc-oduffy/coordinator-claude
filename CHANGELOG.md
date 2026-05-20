@@ -4,11 +4,46 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
-## [2.1.1] — 2026-05-20
+## [2.2.0] — 2026-05-20
 
-Patch release. Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machine-local/` migration that the project-rag-ue-addon dogfood doctor invocation surfaced as cross-team friction.
+Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-resolution definition as a load-bearing module that ships with `/coordinator:setup`, so peer-repo install scripts (project-rag, holodeck, deep-research, future Python/TS/Rust consumers) consume one canonical resolver instead of inlining a precedence chain in each repo. Also trims four pre-existing skills/commands to fit the CI spec-line-count ceiling (>500 lines), and ships the ergonomic-substrate / eager-agent-calibration chunks (meta-ask preamble snippet + sync verifier + templates-mirror verifier + new wiki).
 
 ### Added
+
+- **`coordinator/lib/claude-home/`** — new load-bearing module that resolves the `$HOME` analog (`CLAUDE_HOME → HOME → USERPROFILE → Path.home()`), `~/.claude.json`, `~/.claude/`, `~/.claude/machine-local/`, `~/.claude/plugins/`. Ships as `bin/claude-home` (CLI), `bin/_claude_home.py` (Python module + CLI; importable for path resolvers AND atomic JSON read/write of `~/.claude.json` with BOM-tolerant read + JSONDecodeError enrichment), and `bin/claude-home.cmd` (Windows shim). Co-located README and 17-test stdlib-`unittest` suite (no pytest dep). Installed to `~/.claude/bin/` by `/coordinator:setup` Phase 3 Step 3. The `lib/<module>/` location signals "cross-repo contract surface, do not customize." Peer repos retire their local copies (e.g., `project-rag/scripts/_claude_config.py`) by shelling out to `claude-home` or importing `_claude_home`.
+- **`docs/wiki/machine-local-registry.md § 4a`** — new doctrine section: filesystem-layout invariant (`.claude.json` and `.claude/` are SIBLINGS under `$HOME`, never nested); resolution-order precedence with rationale for why `CLAUDE_HOME` ranks ABOVE `HOME` (unlike `MACHINE_LOCAL_<KEY>` env vars which rank BELOW the registry); generic `read_config` / `write_config` JSON I/O surface; alignment policy naming project-rag as the canonical consumer to retire its inline copy.
+- **`coordinator/lib/install-substrate.sh`** — new helper encapsulating `/coordinator:setup` Phase 3 mechanical work (machine-local substrate, bin/ resolver install, Windows PATH integration, Windows Python-resolution health checks: orphan AppX stub detection with `[y/N]` consent, store-alias-on-PATH warning, no-Python-at-all warning). Replaces ~190 lines of inline bash in `setup.md`; setup.md now describes the contract while the script does the work. Fail-loud on missing template directories (hard precondition for downstream skills).
+- **`coordinator/lib/discover-working-repos.sh`** — new helper encapsulating `/coordinator:setup` Phase 2 Step 4 working-repos discovery (Tier A: `~/.claude/projects/` activity record; Tier B: common dev-folder layouts). Tier C interactive prompt remains in `setup.md`.
+- **`coordinator/lib/workweek-trail-scope.sh`** — new helper encapsulating the `/workweek-complete` Step 7 prelude logic (parses `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, computes `patrik_scope = unreviewed_week_SHAs ∪ cross-segment-seam SHAs`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`). Subprocess-only, fail-loud, spec-backlinked. Same shape as `install-substrate.sh`.
+- **`coordinator/snippets/meta-ask-preamble.md` + `bin/verify-meta-ask-preamble-sync.sh`** — new shared preamble snippet plus a sync verifier in the tripwires registry; ergonomic substrate for the eager-agent-calibration doctrine.
+- **`coordinator/docs/wiki/eager-agent-calibration.md`** — new wiki capturing the design-as-offers ethos: agent-facing tooling defaults to offer-shape (lead with the better alternative), not nag-shape. Referenced from `~/.claude/CLAUDE.md § Implementation Standards`.
+- **`coordinator/bin/verify-templates-bin-sync.sh`** — new verifier ensuring `templates/bin/` resolver scripts stay in sync between source and install targets.
+
+### Changed
+
+- **`commands/setup.md`** trimmed from 718 → 500 lines. Phase 3 (substrate + resolvers + Windows PATH/AppX) now a contract description that invokes `install-substrate.sh`; Phase 2 Step 4 (working-repos discovery) invokes `discover-working-repos.sh`. Phase 7 status table grows new rows for machine-local directory / tracked files / bin resolvers / Windows PATH+shims / registry seed; the four substrate rows are explicitly marked hard-preconditions (`FATAL` halts the chain).
+- **`templates/bin/machine-local.cmd`** uses `%~dp0machine-local` instead of `%USERPROFILE%/.claude/bin/machine-local` — same `CLAUDE_HOME` correctness fix applied to `claude-home.cmd`. The shim now tracks wherever `~/.claude/bin/` lives, including non-default install roots.
+- **`commands/workday-start.md`** — 545 → 496 lines. Prose compaction only; no extraction. Doctrine preserved (every step number, precedence rule, exit code, behavioral trigger intact).
+- **`commands/workweek-complete.md`** — 651 → 498 lines. Step 7 prelude extracted to `lib/workweek-trail-scope.sh`; Step 4c UBT-gate, Step 4f enabledPlugins-drift, and Step 9.2 editorial-worker prose-compacted. All MANDATORY steps and gate behaviors preserved.
+- **`skills/learn-lessons/SKILL.md`** — 593 → 499 lines. Prose compaction (merged duplicate Anti-Patterns entries, condensed DoE-adjudication rationale, tightened Local-mode auto-apply bounds). All five modes-and-cadence rules, the four-check gate, the routing schema, and the Change-Kind taxonomy intact.
+- **`skills/project-onboarding/SKILL.md`** — 528 → 498 lines. Prose compaction (collapsed lazy-dir bullet enumeration to a reference to the existing table; compacted inline `docs/README.md` template from 43 to 28 lines). No phase ordering or behavior change.
+
+### Fixed
+
+- **`coordinator:setup` Phase 3 Step 1** is now fail-loud on missing template directories. Previously emitted an error and "skipped remaining steps of this phase" — Phases 4–7 still ran, leaving the operator with a broken-and-undiagnosable install. Now exits non-zero and halts the chain. Machine-local substrate is a hard precondition for downstream skills (project-rag, holodeck, deep-research all shell out to `bin/machine-local`).
+- **`install-substrate.sh` PATH check** uses `cygpath -w "${_bin_dst}"` instead of hardcoded `$env:USERPROFILE` — previously, operators with `CLAUDE_HOME` set to a non-default location would have bin/ resolvers installed at `$CLAUDE_HOME/.claude/bin/` but PATH pointing at `%USERPROFILE%\.claude\bin`. Same env-var-passthrough pattern applied to the AppX `Remove-Item` call (defends against shell-injection through the resolved stub path).
+
+### Internal
+
+- Sonnet code-review pre-merge (three passes total): claude-home module (6 findings, all applied — `.cmd` shim `%USERPROFILE%` hardcode, `setup.md` `_bin_dst` precedence, Python import bootstrap respecting `CLAUDE_HOME`, missing failure-path tmp-cleanup test, two doc nits); install-substrate refactor pass 1 (14 findings, P1/P2 applied — Remove-Item injection, PATH/CLAUDE_HOME mismatch, silent PowerShell failure, `COORDINATOR_NON_INTERACTIVE==1`); install-substrate + discover-working-repos pre-percolate pass (10 findings, all P1/P2 applied — variable name mismatch `WORKING_REPOS_LIST` vs `WORKING_REPOS`, stale "Step 5" reference, GNU sed `\L` non-portable, git-worktree `.git`-as-file handling, `_install_one` `set -e` function fall-through, Tier A pipefail SIGPIPE).
+- claude-home test suite: 17 tests, stdlib `unittest` (no pytest), all passing. Run: `python plugins/coordinator/lib/claude-home/tests/test_claude_home.py`.
+- Spec-line-count trims dispatched as four parallel Sonnet executors (one per file), with tight constraints (extract bash blocks ≥30 lines OR compact prose only when every distinct doctrine point survives; FORBIDDEN: splitting files, changing step ordering, removing sections). Each executor reported what they did NOT cut and why. EM spot-checked diffs before commit. Net markdown delta: 437 deletions / 111 insertions across the 4 files; new helper +124 lines. CI line-count check now passes (10/2 → 11/1; only the pre-existing reference-validation failure remains).
+
+### Also in 2.2.0 — earlier `coordinator_whoami` + `~/.claude/machine-local/` substrate work
+
+Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machine-local/` migration that the project-rag-ue-addon dogfood doctor invocation surfaced as cross-team friction.
+
+#### Added
 
 - **`docs/wiki/coordinator-doctor.md`** — wiki-shaped agentic-steps doctor (explicitly NOT a slash skill) with nine probes covering machine-local registry and `coordinator_whoami` substrate. Downstream plugin doctors (holodeck, project-rag, project-rag-ue-addon) cite this wiki as the canonical health-verification surface; reinvention is named as a doctrine violation. Cross-team directives at Chunk 1 §5 bind: (a) coordinator-substrate probes MUST use delegation or augmentation shape; (b) binding-health classification MUST cite P-6 (live whoami) not P-7 (config-presence file read). Reviewed standalone by the Director of Engineering 2026-05-20 (DoE altitude, cross-team seam).
 - **`cross-plugin-whoami-contract.md` — offline diagnostic surface.** New optional `source_kind: "live" | "offline"` discriminator (additive at contract v1; absent value treated as `"live"`). Plugins authoring CLI / file-read fallback envelopes when the daemon is unavailable label them `"offline"`; consumers classifying binding health MUST reject offline envelopes. Schema (`coordinator_whoami/schemas/whoami-envelope.v1.json`) extended additively — 86/86 whoami tests still pass.
@@ -16,7 +51,7 @@ Patch release. Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~
 - **Doctrine-vs-operator-guide pairing.** Both `cross-plugin-whoami-contract.md` and `machine-local-registry.md` gain audience preambles explicitly naming themselves as the substrate-doctrine half of a pair, with `coordinator-doctor.md` as the operator-guide half.
 - **`scan-addon-health.sh --check-sentinel-presence` mode** — closes the H-1 vacuous-pass shape in session-start (`--red-only` could silently pass on fresh installs with no sentinels). The new mode fires a one-line bootstrap notice exactly when at least one plugin is installed AND no doctor sentinels exist anywhere; silent otherwise. Wired into `/session-start`.
 
-### Changed
+#### Changed (substrate)
 
 - **`commands/setup.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
 - **`docs/wiki/machine-local-registry.md`** prose aligned to template ground-truth: `repos.holodeck` → `repos.claude_unreal_holodeck` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
@@ -25,7 +60,7 @@ Patch release. Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~
 - **`/session-start` orientation health-check** now invokes `python3 -m coordinator_whoami.project_rag --human` (gated on `coordinator_whoami` importability) as a spot-check of the coordinator/project-rag binding. Cites `coordinator-doctor.md` P-6.
 - **`/project-onboarding` Phase 4 Next Steps** cites `coordinator_whoami` as the canonical introspection surface with a one-line bootstrap pointer to `coordinator-doctor.md` P-1 through P-4 for machine-local health verification.
 
-### Fixed
+#### Fixed (substrate)
 
 - **`/holodeck:doctor` discovery order** — `machine-local get repos.claude_unreal_holodeck` is now tier 1; `MACHINE_LOCAL_REPOS_CLAUDE_UNREAL_HOLODECK` tier 2; `HOLODECK_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Holodeck doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
 - **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; Striker-specific `X:/project-rag` hardcoded candidate removed from the fallback loop.
@@ -36,11 +71,11 @@ Patch release. Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~
 - **`/session-start` `<plugin-cli-path>` literal placeholder** — resolved with an inline `~/.claude.json`-parsing snippet sourced from `commands/workday-start.md` Step 3.6.
 - **Global `CLAUDE.md` line 16 parenthetical** — described `publish-targets.sh` as "(machine-local)" which conflated the legacy file with the canonical `~/.claude/machine-local/` registry. Reworded to "(per-machine legacy file, superseded by `~/.claude/machine-local/`)".
 
-### Migration
+#### Migration
 
 No breaking changes. Operators with `~/.claude/machine-local/` already populated need no action. Operators on a fresh install: `/coordinator:setup` Phase 3 lays down the substrate; populate `registry.local.toml` with sibling-repo roots. Verification: run the nine probes in `coordinator-doctor.md` §3 (on Windows Git Bash, substitute `py -3` for `python3`).
 
-### Sanitization
+#### Sanitization
 
 - OSS-side stale self-reference fixed in `cross-plugin-whoami-contract.md` (line was describing the file's own location as a "ships outward via setup/publish.sh to X:/coordinator-claude" destination).
 

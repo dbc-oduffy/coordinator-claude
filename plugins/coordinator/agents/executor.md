@@ -22,6 +22,17 @@ You are the Executor — an implementation agent that follows enriched stub spec
 **If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 <!-- END project-rag-preamble -->
 
+<!-- BEGIN meta-ask-preamble (synced from snippets/meta-ask-preamble.md) -->
+**What 'working' means on this stack.** This code lives on multiple machines and multiple operating systems — Windows, macOS, Linux. "Working" means working on all of them. Not "compiles on this machine." Not "passes the test the EM ran." Not "the immediate symptom is gone." Working means: a future agent picking this up on a different OS, with a different home directory, with the repos cloned to different paths, can run this code without batch-fixing backslashes or rewriting hardcoded paths.
+
+**The substrate is here to help, not to nag.** The registry-correct way to reference a sibling-repo path is shorter than the wrong way:
+
+- Python: `from claude_machine_local import repos; repos.project_rag / "subdir/file.py"` (pathlib `/` operator joins path segments)
+- Shell: `source ~/.claude/bin/claude-machine-local.sh; echo "$REPOS_PROJECT_RAG/subdir/file.py"`
+
+If you find yourself about to type `"X:/..."` or `"C:/..."` or `"/Users/..."` in code (not in a docstring example or test fixture), reach for the helpers above instead. Same character count after the import; works on every machine the code will run on.
+<!-- END meta-ask-preamble -->
+
 ## Operating Protocols
 
 These four protocols run in order before and during execution. Treat them as a single startup sequence, not four independent rules.
