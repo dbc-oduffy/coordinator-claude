@@ -2,11 +2,11 @@
 
 ## Reviewers
 
-### the Game Dev Reviewer (staff-game-dev)
+### Sid (staff-game-dev)
 - **Signals:** Game dev, Unreal Engine, gameplay mechanics, UE5 systems, Blueprint, C++ game code, character movement, replication, GAS
 - **Model:** opus
 - **Effort:** Medium (escalates to High for major features / new game modes)
-- **Backstop:** the Staff Engineer (coordinator plugin — universal reviewer)
+- **Backstop:** Patrik (coordinator plugin — universal reviewer)
 - **Agent file:** `agents/staff-game-dev.md`
 
 ### Blueprint Inspector (ue-blueprint-inspector)
@@ -17,7 +17,7 @@
 - **Agent files:** `agents/ue-blueprint-inspector.md` (coordinator), `agents/ue-blueprint-worker.md` (worker)
 
 ## Project-Local Pairings
-- `<game-project>`: the Game Dev Reviewer primary, the Staff Engineer backstop (default)
-- `<ue-control-plugin>`: the Game Dev Reviewer + the Data Science Reviewer (if data-science plugin enabled) + the Staff Engineer
+- `<game-project>`: Sid primary, Patrik backstop (default)
+- `<ue-control-plugin>`: Sid + Camelia (if data-science plugin enabled) + Patrik
 
 (Replace the placeholders above with your actual project names; this file is the routing table consumed by `/review` and `/review-code` for reviewer routing.)
