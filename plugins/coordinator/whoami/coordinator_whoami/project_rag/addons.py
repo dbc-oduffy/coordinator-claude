@@ -37,7 +37,10 @@ log = logging.getLogger("coordinator_whoami.project_rag.addons")
 try:
     from core.addon_protocol import AddonWhoamiContributorSpec  # type: ignore[import-not-found]
     from core.addon_discovery import aggregate_whoami_contributors as _  # type: ignore[import-not-found] # noqa: F401
-    from core.structural_schema import SCHEMA_VERSION as _sv  # type: ignore[import-not-found] # noqa: F401
+    # Use graph.schema.SCHEMA_VERSION (graph.db schema, currently 12) — not
+    # core.structural_schema.SCHEMA_VERSION (authority_version sidecar, value 4).
+    # Mismatch causes AddonProtocolMismatchError on addons requiring schema >= 12.
+    from project_rag_mcp.graph.schema import SCHEMA_VERSION as _sv  # type: ignore[import-not-found] # noqa: F401
     del _, _sv  # imported only to validate availability; used lazily inside discover_contributors
     _project_rag_available = True
 except ImportError:
@@ -70,7 +73,9 @@ def discover_contributors() -> list[Any]:
         # entry point lives in core.addon_discovery.)
         from pathlib import Path
         from core.addon_discovery import aggregate_whoami_contributors, discover_addons  # type: ignore[import-not-found]
-        from core.structural_schema import SCHEMA_VERSION  # type: ignore[import-not-found]
+        # Use graph.schema.SCHEMA_VERSION (graph.db schema, 12) — see availability
+        # guard above for why this is the correct authority for addon discovery.
+        from project_rag_mcp.graph.schema import SCHEMA_VERSION  # type: ignore[import-not-found]
 
         pm = discover_addons(project_root=Path.cwd(), schema_version=SCHEMA_VERSION)
         contributors = aggregate_whoami_contributors(pm)
