@@ -369,7 +369,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 #### Apply dispatch
 
 - `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` →
-  write focused plan, dispatch the Staff Engineer for review, integrator on findings, executor.
+  write focused plan, dispatch Patrik for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
 - `wiki-append`, `retag-local`, `memory-pointer`, `discard` → direct executor or EM edit.
 - `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
@@ -378,7 +378,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 
 ## Phase 6 — Per-Project Improvement Queue
 
-<!-- Review: the Staff Engineer F6 — added explicit write-time discipline for new entries to both queues -->
+<!-- Review: Patrik F6 — added explicit write-time discipline for new entries to both queues -->
 
 **Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.

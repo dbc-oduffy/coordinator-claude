@@ -97,7 +97,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 Every merge to `main` produces a PR body composed of three parts: ship verdict, release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
 
-The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a the VP-Product Reviewer dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke the VP-Product Reviewer by name. The merge gate does not auto-dispatch the VP-Product Reviewer.
+The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a YK dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke YK by name. The merge gate does not auto-dispatch YK.
 
 **Part 1 — Ship Verdict (every merge)**
 
@@ -224,7 +224,7 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | Check | Detection | Action |
 |---|---|---|
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
-| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
+| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require Patrik review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 | **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
 

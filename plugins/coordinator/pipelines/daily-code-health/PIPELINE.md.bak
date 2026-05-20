@@ -41,10 +41,10 @@ Summarize the scope: which files changed, how many insertions/deletions, which s
 ### Step 3: Route to Reviewer
 
 The EM decides reviewer routing based on what changed:
-- All game dev / UE changes → the Game Dev Reviewer
-- All frontend changes → the Front-End Reviewer
-- All data/ML changes → the Data Science Reviewer
-- Mixed or backend/architecture → the Staff Engineer
+- All game dev / UE changes → Sid
+- All frontend changes → Palí
+- All data/ML changes → Camelia
+- Mixed or backend/architecture → Patrik
 - If multiple domains: route to the reviewer for the domain with the most changed files. Non-dominant domain changes get lighter coverage — acceptable for a daily check; weekly-architecture-audit provides full coverage.
 
 Dispatch the selected reviewer with `--problems-only` flag (suppress praise/suggestions). This is a health check, not a feature review — we only care about problems.
