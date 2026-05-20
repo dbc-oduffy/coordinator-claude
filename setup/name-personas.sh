@@ -44,7 +44,7 @@ fi
 #
 # Articulated role label    | Subagent slug                  | Plugin
 # the Staff Engineer        | coordinator:staff-eng          | coordinator
-# the Ambition Advocate     | coordinator:ambition-advocate  | coordinator
+# the Director of Engineering | coordinator:eng-director       | coordinator
 # the VP-Product Reviewer   | coordinator:vp-product         | coordinator
 # the Game Dev Reviewer     | game-dev:staff-game-dev        | game-dev
 # the Front-End Reviewer    | web-dev:senior-front-end       | web-dev
@@ -53,7 +53,7 @@ fi
 # ---------------------------------------------------------------------------
 KNOWN_ROLES=(
   "the Staff Engineer"
-  "the Ambition Advocate"
+  "the Director of Engineering"
   "the VP-Product Reviewer"
   "the Game Dev Reviewer"
   "the Front-End Reviewer"

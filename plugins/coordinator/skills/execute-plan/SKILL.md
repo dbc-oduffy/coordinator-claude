@@ -1,4 +1,5 @@
 ---
+name: execute-plan
 description: Execute a PM-approved implementation plan directly in the coordinator session
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: <plan-path>
@@ -125,6 +126,6 @@ Invoke the `coordinator:finishing-a-development-branch` skill. Follow it exactly
 
 - **Executor dispatch (`docs/wiki/delegate-execution.md`)** — use this instead when the plan consists of enriched stubs with exact code sketches, file paths, and line numbers. Executor dispatch is cheaper for well-specified mechanical work. `/execute-plan` is for EM-level execution where conversation context or judgment matters.
 - **`/enrich-and-review`** — should be run before executor dispatch; not required before `/execute-plan` (plans that route here are typically less chunked).
-- **`/review-dispatch`** — optional post-execution quality pass on the implemented work. If the plan called for it, route through `/review-dispatch` before invoking the finishing skill.
+- **`/review-code`** — optional post-execution code quality pass on the implemented work. If the plan called for it, route through `/review-code` before invoking the finishing skill.
 - **`coordinator:plan`** — creates the plan that this command executes. A plan produced by that skill is the ideal input here.
 - **`coordinator:finishing-a-development-branch`** — always invoked at the end of this command. Not optional.

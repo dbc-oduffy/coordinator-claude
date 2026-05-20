@@ -1,4 +1,5 @@
 ---
+name: autonomous
 description: "Toggle autonomous execution mode — suppresses /handoff nudges from the context pressure hook when the PM wants the EM to continue through compaction"
 allowed-tools: ["Bash"]
 argument-hint: "[on|off]"

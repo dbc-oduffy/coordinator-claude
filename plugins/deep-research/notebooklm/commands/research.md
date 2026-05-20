@@ -15,9 +15,9 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 - NotebookLM's AI analysis adds value (cross-source synthesis, citation tracking)
 
 **When NOT to use this:**
-- Codebase research → `/deep-research repo`
-- Web topic research (text articles, docs) → `/deep-research web`
-- Structured batch research → `/structured-research`
+- Codebase research → `/research --mode=repo`
+- Web topic research (text articles, docs) → `/research --mode=web`
+- Structured batch research → `/research --mode=structured`
 - Quick API docs → Context7
 
 **Announce at start:** "I'm running `/research` to research {topic} using NotebookLM."

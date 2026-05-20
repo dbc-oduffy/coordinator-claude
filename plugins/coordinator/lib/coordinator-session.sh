@@ -93,11 +93,11 @@ _cs_iso_to_epoch() {
   if [[ "$epoch" == 0 ]]; then
     # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
     local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
-    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+    [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
     # shellcheck source=/dev/null
     [[ -f "$_lib" ]] && source "$_lib"
     if [[ -n "$PYTHON_BIN" ]]; then
-      epoch=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import datetime; print(int(datetime.datetime.fromisoformat('${iso%Z}').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
+      epoch=$(CS_ISO_TS="${iso%Z}" "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null) \
         || epoch=0
     fi
   fi
@@ -125,13 +125,27 @@ _cs_update_meta_field() {
   local meta="${sdir}/meta.json"
   [[ -f "$meta" ]] || return 1
   if command -v jq &>/dev/null; then
-    local tmp
-    tmp=$(jq --arg v "$value" ".${field} = \$v" "$meta" 2>/dev/null) && echo "$tmp" > "$meta"
+    # Atomic rewrite: jq -> tempfile next to target -> mv. The prior
+    # `tmp=$(jq ...) && echo "$tmp" > "$meta"` pattern is non-atomic — a
+    # concurrent reader could see a truncated meta.json mid-write, and two
+    # writers race on the redirect. mktemp+mv mirrors the sed-fallback path.
+    local _tmp
+    _tmp=$(mktemp "${meta}.XXXXXX" 2>/dev/null) || _tmp=$(mktemp) || return 1
+    if jq --arg v "$value" ".${field} = \$v" "$meta" > "$_tmp" 2>/dev/null; then
+      mv "$_tmp" "$meta" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+    else
+      rm -f "$_tmp"
+      return 1
+    fi
   else
-    # sed tempfile fallback — portable across BSD/macOS and GNU sed
+    # sed tempfile fallback — portable across BSD/macOS and GNU sed.
+    # Escape value for sed RHS: `\`, `&`, `/` must be backslash-escaped or
+    # they corrupt the replacement (e.g. branch name containing `/`).
+    local _sed_escaped
+    _sed_escaped=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
     local _tmp
     _tmp=$(mktemp) && \
-      sed "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${value}\"/" "$meta" > "$_tmp" 2>/dev/null && \
+      sed "s/\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"${field}\": \"${_sed_escaped}\"/" "$meta" > "$_tmp" 2>/dev/null && \
       mv "$_tmp" "$meta" || { rm -f "$_tmp"; true; }
   fi
 }
@@ -191,14 +205,26 @@ cs_init() {
         '{session_id: $sid, branch: $branch, pid: $pid, last_activity: $now, goal: $goal}' \
         > "${sdir}/meta.json"
     else
-      local goal_escaped="${goal//\\/\\\\}"
-      goal_escaped="${goal_escaped//\"/\\\"}"
+      # Escape every interpolated field — `\` -> `\\`, `"` -> `\"`. Previously
+      # only `goal` was escaped; a branch name containing `"` or `\` would
+      # corrupt meta.json. Inline helper kept simple to avoid sourcing order.
+      _cs_json_escape() {
+        local _v="${1//\\/\\\\}"
+        _v="${_v//\"/\\\"}"
+        printf '%s' "$_v"
+      }
+      local sid_escaped branch_escaped pid_escaped now_escaped goal_escaped
+      sid_escaped=$(_cs_json_escape "$sid")
+      branch_escaped=$(_cs_json_escape "$branch")
+      pid_escaped=$(_cs_json_escape "$pid")
+      now_escaped=$(_cs_json_escape "$now")
+      goal_escaped=$(_cs_json_escape "$goal")
       cat > "${sdir}/meta.json" <<METAJSON
 {
-  "session_id": "${sid}",
-  "branch": "${branch}",
-  "pid": "${pid}",
-  "last_activity": "${now}",
+  "session_id": "${sid_escaped}",
+  "branch": "${branch_escaped}",
+  "pid": "${pid_escaped}",
+  "last_activity": "${now_escaped}",
   "goal": "${goal_escaped}"
 }
 METAJSON
@@ -238,7 +264,7 @@ cs_touch() {
       if [[ -n "$root" ]]; then
         # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
         local _lib="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
-        [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+        [[ ! -f "$_lib" ]] && _lib="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
         # shellcheck source=/dev/null
         [[ -f "$_lib" ]] && source "$_lib"
         if [[ -n "$PYTHON_BIN" ]]; then
@@ -322,20 +348,24 @@ cs_compute_scope() {
   # Add dirty files whose mtime is after started_at
   local root
   root=$(_cs_git_root)
-  for dfile in "${dirty_files[@]:-}"; do
-    [[ -z "$dfile" ]] && continue
-    local abs_path="${root}/${dfile}"
-    local file_mtime
-    file_mtime=$(_cs_mtime_epoch "$abs_path")
-    if [[ "$file_mtime" -ge "$started_at_epoch" ]]; then
-      # Only add if not already in touched_set
-      local already=false
-      for t in "${touched_set[@]:-}"; do
-        [[ "$t" == "$dfile" ]] && { already=true; break; }
-      done
-      [[ "$already" == false ]] && touched_set+=("$dfile")
-    fi
-  done
+  if (( ${#dirty_files[@]} > 0 )); then
+    for dfile in "${dirty_files[@]}"; do
+      [[ -z "$dfile" ]] && continue
+      local abs_path="${root}/${dfile}"
+      local file_mtime
+      file_mtime=$(_cs_mtime_epoch "$abs_path")
+      if [[ "$file_mtime" -ge "$started_at_epoch" ]]; then
+        # Only add if not already in touched_set
+        local already=false
+        if (( ${#touched_set[@]} > 0 )); then
+          for t in "${touched_set[@]}"; do
+            [[ "$t" == "$dfile" ]] && { already=true; break; }
+          done
+        fi
+        [[ "$already" == false ]] && touched_set+=("$dfile")
+      fi
+    done
+  fi
 
   # --- Step 3: Build other sessions' claim sets ---
   declare -A other_claims  # path -> session_id
@@ -358,37 +388,45 @@ cs_compute_scope() {
 
   # --- Step 4: Apply subtraction and emit MY_SCOPE ---
   local my_scope=()
-  for candidate in "${touched_set[@]:-}"; do
-    [[ -z "$candidate" ]] && continue
-    if [[ -v "other_claims[$candidate]" ]]; then
-      echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
-    else
-      my_scope+=("$candidate")
-    fi
-  done
+  if (( ${#touched_set[@]} > 0 )); then
+    for candidate in "${touched_set[@]}"; do
+      [[ -z "$candidate" ]] && continue
+      if [[ -v "other_claims[$candidate]" ]]; then
+        echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
+      else
+        my_scope+=("$candidate")
+      fi
+    done
+  fi
 
   # --- Step 5: Orphan detection ---
-  for dfile in "${dirty_files[@]:-}"; do
-    [[ -z "$dfile" ]] && continue
-    # Orphan: dirty, not in my scope, not claimed by any other session
-    local in_mine=false
-    for m in "${my_scope[@]:-}"; do
-      [[ "$m" == "$dfile" ]] && { in_mine=true; break; }
-    done
-    [[ "$in_mine" == true ]] && continue
+  if (( ${#dirty_files[@]} > 0 )); then
+    for dfile in "${dirty_files[@]}"; do
+      [[ -z "$dfile" ]] && continue
+      # Orphan: dirty, not in my scope, not claimed by any other session
+      local in_mine=false
+      if (( ${#my_scope[@]} > 0 )); then
+        for m in "${my_scope[@]}"; do
+          [[ "$m" == "$dfile" ]] && { in_mine=true; break; }
+        done
+      fi
+      [[ "$in_mine" == true ]] && continue
 
-    if [[ -v "other_claims[$dfile]" ]]; then
-      : # owned by another session — not an orphan, skip silently
-    else
-      # Dirty, not claimed — orphan
-      echo "orphan: ${dfile}" >&2
-    fi
-  done
+      if [[ -v "other_claims[$dfile]" ]]; then
+        : # owned by another session — not an orphan, skip silently
+      else
+        # Dirty, not claimed — orphan
+        echo "orphan: ${dfile}" >&2
+      fi
+    done
+  fi
 
   # --- Output: one path per line ---
-  for path in "${my_scope[@]:-}"; do
-    echo "$path"
-  done
+  if (( ${#my_scope[@]} > 0 )); then
+    for path in "${my_scope[@]}"; do
+      echo "$path"
+    done
+  fi
 
   return 0
 }
@@ -529,7 +567,7 @@ cs_active_sessions() {
 #
 # Liveness criterion mirrored in cs_active_sessions (lines 477-481 above);
 # keep in sync. Future consolidation: extract _cs_is_session_live private
-# helper (Staff Engineer v3 finding 3, deferred — out of scope for Issue A).
+# helper (Patrik v3 finding 3, deferred — out of scope for Issue A).
 cs_live_session_ids() {
   local base
   base=$(_cs_sessions_dir) || return 0
@@ -597,6 +635,77 @@ cs_atomic_dedup_append() {
   printf '%s\n' "$entry" >> "$touched" 2>/dev/null || return 0
 
   return 0
+}
+
+# cs_claim_handoff <basename>
+#   Atomic mkdir-based claim primitive for concurrent /pickup race detection.
+#   Claim directory: .git/coordinator-sessions/<sid>/handoff-claims/<basename>/
+#
+#   On EEXIST:
+#     - If the holding session's PID is alive  → exit 1 with held-by message.
+#     - If the holding session's PID is dead   → log warning, rm -rf and recreate.
+#
+#   On success, writes pid, session_id, claimed_at inside the claim directory.
+#   Release is structural: cs_archive moves the entire session dir (including
+#   handoff-claims/) into .archive/, so no separate cs_release_handoff_claim is
+#   needed. Single release point as a consequence of session end.
+#
+#   Spec backlink: tasks/split-pickup-archival/plan.md § Edit 1
+cs_claim_handoff() {
+  local basename="${1:?basename required}"
+  local sid="${COORDINATOR_SESSION_ID:-}"
+  if [[ -z "$sid" ]]; then
+    # Fall back to sentinel file — same Priority-2 resolution as coordinator-safe-commit
+    local root
+    root=$(_cs_git_root) || return 1
+    local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
+    [[ -f "$sentinel" ]] && sid=$(cat "$sentinel" 2>/dev/null)
+  fi
+  [[ -z "$sid" ]] && { echo "cs_claim_handoff: no session_id available" >&2; return 1; }
+
+  local base sdir claims_dir claim_dir
+  base=$(_cs_sessions_dir) || return 1
+  sdir="${base}/${sid}"
+  claims_dir="${sdir}/handoff-claims"
+  claim_dir="${claims_dir}/${basename}"
+
+  mkdir -p "$claims_dir" 2>/dev/null || true
+
+  # Attempt atomic mkdir — POSIX mkdir is atomic; fails EEXIST if already present
+  if mkdir "$claim_dir" 2>/dev/null; then
+    # Success — write claim metadata
+    local now
+    now=$(_cs_now_iso)
+    echo "$$"    > "${claim_dir}/pid"
+    echo "$sid"  > "${claim_dir}/session_id"
+    echo "$now"  > "${claim_dir}/claimed_at"
+    return 0
+  fi
+
+  # EEXIST — inspect existing claim
+  local held_pid held_sid
+  held_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
+  held_sid=$(cat "${claim_dir}/session_id" 2>/dev/null || echo "unknown")
+
+  if _cs_pid_alive "$held_pid"; then
+    echo "cs_claim_handoff: ${basename} held by session ${held_sid} (PID ${held_pid}) — concurrent /pickup detected" >&2
+    return 1
+  fi
+
+  # Dead PID — stale claim; take over
+  echo "cs_claim_handoff: stale claim on ${basename} (session ${held_sid}, dead PID ${held_pid:-?}) — taking over" >&2
+  rm -rf "$claim_dir" 2>/dev/null || true
+  if mkdir "$claim_dir" 2>/dev/null; then
+    local now
+    now=$(_cs_now_iso)
+    echo "$$"    > "${claim_dir}/pid"
+    echo "$sid"  > "${claim_dir}/session_id"
+    echo "$now"  > "${claim_dir}/claimed_at"
+    return 0
+  fi
+
+  echo "cs_claim_handoff: failed to create claim dir for ${basename} after stale takeover" >&2
+  return 1
 }
 
 # cs_reap_agents

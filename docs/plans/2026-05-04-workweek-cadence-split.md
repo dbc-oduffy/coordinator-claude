@@ -3,7 +3,7 @@
 **Date:** 2026-05-04
 **Status:** Execution complete — pending verification (executor completed 2026-05-04)
 **Author:** EM (Claude)
-**Reviewer:** Patrik (APPROVED_WITH_NOTES, 2026-05-04) — all findings resolved below
+**Reviewer:** the Staff Engineer (APPROVED_WITH_NOTES, 2026-05-04) — all findings resolved below
 
 ## Motivation
 
@@ -163,15 +163,15 @@ PM-invoked, release-grade. Reads week-changelog as the ground truth — does NOT
 14. **Reset week-changelog** — archive `tasks/week-changelog/*.md` (all daily files + old HEADER) to `archive/week-changelogs/<week-start>/`. Write fresh `tasks/week-changelog/HEADER.md` with the released version + reset SHA + cleared `Last /workweek-start:` line.
 15. **Final summary** — what shipped, what's tracked for next week, links to release notes
 
-## Resolutions to Open Questions (post-Patrik-review)
+## Resolutions to Open Questions (post-the Staff Engineer-review)
 
-1. **Staleness thresholds:** 5 days AND 15 commits, measured from the last weekly-reset SHA via `git rev-list --count`. Branch-relative count was wrong — daily branches reset, so the count would never accumulate (Patrik finding #1, AUTO-FIX applied).
-2. **Daily `/update-docs`:** dropped entirely. No `--scope=today` variant. `/handoff` already archives at natural trigger; tracker is touched when work touches it. (Patrik finding #2.)
+1. **Staleness thresholds:** 5 days AND 15 commits, measured from the last weekly-reset SHA via `git rev-list --count`. Branch-relative count was wrong — daily branches reset, so the count would never accumulate (the Staff Engineer finding #1, AUTO-FIX applied).
+2. **Daily `/update-docs`:** dropped entirely. No `--scope=today` variant. `/handoff` already archives at natural trigger; tracker is touched when work touches it. (the Staff Engineer finding #2.)
 3. **Version bumps:** informal. Track "released X commits since last release" + a date-named release-notes file. Formal semver/tag policy is out of scope for this change — revisit if it's needed.
-4. **Concurrent-EM safety:** **per-machine daily files** under `tasks/week-changelog/`, not a single shared file. Eliminates the merge-conflict class entirely (Patrik finding #0, the major one). HEADER.md is the only shared file and is touched only by the two weekly commands, not by daily.
+4. **Concurrent-EM safety:** **per-machine daily files** under `tasks/week-changelog/`, not a single shared file. Eliminates the merge-conflict class entirely (the Staff Engineer finding #0, the major one). HEADER.md is the only shared file and is touched only by the two weekly commands, not by daily.
 5. **Priorities location:** `tasks/week-changelog/HEADER.md` canonical, mirrored to `docs/project-tracker.md` if it exists.
 
-## Patrik Findings Summary
+## the Staff Engineer Findings Summary
 
 | # | Finding | Resolution |
 |---|---|---|
@@ -187,7 +187,7 @@ PM-invoked, release-grade. Reads week-changelog as the ground truth — does NOT
 **Estimate:** one focused afternoon, dispatched not typed.
 
 1. ~~Plan review — PM approval~~ — done
-2. ~~Patrik review~~ — done, APPROVED_WITH_NOTES, all findings resolved
+2. ~~the Staff Engineer review~~ — done, APPROVED_WITH_NOTES, all findings resolved
 3. **Implement:**
    - Scaffold `tasks/week-changelog/` (HEADER.md template + initial empty state)
    - Author `bin/check-weekly-staleness.sh` (consumed by daily nudge + both weekly commands)
@@ -196,9 +196,9 @@ PM-invoked, release-grade. Reads week-changelog as the ground truth — does NOT
    - Author `/workweek-complete`
    - Update `coordinator/CLAUDE.md` doctrine section on cadence + improvement-queue triage rule
    - Optional wiki guide: `docs/wiki/workday-workweek-cadence.md`
-4. **Spot-check** — verify `/daily-review` summary output is structured enough for daily-block field extraction (Patrik gap-flag); if not, either constrain `/daily-review` output or relax the auto-extract requirement
+4. **Spot-check** — verify `/daily-review` summary output is structured enough for daily-block field extraction (the Staff Engineer gap-flag); if not, either constrain `/daily-review` output or relax the auto-extract requirement
 5. **Test** — dry-run on the current branch; verify changelog directory format is parseable and weekly commands can act on it without git-archaeology
-6. **Patrik review** of rewritten command files
+6. **the Staff Engineer review** of rewritten command files
 7. **Percolate** — same files exist in `plugins/coordinator-claude/` (this repo) and need to flow to publish repo on next release
 
 **Files touched (estimate):**
@@ -214,7 +214,7 @@ PM-invoked, release-grade. Reads week-changelog as the ground truth — does NOT
 
 - **Bifurcation risk.** Two daily ceremonies that don't compose cleanly will cause one to be skipped. Mitigation: daily must remain genuinely lightweight (~150 lines, <5min runtime), weekly must read changelog without reconstruction.
 - **Week-changelog stale-write.** If `/workweek-complete` doesn't reset cleanly, next week's daily files append into prior week's directory. Mitigation: HEADER.md `Week starting:` is authoritative; daily reads it; if today >`Week starting:` + 14d, daily emits a hard warning ("HEADER.md is stale — was `/workweek-complete` skipped?") and refuses to append until resolved.
-- **Concurrent EMs from different machines.** Resolved by per-machine daily files (Patrik finding #0). HEADER.md is touched only by weekly commands, which are PM-invoked and serial.
+- **Concurrent EMs from different machines.** Resolved by per-machine daily files (the Staff Engineer finding #0). HEADER.md is touched only by weekly commands, which are PM-invoked and serial.
 - **PM forgets weekly.** Without auto-fire, `/workweek-complete` may go unrun for weeks. Mitigation: daily nudge intensifies past thresholds (mild at 5d/15c, visible at 10d/30c, full warning at 14d/50c — same shape as debt-triage doctrine).
 
 ## Recommendation

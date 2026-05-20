@@ -16,7 +16,11 @@ LOG_FILE="${LOG_DIR}/agent-audit.jsonl"
 
 mkdir -p "$LOG_DIR" 2>/dev/null || exit 0
 
-IFS= read -r -d '' -t 5 INPUT 2>/dev/null || true
+if command -v timeout >/dev/null 2>&1; then
+  INPUT=$(timeout 2 cat 2>/dev/null || true)
+else
+  INPUT=$(cat 2>/dev/null || true)
+fi
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if command -v jq >/dev/null 2>&1; then

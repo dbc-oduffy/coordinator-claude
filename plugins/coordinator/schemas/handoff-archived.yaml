@@ -1,0 +1,46 @@
+schema: handoff-archived
+applies_to: "archive/handoffs/*.md"
+# Relaxed-schema sibling of `handoff` for already-consumed handoffs that have been
+# archived by /pickup. The archive holds historical state, not enforced state — so
+# `deployment_state` and `gate_dependency` are not required. Cross-field rules from
+# the active `handoff` schema also do not apply here.
+# See docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 1b.
+required:
+  title: string
+  created: iso-date
+  branch: string
+  status:
+    type: enum
+    values: [active, consumed, superseded]
+  predecessor:
+    type: string-or-null
+optional:
+  # Session id of the consuming /pickup invocation; sourced from $CLAUDE_SESSION_ID
+  # with .git/coordinator-sessions/.current-session-id fallback. Used by /session-end
+  # Step 2.7 detection and session-init.sh orphan sweep. Never the machine name.
+  consumed_by: string
+  consumed_at: iso-date
+  shipped_in: string
+  session_goal: string
+  machine: string
+  kind:
+    type: enum
+    values: [session-handoff, spinoff, spinoff-roadmap, recovery]
+  authoring_session: string
+  workstream: string
+  scope: list-of-string
+  # Positive pickup-authorized signal; preserved verbatim from the active schema on
+  # archival. Absence triggers a non-blocking warning at /pickup time (not a block).
+  pickup_ready: string
+  deployment_state:
+    type: enum
+    values: [awaiting_gate, ready_to_fire, in_flight, shipped, abandoned]
+  gate_dependency: string
+  blocks: list-of-string
+  blocked_by: list-of-string
+  roadmap_id: string
+  # Preserved verbatim from the active handoff schema on archival. Written by
+  # /session-end and /handoff after running coordinator:review-code; format
+  # "<sha-range> <reviewer> <YYYY-MM-DD>". Absent on spinoff-kind handoffs.
+  # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
+  reviewed_at_session_end: string

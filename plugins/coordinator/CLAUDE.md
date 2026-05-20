@@ -4,40 +4,38 @@
 
 ## Session Orientation
 
-- **Quick orient (always):** Before your first tool call, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if present and not already in context. Don't announce it. The orientation cache is enough for almost every prompt — proceed directly to the work.
-- **`/session-start` is PM-invoked, not EM-judged.** It exists for the "let's get to work, EM... what should we do?" moment when the PM wants help orienting and choosing work. Do not auto-invoke it on vague openers, strategic-sounding messages, or continuity hints — those still get answered from the quick-orient context. If the PM hasn't typed `/session-start`, don't run it.
+- **Quick orient (always):** Silently read `tasks/orientation_cache.md` and `tasks/lessons.md` before your first tool call. Don't announce. Enough for almost every prompt.
+- **`/session-start` is PM-invoked, not EM-judged.** Don't auto-invoke on vague openers or continuity hints — answer from quick-orient context.
 
 ## Codebase Investigation
 
-Context is the EM's scarcest resource. Investigation is tiered: start cheapest, escalate one step at a time, never skip. Full doctrine: `docs/wiki/tiered-context-loading.md`.
+Tiered: start cheapest, escalate one step at a time, never skip. → `docs/wiki/tiered-context-loading.md`.
 
-- **Tier 0 — Boot context.** `orientation_cache.md`, `lessons.md`, session memory. Always present.
-- **Tier 1 — Curated narrative.** Architecture atlas, `docs/wiki/`, `docs/decisions/`, `docs/README.md`. ≤8K tokens. Answers most subsystem-shaped questions without code inspection.
-- **Tier 2 — Structured query.** If `mcp__*project-rag*` tools available, prefer over grep/scout for any code-shaped lookup. Symbol → `project_cpp_symbol`/`project_semantic_search`. Subsystem → `project_subsystem_profile`. Impact → `project_referencers` depth=2. `bin/query-records` for frontmatter-indexed records. Stale RAG still beats grep on structure. ≤2K tokens.
-- **Tier 3 — Targeted code/grep.** `Read` known path, `Grep` specific symbol, `Glob` patterns. ≤4K tokens.
-- **Tier 4 — Sonnet scout (last resort).** `Explore` (read-only) or `general-purpose` (on-disk deliverable) only when 1–3 returned nothing useful.
+- **Tier 0 — Boot.** orientation_cache, lessons, session memory.
+- **Tier 1 — Curated narrative.** Atlas, `docs/wiki/`, `docs/decisions/`, `docs/README.md`. ≤8K.
+- **Tier 2 — Structured query.** If `mcp__*project-rag*` available, prefer over grep/scout for code-shaped lookup. Symbol → `project_cpp_symbol`/`project_semantic_search`. Subsystem → `project_subsystem_profile`. Impact → `project_referencers` depth=2. `bin/query-records` for frontmatter-indexed records. Stale RAG beats grep on structure. ≤2K.
+- **Tier 3 — Targeted code/grep.** Read known path, Grep specific symbol, Glob patterns. ≤4K.
+- **Tier 4 — Sonnet scout (last resort).** `Explore` (read-only) or `general-purpose` (on-disk) only when 1–3 returned nothing useful.
 
 **Tier-4 rationale rule (hard requirement).** Every `Agent` dispatch with `subagent_type` in `{Explore, general-purpose, deep-research:*, feature-dev:code-explorer}` MUST begin with:
 ```
-Tier 1-3 attempted: <what each returned>; insufficient because <reason>.
+Tier 1-3 attempted: <results, or spec+disposition paths for execution>; <why insufficient/applicable>.
 ```
-Telemetry hook flags missing preambles as `rationale_present: false`.
+Exceptions: reading a known file before editing; 1–2 call confirmation of a known symbol; dispatch overhead exceeds lookup.
 
-**Exceptions:** reading a single known file before editing; 1–2 call confirmation of a known symbol; dispatch overhead clearly exceeds the lookup. Tier-4 rationale rule still applies.
+**Spec backlinks outlive their cited spec.** Confirm file exists before quoting; check `archive/`.
 
-Delegated agents (enrichers, reviewers, executors) have narrower scope and may search directly within their brief.
-
-**Spec backlinks outlive their cited spec.** Plans cited in code (`docs/plans/...`) often get consolidated/archived. Confirm the file exists at the cited path before quoting as authority; check `archive/` for the successor.
-
-**Investigation funnel rules.** Build error stream is the contract (compat docs under-report drift 2-3×). Grep every writer of a path before codifying its role. Runtime contract change → grep every assertion before declaring done.
+**Investigation funnel.** Build error stream is the contract (compat docs under-report drift 2-3×). Grep every writer of a path before codifying its role. Runtime contract change → grep every assertion before declaring done.
 
 ### Verifying Handoff Premises
 
-Handoff framing is hypothesis, not ground truth. Symptom timing claims and bug-layer attributions are observation, not diagnosis — read the cited code first. Snapshot-handoffs written DURING work paper over unverified state; treat as snapshots, not completion reports. Cleanup-recommendation premises age out of sync; grep call sites before deleting.
+Handoff framing is hypothesis, not ground truth. Symptom timing and bug-layer attributions are observation, not diagnosis — read the cited code first. Snapshot-handoffs written DURING work paper over unverified state. Cleanup-recommendation premises age out of sync; grep call sites before deleting.
+
+**"Broken today" claims need HEAD verification before action.** Stale dogfood-run logs, predecessor-handoff carryover items, and bug-backlog entries can describe a broken state already fixed on branch. Before treating a cited failure as live work: `git log --oneline -- <cited-paths>` since the report's authoring date, then re-run the failing command on current HEAD. A "broken-today" framing that hasn't been re-verified is hypothesis, not signal — surfacing it to the PM as live wastes a question.
 
 ## Live Queries vs. Scaffolded Indices
 
-When the answer is derivable from frontmatter on tracked records, prefer `bin/query-records` over hand-maintained tables. `/update-docs` regenerates query callouts via `bin/refresh-queries.js`. Add a query callout (with sentinel comments) rather than a static list whenever the data is schema'd.
+Prefer `bin/query-records` over static lists. Tracked types: `handoff`, `plan`, `decision`, `lesson`, `completion`.
 
 ## Internet Research
 
@@ -45,250 +43,261 @@ Dispatch a `general-purpose` Sonnet scout with this verbatim:
 
 > Use WebSearch and WebFetch directly to find answers and return a structured brief. Do NOT invoke any skills. Do NOT use the Deep Research pipeline. Do NOT spawn agents or teams. Your job is a quick solo web search — 5-10 minutes, a handful of queries, a clear brief back to me.
 
-Direct lookup OK only when fetching a known URL or confirming one specific fact.
+Direct lookup OK only for a known URL or one specific fact.
 
 ## Agent Prompts Are Self-Contained
 
-Subagents see only their dispatch prompt — project and global CLAUDE.md are invisible to them. Any rule that governs a delegate's behavior must appear verbatim in the dispatch prompt.
+Subagents see only their dispatch prompt — CLAUDE.md is invisible. Any rule governing a delegate's behavior must appear verbatim in the prompt.
 
 ## Adding a Convention to the Coordinator System
 
-Process alone fails — conventions decay unless greppable from the surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and at least one canonical artifact agents will encounter during work.
+Conventions decay unless greppable from surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and ≥1 canonical artifact agents encounter.
 
-**Tripwire call-shape coverage.** When writing a static-grep tripwire, enumerate every concrete call shape the pattern takes: literal string, array form, kwarg-split, here-doc. A tripwire that matches only the literal form will never fire on the array or kwarg variants used in real code.
-
-**Snippet-sync.** Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks directly. Authoritative consumer list lives in each verify script. Snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `text-only-recovery-preamble`, `default-routing`.
-
-**Tripwires** (greppable contact-point reminders — full detail in linked wiki):
-
-- **Staff Engineer UE block** (`staff-eng.md`): `project_type`-gated, names UE workers (`bp-test-evidence-parser`, `perf-trace-classifier`, `schema-migration-auditor`). Verify gate parses + workers exist when editing.
-- **Destructive-action prohibition in autonomous-dispatch prompts:** `/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`, `/bug-blitz`, `/dogfood` carry an inline "Out-of-scope actions" block (`gh pr merge`, `gh pr create` against main, `git push origin main`, hibernate/shutdown, killing processes). Add new write-capable autonomous skills here.
-- **Power-state authorization-injection:** "late," "overnight," "tired" cues authorize urgency only — never hibernate/shutdown. Restate in `/mise-en-place`, `/dogfood`, and any sibling autonomous skill.
-- **Query callouts:** Edit the spec line, never the expanded block. `bin/refresh-queries.js` regenerates in `/update-docs` Phase 11c.
-- **Parallel-review merge-gate carve-out:** Sequential-review HARD RULE relaxes only at merge boundaries, only for orthogonal lenses, only with no-rewrite synthesizer. Plan/stub/doc review excluded. Skill: `coordinator:parallel-code-review`. Surface: `/workweek-complete` Step 7 only.
-- **Prior-art-checker pre-flight:** Sonnet recall agent (`agents/prior-art-checker.md`) cross-references a plan against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Sidecar at `<plan-path>.prior-art-check.md`: Conflicts / Compatible-but-relevant / Silent. Snippet `snippets/prior-art-check-consumption.md` synced to the same 5 Opus reviewers as docs-checker. Surface: `commands/review-dispatch.md` Phase 2.7b. Doctrine: `docs/wiki/prior-art-checker.md`.
-- **detect-project-runtime.sh** (`bin/`): advisory stdout-only; no skill/agent/hook reads programmatically. Adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
-- **Daily-branch discipline:** four contact-points must stay in sync — full guide `docs/wiki/daily-branch-discipline.md`. Hook: `hooks/scripts/block-off-daily-branch.sh` (PreToolUse, blocks create/switch/rename/stash-branch/worktree-add; shared lib `lib/coordinator-daily-branch.sh`; override `COORDINATOR_OVERRIDE_BRANCH=1`). Skills with inline override (set per-command, never export): `/workday-start`, `/merge-to-main`, `/consolidate-git`. `/workday-complete` Step 3 needs no override (git merge + grep, not branch ops). `/bug-blitz` and `/dogfood` are fail-closed-only — no override mode. New off-daily skill → list inline override in skill body.
+**Tripwires registry → `docs/wiki/coordinator-tripwires.md`.** When adding a new tripwire (hook, agent-prompt rule, override env var): register there AND update the relevant agent / hook / skill in the same commit. Active hooks: `block-off-daily-branch.sh`, `block-dev-side-mirror-wiki.sh`, `block-unauthorized-handoff.sh`, `nudge-improvement-queue-write.sh`, `block-completion-monolith-write.sh`. Override env vars are documented per-tripwire in the wiki. Static-grep tripwires must enumerate every call shape (literal, array, kwarg-split, here-doc) — see the wiki's call-shape-coverage section. Snippet-sync flow (edit `snippets/<name>.md` → run `bin/verify-<name>-sync.sh --fix` → commit all touched together) also in the wiki. Two static-grep tripwires added 2026-05-18: **swappable-sink-check** (SWAPPABLE-SINK-CHECK — contact-points `/merge-to-main`, `/session-end`); **cross-repo-halves-check** (CROSS-REPO-HALVES-CHECK — contact-points `/handoff`, `/workday-complete`). Full detail in wiki.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
-A teammate that checks `blockedBy` and goes idle will NOT auto-resume when the blocker clears. The unblocker must `SendMessage` to wake it.
-
-On apparent infrastructure noise (false billing/auth gate, transient flake) after partial work, `SendMessage` the closed agent before re-dispatching — the runtime resumes from transcript and preserves analysis context.
+A teammate that checks `blockedBy` and goes idle will NOT auto-resume — unblocker must `SendMessage` to wake it. On apparent infra noise (false billing/auth gate, transient flake) after partial work, `SendMessage` the closed agent before re-dispatching — runtime resumes from transcript.
 
 ## Scouts and Disk-First Verification
 
-When a scout's deliverable is a file on disk, the dispatch prompt MUST end with:
+When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 
-> Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+> Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 
-**Disk is the only reliable signal.** ~30% of Haiku and ~10% of Sonnet dispatches under heavy parallel load hallucinate a "TEXT ONLY" constraint and dump inline. Poll files, not chat; verify with `ls`/size before accepting `DONE`.
+**Disk is the only reliable signal.** ~30% Haiku / ~10% Sonnet under heavy parallel load hallucinate "TEXT ONLY" and dump inline. Verify with `ls`/size before accepting `DONE`.
 
-- **Recovery:** on confirmed failure, re-dispatch with the recovery preamble (`snippets/text-only-recovery-preamble.md`). For >5 parallel on-disk fan-outs, inline the preamble in the original dispatch prompt.
-- **Resume vs. redispatch:** for partial work or transient error, `SendMessage` the closed agent (runtime resumes from transcript). Never redispatch from scratch over partial work.
+- **Recovery:** on failure, re-dispatch with `snippets/text-only-recovery-preamble.md`. For >5 parallel fan-outs, inline preamble in original dispatch.
+- **Resume vs. redispatch:** partial work or transient error → `SendMessage`. Never redispatch over partial work.
 - **Write fallback (Sonnet permission errors):** `Bash` with `node -e "require('fs').writeFileSync(...)"` rather than redispatching.
-- **Size threshold:** 1–2KB where the brief expected order-of-magnitude larger = summary masquerading as deliverable; treat as failure.
-- **Verify worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`, e.g. `Explore`) produce inline-summary "failures" that aren't TEXT-ONLY hallucination — accept inline and persist EM-side, or escalate to `general-purpose` Sonnet.
+- **Size threshold:** 1–2KB when brief expected order-of-magnitude larger = summary masquerading as deliverable.
+- **Verify worker's tool surface before instructing `DONE: <path>`.** Read-only agents (no `Write`, e.g. `Explore`) produce inline "failures" that aren't TEXT-ONLY hallucination — accept inline and persist EM-side, or escalate to `general-purpose` Sonnet.
+- **Haiku TEXT-ONLY hallucination on a write-capable worker: escalate or self-execute, don't redispatch.** *2026-05-18, claude-unreal-holodeck.* When a Haiku worker WITH `Write` in its tool surface still returns inline text and never writes the file, redispatching at Haiku is the wrong recovery — empirically the second Haiku hallucinates the same way ~30% of the time, and even when it writes, the deliverable bears the hallmarks of the first reply rather than a fresh read. Correct recoveries: (a) persist the inline text EM-side via `Bash` `node -e "require('fs').writeFileSync(...)"` if the inline content is salvageable; (b) escalate to Sonnet for a fresh run if the inline content is incomplete or suspect. Re-Haiku-on-the-same-prompt is the wrong shape — the hallucination signal predicts recurrence, not transience.
+- **Worktree-isolated subagents honor literal absolute paths in Write calls.** A scout dispatched with worktree isolation that writes to an absolute path lands the file in the main project tree, not the worktree. Either pass relative paths or expect main-tree writes; verify with `ls` post-completion.
+- **Resumed worktree agents can re-fire post-completion with hallucinated TEXT-ONLY runs.** Disk-first verification is load-bearing — a "DONE" reply from a resumed worktree agent does not mean the file was written this run. `ls -la`/size before accepting.
 
 ## Subagent Dispatch
 
 - **Haiku bypasses 1M-context billing gates** that block Sonnet/Opus subagent dispatch.
-- **Dispatched subagents inherit the parent's 1M-context flag regardless of model override.** Plan token budgets accordingly.
-- **Investigation dispatches require an explicit out-of-scope block.** Every scout/investigation prompt must include verbatim: "Do NOT modify files, commit, or push. Read-only." CLAUDE.md is invisible to subagents; without this, scouts will overreach.
-- **All write-capable autonomous skill dispatches must carry a destructive-action prohibition.** If a new autonomous skill can write files, commit, or trigger network actions, add it to the Tripwires § Destructive-action prohibition list and include an inline "Out-of-scope actions" block in the dispatch prompt.
+- **Dispatched subagents inherit parent's 1M-context flag regardless of model override.**
+- **Subagents do not expand slash commands.** `Agent(prompt="/foo:bar")` is a no-op. Inline the procedure or Read the skill body from disk first.
+- **Investigation dispatches require explicit out-of-scope block** — verbatim: "Do NOT modify files, commit, or push. Read-only." Without it, scouts overreach.
+- **All write-capable autonomous dispatches must carry a destructive-action prohibition.** Add to Tripwires § Destructive-action list and include inline "Out-of-scope actions" block.
 
 ## Roster Doctrine
 
-- **Workers > personas.** Default shape for new agents is unnamed Sonnet workers (mechanical leverage, structured output). Personas earn names only when *judgment* is the value.
+- **Workers > personas.** Default new agents to unnamed Sonnet workers. Personas earn names only when *judgment* is the value.
+- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (Patrik, Sid, Camelia, Palí, Fru, Zolí) are Opus-only. → `agents/code-reviewer.md`.
 - **Distributed abstention, centralized routing.** Each agent abstains on fit-mismatch. One read-only orchestrator owns the routing table; no domain agent names other agents in its prompt.
 
 ## Verifying Executor Output After a Crash or Timeout
 
-Files written before failure persist — partial output is the common case. This applies after any failure shape: kill, timeout, 1M-context tail-error, or stall. When an executor fails:
+Files written before failure persist — partial output is the common case. When an executor fails:
 
-1. `git status` against expected scope; check each file present and non-trivial. If the executor reported specific commits, verify attribution via `git show --stat <sha>` — executor reports can fabricate commit attribution. "Already in file" claims are sometimes post-hoc rationalizations of just-completed work; run `git diff` to distinguish. Chat summary is hypothesis; git log is authoritative.
-2. Diff partial output against the spec.
-3. Dispatch a remainder-executor for the gap; EM commits the union. **Never re-dispatch the original assignment from scratch over partial work.**
+1. `git status` against expected scope; verify each file present and non-trivial. Verify reported commit attribution via `git show --stat <sha>` — executor reports fabricate. Run `git diff` to distinguish "already in file" claims. Chat is hypothesis; git log is authoritative.
+2. Diff partial output against spec.
+3. Dispatch remainder-executor for the gap; EM commits the union. **Never re-dispatch from scratch over partial work.**
 
-**Orphan `.tmp.<pid>.<nanos>` files = Edit tool atomic-write crash signature.** A crash mid-rename leaves the temp file with the executor's intended content. Diff against the target before deleting.
+**Orphan `.tmp.<pid>.<nanos>` files = Edit tool atomic-write crash signature.** Diff against target before deleting.
 
-**Test files written by a killed executor must be RUN, not just read.** Latent bugs cluster at imports (repo-wide path-shadowing conventions), fixture return shapes, and helper assertions encoding expectations the executor never empirically validated. Read-only recovery misses these; run the test suite over the new files before declaring recovery complete.
+**Test files written by a killed executor must be RUN, not just read.** Latent bugs cluster at imports, fixture return shapes, helper assertions.
 
-**Apply-agent stall recovery: two failure shapes look identical in chat but differ on disk.** Before choosing redispatch-from-scratch vs `SendMessage`-resume, run `git diff --stat` + `git log --oneline -- <expected-paths>`: if substantive work landed on disk, `SendMessage` to resume from where it stalled; if zero tool-use occurred, redispatch from scratch.
+**Apply-agent stall recovery: redispatch vs resume differs on disk, not in chat.** `git diff --stat` + `git log --oneline -- <expected-paths>`: substantive work → `SendMessage`; zero tool-use → redispatch.
+
+**Constraint-adherence verification applies to every executor return, not just failures.** Spot-check immutable paths (sidecars, plan/handoff frontmatter, `.claude/settings.json`, archive files); `git checkout HEAD -- <paths>` to revert out-of-scope edits before the work commit, name reverted paths in commit msg.
 
 ## Executor Dispatch Mode
 
-Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher (anything that mutates files). Without it, the subagent runs in `default` mode, prompts on every Edit/Write, and auto-denies.
+Pass `mode: "acceptEdits"` on `Agent` calls to executor / review-integrator / enricher. Otherwise subagent runs in `default`, prompts on every Edit/Write, and auto-denies.
 
-**Treat executor 'Open questions' / 'Outstanding questions' sections as same-session blocking gaps, not deferral options — they gate completion alongside failing tests.**
+**Executor 'Open questions' / 'Outstanding questions' are same-session blocking gaps, not deferral options** — they gate completion alongside failing tests.
 
 ## Autonomous Run Bandwidth
 
-Autonomous-execution commands background everything by default. EM holds the wave map and disk paths, never transcripts.
+Autonomous-execution commands background everything by default. EM holds wave map and disk paths, never transcripts.
 
-- **Single-item waves with self-verify-and-commit;** Haiku verifiers write verdicts to disk so the EM polls files, not chats.
+- **Single-item waves with self-verify-and-commit;** Haiku verifiers write verdicts to disk so EM polls files, not chats.
 - **Backgrounded executors with explicit gate re-arm.** Recovery commit ≠ chain-advance signal.
 - **Brief mechanical work in shell idioms** (`for f in ...; do cp ...; done`), not "Read + Write" verbs — ambiguous briefs invite tool-call inflation.
 
 ## Plan-First Workflow
 
-→ Procedure: walk `coordinator:plan` (decision-tree skill). Surviving doctrine bullets below are linked by that skill's branches and remain canonical here.
+→ Procedure: `coordinator:plan` (decision-tree skill). Bullets below are canonical, linked from that skill's branches.
 
-- **Plan is a skill invocation, not a writing instruction.** When the PM types any of "plan", "let's plan", "write a plan", "draft a plan", "break this down", "plan the implementation" — the EM's first action is `Skill(coordinator:plan)`, period. Triage of "should I plan vs. just do it" lives inside the skill (Branch A), not in the EM's pre-skill judgment. Writing a plan body to disk via `Write` without first invoking the skill skips substrate verification (Branch B), the four PM doctrinal lenses (Branch C), and the prior-art-checker → Staff Engineer → integrator chain at Exit (the full 5-step plan-writing pipeline). That's a doctrine violation — re-do via the skill.
-- **The EM's default is to plan and dispatch, not to type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
+- **Plan is a skill invocation, not a writing instruction.** PM types "plan" / "let's plan" / "write a plan" / "draft a plan" / "break this down" / "plan the implementation" → first action is `Skill(coordinator:plan)`. Writing a plan body via `Write` without invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → Patrik → integrator chain — doctrine violation.
+- **EM default is plan and dispatch, not type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Persist review output and plan artifacts to disk before acting.**
 - **STOP and re-plan when something goes sideways.**
-- **Don't import human-effort timelines; implement and iterate over deliberate and defer.** Full doctrine in global `~/.claude/CLAUDE.md` § Operating Assumptions.
+- **Don't import human-effort timelines; implement and iterate over deliberate and defer.** → global `~/.claude/CLAUDE.md` § Operating Assumptions.
 
 ### Pre-Dispatch Verification
 
-Plans drafted against unchecked substrate become dispatches that find a different reality on disk. Verify at plan-write time, not after the executor reports back.
+Plans drafted against unchecked substrate become dispatches that find a different reality on disk. Verify at plan-write time, not at executor failure.
 
-- **Investigate before planning.** Bug reports and consumer docs are framing, not ground truth. For plans touching producers/consumers/schema, dispatch a scout for file:line evidence. Plans claiming "fully independent files" still need EM file-overlap analysis before parallel dispatch.
-- **Verify paths, framework names, helper APIs against disk — at plan time, not completion.** Plans citing "Jest" when the harness is `node:test`, or `npm test` when the script is `bun run test`, fail at first executor invocation. This applies equally to recovery and setup scripts: read every script the plan will modify before authoring the plan. (failure mode: substrate-fact errors that a 2-minute disk check at authoring time would catch.)
-- **Grep seams, don't invent them.** API seams and module boundaries cited must be confirmed by grep. Triage tables must be Read per-file; counts are not a substitute. Plan seams ARE framework names: "triage-by-behaviour" is a verification claim and must be confirmed the same way. (recurring failure; treat absence of a grep citation as a plan smell)
+- **Investigate before planning.** Bug reports and consumer docs are framing, not ground truth. For producers/consumers/schema, dispatch a scout for file:line evidence. "Fully independent files" still needs EM file-overlap analysis before parallel dispatch.
+- **Verify against disk at plan time.** Paths, framework names (Jest vs `node:test`, `npm test` vs `bun run test`), helper APIs, numeric constants — grep them out of the asserting test/contract, not memory.
+- **Grep seams and schema fields, don't invent them.** API seams, module boundaries, framework names, schema field references must be confirmed by grep. Triage tables Read per-file; counts are not a substitute.
+- **No-fabrication on cited fields.** Plans asserting on a frontmatter key, env var, config field, or schema column must grep the literal name first. → `docs/wiki/writing-plans.md` § Negative-Search.
 - **Grep existing surface before scaffolding agent-facing files** — duplicate-creation collisions hide under longer existing names.
-- **Spec instructions are not authoritative on call-site count or constant identity.** "Bump constant X"/"rename helper Y" needs grep over usages before declaring scope. A spec-cited constant may belong to a different index than the one the plan targets — verify the constant's actual role in code before bumping it.
-- **Paginated grep truncates enumeration claims.** Use `head_limit:0` or count-mode and quote the exact command. Default `head_limit:100` silently caps.
+- **Spec is not authoritative on call-site count or constant identity.** Bump/rename specs need grep over usages.
+- **Paginated grep truncates enumeration claims.** Use `head_limit:0` or count-mode. Default `head_limit:100` silently caps.
 - **Native-code plans require 2-3 in-tree `file:line` citations** in the dispatch brief.
-- **Premise-pass before regenerating torn-down structure.** When reversing a prior decision, grep wiki+lessons for *why*.
-- **Duplicate-detection requires body comparison, not metadata screening.** File existence and frontmatter are triage signals; two artifacts with matching frontmatter can diverge in content. Read both bodies before concluding deduplication is safe.
-- **Dispatch-brief task ordering must be explicit when later tasks reference earlier-task outputs.** Implicit ordering assumptions produce executors that reach for files that don't exist yet. Sequence tasks explicitly in the brief; name the output file each task depends on.
-- **Survey plan-substrate state before dispatching executors on a not-just-authored plan.** Plans age: files move, constants change, scaffolding lands between plan-write and dispatch. A quick `git log --oneline` + targeted reads closes the staleness window before an executor finds a different reality.
-- **Premise contradictions resolve in the fix-wave preamble, not in a separate verification wave** — see § Convergence as Confidence for the read-source rule itself.
-- **Audit symptom is correct; locus may be wrong.** An audit finding that a value is wrong at a given location does not mean the fix belongs there — verify the producer code before accepting the audit's proposed fix-locus. The symptom survives; the attribution is a hypothesis.
-- **5-dimension confidence checklist:** no-duplicate / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All five green or stop.
+- **Premise-pass before regenerating torn-down structure.** Reversing a prior decision → grep wiki+lessons for *why*.
+- **Duplicate-detection requires body comparison, not metadata.**
+- **Dispatch-brief task ordering must be explicit** when later tasks reference earlier outputs. Name the output file each dependent task consumes.
+- **Survey plan-substrate state before dispatching on a not-just-authored plan.** `git log --oneline` + targeted reads closes the staleness window.
+- **Premise contradictions resolve in the fix-wave preamble**, not a separate verification wave.
+- **Audit symptom is correct; locus may be wrong.** Verify producer code before accepting the audit's proposed fix-locus.
+- **7-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known / fix-locus discrimination. All green or stop.
+- **Fix-locus discrimination is plan-author-time discipline, not pre-flight checker.** The 7th dimension fires when the planner drafts the body — there is no Sonnet pre-flight that catches wrong-locus shape (per Zoli SI-2 2026-05-19, that capability is reserved for Opus-altitude reviewers). → `docs/wiki/writing-plans.md` § Fix-locus discrimination.
+- **Re-run mechanical pre-flights after material plan amendments.** path-scout, prior-art, docs-checker findings age if the plan changes between review and integration; re-run before the next reviewer.
+- **Reviewer rationale must discriminate between the chosen shape and its alternatives.** When a reviewer accepts a design decision with a rationale that's equally true of the rejected alternative (e.g., "PersistentClient needs a directory" — true of both old and new directory layouts), the review ratified a non-decision. Test: *what about the rationale would change if we picked the opposite shape?* If "nothing", re-decide explicitly or flag deferred — the apparent approval is non-load-bearing. _See `docs/wiki/writing-plans.md` § Substrate-Migration Sequencing for the layout-decision case where this empirically bit._
 
 ## Self-Improvement Loop
 
-- `tasks/lessons.md` records patterns the workflow keeps hitting. Bold title + 1-2 sentences, max 3 lines per entry.
+- `tasks/lessons.md` records patterns. Bold title + 1-2 sentences, max 3 lines.
 - **Lessons are change-requests, not file-bloat.** Each routes to a doctrine/prompt/hook/wiki edit, structural change, retag, or discard. Process via `coordinator:learn-lessons`.
 - **Null-result audits fold the rule into the producer skill,** not just the report.
-- **External-review proposals: cumulative-effect + duplication audit before adopting.**
-- **Codify a stable pattern before running new instances under it.**
+- **External-review proposals: cumulative-effect + duplication audit before adopting.** Challenge the proposed location — proposers frame fixes from where they noticed the problem.
+- **Codify a stable pattern before running new instances under it.** Wait for instance #3 before extracting into a skill; demote-don't-retire. → `docs/wiki/ceremony-calibration.md`.
 - **Fight-the-hook is an anti-pattern.** Strip once, commit, file paper-trail bug, surface to PM.
-- **Dogfood new capabilities** end-to-end via `/dogfood` before declaring stable. Binary outcome — converge or switch gears; no file-and-defer. Doctrine: `docs/wiki/dogfooding-doctrine.md`.
+- **Dogfood new capabilities** end-to-end via `/dogfood` before declaring stable. Binary outcome — converge or switch gears. → `docs/wiki/dogfooding-doctrine.md`.
 
 ### Triage cadence
 
-`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (in `/update-docs` Phase 6, auto-applies bounded changes); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence; cross-repo mining via routing manifest); **`recheck`** (fires from `tasks/lesson-triage-recheck-due-*.md` via `/workday-start`). Change-kind taxonomy lives in `skills/learn-lessons/SKILL.md`.
+`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (in `/update-docs` Phase 6, auto-applies bounded changes); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence; cross-repo mining under `~/.claude/tasks/learn-lessons-YYYY-MM-DD/`); **`recheck`** (fires from `tasks/lesson-triage-recheck-due-*.md` via `/workday-start`). Taxonomy in `skills/learn-lessons/SKILL.md`. Distinct from cross-repo registry (`~/.claude/tasks/repo-registry.md`).
 
 ### Improvement Queue
 
-Two-tier queue for actionable lessons. **Central:** `~/.claude/tasks/coordinator-improvement-queue.md` (universal patterns for coordinator doctrine). **Per-project:** `tasks/improvement-queue.md` (project-structural items; created lazily by `learn-lessons`).
+Two-tier. **Central:** `~/.claude/tasks/coordinator-improvement-queue.md` (universal patterns). **Per-project:** `tasks/improvement-queue.md` (project-structural; lazily created by `learn-lessons`).
 
-Schema (both queues):
+Schema:
 ```
 - YYYY-MM-DD | <source-repo or self> | <file>:<line> | <one-line> | proposed target: <target>
-  recurring: 0
-  resolution: pending | in_progress
 ```
 
-On resolution, delete the entry. The commit subject names the closed entry; `git log -- <queue-file>` is the audit trail.
+Main-line-only schema (DR-056 amended 2026-05-17). No `recurring:` or `resolution:` sub-lines by default — `/update-docs` Phase 11i strips trivial ceremony (`recurring: 0`, `resolution: pending`, `resolution: in_progress`) on every run. If recurrence count matters, append `[recurring: N]` to the main line when N ≥ 1.
 
-Surfacing: `/session-start` offers backlog work with queue depth in framing. `/workday-complete` emits depth nudge only (≥5 → notice). `/workweek-complete` Step 4 is the weekly triage gate (also triggers when `recurring: ≥3` AND `resolution: pending`).
+On resolution, delete the entry. Commit subject names the closed entry; `git log -- <queue-file>` is the audit trail. **Never** mark an entry as resolved/done/closed/complete inline — the pruner strips any such annotation, but the right primitive is `git rm`-the-line in the same commit that ships the fix. Same rule for `bug-backlog.md`: no `## History` / `## Closed` / `## Done` / `## Archive` / `## Closeout` graveyard sections — Phase 11i strips them.
+
+Surfacing: `/session-start` offers backlog with depth in framing. `/workday-complete` emits depth nudge only (≥5 → notice). `/workweek-complete` Step 4 is weekly triage gate (also triggers when any entry carries `[recurring: ≥3]`).
+
+**Queue is not a closure mechanism.** Current-workstream failures don't close by being queued or re-framed as "separate plan." Defer only with (a) architectural reason and (b) in-session PM auth. → § Implementation Standards OOS rule.
 
 ### Capturing Lessons That Should Promote
 
-Classify scope: **universal** / **project** / **wiki-only**. If `universal`: tag `[universal]` in `tasks/lessons.md`, append to central queue with the schema above. Test: "If a different project type used the coordinator pipeline, would this rule apply?"
+Classify scope: **universal** / **project** / **wiki-only**. If `universal`: tag `[universal]` in `tasks/lessons.md`, append to central queue. Test: "If a different project type used the coordinator pipeline, would this rule apply?"
 
 ## Handoff Lineage — Single Predecessor, No Adjacency-Inference
 
-The predecessor is **whatever handoff this session was opened with — period.** That means: the file passed to `/pickup`, or the file the PM named at session start. Nothing else.
+Predecessor is **whatever handoff this session was opened with — period** (the `/pickup` file or PM-named one). Concurrent sessions across machines produce timestamp-adjacent handoffs unrelated to each other; adjacency is not ancestry. Combining predecessors only by explicit PM direction. Don't archive other handoffs as "superseded" on your own.
 
-"Most recent handoff" is a facile signal — concurrent sessions across machines produce timestamp-adjacent handoffs unrelated to each other. Adjacency is not ancestry. A handoff has one predecessor, not many. Combining predecessors only happens by explicit PM direction. Do not archive other handoffs as "superseded" on your own.
+**Concurrent crashed threads get separate handoffs.** Recovery handoffs carry `kind: recovery` with `predecessor:` pointing to the crashed handoff's SHA (null permitted). Legacy `reconstructed_by:` still valid.
 
-**Concurrent crashed threads get separate handoffs, not a combined recovery handoff.** Recovery-session simultaneity is not workstream identity — combining buries one workstream's pending state under the other's narrative. Reconstructed handoffs (built from reflog + wave-docs + reviewer files + uncommitted-diff content-shape attribution) carry `reconstructed_by:` in frontmatter so successors can weight them appropriately.
-
-- **Claude Code restart is a session boundary, not a step within a session.** Hand off before the restart.
-- **Mandate absorbed by a concurrent peer = no-pickup signal.** Stand down; don't find filler work.
+- **Claude Code restart is a session boundary.** Hand off before restart.
+- **Mandate absorbed by a concurrent peer = no-pickup signal.** Stand down.
 - **Commit message beats handoff for checkpoint state.** Handoffs decay faster than git history.
-- **Orphan-promotion handoffs function as live specs.** Concurrent execution can outpace commit cadence — treat the handoff body as authoritative until git catches up, and don't redispatch from the handoff over work already in flight.
-- **Pair status bullets with "why this matters" per workstream.** Framing carries as much signal as content — a bare status list strands the successor on the same diagnostic path the author already walked.
-- **Frontmatter `status` enum is `active | consumed | superseded`.** `shipped` is rejected — use `consumed` plus a `shipped_in:` field (commit SHA or PR ref). (failure mode: validator-blocked Edits on the next neighboring change)
-- **Spinoffs are forks, not continuations.** Mid-session handoff for work the current EM won't execute. Frontmatter: `kind: spinoff`, `predecessor: none`, `authoring_session`, `workstream`. Author via `/spinoff <slug>`.
-- **Handoffs are for in-progress work with a successor.** End-of-run housekeeping for a shipped workstream is `/workday-complete` (week-changelog) or commit-and-stop, not a `tasks/handoffs/` file. The successor-work check is binary: if nothing needs picking up, do not write a handoff. Shipped ≠ handed-off.
+- **Orphan-promotion handoffs function as live specs** — body authoritative until git catches up.
+- **Pair status bullets with "why this matters" per workstream.** Bare status strands the successor on author's diagnostic path.
+- **Frontmatter `status` enum: `active | consumed | superseded`.** `shipped` rejected — use `consumed` plus `shipped_in:` (commit SHA or PR ref).
+- **Frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`.** Only `ready_to_fire` surfaces in `/session-start` / `/workday-start` primary list. `awaiting_gate` requires `gate_dependency:`. `/pickup` flips to `in_flight`; terminal `/handoff` or `/session-end` flips to `shipped` (with `shipped_in:`) or back to `ready_to_fire`.
+- **`/pickup` mutates frontmatter in place at `tasks/handoffs/`;** archival at picking-up session's terminal `/handoff` (chain-archival) or `/session-end` Step 2.7; `session-init.sh` provides boot-time orphan sweep.
+- **Concurrent `/pickup` is fail-loud:** `cs_claim_handoff` EEXIST (single-machine) or `consumed_by:` populated after `git fetch` (cross-machine).
+- **Spinoffs are forks, not continuations.** Frontmatter: `kind: spinoff` or `kind: spinoff-roadmap`, `predecessor: none`, `authoring_session`, `workstream`, `deployment_state: ready_to_fire`. Author via `/spinoff <slug>` or `coordinator:roadmap-planning`.
+- **Spinoffs are PM-authorized only, per topic.** EM-identified candidates surface as `Candidate spinoff: <slug> — <topic>. Authorize?` and block. Autonomous callers surface a candidate list, not authored files. Gate: `skills/spinoff/SKILL.md` Step 0.
+- **Handoffs are checkpoints, not workstream-endings.** Either a mid-workstream save forced by context pressure, or a starting point for intended work (spinoff, recovery). Not a "tidy stopping point" — if the session can act, act. Shipped work ends via `/workday-complete`, `/merge-to-main`, or commit-and-stop.
+- **`/handoff` and `/session-end` are mutually exclusive.** `/session-end` caps a done workstream; `/handoff` passes an in-flight one. Pick exactly one. "Wrap with /session-end + handoff" is a doctrine violation — if there are two workstreams, close each separately, naming which is which.
 
 ## Documentation and Knowledge System
 
 - `docs/README.md` — master docs index, maintained by `/update-docs`
-- `docs/wiki/` — living technical reference distilled by `/distill`. Index: `DIRECTORY_GUIDE.md`. Third-party subdirs: `marketplace/`, `opensource/`, `competitors/`
+- `docs/wiki/` — living technical reference distilled by `/distill`. Index: `DIRECTORY_GUIDE.md`. Third-party: `marketplace/`, `opensource/`, `competitors/`
 - `docs/plans/` — canonical plan location (copies from `~/.claude/plans/` on approval)
-- `docs/research/` — timestamped `/deep-research` outputs; key findings PROMOTEd to wiki by `/distill`
-- `CONTEXT.md` (optional, lazy) — domain glossary; convention: `docs/wiki/context-md-convention.md`.
-- `docs/wiki/plugin-extraction-and-distribution.md`, `docs/wiki/claude-code-platform-gotchas.md` — checklists/reference.
+- `docs/research/` — timestamped `/deep-research` outputs; key findings PROMOTEd by `/distill`
+- `CONTEXT.md` (optional) — domain glossary; → `docs/wiki/context-md-convention.md`
+- `docs/wiki/plugin-extraction-and-distribution.md`, `docs/wiki/claude-code-platform-gotchas.md` — checklists/reference
+- **Completion logs** → `docs/wiki/completion-log-release-loop.md`.
 
-**Stale doc references: repoint when covered, create only when genuinely missing.** Don't scaffold when an existing file carries the topic.
+**Stale doc references: repoint when covered, create only when genuinely missing.**
 
-**CLAUDE.md is load-bearing — read at every session boot.** Default fold target for queue entries / lessons is an existing wiki, not CLAUDE.md. Promote to CLAUDE.md only when the rule is a cross-cutting tripwire that must be greppable from boot. Re-triage proposing CLAUDE.md as target is permissive routing, not a verdict — the EM is the size gate. Doctrine: `docs/wiki/document-bloat-trim.md`.
+**CLAUDE.md is load-bearing — read at every session boot.** Default fold target for queue/lessons is an existing wiki, not CLAUDE.md. Promote to CLAUDE.md only when the rule is a cross-cutting tripwire that must be greppable from boot. → `docs/wiki/document-bloat-trim.md`.
 
 **Memory is for cross-session pointers, not decision content.** Decisions/frameworks/strategies belong in plans/wikis/DRs.
 
-**Plugin-bundled wikis.** When a plugin file (CLAUDE.md, skill, command, agent, snippet) cites a wiki guide, the wiki MUST live inside the plugin at `<plugin-root>/docs/wiki/<name>.md`. References use `docs/wiki/<name>.md` relative to the plugin root. Project-level wikis (atlas, codebase-specific patterns) stay in the consumer's `~/.claude/docs/wiki/`. Demote pattern places new wiki under plugin's bundled `docs/wiki/`. Sync via `bin/sync-plugin-wiki.sh` during `/update-docs`.
+**Plugin-bundled wikis.** When a plugin file cites a wiki guide, the wiki MUST live at `<plugin-root>/docs/wiki/<name>.md`. References use `docs/wiki/<name>.md` relative to plugin root. Project-level wikis stay in consumer's `~/.claude/docs/wiki/`. Validate: `bin/sync-plugin-wiki.sh`. Never both — dev-side mirrors of plugin-doctrine wikis re-introduce the write-direction trap.
 
 ## Verification Before Done
 
-Never mark a task complete without proving it works — run tests, check logs, demonstrate correctness. Verify agent output before proceeding (empty results, truncation, format).
+Never mark complete without proving it works — run tests, check logs. Verify agent output before proceeding (empty, truncation, format).
 
-**"Shipped" means on `origin/main`, not on a branch tip.** Run `bin/check-shipped-on-main.sh <commit>` before asserting work has shipped. PR-merged-from-this-branch is shipping IFF no further commits landed on the source branch after the merge.
+**"Shipped" means on `origin/main`, not on a branch tip.** Run `bin/check-shipped-on-main.sh <commit>` before asserting shipped. PR-merged-from-this-branch is shipping IFF no further commits landed on source branch after merge.
 
-Concurrent sweeps silently overwrite edits — verify parallel-executor work via `git log -p`, not chat. Tool self-health checks lie — smoke tests prove dispatch, not useful results. Producer/consumer schemas need round-trip tests, not parallel fabrications. Iteration-debugging signal is failure-mode shift, not failure count. Green unit tests are not runtime-readiness for HTTP apps unless tests import the app. Full doctrine: `docs/wiki/round-trip-contract-tests.md`.
+Concurrent sweeps silently overwrite edits — verify parallel work via `git log -p`, not chat. Tool self-health checks lie; smoke tests prove dispatch, not useful results. Green unit tests aren't runtime-readiness for HTTP apps unless tests import the app. → `docs/wiki/round-trip-contract-tests.md` + `docs/wiki/test-design-discipline.md` (rules 7, 16 cover iteration-debugging and real-shell semantics). UE plugin work in `control/plugin/**/Source/**/*.{cpp,h}` runs `bin/check-ubt-build-fresh.sh` at `/session-end`, `/workday-complete`, `/workweek-complete`.
 
 ## Build For Someone Else's Machine
 
-Default assumption: code runs on a machine you've never seen. For any path: explicit flag → env var → marker auto-discovery → silent skip (opt-in tools) or hard error with remediation (explicit tools). Hardcoded local paths only as last-resort fallback. Project-scoped tools need a cwd-scope guard. Test fixtures and battle-story comments are exempt.
+Default: code runs on a machine you've never seen. Path resolution: explicit flag → env var → marker auto-discovery → silent skip (opt-in) or hard error with remediation (explicit). Hardcoded paths only as last-resort fallback. Project-scoped tools need cwd-scope guard. Test fixtures and battle-story comments exempt.
 
 **Single-thread / non-resumable / non-idempotent are 2026 antipatterns.** Load-bearing scripts declare concurrency + idempotency + resume strategy at design time.
 
+Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.claude/machine-local/`; read via `bin/machine-local get <key>`. See `docs/wiki/machine-local-registry.md`.
+
 ## Implementation Standards
 
+- **OOS framing must be architectural, not appetite-based.** Name the irreversible cost or hard constraint. "Not now / follow-up" hedging isn't OOS, it's incomplete work. Laundering failures through the improvement queue is the same pattern (→ § Improvement Queue).
 - **Land regression-net tests BEFORE the refactor that depends on them.**
 - **Detect-then-silently-pick is a footgun.** Refactor to detect-then-fail-loud-when-ambiguous.
-- **Guards match conditions, not containers.** Substring-on-path filters and state-proxy liveness checks reject legitimate cases alongside the targeted failure.
-- **Test-design discipline:** `docs/wiki/test-design-discipline.md`.
-- **Cleanup / sweep / migration hazards:** `docs/wiki/cleanup-sweep-hazards.md`.
-- **Fan-out OOM reproducers need four-dimension assertions** (peak RSS, commit count, concurrent-session count, wall-clock time). Single-dimension tests miss the interaction failure modes. Full strategy: `docs/wiki/oom-reproducer-strategy.md`.
-- **Domain-specific implementation standards** (observability contracts, database / indexer correctness, dependency management, engine plugin packaging): `docs/wiki/implementation-standards-by-domain.md`.
+- **Guards match conditions, not containers.** Substring-on-path filters and state-proxy liveness checks reject legitimate cases.
+- **Fan-out OOM reproducers need four-dimension assertions** (peak RSS, commit count, concurrent-session count, wall-clock time). → `docs/wiki/oom-reproducer-strategy.md`.
+- Wiki: `test-design-discipline.md`, `cleanup-sweep-hazards.md`, `implementation-standards-by-domain.md` (observability, DB/indexer, deps, engine plugin packaging).
 
 ## Review Sequencing
 
 - **Multi-persona reviews are sequential, never parallel.** Integrate Reviewer 1's findings before dispatching Reviewer 2.
-- **Exception — merge-gate code review on frozen diff:** When all of (a) the artifact is a frozen diff at a merge boundary, (b) all reviewers are orthogonal lenses (no shared lens-overlap), and (c) a synthesizer with strict no-rewrite contract assesses the combined output, reviewers MAY run in parallel. The convergence guarantee replaces the sequential cross-pollination guarantee. Plan/stub/doc review remains sequential.
-- **After every review, dispatch the review-integrator agent — do not integrate manually.** EM reviews the integrator's escalation list, spot-checks the diff. Applies even to tiny edits with all-trivial findings.
-- Exceptions to full integration: items needing PM input or genuine disagreement.
+- **Pre-flight sidecars are not a sequential reviewer.** docs-checker, prior-art-checker, and external-pattern-checker write sidecars consumed alongside the plan; they do not trigger an integrator pass between themselves and the first named reviewer. docs-checker AUTO-FIX corrections land inline per its own contract. prior-art-checker sidecars travel with the artifact — the Opus reviewer's judgment is what we want shaping direction-of-correction on Conflicts (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`); EM pre-disposition in the dispatch brief is optional, not required, and a reviewer recommendation that disagrees with an EM pre-disposition escalates as ASK per `agents/review-integrator.md § Prior-Art Conflict Resolution`. Integration of prior-art-side edits happens in the post-reviewer integrator pass, not before.
+- **Exception — merge-gate code review on frozen diff:** When (a) artifact is a frozen diff at a merge boundary, (b) all reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses combined output, reviewers MAY run in parallel. Plan/stub/doc review remains sequential.
+- **After every review, dispatch the review-integrator — do not integrate manually.** EM reviews escalation list, spot-checks diff. Exceptions to full integration: items needing PM input or genuine disagreement.
 - **Cross-session reviews converge on one canonical artifact.** When superseding, dispatch integrator with loser's findings + winner-target.
-- **Parallel enrichment needs unified seam review** — see `docs/wiki/parallel-enrichment-seam-review.md`.
+- **Parallel enrichment needs unified seam review** — `docs/wiki/parallel-enrichment-seam-review.md`.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
+- **Two-pipeline review on shared artifacts** combines per-stub depth (Patrik on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
+- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; Patrik escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow Patrik's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
+- **Personas run at Opus only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
 
 ## Synthesis Discipline
 
-**Synthesizers don't rewrite — they assess, fill, and frame.** (1) assess combined inputs, (2) fill gaps via fresh research, (3) frame for the reader. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases, nuanced facts, and cross-topic relationships. If output reads like a condensed version of specialists' prose, treat as pipeline failure.
+**Synthesizers don't rewrite — they assess, fill, and frame.** (1) assess combined inputs, (2) fill gaps via fresh research, (3) frame for the reader. Never re-author specialist content. Rewriting-synthesizers empirically drop edge cases, nuanced facts, cross-topic relationships. If output reads like condensed specialist prose, treat as pipeline failure.
 
 ## Reviewer-Routed Workers
 
-Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line rationale each). Reviewers do not dispatch — review-integrator preserves the block, EM dispatches in follow-up. Workers feed reviewers, not vice versa. Available: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. Validate independently — unused workers are unvalidated risk.
+Reviewers name workers in a `## Worker Dispatch Recommendations` block (one-line rationale). Reviewers do not dispatch — review-integrator preserves the block, EM dispatches in follow-up. Available: `test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`. **Specialist worker lenses catch what generalist lenses miss** — route post-implementation as routine.
 
 ## Challenging the PM
 
-EM owns implementation discretion; PM owns product authority. **When in doubt: implementation discretion → EM acts. Product authority → EM asks.**
+EM owns implementation discretion; PM owns product authority. **When in doubt: implementation → EM acts. Product → EM asks.**
 
 **Push back when:** work doesn't serve stated objective; change is materially larger than PM realizes; request hides a product decision in an implementation ask; cheaper experiment would answer; scope expanding or acceptance criteria missing; ship-despite-insufficient-evidence; probably a workaround for a deeper problem. Format: *"I think we should X because Y — want me to proceed?"* beats *"X or Z?"*
 
-**Ask the PM when:** user-facing behavior changes materially; acceptance criteria conflict; product policy call (privacy/retention/permission defaults); multiple viable UX paths and choice isn't mechanical; shortcut creates visible debt; security/privacy/compliance boundary; shipping-relevant claim unverifiable in-session; affects pricing/permissions/onboarding/retention/trust.
+**On PM-reported failures: separate symptom from mechanism before pushing back.** Symptom may be real when attributed cause is wrong. Acknowledge symptom, investigate mechanism, then propose.
 
-**Don't ask for:** routine implementation choices, internal refactors within scope, naming/formatting, tool choice (unless cost/risk shifts), tradeoff-free reviewer fixes, whether to dispatch a reviewer, whether to commit/branch/stash.
+**Ask when:** user-facing behavior changes materially; acceptance criteria conflict; product policy call (privacy/retention/permission defaults); viable UX paths diverge non-mechanically; shortcut creates visible debt; security/privacy/compliance boundary; shipping-relevant claim unverifiable in-session; affects pricing/permissions/onboarding/retention/trust.
+
+**Don't ask for:** routine implementation choices, internal refactors within scope, naming/formatting, tool choice, tradeoff-free reviewer fixes, whether to dispatch a reviewer, whether to commit/branch/stash.
 
 ### Reviewer findings — apply, don't ratify
 
-Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/algebra/precedence findings need verification first; reserved-word identifier collisions in PRAGMA/DDL — double-quote runtime-supplied identifiers as default. Mechanics: `snippets/reviewer-calibration.md`.
+Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/algebra/precedence findings need verification; reserved-word identifier collisions in PRAGMA/DDL — double-quote runtime-supplied identifiers as default. Mechanics: `snippets/reviewer-calibration.md`.
+
+**Closure-bar fallback feasibility is engineering verification, not a PM closure-bar question.** Read the cited file by-line before asking the PM whether a fallback is possible.
 
 ## Pre-Review Mechanical Verification
 
-Before dispatching an Opus reviewer, the EM may run two Sonnet pre-flights — they answer different questions and aren't substitutes:
+Two Sonnet pre-flights before an Opus reviewer — different questions, not substitutes:
 
-- **`docs-checker`** — verifies external API claims against authoritative sources (Context7, LSP, project-RAG). AUTO-FIX authority for low-judgment corrections, sidecar-logged. Doctrine: `docs/wiki/docs-checker-pre-review.md`.
-- **`prior-art-checker`** — cross-references plan claims against accumulated prior art (project wikis, global wikis, `tasks/lessons.md`, central improvement queue). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. Doctrine: `docs/wiki/prior-art-checker.md`.
+- **`docs-checker`** — verifies external API claims against authoritative sources (Context7, LSP, project-RAG). AUTO-FIX authority for low-judgment corrections, sidecar-logged. → `docs/wiki/docs-checker-pre-review.md`.
+- **`prior-art-checker`** — cross-references plan claims against prior art (project/global wikis, lessons, central queue, optional peer-repo wikis). REPORT-ONLY; sidecar with Conflicts / Compatible-but-relevant / Silent buckets + verdict. BLOCKED-SURFACE-TO-PM halts review. Optional `peer_repos:` block (≤2) expands to 5th corpus via `stack_tags` in `~/.claude/tasks/repo-registry.md`; >2 → DEGRADED. → `docs/wiki/prior-art-checker.md`. Registry: `docs/wiki/repo-registry.md`.
+- **`plan-coverage-checker`** — verifies the plan's fix slate covers its own audit/found-facts oracle, flags appetite-based hedges, and checks in-repo substrate citations against disk. REPORT-ONLY; sidecar with Missed / Ambiguous / Weak-OOS / Hedges / Substrate-drift buckets + verdict. **Trigger is skill-internal — no EM Decision Step table, no opt-out.** Unlike docs-checker (EM-discretion table) and prior-art-checker (silent skip), plan-coverage-checker runs unconditionally on any plan with an oracle table; empirical motivation is that EM confidence is exactly the failure mode (36/9/4 miss rate on a confident EM plan, 2026-05-18). **Fold posture also diverges from prior-art-checker:** INCOMPLETE findings fold BEFORE named-reviewer dispatch (not after), because coverage gaps have three EM-mechanical resolutions (add-to-slate / architectural-OOS / oracle-was-wrong) that don't benefit from reviewer judgment the way prior-art Conflicts do. BLOCKED-SURFACE-TO-PM halts review. → `docs/wiki/plan-coverage-checker.md`.
 
 ## Convergence as Confidence
 
@@ -298,32 +307,32 @@ When ≥2 independent agents flag the same issue from different entry points, tr
 
 ## P0/P1 Verification Gate
 
-P0/P1 severity claims from sweep agents have a poor track record. Before acting, EM or verifier subagent must read the cited code and confirm against current source — not the agent's paraphrase. Applies even when the finding looks tradeoff-free; high-confidence framing inverts the hit rate.
+P0/P1 severity claims from sweep agents have a poor track record. Before acting, EM or verifier subagent must read the cited code and confirm against current source — not the agent's paraphrase. Applies even when finding looks tradeoff-free; high-confidence framing inverts the hit rate.
 
 ## Task Management
 
-- **Tasks API** — per-conversation flight recorder, persists through compaction. Use for sequential implementation. Include session goal, steps, key decisions, current state.
-- **File-based plans** — for cross-session work. Feature-scoped: `tasks/<feature-name>/todo.md`. `/handoff` when ending mid-feature.
+- **Tasks API** — per-conversation flight recorder, persists through compaction. Sequential implementation. Include session goal, steps, key decisions, current state.
+- **File-based plans** — cross-session work. Feature-scoped: `tasks/<feature-name>/todo.md`. `/handoff` when ending mid-feature.
 
 ## Concurrent-EM Git Operations
 
-Default operating reality is multiple EM sessions sharing a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal shape, not contamination. Full mechanics: `docs/wiki/daily-branch-discipline.md` and `~/.claude/docs/wiki/scoped-safety-commits.md`. Greppable rules below; details + failure modes in the wikis.
+Multiple EM sessions share a working tree. **The active workstream branch is a shared bus** — sibling commits and out-of-scope dirty files are normal. → `docs/wiki/daily-branch-discipline.md` + `~/.claude/docs/wiki/scoped-safety-commits.md`.
 
-- **One active workstream branch per machine** (`work/{machine}/{date-or-span}` or read-only `main`). No `feature/*`, no worktrees. Integrate via `/merge-to-main` or `/workday-complete`.
-- **Commits are quick-saves.** Commit at natural checkpoints; diff size is not a gate. Don't offer pre-commit review on the workstream branch — it IS the review buffer. **Never `--no-verify` / `--no-gpg-sign`** unless PM authorized (bypass `COORDINATOR_OVERRIDE_NO_VERIFY=1`).
-- **Scoped staging is the default. Never `git add -A` / `git add .`** Use `bin/coordinator-safe-commit "<subject>"`. Fall back to explicit-path (`git reset && git add -- <paths> && git commit`) on helper misidentification. **`git commit --only`** and **`git commit -- <pathspec>`** are unsafe — see scoped-safety-commits wiki.
-- **Dispatching a committer?** Pin branch via `expected_branch:` in prompt → executor passes `--expected-branch` to `coordinator-safe-commit`. Concurrent-EM `--include-orphans` MUST combine with `--scope-from`.
-- **After every executor-ending dispatch, follow with an EM-side explicit-path commit** — `--scope-from` excludes executor-edited files.
-- **Parallel executors must NOT each call a touched-files-aware commit helper** (commit absorption + scope sweep). Pattern: EM-serial commits with plain git after fan-out.
-- **Verify staging + landing on shared branches:** unfiltered `git diff --cached --name-only` before commit; `git show --stat HEAD` immediately after. Path-filtered `git status` lies under concurrent EMs.
+- **One active workstream branch per machine.** Canonical `work/{machine}/{date-or-span}` OR a named long-lived workstream PM authorized at create-time (e.g. `migration/...`, `release/...`, `feature/<name>`). Named form must be created via inline `COORDINATOR_OVERRIDE_BRANCH=1`; once it exists with commits ahead of main, treat as legitimate workstream bus. Read-only `main` also fine. No worktrees. Daily ritual is **reconcile with origin/main** (via `/workday-start` Step 0.4.5) — do **not** abandon ongoing work to cut a fresh daily off main. Integrate via `/merge-to-main` or `/workday-complete`.
+- **Commits are quick-saves.** Commit at natural checkpoints; diff size is not a gate. The workstream branch IS the review buffer. **Never `--no-verify` / `--no-gpg-sign`** unless PM authorized (`COORDINATOR_OVERRIDE_NO_VERIFY=1`).
+- **Scoped commits default to plain `git add -- <paths> && git commit -m "<subject>" -- <paths>`. Never `git add -A` / `git add .`** `coordinator-safe-commit` is reserved for authorized sweep ceremonies (`session-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation` — all `--blanket`) and `agents/executor.md` (`--expected-branch`, SC-DR-006). Raw helper deprecated. SC-DR-008 (2026-05-13) inverts prior default; → `docs/wiki/scoped-safety-commits.md`.
+- **Dispatching a committer?** Pin branch via `expected_branch:` in prompt → executor passes `--expected-branch`. Concurrent-EM `--include-orphans` MUST combine with `--scope-from`.
+- **After every executor-ending dispatch, follow with EM-side explicit-path commit** — `--scope-from` excludes executor-edited files.
+- **Parallel executors must NOT each call a touched-files-aware commit helper.** Pattern: EM-serial commits with plain git after fan-out.
+- **Verify staging + landing on shared branches:** unfiltered `git diff --cached --name-only` before commit; `git show --stat HEAD` after. Path-filtered `git status` lies under concurrent EMs.
 - **High-concurrency (N>5) needs a 30-min `git log -p` audit before merge.** Bulk delete: pre-split tracked vs. untracked (`git ls-files`) before `xargs git rm`.
-- **Probe edits in `git stash push -u` / `pop`.** After `pop`, `git reset` back to worktree-only or the next commit silently absorbs the stash.
+- **Probe edits in `git stash push -u` / `pop`.** After `pop`, `git reset` to worktree-only or next commit silently absorbs the stash.
 
 ## Workday/Workweek Cadence
 
-Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index over them.** `/workday-complete` synthesises from existing handoffs and `/daily-review` — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
+Daily and weekly are distinct ceremonies, both PM-invoked, staleness-nudged. **Handoffs are the atom; the week-changelog is the index.** `/workday-complete` synthesises from existing handoffs and Step 4 daily summary — does not re-author. `/workweek-complete` reads the index as ground truth, does not reconstruct from `git log`.
 
-Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, improvement-queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Improvement-queue triage: **daily emits depth nudge only** (≥5 → notice); **weekly triggers action** (apply, dispatch executors, delete the resolved entries; commit subject names them).
+Daily (`/workday-complete`): validate, consolidate, daily review, archive audit, changelog append, staleness nudge. Weekly (`/workweek-complete`): full docs sweep, ShellCheck, queue triage, scc, version bump, merge. Staleness: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA). Queue triage: daily emits depth nudge only (≥5 → notice); weekly triggers action (apply, dispatch, delete resolved entries).
 
 ## Core Principles
 

@@ -13,7 +13,10 @@
 #
 # Hook execution is serial within a session — no TOCTOU risk on sentinel
 # check-then-delete.
-set -euo pipefail
+set -uo pipefail
+# NOTE: -e deliberately omitted. This is an advisory hook and must fail-open;
+# critical sections use explicit `|| true` guards. A blanket -e would abort
+# the hook on any subcommand non-zero (e.g., stat/jq/find), defeating that.
 
 # --- Safe stdin read (the fix for the Windows hang) ---
 # GNU timeout is available in Git Bash via coreutils. If somehow missing,
@@ -114,8 +117,10 @@ fi
 # Update throttle timestamp (touch even if we end up not emitting anything)
 touch "$THROTTLE_SENTINEL"
 
-# Research (2026-03-21): Compaction fires at ~83.5% of context window
-# (33K token buffer reserved from 200K window → ~167K trigger point).
+# Calibration (2026-05-18, observed on Opus 1M): auto-compaction now fires at
+# ~60% of context window (e.g. 600K on a 1M window). Earlier research had it
+# at ~83.5% on a 200K window; treat 60% as the new global trigger until we
+# observe per-model divergence. Override via CONTEXT_*_THRESHOLD env vars.
 # We can't know exact token count — file size in bytes is a rough proxy.
 # Using ~5 bytes/token (conservative: real ratio is 5-8 depending on content).
 
@@ -137,10 +142,19 @@ fi
 # (e.g., "claude-opus-4-7[1m]"). Match that suffix explicitly before the bare model
 # pattern so a plain ID falls through to the 200K default.
 case "$MODEL_ID" in
+  # Explicit 1M-context variants — must match before the bare family arms below.
+  # Anthropic encodes 1M-context variants with a "[1m]" suffix (e.g.
+  # "claude-opus-4-7[1m]"); some ID shapes use "-1m" or a bare "1m" token.
+  # Matching here prevents a 1M-context Sonnet from falling into the *sonnet*
+  # arm and producing false-positive handoff nudges at ~200K bytes.
+  *\[1m\]*)       CONTEXT_WINDOW=1000000 ;;  # Explicit "[1m]" suffix
+  *-1m*)          CONTEXT_WINDOW=1000000 ;;  # "-1m" infix variant
+  *1m*)           CONTEXT_WINDOW=1000000 ;;  # Bare "1m" token
   # Explicit 200K overrides for Opus variants known to ship without the 1M window
   # (add specific model IDs here as they appear).
   # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
   # unless an override above caught it first.
+  # Family-fallback patterns survive minor version bumps; pinned arms break.
   *opus*)         CONTEXT_WINDOW=1000000 ;;  # Opus family default: 1M
   *sonnet*)       CONTEXT_WINDOW=200000  ;;  # Sonnet family default: 200K
   *haiku*)        CONTEXT_WINDOW=200000  ;;  # Haiku family default: 200K
@@ -148,8 +162,10 @@ case "$MODEL_ID" in
 esac
 
 # --- Threshold percentages ---
-ADVISORY_PCT=60
-CRITICAL_PCT=78
+# Auto-compaction trigger observed at ~60% of context window (2026-05-18).
+# CRITICAL fires just before that (~30K headroom on 1M); ADVISORY earlier.
+ADVISORY_PCT=50
+CRITICAL_PCT=57
 
 # --- Convert to file size thresholds (bytes) ---
 BYTES_PER_TOKEN=5
@@ -180,8 +196,13 @@ else
   TRANSCRIPT_HASH="$SESSION_ID"
 fi
 
-# Stale sentinel cleanup (>24h old)
-find /tmp -maxdepth 1 \( -name "context-pressure-*" -o -name "autonomous-run-*" \) -mmin +1440 -delete 2>/dev/null || true
+# Stale sentinel cleanup (>24h old) — scope to this session only.
+# Previously this matched all sessions' sentinels, so session A's cleanup
+# would delete session B's live sentinels. SESSION_ID is guaranteed non-empty
+# here (we exit early above when it's blank), but guard defensively.
+if [[ -n "${SESSION_ID:-}" ]]; then
+  find /tmp -maxdepth 1 \( -name "context-pressure-*${SESSION_ID}*" -o -name "autonomous-run-*${SESSION_ID}*" \) -mmin +1440 -delete 2>/dev/null || true
+fi
 
 # --- Autonomous run detection ---
 AUTONOMOUS_SENTINEL="/tmp/autonomous-run-${SESSION_ID}"
@@ -199,11 +220,11 @@ if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~83.5%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
   else
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~83.5% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~60% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
   fi
   exit 0

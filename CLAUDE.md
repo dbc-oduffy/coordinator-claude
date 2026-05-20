@@ -13,7 +13,7 @@
 ## Plugin Configuration
 
 The coordinator-claude plugin system lives in `~/.claude/plugins/`:
-- **coordinator** — Core pipeline, universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Ambition Advocate (`coordinator:ambition-advocate`)), all workflow skills. Always enabled.
+- **coordinator** — Core pipeline, universal reviewers (the Staff Engineer (`coordinator:staff-eng`), the Director of Engineering (`coordinator:eng-director`)), all workflow skills. Always enabled.
 - **web-dev** — the Front-End Reviewer (`web-dev:senior-front-end`) + the UX Reviewer (`web-dev:staff-ux`). Enable for web projects.
 - **data-science** — the Data Science Reviewer (`data-science:staff-data-sci`). Enable for ML projects.
 - **game-dev** — the Game Dev Reviewer (`game-dev:staff-game-dev`). Enable for game projects. Disabled by default.

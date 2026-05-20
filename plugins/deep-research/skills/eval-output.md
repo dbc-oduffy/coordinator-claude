@@ -1,6 +1,6 @@
 ---
 name: eval-output
-description: Score a research output against the 5-criteria eval rubric (factual accuracy, citation accuracy, completeness, source quality, source diversity). Dispatches a Sonnet evaluator.
+description: Score a research output against the 5-criteria eval rubric. Dispatches a Sonnet evaluator.
 ---
 
 # Evaluate Research Output

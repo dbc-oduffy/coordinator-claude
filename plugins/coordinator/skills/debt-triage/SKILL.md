@@ -15,7 +15,7 @@ Review the debt backlog, verify items are still relevant, re-prioritize based on
 ## When to Trigger
 
 - On demand (PM or EM invocation)
-- When debt backlog exceeds 20 open items (surfaced by weekly-architecture-audit with escalating insistence — mild concern at >20, visible Staff Engineer disappointment at >30, coffee-down intervention at >40 — and by session-start)
+- When debt backlog exceeds 20 open items (surfaced by weekly-architecture-audit with escalating insistence — mild concern at >20, visible Patrik disappointment at >30, coffee-down intervention at >40 — and by session-start)
 - After a major refactor that may have resolved multiple debt items
 
 ## The Process
@@ -89,6 +89,25 @@ Based on current state:
 - Items in systems with grade D/F → escalate to P1
 - Items in systems recently audited as A/B → may deprioritize to P2
 - Items >30 days old with no activity → flag for PM attention
+
+### Step 3b: LoE-weighted hot-zone identification
+
+Before grouping items, query the completion log for historical `nature: tech-debt` entries to surface which areas have consumed significant effort recently versus which have been avoided:
+
+```bash
+bin/query-completions.sh --where "nature=tech-debt" --since "90d" --sort "-loe.tshirt" --format markdown-list
+```
+
+Interpret the output with two lenses:
+
+- **High-LoE areas (L/XL entries in last 90d):** Repeated large tech-debt sessions in the same subsystem indicate festering complexity — the root cause was not resolved, only managed. Escalate any open backlog items in this area: they are likely blocking or near-blocking.
+- **Zero-activity areas:** Backlog items that cite a subsystem with no recent `nature: tech-debt` completions may reflect avoidance. Flag these for PM attention: "We have carried this debt for N days without touching it — is that intentional?"
+
+Present a one-paragraph hot-zone summary to the PM before the Step 4 grouping. Example framing:
+
+> "The completion log shows three XL tech-debt sessions in `src/indexer/` over the last 90 days — that area is festering. Two open backlog items cite it; I'm escalating both. `src/cache/` has two open items but no recent debt sessions — possible avoidance."
+
+**Zero-row rendering:** If the query returns no results (fresh repo or no tech-debt completions logged yet), render: `(no tech-debt completions logged in last 90d — hot-zone analysis unavailable)` and proceed without escalating.
 
 ### Step 4: Group for Execution
 

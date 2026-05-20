@@ -36,17 +36,24 @@ For each completed item, record:
 
 ### Step 2: Archive Completed Items
 
-Open (or create) `archive/completed/YYYY-MM.md` where YYYY-MM is the current month.
+For each completed item, write a **per-entry file** at `archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md` where YYYY-MM is the current month. If the `YYYY-MM/` subdirectory does not exist, create it. Do NOT write a flat shared monolith at the `archive/completed/` root — that pattern is removed and the tripwire will catch it.
 
-**If creating a new file**, use this template:
+Use this frontmatter + body shape:
 ```markdown
-# Completed Work — [Month Year]
-```
+---
+title: "<Concise past-tense description>"
+created: YYYY-MM-DD
+nature: tracker-completion
+nature_inferred: false
+chain: <workstream-slug>
+commits: []
+status: pending-release
+chain_terminal: false
+authored_by: tracker-maintenance
+---
 
-**For each completed item**, append an entry under a date heading:
-```markdown
-## YYYY-MM-DD
-- **[Concise past-tense description]** — spec: [path/to/spec.md] | workstream: [Name]
+spec: path/to/spec.md
+workstream: [Name]
 ```
 
 Rules for the archived description:
@@ -55,7 +62,13 @@ Rules for the archived description:
 - Always include the spec link if one exists in the tracker item
 - Always include the workstream name
 
-If today's date heading already exists in the file (from a prior run today), append under it rather than creating a duplicate heading.
+**To check whether an item has already been archived** (Step 2 read path), use:
+```bash
+query-completions --where "chain=<workstream-slug>"
+# or, for a date window:
+query-completions --since <YYYY-MM-DD>
+```
+Do not read the flat monthly monolith as a check target — that pattern is removed.
 
 ### Step 3: Prune Completed Items from Tracker
 
@@ -91,7 +104,7 @@ Scan all `**depends on:**` and `**blocked by:**` annotations in pending `[ ]` it
 Safety net: catch work that completed without ever entering the tracker or archive. This happens with bug fixes, ad-hoc requests, and tasks dispatched for speed without formal specs.
 
 1. **Scan recent commits:** `git log --oneline` since the last `/update-docs` run (or last 50 commits if no prior run is detectable)
-2. **Compare against tracker + archive:** For each substantive commit, check if the work appears in either `docs/project-tracker.md` (as `[x]`) or in `archive/completed/YYYY-MM.md`
+2. **Compare against tracker + archive:** For each substantive commit, check if the work appears in either `docs/project-tracker.md` (as `[x]`) or in the completed archive — run `query-completions --since <date-of-last-update-docs-run>` to check
 3. **Append orphaned work to archive:** For commits representing real work not captured anywhere:
    ```
    - **[Concise past-tense description]** — ad-hoc [bug fix|task|refactor] | commit: [hash]
@@ -139,7 +152,7 @@ Items that are real but not imminently actionable.
 
 ## Archive Pointer
 → Completed work: archive/completed/
-→ Latest: archive/completed/YYYY-MM.md
+→ Query: query-completions --since <date> (per-entry files under archive/completed/YYYY-MM/)
 ```
 
 **Conventions:**

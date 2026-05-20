@@ -26,6 +26,15 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { extractBlock, replaceBlock } = require('./lib/sentinel-blocks.js');
 const { queryRecords, formatRecords, parseSince } = require('./query-records.js');
+// Self-claim shim: register written paths with the active coordinator session.
+// Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
+// Best-effort — no-op if lib absent or no active session (see lib/coordinator_session.js).
+let _csSelfClaim = () => {};
+try {
+  ({ selfClaim: _csSelfClaim } = require('./lib/coordinator_session.js'));
+} catch (_e) {
+  // Lib not present in this checkout — comment claims best-effort behavior; honor it.
+}
 
 const BEGIN_PREFIX = '<!-- BEGIN query:';
 const END_MARKER = '<!-- END query -->';
@@ -269,6 +278,7 @@ function processFile(filePath, root, checkMode) {
   if (changedCount > 0) {
     if (!checkMode) {
       fs.writeFileSync(filePath, working, 'utf8');
+      _csSelfClaim(filePath);
     }
     return { changed: true, changedCount, errorCount };
   }
