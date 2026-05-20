@@ -41,7 +41,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
    - **Feature task directories (`tasks/<feature>/`):**
      - PRUNE if `todo.md` exists and all items are `[x]`, AND no `lessons.md` with unmerged entries, AND the feature branch (if identifiable from the dir name) is merged or deleted.
      - KEEP if any `[ ]` items remain or unmerged lessons present.
-     - **Never delete:** `tasks/lessons.md` (global), `tasks/health-ledger.md`, `tasks/bug-backlog.md`, `tasks/debt-backlog.md`, `tasks/architecture-atlas/`, `tasks/improvement-queue.md`, `tasks/coordinator-improvement-queue.md`, `tasks/handoffs/` (active), `tasks/week-changelog/`.
+     - **Never delete:** `tasks/lessons.md` (global), `tasks/health-ledger.md`, `tasks/bug-backlog.md`, `tasks/debt-backlog.md`, `docs/architecture/`, `tasks/improvement-queue.md`, `tasks/coordinator-improvement-queue.md`, `tasks/handoffs/` (active), `tasks/week-changelog/`.
 
 2. **If nothing classifies as PRUNE,** record `prune_count: 0` for the Phase 13 summary and exit this pipeline.
 

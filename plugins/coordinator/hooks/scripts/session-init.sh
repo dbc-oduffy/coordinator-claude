@@ -99,8 +99,34 @@ echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
 # coverage" rule, raw grep misses quoted/whitespace variants. query-records uses
 # the schema parser.
 
+# --- Branch guard: never write or commit on main/master or detached HEAD ---
+#
+# This block performs git mv + git commit. If HEAD is main (common right after
+# /merge-to-main) the cleanup would land on main, violating the read-only-main
+# doctrine and causing sync-main.sh to abort on the next workday-start. Skip
+# the orphan sweep when HEAD is not on a work branch — the next session that
+# boots on a work/* (or named long-lived) branch will pick up the orphans.
+#
+# Empirical motivation: 2026-05-20, /workday-start aborted with "local main is
+# 1 commit ahead of origin/main" pointing at a session-init archival commit.
+INIT_BRANCH=$(git -C "$GIT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+case "$INIT_BRANCH" in
+  main|master|HEAD|"")
+    INIT_SKIP_SWEEP=1
+    ;;
+  archive/*)
+    # archive/* branches are terminal/dead-work by naming convention; committing
+    # archival entries there is noise. Skip the sweep — the next session on a
+    # live work branch picks up any orphans.
+    INIT_SKIP_SWEEP=1
+    ;;
+  *)
+    INIT_SKIP_SWEEP=
+    ;;
+esac
+
 QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
-if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
+if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
   # Find all consumed handoffs still in tasks/handoffs/
   consumed_paths=$(node "$QR" --type handoff --where "status=consumed" --format paths --root "$GIT_ROOT" 2>/dev/null || true)
   if [ -n "$consumed_paths" ]; then

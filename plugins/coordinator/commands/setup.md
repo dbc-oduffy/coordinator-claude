@@ -466,7 +466,7 @@ Skip the seed prompt. Lay down all tracked files (README.md, .gitignore, both `.
 - **(c) `--non-interactive` on fresh install:** substrate laid down, no seed prompt, no `registry.toml`, no `registry.local.toml`.
 - **(d) Operator-modified-file detection:** pre-placed modified `README.md` preserved; one-line notice emitted; no overwrite.
 
-**See:** `docs/wiki/machine-local-registry.md` for the substrate doctrine; `bin/machine-local` for the reader contract.
+**See:** `docs/wiki/machine-local-registry.md` for the substrate doctrine; `bin/machine-local` for the reader contract; `docs/wiki/coordinator-doctor.md` for post-install verification probes (P-1 through P-4 cover this substrate).
 
 ---
 

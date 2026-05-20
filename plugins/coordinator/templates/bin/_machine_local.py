@@ -301,7 +301,7 @@ def main() -> int:
 
     # get
     get_p = subparsers.add_parser("get", help="Print value for a key")
-    get_p.add_argument("key", help="Dotted key name (e.g. repos.holodeck)")
+    get_p.add_argument("key", help="Dotted key name (e.g. repos.claude_unreal_holodeck)")
     get_p.add_argument("--default", metavar="VALUE", default=None,
                        help="Value to print if key is missing (always exits 0)")
 

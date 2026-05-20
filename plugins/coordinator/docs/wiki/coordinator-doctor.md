@@ -1,0 +1,127 @@
+---
+title: Coordinator Doctor
+created: 2026-05-20
+author: claude-central-em
+status: current
+---
+
+<!-- spec-backlink: docs/plans/2026-05-20-coordinator-doctor-wiki.md § Chunk 1 -->
+
+# Coordinator Doctor
+
+**Purpose.** This wiki is the operator-facing health-verification surface for the two pieces of coordinator substrate that downstream plugins depend on: the `~/.claude/machine-local/` registry and the `coordinator_whoami` package. It enumerates nine runnable probes (P-1 through P-9), defines severity vocabulary for probe results, and establishes the citation contract that downstream plugin doctors (holodeck, project-rag, project-rag-ue-addon) MUST follow when probing coordinator-owned substrate.
+
+**What this wiki is not.** It is not a slash skill — a `/coordinator:doctor` command would be bloat for a non-interactive verification surface. It is not a runtime validator or a programmatic API. It does not duplicate the substrate doctrines: for `machine-local/` resolution order, see [`machine-local-registry.md`](machine-local-registry.md); for the whoami envelope schema, see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md).
+
+---
+
+## Audience Routing
+
+Three readers land here for different reasons:
+
+**(a) Operator with a config failure.** You hit a "machine-local key not found" or "coordinator_whoami import error" and want a one-line answer. Go directly to the probe catalog §3 — run P-1 through P-4 for registry failures, P-5 through P-7 for whoami failures. If probes surface a missing substrate, see §6 (Bootstrap from cold-start).
+
+**(b) Agent invoked from a downstream doctor.** You are running a holodeck or project-rag doctor and need to verify coordinator substrate as a prerequisite. Read §5 (Citation contract) first — it defines whether you should delegate to this wiki's probe or augment with your own. Do not reinvent the probe; cite P-N and surface the verdict.
+
+**(c) Author of a new downstream doctor.** You are writing a plugin doctor that touches machine-local keys or coordinator_whoami introspection. Read §5 in full before authoring. The citation contract is binding — two shapes are defined, a third path is explicitly closed.
+
+---
+
+## Probe Catalog
+
+Each probe has a single-line invocation. All `machine-local` invocations use the `bin/machine-local` CLI from the coordinator install. All `python -m coordinator_whoami.*` invocations assume `coordinator_whoami` is installed in the active Python environment (verified by P-5).
+
+Severity values are from the vocabulary defined in §4.
+
+**Portability note (Windows / Git Bash).** `python3` is the canonical Linux/macOS interpreter name. On Windows + Git Bash, the Python Launcher is the canonical entry; substitute `py -3` for `python3` in every command below. Operators on Windows may want to alias once: `alias python3='py -3'`. The `python3` references in the table are otherwise portable.
+
+| ID | What it checks | Command | Pass interpretation | Fail interpretation | Severity if fail | Remediation |
+|---|---|---|---|---|---|---|
+| **P-1** | `~/.claude/machine-local/` directory exists | `test -d ~/.claude/machine-local && echo healthy \|\| echo error` | `healthy` | Directory absent — substrate was never bootstrapped | `error` | Run `/coordinator:setup` Phase 3 (§6) |
+| **P-2** | `registry.toml` parses and declares `schema = 1` | `python3 -c "import tomllib,pathlib; d=tomllib.loads(pathlib.Path('~/.claude/machine-local/registry.toml').expanduser().read_text()); assert d.get('schema')==1"` | Exits 0 | File missing, unparseable TOML, or wrong schema version | `error` | Re-run Phase 3; check for manual edits that broke TOML structure |
+| **P-3** | At least one key under `repos.*` is populated in `registry.local.toml` | `machine-local keys \| grep -q '^repos\.' && echo healthy \|\| echo degraded` | `healthy` — at least one repo path declared | `degraded` — fresh install or operator never seeded machine-specific paths | `degraded` | Run `machine-local set repos.<name> <path>` for each sibling repo (see [`machine-local-registry.md`](machine-local-registry.md) §9 for the `.local.toml` discipline) |
+| **P-4** | `bin/machine-local` CLI shell-out works (smoke test) | `machine-local keys >/dev/null && echo healthy \|\| echo error` | `healthy` — CLI runs and registry is parseable | CLI not on PATH, `bin/` not linked, or registry.toml unparseable — setup incomplete | `error` | Run Phase 3; verify `~/.claude/bin/` is on PATH; verify `~/.claude/machine-local/registry.toml` exists and parses |
+| **P-5** | `coordinator_whoami` package is importable | `python3 -c "import coordinator_whoami; print('healthy')"` | `healthy` | ImportError — package not installed or Python env mismatch | `error` | `pip install -e ~/.claude/plugins/coordinator/whoami/` (or equivalent per install method) |
+| **P-6** | Live `coordinator_whoami.project_rag` returns a v1-conformant envelope | `python3 -m coordinator_whoami.project_rag --human \| head -5` | Output contains `contract_version: 1` | JSON parse error, missing required fields, or non-zero exit | `error` | Check P-5 first; then inspect `~/.claude/machine-local/registry.toml` for missing keys the probe requires; see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §Validation |
+| **P-7** | `~/.claude.json` mcpServers entries for installed plugins are present and well-formed (**configuration-presence probe — not binding health**) | `python3 -c "import json,pathlib; cfg=json.loads(pathlib.Path('~/.claude.json').read_text()); assert 'mcpServers' in cfg and len(cfg['mcpServers'])>0; print('healthy')"` | `healthy` — config entry exists and is parseable JSON | Config entry absent, malformed JSON, or `mcpServers` key missing | `degraded` | Re-run plugin install to write the mcpServers entry; verify `~/.claude.json` is writable. **For live binding state, see P-6** — P-7 confirms the config exists, not that the binding is active. |
+| **P-8** | Sentinel presence: at least one `doctor-last-run.json` exists across installed plugins | `ls ~/.claude/plugins/*/data/doctor-last-run.json 2>/dev/null \| head -1 \| grep -q . && echo healthy \|\| echo degraded` | `healthy` — at least one doctor has been run | `degraded` — no plugin doctor has ever been run on this machine | `degraded` | Run each installed plugin's doctor once to bootstrap the sentinel; see [`addon-health-sentinel.md`](addon-health-sentinel.md) for the sentinel schema |
+| **P-9** | UE override paths resolve against registry-declared roots | `bash ~/.claude/bin/verify-ue-overrides.sh` | Exits 0 with no remediation output | Non-zero exit or remediation message emitted | `degraded` or `error` (per script output) | Follow the remediation hint from the script, which will point to the relevant machine-local key (typically `repos.claude_unreal_holodeck`); re-run after setting the key |
+
+**Note on P-7 vs P-6.** P-7 is a *configuration-presence* probe: it verifies that the mcpServers entry exists and is well-formed JSON. It does NOT verify that the MCP server process is running, that the binding resolves, or that tool calls succeed. For binding health — "is this plugin's binding working?" — the answer comes from the live whoami call in P-6. Treating P-7 as a binding-health probe is the consumer-leak shape this wiki exists to close.
+
+---
+
+## Severity Vocabulary
+
+This wiki uses a four-state probe-result vocabulary: `{healthy, degraded, error, inconclusive}`.
+
+**Relationship to `cross-plugin-whoami-contract.md`.** The whoami contract defines a *closed* `status.state` enum: `{"healthy", "degraded", "error"}`. That enum is enforced by the envelope validator — a response with `status.state = "inconclusive"` would be rejected as non-conformant. The doctor-wiki vocabulary is a *separate* surface used in operator-facing prose and probe tables, never inside a whoami envelope. The first three states intentionally match the contract's so that a probe verdict lines up with a `status.state` when you are reporting results in a table; `inconclusive` is added for the case where a probe cannot determine pass or fail (e.g., a dependency tool is absent and the probe cannot execute).
+
+**Three-way "degraded" disambiguation.** The term `degraded` appears in three distinct vocabularies in this system, with different semantics:
+
+- **Doctor-probe result** (this wiki): the probe ran and surfaced a non-fatal problem. The substrate is partially functional. Operator action recommended but not blocking.
+- **`status.state` in the whoami envelope** ([`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §`status` object): the plugin reported that its health is degraded — some dependency is missing or tool calls may succeed with reduced capability.
+- **`binding.kind` in the whoami envelope** ([`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §`binding` object): the plugin's primary resource is only partially resolved.
+
+All three reuse the word deliberately (the probe-result vocabulary aligns with the contract's so probe tables read cleanly), but they are non-interchangeable. A doctor probe returning `degraded` does not imply the whoami envelope will carry `status.state = "degraded"` — the probe may have found a configuration gap that does not affect the live binding reported by the daemon.
+
+**`inconclusive`** is doctor-wiki-only. It is the correct probe verdict when the probe cannot run at all (command not found, required dependency absent). It must never flow into a whoami envelope `status.state`.
+
+---
+
+## Citation Contract for Downstream Doctors
+
+Plugin doctors (holodeck, project-rag, project-rag-ue-addon) that probe coordinator-owned substrate — the machine-local registry, the `coordinator_whoami` package, or mcpServers classification — MUST use one of two citation shapes:
+
+**(a) Delegation.** The downstream doctor's probe says "for diagnostic procedure, see coordinator-doctor.md P-N" and surfaces this wiki's verdict verbatim. Use this when the downstream doctor has no additional context to add — it is asking the same question this wiki's probe answers.
+
+Example citation string:
+```
+Probe C-N delegates to coordinator-doctor P-3. Run: machine-local list | grep -q '^repos\.' && echo healthy || echo degraded
+See coordinator-doctor.md P-3 for full pass/fail interpretation and remediation.
+```
+
+**(b) Augmentation.** The downstream doctor runs its own check that depends on coordinator substrate, and cites P-N as the prerequisite. Use this when the downstream doctor's probe builds on a coordinator-substrate result (e.g., "given P-3 is healthy, verify that `repos.claude_unreal_holodeck` resolves to a directory containing a `.uproject` file").
+
+Example citation string:
+```
+Prerequisite: coordinator-doctor P-3 (machine-local repos populated). This probe extends P-3:
+given P-3 healthy, verify repos.claude_unreal_holodeck resolves to a valid .uproject root.
+```
+
+**THIRD-PATH-CLOSED.** There is no third path. Downstream doctors probing coordinator-owned substrate (machine-local registry, `coordinator_whoami`, mcpServers classification) MUST use citation shape (a) or (b). Reinventing a probe against coordinator substrate without one of these citation shapes is a doctrine violation, surfaceable to PM. Ad-hoc invention is out-of-contract; the citation shapes exist precisely to close that failure mode.
+
+> *Cross-team directive (holodeck, project-rag, project-rag-ue-addon): any doctor.md surfacing probes against coordinator-owned substrate — machine-local registry, coordinator_whoami, mcpServers classification — MUST use citation shape (a) delegation or (b) augmentation. Reinventing a probe against our substrate is the failure mode this wiki exists to close; ad-hoc invention is out-of-contract.*
+
+**Binding-health probes MUST cite P-6, not P-7.** When a downstream doctor is classifying binding health ("is this plugin's binding working?"), it MUST cite P-6 (live whoami call), not P-7 (config-presence file check) — even when P-7 is sufficient for a pure config-audit purpose. File presence does not equal runtime correctness. This applies whether the doctor delegates (a) or augments (b).
+
+> *Cross-team directive (holodeck, project-rag, project-rag-ue-addon): when probing "is this plugin's binding healthy?" the answer comes from live whoami (P-6), not file-read mcpServers classification (P-7). Treating P-7 as a binding-health probe is consumer-leak shape — file presence ≠ runtime correctness.*
+
+**Live-call requirement for whoami-dependent probes.** Per [`plugin-identity-and-health-sentinels.md`](plugin-identity-and-health-sentinels.md) (live = MCP truth; persistent = receipt) and the live-not-receipt invariant in [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md), any downstream doctor reusing P-7 or any whoami-dependent probe MUST call the live MCP `*_whoami` tool — never read a persisted snapshot from `~/.claude/<plugin>/install-profile.json` or equivalent. Persisted whoami snapshots are operator-facing receipts, not diagnostic truth; consulting a stale snapshot turns "stale = signal" into "stale = active lie." This requirement applies to both delegation (a) and augmentation (b) citation shapes.
+
+---
+
+## Bootstrap from Cold-Start
+
+If P-1, P-2, or P-4 fail because the substrate does not exist yet, the operator has not run Phase 3 of `/coordinator:setup`. Phase 3 lays down:
+
+- `~/.claude/machine-local/` directory
+- `bin/machine-local` CLI shim
+- `registry.toml` (tracked baseline with `schema = 1`)
+- `registry.local.toml` (gitignored machine-specific overrides)
+- A README and `.gitignore` for the directory
+
+Run `/coordinator:setup` and follow the Phase 3 interactive prompts to seed the four baseline keys (`repos.coordinator_claude`, `repos.project_rag`, `repos.claude_unreal_holodeck`, and `publish.targets`). After Phase 3 completes, re-run P-1 through P-4 to confirm.
+
+For P-5 failures (package not importable), the package ships at `plugins/coordinator/whoami/` and installs via `pip install -e <path>`. Phase 3 handles this for fresh installs; if it regressed, re-run Phase 3 or install manually.
+
+---
+
+## Cross-References
+
+- [`machine-local-registry.md`](machine-local-registry.md) — substrate doctrine: what belongs in the registry, resolution order, anti-patterns, tracked-baseline + `.local` discipline. For health verification, see P-1 through P-4 above; do not consult this wiki for "is my registry healthy?" — that is what P-1 through P-4 answer.
+- [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) — envelope schema, binding/status field semantics, validation, and reference implementation. For operator-facing health verification using `coordinator_whoami`, use P-5 through P-7 above.
+- [`addon-health-sentinel.md`](addon-health-sentinel.md) — decay-discipline convention: doctor writes receipts (stale = signal), scanner is the no-side-effects bridge. P-8 above surfaces sentinel absence as the operator-facing gap this convention addresses.
+- [`plugin-identity-and-health-sentinels.md`](plugin-identity-and-health-sentinels.md) — companion doctrine defining the live/persistent split that underlies the P-6-not-P-7 rule in §5.
+- [`coordinator-installer-shape.md`](coordinator-installer-shape.md) — three-audience installer contract; Phase 3 referenced in §6 above.
+- [`coordinator-installer-status-schema.md`](coordinator-installer-status-schema.md) — status-report table schema for `/coordinator:setup`; referenced when reading Phase 3 output.

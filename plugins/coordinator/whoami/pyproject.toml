@@ -16,3 +16,9 @@ where = ["."]
 [tool.setuptools.package-data]
 "coordinator_whoami.schemas" = ["*.json"]
 "coordinator_whoami.project_rag.schemas" = ["*.json"]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: marks slow tests (subprocess shell-outs, real I/O, sleeps > 100ms)",
+]
