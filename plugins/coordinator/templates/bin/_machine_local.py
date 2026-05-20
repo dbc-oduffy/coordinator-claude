@@ -19,7 +19,7 @@ Resolution order (most-specific first):
   6. --default             — caller-supplied fallback
   7. exit 1                — not found
 
-Negative-spec: env does NOT outrank registry layers (Zolí F1 inversion).
+Negative-spec: env does NOT outrank registry layers (the Director of Engineering F1 inversion).
 Negative-spec: missing .local files are not errors — treated as empty.
 Negative-spec: no regex fallback, no PyYAML, no tomli — stdlib tomllib only.
 Negative-spec: reader is read-only; no writes, no caching files, no side effects.
@@ -132,7 +132,7 @@ def _build_resolution_layers(reg_dir: str) -> list[dict]:
     if registry_local:
         _warn_schema(registry_local, reg_local_path)
 
-    # Concern-namespace exclusivity (Zolí F5): when a concern is listed in
+    # Concern-namespace exclusivity (the Director of Engineering F5): when a concern is listed in
     # `concerns`, keys in registry.toml whose first segment matches the concern
     # prefix emit a warning and are dropped from the registry layer.
     concerns_list = registry.get("concerns", [])
@@ -244,7 +244,7 @@ def cmd_get(args: argparse.Namespace) -> int:
     # Walk resolution order: concern.local → concern → registry.local → registry
     val = _resolve_key(key, layers)
 
-    # Env override is BELOW all .toml layers (Zolí F1 / plan §4.3).
+    # Env override is BELOW all .toml layers (the Director of Engineering F1 / plan §4.3).
     if val is None:
         env_val = os.environ.get(_env_key(key))
         if env_val is not None:

@@ -23,12 +23,12 @@ def build_envelope(
     plugin_name is the contract's plugin_name field (e.g. "project-rag" — hyphens permitted).
     extras_key is the snake_case key under extras{} where plugin_extras lands (e.g. "project_rag"
     for project-rag). The caller owns both; this primitive embeds NO naming policy
-    (the Director of Engineering F-Minor 1 2026-05-19).
+    (Zolí F-Minor 1 2026-05-19).
 
     R3 (PM 2026-05-19): addon contributions in addon_extras lift to first-class extras keys.
     Collision rule: addon namespace colliding with extras_key triggers log+skip, never silent
     overwrite. Addon-vs-addon collision is resolved at the addon adapter layer, not here
-    (the Director of Engineering F-Minor 3 2026-05-19; see Task 5 hard-constraint).
+    (Zolí F-Minor 3 2026-05-19; see Task 5 hard-constraint).
     """
     extras = {extras_key: plugin_extras}
     if addon_extras:
