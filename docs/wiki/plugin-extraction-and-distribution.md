@@ -66,6 +66,8 @@ A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` work
 
 ### 11. Port-time absolute-path sweep + sibling-layout convention
 
+> **2026-05-19 amendment — runtime preference order.** Sibling-relative replacement remains the contract for port-time cleanup (this section's scope: extraction-time absolute-path sweep, where the consumer doesn't yet exist to be told about anything else). At **runtime**, however, consumers should prefer the machine-local registry (`machine-local get repos.<name>`) as the primary discovery mechanism, with sibling-relative as the rough-and-ready fallback for the simple sibling-installs-together case. The registry is more reliable across the cases sibling-layout cannot serve (triangular dependencies, multi-drive layouts, deterministic-location requirements, scripts that can't assume their CWD). See `machine-local-registry.md`. **Belt-and-suspenders, NOT co-equal:** registry preferred because not every consumer can run on sibling convention.
+
 Incomplete migrations leak absolute paths (`C:/Users/.../source-repo/...`, `~/work/src/...`) into the vendored code, hooks, and config. Symbol parity passes; runtime breaks on every consumer machine. **At extraction time, sweep absolute repo prefixes across the carved-out tree** and replace with sibling-layout relative references (`../<sibling-repo>/<path>`) where cross-repo references are unavoidable. Document the sibling-layout convention in the plugin's CLAUDE.md so `../sibling/...` is a contract — not an implementation detail downstream consumers have to reverse-engineer.
 
 Grep recipe for the sweep:
@@ -77,6 +79,27 @@ grep -rn "/Users/.*/" <new-plugin-tree>
 ```
 
 (2026-05-16, project-rag-ue-addon.)
+
+#### Runtime preference order vs. port-time cleanup
+
+Port-time cleanup (the topic of this section) and runtime discovery are **different sub-problems** with different answers. Port-time cleanup replaces absolute paths with sibling-relatives at extraction time because the consumer doesn't exist yet to be told about any other mechanism. Runtime discovery, however, happens on an operator's live machine — and sibling-layout-alone is insufficient for the general case.
+
+**The four failure modes of sibling-layout at runtime:**
+
+1. **It dictates operator filesystem layout.** Every sibling repo must live under one common parent folder. Operators with established conventions (separate drives for engine source vs. tooling, network shares, multi-machine sync setups) cannot comply without restructuring their environment to match the convention.
+2. **It cannot represent deterministic locations.** Some things — vendored binaries, large indices, GPU sidecars — genuinely need a fixed absolute path on a specific drive. Sibling-relatives have no way to express "this lives at `E:/UE-content/` regardless of where the repo is cloned."
+3. **It silently breaks discovery for downstream consumers.** A repo that uses `../sibling-repo/x` works when cloned into the expected parent, fails opaquely when cloned anywhere else. The failure mode is "file not found" with no remediation hint that the convention was violated.
+4. **It does not compose with triangular dependency graphs.** A sibling-relative inside `claude-unreal-holodeck` pointing at `../project-rag-ue-addon/x` assumes both repos share a parent. The moment one triangle vertex moves to a different drive or directory, every sibling-relative pointing at it breaks — not just the path that was moved.
+
+**The preferred runtime discovery order:**
+
+1. **Machine-local registry first** — `machine-local get repos.<name>`. Works in every case: triangular graphs, multi-drive layouts, deterministic-location requirements, scripts invoked from a daemon with no sibling-relative anchor, scripts vendored into one repo but invoked from another.
+2. **Sibling-relative fallback** — `../<sibling-repo>/<path>`. The rough-and-ready resort when the registry hasn't been populated yet AND the operator's filesystem layout happens to match the sibling-installs-together convention. Preserves backward compatibility for existing consumers.
+3. **Error with remediation hint** — point the operator at `~/.claude/machine-local/README.md` and the specific key they need to set. Never fail silently.
+
+The two are belt-and-suspenders: registry is more reliable (no layout assumptions, works everywhere), sibling-relative is the fallback that keeps existing consumers working until they migrate. Port-time cleanup still uses sibling-relatives as its replacement vocabulary — the extraction-time MUST rule stays, because at that moment the consumer doesn't yet exist. Runtime consumers prefer the registry.
+
+Cross-references: `machine-local-registry.md` (registry doctrine and schema); `cross-repo-citation-conventions.md § Sibling-layout convention` (port-time MUST rule + runtime preference-order amendment).
 
 ### 12. Cross-repo port: prefer registration-seam over parallel-surface
 
