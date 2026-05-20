@@ -333,7 +333,7 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 - **Helper-asserts-internally** — the test body calls a helper like `_assert_envelope_shape(...)` that contains real assertions inside. Verify the helper, not the caller.
 - **Paired with active sibling** — an idempotency / no-op test sits in a class where a sibling test exercises the FUT positively. Cite the sibling's file:line in a comment.
 - **Smoke imports** — `def test_smoke_import(): from x import y` — import-not-raising IS the signal for the file's module-load contract.
-- **`xfail`-marker contracts** — `@pytest.mark.xfail(strict=True)` body whose call raises is verified via the marker; `strict=False` is weak and should carry a comment naming the known-limit.
+- **`xfail`-marker contracts** — `@pytest.mark.xfail(strict=True)` body whose call raises is verified via the marker; `strict=False` is weak — any exception (including test infra bugs per §25) produces `xfail`. Acceptable only when the body explicitly names the known-limit in a comment AND `xpass` surfacing is acceptable evidence when the limit is fixed.
 - **Deferred placeholders** — `pytest.skip("AC-X deferred to Chunk N")` or `assert True, "deferred"` — only legitimate if the deferral is actively tracked in a plan doc, not orphaned.
 
 **Greppable signatures** for an audit pass:
