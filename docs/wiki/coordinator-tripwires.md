@@ -51,6 +51,30 @@ Snippet-sync flow for `plan-coverage-check-consumption`: edit `snippets/plan-cov
 
 - **Blanket-commit destructive-shape gate:** `bin/coordinator-safe-commit` `do_blanket` fires `_blanket_check_destructive_shape` after `git add -A` and before `git commit`. Fails (or warns) when ≥3 files in the staged set have deletion-heavy diffs (≥10 lines deleted AND deletions > insertions) AND the commit subject lacks a word-boundary-anchored reference token (`handoff`, `spinoff`, `learn-lessons`, `update-docs`, `session-end`, `distill`, `PR #N`, `#N`, `plan/`, `plan #`, `lessons.md`, `queue.md`, `review-trail`, `workday-{start,complete}`, `workweek-{start,complete}`). Soft-warn through 2026-06-01 then promotes to fail-loud. Override: `COORDINATOR_OVERRIDE_BLANKET_SHAPE=1` (silence the gate entirely — emergency only). Strict mode: `COORDINATOR_BLANKET_SHAPE_STRICT=1` (fail-loud immediately, skipping the soft-warn window — useful in CI). Origin: queue entry 2026-05-16 (project-rag, blanket-commit shape-check tripwire) — catches the 572a548b-class regression where unauthorized substrate changes ride a blanket sweep commit without paper trail.
 
+- **Monolithic-completion-log-write-check (MONOLITH-COMPLETION-LOG-WRITE-CHECK):** Static-grep tripwire enforcing that no new write path targets `archive/completed/YYYY-MM.md` (root monolith format) outside the allowed exceptions. The new per-entry format writes to `archive/completed/YYYY-MM/<slug>.md`; any regression to the root-monolith write shape bypasses the completion-log query tooling and the absence-as-signal doctrine. Contact-points: `/session-end`, `/workday-complete`, `/update-docs`, `agents/executor.md`. Script: `bin/check-no-monolith-completion-append.sh`. Override: `COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1` (documented in session-end AUTO-MIGRATE block — manual migration path only, not a license to write to the monolith). Origin: `docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md` § Chunk 10.
+
+  **Call shapes covered** (all six must be detected; see § Tripwire call-shape coverage):
+  1. String literal in markdown body: `archive/completed/YYYY-MM.md`
+  2. Shell redirect (`>>` or `>`): `>> archive/completed/YYYY-MM.md`
+  3. Here-doc body: `cat >> archive/completed/YYYY-MM.md <<'EOF'`
+  4. `tee` invocation: `tee -a archive/completed/YYYY-MM.md`
+  5. Python/Node `open(...)`/`writeFileSync(...)` with the literal path
+  6. `git mv` source argument: `git mv archive/completed/YYYY-MM.md` (source side only; destination under `legacy/` is the authorized migration shape)
+
+  **Allowed exceptions** (excluded from firing):
+  - Paths under `archive/completed/legacy/` — post-migration canonical home.
+  - `bin/migrate-completion-log-legacy.sh` — the migration helper's own `git mv` source argument is authorized.
+  - Files under `docs/wiki/` — instructional mentions of the literal path in reference documentation are not write calls.
+  - Lines containing `COORDINATOR_OVERRIDE_LEGACY_MONOLITH` — the session-end AUTO-MIGRATE block documents the override path; those lines are not write calls.
+  - Lines matching `<!-- TRIPWIRE:` or `# TRIPWIRE:` — the self-describing prohibition comment in session-end skill is not a write call.
+
+- **Runtime monolith-write block (BLOCK-COMPLETION-MONOLITH-WRITE):** PreToolUse hook that blocks Write/Edit/NotebookEdit tool calls targeting `archive/completed/YYYY-MM.md` outside `legacy/`. Complements the static-grep tripwire above — static-grep catches the LITERAL path in source files, but executors with "append to archive/completed/YYYY-MM.md" fallback instructions in their persona body were still writing to monolith paths at runtime (the instruction wasn't greppable as the literal-path pattern). The runtime hook closes that gap by intercepting the actual write. Contact-points: every Write/Edit/NotebookEdit tool call across all agents. Script: `hooks/scripts/block-completion-monolith-write.sh`. Test: `hooks/scripts/tests/test-block-completion-monolith-write.sh` (11 cases). Override: `COORDINATOR_OVERRIDE_COMPLETION_MONOLITH=1` (rare-use; fixture authoring, one-off correction of legacy entries via paths the AUTO-MIGRATE flow doesn't reach). Origin: 2026-05-19 dogfood finding during Phase 2 executor dispatch — Chunk 4 executor wrote to `archive/completed/2026-05.md` despite Phase 1 Chunk 3.5 updating `agents/executor.md` § Archive Fallback to per-entry writes; static-grep tripwire was CLEAN because the executor's fallback instruction did not contain the literal-path pattern in any source file the grep scanned.
+
+  **Allowed exceptions** (same path-class exceptions as static-grep above; encoded in the hook's pattern match):
+  - Paths under `archive/completed/legacy/<YYYY-MM>.md` — pattern requires the literal monolith name at the leaf, so a `legacy/` segment between `completed` and the filename prevents matching.
+  - Paths under `archive/completed/<YYYY-MM>/<entry>.md` (per-entry shape) — pattern requires the filename to follow `completed/` directly, so an intermediate `YYYY-MM/` segment prevents matching.
+  - All non-Write/Edit/NotebookEdit tool calls (Bash, Read, etc.) — the migration helper's own `git mv` invocation is a Bash call, not subject to this hook.
+
 ## Tripwire call-shape coverage
 
 Static-grep tripwires must enumerate every call shape: literal string, array form, kwarg-split, here-doc. A tripwire that grep-matches one shape and misses the others fires asymmetrically and erodes trust in the gate.
