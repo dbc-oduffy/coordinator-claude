@@ -49,9 +49,27 @@ When walking this procedure, open with:
 
 ---
 
-## Step 1 — Detect or Scaffold `setup/publish-targets.sh`
+## Step 1 — Detect or Scaffold the Publish Target Registry
 
-Check whether `setup/publish-targets.sh` exists at the repo root:
+> **2026-05-19 amendment — machine-local precedence.** The detection logic below was updated to mirror the preference order in `setup/publish.sh`'s `_load_targets` function (spec backlink: `docs/plans/2026-05-19-machine-local-registry.md § 5 Task 5b`). Machine-local registry is the primary path; `publish-targets.sh` is the legacy fallback; scaffolding now defaults to machine-local and offers legacy behind `--legacy`.
+
+The wizard checks for publish target configuration in preference order, mirroring the runtime in `setup/publish.sh`:
+
+### Step 1a — Check machine-local registry first (primary path)
+
+```bash
+machine-local has publish.targets
+```
+
+**If the key is set (exit 0):** report to the PM:
+
+> _"Publish targets are configured via the machine-local registry (`publish.targets` key in `~/.claude/machine-local/`). No action needed — the runtime is already wired. Skipping scaffolding."_
+
+Proceed directly to Step 2 without any scaffold action.
+
+### Step 1b — Fall back to `setup/publish-targets.sh` (legacy path)
+
+If `machine-local has publish.targets` returns non-zero (key not set), check for the legacy file:
 
 ```bash
 test -f setup/publish-targets.sh && echo "exists" || echo "missing"
@@ -69,31 +87,58 @@ bash -c '
 '
 ```
 
-Report the list to the PM. Proceed to Step 2.
+Report the list to the PM and note the legacy path is in use:
 
-**If it is missing:** check for the example file:
+> _"Publish targets are configured via the legacy `setup/publish-targets.sh`. The runtime works — no immediate action required. When convenient, consider migrating to the machine-local registry: add a `publish.targets` key to `~/.claude/machine-local/registry.toml` (see `docs/wiki/machine-local-registry.md`). The current setup keeps working until you migrate."_
 
-```bash
-test -f setup/publish-targets.example.sh && echo "example_found" || echo "no_example"
+Proceed to Step 2.
+
+### Step 1c — No source present: scaffold (machine-local by default)
+
+If neither source is present, the wizard offers to scaffold. **By default, scaffold machine-local.** The legacy `publish-targets.sh` path is available behind an explicit `--legacy` flag for operators whose existing tooling (scripts, CI) does not yet know about machine-local.
+
+**Default (machine-local scaffold):**
+
+Ask the PM:
+
+> _"No publish target configuration found. Shall I add a `publish.targets` entry to `~/.claude/machine-local/registry.toml`? [y/N] (Use `--legacy` to scaffold `setup/publish-targets.sh` instead.)"_
+
+On `y`, open `~/.claude/machine-local/registry.toml` and prompt for the four target fields (same as Step 2), then append:
+
+```toml
+"publish.targets" = ["<name>|<mode>|<source_dir>|<dest_dir>"]
 ```
 
-- If the example exists: copy it into place and tell the PM to fill it in:
-  ```bash
-  cp setup/publish-targets.example.sh setup/publish-targets.sh
-  ```
-  Report: _"`setup/publish-targets.sh` was missing — copied from the example file. Open it and fill in your target entries before continuing. Re-run after editing."_
-  **Stop here** — the PM must edit the file before Step 2 can proceed meaningfully.
+Report: _"`publish.targets` key added to machine-local registry."_
 
-- If neither file exists: report that the repo does not appear to have a percolation setup yet, and offer to create a minimal stub:
+**Legacy scaffold (`--legacy` flag):**
 
-  ```bash
-  # setup/publish-targets.sh — stub created by percolation setup
-  # Each TARGETS entry: "name|mode|source_dir|dest_dir"
-  # mode: mirror (rsync full tree) or manifest (explicit list via publish-manifest.txt)
-  TARGETS=()
-  ```
+Ask the PM:
 
-  Ask the PM: _"No `setup/publish-targets.sh` or example found. Shall I create a minimal stub? [y/N]"_ Create only on confirmation. Either way, stop after this step and tell the PM to add a target entry before re-running.
+> _"No `setup/publish-targets.sh` or example found. Shall I create a minimal stub? [y/N]"_
+
+On `y`, create:
+
+```bash
+# setup/publish-targets.sh — stub created by percolation setup
+# Each TARGETS entry: "name|mode|source_dir|dest_dir"
+# mode: mirror (rsync full tree) or manifest (explicit list via publish-manifest.txt)
+TARGETS=()
+```
+
+Report: _"Legacy `setup/publish-targets.sh` stub created. Fill in target entries before continuing. Note: the machine-local registry (`publish.targets` key) is now the preferred primary — see `docs/wiki/machine-local-registry.md`."_
+
+Either way, stop after this step and tell the PM to add a target entry before re-running.
+
+---
+
+### Wizard-rerun scenario reference
+
+| Scenario | `machine-local has publish.targets` | `publish-targets.sh` | Wizard outcome |
+|---|---|---|---|
+| **(a)** Machine-local configured | exit 0 (key set) | present or absent | Reports "configured via machine-local, no action needed"; skips scaffolding entirely |
+| **(b)** Legacy fallback in use | exit 1 (key not set) | present | Lists targets; reports "legacy fallback, runtime works, migrate when convenient" |
+| **(c)** Neither source present | exit 1 (key not set) | absent | Scaffolds machine-local by default; `--legacy` flag scaffolds `publish-targets.sh` instead |
 
 ---
 
