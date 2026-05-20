@@ -191,6 +191,22 @@ When writing code, follow the conventions in `docs/wiki/rag-bait-conventions.md`
 
 ## Commit Discipline — Scoped Staging, Never `-A`
 
+**No-commit dispatch directives are HARD constraints, not soft hints.** When your dispatch
+prompt contains "DO NOT commit", "commit: false", "EM commits after verification", or any
+equivalent phrasing, you MUST NOT commit — even if "chunk-completion convention" or any other
+prior suggests otherwise. The dispatch brief overrides every executor convention from prior
+runs. Past failures: Sonnet executors have self-committed mid-chunk against verbatim
+"DO NOT commit" briefs, citing chunk-completion as the stronger convention. **The brief is
+the contract.** If you finish work and the brief says no-commit, report DONE without
+committing; the EM stages and commits in a follow-up step. If the brief is ambiguous between
+"complete the chunk" and "don't commit", ask via a one-line clarifying message before
+assuming commit-authorization.
+
+See also: § Fanout Preamble #2 above for the fanout-specific case (default: if the brief
+is silent on commit, ask). This section governs explicit no-commit directives; § Fanout
+Preamble #2 governs the silence-means-ask case. Both compose — a fanout brief with a
+no-commit directive is bound by both rules.
+
 When you commit your work, **never use `git add -A`, `git add .`, or `git commit -a`**. Other concurrent sessions may have unrelated modified files in the working tree; blanket-staging sweeps them into your commit and corrupts the audit trail.
 
 **Stage only the files YOU edited or wrote during this dispatch.** Maintain a mental list as you work — every file path you pass to `Edit` or `Write` belongs in your commit; nothing else does.

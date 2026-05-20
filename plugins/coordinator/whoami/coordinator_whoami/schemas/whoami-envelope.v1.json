@@ -26,6 +26,11 @@
       "type": ["string", "null"],
       "description": "Plugin's own version string (semver or similar). Null is permitted for plugins without semver discipline yet."
     },
+    "source_kind": {
+      "type": "string",
+      "description": "Discriminator for whether this envelope was synthesized from live runtime state ('live' — default; the daemon was queried at envelope-build time) or reconstructed from an offline diagnostic surface ('offline' — the daemon was unavailable and the plugin reassembled this envelope from on-disk artifacts like install-profile.json, sentinel files, or a local CLI introspection path). Optional — absent value is treated as 'live'. Consumers classifying binding health (per the live-not-receipt invariant) MUST reject 'offline' envelopes for that purpose; consumers performing config-audit MAY accept either. Plugins authoring offline diagnostic envelopes (a fallback when their daemon cannot serve a live whoami) MUST set this to 'offline' so consumers can discriminate stale-by-design from contract-conformant live.",
+      "enum": ["live", "offline"]
+    },
     "binding": {
       "type": "object",
       "description": "Binding state — whether this plugin is bound to a concrete project or runtime target.",

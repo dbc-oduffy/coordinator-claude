@@ -9,6 +9,8 @@ authoring_plan: [docs/plans/2026-05-19-cross-plugin-whoami-contract.md, docs/pla
 
 # Cross-Plugin MCP Whoami Contract
 
+> This wiki is the **plugin-author-facing half** of a doctrine-vs-operator-guide pair. It defines the contract — schema, validation, reference impl, namespace disambiguation — that MCP-bearing plugin authors implement. For **operator-facing health verification** using the contract surface (probes, citation contracts, cold-start bootstrap), see the companion wiki: [`coordinator-doctor.md`](coordinator-doctor.md).
+
 This wiki defines the shared introspection envelope that every MCP-bearing plugin in the `~/.claude` ecosystem must implement. Coordinator-claude owns the envelope schema; each plugin implements a conformant MCP tool in its own repo and test suite.
 
 The contract answers the question every coordinator-level tool or scanner has when it queries a plugin: *"What is this plugin bound to, and is it healthy?"* Previously that question was answered only by project-rag's `project_whoami` tool, whose response shape was project-rag-internal doctrine. As holodeck-control joined the ecosystem as a second MCP-bearing plugin, the need for a shared cross-plugin contract became concrete — the wrong-shape arrangement (holodeck-control piggybacking on project-rag's tool for cross-plugin introspection) was itself the evidence the abstraction was overdue. PM authorized hoisting the contract to coordinator-claude on 2026-05-19 (DoE memo `tasks/memos/2026-05-19-machine-local-doe-reply.md` § 5b).
@@ -28,6 +30,7 @@ The following fields constitute the shared cross-plugin whoami envelope. Every c
 | `contract_version` | `int` | Cross-plugin contract version. v1 for all initial implementations. This field versions the shared contract, not any plugin's internal envelope — see **Namespace disambiguation** below. |
 | `plugin_name` | `str` | Canonical plugin identifier. Use kebab-case: `"project-rag"`, `"holodeck-control"`. Must be stable across daemon restarts. |
 | `plugin_version` | `str \| null` | Plugin's own version string (semver or equivalent). `null` is permitted for plugins without a versioning discipline yet — treat `null` as "not declared", not as "broken". |
+| `source_kind` | `"live" \| "offline"` (optional, default `"live"`) | Discriminator for whether this envelope was synthesized from live runtime state (`"live"`) or reconstructed from on-disk diagnostic artifacts (`"offline"`). See **§ Offline diagnostic surface** below. Absent value MUST be treated as `"live"`. Consumers classifying binding health MUST reject `"offline"` envelopes for that purpose. |
 | `binding` | object | Binding-state shape. See **`binding` object** below. |
 | `status` | object | Health-state shape. See **`status` object** below. |
 | `extras` | object | Per-plugin extension slot. See **`extras` slot** below. |
@@ -112,11 +115,32 @@ Three version surfaces with distinct names are correct. Collapsing any two is a 
 
 **`"error"`** — Critical failure. Plugin cannot serve meaningful results. `status.reason` is required and must be actionable. `status.since` is set if the failure onset time is known.
 
+### Offline diagnostic surface (`source_kind: "offline"`)
+
+There are situations where an operator or downstream doctor wants whoami-shaped information about a plugin, but the plugin's daemon cannot serve a live `*_whoami` MCP call — daemon is down, port is bound, install is mid-repair, etc. For these cases plugins MAY author an **offline diagnostic surface**: a per-plugin CLI or file-read path that reconstructs a contract-conformant envelope from on-disk artifacts (e.g., `~/.claude/<plugin>/install-profile.json`, sentinel files, recorded config). Examples:
+
+- `python -m project_rag.diagnostic_whoami --offline` — reads `~/.claude/project-rag/install-profile.json`, reformats into an envelope.
+- `holodeck-control --offline-whoami` — assembles binding/status from on-disk install state.
+
+Plugins authoring such a surface MUST set `source_kind: "offline"` on the resulting envelope. Plugins serving the canonical live MCP path MUST set `source_kind: "live"` (or omit — default is `"live"`).
+
+**The discriminator is normative.** Consumers branch on it:
+
+- **Binding-health classification.** Consumers (especially doctors) classifying "is this plugin's binding healthy right now?" MUST reject envelopes with `source_kind: "offline"` — offline envelopes are by definition stale-by-design, not live evidence. Refer to the doctor's P-6-equivalent invocation that calls live MCP; if it fails, the binding is genuinely down — do not fall back to offline.
+- **Config-audit consumption.** Consumers performing config audits ("which addons declared themselves at last install?", "what was the binding target as of the last successful daemon run?") MAY accept either `"live"` or `"offline"` envelopes. The offline envelope is the right primitive here; config-audit doesn't need live evidence.
+- **Operator-facing prose.** Tools surfacing whoami results to operators SHOULD label offline-source envelopes (e.g., "(from cached install-profile, daemon offline)") so the operator knows the data is reconstructed.
+
+**The offline tier exists to be honest about staleness, not to substitute for live.** The discriminator turns "stale = active lie" into "stale = explicitly labeled stale." A plugin that serves a stale envelope as `source_kind: "live"` is non-conformant — that's the failure mode this tier exists to close.
+
 ### Live-not-receipt invariant
 
-The whoami response is **always live** — synthesized from authoritative runtime state at query time. It is never cached to disk, never read from a file, never returned from a stale snapshot. A plugin that returns a cached or persisted whoami response is non-conformant.
+**Producer side.** The whoami response from a plugin's canonical MCP tool (`source_kind: "live"`) is always live — synthesized from authoritative runtime state at query time. It is never cached to disk, never read from a file, never returned from a stale snapshot. A plugin that returns a cached or persisted response under `source_kind: "live"` is non-conformant. (Plugins that author an offline diagnostic surface label those envelopes `source_kind: "offline"` per §Offline diagnostic surface above; that is a separate, honest surface — not a violation of this invariant.)
 
-This is the core decay-discipline rule from [plugin-identity-and-health-sentinels.md](plugin-identity-and-health-sentinels.md): identity has a live source; persisting it turns "stale = signal" into "stale = active lie". The contract enforces live response at the spec level — implementations must not add any caching layer to the whoami tool.
+**Consumer side (synthesis-time consumers).** Consumers — especially downstream doctor agents that synthesize verdicts from whoami output — MUST call the live MCP `*_whoami` tool when classifying binding health. They MUST NOT read persisted whoami snapshots from disk (e.g., `~/.claude/<plugin>/install-profile.json`'s `whoami_profile` key) as binding-health evidence. A consumer that consults a persisted snapshot for binding-health purposes turns "stale = active lie" back on; the live-call requirement closes that hole on the consumer side. Snapshots persisted by `persist()` are operator-facing receipts and config-audit substrate, NOT live evidence.
+
+The two halves of the invariant compose: producers serve live envelopes (or honestly-labeled offline envelopes), and consumers requiring liveness call live MCP rather than reading any persisted artifact.
+
+This is the core decay-discipline rule from [plugin-identity-and-health-sentinels.md](plugin-identity-and-health-sentinels.md): identity has a live source; persisting it turns "stale = signal" into "stale = active lie". The contract enforces this at the spec level for both producers and consumers — implementations must not add any caching layer to the whoami tool, and consumers reading persisted snapshots for binding-health are out-of-contract. Cross-reference: the same rule is restated in operator-facing form in [`coordinator-doctor.md`](coordinator-doctor.md) §5 (binding-health probes MUST cite P-6 live, not P-7 config-presence).
 
 ---
 
@@ -153,6 +177,20 @@ The coordinator's role at the `extras` boundary:
 This mirrors the pattern from [chunk-metadata-schema-seam.md](chunk-metadata-schema-seam.md) (the γ-prime seam): the outer authority owns the validation algorithm and the closed-set namespace; inner contributors own vocabulary within their slot. Host unions the contributed vocabularies and runs the algorithm once; contributors supply declarative specs, not callable validators.
 
 **Analogy caveat:** The analogy holds at the *pattern* layer — outer authority owns the algorithm and closed-set namespace; inner contributors own vocabulary within their slot — but NOT at the *runtime* layer. The chunk-metadata seam is enforced by host runtime code at chunk-emit time: the pluggy hookspec runs, host collects specs, host validates each chunk at write time. This whoami contract is enforced by each plugin's own conformance tests against the shared JSON Schema at `coordinator_whoami/schemas/whoami-envelope.v1.json`. Coordinator-claude ships no runtime validator; it owns the spec, not a process. The pattern is the same; the enforcement mechanism differs: host-runtime-at-emit vs. plugin-test-at-ship.
+
+---
+
+## How operators read this
+
+Operators — as distinct from plugin authors implementing the contract — consume this surface through three entry points:
+
+1. **CLI introspection.** `python -m coordinator_whoami.project_rag` is the canonical one-liner for inspecting a live project-rag binding. It invokes the `coordinator_whoami.project_rag.cli` probe module and returns the full v1-conformant envelope as JSON to stdout. This is probe **P-6** in [`coordinator-doctor.md`](coordinator-doctor.md).
+
+2. **Downstream plugin doctors.** Plugin doctors (holodeck-control's agentic doctor, project-rag's doctor, project-rag-ue-addon's verification script) probe coordinator substrate by calling the same CLI entry point. When a downstream doctor surfaces a binding-health result, it is sourcing from this contract via P-6 — not from any persisted snapshot.
+
+3. **Probe catalog in `coordinator-doctor.md`.** Probes P-5 (package import — `python -c "import coordinator_whoami"`), P-6 (full envelope shape — live `python -m coordinator_whoami.project_rag`), and P-7 (config-presence check — whether `~/.claude.json` mcpServers entries exist and are well-formed) are the operator-facing health surface. P-7 is a **configuration-presence probe**, not a binding-health probe — it verifies the config entry is present and parseable; P-6 is the **live binding-health probe** that actually calls the running MCP tool and validates the envelope shape. The distinction matters: a passing P-7 with a failing P-6 means "wired but not bound."
+
+4. **Live-call rule.** Operators and consumers wanting current binding health MUST call live `*_whoami` MCP, NOT read persisted snapshots. This is the Live-not-receipt invariant from **§ Error semantics** above, and it is also the binding-health rule named in [`coordinator-doctor.md`](coordinator-doctor.md) §5. Any file on disk labelled "whoami snapshot" is by definition stale — it was conformant at write time, not now.
 
 ---
 
@@ -328,7 +366,7 @@ Don't re-litigate coordinator-vs-host ownership without PM authorization (PM mad
 
 <!-- Spec backlink: docs/plans/2026-05-19-whoami-substrate-migration.md § Task 9 (R1 subpackage layout) -->
 
-The reference implementation lives at `plugins/coordinator/whoami/coordinator_whoami/` and ships outward via `setup/publish.sh` to `X:/coordinator-claude` (OSS publish target).
+The reference implementation lives at `plugins/coordinator/whoami/coordinator_whoami/` in the meta-repo (this Claude Central tree); the OSS distribution at the publish target (`X:/coordinator-claude`) carries the same package at the equivalent plugin path.
 
 ### Two-layer package structure (R1 subpackage layout)
 

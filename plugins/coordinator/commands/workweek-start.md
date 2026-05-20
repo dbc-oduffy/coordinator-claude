@@ -49,9 +49,9 @@ Glob `tasks/week-changelog/*.md` excluding HEADER.md. Sort by filename (date-the
 
 Surface a brief prior-week digest:
 - **Days covered:** count unique dates across daily files.
-- **Shipped:** list plans with status `shipped` across all `Plans touched:` fields.
+- **Implemented:** list plans with status `implemented` across all `Plans touched:` fields. (Plan terminal state = code complete on branch; on-main release tracked separately via completion log + handoff `deployment_state: shipped`.)
 - **Blockers carried over:** any `Blockers:` fields that weren't cleared by end of week.
-- **Priorities met vs. missed:** read `HEADER.md` `Priorities` section; for each, indicate met (plan shipped or handoff closed) or missed.
+- **Priorities met vs. missed:** read `HEADER.md` `Priorities` section; for each, indicate met (plan flipped to `implemented` or handoff closed) or missed.
 
 If no daily files exist, skip this step: _"No prior-week changelog found — this may be the first run."_
 

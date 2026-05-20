@@ -342,7 +342,7 @@ If today's commits are all trivial AND no records exist, omit the `**Reviewed:**
 **Branch:** work/{hostname}/YYYY-MM-DD
 **Commits:** N (range: <oldest-sha>..<newest-sha>)
 **Scope:** <one-line summary from $ARGUMENTS or derived from commit subjects>
-**Plans touched:** docs/plans/YYYY-MM-DD-foo.md (status: in-progress|shipped|reverted)
+**Plans touched:** docs/plans/YYYY-MM-DD-foo.md (status: in-progress|implemented|reverted)
 **Handoffs:** tasks/handoffs/YYYY-MM-DD-foo.md
 **Decisions:** <extracted from today's handoffs — not re-authored>
 **Blockers:** <extracted from handoffs, or "none">

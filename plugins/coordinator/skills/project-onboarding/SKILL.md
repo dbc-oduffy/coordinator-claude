@@ -486,6 +486,8 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
 2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
 3. **Run `/session-start`** — verifies everything is wired up correctly
+4. **Introspect coordinator / plugin bindings** — `coordinator_whoami` is the canonical introspection surface; run `python3 -m coordinator_whoami --human` to verify the coordinator sees this project correctly. Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
+5. **If `machine-local get repos.*` fails** — the machine-local registry is not yet bootstrapped for this project. See [`coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md) probes P-1 through P-4 to bootstrap the registry.
 
 ### Documentation System
 The documentation index is live at `docs/README.md`. Subdirectories are created lazily as artifacts accumulate:

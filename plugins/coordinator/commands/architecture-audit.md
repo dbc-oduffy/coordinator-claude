@@ -31,14 +31,16 @@ Produce a comprehensive **architecture atlas** — narrative system descriptions
 - **No `--refresh`, no atlas:** First run — full discovery
 - **`--refresh`:** Refresh — remap only churned systems
 
-Auto-detection: check for `tasks/architecture-atlas/systems-index.md`. If it exists and `--refresh` wasn't passed, ask the PM: "Atlas already exists. Did you mean `--refresh`?"
+Auto-detection: check for `docs/architecture/systems-index.md`. If it exists and `--refresh` wasn't passed, ask the PM: "Atlas already exists. Did you mean `--refresh`?"
 
 Announce: "I'm running `/architecture-audit` to [bootstrap / refresh] the architecture atlas."
 
 ## Atlas Directory Structure
 
+**Location: `docs/architecture/`** — the atlas is an evergreen reference artifact (narrative system descriptions, dependency matrices, connectivity diagrams), not work-in-flight. It belongs alongside `docs/wiki/` and `docs/decisions/`, not under `tasks/` (which holds handoffs, backlogs, scratch). Audit run scratch DOES live under `tasks/scratch/deep-architecture-audit/{run-id}/` — that's transient pipeline state, distinct from the persistent atlas output.
+
 ```
-tasks/architecture-atlas/
+docs/architecture/
   systems-index.md          # Master index — stats, last mapped (no grades)
   cross-system-map.md       # Unified connectivity diagram
   connectivity-matrix.md    # Dependency counts table
@@ -60,7 +62,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 1. **Read orientation artifacts:** `tasks/repomap.md` and `DIRECTORY.md`
 
 2. **Detect mode:**
-   - Check for `tasks/architecture-atlas/systems-index.md`
+   - Check for `docs/architecture/systems-index.md`
    - **Not found:** First run → step 3
    - **Found:** Refresh → step 2.5
 
@@ -185,7 +187,7 @@ The Opus agent produces all atlas artifacts:
 
 2. **Flag-drift-from-RAG check (when project-RAG is present):**
    - Call `project_subsystem_profile` (or equivalent `mcp__*project-rag*` tool) to retrieve the project-RAG subsystem list.
-   - Compare against the systems named in `tasks/architecture-atlas/systems-index.md`.
+   - Compare against the systems named in `docs/architecture/systems-index.md`.
    - Flag any mismatches: systems named in the atlas that don't appear in RAG's profile (may be renamed or merged), or RAG-known subsystems not mentioned in the atlas (may be new systems that emerged since last audit).
    - Record mismatches in the Phase 4 report under "RAG drift". These are suggestions, not blockers.
    - If project-RAG is absent, skip this step silently.
@@ -195,7 +197,7 @@ The Opus agent produces all atlas artifacts:
 
 4. **Atomic commit:**
    ```bash
-   git add tasks/architecture-atlas/
+   git add docs/architecture/
    git commit -m "deep-architecture-audit: [first run|refresh] — [N] systems mapped"
    ```
 
@@ -222,7 +224,7 @@ The Opus agent produces all atlas artifacts:
    **RAG drift:** [N mismatches: list / none detected / RAG absent — check skipped]
    **Narrative drift risk:** [systems > 90 days / all current]
    **Suggested rotation target:** [system name] (highest connectivity / oldest mapping)
-   **Atlas location:** tasks/architecture-atlas/
+   **Atlas location:** docs/architecture/
    ```
 
 7. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-audit/{run-id}/`

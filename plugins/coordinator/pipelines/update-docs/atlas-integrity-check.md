@@ -15,7 +15,7 @@ Detect where the atlas narrative may have drifted from the codebase's current re
 - **RAG present** (`mcp__*project-rag*` tool available): **Narrative-drift mode.** File-level coverage is RAG's job. This skill checks whether changed files touch areas the atlas narrative doesn't mention — suggesting the narrative description of that system needs updating.
 - **RAG absent**: **Hybrid mode.** Run narrative-drift check AND flag unmapped files (legacy behavior). Unmapped files are potential new systems that the atlas hasn't captured.
 
-**Skip silently if `tasks/architecture-atlas/systems-index.md` does not exist** — the atlas hasn't been bootstrapped yet. No error, no warning.
+**Skip silently if `docs/architecture/systems-index.md` does not exist** — the atlas hasn't been bootstrapped yet. No error, no warning.
 
 ---
 
@@ -26,13 +26,13 @@ Detect where the atlas narrative may have drifted from the codebase's current re
    git diff --name-only $(git merge-base HEAD origin/main) HEAD 2>/dev/null || git diff --name-only HEAD~10 HEAD 2>/dev/null
    ```
 
-2. **Read `tasks/architecture-atlas/systems-index.md`** — identify the named systems and their descriptions.
+2. **Read `docs/architecture/systems-index.md`** — identify the named systems and their descriptions.
 
 3. **For each changed file, determine which system it belongs to:**
    - Use the changed file's directory path to infer its system (e.g., `plugins/coordinator/commands/` → coordinator-pipeline).
    - If unsure, skip (don't guess).
 
-4. **Read the narrative description for that system** from `tasks/architecture-atlas/systems/{system-name}.md` — specifically the "System Narrative" or "Purpose" section.
+4. **Read the narrative description for that system** from `docs/architecture/systems/{system-name}.md` — specifically the "System Narrative" or "Purpose" section.
 
 5. **Narrative-drift check:** Does the changed file's module or component appear in the narrative? Ask:
    - Does the narrative mention the subsystem/layer this file belongs to?
@@ -54,7 +54,7 @@ Detect where the atlas narrative may have drifted from the codebase's current re
 
 Run Steps 1-7 above (narrative-drift), then additionally:
 
-8. **Read `tasks/architecture-atlas/file-index.md`** — each entry maps a file path (or directory) to a system.
+8. **Read `docs/architecture/file-index.md`** — each entry maps a file path (or directory) to a system.
 
 9. **For each changed file, check if it appears in the file-index** (exact path match, or parent directory match).
 
@@ -64,7 +64,7 @@ Run Steps 1-7 above (narrative-drift), then additionally:
     ```
     NOTE: Potential new system detected — the following changed files are not mapped in the architecture atlas:
       - [file path] ([parent directory])
-    Consider running /architecture-audit --refresh to remap, or manually add these files to the appropriate system in tasks/architecture-atlas/.
+    Consider running /architecture-audit --refresh to remap, or manually add these files to the appropriate system in docs/architecture/.
     ```
 
 12. **If all changed files are mapped (or no changed files):** Note: `"Atlas file-index check: all changed files mapped."`
