@@ -1,0 +1,67 @@
+# ~/.claude/machine-local/registry.toml  (TRACKED — shared baseline)
+#
+# Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.2
+#
+# Copy this file to registry.toml and fill in values for your machine.
+# Values that differ per-machine go in registry.local.toml (gitignored).
+# Single-machine operators can put all values here and skip the .local layer.
+
+# Schema version. Bump on breaking key/format changes; readers warn on unknown.
+schema = 1
+
+# ---------------------------------------------------------------------------
+# Cross-repo discovery — PRIMARY USE CASE.
+#
+# Key DECLARATIONS go here (tracked). Per-machine VALUES go in registry.local.toml.
+# Single-machine operators can put values here directly and skip the .local layer.
+#
+# These keys replace the sibling-layout convention (../<sibling-repo>/) for
+# triangular or multi-drive setups where a single shared parent folder is not
+# feasible. See docs/wiki/machine-local-registry.md for the preference order.
+# ---------------------------------------------------------------------------
+"repos.coordinator_claude"     = ""
+"repos.project_rag"            = ""
+"repos.project_rag_ue_addon"   = ""
+"repos.claude_unreal_holodeck" = ""
+
+# ---------------------------------------------------------------------------
+# Vendor / engine roots — place here ONLY if no concern file is loaded.
+#
+# If `unreal` is listed in `concerns` below, put unreal.* keys in unreal.toml
+# instead. The unreal namespace is owned exclusively by the concern file when
+# loaded — duplicating keys here causes confusing silent-shadowing.
+#
+# Uncomment if you are NOT using a concern file for these namespaces:
+# "cuda.toolkit_root" = ""
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# publish.sh target registry (migrated from setup/publish-targets.sh).
+#
+# Array of pipe-separated rows matching the original TARGETS format:
+#   "<plugin-name>|<mode>|<source-path>|<dest-path>"
+#
+# Uncomment and populate when you're ready to migrate from publish-targets.sh.
+# Leaving this key absent (commented out) lets _load_targets fall through to
+# the publish-targets.sh deprecation fallback.  Setting it to [] (empty array)
+# is treated the same as absent — both fall through.
+#
+# Review: code-reviewer (F8) — empty-array default was misleading; operator
+# copying the example as-is would get a silent empty-array path with no targets.
+# "publish.targets" = []
+
+# ---------------------------------------------------------------------------
+# Concern files.
+#
+# List concern names here so the reader knows to load them. When a concern is
+# listed, that concern's namespace (e.g. "unreal.*") is owned exclusively by
+# the concern file. Keys with the concern's prefix in registry.toml emit a
+# warning and are ignored — the concern file wins.
+#
+# Only add a concern file for surfaces large enough to warrant isolation
+# (>5 keys, or version-multiplexed values like Unreal 5.4/5.5/5.6).
+# For simpler cases, inline the keys directly above.
+#
+# Uncomment and extend as needed:
+# concerns = ["unreal", "cuda"]
+# ---------------------------------------------------------------------------

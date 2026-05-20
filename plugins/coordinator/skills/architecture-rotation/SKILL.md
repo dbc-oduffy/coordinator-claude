@@ -58,8 +58,30 @@ tasks/architecture-atlas/
 | Open P1 items | +3 each |
 | Significant growth since last audit | +3 |
 | Security-sensitive system | +2 |
+| **Query-completions roadmap score (see below)** | **+0 to +10** |
 
-Select the highest-scoring system. Report: _"Rotation target: [system] (score: N). Rationale: [top signals]."_
+**Query-completions roadmap score — run before selecting target:**
+
+```bash
+bin/query-completions --since "30d" --where "nature=roadmap" --format json \
+  | jq -r '.[] | .subsystem // "unknown"' | sort | uniq -c | sort -rn
+```
+
+For each system, count the `nature: roadmap` entries touching it in the last 30 days and sum `loe.tshirt` weights (XS=1, S=2, M=4, L=8, XL=16) across those entries. Add to the base score:
+
+| Roadmap activity (last 30d) | Additional weight |
+|-----------------------------|-------------------|
+| Aggregated LoE ≥ 16 (e.g. 1×XL or 2×L) | +10 |
+| Aggregated LoE 8–15 | +6 |
+| Aggregated LoE 4–7 | +3 |
+| Aggregated LoE 1–3 | +1 |
+| No roadmap entries | +0 |
+
+**Rationale:** commit churn doesn't distinguish doctrine edits from refactors from feature work; `nature: roadmap` does. High LoE roadmap traffic signals architectural surface area that warrants a fresh audit — many small commits do not.
+
+**Zero-result handling:** If `query-completions` returns no rows (fresh repo or no roadmap entries in 30d), omit the roadmap score column and proceed with the base health-ledger signals only.
+
+Select the highest-scoring system. Report: _"Rotation target: [system] (score: N). Rationale: [top signals including roadmap activity if non-zero]."_
 
 Note: These weights are initial estimates — adjust after 4 weeks based on whether rotation targets match intuition.
 
@@ -91,13 +113,13 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 ### Systems ≤10 files — Direct Opus Dispatch
 
 1. Identify the system's domain:
-   - Game dev / Unreal → the Game Dev Reviewer
-   - Frontend / UI → the Front-End Reviewer
-   - ML / data → the Data Science Reviewer
-   - Other / architecture → the Staff Engineer
+   - Game dev / Unreal → Sid
+   - Frontend / UI → Palí
+   - ML / data → Camelia
+   - Other / architecture → Patrik
 2. Dispatch the domain reviewer with full system scope — all files in the system. Include the atlas page as context (per Step 2.5).
 3. Reviewer grades the system and adds/updates the grade on the atlas page.
-4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/the Front-End Reviewer/the Data Science Reviewer), the Director of Engineering (in backstop mode — `agents/eng-director.md`) for the Staff Engineer. Run backstop after applying domain reviewer findings.
+4. Backstop is mandatory: Patrik for domain reviewers (Sid/Palí/Camelia), Zolí (in backstop mode — `agents/eng-director.md`) for Patrik. Run backstop after applying domain reviewer findings.
 
 ### Systems >10 files — Haiku→Sonnet Pre-Digestion
 
@@ -117,7 +139,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 5. Reviewer grades the system and adds/updates the grade on the atlas page.
 
-6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: the Staff Engineer (Opus) for domain reviewers; the Director of Engineering (in backstop mode, Opus) for the Staff Engineer.
+6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: Patrik (Opus) for domain reviewers; Zolí (in backstop mode, Opus) for Patrik.
 
 ---
 

@@ -39,6 +39,14 @@ Nothing else creates files in those directories. The PreToolUse hook `block-unau
 
 → **If the brief is large or complex:** write directly to `archive/cross-repo/YYYY-MM-DD-<topic>.md` in the current repo. Hand the PM the link. PM pings between chats. (Create the `archive/cross-repo/` directory on first use — it's tracked alongside the other `archive/` subdirectories, no special gitignore handling needed.)
 
+→ **For DoE-altitude cross-EM relay traffic — named-topic memos and reply memos that are part of an active consult chain:** use `tasks/memos/YYYY-MM-DD-<topic>.md` as the **living surface**. This is where live multi-memo conversations happen; the PM ferries each memo between sessions by handing the path. Once the consult resolves, the memo stays in `tasks/memos/` as a lightweight audit trail — it does not migrate to `archive/cross-repo/`. Empirical instances as of 2026-05-19: 5 memos across the whoami contract consult chain and the machine-local-registry DoE reply.
+
+  **Surface distinction:**
+  - `tasks/memos/YYYY-MM-DD-<topic>.md` — **live** consult traffic; named-topic memo + reply pairs; referenced directly during an active consult chain.
+  - `archive/cross-repo/YYYY-MM-DD-<topic>.md` — **archive** destination for large or complex briefs that exit the live surface; intended as reference artifacts, not active traffic.
+
+<!-- Amended 2026-05-19 by 2026-05-19-cross-plugin-whoami-contract.md: tasks/memos/ surface documented; live vs archive distinction added. -->
+
 → **Never:**
   - Write to the other repo's `tasks/handoffs/` or `tasks/spinoffs/` — you don't own that surface.
   - Write to *your* `tasks/handoffs/` "for someone to pick up later" — that's not what the folder is for.

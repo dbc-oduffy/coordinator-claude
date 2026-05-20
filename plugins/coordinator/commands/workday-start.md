@@ -229,7 +229,14 @@ Per-handoff in the `ready_to_fire` set: (a) `git log --oneline --since="<handoff
 
 ### Step 1.4: Cross-reference against completed archive (sanity check)
 
-Read `archive/completed/YYYY-MM.md` (current month, plus previous month if within the first 7 days). For each `ready_to_fire` handoff, check whether the work it describes appears as completed — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely already done — pick up to confirm and archive, or close out?"_
+Query the completed archive for recent entries:
+```bash
+query-completions --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json
+```
+
+**Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists (pre-migration repo that has not yet run the `git mv` migration), read the legacy monolith for this reconciliation check only. This fallback ensures a smooth transition window; it is read-only and does not write to the legacy path.
+
+For each `ready_to_fire` handoff, check whether the work it describes appears as completed in the query results — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely already done — pick up to confirm and archive, or close out?"_
 
 ### Step 1.5: Report
 
@@ -237,7 +244,27 @@ _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stu
 
 **Why query, not grep (doctrine reversal 2026-05-08, revised 2026-05-15):** `deployment_state` exists to obviate grep-walks. `ready_to_fire` for the primary list; `awaiting_gate` surfaces as its own subsection (count always, list when present) so cross-workstream gate awareness reaches the PM.
 
-## Step 1.5: Coordinator-Improvement Queue Check
+## Step 1.55: Recent Roadmap Orientation
+
+Surface last quarter's top-10 roadmap completions by size for a 30-second narrative orientation — grounding the day's work in recent delivery context before triage decisions. Per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern: a fixed subsection heading renders regardless of row count.
+
+```bash
+bin/query-records --type completion --since "90d" --where "nature=roadmap" \
+  --sort "-loe.tshirt" --limit 10 --format markdown-list
+```
+
+Render the results under a fixed subsection heading in the Morning Briefing (Step 5), inside the `### Handoffs` block:
+
+```markdown
+#### Recent roadmap (last 90d, top-10 by size)
+<results — one bullet per row, or "(none)" when the query returns zero rows>
+```
+
+The `(none)` case is expected on brand-new repos or repos that haven't yet run the completion-log migration. Surface the heading regardless — count-always.
+
+**Thin-wrapper alternative:** `bin/query-completions.sh` with equivalent flags is also accepted; either form is correct.
+
+## Step 1.6: Coordinator-Improvement Queue Check
 
 Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries carrying `[recurring: ≥3]` on the main line (DR-056 amended 2026-05-17 — main-line-only schema).
 
@@ -256,7 +283,7 @@ Surface in the Morning Briefing. The EM decides whether to advocate based on dep
 
 If the file does not exist or both queues are empty, skip silently.
 
-## Step 1.55: Bug Backlog Depth Check
+## Step 1.65: Bug Backlog Depth Check
 
 Read `tasks/bug-backlog.md` (if it exists). Count table rows in the P1 and P2 sections, stopping before any `## Resolved` section. Exclude header rows and separator lines — count only data rows.
 
@@ -267,7 +294,7 @@ If the combined P1+P2 open count is ≥ 10, surface in the Morning Briefing. The
 
 If the file does not exist, or the P1+P2 count is < 10, skip silently.
 
-## Step 1.6: Scheduled Rechecks
+## Step 1.7: Scheduled Rechecks
 
 Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md` (open-source comparison rechecks per `docs/wiki/opensource/`), `tasks/lesson-triage-recheck-due-*.md` (cross-project learn-lessons cadence per `coordinator:learn-lessons`), and `tasks/recheck-due-*.md` (general scheduled-recheck markers). Each marker filename ends in `-YYYY-MM-DD.md` indicating the due date.
 
@@ -278,7 +305,7 @@ For each marker found:
 
 If no marker files exist, skip silently. Do not auto-execute the recheck procedure — these markers are PM-actioned, not auto-dispatched.
 
-## Step 1.7: Project-RAG Preamble Drift Check
+## Step 1.8: Project-RAG Preamble Drift Check
 
 Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-preamble-sync.sh`).
 
@@ -290,7 +317,7 @@ Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typi
 
 **Do NOT auto-fix.** The EM should investigate which consumer drifted and why before applying `--fix`. A drift may indicate an intentional local edit that needs to be merged back into the canonical snippet rather than simply overwritten.
 
-## Step 1.8: Auto-Push Failure Surface
+## Step 1.9: Auto-Push Failure Surface
 
 Silent `coordinator-auto-push` failures (e.g. case-mismatched branch refs on Windows; expired credentials; SSH agent unreachable) accumulate in `.git/push-failures.log` without any visible signal until the next manual push. This step makes them visible the next morning, not 75 minutes later.
 
@@ -318,9 +345,9 @@ Format:
 
 **If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently — the log is either empty or carries old, already-resolved entries.
 
-**Cross-repo extension (deferred):** V1 checks the current repo only. If a tracked-repos registry lands (`~/.claude/coordinator-tracked-repos.txt` or similar), extend this step to glob across listed roots.
+## Step 1.10: Addon Health Sentinels
 
-- **Last session-end review (informational):** if `tasks/review-trail/` has records, surface the most recent (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing where the un-reviewed gap begins.
+Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Run `bin/scan-addon-health.sh --red-and-stale` to surface RED + stale (>24h) verdicts; on non-empty output, render under a new `### Addon Health` section (between `### Auto-Push Health` and `### Priority Suggestions`); on empty, omit. Schema + EM dispatch flow: `docs/wiki/addon-health-sentinel.md`.
 
 ## Step 2: Doc Freshness
 
@@ -415,7 +442,7 @@ bash plugins/coordinator/bin/whats-next.sh
 
 The script emits three sections: improvement-queue head (top 5 entries), `docs/project-tracker.md` rows with status Ready or Executing, and open handoffs (filename + line-1 heading). Use as-is — frame for the PM under § Priority Suggestions; do not reconstruct from prose.
 
-**Reconcile active work against completed archive:** Read `archive/completed/YYYY-MM.md` (current month + previous month if within first 7 days). Cross-reference tracker Ready/Executing items and open handoffs against the completed archive:
+**Reconcile active work against completed archive:** Run `query-completions --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json` (or fall back to `archive/completed/legacy/YYYY-MM.md` if query returns empty and the legacy monolith exists). Cross-reference tracker Ready/Executing items and open handoffs against the completed archive:
 - **Tracker items** marked Ready/Executing → do any match completed archive entries? Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
 - **Open handoffs** → do any appear in the archive as shipped? Flag the same way.
 - This is a **fuzzy match on names/descriptions**, not an exact ID join. When unsure, flag as "possible match — verify" rather than auto-resolving.
@@ -459,13 +486,16 @@ If both are present, report: _"Tools: scc + shellcheck available."_ Only nag for
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
 
+#### Recent roadmap (last 90d, top-10 by size)
+_(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
+
 ### Alignment Check
 - [N mismatches found between active trackers and completed archive / all aligned]
 - [List each mismatch: "Tracker: X is Executing — Archive: shipped YYYY-MM-DD"]
 - [List each handoff flagged as likely completed]
 
-### Orphan Sweep / Agent Worktrees / Auto-Push Health
-Each section omitted unless its step (0.5 / 0.6 / 1.8) produced surfaceable findings; render only the non-empty rows from that step's structured output.
+### Orphan Sweep / Agent Worktrees / Auto-Push Health / Addon Health
+Each section omitted unless its step (0.5 / 0.6 / 1.9 / 1.10) produced surfaceable findings; render only the non-empty rows from that step's structured output.
 
 ### Priority Suggestions
 Pull from the active state: bugs (top severity first), stale sweep, stale tests, stale atlas, tracker Ready rows, deep debt backlog. Order by urgency, not by template.

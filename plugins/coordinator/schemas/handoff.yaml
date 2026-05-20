@@ -85,3 +85,41 @@ optional:
   # handoffs only. See skills/spinoff/SKILL.md § Anti-scope.
   # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
   reviewed_at_session_end: string
+
+# ---------------------------------------------------------------------------
+# Session Ledger — body convention, NOT a frontmatter field (Phase 2)
+# ---------------------------------------------------------------------------
+# Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
+#
+# Each handoff body MAY contain a ## Session Ledger H2 section. This is a
+# per-chain LoE accumulator written by coordinator-session-loe.sh at /pickup
+# time (one line per session that picks up the handoff). It lives in the body
+# because it is an append-only list that grows across sessions — unsuitable for
+# a scalar frontmatter field.
+#
+# Body format:
+#
+#   ## Session Ledger
+#
+#   <!-- Phase 2 LoE accumulator. Each session appends one line. -->
+#   <!-- Format: YYYY-MM-DD | <sid6> | <tshirt> | <Nd / No> | <one-line summary> -->
+#
+#   2026-05-19 | abc123 | M | 8d / 2o | Implemented query-completions
+#   2026-05-20 | def456 | S | 3d / 0o | Docs update and minor fix
+#
+# Field semantics:
+#   YYYY-MM-DD   — date the picking-up session ran /session-end
+#   <sid6>       — last 6 chars of $em_sid (same source as completion-entry authored_by)
+#   <tshirt>     — per-session t-shirt size: XS | S | M | L | XL
+#   <Nd / No>    — agent_dispatches / opus_dispatches for that session
+#   <one-line>   — brief description of what the session shipped
+#
+# Query path: bin/query-records --type handoff-ledger --where "tshirt=XL"
+#   globs tasks/handoffs/*.md and archive/handoffs/*.md, parses ## Session Ledger
+#   blocks. Used by workweek-complete Step 8.5 LoE high-water check.
+#
+# Chain-terminal aggregation: bin/aggregate-chain-loe.sh walks all handoffs
+#   in a chain (by chain: / workstream: frontmatter match), sums ledger lines
+#   across all handoff files, and writes chain_loe: into the terminal
+#   completion entry. See docs/wiki/completion-log-release-loop.md § Phase 2.
+# ---------------------------------------------------------------------------

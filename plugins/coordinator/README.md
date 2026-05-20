@@ -1,6 +1,6 @@
 # coordinator
 
-Core orchestration plugin for the PM + Claude agent hierarchy. Always enabled on every project.
+Core orchestration plugin for the Dónal + Claude agent hierarchy. Always enabled on every project.
 
 This plugin addresses six failure modes that compound silently in sustained AI-assisted development. Each maps to named skills and commands.
 
@@ -27,7 +27,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `brainstorming` skill — Explore intent, scope, and design before committing. Scope assessment, design-for-isolation, existing-codebase awareness.
 - `coordinator:plan` skill — Decompose into executable stubs: file paths, implementation steps, verification criteria, TDD-oriented granularity.
 - `/enrich-and-review` — Dispatch research agents to fill stubs with codebase facts (actual paths, current patterns, dependency maps) before any executor touches code.
-- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to the Staff Engineer.
+- Executor dispatch — `docs/wiki/delegate-execution.md` carries the procedure: enriched stubs → executor agents, spec compliance check before routing to Patrik.
 - `enricher` agent — Sonnet research agent that surveys codebases, traces dependencies, fills in stub details.
 - Write-ahead status protocol — Stubs marked "in progress" *before* work begins, so a crash leaves a recoverable state rather than an ambiguous "not started."
 
@@ -41,7 +41,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `coordinator:review` (plans) and `coordinator:review-code` (diffs) — Self-contained decision-tree skills carrying the routing table, sequencing rules, and dispatch mechanics. Shared pipeline phases (docs-checker, prior-art-checker, external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`.
 - Sequential review discipline — Multi-persona reviews are sequential, never parallel. Reviewer 2 sees Reviewer 1's findings integrated; insights compound.
 - `review-integrator` agent (Opus) — Applies reviewer findings to artifacts with annotations. Escalates disagreements. The EM verifies rather than types.
-- the Director of Engineering (Director of Engineering) — peer of the Staff Engineer in technical rigor, dispatchable standalone for cross-team / consumer-producer / generic-substrate reviews, OR chained after the Staff Engineer as backstop on High-effort architectural work. Three modes: standalone reviewer (default), backstop reviewer, staff-session synthesizer. See `agents/eng-director.md`.
+- Zolí (Director of Engineering) — peer of Patrik in technical rigor, dispatchable standalone for cross-team / consumer-producer / generic-substrate reviews, OR chained after Patrik as backstop on High-effort architectural work. Three modes: standalone reviewer (default), backstop reviewer, staff-session synthesizer. See `agents/eng-director.md`.
 - `coordinator:review-code` skill (code reviews) + `coordinator:review` skill (plan reviews) + `docs/wiki/receiving-code-review.md` — Codified decision-tree skills for preparation, routing, and applying feedback.
 - Reviewer-routed workers — Reviewers name mechanical analysis workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) in their findings. EM dispatches them as a follow-up step, not during the review.
 
@@ -99,8 +99,8 @@ Full component inventory for the record. The failure-mode sections above are the
 | **enricher** | Sonnet | Research agent — surveys codebases, traces deps, fills in stub details |
 | **executor** | Sonnet | Implementation agent — follows specs precisely, reports DONE/DONE_WITH_CONCERNS/BLOCKED |
 | **review-integrator** | Opus | Applies reviewer findings to artifacts with annotations, escalates disagreements |
-| **staff-eng** | Opus | Senior staff engineer (the Staff Engineer) — rigorous review of code, plans, architecture, documentation |
-| **eng-director** | Opus | Director of Engineering (the Director of Engineering) — peer of the Staff Engineer in technical rigor with cross-team / cross-repo authority. Three modes: standalone primary reviewer (default), backstop after the Staff Engineer, staff-session synthesizer. |
+| **staff-eng** | Opus | Senior staff engineer (Patrik) — rigorous review of code, plans, architecture, documentation |
+| **eng-director** | Opus | Director of Engineering (Zolí) — peer of Patrik in technical rigor with cross-team / cross-repo authority. Three modes: standalone primary reviewer (default), backstop after Patrik, staff-session synthesizer. |
 
 ### Commands (11)
 
@@ -178,7 +178,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 The coordinator defines the routing framework that domain plugins extend:
 
-1. This plugin's `routing.md` defines universal reviewers (the Staff Engineer, Zoli) and the routing algorithm
+1. This plugin's `routing.md` defines universal reviewers (Patrik, Zoli) and the routing algorithm
 2. Domain plugins contribute routing fragments via their own `routing.md` files
 3. At dispatch time, `/review` and `/review-code` merge all fragments into a composite routing table
 4. Signals from changed code determine which reviewer handles the review
@@ -195,7 +195,7 @@ project_type: game-dev  # general | game-dev | web-dev | data-science
 ---
 ```
 
-Default (no config): core-only (the Staff Engineer + Zoli).
+Default (no config): core-only (Patrik + Zoli).
 
 ---
 
@@ -228,7 +228,7 @@ Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fi
 Transforms the coordinator from a delivery-only pipeline into a full engineering squad with maintenance cadences, codebase health tracking, and structural "EM does not type code" enforcement.
 
 - **Review-integrator:** New Opus agent that applies reviewer findings to artifacts. Replaces manual EM feedback application in review-dispatch (Phase 3.7), enrich-and-review (Phase 5), and executor dispatch (Phase 3 of `docs/wiki/delegate-execution.md`). The EM now verifies rather than types.
-- **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
+- **Reviewer self-checks:** All 6 reviewers (Patrik, Zolí, Sid, Palí, Fru, Camelia) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
 - **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.
@@ -254,7 +254,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 - **Brainstorming:** Scope assessment before detailed questions; design-for-isolation principles; existing-codebase awareness
 - **Writing-plans:** Scope check (decompose multi-system specs); file structure mapping before task decomposition
 - **Executor:** New status protocol (DONE/DONE_WITH_CONCERNS replacing COMPLETED; NEEDS_CONTEXT split from NEEDS_COORDINATOR); expanded self-review with judgment checks; code organization awareness; expanded escalation encouragement
-- **Delegate-execution:** Spec compliance check — coordinator verifies executor fidelity before routing to the Staff Engineer
+- **Delegate-execution:** Spec compliance check — coordinator verifies executor fidelity before routing to Patrik
 - **Skill-discovery:** SUBAGENT-STOP gate; instruction priority hierarchy
 - **Executing-plans:** Delegate-execution preference note for coordinator sessions
 
@@ -262,4 +262,4 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 
 ## Authors
 
-the Coordinator Authors
+Dónal O'Duffy & Claude

@@ -23,7 +23,7 @@ Secure any uncommitted work before touching branches:
 
 1. Run `git status` — if there are ANY uncommitted changes (staged, unstaged, or untracked), commit immediately:
    ```
-   CLAUDE_INVOKING_COMMAND=session-start ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "chore: session-start sweep — pre-orientation capture"
+   CLAUDE_INVOKING_COMMAND=session-start ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --blanket "chore: session-start sweep — pre-orientation capture"
    ```
 2. This is crash insurance. If a previous session died mid-work, this captures its state. The auto-push hook will push to the remote.
 3. If nothing to commit, move on silently.
@@ -35,7 +35,7 @@ Secure any uncommitted work before touching branches:
 Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); session-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
 
 ```bash
-~/.claude/plugins/coordinator/bin/agent-worktree-sweep.sh --format text
+~/.claude/plugins/coordinator-claude/coordinator/bin/agent-worktree-sweep.sh --format text
 ```
 
 If any line is emitted (i.e. at least one `<repo>/.claude/worktrees/agent-*` exists), surface a one-liner:
@@ -68,7 +68,7 @@ Get on the right branch:
    If no branch for today (or today's was already merged):
    Run sync-main invariant first:
    ```bash
-   ~/.claude/plugins/coordinator/bin/sync-main.sh --quiet
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh --quiet
    ```
    If it exits non-zero, report the divergence to the PM before creating the branch.
    Create: `git checkout -b work/{machine}/{date}`
@@ -107,6 +107,18 @@ Read `CONTEXT.md` (if it exists at the project root) — domain glossary with ca
 Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system context — don't re-read them.
 
 **After reading:** Note the count. No need to recite principles — they're in CLAUDE.md.
+
+### Addon health (RED only)
+
+Plugins that ship a doctor skill may write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Session-start surfaces RED verdicts only — stale-but-green is workday-start's beat, not every-session noise.
+
+```bash
+~/.claude/plugins/coordinator-claude/coordinator/bin/scan-addon-health.sh --red-only
+```
+
+If any lines are emitted, surface them verbatim under an **Addon Health** heading early in the orient output — RED on a registered MCP corpus (e.g. project-rag engine modules) means downstream tools will silently fall back, so the operator needs to see it before choosing work. The corresponding doctor skill is the remediation surface (e.g. `/project-rag-ue-addon:doctor`); the EM may dispatch it directly when surfaced. If empty, skip silently.
+
+Schema and convention: `docs/wiki/addon-health-sentinel.md`.
 
 ### Handoffs
 

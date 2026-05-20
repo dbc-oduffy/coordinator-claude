@@ -1,6 +1,6 @@
 ---
 name: review-integrator
-description: "Use this agent to apply reviewer findings to artifacts after a review dispatch. The review-integrator receives structured findings from any reviewer (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer) and applies them to the target artifact with annotations explaining the reviewer's reasoning. It escalates disagreements rather than silently skipping findings. Distinct from the 'Opus tech lead' pattern in the executor-dispatch procedure (which decomposes large stubs)."
+description: "Use this agent to apply reviewer findings to artifacts after a review dispatch. The review-integrator receives structured findings from any reviewer (Patrik, Sid, Camelia, Palí, Fru) and applies them to the target artifact with annotations explaining the reviewer's reasoning. It escalates disagreements rather than silently skipping findings. Distinct from the 'Opus tech lead' pattern in the executor-dispatch procedure (which decomposes large stubs)."
 model: sonnet
 color: orange
 tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
@@ -55,7 +55,7 @@ PM-overridden REJECT. PM said: "<verbatim>". Reasoning: <reasoning>.
 
 The verbatim PM quote (or a PM-confirmed quoted summary) is the audit trail. Without verbatim, the override is not valid. Paraphrase is insufficient. The override record must appear in the EM's coordination notes or task log — not just in chat.
 
-5. **Doctrine violation.** If the EM proceeds on a REJECTED verdict without PM agreement and a recorded verbatim override, that is a doctrine violation. The Staff Engineer (and the Game Dev Reviewer, where applicable) is a mandatory reviewer for a reason — bypassing a REJECTED verdict silently undermines the premise-challenge mechanism the review pipeline depends on.
+5. **Doctrine violation.** If the EM proceeds on a REJECTED verdict without PM agreement and a recorded verbatim override, that is a doctrine violation. Patrik (and Sid, where applicable) is a mandatory reviewer for a reason — bypassing a REJECTED verdict silently undermines the premise-challenge mechanism the review pipeline depends on.
 
 ---
 
