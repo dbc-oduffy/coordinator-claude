@@ -4,6 +4,46 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-05-20
+
+Patch release. Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machine-local/` migration that the project-rag-ue-addon dogfood doctor invocation surfaced as cross-team friction.
+
+### Added
+
+- **`docs/wiki/coordinator-doctor.md`** — wiki-shaped agentic-steps doctor (explicitly NOT a slash skill) with nine probes covering machine-local registry and `coordinator_whoami` substrate. Downstream plugin doctors (holodeck, project-rag, project-rag-ue-addon) cite this wiki as the canonical health-verification surface; reinvention is named as a doctrine violation. Cross-team directives at Chunk 1 §5 bind: (a) coordinator-substrate probes MUST use delegation or augmentation shape; (b) binding-health classification MUST cite P-6 (live whoami) not P-7 (config-presence file read). Reviewed standalone by the Director of Engineering 2026-05-20 (DoE altitude, cross-team seam).
+- **`cross-plugin-whoami-contract.md` — offline diagnostic surface.** New optional `source_kind: "live" | "offline"` discriminator (additive at contract v1; absent value treated as `"live"`). Plugins authoring CLI / file-read fallback envelopes when the daemon is unavailable label them `"offline"`; consumers classifying binding health MUST reject offline envelopes. Schema (`coordinator_whoami/schemas/whoami-envelope.v1.json`) extended additively — 86/86 whoami tests still pass.
+- **Live-not-receipt invariant — consumer side.** The invariant now binds consumers, not just producers: synthesis-time consumers (doctor agents) MUST call live MCP `*_whoami`, NEVER read persisted whoami snapshots from disk as binding-health evidence.
+- **Doctrine-vs-operator-guide pairing.** Both `cross-plugin-whoami-contract.md` and `machine-local-registry.md` gain audience preambles explicitly naming themselves as the substrate-doctrine half of a pair, with `coordinator-doctor.md` as the operator-guide half.
+- **`scan-addon-health.sh --check-sentinel-presence` mode** — closes the H-1 vacuous-pass shape in session-start (`--red-only` could silently pass on fresh installs with no sentinels). The new mode fires a one-line bootstrap notice exactly when at least one plugin is installed AND no doctor sentinels exist anywhere; silent otherwise. Wired into `/session-start`.
+
+### Changed
+
+- **`commands/setup.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
+- **`docs/wiki/machine-local-registry.md`** prose aligned to template ground-truth: `repos.holodeck` → `repos.claude_unreal_holodeck` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
+- **`docs/wiki/percolate-setup.md` Step 2** default-registers via `machine-local set publish.targets.<name>`; the legacy `publish-targets.sh` path is reachable only via `--legacy` flag.
+- **`setup/publish.sh`** uses a portable PY fallback chain (`python3 || py -3 || python` with fail-loud) instead of bare `python`, so the script works on Linux/macOS AND Windows Git Bash. Smoke `--dry-run` clean across 4 targets.
+- **`/session-start` orientation health-check** now invokes `python3 -m coordinator_whoami.project_rag --human` (gated on `coordinator_whoami` importability) as a spot-check of the coordinator/project-rag binding. Cites `coordinator-doctor.md` P-6.
+- **`/project-onboarding` Phase 4 Next Steps** cites `coordinator_whoami` as the canonical introspection surface with a one-line bootstrap pointer to `coordinator-doctor.md` P-1 through P-4 for machine-local health verification.
+
+### Fixed
+
+- **`/holodeck:doctor` discovery order** — `machine-local get repos.claude_unreal_holodeck` is now tier 1; `MACHINE_LOCAL_REPOS_CLAUDE_UNREAL_HOLODECK` tier 2; `HOLODECK_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Holodeck doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
+- **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; Striker-specific `X:/project-rag` hardcoded candidate removed from the fallback loop.
+- **`coordinator_whoami/project_rag/cli.py:270` HTTP-transport classification** — `_probe_claude()` now accepts `entry.get("url")` alongside `command` and `args`. Post-multi-RAG MCP daemon entries (HTTP transport, no `command` field) no longer mis-classify as `"broken"`. Mirror of project-rag-ue-addon's F4 finding from the same dogfood run.
+- **`docs/wiki/wiring-env-source-of-truth.md`** — `status: current` → `status: deprecated`, `superseded_by: machine-local-registry.md`, with a prominent deprecation banner naming the dogfood-friction trigger. Wiring.env retirement is the worked precedent for the broader `~/.<project>/` → `~/.claude/<project>/` migration pattern.
+- **`docs/wiki/authoring-an-addon.md:118`** — `required_env` row now flags `~/.project-rag/wiring.env` as transitional/deprecated and names `~/.claude/machine-local/project_rag.toml [env]` as the canonical successor for future addon authors.
+- **`bin/verify-ue-overrides.sh`** — Striker-specific hardcoded paths (`X:/...`) removed; resolves UE-context roots via `machine-local get repos.claude_unreal_holodeck` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
+- **`/session-start` `<plugin-cli-path>` literal placeholder** — resolved with an inline `~/.claude.json`-parsing snippet sourced from `commands/workday-start.md` Step 3.6.
+- **Global `CLAUDE.md` line 16 parenthetical** — described `publish-targets.sh` as "(machine-local)" which conflated the legacy file with the canonical `~/.claude/machine-local/` registry. Reworded to "(per-machine legacy file, superseded by `~/.claude/machine-local/`)".
+
+### Migration
+
+No breaking changes. Operators with `~/.claude/machine-local/` already populated need no action. Operators on a fresh install: `/coordinator:setup` Phase 3 lays down the substrate; populate `registry.local.toml` with sibling-repo roots. Verification: run the nine probes in `coordinator-doctor.md` §3 (on Windows Git Bash, substitute `py -3` for `python3`).
+
+### Sanitization
+
+- OSS-side stale self-reference fixed in `cross-plugin-whoami-contract.md` (line was describing the file's own location as a "ships outward via setup/publish.sh to X:/coordinator-claude" destination).
+
 ## [2.1.0] — 2026-05-09
 
 Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bundling, and session-end review doctrine.

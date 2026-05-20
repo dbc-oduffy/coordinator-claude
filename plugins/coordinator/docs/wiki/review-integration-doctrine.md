@@ -77,3 +77,28 @@ The rule: after any material amendment, re-run the relevant pre-flights before d
 → coordinator/CLAUDE.md § Plan-First Workflow → Pre-Dispatch Verification ("Re-run mechanical pre-flights after material plan amendments")  
 → `docs/wiki/prior-art-checker.md` for prior-art-checker procedure  
 → `docs/wiki/docs-checker-pre-review.md` for docs-checker procedure
+
+## EM persists inline reviewer output before dispatching the integrator
+
+When a reviewer agent's tool surface omits Write/Edit (the Sonnet `code-reviewer` is the
+canonical case — its frontmatter `tools:` list contains no Write or Edit, so it physically
+cannot write files), the reviewer returns findings as its final assistant message rather
+than writing to the spec'd sidecar path. The `review-integrator` reads from disk per its
+intake contract — if findings live only in chat, the integrator either re-derives them
+(lossy) or fabricates dispositions on an EM paraphrase (unsafe).
+
+**EM is the persistence layer when the reviewer cannot write.** When a reviewer dispatch
+returns inline-with-no-file, do NOT retry the reviewer hoping it writes next time — the
+tool absence is structural, not a transient hallucination, and retrying produces the same
+inline output. Persist the reviewer's verbatim output to the spec'd sidecar path via
+`Write`, preserve the finding-by-finding schema, add a frontmatter line noting
+`persisted_by: EM (reviewer returned inline per its own tool surface)`. Then dispatch the
+integrator pointing at the disk path as usual. This preserves the audit trail and lets the
+integrator operate on canonical findings rather than a paraphrase. The same pattern applies
+to any future reviewer whose tool surface omits Write.
+
+**Why not rewrite:** the EM transcribing inline reviewer output is not "synthesis" — it is
+persistence. Preserve verbatim. The integrator's job is to read the disk artifact; the EM's
+job is to make sure that artifact exists.
+
+→ `agents/code-reviewer.md` — the canonical write-restricted reviewer (read-only tool surface)

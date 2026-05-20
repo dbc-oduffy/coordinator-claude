@@ -26,7 +26,7 @@ Run this when the session-start prompt surfaces "Last full audit >7 days" or any
 
 ## Step 1: Calculate Rotation Target
 
-**Prerequisite check:** If `tasks/health-ledger.md` does NOT exist AND `tasks/architecture-atlas/systems-index.md` does NOT exist:
+**Prerequisite check:** If `tasks/health-ledger.md` does NOT exist AND `docs/architecture/systems-index.md` does NOT exist:
 
 > _"No baseline exists. Run `/architecture-audit` first to bootstrap the atlas and health ledger."_
 
@@ -35,8 +35,11 @@ Stop here.
 If a health ledger exists but no atlas, proceed normally — this audit predates the atlas feature.
 
 **Atlas directory structure:**
+
+The atlas is evergreen reference, sibling to `docs/wiki/` and `docs/decisions/` — NOT under `tasks/`. Patches written here in Step 4 land in the persistent atlas, not transient work state.
+
 ```
-tasks/architecture-atlas/
+docs/architecture/
 ├── systems-index.md          # System inventory with grades and metadata
 ├── file-index.md             # File-to-system mapping (one line per file)
 ├── cross-system-map.md       # ASCII dependency diagram
@@ -99,7 +102,7 @@ Read `tasks/debt-backlog.md` for the target system. If open items exist:
 
 ## Step 2.5: Load Atlas Context
 
-Check for `tasks/architecture-atlas/systems/{target-system}.md`.
+Check for `docs/architecture/systems/{target-system}.md`.
 
 - **Exists:** Include the atlas page in the reviewer's dispatch prompt as background context. This gives the reviewer structural knowledge (function inventory, flow diagrams, boundary catalog) so they focus on changes and quality assessment rather than rediscovery.
 - **Does not exist:** Proceed without atlas context. Reviewer discovers the system from scratch.
@@ -185,7 +188,7 @@ These go to PM for triage, then through the pipeline if prioritized.
 
 ## Step 6.5: Update Atlas Page
 
-If `tasks/architecture-atlas/systems/{target-system}.md` exists, patch it mechanically based on reviewer findings:
+If `docs/architecture/systems/{target-system}.md` exists, patch it mechanically based on reviewer findings:
 
 1. Add/remove functions mentioned in review findings
 2. Update boundary entries if cross-system connections changed

@@ -144,13 +144,15 @@ Either way, stop after this step and tell the PM to add a target entry before re
 
 ## Step 2 — Walk PM Through Registering a Target
 
-**If `$ARGUMENTS` names a target** (e.g. `/percolate coordinator-claude`): check whether that target name already appears in `publish-targets.sh`. If it does, skip to Step 3 — no need to re-register.
+**If `$ARGUMENTS` names a target** (e.g. `/percolate coordinator-claude`): check whether that target name already appears in either the machine-local registry (`machine-local get publish.targets`) or the legacy `publish-targets.sh`. If found in either, skip to Step 3 — no need to re-register.
 
 **If no argument provided, or the named target is not yet registered:** walk the PM through the four fields.
 
+Default registration target is **`~/.claude/machine-local/` (canonical)** per Step 1c. The legacy `publish-targets.sh` path is reachable via `--legacy` only.
+
 Ask (one question, all four fields in a single prompt):
 
-> I'll add a new target entry to `setup/publish-targets.sh`. I need four values:
+> I'll add a new target entry to the machine-local registry (`~/.claude/machine-local/`). I need four values:
 >
 > 1. **Target name** — a short slug (e.g. `coordinator-claude`, `my-plugin`). Used as the argument to `/percolate`.
 > 2. **Sync mode** — `mirror` (rsync the full source tree) or `manifest` (explicit list via `publish-manifest.txt`). Most plugin publishes use `mirror`.
@@ -164,19 +166,25 @@ Wait for PM input. On `cancel`, exit 0 with "Setup cancelled."
 Once values are collected, show the proposed entry and ask for confirmation:
 
 ```
-Proposed entry:
-  TARGETS+=("coordinator-claude|mirror|~/.claude/plugins/coordinator-claude/|~/code/coordinator-claude")
+Proposed entry (machine-local registry):
+  publish.targets.coordinator-claude = "mirror|~/.claude/plugins/coordinator-claude/|~/code/coordinator-claude"
 
-Add this to setup/publish-targets.sh? [y/N]
+Add this to ~/.claude/machine-local/registry.local.toml? [y/N]
 ```
 
-On confirmation, append to `setup/publish-targets.sh`:
+On confirmation, write via the registry CLI:
+
+```bash
+machine-local set "publish.targets.<name>" "<mode>|<source>|<dest>"
+```
+
+Report: _"Target `<name>` registered in machine-local registry."_
+
+**`--legacy` flag** — appends to `setup/publish-targets.sh` instead (per Step 1c). Use only when the operator explicitly requests the legacy path (e.g. migrating an existing fleet):
 
 ```bash
 TARGETS+=("<name>|<mode>|<source>|<dest>")
 ```
-
-Report: _"Target `<name>` registered."_
 
 ---
 

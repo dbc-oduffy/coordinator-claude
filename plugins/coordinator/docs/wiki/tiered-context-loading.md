@@ -21,7 +21,7 @@ The behavioral lever is the **tier-4 rationale rule**: every Agent dispatch for 
 | Tier | Name | Budget | Surfaces |
 |------|------|--------|----------|
 | 0 | Boot context | ≤2K tokens, always loaded | `orientation_cache.md`, `lessons.md`, `CLAUDE.md` (auto-loaded), session memory pointers |
-| 1 | Curated narrative | ≤8K tokens per fetch, on demand | `docs/wiki/`, `tasks/architecture-atlas/`, `docs/decisions/`, `docs/project-tracker.md` |
+| 1 | Curated narrative | ≤8K tokens per fetch, on demand | `docs/wiki/`, `docs/architecture/`, `docs/decisions/`, `docs/project-tracker.md` |
 | 2 | Structured query | ≤2K tokens per query | `bin/query-records`, `mcp__*project-rag*__*`, `/workday-start` freshness table |
 | 3 | Targeted code/grep | ≤4K tokens per call | `Read` of a known path, `Grep` for a specific symbol, `Glob` for discovery |
 | 4 | Sonnet scout | Offloaded to subagent | `Explore`, `general-purpose` Sonnet, `deep-research:repo-scout`, `feature-dev:code-explorer` |
@@ -36,7 +36,7 @@ Files Tier-0-loaded at every session boot (orientation_cache, lessons, MEMORY.md
 
 Quarterly verify file sizes.
 
-**Tier 1 — Curated narrative** contains human-authored and distilled documents that describe how subsystems work at a level above code: wiki guides, architecture atlas pages, decision records. These are the product of previous investigation cycles — they exist precisely so future sessions don't have to re-derive the same structural knowledge from grep. A tier-1 read of `tasks/architecture-atlas/systems/auth.md` is almost always more informative than ten tier-3 Greps across the same system.
+**Tier 1 — Curated narrative** contains human-authored and distilled documents that describe how subsystems work at a level above code: wiki guides, architecture atlas pages, decision records. These are the product of previous investigation cycles — they exist precisely so future sessions don't have to re-derive the same structural knowledge from grep. A tier-1 read of `docs/architecture/systems/auth.md` is almost always more informative than ten tier-3 Greps across the same system.
 
 **Tier 2 — Structured query** returns precise, bounded answers from indexed data. Project-RAG tools answer symbol-shaped and subsystem-shaped questions in a single call with ≤2K tokens. `bin/query-records` answers schema-conformant queries against frontmatter records. Tier 2 is fast and narrow; its failure mode is returning nothing rather than returning wrong information.
 
@@ -68,7 +68,7 @@ This question should almost never reach tier 4.
 This is a subsystem-shaped question. Correct escalation:
 
 1. **Tier 0 check:** Is there an orientation note or lesson about this subsystem?
-2. **Tier 1:** Read the relevant architecture atlas page (`tasks/architecture-atlas/systems/<subsystem>.md`) or the corresponding wiki guide (`docs/wiki/<subsystem>.md`) if it exists. A good tier-1 read answers subsystem questions comprehensively without any code inspection. Done in most cases.
+2. **Tier 1:** Read the relevant architecture atlas page (`docs/architecture/systems/<subsystem>.md`) or the corresponding wiki guide (`docs/wiki/<subsystem>.md`) if it exists. A good tier-1 read answers subsystem questions comprehensively without any code inspection. Done in most cases.
 3. **Tier 2:** If the wiki/atlas doesn't cover the question, call `project_subsystem_profile` to get a structural summary. Done.
 4. **Tier 4:** If tiers 1–3 return nothing (the subsystem is new, undocumented, or the atlas is known stale), dispatch a scout with the rationale preamble. The scout's job is to produce a tier-1 artifact (e.g., a new atlas page) so this question doesn't hit tier 4 again next session.
 
@@ -81,7 +81,7 @@ Not every lookup requires climbing from tier 0. Skipping is correct in these cas
 - **Known path, direct read:** If you already know the exact file path from context, go straight to `Read` (tier 3). Consulting tier 1 or tier 2 first would be redundant overhead.
 - **Single-fact confirmation:** If you need to confirm one specific fact — a function signature, a config value — and you know roughly where it lives, tier 3 directly is correct.
 - **Repeat lookup with cached answer:** If you answered this question earlier in the session and the answer is still in context, use the cached answer. Do not re-run any tier.
-- **Tier 1 explicitly covers the topic:** If `orientation_cache.md` (tier 0) says "see `tasks/architecture-atlas/systems/auth.md`," jump to that file (tier 1) directly — no tier 2 needed.
+- **Tier 1 explicitly covers the topic:** If `orientation_cache.md` (tier 0) says "see `docs/architecture/systems/auth.md`," jump to that file (tier 1) directly — no tier 2 needed.
 
 The guiding test: **could a cheaper tier have answered this question?** If yes and you skipped it, that is a violation regardless of whether the answer you got was correct.
 

@@ -29,15 +29,31 @@ If the wrapper exits non-zero (lib not found), continue — the reaper is operat
 
 Ensure work happens on an active workstream branch and reconcile with `origin/main` daily. The active workstream may be canonical (`work/{machine}/{date-or-span}`, machine lowercase) **or** a named long-lived bus (`migration/...`, `release/...`, `feature/...`) the PM authorized. Daily ritual is **reconcile with origin/main**, not rotation: keep loading the same active branch until it's ready to merge.
 
-Run `bin/sync-main.sh` first — non-zero abort surfaces divergence to PM.
-
 **Precedence switch** (evaluate in order; stop at first match): (1) stale-commit (>2 days) → A/B/C Branch Reconciliation flow; (2) already-in-span → silent exit; (3) on main/detached/empty → create `work/{machine}/{today}`; (4) named long-lived bus → skip rename, proceed to reconcile; (5) midnight-rename → atomic rename procedure + one-line briefing notice.
 
 Every off-daily ref operation requires `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 <action>"`.
 
-**Full procedure (sync-main details, precedence shell code, rename atomicity + upstream rewire, daily reconcile flow):** see `pipelines/workday-start-internals.md` § Step 0.
+**Run the canonical Step 0 script — do not transcribe the procedure inline:**
 
-**Step 0 is not EM-skippable on judgment.** "Reconcile not rotate" governs whether to *abandon* the branch (no), not whether to *rename* the suffix at midnight (yes, via Check 4). Legitimate skips are only the precedence outcomes: already-in-span (Check 2), on main/detached/empty (Check 3), or named long-lived bus (Check 3.5). Any other path MUST execute the rename when Check 4 fires; Step 0.45 below is the tripwire catching silent skips.
+```bash
+bash ~/.claude/plugins/coordinator/bin/workday-start-step0.sh
+```
+
+The script encapsulates sync-main, the precedence switch (Checks 1–4 + 3.5), the rename procedure (Step 0.4), and the reconcile flow (Step 0.4.5).
+
+**Stdout shape:** the script emits **one or two status lines** depending on the precedence path:
+- **One line** when the path terminates at Check 2 (IN-SPAN — no reconcile needed) or when reconcile finds origin/main already merged (ALREADY-CURRENT does not fire on the IN-SPAN early-exit path).
+- **Two lines** on FRESH-CUT / NAMED-WORKSTREAM / RENAMED paths: the precedence status, then a reconcile status (`ALREADY-CURRENT`, `RECONCILED-FF`, or `RECONCILED-MERGE`). Surface both in the Morning Briefing.
+
+Exit codes:
+- `0` — succeeded (stdout from {`IN-SPAN`, `FRESH-CUT`, `NAMED-WORKSTREAM`, `RENAMED`} × optionally {`ALREADY-CURRENT`, `RECONCILED-FF`, `RECONCILED-MERGE`}).
+- `2` — `STALE-NEEDS-ABC` — invoke the A/B/C Branch Reconciliation Decision flow below.
+- `3` — `RECONCILE-CONFLICT` — PM resolves before workday-start continues.
+- `1` — sync-main aborted or unexpected error; halt and investigate.
+
+**Why a script, not inline bash:** the procedure was empirically EM-skippable when expressed as "see pipelines/workday-start-internals.md" — on 2026-05-20 an EM ran Step 0.45's assertion but never executed Check 4, leaving the working tree on a stale-suffix branch. Concentrating precedence + rename + reconcile in a single invokable removes EM judgment from a deterministic procedure. Full prose explanation of each check remains in `pipelines/workday-start-internals.md` § Step 0 for readers who want the rationale.
+
+**Step 0 is not EM-skippable on judgment.** "Reconcile not rotate" governs whether to *abandon* the branch (no), not whether to *rename* the suffix at midnight (yes, via Check 4). Legitimate skips are only the precedence outcomes the script reports (`IN-SPAN`, `NAMED-WORKSTREAM`, `FRESH-CUT`). Any other path MUST execute the rename when Check 4 fires; Step 0.45 below is the tripwire catching silent skips.
 
 ### Step 0.45: Post-Step-0 Span Assertion
 
@@ -132,7 +148,7 @@ Idempotent; prints a one-line no-drift notice to stderr when nothing changes. Ea
 
 ## Step 0.8: Stale-Executing Plan Nudge
 
-*Lesson 2026-05-16, project-rag — session-init orphan-sweep archives handoffs without running workstream-end ceremony.* When `session-init.sh` silently archives an orphaned handoff (consumed_by session died), the driving plan body in `docs/plans/` stays `status: executing` forever. Step 0.7 already flips frontmatter where consumed-markers exist; this step catches the inverse — plans whose handoff was silently archived without ceremony.
+*Lesson 2026-05-16, project-rag — session-init orphan-sweep archives handoffs without running workstream-end ceremony.* When `session-init.sh` silently archives an orphaned handoff (consumed_by session died), the driving plan body in `docs/plans/` stays `status: executing` forever. Step 0.7 already flips frontmatter where consumed-markers exist; this step catches the inverse — plans whose handoff was silently archived without ceremony, or where the code landed on branch without the EM flipping the plan to `implemented`.
 
 ```bash
 # Per-file WARN advisory — list plans with status: executing that have not been
@@ -158,7 +174,7 @@ if [[ -n "$stale_executing" ]]; then
   echo "---"
   echo "Stale-executing plan advisory (status:executing untouched >3d — likely orphaned):"
   echo "$stale_executing"
-  echo "Triage: flip to status:shipped + cite SHA, status:abandoned, or pick back up."
+  echo "Triage: flip to status:implemented (code on branch is enough — main-landing is a release concern, not a plan-status concern), status:abandoned, or pick back up."
   echo "---"
 fi
 ```

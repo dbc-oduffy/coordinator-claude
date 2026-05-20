@@ -118,7 +118,7 @@ Read `CONTEXT.md` if present at the project root; if absent, proceed silently �
 
 Before defining the file structure, check what's already been documented about the relevant systems. Read these if they exist (skip silently if they don't):
 
-1. `tasks/architecture-atlas/systems-index.md` → relevant system pages in `tasks/architecture-atlas/systems/`
+1. `docs/architecture/systems-index.md` → relevant system pages in `docs/architecture/systems/`
 2. `docs/wiki/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/wiki/`
 3. `tasks/repomap.md` (or task-scoped variant)
 

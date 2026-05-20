@@ -22,9 +22,9 @@ Surface to PM:
 ```
 Week covers: D days (YYYY-MM-DD to YYYY-MM-DD)
 Commits: N (range: <oldest-sha>..<newest-sha>)
-Shipped workstreams: <list from Plans touched: shipped fields>
+Implemented workstreams: <list from Plans touched: implemented fields>
 Blockers: <list or "none">
-Priorities met: <from HEADER.md priorities vs. shipped plans>
+Priorities met: <from HEADER.md priorities vs. implemented plans>
 ```
 
 Ask: _"Does this summary match your recollection? Proceed with release ceremony?"_
@@ -380,7 +380,7 @@ Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and ex
 
 ## Step 8: Tracker Reconciliation
 
-Read `docs/project-tracker.md` (if it exists). For each workstream that appears in the week's `Plans touched: shipped` fields, verify the tracker status is updated to reflect completion. Fix in place.
+Read `docs/project-tracker.md` (if it exists). For each workstream that appears in the week's `Plans touched: implemented` fields, verify the tracker status is updated to reflect completion. Fix in place.
 
 Report: _"Tracker reconciliation: N workstreams updated."_
 
@@ -556,7 +556,7 @@ Present to PM: _"Release notes drafted at `archive/release-notes/YYYY-MM-DD-vX.Y
 
 Propose a semver increment based on changelog content:
 - **Major:** breaking change noted in any `Decisions:` field.
-- **Minor:** new feature or new command shipped (`Plans touched: shipped` with new commands/skills).
+- **Minor:** new feature or new command shipped (`Plans touched: implemented` with new commands/skills).
 - **Patch:** fixes, doc updates, refactors only.
 
 Present to PM: _"Proposed: vX.Y.Z (rationale: [one line]). Confirm or adjust."_

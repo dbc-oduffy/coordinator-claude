@@ -6,9 +6,19 @@ required:
   author: string
   status:
     type: enum
-    values: [draft, reviewed, approved, executing, deferred, shipped, abandoned, superseded]
+    values: [draft, reviewed, approved, executing, implemented, deferred, abandoned, superseded]
 optional:
   branch: string
   reviewer: string
   source: string
   superseded_by: string
+
+# status lifecycle (2026-05-20):
+#   draft → reviewed → approved → executing → implemented
+#   sidetracks: deferred, abandoned, superseded
+#
+# "implemented" means the work this plan governed is complete on its working
+# branch (regression net green, last task done). Whether the branch lands on
+# main is a release concern tracked via completion log + commit SHA +
+# week-changelog + handoff `deployment_state:` — NOT via plan frontmatter.
+# Plans flip when code is done, not when the merge ceremony runs.

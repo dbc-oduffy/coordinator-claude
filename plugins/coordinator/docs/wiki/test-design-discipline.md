@@ -270,6 +270,82 @@ cp "$src" "$case_dir/$(basename "$src")"
 
 **Greppable signature:** `mktemp .../<allowlisted-name>.XXXXXX` in any sweep/test script. Adjacent: test fixtures with random-suffix file extensions that defeat MIME-type detection have the same shape — the discriminator the script uses (basename, extension, MIME) must round-trip through the fixture's filename strategy.
 
+## 30. Slow Tests Masquerading as Unit Tests Blow Up Default Suites
+
+*2026-05-20, cross-repo sweep.* Default `pytest` (or jest, or `node --test`) MUST run only fast unit tests. Any test that shells out to a real script, does heavy `importlib`, hits real network or non-tmpfs filesystem, or sleeps > 100ms requires an explicit `@pytest.mark.slow` / `@pytest.mark.integration` (or framework equivalent) AND a default-exclusion mechanism (`addopts = "-m 'not slow'"`, jest `testPathIgnorePatterns`, node:test `{ skip: process.env.FAST === '1' }`).
+
+**Empirical anchor.** Cross-repo sweep on 2026-05-20 found 200+ unmarked offenders across 10 sibling repos. `/x/project-rag` alone shipped 86 unmarked tests where `tests/install/**` and `tests/integration/**` drive real installer / venv / doctor / pip-resolver subprocesses — realistic floor is **minutes** on a clean `pytest` invocation. `/x/claude-unreal-holodeck` shipped 39 files (~290 fns) including a `time.sleep(31)` synthetic-timeout self-test. Initial premise blamed `/x/project-rag-ue-addon` (`26 s × ~1250 install tests = ~10 h`) but empirical measurement showed `tests/install/` runs in 41.6 s — the per-test setup-script invocation uses `--phase-list` / `--i-am-agent` early exits, not full installs. Lesson: docstring-promised timings are author intent, not measured truth — verify with `--durations=20` before trusting.
+
+**Threshold heuristic.** Any test > 1 s wall-clock, or any test whose body invokes:
+- `subprocess.run` / `os.system` / `execSync` / `spawnSync` / `child_process`
+- `importlib.import_module(<heavy-pkg>)` (heavy tree imported at collection)
+- real network: `fetch('http`, `requests.get('http`, `urllib.request`, raw `socket`
+- real filesystem I/O on non-tmpfs (NOT `tmp_path` / `tempfile.NamedTemporaryFile`)
+- `time.sleep > 0.1` / `setTimeout > 100`
+
+… is **presumed slow** until proven otherwise.
+
+**Greppable signatures:**
+- pytest: `subprocess.run(...)` or `importlib.import_module(<heavy>)` in a `test_*.py` without `pytestmark = pytest.mark.slow` or per-test `@pytest.mark.slow|integration`.
+- conftest / pyproject with no `addopts` AND no marker-based default exclusion.
+- jest config without `testPathIgnorePatterns` for `tests/integration/**`.
+- node:test files with `execSync` / `spawnSync` and no `{ skip: process.env.FAST === '1' }` guard.
+
+**Config posture pattern (correct shape):**
+
+```toml
+[tool.pytest.ini_options]
+addopts = "-m 'not slow and not integration'"
+markers = [
+    "slow: marks slow tests",
+    "integration: marks integration tests",
+]
+```
+
+```js
+// jest.config.js
+module.exports = {
+  testPathIgnorePatterns: ["<rootDir>/tests/integration/", "<rootDir>/tests/scripts/", "<rootDir>/tests/e2e/"],
+};
+```
+
+```js
+// node:test
+test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : false }, async () => { ... });
+```
+
+**Adjacent (Item 24).** Heavy-boot CLIs warrant unit-shape integration tests, not subprocess shape. When a test shells out to a CLI just to assert its argparse surface, the right refactor is import-and-call. Marker placement is the cheap reversible fix; refactor is the real fix.
+
+**Authorial intent ≠ measured truth.** Verify with `pytest --durations=20`, jest `--logHeapUsage --verbose`, or framework equivalent before trusting a docstring claim about a test's runtime.
+
+## 31. Tests Must Assert Positively, Not Just Survive
+
+*2026-05-20, project-rag audit.* A test whose only effective check is that the function-under-test did not raise — no `assert`, no `pytest.raises`, no `pytest.fail`, no `self.assertX` — passes even if the FUT becomes `def fut(...): pass`. The "did not raise" property carries zero signal once the FUT is silently a no-op; future refactors can gut the function and every such test stays green.
+
+**Rule:** every test must have at least one assertion that would FAIL if the function-under-test were replaced with `def fut(...): pass`. Apply the test at write-time:
+
+> *"If the FUT became `def fut(...): pass`, would this test still pass?"* If yes, no signal — either add the positive assertion (return-value comparison, observable side-effect, captured-arg check) or delete the test.
+
+**Legitimate exemptions** (these genuinely retain signal under the strict standard):
+- **Mock-call oracles** — `mock.assert_called_once()` / `assert_not_called()` IS the positive assertion. A FUT-becomes-`pass` would fail `assert_called_once`; spurious-call regressions would fail `assert_not_called`.
+- **Domain-type contracts** — `isinstance(result, <DomainClass>)` where the class is a named domain type (not `dict`/`list`/`int` returned by a function always typed that way). FUT-becomes-`pass` returns `None`, isinstance fails.
+- **Immutability contracts** — `isinstance(x, frozenset)` / `isinstance(x, tuple)` when the test name or docstring explicitly says "must be frozenset/tuple — prevents accidental in-place extension".
+- **Helper-asserts-internally** — the test body calls a helper like `_assert_envelope_shape(...)` that contains real assertions inside. Verify the helper, not the caller.
+- **Paired with active sibling** — an idempotency / no-op test sits in a class where a sibling test exercises the FUT positively. Cite the sibling's file:line in a comment.
+- **Smoke imports** — `def test_smoke_import(): from x import y` — import-not-raising IS the signal for the file's module-load contract.
+- **`xfail`-marker contracts** — `@pytest.mark.xfail(strict=True)` body whose call raises is verified via the marker; `strict=False` is weak — any exception (including test infra bugs per §25) produces `xfail`. Acceptable only when the body explicitly names the known-limit in a comment AND `xpass` surfacing is acceptable evidence when the limit is fixed.
+- **Deferred placeholders** — `pytest.skip("AC-X deferred to Chunk N")` or `assert True, "deferred"` — only legitimate if the deferral is actively tracked in a plan doc, not orphaned.
+
+**Greppable signatures** for an audit pass:
+- `# (should|must|does|will) not raise` followed by the FUT call and end-of-function.
+- Test docstring says "passes through" / "silent when X" / "is no-op when Y" / "is idempotent" — verify the body isn't bare-call-no-assert.
+- Final statement of the test body is a call to the FUT with no following assert (AST-detectable).
+- `assert isinstance(result, (dict|list|int|str|float))` as the ONLY assertion, where the FUT's type annotation already promises that return type.
+
+**Composes with §17** (Name-Promises-Behavior vs Docstring-Admits-Shape-Only): rule 17 catches name/docstring disagreement; this rule catches body/contract disagreement. A test can pass rule 17 (name and docstring agree on "is silent when X") and still fail this rule (body has no signal that the silence-branch was actually taken).
+
+**Empirical anchor.** *2026-05-20, project-rag no-positive-assertion audit* (consumer-side artifact: `/x/project-rag/docs/wiki/no-positive-assertion-audit-2026-05-20.md`). AST scout flagged 236 candidates across 106 test files in `project-rag/tests/`. After filter pass (helpers-that-assert-internally, contract-no-op-by-design) and triage under the strict standard, 9 real positive-signal gaps surfaced. Two of the proposed fixes had factually-wrong premises (audit conflated dedup-correctness with None-handling-graceful; audit thought regex matched when it didn't) — the executor's verify-before-edit pass caught both, illustrating that even a careful audit benefits from a literal "run the regex / check the hash" pre-flight before declaring positive-assertion shape.
+
 ## Skill Reference
 
 `docs/wiki/test-driven-development.md` should cite items 1, 2, 3, 5, 8, 9, 10, and 11 in its preflight checklist when the planned change crosses a contract or refactors >3 files of similar shape.

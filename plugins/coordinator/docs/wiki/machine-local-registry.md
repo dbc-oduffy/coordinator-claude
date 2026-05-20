@@ -2,6 +2,8 @@
 
 <!-- spec-backlink: docs/plans/2026-05-19-machine-local-registry.md § 5 -->
 
+This wiki is the **substrate doctrine** — what belongs in the registry, how the reader resolves values, what does NOT belong. For **operator-facing health verification** of the registry (is my install populated correctly? what to do when probes fail?), see the companion wiki: [`coordinator-doctor.md`](coordinator-doctor.md). Together these wikis form the doctrine-vs-operator-guide pair for the machine-local substrate.
+
 **Purpose.** Durable doctrine for the per-machine registry at `~/.claude/machine-local/`. Covers what belongs there, what does not, how the reader resolves values, anti-patterns, and how this substrate composes with the rest of the coordinator install chain.
 
 ## 1. Purpose and Disambiguation
@@ -50,16 +52,16 @@ The reader (`bin/machine-local get <key>`) resolves in this order, most-specific
 
 Layers 1–4 are all `.toml` files and all outrank the env layer. The env layer (5) sits below all `.toml` layers because env-vars in a parent process are *ambient*, not deliberate — any export in a parent shell, IDE launch configuration, `.envrc`, or CI step would silently shadow the operator's registry values if env ranked above them. The registry's authority comes precisely from being the audited, operator-set source. The env var is an emergency one-off escape valve, not the default channel.
 
-**`MACHINE_LOCAL_<KEY>` naming.** The key `repos.holodeck` maps to env var `MACHINE_LOCAL_REPOS_HOLODECK` (dots and hyphens become underscores, all uppercase). This is the named successor to the ad-hoc per-repo env-var opt-in pattern — for example, the `HOLODECK_REPO_ROOT=` pattern documented in `docs/wiki/cross-repo-citation-conventions.md § peerless-installs`. That pattern was the right local answer at the time; machine-local unifies all such ad-hoc env vars under one named registry with a documented fallback chain.
+**`MACHINE_LOCAL_<KEY>` naming.** The key `repos.claude_unreal_holodeck` maps to env var `MACHINE_LOCAL_REPOS_CLAUDE_UNREAL_HOLODECK` (dots and hyphens become underscores, all uppercase). This is the named successor to the ad-hoc per-repo env-var opt-in pattern — for example, the `HOLODECK_REPO_ROOT=` pattern documented in `docs/wiki/cross-repo-citation-conventions.md § peerless-installs`. That pattern was the right local answer at the time; machine-local unifies all such ad-hoc env vars under one named registry with a documented fallback chain.
 
 **Short shell-out examples:**
 
 ```bash
 # Resolve a sibling-repo root; fail loud if not set
-repo=$(machine-local get repos.holodeck)
+repo=$(machine-local get repos.claude_unreal_holodeck)
 
 # Resolve with a sibling-relative fallback (belt-and-suspenders pattern)
-repo=$(machine-local get repos.holodeck --default "$(cd "$(dirname "$0")/../claude-unreal-holodeck" && pwd)")
+repo=$(machine-local get repos.claude_unreal_holodeck --default "$(cd "$(dirname "$0")/../claude-unreal-holodeck" && pwd)")
 ```
 
 Consumers that want the full resolution chain (registry → sibling-relative → error with remediation) compose it themselves using `--default` or by checking the exit code of `machine-local has <key>` before the fallback.
@@ -112,7 +114,7 @@ The reader is **read-only**. It never writes, never caches to disk, never mutate
 
 **(e) Adding a value that is universal across machines.** If the value is the same on every machine the operator runs (e.g., a fixed public URL, a schema version constant, a vendor SDK that always installs to the OS-canonical location), commit it to the relevant repo. Git-tracked durability is the right primitive; no operator action needed per machine.
 
-**(f) Putting machine-specific path values in `registry.toml` instead of `registry.local.toml`.** `registry.toml` is git-tracked and travels with the `~/.claude` repo across machines. If you bake `repos.holodeck = "E:/dev/claude-unreal-holodeck"` into `registry.toml`, that path is wrong on every other machine the operator uses. Machine-specific values go in `registry.local.toml`, which is gitignored. See §9 for the full split rationale and the Striker-and-Mac worked example.
+**(f) Putting machine-specific path values in `registry.toml` instead of `registry.local.toml`.** `registry.toml` is git-tracked and travels with the `~/.claude` repo across machines. If you bake `repos.claude_unreal_holodeck = "E:/dev/claude-unreal-holodeck"` into `registry.toml`, that path is wrong on every other machine the operator uses. Machine-specific values go in `registry.local.toml`, which is gitignored. See §9 for the full split rationale and the Striker-and-Mac worked example.
 
 ## 9. Tracked Baseline + `.local` Overrides — Why and When
 
@@ -169,6 +171,19 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 **Adding a new namespace.** Register here in the same commit that creates the directory on disk. PM-authorized; DoE-altitude doctrine call (the per-project namespace claim is shared infra, not a project-internal choice).
 
 **Retiring `~/.<project>/` top-level dirs.** When a project still owns a `~/.<project>/` top-level namespace, migrate to `~/.claude/<project>/` and register here. Operator-visible path migration; one release of relocation logic. The `~/.project-rag/wiring.env` retirement (PM-handled, downstream of this registry shipping) is the worked precedent.
+
+## Verifying Registry Health
+
+These are the coordinator-doctor.md §3 probes P-1 through P-4. Paste them in a shell for a quick sanity check; consult [`coordinator-doctor.md`](coordinator-doctor.md) for the full structured diagnostic experience (including remediation steps for each failure mode).
+
+```bash
+# Quick verify (paste in shell):
+test -d ~/.claude/machine-local/                          # P-1 — substrate exists
+~/.claude/bin/machine-local has schema                    # P-4 — reader works + schema declared
+~/.claude/bin/machine-local get repos.coordinator_claude  # P-3 — sample key resolves
+```
+
+If any probe fails, coordinator-doctor.md §3 has the remediation steps.
 
 ## Related Wikis
 
