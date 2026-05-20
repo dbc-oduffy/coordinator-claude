@@ -205,7 +205,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
 ## Notes
 
-- **T3 handoff detection.** If the handoff frontmatter shows `cost: T3` OR the handoff body contains ≥7 numbered implementation steps AND ≥3 distinct architectural seams, surface the following before executing: _"This handoff is T3 in scope. Recommend forking via `/coordinator:spinoff` and running `/coordinator:plan` before dispatching executors. Proceed directly or fork-and-plan?"_ **Wait for PM response.** The "grab the baton and run" default applies to T1/T2 handoffs; T3 scope warrants decomposition + the Staff Engineer review on the plan first.
+- **T3 handoff detection.** If the handoff frontmatter shows `cost: T3` OR the handoff body contains ≥7 numbered implementation steps AND ≥3 distinct architectural seams, surface the following before executing: _"This handoff is T3 in scope. Recommend forking via `/coordinator:spinoff` and running `/coordinator:plan` before dispatching executors. Proceed directly or fork-and-plan?"_ **Wait for PM response.** The "grab the baton and run" default applies to T1/T2 handoffs; T3 scope warrants decomposition + Patrik review on the plan first.
 - This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/session-start` territory. Pickup is laser-focused on the handoff.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
