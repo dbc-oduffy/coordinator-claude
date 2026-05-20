@@ -3,7 +3,7 @@ title: Verification before completion
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator/CLAUDE.md
   - docs/wiki/delegate-execution.md
   - docs/wiki/round-trip-contract-tests.md
 ---
@@ -106,7 +106,7 @@ Executor and apply-agents consistently under-count their own work in chat (obser
 3. For spec-driven dispatches that mandate a canonical phrase or pattern across N files, also run `grep -l "<canonical phrase>" <target-files>`. File count alone is not proof — the canonical content must actually appear.
 
 
-### (c) Edit tool success is not proof of change (DroneSim T1.3)
+### (c) Edit tool success is not proof of change
 
 After a sequence of Edit calls — especially before claiming a fix is in or before commit — run `git diff <file>` (or `git diff --stat`) to confirm the bytes actually moved. Edit returns success on no-ops where the new_string already matched.
 
@@ -225,13 +225,39 @@ For any plan with declared acceptance criteria, "done" means more than green tes
 - [ ] Every **acceptance criterion** is satisfied (or explicitly waived in writing with PM acknowledgement).
 - [ ] Tests/checks ran and the output is captured (link or excerpt — not "trust me").
 - [ ] If user-visible: **manual demo path verified** — you actually walked the steps, not just inferred from green tests.
-- [ ] If user-visible OR if scope is patch-where-refactor-might-be-cheaper: **the VP-Product Reviewer** (`coordinator:vp-product`) has been dispatched and findings are integrated. VP-Product verdict line is staged for the PR body.
-- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional).
+- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional). The VP-of-Product lens at merge (refactor-vs-patch, shape, dumb questions) is the PM's call — not an auto-dispatched YK gate.
 - [ ] **Known limitations** are documented — what *isn't* covered, what edge cases were deferred.
 - [ ] **Rollback or mitigation** is named — if this turns out wrong in production, what's the recovery move?
 - [ ] **Ship verdict** is staged for the PM (see `coordinator:merging-to-main`).
 
 This is the bridge between engineering output and PM confidence. "The agent says it's done" is not the gate; this is.
+
+## AC Gate Degradation and Probe Anchoring
+
+> See coordinator/CLAUDE.md § Verification Before Done for the boot-context tripwire.
+
+### Half-verified AC gates (L338)
+
+When an acceptance criterion has two halves — for example, "static analysis passes" AND "runtime initialization succeeds" — a pass on the first half does NOT constitute a pass on the gate. Document the asymmetry explicitly in the plan or completion report:
+
+- Name which direction each half covers.
+- Don't mark the AC "fully passed" until both halves are verified independently.
+- Static analysis tools (linters, type-checkers, build-time guards) do not verify runtime behavior. A runtime initialization step (process boot, IPC handshake, HTTP ping) is required for the runtime half.
+
+**Failure shape:** an executor reports "AC passed" after running static analysis only. The runtime half was never exercised. The bug ships.
+
+**Counter:** whenever an AC mixes static and runtime concerns, split it into two checkboxes in the plan. Both must be checked before the gate closes.
+
+### Health probe anchoring (L495)
+
+Health probes must anchor to the **canonical artifact**, never to a convenience sidecar that may be absent after an in-place migration.
+
+- A DB schema version probe reads the canonical schema table or a version column the schema itself declares — not a sidecar `version.txt` that may have been left behind from a prior layout.
+- A manifest probe reads the manifest at its canonical install path — not a copy that the installer may have moved without updating the sidecar.
+
+**Failure shape:** an in-place migration moves the canonical artifact, leaves the sidecar behind, and the probe keeps returning green against the stale sidecar — health looks good while the runtime is broken.
+
+**Rule:** when adding a health probe, grep for every location that writes the artifact being probed. If there's a sidecar, verify the migration path keeps the sidecar in sync — or remove the sidecar probe and anchor to the canonical path directly.
 
 ## The Bottom Line
 

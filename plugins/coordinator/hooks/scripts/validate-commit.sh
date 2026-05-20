@@ -3,10 +3,19 @@
 # Fires on ALL Bash tool invocations (PreToolUse matcher is tool-name-only).
 # Exits immediately (<10ms) when command is not git commit.
 #
-# Checks (all warnings, never blocking — exit 0 always):
-#   1. .gitignore changes that add patterns matching curated data dirs
-#   2. JSON validity in data/ and evaluation/ directories
-#   3. Empty JSONL files in chunks/
+# Checks:
+#   1. .gitignore changes that add patterns matching curated data dirs (warn-only)
+#   2. JSON validity in data/ and evaluation/ directories (warn-only)
+#   3. ShellCheck on staged .sh files (warn-only)
+#   4. Empty JSONL files in chunks/ (warn-only)
+#   5. Scoped staging — foreign-file detection against session touch list
+#      (warn-only in Phase 2; hard block when COORDINATOR_SCOPE_STRICT=1)
+#   6. FULLY DECOMMISSIONED — branch-date enforcement removed 2026-05-07
+#   7. CLAUDE.md char budget — soft warn at 38K chars; hard block at 40K
+#      (override: COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET=1)
+#   8. Plan/handoff frontmatter mutation — commit subject must name the
+#      mutation (warn-only; hard block when COORDINATOR_FRONTMATTER_STRICT=1)
+# Review: integrator — stale header (Checks 1-3 only); updated to enumerate all 8
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
@@ -82,7 +91,7 @@ JSON_FILES=$(echo "$STAGED" | grep -E '^(data|evaluation)/.*\.json$' || true)
 if [[ -n "$JSON_FILES" ]]; then
   # Resolve via shared lib so Windows uses pythonw.exe (no console flash).
   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-python.sh"
-  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/resolve-python.sh"
+  [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
   # shellcheck source=/dev/null
   [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 
@@ -104,7 +113,7 @@ SH_FILES=$(echo "$STAGED" | grep -E '\.sh$' || true)
 if [[ -n "$SH_FILES" ]] && command -v shellcheck &>/dev/null; then
   while IFS= read -r file; do
     if [[ -f "$file" ]]; then
-      SC_OUT=$(tr -d '\r' < "$file" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|${file}:|g" || true)
+      SC_OUT=$(git show ":${file}" 2>/dev/null | tr -d '\r' | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|${file}:|g" || true)
       if [[ -n "$SC_OUT" ]]; then
         WARNINGS="${WARNINGS}\nSHELLCHECK: $file has issues:\n${SC_OUT}"
       fi
@@ -149,7 +158,7 @@ if [[ -n "$SESSION_ID" ]]; then
     # Source the session library
     LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-session.sh"
     if [[ ! -f "$LIB_PATH" ]]; then
-      LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh"
+      LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
     fi
 
     if [[ -f "$LIB_PATH" ]]; then
@@ -217,7 +226,7 @@ if [[ -n "$CLAUDEMD_FILES" ]]; then
   while IFS= read -r _cf; do
     [[ -z "$_cf" ]] && continue
     # Use the staged blob (what would actually land), not the worktree file.
-    _csize=$(git show ":${_cf}" 2>/dev/null | wc -c | tr -d ' ')
+    _csize=$(git show ":${_cf}" 2>/dev/null | LC_ALL=C.UTF-8 wc -m | tr -d ' ')
     [[ -z "$_csize" || "$_csize" -eq 0 ]] && continue
     if [[ "$_csize" -gt "$CLAUDEMD_HARD_LIMIT" ]]; then
       CLAUDEMD_HARD_VIOLATION="${CLAUDEMD_HARD_VIOLATION}"$'\n'"  ${_cf} = ${_csize} chars (limit ${CLAUDEMD_HARD_LIMIT})"
@@ -288,7 +297,8 @@ if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; t
   # Build the deny reason — surfaced to the EM via permissionDecisionReason
   REASON="BLOCKED: commit contains files outside this session's scope:${SCOPE_FOREIGN_FILES}"$'\n\n'
   REASON+="Override: set COORDINATOR_OVERRIDE_SCOPE=1 to commit anyway (logged to overrides.log)."$'\n'
-  REASON+="Or use the scoped helper: ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \"<subject>\""
+  REASON+="Stage explicit paths: git add -- <paths>, then git commit -m \"<subject>\" -- <paths>."$'\n'
+  REASON+="The helper is reserved for sweep ceremonies (/session-start, /workday-complete, /update-docs, relay-protocol, distillation — all --blanket) and agents/executor.md (--expected-branch per SC-DR-006). See docs/wiki/scoped-safety-commits.md SC-DR-008."
 
   # Emit the JSON deny form on stdout (only parsed on exit 0).
   # jq is preferred for proper escaping; fall back to printf-based JSON if absent.
@@ -314,10 +324,95 @@ fi
 
 # --- Check 6: FULLY DECOMMISSIONED ---
 # Branch discipline at commit time was Check 6 in this file. It was temporarily
-# consolidated into block-off-daily-branch.sh (`commit` arm) by Staff Engineer F11.
+# consolidated into block-off-daily-branch.sh (`commit` arm) by Patrik F11.
 # That commit arm has now been deleted entirely (2026-05-07, per PM call) —
 # the hook no longer enforces branch-date at commit time at all.
 # See docs/plans/2026-05-07-daily-branch-doctrine-rethink.md Phase 2.
 # This hook handles commit-content validation only (Checks 1-5 above).
+
+# --- Check 8: Plan/handoff frontmatter mutation needs commit-subject discipline ---
+# When a staged file is under tasks/plans/, tasks/handoffs/, or docs/plans/ AND
+# the diff modifies frontmatter (lines between the first two `---` delimiters,
+# specifically `status:` / `deployment_state:` / `consumed_by:` / `shipped_in:` keys),
+# the commit subject MUST name at least one of:
+#   - the frontmatter key that changed (e.g., "deployment_state:", "status:")
+#   - one of the lifecycle verbs: pickup, handoff, consume, ship, abandon, supersede
+# Otherwise warn (or block under COORDINATOR_FRONTMATTER_STRICT=1).
+#
+# Doctrine: coordinator/CLAUDE.md:206-209 — deployment_state and status enums are
+# load-bearing for /session-start, /workday-start, query-driven surfacing. A
+# frontmatter mutation without a subject-line audit trail makes
+# `git log -- tasks/handoffs/<file>` opaque.
+
+FRONTMATTER_FILES=$(echo "$STAGED" | grep -E '^(tasks/plans|tasks/handoffs|docs/plans)/.*\.md$' || true)
+FRONTMATTER_MUTATIONS=""
+
+if [[ -n "$FRONTMATTER_FILES" ]]; then
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    [[ ! -f "$file" ]] && continue
+
+    # Check whether the staged diff touches frontmatter lines (between first two `---`).
+    # Use `git diff --cached -U0` to get exact added/removed lines.
+    DIFF=$(git diff --cached -U0 -- "$file" 2>/dev/null || true)
+    [[ -z "$DIFF" ]] && continue
+
+    # Look for added/removed lines matching frontmatter-sensitive keys.
+    # Match lines starting with +/- (but not +++/---) followed by a key.
+    # NOTE: this pattern matches any diff line with these keys, not just lines
+    # inside the YAML frontmatter block. False positives possible if the body
+    # contains instructional YAML snippets (e.g., a docs/plans/ file showing
+    # `deployment_state: ready_to_fire` as an example). Path filter + warn-only
+    # nature makes this acceptable; tighten if false positives observed.
+    SENSITIVE=$(echo "$DIFF" | grep -E '^[+-](status|deployment_state|consumed_by|shipped_in|predecessor|kind):' | grep -v -E '^(\+\+\+|---)' || true)
+    if [[ -n "$SENSITIVE" ]]; then
+      FRONTMATTER_MUTATIONS="${FRONTMATTER_MUTATIONS} ${file}"
+    fi
+  done <<< "$FRONTMATTER_FILES"
+fi
+
+if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
+  # Extract commit subject from the command. The commit message is in the -m argument.
+  # Tokens like: git commit -m "subject" or git commit -m 'subject' or here-doc.
+  # Parse from the full COMMAND variable (already extracted at top of script).
+  SUBJECT=$(echo "$COMMAND" | sed -n "s/.*-m[[:space:]]*[\"']\\([^\"']*\\)[\"'].*/\\1/p" | head -1)
+  # If sed didn't match (here-doc or unusual quoting), leave SUBJECT empty — fail open with warning.
+
+  SUBJECT_LC=$(echo "$SUBJECT" | tr '[:upper:]' '[:lower:]')
+  # Accept if subject names a frontmatter key OR a lifecycle verb.
+  SUBJECT_OK=0
+  for token in "status:" "deployment_state:" "consumed_by:" "shipped_in:" "predecessor:" "kind:" \
+               "pickup" "handoff" "consume" "ship" "abandon" "supersede"; do
+    if echo "$SUBJECT_LC" | grep -qF "$token"; then
+      SUBJECT_OK=1
+      break
+    fi
+  done
+
+  if [[ "$SUBJECT_OK" -eq 0 ]]; then
+    WARNINGS="${WARNINGS}\nFRONTMATTER-MUTATION: staged files modify load-bearing frontmatter (status/deployment_state/consumed_by/shipped_in/predecessor/kind) without naming the mutation in the commit subject:${FRONTMATTER_MUTATIONS}\n  → Commit subject should include the changed key (e.g., 'deployment_state:') OR a lifecycle verb (pickup/handoff/consume/ship/abandon/supersede). Without this, git log -- <file> loses the audit trail. See coordinator/CLAUDE.md § Handoff Lineage. (heredoc commit subjects may not parse — confirm your subject names the mutation if you used a heredoc form)"
+
+    # Strict-mode block (gated on COORDINATOR_FRONTMATTER_STRICT=1).
+    if [[ "${COORDINATOR_FRONTMATTER_STRICT:-0}" == "1" && "${COORDINATOR_OVERRIDE_FRONTMATTER:-0}" != "1" ]]; then
+      REASON="BLOCKED: commit modifies load-bearing frontmatter without subject-line audit trail.\n\nFiles:${FRONTMATTER_MUTATIONS}\n\nFix: amend commit subject to name the changed key (e.g., 'handoff: flip deployment_state to ready_to_fire') or a lifecycle verb.\n\nOverride: COORDINATOR_OVERRIDE_FRONTMATTER=1 (logged)."
+      if command -v jq &>/dev/null; then
+        jq -nc --arg reason "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
+      else
+        ESC_REASON=${REASON//\\/\\\\}; ESC_REASON=${ESC_REASON//\"/\\\"}; ESC_REASON=${ESC_REASON//$'\n'/\\n}
+        printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$ESC_REASON"
+      fi
+      exit 0
+    fi
+
+    # Override logging — mirrors CLAUDEMD_BUDGET override-log shape (L260-266).
+    if [[ "${COORDINATOR_FRONTMATTER_STRICT:-0}" == "1" && "${COORDINATOR_OVERRIDE_FRONTMATTER:-0}" == "1" ]]; then
+      GIT_ROOT_LOG=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      OVERRIDE_LOG="${GIT_ROOT_LOG:-.}/.git/coordinator-sessions/${SESSION_ID:-no-session}/overrides.log"
+      mkdir -p "$(dirname "$OVERRIDE_LOG")" 2>/dev/null || true
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | ${SESSION_ID:-no-session} | OVERRIDE-FRONTMATTER-MUTATION |${FRONTMATTER_MUTATIONS}" >> "$OVERRIDE_LOG" 2>/dev/null || true
+      WARNINGS="${WARNINGS}\nFRONTMATTER-MUTATION (override):${FRONTMATTER_MUTATIONS}"
+    fi
+  fi
+fi
 
 exit 0

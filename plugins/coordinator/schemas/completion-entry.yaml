@@ -1,0 +1,147 @@
+schema: completion-entry
+applies_to: "archive/completed/*/*.md"
+# Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Cross-phase frontmatter schema
+#
+# Per-entry completion log record. Each file in archive/completed/YYYY-MM/ carries this
+# frontmatter, authored by /session-end Step 2.6 and queryable via bin/query-completions.
+#
+# Forward-compat: Phase 2 populates `loe` and may set chain_terminal: false on mid-chain
+# handoff ledger entries. Phase 3 adds no new fields — only new query expressions against
+# existing fields. No schema bump required for either phase.
+required:
+  title: string
+  # One-line past-tense description of work shipped (e.g. "Rewrote session-end Step 2.6
+  # to write per-entry completion files"). Authored by the EM at /session-end time.
+
+  created: iso-date
+  # Date of /session-end authoring (YYYY-MM-DD). Written by /session-end Step 2.6.
+  # Note: this is the session-end date, not necessarily the date the work was done —
+  # they differ when a session spans midnight.
+
+  nature:
+    type: enum
+    values: [roadmap, bugfix, tech-debt, infra]
+    # PM-confirmed enum 2026-05-19. No 'other' slot by design — every work unit maps to
+    # one of the four categories. Absence in legacy files is treated as absence-as-signal
+    # (presumed minor); no retroactive backfill.
+    # roadmap  — new capability or feature tracked on the product roadmap
+    # bugfix   — defect correction, user-visible or not
+    # tech-debt — internal cleanup, refactor, or test coverage
+    # infra    — tooling, CI, schema, ceremony, or coordinator infrastructure
+
+optional:
+  chain: string
+  # Plan-md path | handoff-md path | workstream slug | null.
+  # Null is permitted for standalone single-session work with no upstream context.
+  # When set, /workday-complete clusters entries by this value and generates a
+  # narrative summary for chains with ≥2 entries on the same day.
+  # Example values:
+  #   "docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md"
+  #   "tasks/handoffs/2026-05-19-installer-redesign.md"
+  #   "installer-redesign"
+
+  commits:
+    type: list-of-string
+    # Commit SHAs landing this work. May be an empty list if /session-end runs before
+    # the work is committed (uncommon but permitted). /merge-to-main uses this list
+    # to correlate entries with the release diff.
+
+  status:
+    type: enum
+    values: [pending-release, released]
+    # Lifecycle state for release tracking. Default is pending-release on write.
+    # /merge-to-main flips to released and stamps released_in, released_at, released_sha
+    # after the merge commit lands on main.
+
+  released_in: string
+  # Version tag (e.g. v2.1.0) set by /merge-to-main on release cut.
+  # Absent while status=pending-release; present once released.
+
+  released_at: iso-date
+  # Date of release cut (YYYY-MM-DD), set by /merge-to-main.
+
+  released_sha: string
+  # Merge commit SHA on main, set by /merge-to-main. Ties the entry to a specific
+  # point in the git log for forensic purposes.
+
+  chain_terminal: bool
+  # Phase 2 field. true if this entry is the chain-terminal aggregation entry;
+  # false/absent on mid-chain handoff ledger entries.
+  # Phase 1 default: /session-end writes chain_terminal: true on every entry
+  # (no mid-chain ledger entries exist in Phase 1).
+  # Phase 2 will set chain_terminal: false for mid-chain entries and aggregate
+  # the chain at the terminal entry. No schema bump required.
+
+  loe: object
+  # Phase 2 populates. Phase 1 leaves null/absent.
+  # Native YAML nested-object shape with fields:
+  #   agent_dispatches: number
+  #   opus_dispatches: number
+  #   em_tokens: number | null
+  #   tshirt: "XS"|"S"|"M"|"L"|"XL"
+  # Validator caveat: bin/lib/schema.js currently emits a warning when this field
+  # is encountered because nested-object types are validator-side TBD. The schema
+  # spec is authoritative; the warning is non-fatal. Code-reviewer F4/F10 follow-up:
+  # extend the validator to handle nested-object fields.
+
+  chain_loe: object
+  # Set by /session-end on chain-terminal entries (chain_terminal: true) when the
+  # session was opened via /pickup. Populated by bin/aggregate-chain-loe.sh from
+  # the predecessor handoff chain's Session Ledger blocks.
+  # Native YAML nested-object shape with fields:
+  #   sessions: number               # count of distinct sessions in the chain
+  #   agent_dispatches: number       # SUM across the chain (deduped by session_id)
+  #   opus_dispatches: number        # SUM across the chain
+  #   em_tokens: number | null       # SUM across the chain (null if any contributor is null)
+  #   tshirt: "XS"|"S"|"M"|"L"|"XL"  # recomputed from summed numbers via same threshold table
+  # /workweek-complete Step 8.5 surfaces XL-or-above chain_loe.tshirt entries.
+
+  chain_sessions_with_ledger: string
+  # "N of M" annotation set by bin/aggregate-chain-loe.sh — number of predecessor
+  # handoffs that carried a Session Ledger block out of total predecessors walked.
+  # Legacy pre-Phase-2 handoffs in the chain do not have ledgers; this field
+  # records the coverage so downstream consumers can weight the chain_loe signal.
+
+  chain_span_days: number
+  # Number of days spanned by the predecessor chain (terminal session's created
+  # date minus chain-root handoff's created date). null when the chain has only
+  # one session or no datable predecessor.
+
+  chain_starting_handoff: string
+  # Path to the chain-root handoff (the predecessor with predecessor: null/none).
+  # Forensic anchor for the chain — lets a future reader walk the chain from the
+  # root by following predecessor: links forward from this handoff.
+
+  chain_walk_terminated_early: string
+  # Set ONLY when the chain walk terminated abnormally — value is one of:
+  #   "cycle-detected"   — predecessor: chain looped back to an already-visited file
+  #   "missing-link"     — predecessor: pointed to a path that doesn't exist on disk
+  # The chain_loe sum is a PARTIAL aggregate when this field is set; treat as
+  # warning, not error.
+
+  narrative: string
+  # Phase 1: optional Sonnet-authored cluster summary generated by /workday-complete
+  # when a chain has ≥2 entries on the same day. Single-entry chains skip (title + body
+  # suffices). Written into the lexicographically-first file in the chain for the day;
+  # other entries in the same chain reference the lead via narrative_in.
+
+  narrative_in: string
+  # Path to the chain lead entry that carries the narrative for this day's cluster.
+  # Set by /workday-complete on non-lead entries in a multi-entry chain.
+
+  nature_inferred: bool
+  # true when nature was AUTO-INFERed by the Sonnet dispatch in /session-end Step 3;
+  # false/absent when declared by the EM via COMPLETION_NATURE env var before invoking
+  # /session-end (bypasses the Sonnet dispatch entirely).
+  # Phase 3 consumers may weight inferred vs declared entries differently when building
+  # nature-based aggregates.
+
+  authored_by: string
+  # Session ID of the authoring EM ($em_sid), for forensic tracing only. Optional —
+  # present when sourced from .git/coordinator-sessions/.current-session-id or $em_sid
+  # env var; absent when neither is available (e.g. detached-head or non-coordinator env).
+
+  workstream: string
+  # Free-form slug grouping cross-chain related work, mirrors the handoff schema's
+  # workstream convention. Used by /workweek-complete to co-locate related entries
+  # in the editorial bucketing pass even if they have distinct chain values.

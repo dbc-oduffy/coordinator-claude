@@ -1,6 +1,13 @@
 #!/bin/bash
 # coordinator-daily-branch.sh — Shared helpers for daily-branch discipline enforcement
 #
+# NOTE on examples: tests under bin/tests/ use `striker` / `STRIKER` as
+# literal fixture values (test cases assert canonical-case behavior on a
+# concrete machine name; placeholders won't substitute mechanically). Doctrine
+# prose elsewhere in the plugin uses `<machine>` / `<MACHINE>` placeholders.
+# A consumer reading either form should mentally substitute their own machine
+# name — both shapes convey "lowercase ASCII identifier, no slashes."
+#
 # Spec backlink: docs/plans/2026-05-07-daily-branch-doctrine-rethink.md (Phase 1)
 #
 # The hook polices branch *shape*, not branch *date*. There is no notion of
@@ -11,7 +18,7 @@
 #   - hooks/scripts/block-off-daily-branch.sh (PreToolUse hook)
 #
 # Check 6 history: commit-time date-enforcement (Check 6) was in validate-commit.sh,
-# then consolidated into block-off-daily-branch.sh (commit arm) per Staff Engineer F11.
+# then consolidated into block-off-daily-branch.sh (commit arm) per Patrik F11.
 # Check 6 fully decommissioned 2026-05-07 per PM call — not in either file.
 # Rationale: "if the branch isn't totally out of date then what harm? I think a hook
 # to reject commits is too harsh." (PM verbatim). Stale-day branches are now handled
@@ -23,13 +30,13 @@
 # Source pattern (same as coordinator-session.sh):
 #   LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../../lib/coordinator-daily-branch.sh"
 #   if [[ ! -f "$LIB_PATH" ]]; then
-#     LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
+#     LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
 #   fi
 #   [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 
 # cs_compute_machine — echo the coordinator machine name, always lowercase.
 # Resolution order: $COORDINATOR_MACHINE → $COMPUTERNAME → hostname → $HOSTNAME → "unknown"
-# Single-tail-emit pattern: all paths converge to one echo+tr at the end (Staff Engineer F11).
+# Single-tail-emit pattern: all paths converge to one echo+tr at the end (Patrik F11).
 cs_compute_machine() {
   local m
   if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then m="$COORDINATOR_MACHINE"
@@ -49,7 +56,7 @@ cs_compute_machine() {
 #   work/<machine>/YYYY-MM-DD           → start=YYYY-MM-DD, end=YYYY-MM-DD
 #   work/<machine>/YYYY-MM-DDtoDD       → start=YYYY-MM-DD, end computed (month/year roll if end-DD < start-DD)
 #
-# Month/year boundary rule (Staff Engineer F4, option b):
+# Month/year boundary rule (Patrik F4, option b):
 #   If end-DD < start-DD → advance month by 1 (advance year by 1 on Dec→Jan).
 #   Parser advances at most one month — spans >~28 days are anti-patterns routed
 #   through the A/B/C reconciliation flow, not through this parser.
@@ -230,7 +237,7 @@ cs_should_prompt_rename() {
 #   it couples branch-policy resolution to working-tree HEAD, which (a) reads the
 #   source branch, not the target, during branch-mutating ops, and (b) breaks under
 #   concurrent EM sessions where each session is on a different but valid span branch.
-#   Policy oracle is cs_is_allowed_branch. (Staff Engineer R1 F1; 2026-05-07)
+#   Policy oracle is cs_is_allowed_branch. (Patrik R1 F1; 2026-05-07)
 #
 # cs_compute_today_daily_lc — INTENTIONALLY ABSENT.
 #   Replaced by cs_is_allowed_branch which parses span form without a "today" oracle.

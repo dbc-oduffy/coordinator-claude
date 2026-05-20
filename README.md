@@ -6,6 +6,8 @@
 
 You don't need to write code. You need to know enough to evaluate it — to spot when something smells wrong, to ask the right questions, to set direction. Amjad Masad (Replit's founder) [opined](https://youtu.be/PlDeqGQZ0CQ) that people who *don't* program may actually be better positioned for the LLM-coding world: they won't micromanage implementation. This plugin leans into that. It gives Claude standing authority to make engineering decisions — how to build, who to delegate to, when to refactor — while you hold product authority: what to build, what to cut, what ships. Just like an EM-PM dynamic.
 
+What this system asks of the PM is altitude, not tactics. Architectural judgment, scope decisions, refactor-vs-patch calls, what-ships-and-what-doesn't. Slop is fought on the *plan* level — by treating each plan as an exhaustive software design document with named-reviewer pushback baked in, not by spot-checking commits afterward. The natural model defaults — act fast and move on, defer P2s into oblivion, size work in human-sprint timeframes — are the things this system is built to push back against. The PM sets direction; the EM and the named reviewers do the pushing.
+
 This isn't a collection of prompt tricks. It's a **decision architecture**: routines (session orientation, plan review, multi-source code review, structured handoffs, daily flows) plus authority boundaries (EM owns implementation, PM owns scope/ship) plus reviewer personas that push back with fix-gates between them. Reviews are meaningful — blocking findings, not theatre. And the system actively reads its own accumulated wikis and lessons before drafting new plans (`prior-art-checker` pre-flight, `/learn-lessons` triage), so the scar tissue from past decisions informs the next one rather than sitting in a write-only memory file. It maps to how PM-EM collaboration actually feels in a real engineering team. The difference is that your "team" can work autonomously for hours, and you can review the output when you're ready.
 
 ## What This Is *Not*
@@ -14,7 +16,7 @@ This isn't a collection of prompt tricks. It's a **decision architecture**: rout
 - **Not a PRD-to-code pipeline.** Product intent is captured inside plan mode and acceptance criteria, not in a separate PRD funnel.
 - **Not an autonomous coding agent.** The PM is in the loop on scope, tradeoffs, and ship decisions by design. Autonomous modes (`/mise-en-place`, `/autonomous`) exist for execution sprints, not for product authority.
 - **Not a developer productivity tool.** The target user evaluates engineering work — they don't write it. If you want to be more productive at writing code yourself, you want vanilla Claude Code; this is for managing AI engineering work, not doing it.
-- **Not aimed at the fully non-technical PM** (yet). The current sweet spot is a *technical-evaluating* PM — someone who reads diffs, watches for code smell, and recognizes odd choices. A higher-altitude "I trust the EM and only review outcomes" mode is plausible for simpler projects with strong guardrails, but it's an aspiration, not a current default. Complex codebases require a PM who can tell when something looks wrong.
+- **Not aimed at the fully non-technical PM** (yet). The current sweet spot is a PM with technical altitude but not technical hands — someone who has architectural judgment, recognizes unwise plan-shape, and can spot when a plan, an architectural choice, or a tradeoff sounds wrong from how the EM describes it, without ever reading a diff. The PM does not review commits, does not perform code review, does not sign off on PRs. That altitude is the load-bearing constraint: code review and PR sign-off are delegated to AI peers and named-persona staff-tier reviewers (see below). Complex codebases require a PM who can tell when something looks wrong from the conversation, not from the patch.
 
 ## Quick Start
 
@@ -47,7 +49,7 @@ Most tools hand you a bag of commands and wish you luck. This system has *routin
 
 **Building.** Claude delegates to Sonnet subagents for implementation — cheaper, faster, fresh context. A `PreToolUse` hook nudges Claude away from doing implementation work directly, because the orchestrator's context is too valuable to spend on writing code. This is the same principle as a real EM: you don't want your engineering manager writing production code when they should be coordinating.
 
-**Reviewing.** Code review comes from named personas with rich behavioral profiles — a domain expert reviews first (e.g., a game-dev specialist for Unreal code), all findings are applied, then a generalist reviews the clean artifact. Sequential, with mandatory fix gates. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) and [multi-agent review gains](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic's own eval showed 90.2% improvement over single-agent).
+**Reviewing.** Code review comes from named personas with rich behavioral profiles — a domain expert reviews first (e.g., a game-dev specialist for Unreal code), all findings are applied, then a generalist reviews the clean artifact. Sequential, with mandatory fix gates. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) (literature-backed for judgment-routing tasks; for mechanical bug-finding our [own controlled experiment](docs/research/2026-03-26-persona-experiment-results.md) found no recall gain — that's why bug-sweeps use bare agents) and [multi-agent review gains](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic's own eval showed 90.2% improvement over single-agent). Plan-review with personas — the system's main use of named reviewers — leans on industry-standard PRD/SDD review patterns; we have not separately benchmarked it.
 
 **Staying coherent.** Long sessions hit a hard constraint: context compaction. When triggered, the model summarizes what it *thinks* happened — a retrospective reconstruction that loses intent. A `PostToolUse` hook monitors context pressure and prompts Claude to create a structured handoff *before* compaction fires: decisions made, state reached, explicit next steps. Each handoff chains forward from its predecessor. Research shows structured handoffs significantly outperform automatic summarization ([Kang et al. 2025, ACON](https://arxiv.org/abs/2510.00615); Sourcegraph [retired compaction](https://sourcegraph.com/blog) in their Amp agent in favor of explicit handoffs after measuring degradation).
 
@@ -76,7 +78,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **the VP-Product Reviewer** (`coordinator:vp-product`) — scope challenger, naming optional via [`setup/name-personas.sh`](setup/name-personas.sh) — stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
 
-**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](plugins/coordinator/docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
+**Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
 **Flow 3 — Resume work.** `/session-start` (or auto-fired hook) loads orientation, lessons, and pending handoffs → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
@@ -93,8 +95,8 @@ The system scales — a typo fix is a two-word instruction; a system rewrite is 
 | Tier | Skill / command | Reviewer | Wall time |
 |------|-----------------|----------|-----------|
 | **Tiny edit** (typo, constant, rename) | Direct EM edit — no plan | None required | < 5 min |
-| **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → the Ambition Advocate (`coordinator:ambition-advocate`) (Staff Engineer backstop) (sequential) | 30 min – 2 hrs |
-| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](plugins/coordinator/docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
+| **Feature** (new command, new skill) | `/execute-plan` after PM approves a plan | Domain reviewer → the Staff Engineer (`coordinator:staff-eng`) generalist; the Director of Engineering (`coordinator:eng-director`) as backstop at High effort (sequential) | 30 min – 2 hrs |
+| **System rewrite** (multi-plugin overhaul) | `/staff-session plan` → `/execute-plan` (with executor dispatch per [`docs/wiki/delegate-execution.md`](docs/wiki/delegate-execution.md)) | Full sequential chain + PM ship verdict | Half day+ |
 
 See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the full tier table, reviewer routing guide, and flow diagrams.
 
@@ -164,6 +166,10 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 See [docs/architecture.md](docs/architecture.md) for the full model. For the testable claims — what each agent role promises and which hook or script enforces each promise — see [docs/contracts.md](docs/contracts.md). For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 
+For the failure modes this system was designed around — false completion, silent scope expansion, test theater, review laundering, context amnesia, integration blindness, and a dozen others — see [docs/evolution/05-failure-modes.md](docs/evolution/05-failure-modes.md).
+
+For evidence — what was actually built under this workflow, alongside the controlled persona experiment and the qualitative failure-modes ledger — see [docs/research/2026-05-08-built-with-coordinator.md](docs/research/2026-05-08-built-with-coordinator.md), [docs/research/2026-03-26-persona-experiment-results.md](docs/research/2026-03-26-persona-experiment-results.md), and [docs/evolution/05-failure-modes.md](docs/evolution/05-failure-modes.md). These are the three peer artifacts in the evidence corpus.
+
 </details>
 
 ## Plugins
@@ -181,7 +187,7 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 
 ## Customization
 
-- **Name your reviewers (optional).** Role labels ship as the default — `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Ambition Advocate" "Jordan"` binds chosen names to role labels across all plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
+- **Name your reviewers (optional).** Role labels ship as the default — `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"` binds chosen names to role labels across all plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
 - **Create your own domain reviewer.** The game-dev plugin is a reference implementation — same structure for any specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
@@ -249,4 +255,4 @@ This system's design is informed by published research and validated through con
 
 ---
 
-[Dónal O'Duffy](https://github.com/dbc-oduffy) & Claude
+[the PM O'Duffy](https://github.com/dbc-oduffy) & Claude

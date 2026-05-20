@@ -20,10 +20,12 @@ Without this, `/deep-research` will fail.
 
 ## Commands
 
-- `/deep-research web <topic>` — Pipeline A: internet research
-- `/deep-research repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
-- `/deep-research structured <spec-path> [subject-key]` — Pipeline C: structured research
+- `/research --mode=web <topic>` — Pipeline A: internet research
+- `/research --mode=repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
+- `/research --mode=structured <spec-path> [subject-key]` — Pipeline C: structured research
 - `/notebooklm-research <topic>` — Pipeline D: media research via NotebookLM (NotebookLM MCP server required)
+
+**Former slash-commands** (`/web`, `/repo`, `/structured`) removed in Phase C skill-budget consolidation 2026-05-06; pipeline driver files moved to `pipelines/web-driver.md`, `pipelines/repo-driver.md`, `pipelines/structured-driver.md`.
 
 ## How It Works
 
@@ -70,4 +72,4 @@ All three pipelines follow the same Agent Teams pattern:
 - Synthesizer uses output-first ordering (skeleton → reconcile → validate → overwrite), resolves CONTESTED fields, writes annotations separately
 - EM validates via hard file-existence gate before archival
 - Team protocol: `pipelines/structured-team-protocol.md`
-- Invoked via `/structured-research <spec-path> <subject>` or `/deep-research structured <spec-path> <subject>`
+- Invoked via `/research --mode=structured <spec-path> <subject>`

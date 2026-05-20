@@ -1,4 +1,5 @@
 ---
+name: enrich-and-review
 description: Run enrichment pipeline on chunk directories
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[stub-ids|directory-path|'all']"
@@ -34,7 +35,7 @@ Before enriching anything, verify the source plan has been reviewed:
    - "Skipped per PM direction"
    - "Staff session ([participants]) — debated and synthesized" (from `/staff-session --mode plan`)
 3. If no review marker exists → **HALT** and report:
-   - "This plan has not been through review. Route it through `/review-dispatch` first, or confirm PM override to skip."
+   - "This plan has not been through review. Route it through `/review` first, or confirm PM override to skip."
 4. Do NOT proceed to Phase 1 until the gate is satisfied
 
 This prevents wasting enrichment cycles on a plan with structural problems.
@@ -69,12 +70,16 @@ This ensures that if the session crashes mid-enrichment, the tracker shows "in p
 
 ### Phase 3: Dispatch Enrichers
 
-**Optional: Task-scoped repo map.** Before dispatching enrichers, consider whether the stub's file scope is clear enough to benefit from a focused map. If so, generate one:
-```
-Invoke `/generate-repomap` with task-scoped flags:
+**Optional: Task-scoped repo map.** Before dispatching enrichers, consider whether the stub's file scope is clear enough to benefit from a focused map. If so, gate via `bin/check-rag-state.sh` and generate via `bin/generate-repomap.sh`. Full gating doctrine: `docs/wiki/repomap-rag-gating.md`.
+
 ```bash
-/generate-repomap --project-root <project> --task "<stub summary>" --focus-files "<key files from stub>"
+RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+if [ "$RAG_STATE" != "fresh" ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh" \
+    --project-root <project> --task "<stub summary>" --focus-files "<key files from stub>"
+fi
 ```
+
 Pass the task-scoped map path to the enricher in its dispatch prompt. This is awareness-based — use judgment, not every dispatch needs it.
 
 **Enricher pre-pass discovery.** Scan all enabled plugins for root-level `enricher-pre-pass.md` files. These are instructions that run in the **EM's context** (with full tool access — MCP, Agent dispatch, etc.) to gather information the enricher cannot access with its own tools. For example, a UE plugin might inspect live Blueprint property surfaces via MCP, since the enricher can only read source files.
@@ -87,7 +92,7 @@ If pre-pass fragments are found:
 
 If no pre-pass fragments are found, skip this step — it's an optional extension point.
 
-**Enricher-survey fragment discovery.** Before dispatching, scan all enabled plugins for root-level `enricher-survey.md` files (analogous to routing fragment discovery in `/review-dispatch`). If a matching fragment exists for the project's `project_type`:
+**Enricher-survey fragment discovery.** Before dispatching, scan all enabled plugins for root-level `enricher-survey.md` files (analogous to routing fragment discovery in `/review` and `/review-code`). If a matching fragment exists for the project's `project_type`:
 - Read the fragment file
 - Include its content in the enricher dispatch prompt as domain-specific survey instructions
 - If no fragment matches, the enricher uses its generic survey protocol

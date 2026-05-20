@@ -23,7 +23,5 @@ esac
 
 # Insert before the closing sentinel
 tmp=$(mktemp)
-sed "/<!-- learn-lessons-config-end -->/i\\
-- $cwd
-" "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
+awk -v cwd="$cwd" '/<!-- learn-lessons-config-end -->/ && !done {print "- " cwd; done=1} {print}' "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
 echo "appended $cwd to $CONFIG"

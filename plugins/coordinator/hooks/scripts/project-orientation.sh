@@ -107,14 +107,14 @@ if [ -f "$REPOMAP" ]; then
         now_epoch=$(date +%s)
         age_hours=$(( (now_epoch - file_epoch) / 3600 ))
         if [ "$age_hours" -ge 24 ]; then
-            stale_note=" [STALE: ${age_hours}h old — run /generate-repomap]"
+            stale_note=" [STALE: ${age_hours}h old — run bin/generate-repomap.sh or /update-docs]"
         fi
     fi
     lines=$(wc -l < "$REPOMAP" | tr -d ' ')
     echo "  Repo Map: $REPOMAP (${lines} lines)${stale_note} — read when needed"
     found=$((found + 1))
 else
-    echo "  Repo Map: not found — run /generate-repomap to create"
+    echo "  Repo Map: not found — run bin/generate-repomap.sh (via /update-docs) to create"
 fi
 
 # Directory
@@ -169,23 +169,23 @@ if [ -n "$SCC_OUT" ]; then
 fi
 
 # Active plan files
-PLANS=$(ls tasks/*/todo.md 2>/dev/null)
+PLANS=$(ls "${REPO_ROOT:-.}"/tasks/*/todo.md 2>/dev/null)
 if [ -n "$PLANS" ]; then
     echo "  Active plans:"
     echo "$PLANS" | while read -r p; do echo "    $p"; done
 fi
 
 # Pending handoffs
-HANDOFFS=$(ls tasks/handoffs/*.md 2>/dev/null)
+HANDOFFS=$(ls "${REPO_ROOT:-.}"/tasks/handoffs/*.md 2>/dev/null)
 if [ -n "$HANDOFFS" ]; then
     echo "  Pending handoffs:"
     echo "$HANDOFFS" | while read -r h; do echo "    $h"; done
 fi
 
 # Lessons file freshness
-if [ -f "tasks/lessons.md" ]; then
-    LESSON_LINES=$(wc -l < "tasks/lessons.md" | tr -d ' ')
-    echo "  Lessons: tasks/lessons.md (${LESSON_LINES} lines)"
+if [ -f "${REPO_ROOT:-.}/tasks/lessons.md" ]; then
+    LESSON_LINES=$(wc -l < "${REPO_ROOT:-.}/tasks/lessons.md" | tr -d ' ')
+    echo "  Lessons: ${REPO_ROOT:-.}/tasks/lessons.md (${LESSON_LINES} lines)"
 fi
 
 echo ""

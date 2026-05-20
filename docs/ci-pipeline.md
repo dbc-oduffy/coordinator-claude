@@ -34,6 +34,17 @@ These run on every PR to `main` and on push to `work/**`/`feature/**` branches.
 | Spec line counts | `check-spec-line-counts.py` | Spec files (SKILL.md, PIPELINE.md) that have grown beyond a reasonable ceiling |
 | README inventory | `check-readme-inventory.py` | Coordinator README component counts that don't match actual file counts |
 | Hook paths | `validate-hook-paths.py` | Hook script paths in hooks.json that don't resolve to actual files |
+| Persona names | `check-persona-names.py` | Persona display names (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering, the VP-Product Reviewer) appearing in canonical-layer files — depersonalize hook should have substituted to role labels |
+| Plugin doc drift | `check-plugin-doc-drift.py` | Plugin docs that have drifted from the actual plugin files they describe |
+
+### Persona-name exclusion list (preserve when editing)
+
+`check-persona-names.py`'s `EXCLUDED_PREFIXES` carries two non-obvious entries that MUST be preserved if the script is ever regenerated or refactored:
+
+- `.github/scripts/check-persona-names.py` — the script itself lists the persona names in its `PERSONA_NAMES` constant.
+- `plugins/coordinator/bin/depersonalize-for-publish.sh` — the depersonalize hook's substitution map legitimately holds persona names as keys (e.g. `["the Staff Engineer"]="the Staff Engineer"`). Stripping them would break the hook.
+
+Both have inline `#` comments explaining why. Add new exclusions there if a similar legitimate-occurrence file emerges; do NOT use the `ALLOWLIST_PATH` mechanism for whole-file exemptions (it's per-line and would require dozens of entries).
 
 ## Secrets Scanning
 

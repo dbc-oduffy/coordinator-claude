@@ -22,6 +22,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 | `archive/handoffs/` | Consumed handoff files | Keep the 10 most recent; delete the rest |
 | `tasks/*/` | Feature task directories | Delete dirs where all `todo.md` items are `[x]` AND the feature branch is merged or deleted |
 | `tasks/handoffs/` | Active handoffs | **Out of scope** — `pipelines/update-docs/handoff-archival.md` (Phase 8) handles these |
+| `tasks/doc-link-check-*.md` | doc-link-checker reports from prior `/update-docs` runs | Keep the 3 most recent; delete the rest (PRUNE rule below) |
 
 ## Steps
 
@@ -34,6 +35,9 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
    - **Archived handoffs (`archive/handoffs/*.md`):**
      - KEEP the 10 most recent by filename timestamp.
      - PRUNE the rest — they've been consumed and their context lives in successor handoffs.
+   - **doc-link-checker reports (`tasks/doc-link-check-*.md`):**
+     - KEEP the 3 most recent by filename timestamp.
+     - PRUNE the rest — superseded by newer reports.
    - **Feature task directories (`tasks/<feature>/`):**
      - PRUNE if `todo.md` exists and all items are `[x]`, AND no `lessons.md` with unmerged entries, AND the feature branch (if identifiable from the dir name) is merged or deleted.
      - KEEP if any `[ ]` items remain or unmerged lessons present.
@@ -45,8 +49,8 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 
 Before any deletions, snapshot current state:
 
-```
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "pre-prune checkpoint (update-docs Phase 8b)"
+```bash
+CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "pre-prune checkpoint (update-docs Phase 8b)"
 ```
 
 This makes the entire prune operation revertible as a single `git revert`.
@@ -56,14 +60,15 @@ This makes the entire prune operation revertible as a single `git revert`.
 Use `git rm` so deletions appear in git history:
 - Plans: `git rm plans/<file>`
 - Archived handoffs: `git rm archive/handoffs/<file>`
+- doc-link-check reports: `git rm tasks/doc-link-check-<file>`
 - Feature task dirs: `git rm -r tasks/<feature>/`
 
 Remove any empty directories left behind on the filesystem.
 
 ### Step 4: Commit
 
-```
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
+```bash
+CLAUDE_INVOKING_COMMAND=update-docs ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "artifact pruning: pruned N plans, N handoffs, N task dirs (update-docs Phase 8b)"
 ```
 
 ### Step 5: Record Counts

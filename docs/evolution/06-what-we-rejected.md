@@ -66,7 +66,7 @@ The publish repo aspiration to support a fully non-technical PM (described as fu
 
 **The proposal.** Every task gets a classification artifact — complexity, blast radius, reversibility, uncertainty, product judgment required, technical judgment required, recommended workflow, rationale.
 
-**Why we declined.** The classification is already implicit in scope-mode selection ([writing-plans](../../plugins/coordinator/skills/writing-plans/SKILL.md)). Production-patch mode encodes "low blast radius, high reversibility, minimal technical judgment, scope discipline matters." Architecture mode encodes the opposite. Writing the classification *twice* — once as the scope mode, once as the Task Economics block — duplicates the decision without adding signal.
+**Why we declined.** The classification is already implicit in scope-mode selection ([writing-plans](../../docs/wiki/writing-plans.md)). Production-patch mode encodes "low blast radius, high reversibility, minimal technical judgment, scope discipline matters." Architecture mode encodes the opposite. Writing the classification *twice* — once as the scope mode, once as the Task Economics block — duplicates the decision without adding signal.
 
 **What we did instead.** Made scope mode a required header field with explicit rules per mode. The mode is the classification; we don't need a parallel taxonomy.
 

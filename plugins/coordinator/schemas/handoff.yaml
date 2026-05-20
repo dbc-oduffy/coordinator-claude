@@ -10,6 +10,9 @@ required:
   predecessor:
     type: string-or-null
 optional:
+  # Session id of the consuming /pickup invocation; sourced from $CLAUDE_SESSION_ID
+  # with .git/coordinator-sessions/.current-session-id fallback. Used by /session-end
+  # Step 2.7 detection and session-init.sh orphan sweep. Never the machine name.
   consumed_by: string
   consumed_at: iso-date
   session_goal: string
@@ -18,9 +21,21 @@ optional:
   # by the current EM addressed to a future picking-up EM, describing a workstream the
   # current session does NOT intend to execute. Distinct from /handoff (end-of-session
   # continuation) and from a queue entry (one-line note vs. self-contained spec).
+  # spinoff-roadmap: a stub authored by coordinator:roadmap-planning, carrying graph
+  # primitives (blocks/blocked_by/roadmap_id) the other kinds do not use. See
+  # docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 1a.
+  # recovery: a continuation handoff authored to resume from a crash, kill, or
+  # other unclean session termination. Behaves like session-handoff for lifecycle
+  # purposes (predecessor when known, deployment_state, /pickup flow). The tag
+  # exists so /pickup and /workday-start can surface recovery context to the
+  # successor and so the audit trail distinguishes deliberate continuations from
+  # crash-driven ones. `predecessor:` SHOULD point to the crashed handoff or its
+  # commit SHA when known; null is permitted when the prior session left no
+  # recoverable handoff. Replaces the ad-hoc `reconstructed_by:` field for new
+  # handoffs (existing `reconstructed_by:` records remain valid).
   kind:
     type: enum
-    values: [session-handoff, spinoff]
+    values: [session-handoff, spinoff, spinoff-roadmap, recovery]
   # Required-by-convention on spinoffs: replaces the predecessor link as the audit
   # trail back to origin. Free-form one-liner.
   authoring_session: string
@@ -28,5 +43,83 @@ optional:
   workstream: string
   # Optional on any handoff. Git pathspec syntax.
   scope: list-of-string
-  # Set on fresh spinoffs / orphan-promotions; cleared by /pickup on genuine resume.
+  # Positive pickup-authorized signal. Absence triggers a non-blocking warning at
+  # /pickup time (not a block). Set by /handoff and /spinoff on every newly-authored
+  # handoff so the warning fires only on stale/legacy artifacts. Do NOT remove on
+  # consumption — stays as authorial-intent record on consumed handoffs.
   pickup_ready: string
+  # Lifecycle readiness — universal across all handoff kinds. Drives query-records
+  # filtering at /session-start and /workday-start; transitions tracked by /pickup
+  # (→ in_flight), /handoff and /session-end (→ shipped or back to ready_to_fire).
+  # See docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 1a.
+  deployment_state:
+    type: enum
+    values: [awaiting_gate, ready_to_fire, in_flight, shipped, abandoned]
+  # Required-by-validator iff deployment_state=awaiting_gate. Free-form one-liner
+  # naming what must happen before this handoff transitions to ready_to_fire.
+  # Durability rule (per /handoff): subsystem-named, not file-pathed.
+  gate_dependency: string
+  # Commit SHA or PR ref where this handoff's work landed. Set by /handoff or
+  # /session-end on transition to deployment_state=shipped. /distill requires
+  # this field present before deleting an archived handoff (Phase 4c safety guard).
+  shipped_in: string
+  # Roadmap-only graph primitives — permitted ONLY when kind=spinoff-roadmap.
+  # Validator rejects on any other kind (semantics undefined on continuations).
+  blocks: list-of-string
+  blocked_by: list-of-string
+  roadmap_id: string
+  # Roadmap-only identifiers — required by cross-field rule when kind=spinoff-roadmap.
+  # See bin/lib/schema.js CROSS_FIELD_RULES.handoff and skills/roadmap-planning/SKILL.md § Phase 2.1.
+  tc_id: string                     # roadmap-local identifier; unique within roadmap_id
+  sprint: number                    # sprint grouping (typically 1–4)
+  wave: number                      # serialization-order grouping within a sprint
+  # cost: estimation tier — enum string T0|T1|T2|T3 (validator-enforced).
+  # T0 = trivial (minutes); T1 = small (<1h); T2 = medium (1-4h); T3 = large (multi-day).
+  cost: string
+  # Written by /session-end and /handoff after running coordinator:review-code on the
+  # session diff. Format (documented but not type-enforced): "<sha-range> <reviewer> <YYYY-MM-DD>"
+  # where reviewer is one of: sonnet | patrik | sonnet+patrik | waived.
+  # Example: "abc123..def456 sonnet 2026-05-08"
+  # Not present on spinoffs (kind: spinoff / spinoff-roadmap) — spinoffs are forks
+  # authored mid-session by the current EM; the review marker belongs on continuation
+  # handoffs only. See skills/spinoff/SKILL.md § Anti-scope.
+  # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
+  reviewed_at_session_end: string
+
+# ---------------------------------------------------------------------------
+# Session Ledger — body convention, NOT a frontmatter field (Phase 2)
+# ---------------------------------------------------------------------------
+# Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
+#
+# Each handoff body MAY contain a ## Session Ledger H2 section. This is a
+# per-chain LoE accumulator written by coordinator-session-loe.sh at /pickup
+# time (one line per session that picks up the handoff). It lives in the body
+# because it is an append-only list that grows across sessions — unsuitable for
+# a scalar frontmatter field.
+#
+# Body format:
+#
+#   ## Session Ledger
+#
+#   <!-- Phase 2 LoE accumulator. Each session appends one line. -->
+#   <!-- Format: YYYY-MM-DD | <sid6> | <tshirt> | <Nd / No> | <one-line summary> -->
+#
+#   2026-05-19 | abc123 | M | 8d / 2o | Implemented query-completions
+#   2026-05-20 | def456 | S | 3d / 0o | Docs update and minor fix
+#
+# Field semantics:
+#   YYYY-MM-DD   — date the picking-up session ran /session-end
+#   <sid6>       — last 6 chars of $em_sid (same source as completion-entry authored_by)
+#   <tshirt>     — per-session t-shirt size: XS | S | M | L | XL
+#   <Nd / No>    — agent_dispatches / opus_dispatches for that session
+#   <one-line>   — brief description of what the session shipped
+#
+# Query path: bin/query-records --type handoff-ledger --where "tshirt=XL"
+#   globs tasks/handoffs/*.md and archive/handoffs/*.md, parses ## Session Ledger
+#   blocks. Used by workweek-complete Step 8.5 LoE high-water check.
+#
+# Chain-terminal aggregation: bin/aggregate-chain-loe.sh walks all handoffs
+#   in a chain (by chain: / workstream: frontmatter match), sums ledger lines
+#   across all handoff files, and writes chain_loe: into the terminal
+#   completion entry. See docs/wiki/completion-log-release-loop.md § Phase 2.
+# ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 ---
-description: "Save session state for a successor mid-workstream. Not for shipped/complete work — see Step 0."
+name: handoff
+description: "Involuntary mid-workstream save-state under context pressure. By definition a continuation, never a workstream ending — see Step 0."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "[optional context]"
 ---
@@ -8,7 +9,13 @@ argument-hint: "[optional context]"
 
 Capture the current session state so future sessions (or other agents) can pick up seamlessly.
 
+> **Handoff is involuntary by definition.** The only legitimate trigger is context pressure that forces the current session to stop mid-workstream before its next action can land. A handoff is a continuation-point, not a workstream-ending ceremony — if you find yourself reaching for `/handoff` because the work feels like a good place to pause, that framing IS the disqualifier. Workstreams end via `/workday-complete`, `/merge-to-main`, or commit-and-stop; never via handoff. The EM does not voluntarily invoke this skill at perceived stopping points.
+
 > **Continuation vs. fork.** This skill writes a *continuation* handoff — work the current session was doing that someone (often you, next session) will resume. To carve off a *different* mid-session topic for someone else to pick up cold, use `/spinoff` instead — that produces `kind: spinoff`, `predecessor: none` handoffs, designed for fork rather than continuation.
+>
+> **Recovery flavor.** If you are writing this handoff to resume from a crash, kill, or other unclean termination of a prior session — not a clean stopping point — set `kind: recovery` in frontmatter. Point `predecessor:` at the crashed handoff or its last commit SHA when known; null is permitted when no recoverable predecessor exists. Recovery handoffs follow the standard continuation lifecycle (deployment_state, /pickup flow, archival); the tag exists so `/workday-start` surfaces them with a `(recovery)` marker and so the audit trail distinguishes crash-driven continuations from deliberate ones.
+>
+> **Recovery-flavor crash-rescue sweep (required when `kind: recovery`).** Before exiting the recovery handoff write, sweep ALL files in `tasks/handoffs/` for gate/state that the crash may have invalidated. The crash that motivated this recovery handoff likely also broke premises in concurrent or downstream handoffs: an `awaiting_gate: <X>` where X was the crashed work; an `in_flight` handoff whose source branch the crash left in an unknown state; a `ready_to_fire` next-step that assumed the crashed work had landed. For each affected sibling: edit the body inline with a one-line crash-invalidation note (`**Crash-invalidated <YYYY-MM-DD>:** <one-line>`) and flip `deployment_state` if needed (most commonly `ready_to_fire` → `awaiting_gate` with `gate_dependency: recovery from <this-handoff-slug>`). Authoring only the new rescue handoff while leaving stale siblings as live work strands the next session on a false premise. Skip the sweep only if the crashed work is a leaf with no concurrent or downstream handoffs — confirm by grep, not by recall. Specific grep targets: search `tasks/handoffs/*.md` and `docs/plans/*.md` for (a) the crashed handoff's filename slug, (b) the crashed session's branch name (`work/{machine}/{date}` shape), (c) the crashed workstream name from its frontmatter `workstream:` field, and (d) any `gate_dependency:` value naming the crashed work. Zero hits across all four = leaf, sweep may be skipped. Any hit = read that file before declaring the rescue handoff complete.
 
 ## Instructions
 
@@ -23,15 +30,27 @@ When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each
 
 **CRITICAL: Write the handoff file FIRST, before commits or anything else.** Handoffs are typically invoked when the session is near compaction. If you do git operations first, you risk losing the conversation context that makes the handoff valuable. Get the knowledge out of your head and onto disk immediately.
 
-## Step 0: Successor-work check
+## Step 0: Trigger check — is context pressure actually forcing this?
 
-Before writing anything, run this binary gate. It takes 30 seconds and prevents polluting `tasks/handoffs/` with end-of-session housekeeping that no successor will pick up.
+Before writing anything, run this binary gate. The PRIMARY question is whether the current session can still take its next action; if it can, you are not handing off, you are deferring — and that's a doctrine violation regardless of how "tidy" the current state looks.
 
-### NO-tests — any one of these → STOP, do not write a handoff
+### Trigger gate — at least one must be true → continue
+
+- Auto-compaction is imminent or in progress and would lose load-bearing context before the next action can land.
+- A Claude Code restart or MCP-bridge restart is unavoidable mid-workstream.
+- A hard blocker (PM input, external system, after-hours wait) is preventing the next action *right now* — not a future step.
+- The PM has explicitly invoked `/handoff` and named the workstream.
+
+If none of these hold, STOP. Take the next action in this session instead. "Plan reviewed," "looks like a good pause point," "feels tidy here" are not triggers — they are the trap.
+
+### NO-tests — any one of these → STOP, do not write a handoff (even under context pressure, redirect to the right artifact)
 
 - The workstream's next action is `/merge-to-main`, or the terminal PR is already merged with no follow-up commits expected.
 - The work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
 - All in-flight chunks of the active plan have landed and the plan doc is marked complete.
+- **Plan is reviewed/approved but the executor hasn't been dispatched yet in this session.** A reviewed plan is scaffolding, not a deliverable — the next action belongs in *this* session (dispatch the executor), not in a successor's. Framing the session as winding down at plan-approval inverts the doctrine: plans exist to produce executed code. If acceptance criteria are still empirically unverified and no executor has run, STOP — dispatch, don't hand off. Handoff is legitimate only after the executor has run and there is genuine in-progress executor/integrator/test work for a successor to resume.
+- **You are also planning to invoke `/session-end` for this same workstream.** `/handoff` and `/session-end` are mutually exclusive — never combined. `/session-end` caps a workstream that is *done*; `/handoff` passes an *in-flight* workstream to a successor. The same workstream cannot be both. If the work is finished, STOP and run `/session-end` alone. If it is in-flight, run `/handoff` alone — `/session-end` will not also run on this workstream. If you genuinely have two workstreams (one finished, one in-flight), end the finished one with `/session-end` *separately*, naming it explicitly, then write the in-flight handoff here for the other one — never bundle the two surfaces in one closing motion.
+- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/session-end` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `tasks/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
 
 ### YES-tests — only consulted if all NO-tests fail
 
@@ -44,7 +63,7 @@ Before writing anything, run this binary gate. It takes 30 seconds and prevents 
 ### If a NO-test trips → STOP
 
 The right artifact is one of:
-- `/workday-complete` — end-of-day ceremony; daily-review entry lands in `tasks/week-changelog/`
+- `/workday-complete` — end-of-day ceremony; Step 4 daily summary lands in `archive/daily-summaries/`, indexed by Step 9 in `tasks/week-changelog/`
 - Commit-and-stop — for mid-day completion of a workstream that's already merged or PR-ready
 - `/session-end` — if lessons need capture but no successor brief is needed
 
@@ -73,12 +92,32 @@ workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
 scope:                              # git pathspec syntax — files this workstream owns
   - path/to/file.md
   - dir/with/files/**
-pickup_ready: true                  # OPTIONAL: set on orphan-promotions and other fresh
-                                    # handoffs whose predecessor is already archived.
-                                    # Signals to /pickup and /update-docs archival that this
-                                    # handoff is fresh and must NOT be stamped or
-                                    # auto-archived. Remove (or set false) when an actual
-                                    # /pickup occurs and work genuinely resumes.
+deployment_state: ready_to_fire     # REQUIRED. Default to ready_to_fire when:
+                                    #   - Recommended next steps are concrete AND
+                                    #   - No PM-gate is named in ## Blockers or Issues.
+                                    # Use awaiting_gate when the work cannot proceed
+                                    # without an external condition clearing — pair
+                                    # with gate_dependency. Use in_flight when this
+                                    # handoff is a status report for work the next
+                                    # session resumes immediately.
+gate_dependency: <one-line>         # REQUIRED iff deployment_state=awaiting_gate.
+                                    # Subsystem-named, not file-pathed. Same durability
+                                    # rule as Recommended Next Steps prose: name the
+                                    # condition or subsystem, not the source paths.
+pickup_ready: true                  # DEFAULT ON for all handoffs authored by this skill.
+                                    # Positive signal: this handoff is explicitly
+                                    # authorized for pickup. Absence triggers a
+                                    # non-blocking warning at /pickup time (not a
+                                    # block). Do NOT remove — stays as authorial-intent
+                                    # record on consumed handoffs.
+reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
+                                    # OPTIONAL. Written by /session-end (Step 2.8) or
+                                    # /handoff (Step 2.X) after running coordinator:review-code
+                                    # on this session's diff. Format: "<sha-range> <reviewer>
+                                    # <YYYY-MM-DD>" — e.g. "abc123..def456 code-reviewer 2026-05-18".
+                                    # reviewer is one of: code-reviewer | patrik | code-reviewer+patrik | waived.
+                                    # Omit on spinoffs (kind: spinoff / spinoff-roadmap) — the
+                                    # field applies to continuation handoffs only.
 ---
 
 # Session Handoff — [DATE]
@@ -132,7 +171,52 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 
 ## Files Modified This Session
 - [file path] — [one-line description of change]
+
+## Session Ledger
+
+| Field | Value |
+|-------|-------|
+| agent_dispatches | <!-- from coordinator-session-loe.sh --> |
+| opus_dispatches | <!-- from coordinator-session-loe.sh --> |
+| em_tokens | <!-- from coordinator-session-loe.sh --> |
+| tshirt | <!-- from coordinator-session-loe.sh --> |
+| commits | <!-- git log --oneline since session start --> |
+| session_id | <!-- from .git/coordinator-sessions/.current-session-id --> |
+| created | <!-- ISO-8601 timestamp at handoff-write time --> |
 ```
+
+**Populate the Session Ledger immediately after writing the handoff body** (still in Step 1, before Step 2). This is the per-session contribution slice that the chain-terminal aggregator (Chunk 5) will sum across the predecessor chain.
+
+**Invocation:** `coordinator-session-loe.sh` does not emit a `--format markdown` mode. Use `--format json` and render the table fields manually:
+
+```bash
+# Resolve session ID
+SID=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")
+
+# Get LoE metrics
+LOE=$(bash plugins/coordinator-claude/coordinator/bin/coordinator-session-loe.sh \
+      --session-id "$SID" --format json 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,"em_tokens":null,"tshirt":"XS"}')
+
+# Extract fields (requires jq or inline bash parsing)
+AD=$(echo "$LOE" | grep -o '"agent_dispatches": *[0-9]*' | grep -o '[0-9]*$')
+OD=$(echo "$LOE" | grep -o '"opus_dispatches": *[0-9]*' | grep -o '[0-9]*$')
+TOK=$(echo "$LOE" | grep -o '"em_tokens": *[^,}]*' | sed 's/.*: *//')
+TS=$(echo "$LOE" | grep -o '"tshirt": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"')
+
+# Commits since session start (best-effort: last 20, space-separated short SHAs)
+COMMITS=$(git log --oneline -20 --format="%h" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+
+# Timestamp
+CREATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Then replace the placeholder comment cells in the `## Session Ledger` block with the resolved values before writing the file to disk.
+
+**Multi-ledger rule (re-pickup / recovery flavor):** If the handoff being written already contains a `## Session Ledger` block — because this is a recovery flavor or re-pickup of an existing handoff doc — DO NOT overwrite that block. Instead, append a second `## Session Ledger` block below the existing one. Multiple ledger blocks in one handoff file = multiple sessions touched the same workstream. The chain-aggregator (Chunk 5) and `bin/query-completions --type handoff-ledger` (Chunk 6) parse ALL `## Session Ledger` blocks in a file as separate synthetic records, using `session_id` as the deduplicator.
+
+> **Design note — body, not frontmatter.** Session Ledger lives in the body, not in the YAML frontmatter. The frontmatter schema (`schemas/handoff.yaml`) already carries `reviewed_at_session_end`; adding LoE there would bloat the schema and complicate `bin/query-records` frontmatter parsing. Body placement keeps the data accessible to the Chunk 6 query extension without schema changes.
+>
+> **Spec backlink:** `docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md` § Chunk 4 (plan lines 162–188).
 
 ### Durability Rules for Next-Steps and In-Progress Sections
 
@@ -186,13 +270,39 @@ If the project uses a compiled language with a running IDE or editor (e.g., Unre
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
 
-1. **Orientation cache** (`tasks/orientation_cache.md`): If it exists, patch sections affected by this session's work (Active Workstreams, Health Snapshot, Doc Freshness with current HEAD). Don't regenerate — just patch what changed. Skip if cache doesn't exist.
+1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections.** `/handoff` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append (one line, overwrite-or-omit). The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`).
+
+   **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
+
+   ```bash
+   bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh \
+       --invoker handoff \
+       --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
+   ```
+
+   Otherwise do nothing — the handoff body is where pickup-state lives, not the cache. The pinboard is cleared at the next ceremony regen. Skip if cache doesn't exist.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows.
 
 3. **Action items** (first match: `ACTION-ITEMS.md`, `docs/active/ACTION-ITEMS.md`, `docs/ACTION-ITEMS.md`): If one exists and this session resolved any listed items, check them off.
 
 **Same guidance as `/session-end` Step 2.7** — targeted patches to what this session touched, not regeneration. Concurrency-safe.
+
+#### Step 2.10: Code Review Consideration
+
+Follow `/session-end` Step 2.9 (Code Review Consideration) — same diff-shape table, same precedence rule, same anti-ceremony-bias and symmetric anti-ceremony tripwires, same dispatch via `coordinator:review-code` Branch A.2, same trail-marker write via `coordinator-write-review-trail.sh`.
+
+**Gate alignment:** This step fires ONLY when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/session-end` or commit-and-stop, the review consideration belongs to that downstream surface, not here. Do not double-review.
+
+**Additional handoff-specific behavior:** when this step writes a trail record, ALSO mirror the marker into the handoff frontmatter as:
+```
+reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
+```
+Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the optional schema field added in `schemas/handoff.yaml`). Add this field to the frontmatter block written in Step 1.
+
+**Edge case (PM-flagged):** when `/handoff` is written because the EM is bailing on a workstream they don't want to finish, the successor benefits from a `code-reviewer` pass on what landed. Treat the bailing case the same as any other non-trivial handoff — the diff-shape table determines the scale.
+
+**Staging discipline:** any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`.
 
 #### Step 3: Commit + Verify Remote
 
@@ -204,24 +314,29 @@ Update the documents that future sessions read for orientation — closing the r
 
 **Now** that the handoff is written, commit everything and verify remote sync.
 
-1. **Stage only paths this workstream touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
-   - Make a mental (or explicit) list of the files this workstream edited this session (typically small: the handoff doc itself, `tasks/` files, and any late-session work).
-   - `git add <path1> <path2> ...` — name each path explicitly.
-   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
-2. If there are staged changes, commit using the scoped helper — it reads `workstream:` and `scope:` from the handoff doc's frontmatter and stages only the declared paths:
+**Workstream scope is declared in the handoff `scope:` block** (written above this step). With concurrent EMs active on the same branch, `git add -A` would sweep up another session's staged/modified files and silently re-attribute them — the `scope:` block is the workstream-anchored authority on which paths belong to this commit. If `git status` shows unfamiliar unstaged files you didn't touch, leave them alone — they belong to a concurrent session.
+
+1. Commit using explicit-path plain git — read the `scope:` block from the handoff frontmatter and stage only those paths (lessons.md:43, lessons.md:207, SC-DR-008; no fallback to staging-all):
+   ```bash
+   HANDOFF=<handoff-doc-path>
+   # Extract scope paths from YAML frontmatter (  - <path> lines between scope: and next key)
+   SCOPE=$(awk '/^scope:/{found=1; next} found && /^  - /{print substr($0, 5)} found && /^[a-z]/{exit}' "$HANDOFF")
+   if [ -z "$SCOPE" ]; then
+     echo "FAIL: handoff frontmatter scope: block missing or empty — cannot enumerate paths" >&2
+     exit 1
+   fi
+   git add -- $SCOPE && git commit -m "handoff quick-save: <workstream>" -- $SCOPE
    ```
-   ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit --scope-from <handoff-doc-path> "handoff quick-save: <workstream>"
-   ```
-   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `--scope-from` flag reads `scope:` as git pathspec entries and stages only those paths — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`).
-3. **Pushing:** The post-commit hook handles pushing to branch automatically.
+   where `<workstream>` is the slug from the handoff doc's `workstream:` frontmatter field (e.g., `handoff quick-save: scoped-safety-commits`). The `scope:` block lists git pathspec entries — keeping concurrent sessions isolated. The pathspec format follows standard git pathspec syntax (e.g., `path/to/file.md`, `dir/with/files/**`). **If `scope:` is missing or empty: FAIL and exit non-zero — no fallback.**
+2. **Pushing:** The post-commit hook handles pushing to branch automatically.
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-4. **Verify remote is synced:** confirm no unpushed commits remain (`git log origin/$(git branch --show-current)..HEAD`). If auto-push failed, push explicitly and warn the PM.
+3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 
-Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Without this, `coordinator-safe-commit --scope-from` in concurrent sessions repeatedly trips on dead-PID claims that touched the same scope files — forcing the next EM to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (session-start, workday-complete, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
 
 Run:
 ```bash
@@ -249,6 +364,15 @@ Remind the user:
 - Keep it concise — aim for under 50 lines. The next session will also have MEMORY.md and project context.
 - Focus on state that MEMORY.md doesn't capture: in-progress work, blockers, uncommitted changes
 - If the user provides arguments (e.g., `/handoff focus on auth refactor`), incorporate that context
+- **Cross-repo communication is not a handoff use-case.** Telling another repo's EM something routes through the PM as relay (copy-paste in chat, or `archive/cross-repo/<topic>.md` link for big briefs). See `docs/wiki/cross-repo-communication.md`.
 - **Cleanup:** During `/handoff`, archive the predecessor after carrying forward its unresolved items. General handoff archiving (48-hour sweep) is handled by `/update-docs` — no broader sweep here.
 - **Active vs archived:** Active handoffs live in `tasks/handoffs/` (available for pickup). Archived handoffs live in `archive/handoffs/` (paper trail). Both are git-tracked.
 - **User context:** If `$ARGUMENTS` is provided (e.g., `/handoff focus on auth refactor`), incorporate that context into the handoff's "In-Progress Work" and "Recommended Next Steps" sections.
+
+### Crash-Rescue Checklist
+
+When writing a recovery handoff after a crash or unclean termination:
+
+**Sweep all live handoffs for gate/state invalidation.** Do not only author the new rescue handoff. For each existing handoff in `tasks/handoffs/` with `deployment_state` in `{ready_to_fire, in_flight, awaiting_gate}`, re-verify the gate predicate and stated substrate against current HEAD. Update frontmatter or add a comment block for any entry whose gate has cleared, whose substrate has changed, or whose stated in-progress state is now inconsistent with the branch.
+
+**Enumerate dirty/untracked files AND `git reflog` across all sibling repos under the same machine.** Cross-repo concurrent crashes leave fragments in N repos; stopping at the most-recent handoff misses N-1 crash sites. For each sibling repo in `~/.claude/tasks/repo-registry.md` that shares `stack_tags` or was in-flight this session, run `git status` and `git reflog --since="2 hours ago"` to surface uncommitted fragments.

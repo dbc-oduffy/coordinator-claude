@@ -4,7 +4,7 @@ system: staff-sessions
 status: distilled
 distilled_from:
   - archive/specs/2026-03-22-staff-sessions.md
-  - plugins/coordinator-claude/coordinator/skills/requesting-staff-session/SKILL.md
+  - plugins/coordinator/skills/requesting-staff-session/SKILL.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
@@ -13,7 +13,7 @@ distilled_run: 2026-05-06-13h00
 
 ## Overview
 
-A **staff session** is an Agent Teams-based collaborative planning or review pattern: 2-5 persona reviewers debate in parallel via SendMessage, then a synthesizer (Opus teammate) cross-references positions and produces a single canonical artifact. PM-gated: only invoke when the PM explicitly asks. Reserved for genuinely architectural decisions; routine workflow changes go through `/review-dispatch` with a single reviewer.
+A **staff session** is an Agent Teams-based collaborative planning or review pattern: 2-5 persona reviewers debate in parallel via SendMessage, then a synthesizer (Opus teammate) cross-references positions and produces a single canonical artifact. PM-gated: only invoke when the PM explicitly asks. Reserved for genuinely architectural decisions; routine workflow changes go through `/review` (plan artifacts) or `/review-code` (code artifacts) with a single reviewer.
 
 ## Architecture
 
@@ -21,25 +21,26 @@ A **staff session** is an Agent Teams-based collaborative planning or review pat
 
 | Tier | Shape | When |
 |------|-------|------|
-| Lightweight | Falls through to `/review-dispatch` (single reviewer) | Tradeoff-free quality fixes |
+| Lightweight | Falls through to single-reviewer dispatch: `/review` (plan) or `/review-code` (code) | Tradeoff-free quality fixes |
 | Standard | 2 debaters + synthesizer (3 total) | Default for architectural questions |
 | Full | 3-5 debaters + synthesizer (4-6 total) | Multi-domain or irreversible structural choices |
 
-Default standard pairings: the Staff Engineer + the Ambition Advocate (architecture / cross-cutting), the Game Dev Reviewer + the Staff Engineer (game dev), the Front-End Reviewer + the UX Reviewer (frontend), the Data Science Reviewer + the Staff Engineer (data).
+Default standard pairings: Patrik+Zolí (architecture / cross-cutting), Sid+Patrik (game dev), Palí+Fru (frontend), Camelia+Patrik (data).
 
 ### When a single reviewer is the right tool instead
 
-The default for any review is `/review-dispatch` with one reviewer. Staff session is the exception, not the menu. If you can't articulate why a single reviewer would miss something a panel would catch, you don't need a staff session.
+The default for any review is single-reviewer dispatch (via `/review` for plan artifacts, `/review-code` for code artifacts). Staff session is the exception, not the menu. If you can't articulate why a single reviewer would miss something a panel would catch, you don't need a staff session.
 
 | Situation | Right tool | Why |
 |-----------|------------|-----|
-| Quick sanity check on a plan or code | `/review-dispatch` (single reviewer) | One smart reviewer is enough for gut-checks |
-| Routine workflow / doctrine / process change | `/review-dispatch` (single reviewer) | Reversible, low blast radius — single perspective is correct |
-| Single-skill or single-command edit | `/review-dispatch` (single reviewer) | Scoped artifact; one expert lens fits |
-| Post-execution code review | `/review-dispatch` | Sequential by design (evolved artifact) |
+| Quick sanity check on a plan | `/review` (single reviewer) | One smart reviewer is enough for gut-checks |
+| Quick sanity check on code | `/review-code` (single reviewer) | One smart reviewer is enough for gut-checks |
+| Routine workflow / doctrine / process change | `/review` (single reviewer) | Reversible, low blast radius — single perspective is correct |
+| Single-skill or single-command edit | `/review` (single reviewer) | Scoped artifact; one expert lens fits |
+| Post-execution code review | `/review-code` | Sequential by design (evolved artifact) |
 | Per-stub reviews during enrichment | single reviewer | Too heavy for individual stubs |
-| Genuinely architectural decision crossing two domains, with real cost in being wrong | **Standard** staff session (2 debaters + the Ambition Advocate) — *PM authorization required* | Two domain experts debate, the Ambition Advocate synthesizes |
-| Cross-cutting work touching three+ domains where each lens is irreplaceable | **Full** staff session (3-5 debaters + the Ambition Advocate) — *PM authorization required* | Each domain expert brings a lens no other can substitute |
+| Genuinely architectural decision crossing two domains, with real cost in being wrong | **Standard** staff session (2 debaters + Zolí) — *PM authorization required* | Two domain experts debate, Zolí synthesizes |
+| Cross-cutting work touching three+ domains where each lens is irreplaceable | **Full** staff session (3-5 debaters + Zolí) — *PM authorization required* | Each domain expert brings a lens no other can substitute |
 
 The bar for even *asking* the PM whether a staff session is warranted: the work is genuinely architectural — cross-system design, irreversible structural choice, multi-domain tradeoff with real cost in being wrong. If you're tempted to recommend one for a one-afternoon process change, you're miscalibrated; do the lighter thing instead.
 
@@ -54,7 +55,7 @@ Team lifecycle, blocking chain, and synthesis pattern are structurally identical
 
 ### Synthesizer is a teammate, not the EM
 
-When the team spawns, the EM is freed. The Ambition Advocate (Opus) does cross-referencing as synthesizer and teammate, blocked on all debaters via `blockedBy`. Same pattern as research pipelines.
+When the team spawns, the EM is freed. The synthesizer (Opus) does cross-referencing as a teammate, blocked on all debaters via `blockedBy`. Same pattern as research pipelines.
 
 ### Output is a reviewed plan
 
@@ -101,7 +102,7 @@ Before invoking `/staff-session`, the EM should have:
 
 ### docs-checker pre-flight
 
-For artifacts that cite external APIs — particularly C++ or Unreal Engine code — the EM should consider running the `docs-checker` agent before dispatching the Opus reviewer team. docs-checker verifies API names, signatures, and headers at Sonnet cost, so the staff reviewers spend their time on contested design decisions rather than mechanical lookups. The skip is an EM call and is silent — pure prose, in-repo-only references, and routine in-distribution code don't need it. **Skipping docs-checker does NOT extend to skipping the review itself — only the PM may waive a review on an EM plan.** Full EM decision rules: [docs-checker-pre-review](docs-checker-pre-review.md). Mechanical flow: `commands/review-dispatch.md` Phase 2.7.
+For artifacts that cite external APIs — particularly C++ or Unreal Engine code — the EM should consider running the `docs-checker` agent before dispatching the Opus reviewer team. docs-checker verifies API names, signatures, and headers at Sonnet cost, so the staff reviewers spend their time on contested design decisions rather than mechanical lookups. The skip is an EM call and is silent — pure prose, in-repo-only references, and routine in-distribution code don't need it. **Skipping docs-checker does NOT extend to skipping the review itself — only the PM may waive a review on an EM plan.** Full EM decision rules: [docs-checker-pre-review](docs-checker-pre-review.md). Mechanical flow: `docs/wiki/reviewer-pipeline.md` § Phase 2.7.
 
 ### 7-teammate cap
 
@@ -116,27 +117,27 @@ The related antipattern — allocating a team slot to an agent whose only job is
 ## Example invocations
 
 ```
-# Standard plan session — auto-selects Staff Engineer + Game Dev Reviewer for architecture, Ambition Advocate synthesizes
+# Standard plan session — auto-selects Patrik + Sid for architecture, Zolí synthesizes
 /staff-session --mode plan --tier standard "Design the executor abort/escalation protocol"
 
-# Standard review — explicit reviewers, Ambition Advocate synthesizes
-/staff-session --mode review --tier standard --members "staff-game-dev,staff-eng" docs/plans/2026-03-22-holodeck-refactor.md
+# Standard review — explicit reviewers, Zolí synthesizes
+/staff-session --mode review --tier standard --members "sid,patrik" docs/plans/2026-03-22-holodeck-refactor.md
 
-# Full plan session — multi-domain debaters, Ambition Advocate synthesizes
-/staff-session --mode plan --tier full --members "staff-eng,staff-game-dev,staff-data-sci" "Design cross-system AI behavior pipeline"
+# Full plan session — multi-domain debaters, Zolí synthesizes
+/staff-session --mode plan --tier full --members "patrik,sid,camelia" "Design cross-system AI behavior pipeline"
 
-# Lightweight — falls through to single-reviewer dispatch (no Ambition Advocate synthesis)
-/staff-session --mode review --tier lightweight --members "staff-eng" docs/plans/quick-fix.md
+# Lightweight — falls through to single-reviewer dispatch (no Zolí synthesis)
+/staff-session --mode review --tier lightweight --members "patrik" docs/plans/quick-fix.md
 ```
 
 ## Gotchas
 
 - **Backstop protocols suspended during staff sessions.** Parallel debate serves the same multi-perspective challenge function; double-counting wastes tokens.
-- **No simulated-PM agent.** Push-for-more is a synthesizer prompt lens; if a business perspective is needed, the Ambition Advocate is the closest fit.
-- **Reuses existing reviewer agents** with a tool-list addition (`SendMessage`, `TaskUpdate`, `TaskList`, `TaskGet`). These tools are no-op outside Agent Teams; non-team dispatches via `/review-dispatch` are behaviorally unchanged.
+- **No simulated-PM agent.** Push-for-more is a synthesizer prompt lens; if a business perspective is needed, Zolí is the closest fit.
+- **Reuses existing persona agents** with a tool-list addition (`SendMessage`, `TaskUpdate`, `TaskList`, `TaskGet`). These tools are no-op outside Agent Teams; non-team dispatches via `/review` or `/review-code` are behaviorally unchanged.
 - **PM-gated, never EM-initiated.** If the EM thinks a staff session is warranted, ask first. NEVER invoke from a subagent.
 
 ## Reference
 
-- Related: [agent-hierarchy](agent-hierarchy.md), [reviewer-output-schema](reviewer-output-schema.md)
+- Related: [reviewer-routed-workers](reviewer-routed-workers.md)
 - Source plan: `archive/specs/2026-03-22-staff-sessions.md`
