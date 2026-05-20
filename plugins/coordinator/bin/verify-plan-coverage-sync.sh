@@ -89,7 +89,7 @@ case "${MODE}" in verify|--fix|--list) ;;
 
 # --- hardcoded consumer list ---
 # These are the 5 reviewer prompt files that carry the plan-coverage-check-consumption sentinel:
-#   Patrik (staff-eng), Sid (staff-game-dev), Camelia (staff-data-sci), Palí (senior-front-end), Zolí (eng-director).
+#   the Staff Engineer (staff-eng), the Game Dev Reviewer (staff-game-dev), the Data Science Reviewer (staff-data-sci), the Front-End Reviewer (senior-front-end), the Director of Engineering (eng-director).
 # Spec backlink: docs/plans/2026-05-18-plan-coverage-checker.md § Snippet — snippets/plan-coverage-check-consumption.md
 HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/agents/staff-eng.md"

@@ -7,7 +7,7 @@ spec_backlink: docs/plans/2026-05-06-plan-super-skill.md
 prerequisite:
   - agent:prior-art-checker
   - skill:coordinator:review
-  - wiki:plugins/coordinator-claude/coordinator/docs/wiki/writing-plans.md
+  - wiki:plugins/coordinator/docs/wiki/writing-plans.md
 ---
 
 # coordinator:plan

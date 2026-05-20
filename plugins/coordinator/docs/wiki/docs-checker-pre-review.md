@@ -113,12 +113,12 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 
 The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator/agents/eng-director.md` (Zolí)
-- `plugins/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/web-dev/agents/senior-front-end.md` (Palí)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
+- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 

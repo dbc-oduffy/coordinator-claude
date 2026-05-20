@@ -5,7 +5,7 @@
 # multiple stubs in the active set, or cross-reference a stub against tasks/roadmap/<run-id>/pm-gates.md.
 #
 # Spec backlink: docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 5
-# Patrik review finding: P1-1 (audit script must ship in v1, not be deferred to post-dogfood).
+# the Staff Engineer review finding: P1-1 (audit script must ship in v1, not be deferred to post-dogfood).
 #
 # Usage: audit-roadmap.sh <run-id>
 #

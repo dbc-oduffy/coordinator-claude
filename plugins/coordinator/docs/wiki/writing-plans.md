@@ -52,13 +52,13 @@ Every plan declares one scope mode. The mode shapes review depth, acceptable tra
 
 If you can't pick confidently, the scope is under-specified — push back to the PM (see "Definition of Ready" below) before drafting tasks.
 
-## YK Pre-Flight (anticipate the stress test)
+## the VP-Product Reviewer Pre-Flight (anticipate the stress test)
 
-YK reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* The PM (Head of Product) applies the VP-of-Product lens at merge directly — YK does NOT auto-dispatch on plans, on per-merge gates, or on multi-patch areas. YK joins as a teammate in `/staff-session` planning when the PM includes the `vp-product` slug. See `agents/vp-product.md` for the full lens.
+The VP-Product Reviewer reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* The PM (Head of Product) applies the VP-of-Product lens at merge directly — the VP-Product Reviewer does NOT auto-dispatch on plans, on per-merge gates, or on multi-patch areas. The VP-Product Reviewer joins as a teammate in `/staff-session` planning when the PM includes the `vp-product` slug. See `agents/vp-product.md` for the full lens.
 
-**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a YK finding. Fix it at the plan stage, not at merge.
+**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a the VP-Product Reviewer finding. Fix it at the plan stage, not at merge.
 
-While drafting, walk the YK questions against your own plan **before** you save it:
+While drafting, walk the VP-Product Reviewer questions against your own plan **before** you save it:
 
 - Is the *shape* of the solution right? (data flow, concurrency model, sync/async, declarative vs. imperative, abstraction altitude)
 - For any choice that defaults to single-threaded / single-process / serial / synchronous: is that defensible, or is it the path of least drafting effort?
@@ -66,9 +66,9 @@ While drafting, walk the YK questions against your own plan **before** you save 
 - For any patch in an area with prior patches: would a refactor be cheaper in the long run? With AI execution this is hours, not weeks.
 - What 1–3 alternative shapes did you consider before picking this one? Name them in a `## Alternatives Considered` section.
 
-**The point is not to write a YK simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of Patrik's review keeps engineers writing better code in the first pass. The PM applies the VP-of-Product lens at merge time directly; the planner's job is to make the choices defensible before they reach the PM.
+**The point is not to write a the VP-Product Reviewer simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of the Staff Engineer's review keeps engineers writing better code in the first pass. The PM applies the VP-of-Product lens at merge time directly; the planner's job is to make the choices defensible before they reach the PM.
 
-If a YK question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
+If a the VP-Product Reviewer question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
 
 ## Definition of Ready (pre-drafting gate)
 
@@ -157,7 +157,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 5. **External-doctrine proposals — independent location-challenge.** When a peer audit or external review recommends a fix, never adopt the proposed *location* uncritically — proposals frame fixes from where they noticed the problem, which is rarely the cheapest place to apply them. Run an independent location-challenge before drafting: would an upstream surface (producer skill, hook, dispatch template) prevent the class of problem more cheaply than the proposed downstream patch?
 
-**Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. Patrik-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
+**Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. The Staff Engineer-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
 
 **Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
 
@@ -171,7 +171,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Action on red:** loop back to Tier 1–3 investigation on the upper-layer mechanism before drafting the plan body.
 
-**Worked example** — 2026-05-19 python-first-class-corpus-closure plan, Zolí standalone review F1/F2/SI-1:
+**Worked example** — 2026-05-19 python-first-class-corpus-closure plan, the Director of Engineering standalone review F1/F2/SI-1:
 
 - **(a) Patch-shaped fix as proposed:** threshold patch inside `consumer_runner.py:547` (`_run_embed_cpp_chunks`) — skip chunks below threshold inside the embedder.
 - **(b) Upper-layer surface that should have been amended:** the `run_consumers()` substrate-applicability gate one level up — refuses to dispatch the embedder when no applicable substrate exists, making (a) redundant and fragile.
@@ -349,9 +349,9 @@ A close-out chunk's job is citation, not re-validation: name the spec, name the 
 
 **Anti-pattern:** riding the close-out on a sibling integration run and asserting the binding path fired. Looks rigorous; fragile by construction — hardware and topology drift make the path unreachable on the validation host even when the contract is correct (RAM cap doesn't bind on a CPU-bound host; `delta == 0` between baseline-at-`--jobs auto` and resume-at-`--jobs 1` fails on shard-count drift, not on a resume bug; a lock-reaper exercise needs an orphan-PID class that's its own engineering problem to stage).
 
-**Rule:** if the contract was Patrik-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
+**Rule:** if the contract was the Staff Engineer-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
 
-**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): Patrik flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
+**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): the Staff Engineer flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
 
 ## Shared-State Pre-Flight Gate
 
@@ -432,7 +432,7 @@ When plan A depends on plan B — shared paths, asset names, API contracts — a
 
    Empty-but-present section is fine; missing section is the failure mode.
 
-A reviewer (Patrik / domain reviewer) will dispatch against the assumption that this scan has happened; surfacing a sibling-plan conflict at executor time is plan-substrate failure, not executor failure. Source: 2026-05-18, project-rag.
+A reviewer (the Staff Engineer / domain reviewer) will dispatch against the assumption that this scan has happened; surfacing a sibling-plan conflict at executor time is plan-substrate failure, not executor failure. Source: 2026-05-18, project-rag.
 
 ### (d) Tool resolution in teammate prompts
 

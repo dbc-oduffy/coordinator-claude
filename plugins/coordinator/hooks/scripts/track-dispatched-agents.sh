@@ -3,7 +3,7 @@
 # enabling later coordinator-safe-commit invocations to union the executors'
 # touched-file lists into scope.
 #
-# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, Patrik
+# Per archive/specs/2026-05-05-issue-a-agent-id-linkage.md (Issue A, the Staff Engineer
 # APPROVED_WITH_NOTES v3 2026-05-06).
 #
 # Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
@@ -30,9 +30,9 @@
 #     purposes — conservative default per plan line 79).
 #   - Dedup guard compares column 1 only (cut -f1 | grep -qxF) so both legacy
 #     bare-agentId lines AND new tab-delimited lines are deduped uniformly.
-#     (Patrik F1/F11: old grep -qxF on full line always mismatched tab-
+#     (the Staff Engineer F1/F11: old grep -qxF on full line always mismatched tab-
 #     delimited records, causing unbounded re-append.)
-#   - Atomic temp+rename for the back-pointer (Patrik v2 finding 3).
+#   - Atomic temp+rename for the back-pointer (the Staff Engineer v2 finding 3).
 #   - Always exits 0 — advisory bookkeeping, never blocks tool calls.
 
 if command -v timeout &>/dev/null; then
@@ -114,7 +114,7 @@ if [[ ! -d "$SESSION_DIR" ]]; then
   fi
 fi
 
-# Init agent-dir + write back-pointer atomically (Patrik v2 finding 3).
+# Init agent-dir + write back-pointer atomically (the Staff Engineer v2 finding 3).
 # `-s` test: file exists AND is non-empty. Empty back-pointers (partial-write
 # survivors) trigger re-write. The temp+rename pattern means a concurrent
 # fire either succeeds-second-or-cleans-up — no orphan temp files.
@@ -130,7 +130,7 @@ fi
 
 # Dedup append to dispatched-agents.txt.
 # Column-1 comparison handles both legacy bare-agentId lines AND new
-# tab-delimited records uniformly. (Patrik F1/F11: grep -qxF on the full
+# tab-delimited records uniformly. (the Staff Engineer F1/F11: grep -qxF on the full
 # line always mismatched tab-delimited records, causing unbounded re-append.)
 [[ -f "$DISPATCHED" ]] || touch "$DISPATCHED" 2>/dev/null
 if cut -f1 "$DISPATCHED" 2>/dev/null | grep -qxF "$AGENT_ID"; then

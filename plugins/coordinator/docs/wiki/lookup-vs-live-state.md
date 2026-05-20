@@ -27,7 +27,7 @@ The two checks together are the contract. Either alone is admissible only when s
 
 ## The deterministic-prediction detection pattern
 
-Camelia's deterministic-prediction pattern is the general detection mechanism: before re-running an expensive producer to validate a contract change, re-score existing results against the new labels. If the existing results still match the new labels, you have evidence of freshness. If they diverge, you have a label-vs-result mismatch that signals either a real shift or a stale snapshot — but you know to investigate before re-running.
+The Data Science Reviewer's deterministic-prediction pattern is the general detection mechanism: before re-running an expensive producer to validate a contract change, re-score existing results against the new labels. If the existing results still match the new labels, you have evidence of freshness. If they diverge, you have a label-vs-result mismatch that signals either a real shift or a stale snapshot — but you know to investigate before re-running.
 
 This generalizes to lookup-table audits: re-evaluate the lookup's entries against the current consumer's expectations before declaring "still good." Cheap, deterministic, surfaces the staleness class that presence-checks miss.
 

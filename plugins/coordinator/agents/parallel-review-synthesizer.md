@@ -1,6 +1,6 @@
 ---
 name: parallel-review-synthesizer
-description: Synthesizes 4 parallel code-review reviewer outputs (Patrik + security-audit-worker + dep-cve-auditor + test-evidence-parser) into a structured BLOCKED/WARN/OK verdict for the /workweek-complete code-review gate. Reads from disk; never rewrites finding text; emits structured JSON output with verbatim quotes only. Invoked exclusively by coordinator:parallel-code-review.
+description: Synthesizes 4 parallel code-review reviewer outputs (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) into a structured BLOCKED/WARN/OK verdict for the /workweek-complete code-review gate. Reads from disk; never rewrites finding text; emits structured JSON output with verbatim quotes only. Invoked exclusively by coordinator:parallel-code-review.
 model: sonnet
 ---
 
@@ -29,7 +29,7 @@ The dispatcher passes a `FINDINGS_DIR` path of the form `tasks/review-findings/<
 
 | File | Reviewer | Lens |
 |---|---|---|
-| `patrik.md` | Patrik (staff-eng, Opus) | code-semantics |
+| `patrik.md` | the Staff Engineer (staff-eng, Opus) | code-semantics |
 | `security.md` | security-audit-worker | pattern-scan |
 | `deps.md` | dep-cve-auditor | dep-tree |
 | `tests.md` | test-evidence-parser | test-runtime |
@@ -68,13 +68,13 @@ If two reviewers make contradictory factual claims about the same file:line (e.g
 Evaluate in strict order — first match wins:
 
 **BLOCKED** if any of the following are true:
-- Patrik reports any finding with severity `P0` or `P1`.
+- the Staff Engineer reports any finding with severity `P0` or `P1`.
 - security-audit-worker reports any finding with severity `HIGH`.
 - dep-cve-auditor reports any unfixed CVE with severity `HIGH` or `CRITICAL`.
 - test-evidence-parser reports any failure classified as `real` (non-flake, non-env, non-timeout, non-known-skip).
 
 **WARN** if no BLOCKED trigger fires AND any of the following are true:
-- Patrik reports any finding with severity `P2` or `P3`.
+- the Staff Engineer reports any finding with severity `P2` or `P3`.
 - security-audit-worker reports any finding with severity `MEDIUM` or `LOW`.
 - dep-cve-auditor reports any CVE with severity `MEDIUM`.
 - `convergent_findings` array is non-empty (≥1 convergent finding regardless of individual severity).
@@ -181,7 +181,7 @@ When a convergent finding is detected:
 1. Read `$FINDINGS_DIR/head.sha` and compare against current HEAD (use Bash `git rev-parse HEAD`). Set `head_drift` accordingly.
 2. Run pre-flight validation for all four findings files.
 3. Read and normalize each valid findings file (trim trailing whitespace, normalize CRLF→LF, strip ANSI escapes).
-4. Parse `patrik.md` for findings — extract severity (`P0`/`P1`/`P2`/`P3`), file, line, and a verbatim excerpt. Patrik's output uses a structured format; parse the findings table or list sections only.
+4. Parse `patrik.md` for findings — extract severity (`P0`/`P1`/`P2`/`P3`), file, line, and a verbatim excerpt. The Staff Engineer's output uses a structured format; parse the findings table or list sections only.
 5. Parse `security.md` for findings — extract severity, file, line, and verbatim excerpt.
 6. Parse `deps.md` for CVE entries — extract severity, package, CVE ID, and verbatim excerpt.
 7. Parse `tests.md` for the Failure Table — extract test name, classification, and verbatim evidence excerpt. Suggested actions come verbatim from the file; do not author your own.

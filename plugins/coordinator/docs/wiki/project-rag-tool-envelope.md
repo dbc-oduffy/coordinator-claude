@@ -337,7 +337,7 @@ For tools with a SQL fast-path and a JSONL fallback (asset_registry, referencers
 | `Phase 3C` | `cross_layer_edges` (tag edges, input binding edges) | `project_tag_graph` |
 | `Phase 4 (structural_index)` | C++ classes, structs, enums in structural_index sqlite | `project_cpp_symbol`, `project_subsystem_profile` |
 
-**Why `not_primed_for_this_bp` became `extraction_skipped`:** The old key was a per-entity variant of the same structural condition — "priming index exists but this specific BP was not in it." That is exactly what `extraction_skipped` means. Patrik's W2 review consolidated all `not_primed*` variants into `extraction_skipped` so consumers see one verdict and one remediation path. The `provenance.phase` field carries the per-scope signal that the old key name was encoding.
+**Why `not_primed_for_this_bp` became `extraction_skipped`:** The old key was a per-entity variant of the same structural condition — "priming index exists but this specific BP was not in it." That is exactly what `extraction_skipped` means. The Staff Engineer's W2 review consolidated all `not_primed*` variants into `extraction_skipped` so consumers see one verdict and one remediation path. The `provenance.phase` field carries the per-scope signal that the old key name was encoding.
 
 ## Truncation convention
 
@@ -351,9 +351,9 @@ This convention is codebase-wide. New tools that hit a result cap must follow th
 **Current users:**
 
 - `project_trace` — existing `truncated` field at the trace return in `project_rag_mcp/tools/live.py`
-- `project_dependencies` — `cycle_detected` depth-cap reclassified as `verdict: ok` with `data.truncated = true` and `data.truncation_reason = "recursive depth cap exceeded"` (Patrik Finding-4, W2)
+- `project_dependencies` — `cycle_detected` depth-cap reclassified as `verdict: ok` with `data.truncated = true` and `data.truncation_reason = "recursive depth cap exceeded"` (the Staff Engineer Finding-4, W2)
 
-**Rationale (Patrik Finding-4):** Depth-cap truncation is a successful execution that hit a documented operational bound, not an error condition. Returning `verdict: ok` with truncation metadata lets callers handle the partial result programmatically rather than treating it as a failure to retry.
+**Rationale (the Staff Engineer Finding-4):** Depth-cap truncation is a successful execution that hit a documented operational bound, not an error condition. Returning `verdict: ok` with truncation metadata lets callers handle the partial result programmatically rather than treating it as a failure to retry.
 
 ## Backwards compatibility
 
@@ -370,7 +370,7 @@ This convention is codebase-wide. New tools that hit a result cap must follow th
 | `project_dependencies` | `list[dict]` | `result["data"]["dependencies"]` |
 | `project_cpp_symbol` | `list[dict]` | `result["data"]["symbols"]` |
 
-**`project_health` inner verdict key:** The health tool's internal human-readable verdict string moved from `result["verdict"]` (which is now the envelope enum) to `result["data"]["health_verdict"]`. This preserves the full diagnostic string for callers that need it while avoiding the dual-`verdict` cognitive-load trap (Patrik Finding-7).
+**`project_health` inner verdict key:** The health tool's internal human-readable verdict string moved from `result["verdict"]` (which is now the envelope enum) to `result["data"]["health_verdict"]`. This preserves the full diagnostic string for callers that need it while avoiding the dual-`verdict` cognitive-load trap (the Staff Engineer Finding-7).
 
 ## Doctor allowed-tools scope (WS-A / WS-R)
 

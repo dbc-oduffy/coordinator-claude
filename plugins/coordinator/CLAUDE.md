@@ -87,7 +87,7 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 ## Roster Doctrine
 
 - **Workers > personas.** Default new agents to unnamed Sonnet workers. Personas earn names only when *judgment* is the value.
-- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (Patrik, Sid, Camelia, Palí, Fru, Zolí) are Opus-only. → `agents/code-reviewer.md`.
+- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering) are Opus-only. → `agents/code-reviewer.md`.
 - **Distributed abstention, centralized routing.** Each agent abstains on fit-mismatch. One read-only orchestrator owns the routing table; no domain agent names other agents in its prompt.
 
 ## Verifying Executor Output After a Crash or Timeout
@@ -124,7 +124,7 @@ Autonomous-execution commands background everything by default. EM holds wave ma
 
 → Procedure: `coordinator:plan` (decision-tree skill). Bullets below are canonical, linked from that skill's branches.
 
-- **Plan is a skill invocation, not a writing instruction.** PM types "plan" / "let's plan" / "write a plan" / "draft a plan" / "break this down" / "plan the implementation" → first action is `Skill(coordinator:plan)`. Writing a plan body via `Write` without invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → Patrik → integrator chain — doctrine violation.
+- **Plan is a skill invocation, not a writing instruction.** PM types "plan" / "let's plan" / "write a plan" / "draft a plan" / "break this down" / "plan the implementation" → first action is `Skill(coordinator:plan)`. Writing a plan body via `Write` without invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → the Staff Engineer → integrator chain — doctrine violation.
 - **EM default is plan and dispatch, not type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Persist review output and plan artifacts to disk before acting.**
 - **STOP and re-plan when something goes sideways.**
@@ -261,9 +261,9 @@ Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.
 - **Parallel enrichment needs unified seam review** — `docs/wiki/parallel-enrichment-seam-review.md`.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
-- **Two-pipeline review on shared artifacts** combines per-stub depth (Patrik on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
-- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; Patrik escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow Patrik's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
-- **Personas run at Opus only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
+- **Two-pipeline review on shared artifacts** combines per-stub depth (the Staff Engineer on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
+- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; the Staff Engineer escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow the Staff Engineer's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
+- **Personas run at Opus only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
 
 ## Synthesis Discipline
 
