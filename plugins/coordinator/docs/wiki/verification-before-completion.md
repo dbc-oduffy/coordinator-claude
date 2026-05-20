@@ -225,7 +225,7 @@ For any plan with declared acceptance criteria, "done" means more than green tes
 - [ ] Every **acceptance criterion** is satisfied (or explicitly waived in writing with PM acknowledgement).
 - [ ] Tests/checks ran and the output is captured (link or excerpt — not "trust me").
 - [ ] If user-visible: **manual demo path verified** — you actually walked the steps, not just inferred from green tests.
-- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional). The VP-of-Product lens at merge (refactor-vs-patch, shape, dumb questions) is the PM's call — not an auto-dispatched the VP-Product Reviewer gate.
+- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional). The VP-of-Product lens at merge (refactor-vs-patch, shape, dumb questions) is the PM's call — not an auto-dispatched YK gate.
 - [ ] **Known limitations** are documented — what *isn't* covered, what edge cases were deferred.
 - [ ] **Rollback or mitigation** is named — if this turns out wrong in production, what's the recovery move?
 - [ ] **Ship verdict** is staged for the PM (see `coordinator:merging-to-main`).

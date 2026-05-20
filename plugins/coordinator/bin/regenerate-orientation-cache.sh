@@ -11,8 +11,8 @@
 #
 # Writer tiers:
 #   ceremony    (workday-start, update-docs)  — full regen, clears pinboard
-#   mid-session (session-end, handoff)         — preserves all non-pinboard sections from existing
-#                                                 file; pinboard handled via --pinboard if supplied
+#   mid-session (session-end, handoff)         — re-derives all sections from disk (same as ceremony);
+#                                                 preserves existing pinboard slot unless --pinboard supplied
 #
 # Mid-session pinboard writes:
 #   regenerate-orientation-cache.sh --invoker session-end --pinboard "<one-line note>"
@@ -83,7 +83,10 @@ if [[ -f "$IDENTITY_FILE" ]]; then
     PROJECT_LINE="$(awk '/^[[:space:]]*#/ {next} /^[[:space:]]*$/ {next} {print; exit}' "$IDENTITY_FILE" 2>/dev/null)"
 fi
 if [[ -z "$PROJECT_LINE" && -f "$REPO_ROOT/CLAUDE.md" ]]; then
-    PROJECT_LINE="$(awk '/^# / { getline; while (/^$/) getline; print; exit }' "$REPO_ROOT/CLAUDE.md" 2>/dev/null | head -1)"
+    # Review: code-reviewer — original pattern: getline + while(/^$/) getline loops forever if H1
+    # is the last line of the file (getline returns 0 at EOF, $0 stays empty, loop never exits).
+    # Fix: use getline-into-variable form, which returns 0 at EOF and allows clean exit.
+    PROJECT_LINE="$(awk '/^# / { while ((getline line) > 0) { if (line !~ /^$/) { print line; exit } } exit }' "$REPO_ROOT/CLAUDE.md" 2>/dev/null | head -1)"
 fi
 if [[ -z "$PROJECT_LINE" ]]; then
     PROJECT_LINE="Project at $(basename "$REPO_ROOT")"
@@ -95,6 +98,8 @@ PROJECT_LINE="$(printf '%s' "$PROJECT_LINE" | tr -d '\n' | cut -c1-400)"
 
 # -------- Counters (from disk) --------
 # Counter helpers: always emit exactly one integer to stdout, never fail.
+# Only needed for grep -c outputs which can carry trailing whitespace on some platforms;
+# for-loop counters emit clean integers without this.
 _clean_int() { tr -d ' \n\r\t' < <(printf '%s' "${1:-0}"); }
 
 count_handoffs_ready() {
@@ -150,6 +155,8 @@ BUG_BACKLOG=$(count_bug_backlog)
 LOCAL_QUEUE=$(count_local_queue)
 
 # -------- Active workstreams (≤10 from tracker) --------
+# Review: code-reviewer — best-effort: errors inside $(...) substitution silently produce empty
+# output, which is treated as "no entries" by the caller — acceptable for this optional section.
 emit_workstreams() {
     local tracker=""
     for cand in "$REPO_ROOT/tasks/project-tracker.md" "$REPO_ROOT/docs/project-tracker.md" "$REPO_ROOT/tasks/tracker.md"; do
@@ -180,6 +187,8 @@ emit_workstreams() {
 }
 
 # -------- Rechecks due ≤7 days --------
+# Review: code-reviewer — best-effort: errors inside $(...) substitution silently produce empty
+# output, which is treated as "no entries" by the caller — acceptable for this optional section.
 emit_rechecks() {
     local today_epoch threshold_epoch f date_str date_epoch base
     today_epoch=$(date -u +%s)
@@ -190,7 +199,11 @@ emit_rechecks() {
         # Extract YYYY-MM-DD from filename.
         date_str="$(echo "$base" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)"
         [[ -z "$date_str" ]] && continue
-        date_epoch=$(date -u -d "$date_str" +%s 2>/dev/null || echo 0)
+        # Review: code-reviewer — date -d is GNU coreutils-only; fails silently on macOS/BSD/Alpine
+        # (the || echo 0 swallows the error, causing every recheck to be excluded on those platforms).
+        # python3 is universally available on the consumer machines this plugin targets and gives a
+        # portable epoch without a GNU vs BSD platform-switch.
+        date_epoch=$(python3 -c "import datetime,sys; print(int(datetime.datetime.fromisoformat('$date_str').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
         [[ "$date_epoch" == 0 ]] && continue
         if [[ "$date_epoch" -le "$threshold_epoch" ]]; then
             echo "- \`tasks/$base\` (due $date_str)"
@@ -249,7 +262,7 @@ EOF
         cat <<EOF
 
 ## Trust caveats
-- Unreal Engine project detected (\`$UPROJECT_PATH\`) — do NOT trust your training data on UE5 APIs, classes, or Blueprint semantics. Verify every claim via \`mcp__project-rag__*\` tools or dispatch \`game-dev:staff-game-dev\` (the Game Dev Reviewer). This applies to your delegates — restate it in every UE dispatch brief.
+- Unreal Engine project detected (\`$UPROJECT_PATH\`) — do NOT trust your training data on UE5 APIs, classes, or Blueprint semantics. Verify every claim via \`mcp__project-rag__*\` tools or dispatch \`game-dev:staff-game-dev\` (Sid). This applies to your delegates — restate it in every UE dispatch brief.
 EOF
     fi
 

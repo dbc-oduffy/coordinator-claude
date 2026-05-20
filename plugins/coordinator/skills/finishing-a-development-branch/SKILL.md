@@ -108,7 +108,7 @@ If on a worktree: keep the worktree active.
 
 ### Step 5: Cleanup Worktree
 
-<!-- Review: the Staff Engineer — Option 2 keeps worktree active; contradicted the quick reference table -->
+<!-- Review: Patrik — Option 2 keeps worktree active; contradicted the quick reference table -->
 **For Option 1:**
 
 Check if in worktree:
@@ -165,7 +165,7 @@ git worktree remove <worktree-path>
 ## Integration
 
 **Called by:**
-<!-- Review: the Staff Engineer — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
+<!-- Review: Patrik — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
 - **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
 - **/execute-plan** (Step 3) — After all batches complete
 

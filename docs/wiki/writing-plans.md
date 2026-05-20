@@ -88,15 +88,17 @@ If two or more checkboxes can't be filled honestly, the plan isn't ready. Surfac
 
 ## Pre-dispatch confidence checklist
 
-Before dispatching a build-task agent or entering plan mode for a non-trivial feature, walk through these five gates. Any "no" demands more investigation, not bigger agent dispatch. NOT a numeric score — the checklist is the gate.
+Before dispatching a build-task agent or entering plan mode for a non-trivial feature, walk through these seven gates. Any "no" demands more investigation, not bigger agent dispatch. NOT a numeric score — the checklist is the gate.
 
 1. **No duplicate.** Have I greped for an existing implementation under nearby paths? **(See `Negative-Search Before Drafting` below for the formal greppable procedure.)**
 2. **Architecture-compatible.** Does the proposed approach use existing project conventions (tech stack from CLAUDE.md, patterns from atlas)? If introducing a new dependency, is the rationale in the plan? **(See `Codebase Research (before file mapping)` above for the survey discipline.)**
 3. **Official docs read.** For any external API the plan calls into, have I read the actual signature — not relied on training memory?
 4. **Reference impl seen.** For any nontrivial pattern, can I point to a working implementation (OSS or in our codebase) that demonstrates it? **(See `Codebase Research (before file mapping)` above.)**
 5. **Root cause known (bugs only).** For bug fixes, do I have evidence the diagnosis is correct, not just plausible?
+6. **No-fabrication.** For any plan asserting on a frontmatter key, env var, config field, or schema column, have I greped for the literal field name? (See § Negative-Search Before Drafting.)
+7. **Fix-locus discrimination.** For each proposed patch, have I identified the upper-layer registry/dispatch/extension site by `file:line` and named a concrete reason patching the upper layer is wrong? (See § Fix-locus discrimination.)
 
-Five greens → dispatch. Any red → loop back to investigation tier 1-3 or escalate to PM.
+All seven green → dispatch. Any red → loop back to investigation tier 1-3 or escalate to PM.
 
 **Validation floors derive from emission shape, not author intuition.** Setting `≥N items emitted` as a gate when N is chosen by feel produces false-negatives (gate passes on a near-empty output) and false-positives (gate blocks a legitimately sparse but correct result). Before writing a count gate, trace the emission path: identify the producer loop or query and derive the minimum expected output from the logic, not from a gut estimate. Source: 2026-05-14 project-rag-ue-addon.
 
@@ -141,7 +143,7 @@ This gives you the structural context to make informed file-mapping decisions wi
 
 Before committing to a prescribed shape, run a negative search to surface prior decisions that argue against what the plan proposes to introduce or restore.
 
-**No-fabrication branch — predicates citing fields must grep the field first.** A plan or predicate that asserts on a frontmatter key, env var, config field, or schema column without grepping for the literal name is fabrication, not verification. Extends the 5-dim no-duplicate branch into no-fabrication: *does the named field exist on disk?* Before writing any trigger gate, abstain condition, or rule that references a structured data field (`outcome:`, `status:`, `kind:`), grep the schema definition (e.g., `schemas/handoff.yaml`, frontmatter validator) and quote a file:line citation. Absence of a grep citation against the schema is a plan smell. Source: 2026-05-07 external-pattern-checker plan trigger-gate cited a non-existent `outcome: failed` field on handoff schema (enum is `active | consumed | superseded`); the gate would have fired on EM mood, not signal. Greppable from `coordinator/CLAUDE.md` § Pre-Dispatch Verification (`no-fabrication`).
+**No-fabrication branch — predicates citing fields must grep the field first.** A plan or predicate that asserts on a frontmatter key, env var, config field, or schema column without grepping for the literal name is fabrication, not verification. Extends the no-duplicate dimension into no-fabrication: *does the named field exist on disk?* Before writing any trigger gate, abstain condition, or rule that references a structured data field (`outcome:`, `status:`, `kind:`), grep the schema definition (e.g., `schemas/handoff.yaml`, frontmatter validator) and quote a file:line citation. Absence of a grep citation against the schema is a plan smell. Source: 2026-05-07 external-pattern-checker plan trigger-gate cited a non-existent `outcome: failed` field on handoff schema (enum is `active | consumed | superseded`); the gate would have fired on EM mood, not signal. Greppable from `coordinator/CLAUDE.md` § Pre-Dispatch Verification (`no-fabrication`).
 
 1. **Identify the central nouns/abstractions** the prescription introduces or restores (e.g., a pattern name, an architectural layer, a specific tool or verb).
 
@@ -158,6 +160,30 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 **Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. The Staff Engineer-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
 
 **Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
+
+## Fix-locus discrimination
+
+<!-- Review: code-reviewer — structural displacement fix (F2): moved Fix-locus discrimination to after the full Negative-Search procedure so the numbered 1-5 list correctly reads under its own heading. Dimension question label dropped and folded into Green clause (F3). Tier 2 narrowing broadened to Tier 1–3 (F4). -->
+
+**Green — this is the right layer to patch.** Planner has identified the upper-layer registry/dispatch/extension site by `file:line` (one level above each proposed edit site) AND can name a concrete reason patching the upper layer is wrong (registry already gates this case; upper layer is closed contract; upper layer is hot-path with unrelated callers).
+
+**Red:** planner cannot articulate why the upper layer is the wrong locus, OR the upper layer already has the gate type the patch would re-implement at the call site.
+
+**Action on red:** loop back to Tier 1–3 investigation on the upper-layer mechanism before drafting the plan body.
+
+**Worked example** — 2026-05-19 python-first-class-corpus-closure plan, the Director of Engineering standalone review F1/F2/SI-1:
+
+- **(a) Patch-shaped fix as proposed:** threshold patch inside `consumer_runner.py:547` (`_run_embed_cpp_chunks`) — skip chunks below threshold inside the embedder.
+- **(b) Upper-layer surface that should have been amended:** the `run_consumers()` substrate-applicability gate one level up — refuses to dispatch the embedder when no applicable substrate exists, making (a) redundant and fragile.
+- **What would have flipped green→red:** identifying (b) by `file:line` during Branch B would have returned Red — forcing Tier 1–3 investigation before the plan body was drafted. Instead, the prior checklist returned all-green on a patch-shaped plan where an upper-layer refactor was correct.
+
+**Failure mode prevented:** the prior checklist returning green while the plan is patch-shaped at a call site where an upper-layer gate exists or should exist.
+
+**Cross-references:**
+- `coordinator/CLAUDE.md` § Pre-Dispatch Verification, "Audit symptom is correct; locus may be wrong" — conceptual ancestor, firing at investigation time.
+- `coordinator/CLAUDE.md` § Pre-Dispatch Verification, "Reviewer rationale must discriminate between the chosen shape and its alternatives" — analogous discipline at review time.
+
+Fix-locus discrimination fires **between** them: at plan-author time, after substrate verification, before the first task is drafted.
 
 ## File Structure
 
@@ -442,7 +468,7 @@ Increment math is durable; absolute baseline values rot. Stubs touching a period
 
 PM redirect mid-pipeline (scope/direction change after dispatch is in flight) counts as structural rework — completed reviews are invalidated against the new surface and MUST be re-run before treating the pipeline as resumable. Don't smuggle pre-redirect review approvals across a surface change.
 
-### (k) No-TBD-thresholds (extends 5-dim confidence checklist)
+### (k) No-TBD-thresholds (extends substrate-verification confidence checklist)
 
 Any plan that ships with `TBD` / `???` / `<placeholder>` in a threshold position (cutoff value, retry count, timeout) is unsafe to dispatch — the executor will either fabricate the value or fail at runtime. Resolve thresholds at plan-write time or explicitly defer the chunk.
 

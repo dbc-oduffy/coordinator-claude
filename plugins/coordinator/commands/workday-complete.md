@@ -52,7 +52,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 <!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
      legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
 0. `~/.claude/plugins/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
-1. Recompute machine name lowercase for this step (the Staff Engineer F2 — do not rely on inherited shell scope):
+1. Recompute machine name lowercase for this step (Patrik F2 — do not rely on inherited shell scope):
    ```bash
    TODAY=$(date +%Y-%m-%d)
    _LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
@@ -122,6 +122,19 @@ bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/standup.sh" > tasks/daily-review-scr
 The script emits: baseline SHA/timestamp, commit inventory, file-change summary by directory,
 touched handoffs, touched todos, active handoffs.
 
+Also query today's completion entries and write to scratch for analyst use:
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+query-completions --where "created=$TODAY" --format json \
+  > tasks/daily-review-scratch/completions-today.json
+```
+
+The analyst reads `completions-today.json` alongside `inventory.md` — completion entries are the
+primary source for the **Work Completed** section of the daily summary. `git log` scanning is
+**deprecated** as the primary source; use it only to catch work that predates the completion-log
+schema (pre-Chunk-1 sessions) by checking if `completions-today.json` is empty.
+
 ### Step 4b: Analyst Dispatch
 
 Dispatch a **Sonnet** analyst agent (`model: "sonnet"`, `run_in_background: true`).
@@ -145,10 +158,10 @@ Quick reference:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
-| Data / ML / science | the Data Science Reviewer |
-| Mixed, backend, or architecture | the Staff Engineer |
+| Game dev / Unreal Engine | Sid |
+| Frontend / UI | Palí |
+| Data / ML / science | Camelia |
+| Mixed, backend, or architecture | Patrik |
 
 Dispatch the selected reviewer as a **Sonnet** agent.
 
@@ -178,6 +191,85 @@ rm -rf tasks/daily-review-scratch
 
 ---
 
+## Step 4.5: Completion-Log Clustering Pass
+
+<!-- Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 4 -->
+
+Groups today's completion entries by `chain:` field and synthesizes a machine-readable `narrative:`
+for each multi-entry chain. Single-entry chains are left as-is (title + body suffice). This pass
+is idempotent — re-running on an already-clustered day is a no-op.
+
+**Purpose:** enables `/workweek-complete` editorial bucketing to read `narrative:` fields rather
+than re-deriving contribution summaries from raw entries.
+
+### Step 4.5a: Query and Group
+
+```bash
+TODAY=$(date +%Y-%m-%d)
+query-completions --where "created=$TODAY" --format json > /tmp/completions-cluster-$TODAY.json
+```
+
+Parse the JSON output. Group entries by their `chain:` field value. Entries with no `chain:` field
+(or `chain: ""`) form singleton groups — skip them in Step 4.5b.
+
+### Step 4.5b: Synthesize Narratives for Multi-Entry Chains
+
+For each `chain:` group with **≥ 2 entries**:
+
+1. **Identify the lead entry** — lexicographically first file path in the chain (e.g.,
+   `archive/completions/2026-05-19/chunk-1a.md` sorts before `archive/completions/2026-05-19/chunk-1b.md`).
+
+2. **Idempotency check** — read the lead entry's frontmatter. If `narrative:` is already present
+   AND the `body:` field of no entry in the chain has changed since `narrative:` was written,
+   **skip this chain** (no-op).
+
+3. **Dispatch a Sonnet `general-purpose` worker** (≤2KB output) with this prompt (inline — no
+   subagent skill expansion):
+
+   > You are synthesizing the contribution narrative for a completion-log chain.
+   >
+   > Chain entries (JSON):
+   > `<paste chain entries JSON>`
+   >
+   > Write ONE paragraph (3–6 sentences) summarizing the chain's combined contribution for the day.
+   > Rules:
+   > - Preserve commit SHAs verbatim when referenced.
+   > - No editorial bucketing (Features / Fixes / etc.) — that is `/workweek-complete`'s job.
+   > - Describe what was built/fixed/changed and why it matters to the workstream.
+   > - Keep it ≤300 words.
+   >
+   > Reply with ONLY the paragraph text. No preamble.
+
+4. **Write the result** — using `Edit` on the lead entry's file, insert `narrative: |` as a
+   new YAML frontmatter field with the worker's paragraph as its block-scalar value.
+
+5. **Mark non-lead entries** — for each non-lead entry in the chain, insert
+   `narrative_in: <path-to-lead-entry>` into its frontmatter. Skip if already present.
+
+### Step 4.5c: Single-Entry Chains
+
+Skip — no narrative synthesis needed. The entry's own `title:` and `body:` are the record.
+
+### Step 4.5d: Idempotency Guarantee
+
+Re-running Step 4.5 on the same day:
+- Chains where every entry's `narrative:` / `narrative_in:` is already set AND no `body:`
+  has changed → **all skipped** (zero writes, zero dispatches).
+- Chains where a `body:` changed since the last run → narrative re-synthesized (worker
+  dispatched, lead entry overwritten).
+
+### Step 4.5e: No Commit Here
+
+Do **not** commit in Step 4.5. The completion-entry files are committed by Step 9 alongside the
+changelog row.
+
+**AC verification:** on a day with 5 entries across 2 chains (e.g., chain A has 3 entries, chain B
+has 2 entries), Step 4.5 dispatches 2 Sonnet workers and writes 2 `narrative:` fields (one per
+lead entry) plus 3 `narrative_in:` back-references (2 for chain A non-leads, 1 for chain B
+non-lead). Running Step 4.5 again immediately afterward is a no-op (0 dispatches, 0 writes).
+
+---
+
 ## Step 5: Plugin Validation Suite (blocking gate)
 
 ```bash
@@ -195,8 +287,8 @@ Capture exit code for the changelog `Validation:` field.
 ## Step 6: Completed Archive Audit
 
 1. `git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"` — gather today's commits.
-2. Read `archive/completed/YYYY-MM.md`; find entries under today's heading.
-3. Reconcile: add missing entries, fix inaccurate ones, skip trivial commits.
+2. `query-completions --where "created=$TODAY" --format json` — gather today's per-entry completion-log records (replaces the prior monolith-read flow).
+3. Reconcile: add missing entries via per-entry write (per `skills/session-end/SKILL.md` Step 2.6 schema), fix inaccurate ones, skip trivial commits.
 4. If `docs/project-tracker.md` exists, verify completed workstreams have updated status.
 5. Report: _"Archive audit: N entries verified, M added, K corrected."_
 
@@ -236,7 +328,7 @@ exit codes — it is not LLM-authored prose.
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 ```
 Multiple records produce multiple `**Reviewed:**` lines — one per record. If today had non-trivial commits (any commit subject NOT matching `^(chore|docs?)([(:]|$)|^session-end quick-save`) AND no review-trail records for today exist, emit exactly one fallback line:
-<!-- Review: the Staff Engineer — previous regex ^chore|^doc|^session-end quick-save matched
+<!-- Review: Patrik — previous regex ^chore|^doc|^session-end quick-save matched
      "docker:" and "chored" as trivial; tightened to require conventional-commits
      punctuation after chore/doc(s) or an exact prefix match. -->
 ```
@@ -256,7 +348,7 @@ If today's commits are all trivial AND no records exist, omit the `**Reviewed:**
 **Blockers:** <extracted from handoffs, or "none">
 **Validation:** validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
-**Links:** archive/daily-summaries/YYYY-MM-DD.md, archive/completed/YYYY-MM.md
+**Links:** archive/daily-summaries/YYYY-MM-DD.md, archive/completed/YYYY-MM/ (per-entry files; query via `bin/query-completions --where "created=$TODAY"`)
 ```
 
 Commit and push — include the daily summary artifact alongside the changelog row:

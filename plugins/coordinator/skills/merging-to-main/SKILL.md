@@ -61,7 +61,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    ```bash
    # Sync-main invariant: verify origin/main is reachable before creating branch.
    # If local main is ahead of origin/main, abort rather than creating a stale branch.
-   ~/.claude/plugins/coordinator/bin/sync-main.sh || {
+   ~/.claude/plugins/coordinator-claude/coordinator/bin/sync-main.sh || {
      echo "sync-main.sh failed — local main has diverged. Investigate before creating a recovery branch."
      exit 1
    }
@@ -85,7 +85,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 3. **Verify remote is up-to-date:**
    ```bash
-   _BR=$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
+   _BR=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
    git log origin/"$_BR"..HEAD 2>/dev/null
    ```
    If unpushed commits exist, push explicitly:
@@ -97,7 +97,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 Every merge to `main` produces a PR body composed of three parts: ship verdict, release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
 
-The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a the VP-Product Reviewer dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke the VP-Product Reviewer by name. The merge gate does not auto-dispatch the VP-Product Reviewer.
+The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a YK dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke YK by name. The merge gate does not auto-dispatch YK.
 
 **Part 1 — Ship Verdict (every merge)**
 
@@ -118,6 +118,19 @@ Before creating the PR, the EM stages a one-line ship verdict for the PR body:
 The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
 
 **Part 2 — Release Notes (every merge)**
+
+**Release-notes source detection (run first):**
+
+```bash
+# Prefer the workweek-complete pending-release file if present.
+PENDING_RELEASE=$(ls tasks/week-changelog/*-pending-release.md 2>/dev/null | sort | tail -1)
+```
+
+- **If `$PENDING_RELEASE` is set (normal path — workweek-complete ran):** Use that file as the primary release-notes source. The three-bucket structure (Highlights / Improvements / Other) already captures everything. Skip steps 1–5 below and jump directly to step 6 (CHANGELOG update) using the pending-release file's content as the draft entry. Set:
+  ```bash
+  PENDING_RELEASE_FILE="$PENDING_RELEASE"  # retain for post-merge status-flip (Step 5.5)
+  ```
+- **If absent (emergency-release path — workweek-complete has not run):** Fall through to steps 1–5 to draft inline. Set `PENDING_RELEASE_FILE=""`.
 
 1. **Inventory the merge:**
    ```bash
@@ -211,7 +224,7 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | Check | Detection | Action |
 |---|---|---|
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
-| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
+| **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require Patrik review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 | **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
 
@@ -220,7 +233,7 @@ If `project_type` is not `game-dev` or `project_subtypes` does not contain `unre
 ### Step 2: Create PR
 
 ```bash
-BRANCH=$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
+BRANCH=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 
 # Title based on branch type
 # work/<machine>/2026-03-13 → "Work: <machine> 2026-03-13"
@@ -313,7 +326,7 @@ Auto-recover — do NOT stop or ask:
 ```bash
 git fetch origin main
 git merge origin/main -m "merge main into work branch"
-git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
+git push origin $(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)
 gh pr merge <pr-number> --merge --delete-branch  # retry
 ```
 
@@ -349,6 +362,59 @@ git branch -d <branch>  # local branch delete
 
 If on a worktree: `git worktree remove <path>` instead.
 
+### Step 5.5: Post-Merge Completion-Log Status Flip
+
+_Runs only when `$PENDING_RELEASE_FILE` was set in Step 1.5 (i.e., a workweek-complete pending-release file existed). Skip this step if `$PENDING_RELEASE_FILE` is empty._
+
+After the merge commit lands on main and the local branch is deleted (Step 5):
+
+1. **Ensure archive directory exists** (idempotent; safe to run on every merge):
+   ```bash
+   mkdir -p archive/release-notes/
+   ```
+
+2. **Flip all `pending-release` completion entries to `released`.** Materialize the path list via `query-completions`, then update each entry's frontmatter in-place:
+   ```bash
+   ENTRY_PATHS=$(query-completions --where "status=pending-release" --format paths)
+   MERGE_SHA=$(git rev-parse HEAD)
+   MERGE_DATE=$(date +%Y-%m-%d)
+   # For each entry path, set: status: released, released_in: <tag>, released_at: <date>, released_sha: <sha>
+   # Use sed or a frontmatter-aware helper — do NOT use git add -A.
+   ```
+   Replace the four frontmatter fields in each entry:
+   ```yaml
+   status: released
+   released_in: <version-tag>       # e.g. v1.4.0 — the tag applied at merge or PM-confirmed bump
+   released_at: <MERGE_DATE>
+   released_sha: <MERGE_SHA>
+   ```
+
+3. **Archive the pending-release file** (rename + relocate as a historic record):
+   ```bash
+   PENDING_BASENAME=$(basename "$PENDING_RELEASE_FILE")
+   git mv "$PENDING_RELEASE_FILE" "archive/release-notes/${PENDING_BASENAME%-pending-release.md}-${VERSION_TAG}-pending-release.md"
+   ```
+   Where `$VERSION_TAG` is the version string (e.g. `v1.4.0`).
+
+4. **Commit the mutations** on main — all three path sets in a single scoped commit (never `git add -A`):
+   ```bash
+   RELEASE_FILE="archive/release-notes/<date>-<version-tag>.md"   # human-readable release notes file, if written
+   ARCHIVED_PENDING="archive/release-notes/${PENDING_BASENAME%-pending-release.md}-${VERSION_TAG}-pending-release.md"
+
+   git add -- $ENTRY_PATHS "$ARCHIVED_PENDING"
+   # Include human-readable release notes file if it was written this step:
+   # git add -- "$RELEASE_FILE"
+   git commit -m "release: flip completion entries to released for ${VERSION_TAG}" -- $ENTRY_PATHS "$ARCHIVED_PENDING"
+   ```
+   Alternative if shell word-splitting on `$ENTRY_PATHS` is awkward: write the path list to a tmpfile and use `git add --pathspec-from-file=<tmpfile>`.
+
+   Push the release commit:
+   ```bash
+   git push origin main
+   ```
+
+**Result:** every completion entry that was `pending-release` before this merge is now `released` with `released_in`, `released_at`, and `released_sha` stamped; the pending-release file is archived alongside any human-readable release notes under `archive/release-notes/`.
+
 ### Step 6: Report
 
 ```
@@ -362,7 +428,7 @@ If on a worktree: `git worktree remove <path>` instead.
 **Other unmerged branches:**
 
 ```bash
-~/.claude/plugins/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
+~/.claude/plugins/coordinator-claude/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
 ```
 
 If any output: include in the report and recommend: _"Multiple work branches in flight — verify these don't carry work intended for this PR."_

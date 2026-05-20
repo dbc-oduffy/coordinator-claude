@@ -10,8 +10,8 @@ Agent Teams-based collaborative planning and review: the EM writes a scope docum
 
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
-| **Debater** | Opus | 2-5 | Persona agent (the Staff Engineer, Zoli, the Game Dev Reviewer, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
-| **Synthesizer** | Opus | 1 | the Director of Engineering (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements with DoE authority — weighting organizational benefit, customer-serving, velocity-over-time, cross-team boundary-setting, and generic-substrate discipline. Debaters are staff-engineer altitude advocating for their domain's local optimum; the Director of Engineering's rank is the corrective. Represents all positions fairly in Dissent/Contested sections but does not default to conservative resolutions or average the loudest voices. Writes optional advisory with ambition and cross-team posture assessment. |
+| **Debater** | Opus | 2-5 | Persona agent (Patrik, Zoli, Sid, etc.). Reads scope + codebase, forms a position from their persona's perspective, debates peers via messaging, converges, writes final position document |
+| **Synthesizer** | Opus | 1 | Zolí (eng-director). Director of Engineering. Blocked by all debaters. Cross-references all position documents, resolves disagreements with DoE authority — weighting organizational benefit, customer-serving, velocity-over-time, cross-team boundary-setting, and generic-substrate discipline. Debaters are staff-engineer altitude advocating for their domain's local optimum; Zolí's rank is the corrective. Represents all positions fairly in Dissent/Contested sections but does not default to conservative resolutions or average the loudest voices. Writes optional advisory with ambition and cross-team posture assessment. |
 
 ## Team Lifecycle
 
@@ -92,7 +92,7 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 5. Mark task `completed` (TaskUpdate)
 6. Send `DONE` to synthesizer: `SendMessage(to: "[SYNTHESIZER_NAME]", message: "DONE: Position written to {scratch-dir}/{persona-slug}-position.md")`
 
-**Backstop suspension:** Persona agents' built-in backstop invocations (e.g., the Staff Engineer's "invoke Zoli at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
+**Backstop suspension:** Persona agents' built-in backstop invocations (e.g., Patrik's "invoke Zoli at High effort") are suspended during staff sessions. The parallel debate serves the same function — multi-perspective challenge. Debater prompt templates explicitly override backstop invocation. Debaters debate directly with peers.
 
 ## Failure Handling
 
@@ -113,6 +113,6 @@ tasks/scratch/staff-session/{run-id}/
   patrik-position.md          (debater output)
   sid-position.md             (debater output)
   [camelia-position.md]       (optional debater output — full tier)
-  synthesis.md                (the Director of Engineering's synthesis — backup copy)
-  advisory.md                 (the Director of Engineering's advisory, optional)
+  synthesis.md                (Zolí's synthesis — backup copy)
+  advisory.md                 (Zolí's advisory, optional)
 ```

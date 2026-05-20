@@ -37,13 +37,27 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 3. **Define search chunks** — split codebase into 3-6 chunks by directory/system. If architecture atlas exists (`tasks/architecture-atlas/systems-index.md`), use its system boundaries. Otherwise, derive from `DIRECTORY.md` or directory structure.
 
-4. **Check test suite** — identify the test runner and prepare to run it in Phase 1.
+4. **Hot-zone identification — rank chunks by recent bugfix density (YOU do this):**
 
-5. **Read `tasks/lessons.md`** (if exists) for project-specific gotchas to add as patterns.
+   ```bash
+   query-completions --since "30d" --where "nature=bugfix" --format json
+   ```
 
-6. **Generate run ID** — format: `YYYY-MM-DD-HHhMM` (current timestamp). Create scratch directory: `tasks/scratch/bug-sweep/{run-id}/`
+   Aggregate results by file-path-prefix or chain to identify which subsystems have the highest recent bugfix traffic. Chunks covering high-density paths rank first in Phase 1 dispatch order — they are statistically more likely to contain latent follow-on bugs.
 
-7. **Output:** Chunk table with pattern assignments + test runner command.
+   **Cooldown filter:** also note any paths with a `nature: bugfix` completion in the last 7 days. These areas were just touched; deprioritize them in the dispatch queue to avoid redundant re-sweep of freshly-fixed ground. When cooldown paths overlap with hot-zone paths, surface the conflict explicitly: "Path X is both a hot zone (N bugfixes/30d) and recently cooled (fixed Y days ago) — sweep at P2 priority."
+
+   Record the ranked chunk order and any cooldown exclusions in the run scratch directory: `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`. Phase 1 agent dispatch brief cites this file for ordering rationale.
+
+   If `query-completions` returns no results (empty log or Phase 1 not yet shipped), skip ranking and proceed with default directory-order chunks.
+
+5. **Check test suite** — identify the test runner and prepare to run it in Phase 1.
+
+6. **Read `tasks/lessons.md`** (if exists) for project-specific gotchas to add as patterns.
+
+7. **Generate run ID** — format: `YYYY-MM-DD-HHhMM` (current timestamp). Create scratch directory: `tasks/scratch/bug-sweep/{run-id}/`
+
+8. **Output:** Chunk table with pattern assignments, hot-zone ranking (from step 4), and test runner command.
 
 ## Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
 
@@ -80,7 +94,7 @@ This is fast (<30 seconds) and produces a grep findings list that feeds into Tra
 
 ### Track A2 — Semantic Analysis (dispatch one Sonnet per chunk)
 
-Dispatch one agent per chunk with `model: "sonnet"`. Each agent receives its chunk's file list, assigned patterns, AND the Track A1 grep results for its chunk. For each file:
+Dispatch one agent per chunk with `model: "sonnet"`. Each agent receives its chunk's file list, assigned patterns, the Track A1 grep results for its chunk, AND the hot-zone ranking from `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md` (written in Phase 0 step 4). High-density chunks (top of the ranking) apply extra scrutiny; cooldown-flagged paths are noted in the brief with "recently fixed — deprioritized." For each file:
 - Review grep findings for false positives (intentional catch-and-ignore, etc.)
 - Run deeper semantic analysis (error handling gaps, potential null access, resource leaks, logic errors, dead code paths, race conditions)
 - For each finding: severity (P0/P1/P2), confidence (HIGH/MEDIUM/LOW), file:line, description, and whether it's AI-fixable or needs human verification

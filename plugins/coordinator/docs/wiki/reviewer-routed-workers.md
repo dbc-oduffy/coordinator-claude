@@ -12,7 +12,7 @@ distilled_run: 2026-05-06-13h00
 
 ## Overview
 
-**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating persona count. Reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer) name workers in a `## Worker Dispatch Recommendations` block; the review-integrator preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus personas + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
+**Reviewer-routed workers** add mechanical leverage to the agent hierarchy without inflating persona count. Reviewers (Patrik, Sid, Camelia) name workers in a `## Worker Dispatch Recommendations` block; the review-integrator preserves the block verbatim; the EM dispatches in a follow-up. This avoided the alternative draft (3 new Opus personas + 10-12 workers + classifier rewrite ≈ 15-18 new dispatch surfaces).
 
 **Roster doctrine (canonical):** Personas are for distinct **judgment** styles. Workers are for **mechanical leverage** with structured output. Threat-modeling and test-pyramid are absorbable as lenses, not new personas.
 
@@ -22,9 +22,9 @@ distilled_run: 2026-05-06-13h00
 
 | Worker | Tools | Named by | Job |
 |--------|-------|----------|-----|
-| `test-evidence-parser` | Bash, Read | the Staff Engineer, the Game Dev Reviewer | Classify failures: real / flake / env / timeout / known-skip |
-| `security-audit-worker` | Read, Grep, Glob, restricted Bash (semgrep, bandit, gitleaks, trufflehog) | the Staff Engineer | Path traversal, validation traps, injection, secrets in source |
-| `dep-cve-auditor` | Bash, Read | the Staff Engineer / EM (periodic + on-demand) | npm/pip-audit normalize |
+| `test-evidence-parser` | Bash, Read | Patrik, Sid | Classify failures: real / flake / env / timeout / known-skip |
+| `security-audit-worker` | Read, Grep, Glob, restricted Bash (semgrep, bandit, gitleaks, trufflehog) | Patrik | Path traversal, validation traps, injection, secrets in source |
+| `dep-cve-auditor` | Bash, Read | Patrik / EM (periodic + on-demand) | npm/pip-audit normalize |
 | `doc-link-checker` | Bash, Read, WebFetch | EM (opportunistic from `/update-docs`) | Markdown link validation; sleep 1s, cap 100 external URLs |
 
 ### Worker spec requirements
@@ -40,7 +40,7 @@ Each worker spec includes:
 
 ### Reviewer protocol — "name the worker, don't dispatch"
 
-The Staff Engineer, the Game Dev Reviewer, and the Data Science Reviewer each get a `## Worker Dispatch Recommendations` section in their prompt. Reviewers do **not** dispatch directly — they surface a recommendation to the EM with a one-line rationale per worker. They recommend a worker only when its analysis would add evidence the findings don't already cover.
+Patrik, Sid, and Camelia each get a `## Worker Dispatch Recommendations` section in their prompt. Reviewers do **not** dispatch directly — they surface a recommendation to the EM with a one-line rationale per worker. They recommend a worker only when its analysis would add evidence the findings don't already cover.
 
 ### Integrator preserves the block verbatim
 
@@ -59,7 +59,7 @@ No overlap.
 
 ### Periodic dispatch via recheck markers
 
-`dep-cve-auditor` runs both periodically and the Staff Engineer-named. First run drops `tasks/cve-recheck-due-YYYY-MM-DD.md` dated +7 days; `/workday-start` Step 1.6 globs `tasks/*-recheck-due-*.md` and surfaces expiring markers.
+`dep-cve-auditor` runs both periodically and Patrik-named. First run drops `tasks/cve-recheck-due-YYYY-MM-DD.md` dated +7 days; `/workday-start` Step 1.6 globs `tasks/*-recheck-due-*.md` and surfaces expiring markers.
 
 ## Phase 2 (deferred): /merge-to-main 5-step gate
 
@@ -69,7 +69,7 @@ Five questions the merge gate asks before allowing a merge:
 2. Schema/version bumps flagged?
 3. Install/setup scripts touched (sandbox)?
 4. CHANGELOG updated where applicable?
-5. The Staff Engineer review of release artifact required if ANY of: public API additions, version bump, install/setup script touched, >50 commits since last tag, breaking-change CHANGELOG entries.
+5. Patrik review of release artifact required if ANY of: public API additions, version bump, install/setup script touched, >50 commits since last tag, breaking-change CHANGELOG entries.
 
 ## Gotchas
 

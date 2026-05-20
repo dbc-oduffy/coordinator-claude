@@ -15,7 +15,7 @@ The hook polices branch *shape* at create-time, not branch *date* at workday-sta
 
 **Lib sourcing (run once at the top of the script context):**
 ```bash
-LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
+LIB_PATH="${HOME}/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-daily-branch.sh"
 [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 ```
 
@@ -26,7 +26,7 @@ Run `sync-main.sh` first; abort if it exits non-zero. Never create or rename bra
 ### Step 0.2 — Determine machine and today's date
 
 ```bash
-MACHINE=$(cs_compute_machine)   # always lowercase (the Staff Engineer F11; lib Phase 1)
+MACHINE=$(cs_compute_machine)   # always lowercase (Patrik F11; lib Phase 1)
 TODAY=$(date +%Y-%m-%d)
 CURRENT=$(git branch --show-current)
 ```
@@ -80,7 +80,7 @@ Renamed $OLD → $NEW (crossed midnight)
 ```
 PM can revert via `git branch -m` if they object.
 
-### Step 0.4 — Rename procedure (the Staff Engineer F5 — atomic, reversible)
+### Step 0.4 — Rename procedure (Patrik F5 — atomic, reversible)
 
 ```bash
 OLD=$(git branch --show-current)
@@ -188,7 +188,7 @@ git merge {branch-name} --no-ff -m "consolidate {branch-name} into active workst
 ### Step 0.6 — Push and report
 
 ```bash
-git push -u origin "$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)"
+git push -u origin "$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)"
 ```
 
 Report:
@@ -228,12 +228,12 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
 
 ```bash
-bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
+bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start
 ```
 
 The routine is the single source-of-truth derivation. This section documents the **canonical schema** that the routine produces and the verifier (`bin/verify-orientation-cache-sync.sh`) enforces. Drift from this schema is a verifier failure at `/update-docs` Phase 11b.
 
-**Why a schema, not prose:** four writers (`/workday-start`, `/update-docs`, `/session-end`, `/handoff`) historically patched the cache with free-form sections, and there was no owner for subtraction. The cache accreted prior-session narrative ("publish-repo-topology-sync just shipped...", "the Staff Engineer R1 (9 findings folded)...", "AC7 dogfood waived by PM") that poisoned every subsequent boot. The schema below is the structural fix: every section is either (a) static template, (b) sentinel-regenerated from disk, or (c) absent. No free-form prose anywhere. See `docs/plans/2026-05-18-orientation-cache-authoring-discipline.md` for the full motivating audit.
+**Why a schema, not prose:** four writers (`/workday-start`, `/update-docs`, `/session-end`, `/handoff`) historically patched the cache with free-form sections, and there was no owner for subtraction. The cache accreted prior-session narrative ("publish-repo-topology-sync just shipped...", "Patrik R1 (9 findings folded)...", "AC7 dogfood waived by PM") that poisoned every subsequent boot. The schema below is the structural fix: every section is either (a) static template, (b) sentinel-regenerated from disk, or (c) absent. No free-form prose anywhere. See `docs/plans/2026-05-18-orientation-cache-authoring-discipline.md` for the full motivating audit.
 
 ### Canonical schema
 
@@ -241,7 +241,7 @@ The routine is the single source-of-truth derivation. This section documents the
 |---|---|---|---|
 | Frontmatter | `generated_by: <slug>` (single word — no parentheticals, no "patched by"), `generated_at: <ISO-8601>`, `git_head_at_generation: <short-sha>` | writer + `git rev-parse` | both |
 | `## Project` | 1 line, project name + 1-sentence purpose | static (CLAUDE.md identity line if present, else config) | ceremony |
-| `## Trust caveats` | ≤5 lines of `- <one-line caveat>`; **omit section entirely if no detector fires** | filesystem detectors (NOT config). MVP: any `*.uproject` anywhere in repo → UE caveat starting `Unreal Engine project detected (<path>) — do NOT trust your training data on UE5 APIs/classes/Blueprint semantics; verify every claim via mcp__project-rag__* tools or dispatch game-dev:staff-game-dev (the Game Dev Reviewer). This applies to your delegates — restate it in every UE dispatch brief.` Additional framework detectors (Unity, RN, etc.) added as those projects materialise. | ceremony (static — content changes only when the routine ships a new detector) |
+| `## Trust caveats` | ≤5 lines of `- <one-line caveat>`; **omit section entirely if no detector fires** | filesystem detectors (NOT config). MVP: any `*.uproject` anywhere in repo → UE caveat starting `Unreal Engine project detected (<path>) — do NOT trust your training data on UE5 APIs/classes/Blueprint semantics; verify every claim via mcp__project-rag__* tools or dispatch game-dev:staff-game-dev (Sid). This applies to your delegates — restate it in every UE dispatch brief.` Additional framework detectors (Unity, RN, etc.) added as those projects materialise. | ceremony (static — content changes only when the routine ships a new detector) |
 | `## Counters` | Lines of the form `- **<label>:** <integer>`; **omit lines where value is 0** | derived from disk: handoffs ready_to_fire, spinoffs ready_to_fire, gated handoffs, bug-backlog depth, local improvement queue depth | ceremony |
 | `## Active workstreams` | Name-only list, one per line, max 10 entries; names only — no progress prose, no parenthetical state | `tasks/project-tracker.md` or equivalent | ceremony |
 | `## Rechecks due ≤7 days` | One line per recheck marker due within 7 days; **omit section entirely if empty** | glob `tasks/*-recheck-due-*.md`, filter by date in filename | ceremony |

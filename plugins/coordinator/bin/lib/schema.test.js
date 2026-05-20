@@ -31,7 +31,7 @@ const SCHEMAS = loadSchemas(SCHEMAS_DIR);
 // ---------------------------------------------------------------------------
 
 describe('loadSchemas', () => {
-  it('loads all six schemas', () => {
+  it('loads all seven schemas', () => {
     const names = Object.keys(SCHEMAS).filter(k => k !== '_byGlob');
     assert.ok(names.includes('handoff'), 'handoff schema missing');
     assert.ok(names.includes('handoff-archived'), 'handoff-archived schema missing');
@@ -39,7 +39,8 @@ describe('loadSchemas', () => {
     assert.ok(names.includes('plan'), 'plan schema missing');
     assert.ok(names.includes('review'), 'review schema missing');
     assert.ok(names.includes('lesson-entry'), 'lesson-entry schema missing');
-    assert.equal(names.length, 6, `expected 6 schemas, got ${names.length}`);
+    assert.ok(names.includes('completion-entry'), 'completion-entry schema missing');
+    assert.equal(names.length, 7, `expected 7 schemas, got ${names.length}`);
   });
 
   it('_byGlob index has an entry per applies_to schema', () => {

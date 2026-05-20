@@ -150,6 +150,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-completion-monolith-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Write",
         "hooks": [
           {

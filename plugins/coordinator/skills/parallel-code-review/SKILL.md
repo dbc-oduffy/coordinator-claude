@@ -34,7 +34,7 @@ The four reviewers cover orthogonal lens domains. No two reviewers share a domai
 
 | Reviewer | Lens domain | Rationale |
 |---|---|---|
-| the Staff Engineer (`agents/staff-eng.md`) | code-semantics | Reads code semantically — correctness, architecture, naming, error handling, SOLID, premise review. |
+| Patrik (`agents/staff-eng.md`) | code-semantics | Reads code semantically — correctness, architecture, naming, error handling, SOLID, premise review. |
 | security-audit-worker (`agents/security-audit-worker.md`) | pattern-scan | Runs semgrep/bandit/gitleaks/trufflehog over the diff; pattern-matches injection, traversal, secret leakage. |
 | dep-cve-auditor (`agents/dep-cve-auditor.md`) | dep-tree | Runs language-appropriate CVE audit; classifies vs. actual usage in the diff. |
 | test-evidence-parser (`agents/test-evidence-parser.md`) | test-runtime | Runs the test command, classifies failures (real / flake / env / timeout / known-skip). |
@@ -60,7 +60,7 @@ The four reviewers cover orthogonal lens domains. No two reviewers share a domai
 | Rule | Sample diff | Expected gate behavior |
 |---|---|---|
 | Rule 1 | 4 changed lines in `tasks/some-task/todo.md` | SKIPPED (rule 1 — diff <10 lines or internal-only paths) |
-| Rule 2 | `docs/wiki/tiered-context-loading.md` only (no code files) | SKIP_PATRIK=1 — mechanical workers run; the Staff Engineer skipped |
+| Rule 2 | `docs/wiki/tiered-context-loading.md` only (no code files) | SKIP_PATRIK=1 — mechanical workers run; Patrik skipped |
 | Rule 3 | `docs/plans/2026-05-06-foo.md` only | SKIPPED (rule 3 — plan-only diff) |
 | Rule 4 | Any diff with `--force` | BYPASSED via --force |
 | Default | 500-2000 changed lines, mixed `.ts` + `.md` + `.sh` | All 4 reviewers run — **this is the typical week** |
@@ -74,7 +74,7 @@ At weekly cadence (`/workweek-complete`), the typical week has 500-2000 changed 
 Before dispatch, assert that agent files exist and no two reviewers share a lens domain:
 
 ```bash
-~/.claude/plugins/coordinator/bin/verify-parallel-review-lens-orthogonality.sh || {
+~/.claude/plugins/coordinator-claude/coordinator/bin/verify-parallel-review-lens-orthogonality.sh || {
   echo "Lens-orthogonality assertion failed; refusing to dispatch."
   exit 1
 }
@@ -106,7 +106,7 @@ Dispatch all four reviewers (or the active subset per gating rules) in a single 
 
 Per-reviewer dispatch shape (actual prompts assembled at dispatch time from the agent files):
 
-- **the Staff Engineer** (skip if `SKIP_PATRIK=1`): read `$FINDINGS_DIR/diff.patch`, perform a full code review (correctness, architecture, naming, error handling, SOLID, premise review), output verbatim findings to `$FINDINGS_DIR/patrik.md`. **Read-only review — no AUTO-FIX at this gate.** We are at a release boundary; the integrator is a separate cycle.
+- **Patrik** (skip if `SKIP_PATRIK=1`): read `$FINDINGS_DIR/diff.patch`, perform a full code review (correctness, architecture, naming, error handling, SOLID, premise review), output verbatim findings to `$FINDINGS_DIR/patrik.md`. **Read-only review — no AUTO-FIX at this gate.** We are at a release boundary; the integrator is a separate cycle.
 
 - **security-audit-worker**: scan `$FINDINGS_DIR/diff.patch` for injection vectors, secret leakage (gitleaks), unsafe patterns, path traversal. Output to `$FINDINGS_DIR/security.md`.
 
@@ -150,13 +150,13 @@ Exit non-zero. `/workweek-complete` halts before Step 9 (Release Notes) and befo
 
 Resolution: fix the flagged issue and re-run the skill, or pass `--force` to bypass. Do NOT proceed to release notes or merge while BLOCKED without explicit PM direction.
 
-Triggered by: any P0/P1 from the Staff Engineer OR any HIGH-severity finding from security-audit-worker OR any unfixed CVE ≥ HIGH from dep-cve-auditor OR any real (non-flake) test failure.
+Triggered by: any P0/P1 from Patrik OR any HIGH-severity finding from security-audit-worker OR any unfixed CVE ≥ HIGH from dep-cve-auditor OR any real (non-flake) test failure.
 
 ### WARN
 
 Exit 0. Include the verdict line in the release-notes draft (Step 9) and carry it into the eventual PR body via `/merge-to-main`'s normal release-notes pickup.
 
-Triggered by: no BLOCKED triggers AND any P2/P3 from the Staff Engineer OR MEDIUM/LOW security finding OR MEDIUM CVE OR `convergent_findings` count ≥ 1.
+Triggered by: no BLOCKED triggers AND any P2/P3 from Patrik OR MEDIUM/LOW security finding OR MEDIUM CVE OR `convergent_findings` count ≥ 1.
 
 ### OK
 
@@ -186,4 +186,4 @@ The parallel-review carve-out in `coordinator/CLAUDE.md` § Review Sequencing ha
 | (b) All reviewers are orthogonal lenses | Lens-domain manifest table in this skill; verified by `bin/verify-parallel-review-lens-orthogonality.sh` in `/update-docs` Phase 11. |
 | (c) No-rewrite synthesizer | Output schema in `agents/parallel-review-synthesizer.md` with `evidence_quote` verbatim fields; `verdict_rationale` is the only synthesizer-authored prose (one sentence). |
 
-This mapping makes the doctrine bullet auditable from the skill — per plan `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md` Phase 4A (the Staff Engineer R1 F10).
+This mapping makes the doctrine bullet auditable from the skill — per plan `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md` Phase 4A (Patrik R1 F10).

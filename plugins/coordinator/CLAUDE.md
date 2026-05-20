@@ -35,7 +35,7 @@ Handoff framing is hypothesis, not ground truth. Symptom timing and bug-layer at
 
 ## Live Queries vs. Scaffolded Indices
 
-When answer is derivable from frontmatter on tracked records, prefer `bin/query-records` over hand-maintained tables. `/update-docs` regenerates query callouts via `bin/refresh-queries.js`. Add a query callout (with sentinel comments) rather than a static list when data is schema'd.
+Prefer `bin/query-records` over static lists. Tracked types: `handoff`, `plan`, `decision`, `lesson`, `completion`.
 
 ## Internet Research
 
@@ -53,7 +53,7 @@ Subagents see only their dispatch prompt — CLAUDE.md is invisible. Any rule go
 
 Conventions decay unless greppable from surfaces agents touch. For each new convention, enumerate contact-points: `/project-onboarding`, `/session-start`, `/session-end`, relevant hook, and ≥1 canonical artifact agents encounter.
 
-**Tripwires registry → `docs/wiki/coordinator-tripwires.md`.** When adding a new tripwire (hook, agent-prompt rule, override env var): register there AND update the relevant agent / hook / skill in the same commit. Active hooks at this time: `block-off-daily-branch.sh`, `block-dev-side-mirror-wiki.sh`, `block-unauthorized-handoff.sh`, `nudge-improvement-queue-write.sh`. Override env vars are documented per-tripwire in the wiki. Static-grep tripwires must enumerate every call shape (literal, array, kwarg-split, here-doc) — see the wiki's call-shape-coverage section. Snippet-sync flow (edit `snippets/<name>.md` → run `bin/verify-<name>-sync.sh --fix` → commit all touched together) also in the wiki. Two static-grep tripwires added 2026-05-18: **swappable-sink-check** (SWAPPABLE-SINK-CHECK — contact-points `/merge-to-main`, `/session-end`); **cross-repo-halves-check** (CROSS-REPO-HALVES-CHECK — contact-points `/handoff`, `/workday-complete`). Full detail in wiki.
+**Tripwires registry → `docs/wiki/coordinator-tripwires.md`.** When adding a new tripwire (hook, agent-prompt rule, override env var): register there AND update the relevant agent / hook / skill in the same commit. Active hooks: `block-off-daily-branch.sh`, `block-dev-side-mirror-wiki.sh`, `block-unauthorized-handoff.sh`, `nudge-improvement-queue-write.sh`, `block-completion-monolith-write.sh`. Override env vars are documented per-tripwire in the wiki. Static-grep tripwires must enumerate every call shape (literal, array, kwarg-split, here-doc) — see the wiki's call-shape-coverage section. Snippet-sync flow (edit `snippets/<name>.md` → run `bin/verify-<name>-sync.sh --fix` → commit all touched together) also in the wiki. Two static-grep tripwires added 2026-05-18: **swappable-sink-check** (SWAPPABLE-SINK-CHECK — contact-points `/merge-to-main`, `/session-end`); **cross-repo-halves-check** (CROSS-REPO-HALVES-CHECK — contact-points `/handoff`, `/workday-complete`). Full detail in wiki.
 
 ## Agent Teams — `blockedBy` Is a Gate, Not a Trigger
 
@@ -87,7 +87,7 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 ## Roster Doctrine
 
 - **Workers > personas.** Default new agents to unnamed Sonnet workers. Personas earn names only when *judgment* is the value.
-- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering) are Opus-only. → `agents/code-reviewer.md`.
+- **Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** Personas (Patrik, Sid, Camelia, Palí, Fru, Zolí) are Opus-only. → `agents/code-reviewer.md`.
 - **Distributed abstention, centralized routing.** Each agent abstains on fit-mismatch. One read-only orchestrator owns the routing table; no domain agent names other agents in its prompt.
 
 ## Verifying Executor Output After a Crash or Timeout
@@ -124,7 +124,7 @@ Autonomous-execution commands background everything by default. EM holds wave ma
 
 → Procedure: `coordinator:plan` (decision-tree skill). Bullets below are canonical, linked from that skill's branches.
 
-- **Plan is a skill invocation, not a writing instruction.** PM types "plan" / "let's plan" / "write a plan" / "draft a plan" / "break this down" / "plan the implementation" → first action is `Skill(coordinator:plan)`. Writing a plan body via `Write` without invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → the Staff Engineer → integrator chain — doctrine violation.
+- **Plan is a skill invocation, not a writing instruction.** PM types "plan" / "let's plan" / "write a plan" / "draft a plan" / "break this down" / "plan the implementation" → first action is `Skill(coordinator:plan)`. Writing a plan body via `Write` without invoking the skill skips substrate verification, the four PM doctrinal lenses, and the prior-art-checker → Patrik → integrator chain — doctrine violation.
 - **EM default is plan and dispatch, not type code.** A handoff is context for planning, not a trigger to start coding. Implement directly only when a plan exists *and* dispatch is genuinely more expensive than typing.
 - **Persist review output and plan artifacts to disk before acting.**
 - **STOP and re-plan when something goes sideways.**
@@ -148,7 +148,8 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 - **Survey plan-substrate state before dispatching on a not-just-authored plan.** `git log --oneline` + targeted reads closes the staleness window.
 - **Premise contradictions resolve in the fix-wave preamble**, not a separate verification wave.
 - **Audit symptom is correct; locus may be wrong.** Verify producer code before accepting the audit's proposed fix-locus.
-- **6-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known. All green or stop.
+- **7-dim confidence checklist:** no-duplicate / no-fabrication / architecture-compatible / official-docs-read / reference-impl-seen / root-cause-known / fix-locus discrimination. All green or stop.
+- **Fix-locus discrimination is plan-author-time discipline, not pre-flight checker.** The 7th dimension fires when the planner drafts the body — there is no Sonnet pre-flight that catches wrong-locus shape (per Zoli SI-2 2026-05-19, that capability is reserved for Opus-altitude reviewers). → `docs/wiki/writing-plans.md` § Fix-locus discrimination.
 - **Re-run mechanical pre-flights after material plan amendments.** path-scout, prior-art, docs-checker findings age if the plan changes between review and integration; re-run before the next reviewer.
 - **Reviewer rationale must discriminate between the chosen shape and its alternatives.** When a reviewer accepts a design decision with a rationale that's equally true of the rejected alternative (e.g., "PersistentClient needs a directory" — true of both old and new directory layouts), the review ratified a non-decision. Test: *what about the rationale would change if we picked the opposite shape?* If "nothing", re-decide explicitly or flag deferred — the apparent approval is non-load-bearing. _See `docs/wiki/writing-plans.md` § Substrate-Migration Sequencing for the layout-decision case where this empirically bit._
 
@@ -215,6 +216,7 @@ Predecessor is **whatever handoff this session was opened with — period** (the
 - `docs/research/` — timestamped `/deep-research` outputs; key findings PROMOTEd by `/distill`
 - `CONTEXT.md` (optional) — domain glossary; → `docs/wiki/context-md-convention.md`
 - `docs/wiki/plugin-extraction-and-distribution.md`, `docs/wiki/claude-code-platform-gotchas.md` — checklists/reference
+- **Completion logs** → `docs/wiki/completion-log-release-loop.md`.
 
 **Stale doc references: repoint when covered, create only when genuinely missing.**
 
@@ -238,6 +240,8 @@ Default: code runs on a machine you've never seen. Path resolution: explicit fla
 
 **Single-thread / non-resumable / non-idempotent are 2026 antipatterns.** Load-bearing scripts declare concurrency + idempotency + resume strategy at design time.
 
+Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.claude/machine-local/`; read via `bin/machine-local get <key>`. See `docs/wiki/machine-local-registry.md`.
+
 ## Implementation Standards
 
 - **OOS framing must be architectural, not appetite-based.** Name the irreversible cost or hard constraint. "Not now / follow-up" hedging isn't OOS, it's incomplete work. Laundering failures through the improvement queue is the same pattern (→ § Improvement Queue).
@@ -257,9 +261,9 @@ Default: code runs on a machine you've never seen. Path resolution: explicit fla
 - **Parallel enrichment needs unified seam review** — `docs/wiki/parallel-enrichment-seam-review.md`.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
-- **Two-pipeline review on shared artifacts** combines per-stub depth (the Staff Engineer on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
-- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; the Staff Engineer escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow the Staff Engineer's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
-- **Personas run at Opus only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
+- **Two-pipeline review on shared artifacts** combines per-stub depth (Patrik on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
+- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; Patrik escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow Patrik's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
+- **Personas run at Opus only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
 
 ## Synthesis Discipline
 
