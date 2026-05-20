@@ -324,7 +324,7 @@ fi
 
 # --- Check 6: FULLY DECOMMISSIONED ---
 # Branch discipline at commit time was Check 6 in this file. It was temporarily
-# consolidated into block-off-daily-branch.sh (`commit` arm) by Patrik F11.
+# consolidated into block-off-daily-branch.sh (`commit` arm) by the Staff Engineer F11.
 # That commit arm has now been deleted entirely (2026-05-07, per PM call) —
 # the hook no longer enforces branch-date at commit time at all.
 # See docs/plans/2026-05-07-daily-branch-doctrine-rethink.md Phase 2.

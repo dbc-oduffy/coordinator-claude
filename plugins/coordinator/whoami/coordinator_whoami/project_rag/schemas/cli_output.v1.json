@@ -155,7 +155,7 @@
       "properties": {
         "installed": {
           "type": "boolean",
-          "description": "True when ~/.claude/plugins/coordinator-claude/coordinator/CLAUDE.md exists."
+          "description": "True when ~/.claude/plugins/coordinator/CLAUDE.md exists."
         },
         "version": {
           "type": ["string", "null"],

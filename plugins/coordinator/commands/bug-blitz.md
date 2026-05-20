@@ -265,8 +265,8 @@ For each wave:
      > After your edit: (1) re-read the cited code and confirm the bug pattern is gone; (2) run any local tests under the same directory as the modified file — if tests fail, revert your edit (`git checkout -- <paths>` is fine here because executors leave the working tree unstaged and the EM has no concurrent unstaged work for this item) and report `BLOCKED: regression`. **Do NOT stage and do NOT commit. Leave changes unstaged in the working tree** — the EM stages and commits each item serially at the wave gate. Helper invocation (`coordinator-safe-commit`) is forbidden in executor scope: empirically (smoke 2026-05-06-22h42) it produced concurrent-commit absorption and scope sweep.
    - **DONE summary:** Write to `tasks/scratch/bug-blitz/{run-id}/{item-id}.done.md` with: `status` (`DONE` | `BLOCKED: <reason>`), `files: [explicit paths]` (newline-separated, exactly the paths the EM should `git add --` — no globs, no parent dirs), `before` snippet, `after` snippet, `verified` result. Do NOT include a commit SHA — committing is the EM's job. Reply `DONE: <path>` only.
 
-   <!-- Review: 2026-05-06-22h42 smoke run — defect 1 (concurrent-commit absorption) + defect 2 (scope sweep) traced to executor self-commit via coordinator-safe-commit. Reverted Patrik F8 in favor of EM-serial commit at wave gate; per-item commit cadence preserved (still one commit per backlog item) but funneled through a single committer. -->
-   <!-- Review: Patrik F10 — disk-first verification preamble inlined into executor dispatch prompt. -->
+   <!-- Review: 2026-05-06-22h42 smoke run — defect 1 (concurrent-commit absorption) + defect 2 (scope sweep) traced to executor self-commit via coordinator-safe-commit. Reverted the Staff Engineer F8 in favor of EM-serial commit at wave gate; per-item commit cadence preserved (still one commit per backlog item) but funneled through a single committer. -->
+   <!-- Review: the Staff Engineer F10 — disk-first verification preamble inlined into executor dispatch prompt. -->
 
 2. **Process completions on arrival.** Read each DONE summary (only). Do NOT pull executor transcripts.
 
@@ -285,8 +285,8 @@ For each wave:
    - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update the backlog entry with `resolution: re-attempted-{date}: <reason>`, leave in backlog.
    - Update flight-recorder tasks to `completed`.
 
-   <!-- Review: Patrik F4 — poll git branch --show-current BEFORE each commit at the wave gate. Branch is captured at Phase 0 as $BLITZ_BRANCH; EM re-checks before every commit (per-item granularity, not per-wave, because the loop spans many seconds). -->
-   <!-- Review: Patrik F5 (revised 2026-05-07) — per-wave incremental backlog writes removed; PASS commits at the wave gate ARE the persistence (commit subject names each item), so a mid-run crash recovers attribution from `git log` rather than file state. Doctrine: docs/plans/2026-05-07-prune-resolved-state-bloat.md. -->
+   <!-- Review: the Staff Engineer F4 — poll git branch --show-current BEFORE each commit at the wave gate. Branch is captured at Phase 0 as $BLITZ_BRANCH; EM re-checks before every commit (per-item granularity, not per-wave, because the loop spans many seconds). -->
+   <!-- Review: the Staff Engineer F5 (revised 2026-05-07) — per-wave incremental backlog writes removed; PASS commits at the wave gate ARE the persistence (commit subject names each item), so a mid-run crash recovers attribution from `git log` rather than file state. Doctrine: docs/plans/2026-05-07-prune-resolved-state-bloat.md. -->
 
 5. **Brief status, no question.** "Wave N complete (X fixed, Y blocked). Firing wave N+1."
 

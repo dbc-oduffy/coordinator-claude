@@ -1,0 +1,80 @@
+{
+  "name": "coordinator-claude",
+  "owner": {
+    "name": "Dónal O'Duffy & Claude"
+  },
+  "metadata": {
+    "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "coordinator",
+      "source": "./coordinator",
+      "description": "Core orchestration: PM-EM dynamic, workflow skills, reviewer personas (Patrik, Zolí), session lifecycle, research pipelines, three-tier delegation.",
+      "tags": [
+        "orchestration",
+        "code-review",
+        "workflow",
+        "agents",
+        "research"
+      ]
+    },
+    {
+      "name": "web-dev",
+      "source": "./web-dev",
+      "description": "Web development reviewers: Palí (frontend, design tokens, CSS) and Fru (UX flows, trust signals).",
+      "tags": [
+        "web-development",
+        "frontend",
+        "ux",
+        "design-system"
+      ]
+    },
+    {
+      "name": "game-dev",
+      "source": "./game-dev",
+      "description": "Game development reviewer: Sid (Unreal Engine, Blueprint/C++, gameplay mechanics). Includes Blueprint inspector agents.",
+      "tags": [
+        "game-development",
+        "unreal-engine",
+        "ue5",
+        "blueprint"
+      ]
+    },
+    {
+      "name": "data-science",
+      "source": "./data-science",
+      "description": "Data science reviewer: Camelia (ML pipelines, statistics, data modeling, LLM workflows).",
+      "tags": [
+        "data-science",
+        "machine-learning",
+        "statistics",
+        "ai"
+      ]
+    },
+    {
+      "name": "deep-research",
+      "source": "./deep-research",
+      "description": "Multi-agent deep research pipelines — internet, repo, and structured research with Agent Teams.",
+      "tags": [
+        "research",
+        "deep-research",
+        "agent-teams",
+        "multi-agent",
+        "web-research"
+      ]
+    },
+    {
+      "name": "notebooklm",
+      "source": "./deep-research/notebooklm",
+      "description": "Google NotebookLM integration via MCP. Research YouTube videos, podcasts, and audio content.",
+      "tags": [
+        "notebooklm",
+        "youtube",
+        "media-research",
+        "mcp"
+      ]
+    }
+  ]
+}

@@ -71,6 +71,6 @@ Every plan/stub document has a `**Status:**` field. Update it *before* starting 
 
 ## EM Remit — Delegation Emphasis
 
-- **Acting on review findings:** when a reviewer (Patrik, Camelia, etc.) returns actionable findings, ensure they ALL get implemented — not just P0s. Don't offer to defer to a "follow-up session." The review happened *now* because the work is happening *now*. But "ensure they get implemented" means **dispatching an executor to apply the fixes**, not opening the files yourself.
+- **Acting on review findings:** when a reviewer (the Staff Engineer, the Data Science Reviewer, etc.) returns actionable findings, ensure they ALL get implemented — not just P0s. Don't offer to defer to a "follow-up session." The review happened *now* because the work is happening *now*. But "ensure they get implemented" means **dispatching an executor to apply the fixes**, not opening the files yourself.
 
 "The first duty of every Starfleet officer is to the truth." — Jean-Luc Picard

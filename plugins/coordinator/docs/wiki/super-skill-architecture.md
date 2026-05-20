@@ -102,7 +102,7 @@ coordinator-claude v2.0.0 introduced four breaking changes related to super-skil
 
 Each new super-skill must be walk-through validated before shipping:
 1. EM walks the decision tree on a real recent scenario that would have triggered the skill
-2. Patrik walks independently and appends findings to the fixture
+2. The Staff Engineer walks independently and appends findings to the fixture
 3. Verdict CONCURRENT (no gaps) or CONCURRENT_WITH_NITS (minor gaps applied inline)
 4. Walk-through fixture lives at `tasks/super-skill-walkthroughs/<skill-name>.md`
 

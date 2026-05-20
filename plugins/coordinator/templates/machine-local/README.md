@@ -143,5 +143,5 @@ The registry is the audited source; env is the escape valve for one-off override
 Full doctrine — when to put a value in machine-local vs. discover at runtime, decay discipline, anti-patterns, and extension path — is in:
 
 ```
-~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md
+~/.claude/plugins/coordinator/docs/wiki/machine-local-registry.md
 ```

@@ -37,7 +37,7 @@ The mechanical contract: top-level file keeps the dispatch surface (steps, names
 
 ## Cookbook inlining vs link-reference for subagents
 
-Patrik confirmed (P8): **subagents see only their dispatch prompt — bare link refs are unreachable.** Three rejected alternatives, one accepted:
+The Staff Engineer confirmed (P8): **subagents see only their dispatch prompt — bare link refs are unreachable.** Three rejected alternatives, one accepted:
 
 - **Verbatim inlining** — kept as the substrate, but trimmed.
 - **Summary + Read pointer** — rejected. Recreates the very drift hazard inlining was meant to prevent.
@@ -80,7 +80,7 @@ These aren't strictly CLAUDE.md trim rules but share the "don't pay re-cost on e
 
 *Decision:* Hybrid. Keep verbatim inlining (per "Agent Prompts Are Self-Contained") but trim cookbook to the load-bearing core. Frontmatter examples + deep-research playbook trims deferred — they need careful YAML editing or reviewer judgment respectively.
 
-*Alternatives considered:* Bare link reference (rejected — Patrik P8, subagents see only the dispatch prompt). Summary + Read pointer (rejected — recreates the drift hazard). `@`-import (rejected — untested in agent prompts).
+*Alternatives considered:* Bare link reference (rejected — the Staff Engineer P8, subagents see only the dispatch prompt). Summary + Read pointer (rejected — recreates the drift hazard). `@`-import (rejected — untested in agent prompts).
 
 **DBT-DR-002 — `/schedule` is for remote CCR agents, not local file tasks**
 

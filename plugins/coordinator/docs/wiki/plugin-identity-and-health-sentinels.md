@@ -28,7 +28,7 @@ The receipt surface and the identity surface are deliberately **not** merged int
 
 ## Scope of this doctrine: runtime-queryable state only
 
-<!-- Narrowing amendment — 2026-05-19. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (Zolí review Conflict #1, direction: both). Framing: narrowing, not overturning — the three-EM consensus on runtime-identity is preserved. -->
+<!-- Narrowing amendment — 2026-05-19. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (the Director of Engineering review Conflict #1, direction: both). Framing: narrowing, not overturning — the three-EM consensus on runtime-identity is preserved. -->
 
 The decay-discipline described in this wiki applies to **runtime-queryable plugin state** — MCP binding, daemon PID, consumer-project path, current binding state. These are the artifacts whose live source makes on-disk persistence an active lie after a state change.
 

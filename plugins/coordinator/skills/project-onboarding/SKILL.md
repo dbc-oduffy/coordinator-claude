@@ -94,7 +94,7 @@ If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) a
 
 Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
 
-**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
+**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
 **Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
@@ -284,8 +284,8 @@ Concatenate the block body for each selected project type (in selection order). 
 **3. Call the render helper:**
 
 ```bash
-bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/render-template.sh" \
-  "$HOME/.claude/plugins/coordinator-claude/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
+bash "$HOME/.claude/plugins/coordinator/bin/render-template.sh" \
+  "$HOME/.claude/plugins/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
   -o CLAUDE.md \
   PROJECT_NAME="<derived-name>" \
   PROJECT_TYPE="<type>" \
@@ -442,7 +442,7 @@ cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/bash
 # Auto-push to remote on work/* or feature/* branches — crash insurance.
 # Delegates to coordinator-auto-push helper.
-exec "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push"
+exec "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
 HOOK
 chmod +x .git/hooks/post-commit
 ```
@@ -451,7 +451,7 @@ If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the e
 
 ```bash
 # === Auto-push (crash insurance) ===
-( "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push" ) &
+( "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push" ) &
 exit 0
 ```
 

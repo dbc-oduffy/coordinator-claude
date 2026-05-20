@@ -74,7 +74,7 @@ extraction to `claude-unreal-holodeck` is Wave 2b.
       addons return via the new `project_rag_register_chunk_metadata_extras`
       hookspec (parallel-call, returns `list[AddonChunkMetadataExtrasSpec]`).
       The bump is triggered by the **new façade dataclass**, NOT the hookspec
-      addition alone — per the established rule (Patrik anti-pattern D: additive
+      addition alone — per the established rule (the Staff Engineer anti-pattern D: additive
       hookspec without new façade does not bump). This seam relocates the Layer-1
       chunk metadata validation algorithm to host (`core/chunk_schema.py`) and
       moves the per-source-type extras vocabulary from the addon's closed
@@ -298,10 +298,10 @@ extraction to `claude-unreal-holodeck` is Wave 2b.
 
       **Gate:** v13 publish was gated on N-lane fusion landing AND
       `tests/integration/test_blended_query_n_lane.py::test_default_weight_load_bearing`
-      failing when the host ignores the field (Zolí F#2 consumer-proof requirement).
+      failing when the host ignores the field (the Director of Engineering F#2 consumer-proof requirement).
 
       **`authority_rank` / `authority_pairs`:** NOT reintroduced.  Deferred to v14,
-      gated on a separate failing-test consumer proof (per Zolí F#2 convergence).
+      gated on a separate failing-test consumer proof (per the Director of Engineering F#2 convergence).
       v14 stub at `tasks/2026-05-19-fusion-pipeline-n-lane/v14-authority-rank-stub.md`.
 
       Plan reference: `docs/plans/2026-05-19-fusion-pipeline-n-lane.md`.
@@ -332,7 +332,7 @@ extraction to `claude-unreal-holodeck` is Wave 2b.
       Source/authority separation at the bundle layer survives intact.
 
       **Held-docstring replaced.** `AddonMcpDepBundle` docstring at
-      `core/addon_protocol.py:706-707` replaced with Zolí-authored text
+      `core/addon_protocol.py:706-707` replaced with the Director of Engineering-authored text
       separating two previously conflated concerns: (a) per-tool capability
       declaration — why project graph.db access is intentionally NOT
       bundle-level; (b) source/authority separation — governs corpus-class
@@ -399,7 +399,7 @@ for the doctrine placing strict validation in `/doctor`, not the boot path.
 ### Rationale — type-confusion problem and motivating incident
 
 The strict unknown-field gate was originally a deliberate "detect-then-fail-loud"
-choice (ratified in Patrik's Wave 2a review). The 2026-05-17 motivating incident
+choice (ratified in the Staff Engineer's Wave 2a review). The 2026-05-17 motivating incident
 exposed a type-confusion: a `_comment` field added to
 `project-rag-ue-addon/project_rag_ue_addon/addon-manifest.json` (commit
 `d690d0c1e`) for author bookkeeping — explicitly marked `"INFORMATIONAL — not
@@ -421,7 +421,7 @@ If you want strict validation in your addon's CI, import
 validation is intentionally lenient — your CI is the right gate for catching
 typos and stale fields before publish.
 
-### Return-type asymmetry (Patrik Finding 0)
+### Return-type asymmetry (the Staff Engineer Finding 0)
 
 `mode='strict'` returns `dict[str, Any]` (unchanged from the pre-2026-05-17
 public API). `mode='boot'` returns `tuple[dict[str, Any], ManifestDriftReport]`.
@@ -511,7 +511,7 @@ block) handles:
 - Per-spec call to `priming.manifest._adapt_addon_producer_spec()`, which:
   - Stashes the bound `Callable` in `_ADDON_PRODUCER_CALLABLES[spec.id]`
   - Returns a `ProducerEntry` with `runner="addon_callable:<id>"` (sentinel)
-  - Raises `ProducerIDConflictError` on duplicate id (loud-and-early per Patrik P1-7)
+  - Raises `ProducerIDConflictError` on duplicate id (loud-and-early per the Staff Engineer P1-7)
 - Appends the returned `ProducerEntry` to `_PENDING_ADDON_PRODUCERS`.
 - `load_manifest()` merges `_PENDING_ADDON_PRODUCERS` into `Manifest.producers` before
   topo-sort; YAML-declared producers win on id conflict.
@@ -704,7 +704,7 @@ requires an `ADDON_PROTOCOL_VERSION` bump.
 | `AddonQueryRoutingSpec` | (v6, W8c) | `domain_patterns: tuple[str, ...]`, `decomposer_callable_name: str | None`. Returned by `project_rag_register_query_routing` hookimpls. Replaces W6/Wave-2b P3.6 ue_patterns + query_decomposition port-out. Consumer: W8f. |
 | `AddonTableSpec` | (v6, Phase-1 addon-extensible-schema) | `name: str`, `ddl: str`, `indexes: list[str]`. Returned by `project_rag_register_schema_tables`. DDL parse-tested against `:memory:` at registration. |
 | `AddonEdgeTypeSpec` | (v6, Phase-1 addon-extensible-schema) | `edge_types: frozenset[str]`. Returned by `project_rag_register_schema_edge_types`. Host builds `EdgeTypeRegistry` from `CORE_EDGE_TYPES` + all hookimpl returns. |
-| `AddonChunkMetadataExtrasSpec` | (v7, γ-prime, 2026-05-16) | `source_type: str`, `extras: frozenset[str]`, `contributor: str`. Returned by `project_rag_register_chunk_metadata_extras`. Host unions extras per `source_type` across all registered specs; validation algorithm stays in `core/chunk_schema.py`. Bump trigger for v6→v7 per the new-façade rule (Patrik anti-pattern D). |
+| `AddonChunkMetadataExtrasSpec` | (v7, γ-prime, 2026-05-16) | `source_type: str`, `extras: frozenset[str]`, `contributor: str`. Returned by `project_rag_register_chunk_metadata_extras`. Host unions extras per `source_type` across all registered specs; validation algorithm stays in `core/chunk_schema.py`. Bump trigger for v6→v7 per the new-façade rule (the Staff Engineer anti-pattern D). |
 
 The `envelope` module is also re-exported (`from core.addon_protocol import envelope`)
 so addon tool handlers can return envelope-shaped dicts via `envelope.ok(...)`,
@@ -823,7 +823,7 @@ name within v1 is **NOT** a bump.
 | New metadata attribute added to closure | NO |
 | `bridge_name` value changes | NO |
 
-### v1 is synchronous-only (Sid SX-1)
+### v1 is synchronous-only (the Game Dev Reviewer SX-1)
 
 The closure executes Python in the Editor's main-thread Python VM and blocks
 until the expression returns. The closure does **not** support: callback-based
@@ -838,7 +838,7 @@ then, addon authors should treat the closure as a single-tick blocking probe.
 See PR-7's `transient_failure` verdict as the v1 escape hatch for
 async-not-ready conditions.
 
-### Liveness vs version-match (Sid S8-1)
+### Liveness vs version-match (the Game Dev Reviewer S8-1)
 
 **`bridge_state.json` records the bridge state at MCP server boot. It does
 not track per-call liveness.** A doctor `PASS` on the bridge-protocol probe
@@ -938,7 +938,7 @@ cross-references, not redefines.**
 }
 ```
 
-### Addon `setup()` contract — pure capability declaration only (Sid S5-1)
+### Addon `setup()` contract — pure capability declaration only (the Game Dev Reviewer S5-1)
 
 `addon.setup()` is called during MCP server boot on the hot-path in
 `core/addon_discovery.py:discover_addons()`, interleaved with all other boot
@@ -1165,7 +1165,7 @@ class AddonWhoamiContributorSpec:
     contributor: str = "unknown"         # addon identity; empty string rejected
 ```
 
-`__post_init__` rejects empty `contributor` to keep the collision-diagnostic message readable (per Patrik F4 review). Namespace regex is also exported as `ADDON_WHOAMI_NAMESPACE_RE: Final[str]` for SSOT consumption (per Patrik F0).
+`__post_init__` rejects empty `contributor` to keep the collision-diagnostic message readable (per the Staff Engineer F4 review). Namespace regex is also exported as `ADDON_WHOAMI_NAMESPACE_RE: Final[str]` for SSOT consumption (per the Staff Engineer F0).
 
 ### New hookspec: `project_rag_register_whoami_contributor`
 
@@ -1183,7 +1183,7 @@ Empty list is the graceful-fail signal (addon contributes no whoami sub-block).
 
 The canonical aggregation site. Validates each spec (type, namespace regex, callable probe) and enforces namespace uniqueness across **all** contributors (host + every addon). Raises `AddonWhoamiNamespaceCollision` (subclasses `AddonProtocolViolation`) with both contributor identity strings AND the conflicting namespace in the message.
 
-**Lifecycle divergence (Patrik F6):** NOT called from `discover_addons()` at boot. Whoami is a command-time introspection surface — collisions surface at first `python -m core.whoami` invocation, not at server start. A bad whoami contributor must not prevent the MCP server from starting; the consumer (`core/whoami.py`, lands in W3 of `docs/plans/2026-05-19-first-class-install-redesign.md`) calls the aggregator at invocation time.
+**Lifecycle divergence (the Staff Engineer F6):** NOT called from `discover_addons()` at boot. Whoami is a command-time introspection surface — collisions surface at first `python -m core.whoami` invocation, not at server start. A bad whoami contributor must not prevent the MCP server from starting; the consumer (`core/whoami.py`, lands in W3 of `docs/plans/2026-05-19-first-class-install-redesign.md`) calls the aggregator at invocation time.
 
 ### Host JSON shape
 
@@ -1214,7 +1214,7 @@ Enforcement of the must-not-raise and time-budget contracts is consumer-side (`c
 
 - Ask doc: `../project-rag-ue-addon/archive/cross-repo/2026-05-19-host-whoami-hookspec-request.md`
 - Reply doc: `archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md`
-- Patrik review: APPROVED_WITH_NOTES on the in-tree diff; all 7 findings folded inline.
+- the Staff Engineer review: APPROVED_WITH_NOTES on the in-tree diff; all 7 findings folded inline.
 
 ---
 
@@ -1224,7 +1224,7 @@ Enforcement of the must-not-raise and time-budget contracts is consumer-side (`c
 
 Restores `CorpusBand.default_weight: float | None = None` as a SUGGESTED multiplicative weight for the N-lane fusion pipeline. Weight resolution chain (highest precedence first): caller-supplied `band_weights` kwarg on `project_rag_blended_query`, then `PROJECT_RAG_BAND_WEIGHT_<band_name>` env override, then this field, then "absent" (multiplicative no-op).
 
-The v10 removal was correct given the three-lane hardcoded fusion pipeline that had no consumer for per-band values; v13's N-lane fusion is the first real consumer. `authority_pairs` remains REMOVED (v14 may revisit gated on a separate failing-test consumer proof per Zolí finding F#2).
+The v10 removal was correct given the three-lane hardcoded fusion pipeline that had no consumer for per-band values; v13's N-lane fusion is the first real consumer. `authority_pairs` remains REMOVED (v14 may revisit gated on a separate failing-test consumer proof per the Director of Engineering finding F#2).
 
 Plan: `docs/plans/2026-05-19-fusion-pipeline-n-lane.md` § Wave C.
 
@@ -1327,4 +1327,4 @@ hierarchy), which is why it lives in the UE addon rather than in-host.
 `project_blueprint_graph`, `project_cvar`, `project_actor_composition`,
 `project_overrides`, `project_tag_graph`, `project_test_coverage`.
 
-Spec backlink: docs/plans/2026-05-18-addon-protocol-v12-and-ue-tool-migration.md §Chunk-1.3 edit 4 (Patrik Finding 2)
+Spec backlink: docs/plans/2026-05-18-addon-protocol-v12-and-ue-tool-migration.md §Chunk-1.3 edit 4 (the Staff Engineer Finding 2)

@@ -40,7 +40,7 @@ You do not prescribe which resolution. You report; the EM decides.
 - Auto-fix substrate drift. The EM judges whether the plan or the disk is right.
 - Auto-block a plan. The verdict is advisory; only the EM/PM may halt a review.
 - Use `Bash` for anything other than `ls`, `stat`, and the prior-sidecar `mv` rename. Never run `grep`, `sed`, or `awk` via `Bash` — use the `Grep` tool. Never commit, push, or modify any file outside the single sidecar path.
-  <!-- Review: Patrik — Bash-scope narrowing: body implies this but Sonnet executors reading only the tools array can miss it; explicit prohibition prevents scope creep -->
+  <!-- Review: the Staff Engineer — Bash-scope narrowing: body implies this but Sonnet executors reading only the tools array can miss it; explicit prohibition prevents scope creep -->
 
 ## Verification Protocol
 
@@ -148,7 +148,7 @@ Write the sidecar to `<plan-path>.plan-coverage-check.md`. Use the format specif
 
 ## Sidecar Format
 
-<!-- Review: Patrik — verdict enum callout added to harden against pattern-matching from prior-art-checker vocabulary loaded in the same dispatch context -->
+<!-- Review: the Staff Engineer — verdict enum callout added to harden against pattern-matching from prior-art-checker vocabulary loaded in the same dispatch context -->
 **Verdict enum:** `COMPLETE` / `INCOMPLETE` / `BLOCKED-SURFACE-TO-PM` / `SCOPE-MISMATCH` / `DEGRADED`. Do NOT use prior-art-checker vocabulary (`COMPATIBLE` / `WARN`). `INCOMPLETE` is this agent's `WARN`-equivalent and folds pre-reviewer, not post-reviewer.
 
 ```markdown
@@ -218,7 +218,7 @@ If you emit ≥3 degradation notes, flip the verdict to **DEGRADED**.
 
 Aim for under 10K tokens per plan check — soft target, not a hard cap. The plan itself and a targeted set of disk verifications (Lens 3) are the primary reads. Oracle and slate detection are local to the plan file; hedge detection is grep-bounded; substrate drift is one `ls` or `Grep` per cited path.
 
-<!-- Review: Patrik — aggregate iteration ceiling added to prevent call-count runaway on large plans even when token usage is moderate -->
+<!-- Review: the Staff Engineer — aggregate iteration ceiling added to prevent call-count runaway on large plans even when token usage is moderate -->
 **Aggregate iteration ceiling.** Separate from the token cost target, cap aggregate `Grep` + `Read` + `Bash` calls per dispatch:
 - **Lens 3 substrate verification:** ≤100 total `Grep` / `Read` / `Bash` calls across all cited paths/symbols. If exceeded, batch-sample remaining citations (every Nth, where N is chosen so the residual sample stays under the cap) and emit a DEGRADED note for the unsampled portion: "Lens 3 sampled at 1/N — full coverage exceeded iteration ceiling."
 - **Per-oracle-item Lens 1 verification:** ≤3 `Grep` calls per oracle item before classifying AMBIGUOUS. If a single oracle item has consumed 3 search attempts without a signal-confirmed link, classify AMBIGUOUS and move on — do not loop.

@@ -81,7 +81,7 @@ The verdict is advisory. The agent never auto-blocks; only the EM/PM may halt a 
 
 ## Prior-art mutability — DoE-reviewer override path
 
-*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (Zolí, or Patrik elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
+*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (the Director of Engineering, or the Staff Engineer elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
 
 **When the override applies:**
 
@@ -131,12 +131,12 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 The reviewer-side consumption block is synced via `plugins/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator/agents/eng-director.md` (Zolí)
-- `plugins/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/web-dev/agents/senior-front-end.md` (Palí)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
+- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 
