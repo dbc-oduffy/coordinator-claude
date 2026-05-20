@@ -94,7 +94,7 @@ If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) a
 
 Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
 
-**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
+**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
 **Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
@@ -116,6 +116,22 @@ Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no t
 - **1.5c:** Peer-repo scout — if `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
 - Output: a 5–10 line "onboarding substrate snapshot" (toolchain, active workstreams, known conventions, sibling-repo context) to scratch before Phase 2.
 - Onboard from substrate before asking the PM; cold-ask is the fallback when substrate is empty.
+
+**Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items to orient on what this repo has shipped in the last quarter — especially valuable when joining cold.
+
+```bash
+bin/query-records --type completion --since "90d" --where "nature=roadmap" \
+  --sort "-loe.tshirt" --limit 10 --format markdown-list
+```
+
+Render under a fixed subsection heading in the Phase 4 REPORT (per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern):
+
+```markdown
+#### Recent roadmap (last 90d, top-10 by size)
+<results — one bullet per row, or "(none)" when the query returns zero rows>
+```
+
+The `(none)` case is expected on new repos or repos that haven't run the completion-log migration. Render the heading regardless — count-always.
 
 Otherwise:
 
@@ -176,9 +192,9 @@ On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos
 > _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
 >
 > **2. Project type** — controls which domain agents and conventions are included:
->    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
->    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
->    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
+>    - `game-dev` — Game development (adds Sid reviewer, game-dev domain agents)
+>    - `web-dev` — Web frameworks (adds Palí for front-end review, Fru for UX)
+>    - `data-science` — Notebooks, pipelines (adds Camelia reviewer)
 >    - `general` — Standard conventions only
 >
 > **3. Initial workstreams** (1-3) — what are you working on? For each:
@@ -218,14 +234,69 @@ LAZY items are NOT created here. Each has a designated "create on first use" own
 
 #### 3a. CLAUDE.md (if missing)
 
-Use `templates/CLAUDE.md.template`. Process conditionals:
+Use `templates/CLAUDE.md.template` via `bin/render-template.sh`. The template contains ONLY literal `{{KEY}}` substitutions — no conditionals. Construct the substitution values before calling the helper:
 
-1. Replace `[PROJECT_NAME]` with the PM's project name
-2. Replace `{{PROJECT_TYPE}}` with the PM's project type
-3. **Include** blocks for all selected project types (remove the `{{IF type}}` / `{{/IF type}}` markers). A project can have multiple types (e.g., `unreal` + `data-science`). For `general` type: no conditional block exists in the template — skip steps 3 and 4.
-4. **Remove** blocks for project types not in the list
-5. **If global `~/.claude/CLAUDE.md` exists:** Keep the `{{IF_GLOBAL}}` content (remove markers). This tells the EM that global principles apply.
-6. **If no global exists:** Remove the `{{IF_GLOBAL}}` line entirely. The template is self-contained.
+**1. Construct `GLOBAL_EXTENDS_LINE`:**
+- If `~/.claude/CLAUDE.md` exists: set to `Extends global \`~/.claude/CLAUDE.md\`.`
+- If no global CLAUDE.md exists: set to empty string `""`
+
+**2. Construct `PROJECT_TYPE_BLOCK`:**
+Concatenate the block body for each selected project type (in selection order). Block bodies are literal strings — include a trailing newline between blocks when concatenating multiple.
+
+- **`game-dev` block:**
+  ```
+  ## Unreal Engine Conventions
+
+  - **Engine version:** UE5.x (specify)
+  - **Build command:** <!-- e.g., UnrealBuildTool invocation -->
+  - **Cook command:** <!-- platform-specific cook -->
+  - **Blueprint vs C++:** <!-- project policy on when to use each -->
+  - **Naming conventions:** <!-- UE naming standards: A_ for assets, BP_ for blueprints, etc. -->
+  - **Key modules:** <!-- list primary C++ modules -->
+  ```
+
+- **`web-dev` block:**
+  ```
+  ## Web Development
+
+  - **Framework:** <!-- e.g., Next.js, React, Vue, Svelte -->
+  - **Dev server:** <!-- e.g., npm run dev, port -->
+  - **Component conventions:** <!-- file structure, naming, styling approach -->
+  - **State management:** <!-- e.g., Zustand, Redux, signals -->
+  - **CSS approach:** <!-- e.g., Tailwind, CSS Modules, styled-components -->
+  - **Key routes/pages:** <!-- list primary routes -->
+  ```
+
+- **`data-science` block:**
+  ```
+  ## Data Science Conventions
+
+  - **Notebook conventions:** <!-- naming, cell organization, output clearing policy -->
+  - **Data pipelines:** <!-- tools, orchestration, storage locations -->
+  - **Model versioning:** <!-- MLflow, DVC, manual, etc. -->
+  - **Environment management:** <!-- conda, venv, poetry -->
+  - **Key datasets:** <!-- list primary data sources -->
+  ```
+
+- **`general` type:** no block body — `PROJECT_TYPE_BLOCK` is empty string `""`.
+- **Multi-type projects** (e.g., `game-dev` + `data-science`): concatenate both block bodies with a blank line between them.
+
+**3. Call the render helper:**
+
+```bash
+bash "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/render-template.sh" \
+  "$HOME/.claude/plugins/coordinator-claude/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
+  -o CLAUDE.md \
+  PROJECT_NAME="<derived-name>" \
+  PROJECT_TYPE="<type>" \
+  SUBTYPES="<comma-separated-list-or-empty>" \
+  GLOBAL_EXTENDS_LINE="<line-or-empty>" \
+  PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
+```
+
+The helper substitutes all `{{KEY}}` placeholders and exits non-zero if any remain unsubstituted after render — this is the guard against template/key drift. Use absolute `$HOME`-anchored paths because this skill runs inside the target project's cwd, where relative paths resolve against the project root, not the coordinator plugin directory.
+
+<!-- Review: code-reviewer — relative paths fail when skill runs in project cwd; bracket token [PROJECT_NAME] not substituted by render-template.sh which only handles {{KEY}} shape -->
 
 Write the processed template to `CLAUDE.md` at the project root.
 
@@ -339,23 +410,28 @@ Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore t
 
 #### 3f. .gitignore handling
 
-Check if `.gitignore` exists and contains an entry for `.claude/settings.local.json`:
+Ensure `.gitignore` contains the universal entries every working repo needs. The canonical block (per `docs/wiki/gitignore-policy.md`):
 
-1. **If `.gitignore` exists but lacks the entry:** Append:
-   ```
-   # Machine-specific Claude settings (do not commit)
-   .claude/settings.local.json
-   ```
+```
+# Machine-specific Claude settings (do not commit)
+.claude/settings.local.json
 
-2. **If `.gitignore` doesn't exist:** Create it with:
-   ```
-   # Machine-specific Claude settings (do not commit)
-   .claude/settings.local.json
-   ```
+# Scratch — transient agent output, investigation notes, workstream byproduct.
+# `scratch/` matches at any depth (top-level scratch/, tasks/scratch/, etc.)
+scratch/
+tasks/_*.log
+```
 
-3. **If the entry already exists:** Skip silently.
+Procedure:
 
-**Warning check:** If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
+1. **If `.gitignore` doesn't exist:** Create it with the canonical block above.
+2. **If `.gitignore` exists but is missing any of the three rules:** Append only the missing rules under a single comment header (`# Coordinator universal — scratch + machine-local settings`).
+3. **If all three rules are present:** Skip silently.
+
+**Warning checks:**
+
+- If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
+- If the repo already has tracked content under `scratch/` or matching `tasks/_*.log`, surface count and offer `git rm --cached -r` cleanup as a follow-up step (do not auto-untrack during onboarding — confirm with the PM first).
 
 #### 3f.5. Auto-push post-commit hook
 
@@ -366,7 +442,7 @@ cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/bash
 # Auto-push to remote on work/* or feature/* branches — crash insurance.
 # Delegates to coordinator-auto-push helper.
-exec "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
+exec "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push"
 HOOK
 chmod +x .git/hooks/post-commit
 ```
@@ -375,7 +451,7 @@ If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the e
 
 ```bash
 # === Auto-push (crash insurance) ===
-( "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push" ) &
+( "$HOME/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-auto-push" ) &
 exit 0
 ```
 
@@ -402,6 +478,9 @@ Present what was done:
 
 ### Needs Attention
 - [any warnings — .gitignore issues, incomplete CLAUDE.md sections to fill in]
+
+### Recent Roadmap (last 90d, top-10 by size)
+_(Results from Phase 1.5 roadmap orientation query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
 
 ### Next Steps
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details

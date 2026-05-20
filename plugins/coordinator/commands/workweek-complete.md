@@ -263,7 +263,7 @@ export TRAIL_FILES
 
 # 2-7. Compute scope in Python: set subtraction, cross-segment seam detection,
 #      and JSON output — all fail-loud on any subprocess error.
-python3 - <<'PYEOF'
+python - <<'PYEOF'
 import json, os, subprocess, sys
 
 week_start = os.environ.get("WEEK_START", "")
@@ -386,17 +386,169 @@ Report: _"Tracker reconciliation: N workstreams updated."_
 
 ---
 
-## Step 9: Draft Release Notes — PM Review Gate
+## Step 8.5: LoE High-Water Check — MANDATORY Before Step 9
 
-Draft release notes from two sources (do NOT re-author — surface and organise):
-1. The week-changelog daily files: `Scope:`, `Decisions:`, `Plans touched: shipped` fields.
-2. `archive/completed/YYYY-MM.md`: entries under the week's date range.
+**Purpose:** Surface any XL chain-terminal completion entries from the past week to the PM before release notes are drafted. This ensures large chains are explicitly acknowledged in the weekly summary, not silently folded into Other bucket prose.
 
-Write the draft to `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` (use today's date; version is a placeholder until Step 10 confirms it).
+> **This step is MANDATORY.** Do NOT proceed to Step 9 without completing it. A missing LoE check means large-scope work goes unacknowledged in the PM summary — the Phase 2 not-surveillance guarantee depends on this weekly surface point.
 
-Present the draft to PM: _"Release notes drafted. Does this capture the week accurately?"_
+### 8.5.1 Query chain-terminal XL entries
 
-**Wait for PM review.** The PM may request edits before proceeding.
+```bash
+bin/query-completions --since "7d" \
+  --where "chain_terminal=true" \
+  --where "chain_loe.tshirt=XL" \
+  --format json
+```
+
+Alternatively, using the lower-level primitive:
+
+```bash
+bin/query-records --type completion \
+  --since "7d" \
+  --where "chain_terminal=true AND chain_loe.tshirt IN (XL)" \
+  --format json
+```
+
+**Single-session XL entries** (no `chain_loe`, just `loe.tshirt: XL`) are surfaced separately by running the query a second time with `--where "loe.tshirt=XL AND chain_terminal=true"`. Union both result sets in the PM summary — the doctrine surfaces XL effort regardless of whether it came from one big session or aggregated across a chain.
+
+### 8.5.2 Surface to PM
+
+**If one or more XL chain-terminal entries are returned:**
+
+For each entry, surface to the PM in the weekly summary with:
+- `title:` — what was shipped
+- `chain:` — the plan/handoff slug identifying the chain
+- `chain_loe.sessions:` — how many sessions the chain spanned (if `chain_loe` block is present)
+- `chain_loe.tshirt:` — aggregate t-shirt size at chain level (if present); else `loe.tshirt` for single-session XL entries
+- Date span (earliest `created:` in the chain to this entry's `created:`)
+
+Format in the PM summary:
+
+```
+**XL chain-terminal entries this week:**
+- "<title>" — chain: <chain-slug>, <N sessions>, <date-start> to <date-end> [chain-level XL]
+- "<title>" — single-session XL, <date>
+```
+
+**If the query returns zero entries:**
+
+Note explicitly: _"No XL chain-terminal entries this week."_
+
+Do NOT silently omit this note — its absence would be indistinguishable from a skipped step.
+
+### 8.5.3 Proceed to Step 9
+
+After surfacing (or noting absence), proceed to Step 9. No PM gate required here — this is informational surfacing, not a release blocker. The PM may choose to promote an XL entry to Highlights in the editorial bucketing step.
+
+---
+
+## Step 9: Editorial Bucketing + Release Notes Draft — PM Review Gate
+
+**Purpose:** Convert per-entry completion records into an editorially-bucketed pending-release file, then draft human-readable release notes from it.
+
+### 9.0 Ensure output directory exists
+
+```bash
+mkdir -p tasks/week-changelog/
+```
+
+Idempotent. Must run before any write to this path.
+
+### 9.1 Query the week's completion entries
+
+```bash
+query-completions --since "7d" --where "status=pending-release" --format json
+```
+
+Collect all entries with `status: pending-release` from the past 7 days. If the query returns zero entries, skip to Step 9.4 and write an empty-week note.
+
+### 9.2 Dispatch Sonnet editorial worker
+
+Dispatch a Sonnet worker with the entry corpus and the following bucketing rules:
+
+**Bucket definitions:**
+
+| Bucket | Default rule | Examples |
+|--------|-------------|---------|
+| **Highlights** | `nature: roadmap` — new capabilities, features, or commands that advance the product roadmap | new skill, new command, new agent, new pipeline stage |
+| **Notable** | `nature: bugfix` AND user-visible; OR PM-override | fix that changes user-observed behaviour, UX improvement |
+| **Other** | `nature: tech-debt`, `nature: infra`, or invisible-to-users | internal refactor, dependency bump, doc update, test improvement |
+
+**Worker instructions (inline these verbatim in the dispatch):**
+
+> For each entry in the corpus, assign it to exactly one bucket (Highlights / Notable / Other) using the default rules above. Produce a structured file at `tasks/week-changelog/YYYY-MM-DD-pending-release.md` (use today's date). Format:
+>
+> ```markdown
+> # Pending Release — YYYY-MM-DD
+>
+> _Source entries queried: N_
+> _Code-review gate verdict: [OK | WARN <verdict-line> | not-run]_
+>
+> ## Highlights
+>
+> - <summary> — [source](relative/path/to/per-entry-file.md)
+>
+> ## Notable
+>
+> - <summary> — [source](relative/path/to/per-entry-file.md)
+>
+> ## Other
+>
+> - <summary> — [source](relative/path/to/per-entry-file.md)
+> - ... and assorted fixes  _(collapse long tails with this line)_
+> ```
+>
+> If a bucket is empty, include the `## Heading` with `_none this week_` beneath it.
+> Each entry MUST cite its source per-entry file via a relative path.
+> If the parallel-code-review gate (Step 7) produced a WARN verdict, include the verdict line verbatim under `_Code-review gate verdict:_`.
+
+**Bucketing rules (refined with LoE):** When `loe.tshirt` is present on an entry, use it to sharpen the bucket assignment beyond the nature-only defaults above:
+
+| nature | tshirt | Default bucket | Rationale |
+|--------|--------|----------------|-----------|
+| roadmap | L, XL | **Highlights** | Almost always — large roadmap work defines the week |
+| roadmap | S, M | **Notable** | Meaningful roadmap progress, not landmark |
+| roadmap | XS | **Other** | Likely a doc/spec roadmap entry, not a shipped capability |
+| bugfix | XL | **Notable** | Emergency that took serious work — call it out |
+| bugfix | S, M, L | **Other** | Unless user-visible — EM override applies |
+| tech-debt or infra | any | **Other** | Unless XL — XL infra warrants Notable or Highlights call-out |
+
+EM judgment override always permitted; these rules are defaults.
+
+**EM override:** EM of ceremony may reclassify any entry before the worker writes the file (e.g. promote a tech-debt entry to Highlights if it unblocks a roadmap item). State overrides explicitly in the worker dispatch.
+
+**"…and assorted fixes" collapse:** acceptable for Other-bucket long tails (≥5 entries of similar nature). Do not collapse Highlights or Notable.
+
+### 9.3 Worker writes pending-release file
+
+Worker writes to `tasks/week-changelog/YYYY-MM-DD-pending-release.md`. Verify the file exists and is non-trivial before proceeding.
+
+### 9.4 Draft release notes as thin wrapper
+
+Read `tasks/week-changelog/YYYY-MM-DD-pending-release.md`. Write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` as a human-readable wrapper over the pending-release buckets — do NOT re-author; format for the reader:
+
+```markdown
+# Release Notes — vX.Y.Z (YYYY-MM-DD)
+
+## Highlights
+<paste Highlights bucket, reformatted for prose if desired>
+
+## Notable Changes
+<paste Notable bucket>
+
+## Other Changes
+<paste Other bucket>
+
+---
+_Code-review gate: [verdict]_
+```
+
+Version is a placeholder (`vX.Y.Z`) until Step 10 confirms it.
+
+Present to PM: _"Release notes drafted at `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md`. Bucketed: N Highlights, N Notable, N Other. Does this capture the week accurately?"_
+
+**Wait for PM review.** The PM may request reclassifications or edits before proceeding. Update both `tasks/week-changelog/YYYY-MM-DD-pending-release.md` and the release-notes wrapper to reflect any PM adjustments.
 
 ---
 

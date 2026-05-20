@@ -90,9 +90,9 @@ Run at least 3 trials of each condition (control, treatment) for a meaningful co
 ## 5. Failure Triage
 
 **Hook output not visible at session start:**
-1. Confirm the hook is registered: `jq '.hooks.SessionStart[] | .hooks[].command' ~/.claude/plugins/coordinator/hooks/hooks.json | grep distrust`
-2. Confirm Claude Code is loading the coordinator plugin: check `~/.claude/plugins/coordinator/hooks/hooks.json` is in the active plugin manifest
-3. Run the hook manually to confirm it fires from the fixture directory: `cd E:/dev/ue/Keep_Blank && bash ~/.claude/plugins/coordinator/hooks/scripts/ue-knowledge-distrust.sh`
+1. Confirm the hook is registered: `jq '.hooks.SessionStart[] | .hooks[].command' ~/.claude/plugins/coordinator-claude/coordinator/hooks/hooks.json | grep distrust`
+2. Confirm Claude Code is loading the coordinator plugin: check `~/.claude/plugins/coordinator-claude/coordinator/hooks/hooks.json` is in the active plugin manifest
+3. Run the hook manually to confirm it fires from the fixture directory: `cd E:/dev/ue/Keep_Blank && bash ~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/ue-knowledge-distrust.sh`
 4. If the hook fires manually but not at SessionStart: the coordinator plugin may not be loaded in this project. Check `.claude/coordinator.local.md` or global plugin registration.
 
 **Hook fires but agents still hallucinate ≥2/5 trials:**

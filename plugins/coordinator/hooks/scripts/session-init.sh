@@ -125,7 +125,7 @@ if [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev
       # The PID recorded in meta.json is $$ of the cs_init hook subshell — dead
       # within seconds of session boot. kill -0 therefore always returns non-zero
       # for any session older than its launch instant; session_alive=true via PID
-      # is structurally unreachable (the Staff Engineer review: lib/coordinator-session.sh:189).
+      # is structurally unreachable (Patrik review: lib/coordinator-session.sh:189).
       #
       # Fix: check last_activity recency first. session-heartbeat.sh writes
       # last_activity on every PreToolUse:Bash (throttled to 60s). If a session

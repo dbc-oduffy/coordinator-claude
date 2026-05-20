@@ -89,19 +89,157 @@ End of session is the last chance to ensure status fields match reality. This ca
 
 ### Step 2.6: Archive Uncaptured Work
 
-Sweep the session's commits for completed work that isn't already in the project tracker (`docs/project-tracker.md`) or the completion archive (`archive/completed/YYYY-MM.md`). This catches bug fixes, ad-hoc requests, and quick tasks that bypassed the spec pipeline.
-
-1. **Scan session commits:** `git log --oneline` for commits since the session started (or since the last `/session-end`/`/update-docs`)
-2. **Check against tracker + archive:** For each substantive commit (skip merge commits, doc-only commits, quick-saves), check if the work is already represented in either the tracker or the current month's archive
-3. **Dedupe against concurrent /update-docs.** Before appending, re-read `archive/completed/YYYY-MM.md` from disk (not from session context). If a concurrent `/update-docs` run has already appended entries for the same commits since the last time you read the file, do not add duplicates. Check by commit SHA — if the hash already appears in the file, skip that entry.
-4. **Append missing entries:** For any untracked completed work, append to `archive/completed/YYYY-MM.md`:
-   ```
-   ## YYYY-MM-DD
-   - **[Concise past-tense description]** — ad-hoc [bug fix|task|refactor] | commit: [hash]
-   ```
-5. **Judgment filter:** Not every commit is a work item. Group related commits into a single archive entry. Skip trivial commits (typo fixes, formatting). The archive records *what shipped*, not every keystroke.
+Sweep the session's commits for completed work that isn't already in the project tracker (`docs/project-tracker.md`) or the per-entry completion archive under `archive/completed/`. This catches bug fixes, ad-hoc requests, and quick tasks that bypassed the spec pipeline.
 
 **Skip if** no `archive/` directory exists and no `docs/project-tracker.md` exists — the project hasn't adopted unified tracking yet.
+
+#### Step 2.6.1 — Scan session commits
+
+`git log --oneline` for commits since the session started (or since the last `/session-end`/`/update-docs`). For each substantive commit (skip merge commits, doc-only commits, quick-saves), check if the work is already represented in either the tracker or an existing per-entry file under `archive/completed/YYYY-MM/`. Check by commit SHA — if the hash already appears in any file under that directory, skip that entry. The archive records *what shipped*, not every keystroke; group related commits into a single entry.
+
+#### Step 2.6.2 — AUTO-MIGRATE legacy monolith (idempotent)
+
+Before writing any per-entry file, check whether a legacy monolith file exists at `archive/completed/YYYY-MM.md` (i.e., directly at the root of `archive/completed/`, NOT under a `YYYY-MM/` subdirectory). If found AND `COORDINATOR_OVERRIDE_LEGACY_MONOLITH` is not set to `1`:
+
+```bash
+git mv archive/completed/YYYY-MM.md archive/completed/legacy/YYYY-MM.md
+```
+
+Create `archive/completed/legacy/` if it does not exist. The `git mv` is idempotent — subsequent runs find no monolith-at-root and skip silently. If `COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1`, skip the `git mv` (the EM has already handled migration manually).
+
+<!-- TRIPWIRE: NO monolithic append — archive/completed/YYYY-MM.md writes outside legacy/ are forbidden.
+     Static-grep check: bin/check-no-monolith-completion-append.sh (created in Chunk 10).
+     Registered in docs/wiki/coordinator-tripwires.md.
+     Override: COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1 skips git mv (manual migration path). -->
+
+#### Step 2.6.3 — Determine chain slug
+
+(a) If a plan was touched this session (any file under `docs/plans/` or `tasks/*/todo.md`), chain = that plan's filename stem (e.g., `2026-05-19-completion-log-phase1`).
+(b) Else if a handoff was picked up this session, chain = the handoff's filename stem.
+(c) Else if a workstream slug appears in any handoff frontmatter consumed this session, chain = that slug.
+(d) Else chain = `null` (omit from filename; write as `archive/completed/YYYY-MM/YYYY-MM-DD-adhoc-<sid6>.md`).
+
+#### Step 2.6.4 — AUTO-INFER nature via Sonnet dispatch
+
+Nature is classified automatically — no interactive prompt. Dispatch a small Sonnet sub-call (~1 KB output) with:
+- Touched paths (from `git diff --name-only` for this session's commits)
+- Commit messages (from `git log --oneline` for this session)
+- Workstream kind (plan-driven | handoff-pickup | spinoff | ad-hoc)
+- Chain slug (resolved in Step 2.6.3)
+
+Sonnet classifies to one of `[roadmap | bugfix | tech-debt | infra]` and returns a `nature:` value + one-sentence rationale. Tag the entry `nature_inferred: true`.
+
+**Interactive override:** If `COMPLETION_NATURE` is set in the environment before invoking `/session-end`, use that value as `nature:` directly and write `nature_inferred: false`. The env var bypasses the Sonnet dispatch entirely.
+
+**Why AUTO-INFER not interactive-prompt:** session-end fires in autonomous execution chains where no human EM is present to answer. A default-skip mechanism would systematically produce un-tagged entries in autonomous sessions and tagged ones in interactive sessions — a sampling bias that corrupts `--where nature=<x>` queries that Phase 3 consumers depend on. See plan § Chunk 3 for full rationale.
+
+#### Step 2.6.5 — Resolve `$em_sid` and derive `<sid6>`
+
+**`$em_sid` sourcing (env-var-primary):**
+1. If `$em_sid` is set in the environment, use it directly.
+2. Else read from `.git/coordinator-sessions/.current-session-id` (the platform sentinel — `session-init.sh:77` writes the current `session_id` there on every SessionStart, per `docs/wiki/claude-code-platform-gotchas.md:47`).
+3. Do NOT use `meta.json`-based lookup — it is circular (you need `$em_sid` to find the directory containing `meta.json`).
+
+`<sid6>` = last 6 characters of the resolved `$em_sid`. If `$em_sid` cannot be resolved, generate a 6-char hex fallback from the current timestamp (`date +%s | tail -c 7 | head -c 6`).
+
+The `<sid6>` suffix makes the filename deterministically unique per EM session — no existence-check race condition. Two concurrent session-ends in the same chain on the same day produce two distinct files, not a collision.
+
+#### Step 2.6.5a — Compute LoE block
+
+> **Behavioral rule (tripwire):** Session-end MUST invoke `coordinator-session-loe.sh` (or `aggregate-chain-loe.sh` for chain-terminal) to write per-session LoE into the completion entry. Skipping this step produces an incomplete entry that Phase 3 consumers and workweek-complete cannot query. No override mechanism; the `loe:` block is always written.
+
+Determine whether this is a **single-session** or **chain-terminal** session using the same detection logic as Step 2.9 chain-end detection:
+- **Single-session:** this session was NOT opened via `/pickup` (no predecessor handoff consumed).
+- **Chain-terminal:** session was opened via `/pickup` AND is ending via `/session-end` (not `/handoff` or `/spinoff`).
+
+**Single-session path:**
+
+```bash
+loe_block=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-session-loe.sh \
+  --format yaml-frontmatter 2>/dev/null)
+```
+
+If the script is absent or returns non-zero, degrade gracefully: set `loe_block` to:
+```yaml
+loe:
+  agent_dispatches: null
+  opus_dispatches: null
+  em_tokens: null
+  tshirt: null
+```
+
+**Chain-terminal path:**
+
+Resolve the consumed predecessor handoff path (the handoff archived by Step 2.7 this session). Resolution order:
+1. Check session state for the handoff path that was consumed at `/pickup` time.
+2. Walk `tasks/handoffs/archive/<YYYY-MM>/` for entries with `consumed_by: <this session_id>`.
+
+Then invoke the chain aggregator:
+
+```bash
+loe_block=$(~/.claude/plugins/coordinator-claude/coordinator/bin/aggregate-chain-loe.sh \
+  --terminal-handoff "<resolved-predecessor-path>" \
+  --format yaml-frontmatter 2>/dev/null)
+```
+
+The chain aggregator walks the `predecessor:` chain backward from the consumed handoff, reads `## Session Ledger` blocks from each handoff (including archived predecessors at `tasks/handoffs/archive/**/`), sums LoE across all sessions, and recomputes t-shirt size against the shared threshold table. If the script is absent or returns non-zero, degrade the same way as the single-session path.
+
+The resolved `$loe_block` is embedded into the completion entry frontmatter in Step 2.6.6.
+
+#### Step 2.6.6 — Write per-entry file
+
+For each untracked completed work item (or one entry covering the session's full scope if work is cohesive), write a single Markdown file at:
+
+```
+archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md
+```
+
+(where `YYYY-MM-DD` is today's date; if chain is null, use `YYYY-MM-DD-adhoc-<sid6>.md`).
+
+Create the `archive/completed/YYYY-MM/` directory if it does not exist.
+
+File shape:
+
+```markdown
+---
+title: "<Concise past-tense one-line description>"
+created: YYYY-MM-DD
+nature: <roadmap|bugfix|tech-debt|infra>
+nature_inferred: <true|false>
+chain: <chain-slug or null>
+commits:
+  - <sha1>
+  - <sha2>
+status: pending-release
+chain_terminal: <true|false>
+authored_by: <em_sid or null>
+loe:
+  agent_dispatches: <N or null>
+  opus_dispatches: <N or null>
+  em_tokens: <N or null>
+  tshirt: <XS|S|M|L|XL|null>
+# chain-terminal only — omit for single-session entries:
+# chain_sessions: <N>
+# chain_span_days: <N>
+# chain_starting_handoff: <path>
+---
+
+<One paragraph prose summary: what shipped, key decisions, anything notable.>
+```
+
+Frontmatter field semantics:
+- `nature_inferred: true` when AUTO-INFER Sonnet path was used; `false` when `COMPLETION_NATURE` env var was set.
+- `chain_terminal: true` when this session is chain-terminal (opened via `/pickup`, ending via `/session-end`); `false` for single-session work. Phase 1 defaulted this to `true`; Phase 2 sets it correctly per detection.
+- `authored_by:` is `$em_sid` if resolvable; omit field (or write `null`) if not.
+- `status: pending-release` is the initial state for all completion log entries.
+- `loe:` block is populated from Step 2.6.5a. For chain-terminal sessions, the block contains aggregate values across the full predecessor chain plus the additional chain-summary fields (`chain_sessions`, `chain_span_days`, `chain_starting_handoff`) that `aggregate-chain-loe.sh` emits. For single-session entries, only the four base fields are present.
+- `loe.tshirt` null means LoE computation was unavailable (script absent or errored) — entry is still valid, just unranked.
+
+**No separate collision handling needed.** The `<sid6>` suffix makes the filename unique by construction (Step 2.6.5).
+
+#### Step 2.6.7 — Judgment filter
+
+Not every commit is a work item. Group related commits into a single archive entry. Skip trivial commits (typo fixes, formatting). If a session produced no substantive commits beyond doc/lesson housekeeping, no archive entry is needed — skip silently.
 
 ### Step 2.7: Archive Predecessor Handoff (if applicable)
 
@@ -131,7 +269,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule (the only cache mutation permitted here):** if this session surfaced something the next session boot MUST see, and it would otherwise be lost (a transient surface gotcha; a critical blocker context; an environment-specific caveat that fooled this session and will fool the next), write exactly one line to `## Pinboard` via the routine:
 
    ```bash
-   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+   bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker session-end \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
@@ -162,36 +300,58 @@ Assess whether this session's diff warrants a code review pass before committing
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff**, with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal — see § Post-code-reviewer the Staff Engineer-escalation criteria |
+| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff** (partition into multiple parallel dispatches when surface is too large for one reviewer — see § Partitioning large surfaces), with EM-judged Patrik escalation *post-code-reviewer* on signal — see § Post-code-reviewer Patrik-escalation criteria |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
 **Anchored-ranges note:** the numeric anchors (50 LOC, 500 LOC, ≥3 segments) are decision anchors, not hard thresholds. An EM seeing a 51-LOC change with a clean shape should not feel obliged to escalate; an EM seeing a 49-LOC change touching a public schema seam should not feel released from review.
 
-**Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end):**
-Default after `code-reviewer` returns is *no the Staff Engineer*. Escalate iff the report shows one or more of:
+**Partitioning large surfaces across multiple `code-reviewer` dispatches (row 5):**
+One Sonnet reviewer over a chain diff that spans a new package + cross-repo edits + a shared-schema change will skim — the surface exceeds what a single dispatch can carry with depth. When the row-5 diff is genuinely too big for one reviewer, the EM SHOULD fan out into multiple parallel `code-reviewer` dispatches, each over a coherent slice. Partitioning shapes (pick what matches the diff):
+- **By repo / package boundary** — one dispatch per repo touched, or per top-level package in a multi-package diff.
+- **By concern** — one dispatch on the new code (correctness, structure, naming, tests), a second on the cross-repo edits / schema migration (compatibility, call-site coverage, version-aware logic), a third on external API integration (auth, error handling, retry, secret handling) if novel.
+- **By directory cluster** when neither of the above is clean — `src/foo/**`, `src/bar/**`, `tests/**` as separate slices, with the EM owning the union.
+
+This is **diff partitioning under capacity limits**, not the workweek parallel-orthogonal-lenses pattern — every dispatch is the same agent (`code-reviewer`) with a narrower scope. It does NOT require the lens-orthogonality manifest or the no-rewrite synthesizer from `coordinator:parallel-code-review`; it shares only the frozen-diff property from § Review Sequencing's parallel carve-out. Mechanics:
+1. EM declares partition in the dispatch brief — each `code-reviewer` prompt names its slice explicitly (paths or commit subset) and an "out of scope: the rest of the chain diff" line so reviewers don't drift.
+2. Dispatch in parallel (one message, multiple `Agent` tool uses).
+3. Findings land separately; EM dispatches `coordinator:review-integrator` per slice OR collates findings and dispatches one integrator over the union — EM's call based on overlap.
+4. Trail write at end uses `--reviewer code-reviewer` (single value); record the partition shape in the wrap-up sentence, not the trail field.
+5. Post-`code-reviewer` Patrik-escalation criteria below apply to the **combined** finding set (sum across slices), not each slice independently.
+
+If you find yourself partitioning into more than ~4 slices, the diff is workweek-territory — surface to PM as a candidate `/workweek-complete`-style parallel review, don't fan out a sixth `code-reviewer`.
+
+**Post-code-reviewer Patrik-escalation criteria (row 5 chain-end):**
+Default after `code-reviewer` returns is *no Patrik*. Escalate iff the report shows one or more of:
 - A high-volume finding count (rough anchor: ≥5 substantive findings, not nits).
 - Any finding flagged as architectural, strategic, cross-system, or boundary/seam/taxonomy-shaped — i.e. not a tactical fix the integrator can fold mechanically.
 - The reviewer itself recommends a deeper second pass, OR EM reads the report and is genuinely uncertain whether a flagged issue is tactical or structural.
 
-Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without the Staff Engineer at session-end.
+Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without Patrik at session-end.
 
 **Anti-ceremony-bias tripwire (`code-reviewer`-skip direction — still load-bearing):**
 > "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
 
 **Symmetric anti-ceremony tripwire (row 3+ — `code-reviewer` floor):**
-> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` the Staff Engineer escalation is a separate question — governed by the actual report per § Post-code-reviewer the Staff Engineer-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
+> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` Patrik escalation is a separate question — governed by the actual report per § Post-code-reviewer Patrik-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
 
 **Chain-end detection:**
 - Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Additional the Staff Engineer-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
+- **Additional Patrik-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
 
 **Diff scope:**
 - Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
 - Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (where `$LAST_REVIEW_SHA` is the `sha_range` head from the most recent trail record, or session-start SHA if no prior review exists)
 
 **Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
+
+**Spec cross-reference (loop closure) — include in dispatch brief when a spec exists:**
+When this session (or the chain, for chain-end) implemented work governed by a spec, plan, or stub — `docs/plans/YYYY-MM-DD-<feature>.md`, an RFC, an enriched stub spec, or a handoff body that functions as a live spec — name the spec path in the `code-reviewer` dispatch brief and instruct it to apply the **Spec completion lens** (per `agents/code-reviewer.md` § Spec completion lens). The reviewer reads the spec before the diff and reports on scope completeness, shape adherence, substrate drift, acceptance-criteria coverage, and hedge-shaped deferrals.
+
+This is loop closure, not redundancy: EM dispatch-time scope vetting and TDD cover what the author thought to verify; the reviewer's spec lens is the independent pass that catches silently-dropped deliverables, scope creep marketed as "while I was there", and acceptance criteria where the tests drifted to test the easy thing. Apply on row 3, 4, 5 sessions whenever a spec exists; omit on row 1, 2 (no spec involved by definition). If multiple specs apply (chain of stubs, plan + amendment), name all of them; the reviewer will treat the union as the completion oracle. If partitioning the diff across multiple `code-reviewer` dispatches (per § Partitioning large surfaces), name the spec slice each reviewer is responsible for — overlap is fine, gaps are findings the EM will own.
+
+Negative-spec: if no spec governs this session (small organic fix, opportunistic refactor, doc-touch session), omit the spec section from the brief — do not invent a spec to satisfy the rule, and do not point at a stale spec. The reviewer's agent prompt is clear that no spec named ⇒ skip the lens entirely.
 
 **Findings disposition — fix everything, including nitpicks:**
 > "If a finding is worth surfacing, it is worth fixing now. The diff is fresh, the EM has context, and the cost to fix at session-end is a fraction of what it costs three weeks later in a debugging session. A reviewer verdict of `OK` with three 'below blocking threshold' observations is NOT a license to commit and move on — those observations are the review output, and they get fixed in this session before commit. This applies symmetrically across severities: P0/P1/P2/nitpick/observation/note/'consider' — all fold in via `coordinator:review-integrator` before the marker-trail write. The only legitimate skip path is a real tradeoff (cost/value, scope/polish, architectural direction) that escalates to PM per § Reviewer findings — apply, don't ratify in `coordinator/CLAUDE.md`. 'Recorded below blocking threshold' in the EM's wrap-up sentence is the tell that this rule was skipped. Re-open the diff, fold the findings, then write the marker."
@@ -200,7 +360,7 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 
 **Marker write:** after review integration completes, invoke:
 ```bash
-~/.claude/plugins/coordinator/bin/coordinator-write-review-trail.sh \
+~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-write-review-trail.sh \
   --sha-range <A..B> --reviewer <code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile> \
   --scope <chain|session> --verdict <ok|warn|blocked|waived|pending> --diff-loc <N>
 ```
@@ -222,12 +382,12 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 ### Step 3: Commit + Verify Remote
 
 1. **Stage only paths this session touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
-   - Make a mental (or explicit) list of the files you edited during Steps 1/2/2.5/2.6/2.7 (typically a small set: `tasks/lessons.md`, `archive/completed/YYYY-MM.md`, `docs/project-tracker.md`, action-items file, `docs/README.md`).
+   - Make a mental (or explicit) list of the files you edited during Steps 1/2/2.5/2.6/2.7 (typically a small set: `tasks/lessons.md`, `archive/completed/YYYY-MM/<entry>.md`, `archive/completed/legacy/YYYY-MM.md` if AUTO-MIGRATE ran, `docs/project-tracker.md`, action-items file, `docs/README.md`).
    - `git add <path1> <path2> ...` — name each path explicitly.
    - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
    - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
 2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
-3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
+3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
 6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
@@ -239,7 +399,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 
@@ -255,7 +415,7 @@ Present a brief end-of-session summary:
 
 **Work done:** [1-2 sentence summary]
 **Lessons captured:** [N new / none]
-**Work archived:** [N items added to archive/completed/YYYY-MM.md / none needed / project not using unified tracking]
+**Work archived:** [N items written to archive/completed/YYYY-MM/<filename>.md / none needed / project not using unified tracking]
 **Docs updated:** [list of updated files]
 **Orientation refreshed:** [orientation cache patched / tracker updated / action items checked off / nothing to update / no orientation docs exist]
 **Pushed to remote:** [yes — branch name / no — reason]

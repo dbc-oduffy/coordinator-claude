@@ -190,7 +190,7 @@ The Opus agent produces all atlas artifacts:
    - Record mismatches in the Phase 4 report under "RAG drift". These are suggestions, not blockers.
    - If project-RAG is absent, skip this step silently.
 
-3. **Quarterly narrative-drift reminder (per the Data Science Reviewer F7):**
+3. **Quarterly narrative-drift reminder (per Camelia F7):**
    - Check each system's `last_mapped` date in `systems-index.md`. For any system >90 days since last mapped, note it in the report: "Narrative drift risk: [system] mapped [date]. Recommend a re-read sweep — narrative atlases drift silently when systems reorganize."
 
 4. **Atomic commit:**
@@ -199,7 +199,18 @@ The Opus agent produces all atlas artifacts:
    git commit -m "deep-architecture-audit: [first run|refresh] — [N] systems mapped"
    ```
 
-5. **Calculate rotation target:** Systems with highest cross-system connectivity and oldest `Last mapped` → suggested starting point for weekly-architecture-audit.
+5. **Calculate rotation target:** Score each system using recent roadmap activity from the completion log plus structural signals. Run:
+
+   ```bash
+   bin/query-completions --since "30d" --where "nature=roadmap" --format json \
+     | jq -r '.[] | .subsystem // "unknown"' | sort | uniq -c | sort -rn
+   ```
+
+   For each system, sum `loe.tshirt` weights across its `nature: roadmap` entries (XS=1, S=2, M=4, L=8, XL=16). Combine with structural signals: highest cross-system connectivity score (`connectivity-matrix.md`) and oldest `Last mapped` date. Systems with high recent roadmap LoE + high connectivity + oldest mapping rank first.
+
+   If `query-completions` returns zero rows, fall back to connectivity + oldest `Last mapped` only.
+
+   Rationale: commit churn doesn't distinguish doctrine edits from refactors from feature work; `nature: roadmap` with LoE weighting does — suggested starting point for weekly-architecture-audit.
 
 6. **Report to PM:**
    ```markdown

@@ -179,6 +179,8 @@ Without inline preconditions, sentinel blocks become orphan auto-generated regio
 
 ## Sibling-layout convention for vendored code
 
+> **2026-05-19 amendment — runtime preference order.** The MUST-use-sibling-layout contract codified below is the port-time cleanup discipline (absolute-path sweep at extraction). At runtime, machine-local is the preferred primary discovery mechanism, with sibling-relative as the documented fallback (belt-and-suspenders). The two are NOT co-equal: registry first, sibling second, because not every script can run on sibling convention (daemon-invoked tooling with no sibling-relative anchor; scripts vendored into one repo but invoked from another; deterministic-location-needing consumers). The ad-hoc env-var opt-in for peerless installs (e.g. `HOLODECK_REPO_ROOT`) is superseded by the `MACHINE_LOCAL_<KEY>` override on the unified registry contract. See `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11`.
+
 **Incomplete migrations leak absolute paths into vendored code; `../sibling/...` is the contract for sibling repos.** When a repo is split into peer/sibling repos that live in the same parent directory (e.g. `<drive>:/project-rag/` and `<drive>:/project-rag-ue-addon/` — `X:/`, `C:/`, `D:/` etc. are all illustrative; substitute the host's actual root prefix), any cross-repo reference in vendored code, scripts, or docs MUST use a `../<sibling-repo-name>/...` relative path — never an absolute path like `<drive>:/...` or `/c/Users/.../`.
 
 Two reasons:
@@ -189,6 +191,8 @@ Two reasons:
 **Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `/Users/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/`, `D:/` matches aren't missed) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it.
 
 Source: `project-rag-ue-addon:tasks/lessons.md:121` (2026-05-16).
+
+Runtime alternative: for consumers that cannot rely on sibling-layout (triangular graphs, multi-drive setups, deterministic-location requirements), prefer the machine-local registry — see `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11` for the full discovery preference order.
 
 ## Peerless installs — env-var opt-in for peer-repo paths
 

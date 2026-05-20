@@ -66,6 +66,8 @@ A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` work
 
 ### 11. Port-time absolute-path sweep + sibling-layout convention
 
+> **2026-05-19 amendment — runtime preference order.** Sibling-relative replacement remains the contract for port-time cleanup (this section's scope: extraction-time absolute-path sweep, where the consumer doesn't yet exist to be told about anything else). At **runtime**, however, consumers should prefer the machine-local registry (`machine-local get repos.<name>`) as the primary discovery mechanism, with sibling-relative as the rough-and-ready fallback for the simple sibling-installs-together case. The registry is more reliable across the cases sibling-layout cannot serve (triangular dependencies, multi-drive layouts, deterministic-location requirements, scripts that can't assume their CWD). See `machine-local-registry.md`. **Belt-and-suspenders, NOT co-equal:** registry preferred because not every consumer can run on sibling convention.
+
 Incomplete migrations leak absolute paths (`C:/Users/.../source-repo/...`, `~/work/src/...`) into the vendored code, hooks, and config. Symbol parity passes; runtime breaks on every consumer machine. **At extraction time, sweep absolute repo prefixes across the carved-out tree** and replace with sibling-layout relative references (`../<sibling-repo>/<path>`) where cross-repo references are unavoidable. Document the sibling-layout convention in the plugin's CLAUDE.md so `../sibling/...` is a contract — not an implementation detail downstream consumers have to reverse-engineer.
 
 Grep recipe for the sweep:
@@ -77,6 +79,27 @@ grep -rn "/Users/.*/" <new-plugin-tree>
 ```
 
 (2026-05-16, project-rag-ue-addon.)
+
+#### Runtime preference order vs. port-time cleanup
+
+Port-time cleanup (the topic of this section) and runtime discovery are **different sub-problems** with different answers. Port-time cleanup replaces absolute paths with sibling-relatives at extraction time because the consumer doesn't exist yet to be told about any other mechanism. Runtime discovery, however, happens on an operator's live machine — and sibling-layout-alone is insufficient for the general case.
+
+**The four failure modes of sibling-layout at runtime:**
+
+1. **It dictates operator filesystem layout.** Every sibling repo must live under one common parent folder. Operators with established conventions (separate drives for engine source vs. tooling, network shares, multi-machine sync setups) cannot comply without restructuring their environment to match the convention.
+2. **It cannot represent deterministic locations.** Some things — vendored binaries, large indices, GPU sidecars — genuinely need a fixed absolute path on a specific drive. Sibling-relatives have no way to express "this lives at `E:/UE-content/` regardless of where the repo is cloned."
+3. **It silently breaks discovery for downstream consumers.** A repo that uses `../sibling-repo/x` works when cloned into the expected parent, fails opaquely when cloned anywhere else. The failure mode is "file not found" with no remediation hint that the convention was violated.
+4. **It does not compose with triangular dependency graphs.** A sibling-relative inside `claude-unreal-holodeck` pointing at `../project-rag-ue-addon/x` assumes both repos share a parent. The moment one triangle vertex moves to a different drive or directory, every sibling-relative pointing at it breaks — not just the path that was moved.
+
+**The preferred runtime discovery order:**
+
+1. **Machine-local registry first** — `machine-local get repos.<name>`. Works in every case: triangular graphs, multi-drive layouts, deterministic-location requirements, scripts invoked from a daemon with no sibling-relative anchor, scripts vendored into one repo but invoked from another.
+2. **Sibling-relative fallback** — `../<sibling-repo>/<path>`. The rough-and-ready resort when the registry hasn't been populated yet AND the operator's filesystem layout happens to match the sibling-installs-together convention. Preserves backward compatibility for existing consumers.
+3. **Error with remediation hint** — point the operator at `~/.claude/machine-local/README.md` and the specific key they need to set. Never fail silently.
+
+The two are belt-and-suspenders: registry is more reliable (no layout assumptions, works everywhere), sibling-relative is the fallback that keeps existing consumers working until they migrate. Port-time cleanup still uses sibling-relatives as its replacement vocabulary — the extraction-time MUST rule stays, because at that moment the consumer doesn't yet exist. Runtime consumers prefer the registry.
+
+Cross-references: `machine-local-registry.md` (registry doctrine and schema); `cross-repo-citation-conventions.md § Sibling-layout convention` (port-time MUST rule + runtime preference-order amendment).
 
 ### 12. Cross-repo port: prefer registration-seam over parallel-surface
 
@@ -100,13 +123,13 @@ Percolation from a Unix-authored source repo to a Windows consumer (or vice vers
 
 ## Persona-Name Guard on Percolation
 
-The meta-repo (`~/.claude/`) authors files with persona display names — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering, the VP-Product Reviewer — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
+The meta-repo (`~/.claude/`) authors files with persona display names — Patrik, Sid, Camelia, Palí, Fru, Zolí, YK — because that's how the human PM thinks of the reviewers. The publish repo (`X:/coordinator-claude` or any open-source consumer mirror) ships nameless: reviewers are referred to by articulated role labels (the Staff Engineer, the Game Dev Reviewer, etc.), with naming offered as an opt-in install step. Personae ≠ names — the doctrine is in `docs/evolution/03-personas-as-ergonomics.md` (publish-repo copy). Without a guard, percolation reintroduces names silently, since the meta-repo source still has them.
 
 Two paired tools enforce the boundary:
 
 - **Publish-repo CI gate.** `.github/scripts/check-persona-names.py` runs as a tracked-files scan auto-discovered by `run-all-checks.py`. Hard-fails any commit/PR where canonical-layer files (`*.md`, `*.sh`, `*.py`; excludes `archive/`, `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`) contain bare persona display names. Suppression: `# noqa: persona-names` inline, or `.github/.persona-names-allowlist` file-based (`filepath:line_number` per line).
 
-- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "the X" double-article it would otherwise produce.
+- **Meta-repo registered hook.** `setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh` is a thin wrapper around `bin/depersonalize-for-publish.sh` in `~/.claude/plugins/coordinator/bin/`. The depersonalize binary itself supports `--check` (exit 1 on hits) or `--fix` (in-place rewrite to role labels, with `.bak` backups). The hook receives the destination path as `$1` and the synced-files list via stdin (newline-delimited), then `--fix`es each `*.md`/`*.sh`/`*.py` file. Registered for `coordinator-claude` and `deep-research-claude` (open-source publish targets); deliberately NOT registered for `holodeck` (keeps persona names natively). Only the hook lives meta-repo-local; the binary it calls is shipped with the coordinator plugin and percolates with it. The `--fix` mode handles the common "the X" / "The X" article cases including the "The the X" double-article it would otherwise produce.
 
 **`publish.sh` is the authority for percolation — manual `cp` is wrong.** Percolating to `coordinator-claude` (or any registered publish target) means running `bash ~/.claude/setup/publish.sh <target>`, not copying files by hand. Manual `cp` bypasses the depersonalize pipeline, the content-leakage scan, and the `.percolate-ignore` filter — the resulting publish repo may contain persona names, local paths, or excluded files the author didn't intend to ship. The publish-targets list at `setup/publish-targets.sh` is the authority; if a target is missing from it, register it there rather than working around it with ad-hoc copies.
 
@@ -120,9 +143,9 @@ To add or modify a hook for a target: place an executable `*.sh` script under `s
 
 Source-side publish-content policy (`.percolate-ignore`) lives at `$SOURCE_DIR/.percolate-ignore` (gitignore-shaped, simplified subset — `**/` not supported). `publish.sh` `sync_mirror` honors it in both copy and delete phases. See `docs/wiki/percolate-setup.md` (walked by `/percolate` Branch 0 and `/setup` percolation phase) for the full audit-and-scaffold procedure, including classification taxonomy and grey-zone handling.
 
-The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Director of Engineering → the Director of Engineering; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
+The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): Patrik → the Staff Engineer; Zolí → the Director of Engineering; YK → the VP-Product Reviewer; Sid → the Game Dev Reviewer; Palí → the Front-End Reviewer; Fru → the UX Reviewer; Camelia → the Data Science Reviewer.
 
-> **Publish-repo follow-up (2026-05-17):** The `the Director of Engineering → the Director of Engineering` mapping replaces the prior `the Director of Engineering → the Ambition Advocate` mapping. The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must be updated to match — `the Ambition Advocate` is retired, `the Director of Engineering` is the new canonical role label. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic. Previously-published copies of files containing `the Ambition Advocate` will need a search-and-replace at next publish.
+> **Publish-repo follow-up (2026-05-17):** The `Zolí → the Director of Engineering` mapping replaces the prior `Zolí → the Ambition Advocate` mapping. The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must be updated to match — `the Ambition Advocate` is retired, `the Director of Engineering` is the new canonical role label. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic. Previously-published copies of files containing `the Ambition Advocate` will need a search-and-replace at next publish.
 
 ## Auxiliary Sync — Publish-Repo Top-Level `docs/wiki/`
 

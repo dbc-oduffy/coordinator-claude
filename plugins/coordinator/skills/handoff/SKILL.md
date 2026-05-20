@@ -171,7 +171,52 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 
 ## Files Modified This Session
 - [file path] — [one-line description of change]
+
+## Session Ledger
+
+| Field | Value |
+|-------|-------|
+| agent_dispatches | <!-- from coordinator-session-loe.sh --> |
+| opus_dispatches | <!-- from coordinator-session-loe.sh --> |
+| em_tokens | <!-- from coordinator-session-loe.sh --> |
+| tshirt | <!-- from coordinator-session-loe.sh --> |
+| commits | <!-- git log --oneline since session start --> |
+| session_id | <!-- from .git/coordinator-sessions/.current-session-id --> |
+| created | <!-- ISO-8601 timestamp at handoff-write time --> |
 ```
+
+**Populate the Session Ledger immediately after writing the handoff body** (still in Step 1, before Step 2). This is the per-session contribution slice that the chain-terminal aggregator (Chunk 5) will sum across the predecessor chain.
+
+**Invocation:** `coordinator-session-loe.sh` does not emit a `--format markdown` mode. Use `--format json` and render the table fields manually:
+
+```bash
+# Resolve session ID
+SID=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")
+
+# Get LoE metrics
+LOE=$(bash plugins/coordinator-claude/coordinator/bin/coordinator-session-loe.sh \
+      --session-id "$SID" --format json 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,"em_tokens":null,"tshirt":"XS"}')
+
+# Extract fields (requires jq or inline bash parsing)
+AD=$(echo "$LOE" | grep -o '"agent_dispatches": *[0-9]*' | grep -o '[0-9]*$')
+OD=$(echo "$LOE" | grep -o '"opus_dispatches": *[0-9]*' | grep -o '[0-9]*$')
+TOK=$(echo "$LOE" | grep -o '"em_tokens": *[^,}]*' | sed 's/.*: *//')
+TS=$(echo "$LOE" | grep -o '"tshirt": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"')
+
+# Commits since session start (best-effort: last 20, space-separated short SHAs)
+COMMITS=$(git log --oneline -20 --format="%h" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+
+# Timestamp
+CREATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
+```
+
+Then replace the placeholder comment cells in the `## Session Ledger` block with the resolved values before writing the file to disk.
+
+**Multi-ledger rule (re-pickup / recovery flavor):** If the handoff being written already contains a `## Session Ledger` block — because this is a recovery flavor or re-pickup of an existing handoff doc — DO NOT overwrite that block. Instead, append a second `## Session Ledger` block below the existing one. Multiple ledger blocks in one handoff file = multiple sessions touched the same workstream. The chain-aggregator (Chunk 5) and `bin/query-completions --type handoff-ledger` (Chunk 6) parse ALL `## Session Ledger` blocks in a file as separate synthetic records, using `session_id` as the deduplicator.
+
+> **Design note — body, not frontmatter.** Session Ledger lives in the body, not in the YAML frontmatter. The frontmatter schema (`schemas/handoff.yaml`) already carries `reviewed_at_session_end`; adding LoE there would bloat the schema and complicate `bin/query-records` frontmatter parsing. Body placement keeps the data accessible to the Chunk 6 query extension without schema changes.
+>
+> **Spec backlink:** `docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md` § Chunk 4 (plan lines 162–188).
 
 ### Durability Rules for Next-Steps and In-Progress Sections
 
@@ -230,7 +275,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
 
    ```bash
-   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+   bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker handoff \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
@@ -287,7 +332,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
    Do NOT manually push. Just commit — the hook does the rest.
    If on main (shouldn't happen, but safety): do NOT push. Commits on main
    stay local until merged via PR.
-3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
+3. **Verify remote is synced:** confirm no unpushed commits remain (`git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD"`). If auto-push failed, push explicitly and warn the PM.
 
 #### Step 3.5: Archive Session Claim
 
@@ -296,7 +341,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 

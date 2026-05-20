@@ -24,7 +24,7 @@ Prior framing from the PM (now expanded by SC-DR-008 — the original rule named
 > "**Default for scoped commits in this repo: plain `git add <paths> && git commit -m '...' -- <paths>`.** The trailing `-- <paths>` scopes the commit to those paths only, regardless of index state. **Use coordinator-safe-commit only for the two explicit ceremonies it's designed for:** `/session-start` and `/workday-complete`."
 > — `projects/X--claude-unreal-holodeck/memory/feedback_safe_commit_unreliable.md` (PM, 2026-05-04)
 
-Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
+Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
 
 - `lessons.md:207` (2026-05-06) — parallel-executor concurrent-commit absorption (`/bug-blitz` wave 1 bundled 4-of-6 commits into one, swept 46 unrelated files).
 - `lessons.md:43` (2026-05-08) — `--scope-from` fallback widened the race window; concurrent session swept a 14-file index.
@@ -143,9 +143,9 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 **Reaper.** `cs_reap_agents` runs alongside `cs_reap_stale`: any `.agents/<agentId>/` whose `touched.txt` mtime is older than 24h is archived to `${base}/.archive/.agents-<aid>-<date>`. Bounds index growth.
 
-**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (the Staff Engineer v2 F1).
+**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (Patrik v2 F1).
 
-**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (the Staff Engineer F9 — replaces the fuzzy "one verification session" wording).
+**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (Patrik F9 — replaces the fuzzy "one verification session" wording).
 
 ### 8. `--expected-branch` Gate (Issue B — shipped 2026-05-06)
 
@@ -161,7 +161,7 @@ The helper aborts before staging on mismatch, prints reflog entries for both cur
 
 > Resolution: 'git checkout $EXPECTED_BRANCH' or correct dispatch prompt.
 
-**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (the Staff Engineer F3 carried forward).
+**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (Patrik F3 carried forward).
 
 ### 9. Issue C — `--scope-from` is Exhaustive
 
@@ -476,7 +476,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 | Artifact | Path |
 |----------|------|
 | Plan | `~/.claude/plans/scoped-safety-commits.md` |
-| the Staff Engineer review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
+| Patrik review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
 | Ceremony audit | `~/.claude/plans/audit-ceremony-commit-prescriptions.md` |
 | Agent audit | `~/.claude/plans/audit-agent-commit-prescriptions.md` |
 | Deny-contract doc | `~/.claude/plugins/coordinator/docs/pretooluse-deny-contract.md` |
@@ -495,7 +495,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — the Staff Engineer P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Alternatives considered:* Bash-write heuristic regex (rejected — Patrik P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 
@@ -533,17 +533,17 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* Add `--expected-branch <name>` as a hard gate inside `coordinator-safe-commit`. Helper aborts before staging on mismatch.
 
-*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (the Staff Engineer F3).
+*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (Patrik F3).
 
 **SC-DR-007 — Doctrine strike requires 5 burn-in cycles**
 
 *Problem:* When can the troubleshooting note about "helper misidentified your session" be removed from the wiki?
 
-*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (the Staff Engineer F9). Replaces the original fuzzy "one verification session" wording.
+*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (Patrik F9). Replaces the original fuzzy "one verification session" wording.
 
 **SC-DR-008 — Default/fallback inversion: plain git is the default, helper is for sweep ceremonies + executor branch-gate (2026-05-13)**
 
-*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
+*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
 
 - 2026-05-04 — session-detection inversion: helper attributed Session A's explicitly-staged files to a concurrent session B and absorbed two of B's orphan files into A's commit (`feedback_safe_commit_unreliable.md`).
 - 2026-05-06 — parallel-executor concurrent-commit absorption (`lessons.md:207`, commits `54ca925`, `945bb4d`): 4 of 6 simultaneous `coordinator-safe-commit` calls bundled into one commit; 46 unrelated dirty files from concurrent workstreams swept under one bug-fix message.

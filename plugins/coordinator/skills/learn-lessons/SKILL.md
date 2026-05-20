@@ -362,14 +362,14 @@ After the justification gate clears, before dispatching a `doctrine-edit` whose 
 | 38,001 – 40,000 | **Gate: identify a demote target first.** The plan must name a specific section to compress to a wiki pointer (or an existing wiki to extend) and include the demote in the same plan. No PM ratification needed if the demote is mechanical (existing wiki carries the topic); surface to PM if creating a new wiki. |
 | > 40,000 | **Hard refuse.** The pre-commit hook (`validate-commit.sh` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
 
-The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
+The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator-claude/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
 
 **Rationale.** The two trims in 2026-05-06/07 both held; doctrine creep refilled the budget through ~25 small additions. The hook catches the symptom; this gate catches the cause at the only step where coordinator-doctrine additions are routed (`doctrine-edit` is the closed-enum kind for CLAUDE.md edits per Phase 0 taxonomy).
 
 #### Apply dispatch
 
 - `doctrine-edit`, `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` →
-  write focused plan, dispatch the Staff Engineer for review, integrator on findings, executor.
+  write focused plan, dispatch Patrik for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
 - `wiki-append`, `retag-local`, `memory-pointer`, `discard` → direct executor or EM edit.
 - `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
@@ -378,7 +378,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
 
 ## Phase 6 — Per-Project Improvement Queue
 
-<!-- Review: the Staff Engineer F6 — added explicit write-time discipline for new entries to both queues -->
+<!-- Review: Patrik F6 — added explicit write-time discipline for new entries to both queues -->
 
 **Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.
@@ -418,9 +418,20 @@ Default cadence: 21 days. `/workday-start` Step 1.6 globs `tasks/lesson-triage-r
 1. Run Phase 1 discovery across all configured roots.
 2. Compute delta: new `[universal]`-tagged entries since prior cadence (git log on each root's
    `tasks/lessons.md`).
-3. **If delta ≤ 5 entries total:** auto-extend cadence — drop new marker at `today + 1.5 × cadence`,
-   delete firing marker, exit with PM one-liner ("recheck found N new entries — extending cadence").
-4. **Otherwise:** dispatch in `central` mode (full Phase 2-5 flow).
+3. **Structural-enforcement verification (run for each pending lesson that names a tripwire, wiki, or
+   script artifact).** Before counting a lesson as "still ambient," check whether a completion entry
+   citing the relevant artifact has been recorded since the lesson's capture date:
+   ```bash
+   bin/query-records --type completion --where "title~<tripwire-name>" --since "<lesson-date>"
+   ```
+   A returned record indicates the lesson is structurally enforced (a tripwire / wiki / skill edit
+   shipped that codifies it) — exclude it from the delta count and log it as `[enforced]` in the
+   recheck report. Absence of any record indicates the lesson is still ambient — count it normally.
+   This drives the "is this lesson live?" question mechanically rather than by EM recall.
+4. **If delta ≤ 5 entries total (after excluding enforced lessons):** auto-extend cadence — drop new
+   marker at `today + 1.5 × cadence`, delete firing marker, exit with PM one-liner ("recheck found N
+   new entries (M enforced, K ambient) — extending cadence").
+5. **Otherwise:** dispatch in `central` mode (full Phase 2-5 flow).
 
 ## Phase 8 — End-of-Run Report
 
