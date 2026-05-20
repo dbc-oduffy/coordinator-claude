@@ -32,7 +32,26 @@ If no path is provided, report: _"Usage: /execute-plan <plan-path>. Provide the 
    - Dependencies on external state that may have changed?
    - Anything that would require an architectural decision mid-execution?
 3. **If concerns exist:** Surface them to the PM before proceeding. Do not start implementation on an unclear plan.
-4. **If no concerns:** Announce _"I'm running `/execute-plan` to implement this plan."_ and continue to Phase 2.
+4. **If no concerns:** Announce _"I'm running `/execute-plan` to implement this plan."_ and continue to Phase 1.5.
+
+---
+
+## Phase 1.5: Dispatch-Gate Graph
+
+This phase is the EM's named responsibility at the seam between plan-approved and first executor dispatch. It applies whether execution is direct (Phase 3 of this skill) or via dispatched executors per `docs/wiki/delegate-execution.md` — the gate-graph is identical in either case; only the executor identity differs.
+
+1. **Enumerate touched files per task.** Read each task's scope explicitly — do not infer from task titles or the plan's high-level dispatch diagram. The diagram is hypothesis; the per-task footprints are the contract.
+2. **Mark the three real gate types** between every task pair:
+   - **File-write overlap** — two tasks edit the same path.
+   - **Output-consumption** — Task B reads a file Task A writes.
+   - **Contract-change dependency** — Task A bumps a schema, helper signature, or shared surface Task B depends on; promote shared-API work to a predecessor wave.
+3. **Write the wave map.** Every task pair NOT connected by one of the three gates above runs in parallel in the same wave. Narrative causality ("A explains the root cause of B"), aesthetic ordering, and "I'd rather review A before fanning B" are NOT gates.
+4. **Size per-executor scope.** Aim for ~15-25 min on a single coherent surface. A 60-min monolithic executor is the opposing failure to under-parallelization — split or sequence within a wave when budget is breached.
+5. **Author dispatch briefs with peer-scope prohibition.** Each prompt in a parallel wave includes In-scope / Out-of-scope blocks naming peer chunks by ID. "If a peer's expected output appears missing on disk, assume a peer is on it — do NOT extend scope to fix it."
+
+→ Full taxonomy and rationale: `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy and § Peer-Scope Prohibition in Parallel-Wave Prompts.
+
+When direct in-session execution is the right shape (small plan, EM-judgment-heavy, dispatched-executor overhead exceeds typing) the gate-graph still applies — it sequences Phase 3's tasks even when one executor (the EM) runs them all.
 
 ---
 

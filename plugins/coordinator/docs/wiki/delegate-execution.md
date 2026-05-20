@@ -14,6 +14,8 @@ related:
 
 Hand enriched, reviewed stub specifications to executor agents for implementation, selecting the appropriate model (Sonnet or Opus) based on stub complexity. The slash-command `/delegate-execution` exists as a thin entry-point; this wiki carries the enforceable procedure.
 
+Executors dispatched via this procedure carry the meta-ask preamble (see `snippets/meta-ask-preamble.md`, synced into `agents/executor.md`) and have access to ergonomic substrate helpers (`claude_machine_local` Python module, `claude-machine-local.{sh,ps1}` sourced shell helpers) for portable cross-machine path references. Full doctrine: `docs/wiki/eager-agent-calibration.md`.
+
 ## Instructions
 
 When invoked, dispatch executor agents to implement enriched and reviewed stubs.

@@ -85,40 +85,14 @@ review, and PM surface.
 
 ### DoE-only adjudication on CLAUDE.md edits
 
-CLAUDE.md is the largest blast radius surface in the coordinator setup outside Claude Code
-internals — every session boot loads it. The cost of getting a CLAUDE.md edit wrong is paid
-across every future session in every project, by every agent. The receive-side gate must
-match that asymmetry.
+CLAUDE.md loads at every session boot across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
 
-**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.**
-Those change-kinds are reserved for the Director of Engineering (the Director of Engineering or the EM operating
-at Claude Central with explicit DoE authority for this run). Worker output that uses either
-change-kind is treated as a routing error and downgraded by the consolidator / EM before
-PM surfacing:
+**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (the Director of Engineering or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
 
-- A worker who believes a lesson is so cross-cutting that CLAUDE.md placement deserves
-  consideration sets `doe_escalation: true` on a `wiki-append` or `wiki-new` record, with a
-  one-line `escalation_reason:` field. The wiki routing is the DEFAULT outcome — escalation
-  is a flag for DoE attention, not a substitute for wiki placement.
-- The wiki edit lands regardless of the escalation flag. The DoE separately considers whether
-  ALSO to add CLAUDE.md content; that is a distinct downstream change, not a replacement.
-- If the DoE accepts the escalation, the CLAUDE.md edit becomes a separate `doctrine-edit`
-  plan authored by the DoE (NOT lifted from worker output), reviewed by the Staff Engineer, and gated
-  on the four-check justification gate + char-budget pre-flight. Many gates before any
-  CLAUDE.md byte changes.
+- Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a DoE attention flag, not a blocker.
+- If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
 
-**Why this framing.** EMs writing entries in `tasks/lessons.md` during normal session work
-will continue to suggest CLAUDE.md as the target — we can ameliorate that habit but not stop
-it, and trying to stop it pollutes session work. The load-bearing change is on the *receive*
-side: `learn-lessons` filters those proposals down to a small set the DoE actually considers,
-rather than letting worker-altitude judgment route directly into the highest-blast-radius
-surface in the setup. EMs should only propose CLAUDE.md edits in their own work when they
-have genuine confidence the DoE would approve — most of the time the answer is "this is a
-wiki lesson, write it as one."
-
-The four-check justification gate (above) still applies to DoE-authored doctrine-edit
-proposals. The DoE does not get to bypass it; the gate exists because CLAUDE.md is shared
-infrastructure across every project, not because workers are presumptively careless.
+EMs proposing CLAUDE.md targets in `tasks/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
 
 ### Pointer-pollution bound
 
@@ -348,48 +322,20 @@ Before applying any queue entry, re-Read the queue from disk to catch concurrent
 **Auto-apply without PM prompt:**
 - `discard` of pure-ephemeral entries (archive first per Phase 4)
 - `wiki-append` to existing guides — **mandatory same-run apply when destination is named**
-- `wiki-new` when (a) destination filename is named in the record, (b) the lesson's substance
-  is concrete enough for the executor to draft a first version, and (c) the new file does not
-  cross into doctrine surfaces (CLAUDE.md, agent prompts). Add `DIRECTORY_GUIDE.md` entry in
-  the same executor dispatch. PM-surfacing on `wiki-new` is reserved for genuinely novel
-  topics where the wiki home is itself a design call — not for every new-file creation.
+- `wiki-new` when (a) destination filename is named, (b) substance is concrete enough for an executor draft, and (c) the new file does not cross into doctrine surfaces. Add `DIRECTORY_GUIDE.md` entry in same executor dispatch. Surface to PM only when the wiki home is itself an unresolved design question.
 - `retag-local` within the same file
 - Dedupe of obvious duplicates
 
-**Same-run apply is the default, not the exception.** When a record lands in the auto-apply
-bucket, dispatch the apply this run. Emitting a "next local pass should fold these" line in
-the end-of-run summary is the defer-chain anti-pattern. If parallel-dispatch budget is tight,
-serialize — do not defer.
+**Same-run apply is the default.** When a record lands in the auto-apply bucket, dispatch the apply this run. "Next local pass should fold these" is the defer-chain anti-pattern. If parallel-dispatch budget is tight, serialize — do not defer.
 
 **Surface to PM (do not auto-apply):**
-- `doctrine-edit`, `memory-pointer` — **DoE-only change-kinds.** If a record arrived from a
-  worker with one of these kinds, downgrade to the corresponding `wiki-*` and set
-  `doe_escalation: true` on the downgraded record before surfacing. Only the DoE (the Director of Engineering, or
-  the EM operating with explicit DoE authority at Claude Central) authors a real
-  `doctrine-edit` plan, and only AFTER (a) reviewing the escalation-flagged wiki records as
-  a batch, (b) clearing the four-check justification gate per record, and (c) clearing the
-  char-budget pre-flight. EM's own first move on any worker-proposed `doctrine-edit` is the
-  downgrade, not the reroute-recommendation — the wiki edit is the destination, escalation
-  is the flag.
-- `doe_escalation: true` records (any change-kind) — surface as a separate "DoE
-  reconsideration" bucket alongside the normal PM gate. The wiki edit auto-applies if its
-  change-kind is in the auto-apply bucket; the escalation flag is a notice to the DoE for
-  later doctrine-edit consideration, NOT a blocker on the wiki edit landing.
-- `wiki-new` ONLY when the wiki home is itself an unresolved design question (not the common
-  case — most `wiki-new` records auto-apply per the bullet above).
+- `doctrine-edit`, `memory-pointer` — **DoE-only.** Downgrade worker-proposed records to `wiki-*` + `doe_escalation: true` before surfacing. The DoE authors a real `doctrine-edit` plan only after reviewing the escalation bucket, clearing the four-check gate, and clearing the char-budget pre-flight.
+- `doe_escalation: true` records — surface as a separate "DoE reconsideration" bucket. The wiki edit auto-applies; the escalation flag is a DoE attention notice, NOT a blocker.
 - `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
 - `project-structural` outside the same repo
 - `strip-local` of `[universal]`-tagged entries (cross-repo promotion needed first)
 
-**Universals-pending escalation.** If a local-mode run finds ≥ 20 unactioned `[universal]`-tagged
-entries that have accumulated since the last central-mode commit (`git log` on
-`~/.claude/tasks/coordinator-improvement-queue.md` and `~/.claude/CLAUDE.md`), the run does NOT
-exit with a "run central later" pointer. It surfaces the count to the PM with a single
-question: *"Backlog of N universals — invoke central mode now?"* — and waits. Local mode
-cannot strip these, but it can refuse to launder the backlog into another "next pass" notice.
-
-When surfacing: emit a one-screen PM summary at end with surfaced records and a
-"run /learn-lessons --mode=central to action these" pointer.
+**Universals-pending escalation.** If ≥ 20 unactioned `[universal]`-tagged entries have accumulated since the last central-mode commit, surface the count to the PM: *"Backlog of N universals — invoke central mode now?"* — and wait. Do not launder the backlog into another "next pass" notice. Emit a one-screen PM summary with surfaced records and a "run /learn-lessons --mode=central" pointer.
 
 ### Central mode — PM gate
 
@@ -495,16 +441,11 @@ Default cadence: 21 days. `/workday-start` Step 1.6 globs `tasks/lesson-triage-r
 1. Run Phase 1 discovery across all configured roots.
 2. Compute delta: new `[universal]`-tagged entries since prior cadence (git log on each root's
    `tasks/lessons.md`).
-3. **Structural-enforcement verification (run for each pending lesson that names a tripwire, wiki, or
-   script artifact).** Before counting a lesson as "still ambient," check whether a completion entry
-   citing the relevant artifact has been recorded since the lesson's capture date:
+3. **Structural-enforcement verification** (for each pending lesson naming a tripwire, wiki, or script artifact): check whether a completion entry citing the artifact exists since the lesson's capture date:
    ```bash
    bin/query-records --type completion --where "title~<tripwire-name>" --since "<lesson-date>"
    ```
-   A returned record indicates the lesson is structurally enforced (a tripwire / wiki / skill edit
-   shipped that codifies it) — exclude it from the delta count and log it as `[enforced]` in the
-   recheck report. Absence of any record indicates the lesson is still ambient — count it normally.
-   This drives the "is this lesson live?" question mechanically rather than by EM recall.
+   A returned record = structurally enforced — exclude from delta count, log as `[enforced]`. Absence = still ambient — count normally.
 4. **If delta ≤ 5 entries total (after excluding enforced lessons):** auto-extend cadence — drop new
    marker at `today + 1.5 × cadence`, delete firing marker, exit with PM one-liner ("recheck found N
    new entries (M enforced, K ambient) — extending cadence").
@@ -531,16 +472,7 @@ The recurrence list is the pressure signal. PM acts or defers — no automatic b
 The `doe_escalation` and downgrade lists are inputs to the DoE's separate doctrine-edit
 review pass; they are not actionable in the current run beyond surfacing.
 
-**Forbidden report shapes.** The end-of-run report must NOT include:
-- "N candidates for the next local pass" or similar defer-chain language.
-- "Run /learn-lessons later to action these" as a substitute for action this run.
-- "Modest by design" / "scope limited to this pass" framing that justifies non-apply on
-  records that match the auto-apply contract.
-
-If the report would otherwise have included such a line, the corresponding records belong in
-one of three buckets: (a) applied this run, (b) PM-surfaced with a decision request, (c) mode
-escalated (universals-pending → central mode invocation request). Any record that does not fit
-those three is a routing error — fix the routing, not the report.
+**Forbidden report shapes.** The end-of-run report MUST NOT include defer-chain language ("N candidates for next pass", "run /learn-lessons later to action these", "scope limited to this pass"). Records belong in one of three buckets: (a) applied this run, (b) PM-surfaced with a decision request, (c) mode escalated. Any record that fits none is a routing error — fix the routing, not the report.
 
 ## Anti-Patterns
 
@@ -551,38 +483,12 @@ those three is a routing error — fix the routing, not the report.
 - **Stripping local before central commit SHA exists.** Phase 5 apply order is load-bearing.
 - **`git add -A` for strips.** Always explicit pathspec; concurrent-EM safety.
 - **True-deleting discards.** All discards go to archive first; never irrecoverable from Phase 4.
-- **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture.
-  `learn-lessons` is the periodic process that classifies and routes.
-- **Same-session capture-and-validate-as-resolved.** Central-mode runs that capture a lesson AND mark it resolved within the same session create unverified-resolution noise — the resolution claim has not survived a context boundary. Capture in this run; validate in a later run when the lesson has had the chance to recur (or not).
-- **Default-routing a lesson to CLAUDE.md or to a CLAUDE.md pointer.** Wikis are the default;
-  `doctrine-edit` and `memory-pointer` are DoE-only and must clear the four-check gate
-  (§ Routing Bias). "It's small, it'll fit" is not a justification — the prior-art-checker
-  is the mechanism that ensures wiki-only lessons land, and adding a pointer per lesson is
-  the same pollution as inlining the rule.
-- **Worker proposing `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These
-  change-kinds are reserved for DoE adjudication after the wiki edit has landed and the
-  escalation flag has been reviewed. Worker output using either change-kind is a routing
-  error — downgrade to the corresponding `wiki-*` and set `doe_escalation: true` before
-  the record reaches the PM gate. The wiki edit is the load-bearing change; the CLAUDE.md
-  edit, if any, is a separate downstream DoE-authored plan.
-- **Archiving a lesson because its proposed target violates policy.** The lesson's substance
-  and the logger's proposed target are independent. A `proposed target: CLAUDE.md` that fails
-  the lean-and-mean gate is a routing problem, not a substance problem — reroute to the right
-  wiki / agent prompt / hook / script. Only `discard` when the substance itself is ephemeral,
-  already covered, or wrong. → § Routing Bias "Substance and proposed-target are independent."
-- **Defer-chaining wiki promotions to "next pass."** A run that classifies records with named
-  wiki destinations and then writes "next local pass should fold these via wiki-append" in the
-  end-of-run summary is the pattern this skill exists to prevent. The "next pass" never happens
-  because each successor inherits the same defer-bias. Wiki-append/wiki-new with named destinations
-  apply IN THIS RUN — that is the auto-apply contract from Phase 5. The only legitimate same-run
-  non-apply for a wiki record is PM authorization gate (genuinely novel wiki home) or a missing
-  precondition that is itself in-flight in the same run.
-- **End-of-run summary listing "candidates for the next pass."** Any line in the Phase 8 report
-  that names records the current run did not apply but "should be folded by next run" is a
-  doctrine violation. Either apply them (auto-apply bucket), surface them to the PM with a
-  decision request (gated bucket), or escalate the mode (universals-pending escalation). The
-  three buckets are exhaustive; "informational candidates for later" is not a fourth.
-- **Same-session capture-and-validate-as-universal.** A central `/learn-lessons` run that BOTH captures a new lesson AND validates it as universal in the same pass is a self-confirming loop — the session that surfaced the pattern is the same session asserting its cross-repo generality. Validate universality against accumulated evidence (peer repos, prior runs, recurrence count), not against the session that captured it. Capture this run; promote to `[universal]` in a later run once the pattern has recurred in a different context.
+- **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture; `learn-lessons` is the periodic process that classifies and routes.
+- **Same-session capture-and-validate-as-resolved (or as-universal).** Central-mode runs that capture AND validate a lesson in the same pass create unverified-resolution noise or self-confirming-universal loops — the session that surfaced the pattern is the same session asserting its generality. Capture this run; validate in a later run once the pattern has survived a context boundary and recurred in a different context.
+- **Default-routing to CLAUDE.md or a CLAUDE.md pointer.** Wikis are the default; `doctrine-edit` and `memory-pointer` are DoE-only and must clear the four-check gate (§ Routing Bias). "It's small, it'll fit" is not a justification — the prior-art-checker surfaces wiki-only lessons when relevant, so a CLAUDE.md pointer per lesson is the same pollution as inlining the rule.
+- **Worker proposing `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** Routing error — downgrade to `wiki-*` + `doe_escalation: true` before the record reaches the PM gate. The wiki edit is the load-bearing change; any CLAUDE.md edit is a separate downstream DoE-authored plan.
+- **Archiving a lesson because its proposed target violates policy.** Substance and proposed target are independent. A `proposed target: CLAUDE.md` that fails the gate is a routing problem, not a substance problem — reroute to the right wiki / agent prompt / hook / script. `discard` only when the substance itself is ephemeral, already covered, or wrong.
+- **Defer-chaining wiki promotions or end-of-run "candidates for next pass."** A run that classifies records with named wiki destinations and defers them is the pattern this skill exists to prevent. Wiki-append/wiki-new with named destinations apply IN THIS RUN (Phase 5 auto-apply contract). Any Phase 8 report line naming records "to be folded next run" is a doctrine violation — apply them, surface them to the PM with a decision request, or escalate the mode. The three buckets are exhaustive; "informational candidates for later" is not a fourth.
 
 ## Related
 

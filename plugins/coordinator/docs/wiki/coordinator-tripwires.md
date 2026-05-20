@@ -13,7 +13,7 @@ provenance: extracted from coordinator/CLAUDE.md § Adding a Convention 2026-05-
 
 Edit `snippets/<name>.md` (single source), run `bin/verify-<name>-sync.sh --fix`, commit all touched files together. Never edit consumer sentinel blocks.
 
-Current snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `prior-art-check-consumption`, `plan-coverage-check-consumption`, `text-only-recovery-preamble`, `default-routing`.
+Current snippets: `project-rag-preamble`, `reviewer-calibration`, `docs-checker-consumption`, `meta-ask-preamble`, `prior-art-check-consumption`, `plan-coverage-check-consumption`, `text-only-recovery-preamble`, `default-routing`.
 
 Snippet-sync flow for `plan-coverage-check-consumption`: edit `snippets/plan-coverage-check-consumption.md` → run `bin/verify-plan-coverage-sync.sh --fix` → commit all touched files together. Consumer sentinel: `<!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->` / `<!-- END plan-coverage-check-consumption -->`. Consumers: `agents/staff-eng.md` (the Staff Engineer), `../game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer), `../data-science/agents/staff-data-sci.md` (the Data Science Reviewer), `../web-dev/agents/senior-front-end.md` (the Front-End Reviewer), `agents/eng-director.md` (the Director of Engineering).
 
