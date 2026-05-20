@@ -7,7 +7,7 @@ project-rag-side pluggy infrastructure is imported under try/except ImportError.
 project-rag is not installed (coordinator_whoami standalone install), discover_contributors()
 returns [] and collect_addon_blocks() returns {} — no crash.
 
-Addon-vs-addon collision discipline (the Director of Engineering F-Minor 3 2026-05-19):
+Addon-vs-addon collision discipline (Zolí F-Minor 3 2026-05-19):
 discover_contributors() returns at most one payload per namespace. Multiple registered
 contributors claiming the same namespace is a configuration error — first-wins-with-warning
 + `_collision_skipped: [<contributor source ids>]` marker on the winning payload.
@@ -95,7 +95,7 @@ def discover_contributors() -> list[Any]:
                 collisions.setdefault(ns, []).append(other_id)
                 log.warning(
                     "Addon namespace %r already registered by %r; ignoring later contributor %r "
-                    "(first-wins-with-warning per the Director of Engineering F-Minor 3 2026-05-19)",
+                    "(first-wins-with-warning per Zolí F-Minor 3 2026-05-19)",
                     ns, seen_ns[ns], spec,
                 )
                 continue
