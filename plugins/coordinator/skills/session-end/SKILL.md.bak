@@ -300,7 +300,7 @@ Assess whether this session's diff warrants a code review pass before committing
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff** (partition into multiple parallel dispatches when surface is too large for one reviewer — see § Partitioning large surfaces), with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal — see § Post-code-reviewer the Staff Engineer-escalation criteria |
+| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff** (partition into multiple parallel dispatches when surface is too large for one reviewer — see § Partitioning large surfaces), with EM-judged Patrik escalation *post-code-reviewer* on signal — see § Post-code-reviewer Patrik-escalation criteria |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
@@ -317,28 +317,28 @@ This is **diff partitioning under capacity limits**, not the workweek parallel-o
 2. Dispatch in parallel (one message, multiple `Agent` tool uses).
 3. Findings land separately; EM dispatches `coordinator:review-integrator` per slice OR collates findings and dispatches one integrator over the union — EM's call based on overlap.
 4. Trail write at end uses `--reviewer code-reviewer` (single value); record the partition shape in the wrap-up sentence, not the trail field.
-5. Post-`code-reviewer` the Staff Engineer-escalation criteria below apply to the **combined** finding set (sum across slices), not each slice independently.
+5. Post-`code-reviewer` Patrik-escalation criteria below apply to the **combined** finding set (sum across slices), not each slice independently.
 
 If you find yourself partitioning into more than ~4 slices, the diff is workweek-territory — surface to PM as a candidate `/workweek-complete`-style parallel review, don't fan out a sixth `code-reviewer`.
 
-**Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end):**
-Default after `code-reviewer` returns is *no the Staff Engineer*. Escalate iff the report shows one or more of:
+**Post-code-reviewer Patrik-escalation criteria (row 5 chain-end):**
+Default after `code-reviewer` returns is *no Patrik*. Escalate iff the report shows one or more of:
 - A high-volume finding count (rough anchor: ≥5 substantive findings, not nits).
 - Any finding flagged as architectural, strategic, cross-system, or boundary/seam/taxonomy-shaped — i.e. not a tactical fix the integrator can fold mechanically.
 - The reviewer itself recommends a deeper second pass, OR EM reads the report and is genuinely uncertain whether a flagged issue is tactical or structural.
 
-Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without the Staff Engineer at session-end.
+Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without Patrik at session-end.
 
 **Anti-ceremony-bias tripwire (`code-reviewer`-skip direction — still load-bearing):**
 > "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
 
 **Symmetric anti-ceremony tripwire (row 3+ — `code-reviewer` floor):**
-> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` the Staff Engineer escalation is a separate question — governed by the actual report per § Post-code-reviewer the Staff Engineer-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
+> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` Patrik escalation is a separate question — governed by the actual report per § Post-code-reviewer Patrik-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
 
 **Chain-end detection:**
 - Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Additional the Staff Engineer-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
+- **Additional Patrik-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
 
 **Diff scope:**
 - Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
