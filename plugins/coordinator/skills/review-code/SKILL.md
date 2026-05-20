@@ -26,7 +26,7 @@ Three independent checks. Each fires or skips on its own condition; multiple can
 **Check 1 — TDD compliance (self-check, no agent)**
 
 - _Code introduces new behavior (feature, fix, refactor that changes externally observable behavior)?_
-  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a Patrik finding.
+  → Verify against the TDD checklist before dispatching reviewer. If any test was written *after* the production code, surface to PM with the gap — the review will surface it anyway and a pre-review acknowledgment is cheaper than a the Staff Engineer finding.
   _See `docs/wiki/test-driven-development.md` § Verification Checklist._
 - _Code is config-only / doc-only / generated code?_
   → Skip TDD self-check.
@@ -56,21 +56,21 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
 | Sonnet-tier code review (session-end, handoff, mise-en-place, mid-session quick review) | `code-reviewer` (Sonnet, locked) | (none) | Low |
-| Game dev / Unreal / DroneSim | Sid (Opus only) | Patrik (Opus only) | Medium → Medium |
-| Architectural change, new subsystem | Patrik (Opus only) | (backstop: Zolí, Opus only) | High |
-| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | Zolí (standalone — DoE altitude, Opus only) | (none) | High |
-| Generic-substrate / consumer-leak risk on producer-side surface | Zolí (standalone — DoE altitude, Opus only) | (none) | High |
-| Front-end, CSS, UI components | Palí (Opus only) | (backstop: Fru, Opus only) | Medium |
-| Front-end + architecture | Palí (Opus only) | Patrik (Opus only) | Medium → High |
-| ML/AI pipeline, model serving, RAG | Camelia (Opus only) | Patrik (Opus only) | High → High |
-| UX flow, user-facing feature | Fru (Opus only) | (backstop: Patrik, Opus only) | Low → Medium |
-| Cross-cutting (many files, new pattern) | Patrik (Opus only) | (backstop: Zolí, Opus only) | High |
-| Major DroneSim feature / new game mode | Sid (Opus only) | Patrik (Opus only) | High → High |
-| Other / unmatched | `code-reviewer` (Sonnet) for shape-only diffs (no domain signal, no cross-system boundary); Patrik (Opus only) when the diff carries architectural shape (new abstraction, cross-system seam, new pattern, schema/security boundary) | (none) | Low → Medium |
+| Game dev / Unreal / DroneSim | the Game Dev Reviewer (Opus only) | the Staff Engineer (Opus only) | Medium → Medium |
+| Architectural change, new subsystem | the Staff Engineer (Opus only) | (backstop: the Director of Engineering, Opus only) | High |
+| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude, Opus only) | (none) | High |
+| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude, Opus only) | (none) | High |
+| Front-end, CSS, UI components | the Front-End Reviewer (Opus only) | (backstop: the UX Reviewer, Opus only) | Medium |
+| Front-end + architecture | the Front-End Reviewer (Opus only) | the Staff Engineer (Opus only) | Medium → High |
+| ML/AI pipeline, model serving, RAG | the Data Science Reviewer (Opus only) | the Staff Engineer (Opus only) | High → High |
+| UX flow, user-facing feature | the UX Reviewer (Opus only) | (backstop: the Staff Engineer, Opus only) | Low → Medium |
+| Cross-cutting (many files, new pattern) | the Staff Engineer (Opus only) | (backstop: the Director of Engineering, Opus only) | High |
+| Major DroneSim feature / new game mode | the Game Dev Reviewer (Opus only) | the Staff Engineer (Opus only) | High → High |
+| Other / unmatched | `code-reviewer` (Sonnet) for shape-only diffs (no domain signal, no cross-system boundary); the Staff Engineer (Opus only) when the diff carries architectural shape (new abstraction, cross-system seam, new pattern, schema/security boundary) | (none) | Low → Medium |
 
-**Personas are Opus-only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in their agent frontmatter; dispatching them at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Sonnet-tier mechanical analysis uses the relevant worker (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`). The persona's value is structured judgment under Opus context; running it at Sonnet costs the prompt complexity without the judgment payoff — empirically the result is a degraded "Sonnet-flavored Patrik" that produces persona affect without the architectural lens. → `agents/code-reviewer.md` for the Sonnet-tier surface.
+**Personas are Opus-only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; dispatching them at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation. Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Sonnet-tier mechanical analysis uses the relevant worker (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`). The persona's value is structured judgment under Opus context; running it at Sonnet costs the prompt complexity without the judgment payoff — empirically the result is a degraded "Sonnet-flavored the Staff Engineer" that produces persona affect without the architectural lens. → `agents/code-reviewer.md` for the Sonnet-tier surface.
 
-**Zolí standalone vs. Zolí backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch Zolí **standalone** with `mode: "standalone"` in the prompt — do NOT run Patrik first. Standalone Zolí is a peer of Patrik in technical rigor with the additional cross-team authority Patrik's EM altitude would hedge on. The "(backstop: Zolí)" entries above are the chained-after-Patrik usage for High-effort architectural reviews; that mode is still in play but does not exhaust Zolí's role.
+**the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch the Director of Engineering **standalone** with `mode: "standalone"` in the prompt — do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The "(backstop: the Director of Engineering)" entries above are the chained-after-the Staff Engineer usage for High-effort architectural reviews; that mode is still in play but does not exhaust the Director of Engineering's role.
 
 If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
 
