@@ -146,12 +146,12 @@ Operational hook: during `/workweek-complete`, as part of the weekly retrospecti
 
 The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `bin/verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
 
-- `agents/staff-eng.md` (Patrik)
-- `plugins/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/web-dev/agents/senior-front-end.md` (Palí)
-- `agents/eng-director.md` (Zolí — reviews plans at DoE altitude)
+- `agents/staff-eng.md` (the Staff Engineer)
+- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `agents/eng-director.md` (the Director of Engineering — reviews plans at DoE altitude)
 
-**Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (Fru — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
+**Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (the UX Reviewer — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. The tripwire entry lives in `docs/wiki/coordinator-tripwires.md`.

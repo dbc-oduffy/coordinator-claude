@@ -36,17 +36,17 @@ Follow all phases in order. The pipeline definition at `pipelines/mise-en-place/
 
 A mise-grade item meets ALL of the following:
 
-1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (Patrik/Sid/Camelia/Palí/Fru as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
+1. **Reviewed and sealed.** The spec has already been through enrichment + reviewer (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer as appropriate) and any findings have been integrated. No "executor types it, then we review" — that is sequential interactive work, not mise. Acceptance criteria are explicit and verifiable.
 2. **No downstream contract.** This item's output is not reference material that subsequent waves consume to define their own behavior. Wiki pages, schema definitions, research outputs, and enricher-quality stubs frequently fail this test — if Wave N produces a doc that Wave N+1 reads to know what to build, the run is not mise.
 3. **Pure-executor agent type.** A single Sonnet executor (or coordinator-inline executor) can complete it given the spec. Items requiring live-editor MCP authoring, enricher judgment, reviewer judgment, or staff-session synthesis are not executor work — they belong in their dedicated commands.
 4. **File footprint declarable.** You can name the files the executor will write before dispatching. If the spec says "discover what needs changing," that is investigation, not execution.
-5. **Verification is mechanical.** "Tests pass," "function exists with this signature," "file matches this acceptance criterion" — not "Sid agrees this looks right."
+5. **Verification is mechanical.** "Tests pass," "function exists with this signature," "file matches this acceptance criterion" — not "the Game Dev Reviewer agrees this looks right."
 
 **Disqualifying patterns (reject the run if any item exhibits these):**
 
 - "Wave 1: foundations" — wiki pages, contract definitions, schema authoring, or any artifact later waves consume as reference. Foundations belong in a planning session, not a mise.
 - Mixed agent types in the planned waves — enricher + executor + MCP-author in the same run signals the work isn't ready.
-- Items marked `Pending Review` or `Needs Patrik` or with open reviewer findings.
+- Items marked `Pending Review` or `Needs the Staff Engineer` or with open reviewer findings.
 - Stubs whose acceptance criteria are vague ("improves the system," "addresses the concern") rather than verifiable.
 - Items requiring `manage_*` MCP tools in a live editor session — those need an interactive EM-driven flow.
 - Research stubs, brainstorming stubs, or anything whose output is "a decision."
@@ -241,7 +241,7 @@ rm -f /tmp/autonomous-run-${SESSION_ID}
 Every /mise run ends with at minimum a Sonnet code review of the run's cumulative diff. Per-item Haiku verifiers check footprint + AC compliance; they do NOT replace a real review pass. Dispatch this BEFORE the tracker sweep and BEFORE the tail action (standard or hibernate) so findings can be addressed while the EM is still on the branch.
 
 1. Compute the run's cumulative diff range — first commit SHA of the run through HEAD (the goal task records the starting SHA; if missing, use `git log --oneline` to identify the boundary).
-2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (or, if invoking inline, `Agent` with `subagent_type: "coordinator:code-reviewer"` for a Sonnet-tier obsessive review — escalate to Patrik+workers when the diff includes a merge boundary or risky surface per session-end review doctrine).
+2. Dispatch a Sonnet reviewer on the cumulative diff via `coordinator:review-code` (or, if invoking inline, `Agent` with `subagent_type: "coordinator:code-reviewer"` for a Sonnet-tier obsessive review — escalate to the Staff Engineer+workers when the diff includes a merge boundary or risky surface per session-end review doctrine).
 3. Persist the review record to `tasks/review-trail/<timestamp>-mise-<run-id>.json` per `docs/wiki/session-end-review.md`.
 4. **Integrate ALL findings before the tail fires. No deferred nitpicks. No deferred P3. No deferred P2. No "follow-up session."** The review fired because the work is happening *now*; the run is not done until the diff is clean. Dispatch the review-integrator (`mode: "acceptEdits"`) on the full findings list — every severity, including style nitpicks. Integrator commits land on the same branch via plain git (`git add -- <paths> && git commit -m "<subject>" -- <paths>`, SC-DR-008). Per global CLAUDE.md ("Acting on review findings"), the EM ensures *all* findings get implemented, not just P0s, and does not offer the PM a "defer to follow-up" path.
 5. **Re-review gate.** After the integrator returns, re-dispatch the same reviewer on the post-integration cumulative diff to confirm the findings are resolved and integration didn't introduce new issues. Loop integrator + re-review until the reviewer returns clean (zero findings of any severity), or until two integration passes fail to converge — at which point treat as a structural failure under "When to Stop" and surface to the PM. Persist each iteration's record to `tasks/review-trail/`.

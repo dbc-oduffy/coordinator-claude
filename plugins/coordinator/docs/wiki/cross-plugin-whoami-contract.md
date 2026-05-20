@@ -302,9 +302,9 @@ The contract emerged from a DoE-altitude consult on 2026-05-19:
 
 2. **Spinoff** `archive/handoffs/2026-05-19_175021_coordinator-whoami-contract.md` — workstream handoff carrying the implementation mandate (archived post-pickup).
 
-3. **Plan** `docs/plans/2026-05-19-cross-plugin-whoami-contract.md` — full architecture plan including the spec-first delivery decision (markdown + JSON Schema, no Python module in coordinator-claude), the namespace disambiguation rationale, and the Zolí review integration that landed `contract_version` naming and the `^[a-z_][a-z0-9_]*$` extras-key constraint.
+3. **Plan** `docs/plans/2026-05-19-cross-plugin-whoami-contract.md` — full architecture plan including the spec-first delivery decision (markdown + JSON Schema, no Python module in coordinator-claude), the namespace disambiguation rationale, and the Director of Engineering review integration that landed `contract_version` naming and the `^[a-z_][a-z0-9_]*$` extras-key constraint.
 
-**Authorship.** The contract shape was produced by the 2026-05-19 authoring session (coordinator EM + PM Dónal O'Duffy). Zolí (cross-team/cross-repo reviewer, Opus-altitude) ratified the spec-first delivery shape, the namespace disentanglement, and the extras-key regex in the same session.
+**Authorship.** The contract shape was produced by the 2026-05-19 authoring session (coordinator EM + PM the PM O'Duffy). The Director of Engineering (cross-team/cross-repo reviewer, Opus-altitude) ratified the spec-first delivery shape, the namespace disentanglement, and the extras-key regex in the same session.
 
 ---
 

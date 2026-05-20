@@ -52,7 +52,7 @@ audience you are shapes which flags and flows are operative.
 
 ### Meta-repo operator dogfooding
 
-**Who:** The meta-repo operator (Dónal O'Duffy, or any future operator running
+**Who:** The meta-repo operator (the PM O'Duffy, or any future operator running
 `~/.claude` as their personal coordinator tree) re-running `/coordinator:setup` after
 a percolation cycle that updates plugin content.
 
@@ -220,11 +220,11 @@ trail:
 
 - **Architecture parent:** `2026-05-19-coordinator-installer-redesign.md` (lives in meta-repo
   `docs/plans/`; not bundled with the plugin) — four decisions (D1 installer shape, D2 operator
-  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; Zolí
+  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; the Director of Engineering
   review (APPROVED_WITH_NOTES).
 - **Implementation plan:** `2026-05-19-coordinator-installer-redesign-implementation.md` (lives
   in meta-repo `docs/plans/`; not bundled with the plugin) — seven chunks (C1–C7), file-overlap
-  analysis, sequential gate order. Patrik review integrated prior to execution.
+  analysis, sequential gate order. The Staff Engineer review integrated prior to execution.
 
 <!-- Review: code-reviewer — spec_backlink paths were path-shaped but the plans live in meta-repo docs/plans/, not the plugin tree; converted to prose-shaped strings -->
 - **Wiki amendments shipped 2026-05-19 (commit `9527128d`):**

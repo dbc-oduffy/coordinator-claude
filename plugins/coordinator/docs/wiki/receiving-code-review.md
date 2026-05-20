@@ -67,7 +67,7 @@ RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceed
 
 ## Source-Specific Handling
 
-### From Review Agents (Patrik, Zolí, Sid, Palí, Fru, Camelia)
+### From Review Agents (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer)
 
 This is where coordinators most often fail. You dispatched an Opus-level agent to review your work. **Use everything they give you.**
 

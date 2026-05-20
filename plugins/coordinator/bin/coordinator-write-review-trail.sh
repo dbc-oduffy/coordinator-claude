@@ -182,7 +182,7 @@ if ! REPO_ROOT_FOR_WRITE=$(git rev-parse --show-toplevel 2>/dev/null); then
   exit 1
 fi
 
-# Review: Patrik — two reviews within the same second from the same session would
+# Review: the Staff Engineer — two reviews within the same second from the same session would
 # collide and cause exit 2. Use nanosecond precision where the platform supports it
 # (%N is a glibc/Linux extension; macOS date and Windows git-bash return literal %N).
 # We probe for %N support and fall back to second-precision with a documented contract.

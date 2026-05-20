@@ -31,7 +31,7 @@ For a fix that takes the EM 30 seconds on a known-locus file, dispatching a 60s-
 - **Work is independently verifiable.** A scout returns a structured deliverable the EM reads; concurrency is real leverage.
 - **Work spans contexts the EM hasn't loaded.** Sub-agent loads a directory's worth of code the EM doesn't need to hold in its own context window.
 - **Work is parallel-shaped.** N independent edits to N different files; sequential EM would gate each behind the last.
-- **Work needs persona judgment.** Patrik / Sid / Camelia / Fru bring framing, calibration, and review lens the EM doesn't have.
+- **Work needs persona judgment.** the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer / the UX Reviewer bring framing, calibration, and review lens the EM doesn't have.
 - **Work would blow EM context.** Reading 50k tokens of code to make a small edit is sub-agent shape — the sub-agent reads, acts, and reports a summary.
 - **Work is long-running and the EM needs to continue.** Background dispatch with disk-based signaling lets the EM make progress while the sub-agent works.
 
@@ -65,7 +65,7 @@ Mitigations:
 *2026-05-17, coordinator-claude.* When a cluster of related fixes shares a single architectural shape (one novel pattern + N surgical follow-ups that mirror it), front-load the review ceremony on the novel item and direct-dispatch the surgical follow-ups against the established pattern. Full plan-review + prior-art-check + post-impl code-review on every cluster member is ceremony inflation — the second through Nth instances re-verify the same pattern with diminishing return.
 
 **Rule:**
-- **Item 1 (the novel one):** full ceremony — plan, prior-art-check, Patrik, post-impl review.
+- **Item 1 (the novel one):** full ceremony — plan, prior-art-check, the Staff Engineer, post-impl review.
 - **Items 2..N (surgical follow-ups of the same shape):** direct executor dispatch with the item-1 spec as reference. EM spot-check post-commit.
 
 Tell for cluster shape: each item edits a different file, the *shape* of the edit is the same, and the only judgment in items 2..N is "apply the item-1 pattern to this file's specifics." When you find yourself drafting the same plan body N times with the file path changed, that's the tell — promote item 1 to canonical and direct-dispatch the rest.

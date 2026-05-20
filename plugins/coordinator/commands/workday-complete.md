@@ -52,7 +52,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 <!-- Phase 5 F2: recompute MACHINE lowercase via cs_compute_machine + grep -iE for case-insensitive
      legacy-branch tolerance. Span branches (work/striker/2026-05-06to07) must also be discovered. -->
 0. `~/.claude/plugins/coordinator/bin/sync-main.sh` — non-zero exit → report and stop.
-1. Recompute machine name lowercase for this step (Patrik F2 — do not rely on inherited shell scope):
+1. Recompute machine name lowercase for this step (the Staff Engineer F2 — do not rely on inherited shell scope):
    ```bash
    TODAY=$(date +%Y-%m-%d)
    _LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh"
@@ -158,10 +158,10 @@ Quick reference:
 
 | Dominant change type | Reviewer |
 |---|---|
-| Game dev / Unreal Engine | Sid |
-| Frontend / UI | Palí |
-| Data / ML / science | Camelia |
-| Mixed, backend, or architecture | Patrik |
+| Game dev / Unreal Engine | the Game Dev Reviewer |
+| Frontend / UI | the Front-End Reviewer |
+| Data / ML / science | the Data Science Reviewer |
+| Mixed, backend, or architecture | the Staff Engineer |
 
 Dispatch the selected reviewer as a **Sonnet** agent.
 
@@ -328,7 +328,7 @@ exit codes — it is not LLM-authored prose.
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 ```
 Multiple records produce multiple `**Reviewed:**` lines — one per record. If today had non-trivial commits (any commit subject NOT matching `^(chore|docs?)([(:]|$)|^session-end quick-save`) AND no review-trail records for today exist, emit exactly one fallback line:
-<!-- Review: Patrik — previous regex ^chore|^doc|^session-end quick-save matched
+<!-- Review: the Staff Engineer — previous regex ^chore|^doc|^session-end quick-save matched
      "docker:" and "chored" as trivial; tightened to require conventional-commits
      punctuation after chore/doc(s) or an exact prefix match. -->
 ```

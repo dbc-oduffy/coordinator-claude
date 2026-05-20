@@ -155,7 +155,7 @@ Determine whether this is a **single-session** or **chain-terminal** session usi
 **Single-session path:**
 
 ```bash
-loe_block=$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-session-loe.sh \
+loe_block=$(~/.claude/plugins/coordinator/bin/coordinator-session-loe.sh \
   --format yaml-frontmatter 2>/dev/null)
 ```
 
@@ -177,7 +177,7 @@ Resolve the consumed predecessor handoff path (the handoff archived by Step 2.7 
 Then invoke the chain aggregator:
 
 ```bash
-loe_block=$(~/.claude/plugins/coordinator-claude/coordinator/bin/aggregate-chain-loe.sh \
+loe_block=$(~/.claude/plugins/coordinator/bin/aggregate-chain-loe.sh \
   --terminal-handoff "<resolved-predecessor-path>" \
   --format yaml-frontmatter 2>/dev/null)
 ```
@@ -269,7 +269,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule (the only cache mutation permitted here):** if this session surfaced something the next session boot MUST see, and it would otherwise be lost (a transient surface gotcha; a critical blocker context; an environment-specific caveat that fooled this session and will fool the next), write exactly one line to `## Pinboard` via the routine:
 
    ```bash
-   bash plugins/coordinator-claude/coordinator/bin/regenerate-orientation-cache.sh \
+   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker session-end \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
@@ -360,7 +360,7 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 
 **Marker write:** after review integration completes, invoke:
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-write-review-trail.sh \
+~/.claude/plugins/coordinator/bin/coordinator-write-review-trail.sh \
   --sha-range <A..B> --reviewer <code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile> \
   --scope <chain|session> --verdict <ok|warn|blocked|waived|pending> --diff-loc <N>
 ```
@@ -387,7 +387,7 @@ After integration, the trail's `--verdict` field still records the reviewer's or
    - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
    - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
 2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
-3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
+3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
 6. If push fails (auth, network, conflicts), **warn the PM explicitly** — this is a critical failure
@@ -399,7 +399,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
-  source ~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 
