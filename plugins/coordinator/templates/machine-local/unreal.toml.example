@@ -1,6 +1,6 @@
 # ~/.claude/machine-local/unreal.toml  (TRACKED — shared baseline)
 #
-# Spec backlink: cross-repo memo 2026-05-21 (claude-unreal-holodeck → project-rag-ue-addon + coordinator-claude)
+# Spec backlink: docs/wiki/machine-local-registry.md §5b (concern-file convention)
 #
 # Concern file for the `unreal.*` namespace.
 #

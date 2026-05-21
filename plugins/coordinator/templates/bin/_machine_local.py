@@ -134,12 +134,15 @@ def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
     ``unreal.unreal.install_root``. Top-level keys placed directly (without
     the self-named table) still work — they are auto-prefixed by concern_name.
 
-    Review: code-reviewer (F2 + F5) — recursive flatten covers arbitrary nested
-    tables; storing native types prevents str() at flatten time which drops
-    newline-join for arrays.
+    Recursive flatten ensures arbitrary nesting is reachable. Native types (not
+    str()) preserved so list→newline join at resolve time handles arrays uniformly.
     """
     result = {}
-    base = f"{concern_name}.{_prefix}" if _prefix else f"{concern_name}."
+    # Strip sentinel prefix ("\x00") before using in key construction.
+    # The sentinel is used only to disable self-named-table elision on
+    # recursive calls — it must not appear in the output key strings.
+    effective_prefix = _prefix if _prefix != "\x00" else ""
+    base = f"{concern_name}.{effective_prefix}" if effective_prefix else f"{concern_name}."
     for k, v in data.items():
         if k == "schema":
             continue  # meta-key, not a user key
@@ -148,13 +151,16 @@ def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
         # so that [unreal] inside unreal.local.toml produces unreal.<key>, not
         # unreal.unreal.<key>. Below the root, table names are kept as-is —
         # nested [unreal.versions] etc. still produce the natural dotted path.
+        # Sentinel prefix ("\x00") on the recursive call ensures the elision
+        # condition (not _prefix) is False for all nested levels — prevents
+        # double-elision if a hand-crafted file has [unreal]\nunreal = {...}.
         if not _prefix and isinstance(v, dict) and k == concern_name:
-            result.update(_flatten_concern(concern_name, v, _prefix=""))
+            result.update(_flatten_concern(concern_name, v, _prefix="\x00"))
             continue
         full_key = f"{base}{k}"
         if isinstance(v, dict):
             # Recurse: flatten nested table with dotted subkeys.
-            result.update(_flatten_concern(concern_name, v, _prefix=f"{_prefix}{k}." if _prefix else f"{k}."))
+            result.update(_flatten_concern(concern_name, v, _prefix=f"{effective_prefix}{k}." if effective_prefix else f"{k}."))
         else:
             # Store native type; _resolve_key handles list→newline join.
             result[full_key] = v
@@ -348,20 +354,27 @@ def cmd_set(args: argparse.Namespace) -> int:
     dry_run = args.dry_run
 
     # Refuse to write keys that belong to a loaded concern namespace.
+    # Union concerns from both registry.toml and registry.local.toml so that
+    # an operator with concerns declared only in registry.local.toml gets the
+    # same guard as one using registry.toml — mirrors _build_resolution_layers.
     reg_path = os.path.join(reg_dir, "registry.toml")
-    if os.path.exists(reg_path):
-        reg_data = _load_toml(reg_path)
-        concerns = reg_data.get("concerns", [])
-        if isinstance(concerns, list):
-            first_seg = key.split(".")[0].lower()
-            for c in concerns:
-                if str(c).lower() == first_seg:
-                    print(
-                        f"machine-local: key '{key}' belongs to concern namespace '{c}'. "
-                        f"Write to {c}.local.toml instead (that concern file owns this namespace).",
-                        file=sys.stderr,
-                    )
-                    return 1
+    reg_local_path = os.path.join(reg_dir, "registry.local.toml")
+    concerns_set = set()
+    for p in (reg_path, reg_local_path):
+        if os.path.exists(p):
+            d = _load_toml(p)
+            for c in d.get("concerns", []):
+                concerns_set.add(str(c).lower())
+    if concerns_set:
+        first_seg = key.split(".")[0].lower()
+        if first_seg in concerns_set:
+            c_match = first_seg
+            print(
+                f"machine-local: key '{key}' belongs to concern namespace '{c_match}'. "
+                f"Write to {c_match}.local.toml instead (that concern file owns this namespace).",
+                file=sys.stderr,
+            )
+            return 1
 
     # Read existing content or seed a new file.
     if os.path.exists(target_path):

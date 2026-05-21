@@ -267,3 +267,26 @@ The routine is the single source-of-truth derivation. This section documents the
 - If `*.uproject` is present in the repo, `## Trust caveats` MUST be present and its first line MUST contain `Unreal Engine project detected` (detector-regression guard).
 
 **If `tasks/` directory doesn't exist:** skip cache generation. Not all repos use `tasks/`.
+
+---
+
+## Step 1.45 — Outstanding Cross-Repo Memos (details)
+
+Helper: `bin/workday-start-cross-repo-memo-surface.sh`.
+
+**Query.** Glob `~/.claude/archive/cross-repo/*.md`, parse YAML frontmatter, filter to memos with `status ∈ {open, reviewed}` and `created >= 2026-05-22` (pre-cutoff memos grandfathered; never surface).
+
+**Line format:**
+```
+- <created-date> → <to>: <title> — <status> (<age> days) [STALE flag if applicable]
+```
+
+**Staleness flags:**
+- `[STALE — receiver hasn't read]` — `status: open` AND created >7 days ago.
+- `[STALE — action pending]` — `status: reviewed` AND `reviewed_at` >14 days ago (falls back to `created` when `reviewed_at` absent — F5 per code-reviewer review).
+
+**Cap:** ≤8 entries surfaced; if more, ninth line is `(N more — see ~/.claude/archive/cross-repo/ for full list)`.
+
+**Exit semantics:** exit 0 always (empty output on zero qualifying memos; silent skip in workday-start command body).
+
+**Spec backlink:** `docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 3`. Doctrine: `docs/wiki/cross-repo-communication.md § Lifecycle and dirty-file backstop`.

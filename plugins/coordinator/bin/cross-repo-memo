@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""
+cross-repo-memo — dispatch a cross-repo memo to a receiver-EM's working tree.
+
+Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
+Purpose: Write a memo addressed to a receiver-EM into their working tree as a
+deliberately uncommitted dirty file (the dirty-file backstop), and write an
+archive copy to ~/.claude/archive/cross-repo/ for DoE-side visibility.
+
+The dirty-file backstop is the mechanism: the receiver-EM sees the untracked
+tasks/memos/ file in git status at every session-start, /workday-start, and
+commit attempt without any new hook code. When they action the memo, they
+transition the lifecycle frontmatter and commit — clearing the dirty state and
+landing the audit trail in their repo's history.
+
+Reader-only relationship to machine-local registry
+---------------------------------------------------
+This script reads machine-local via `_machine_local.py get repos.<key>` to
+resolve receiver repo paths. It does NOT write to machine-local — ever.
+
+Negative-spec (machine-local-registry.md anti-pattern): if you find yourself
+wanting to write to machine-local from a script, stop. Per-machine path
+values belong in the registry; they are NOT sidecar'd in local config files
+next to the script. The registry is the audited source; the script is a reader
+only. See: docs/wiki/machine-local-registry.md § 5a–5b (Reader only — never
+writes to machine-local. If you find yourself wanting to write to machine-local
+from a script, stop.)
+
+Receiver-EM identity mapping (F3 rule)
+---------------------------------------
+The mapping table RECEIVER_EM_TO_REPO_KEY below is script-internal. It maps
+global receiver-EM identities (stable across machines) to per-machine registry
+keys (resolved per-machine). This is intentional: identity space is global
+doctrine; path space is per-machine. If this mapping grows past 8 entries,
+promote to schemas/cross-repo-receiver-map.yaml rather than extending this
+script — identity mappings at that scale benefit from machine-independent
+discoverability (per plan § Dispatcher tooling, F3 PM-endorsed).
+"""
+
+import argparse
+import datetime
+import os
+import re
+import subprocess
+import sys
+import textwrap
+
+# F2 (code-reviewer P1): --topic must be filesystem-safe to prevent path traversal.
+# Allows: lowercase alphanum + dashes, must start with alphanum. No '..', '/', '\'.
+_TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
+
+# ---------------------------------------------------------------------------
+# Receiver-EM → machine-local registry key mapping.
+# F3 rule: script-internal ≤8 entries; grow past 8 → promote to
+# schemas/cross-repo-receiver-map.yaml (NOT to machine-local — paths are
+# per-machine, identities are global doctrine).
+# ---------------------------------------------------------------------------
+RECEIVER_EM_TO_REPO_KEY: dict[str, str] = {
+    "project-rag-em": "repos.project_rag",
+    "holodeck-em": "repos.claude_unreal_holodeck",
+    "dronesim-em": "repos.dronesim",
+}
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+def _claude_home() -> str:
+    """Return the ~/.claude root, honouring CLAUDE_HOME for test isolation."""
+    override = os.environ.get("CLAUDE_HOME")
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def _machine_local_impl() -> str:
+    """Return the absolute path to _machine_local.py.
+
+    The machine-local shell wrapper (bin/machine-local) is a bash script —
+    not directly invocable as a Python subprocess on Windows. We call the
+    Python implementation directly, honouring MACHINE_LOCAL_IMPL for test
+    isolation (allows tests to mock the lookup without touching the registry).
+    """
+    override = os.environ.get("MACHINE_LOCAL_IMPL")
+    if override:
+        return override
+    return os.path.join(_claude_home(), "bin", "_machine_local.py")
+
+
+def _resolve_python() -> str:
+    """Return the Python interpreter path for subprocesses.
+
+    Tries python3 first (POSIX), falls back to python, then sys.executable.
+    Honours CROSS_REPO_MEMO_PYTHON for test injection.
+
+    Uses sys.executable as final fallback — the interpreter running this
+    script is always valid. Probing via subprocess.run can raise
+    FileNotFoundError on Windows when the alias doesn't exist on PATH; we
+    catch that and move on to the next candidate rather than crashing.
+    """
+    override = os.environ.get("CROSS_REPO_MEMO_PYTHON")
+    if override:
+        return override
+    for candidate in ("python3", "python"):
+        try:
+            result = subprocess.run(
+                [candidate, "--version"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return candidate
+        except FileNotFoundError:
+            continue
+    # sys.executable is always valid — the interpreter running this script.
+    return sys.executable
+
+
+# ---------------------------------------------------------------------------
+# machine-local integration
+# ---------------------------------------------------------------------------
+
+def _machine_local_get(key: str) -> str | None:
+    """Call machine-local get <key> and return the value, or None on failure.
+
+    On a machine where repos.<key> is absent from the registry, this returns
+    None and the caller falls back to central-only delivery — the correct
+    behaviour per plan § PM-Q3 (non-trio repos / OSS consumers).
+
+    Suppresses the unrel.install_root namespace warning that machine-local
+    emits on stderr on this machine — that warning is cosmetic and unrelated
+    to the get call.
+    """
+    impl = _machine_local_impl()
+    python = _resolve_python()
+
+    # When MACHINE_LOCAL_IMPL is set to a mock script stub (test mode),
+    # run it directly.  When it resolves to _machine_local.py, drive via python.
+    if impl.endswith(".py") or impl.endswith(".py3"):
+        cmd = [python, impl, "get", key]
+    else:
+        # Mock stub: executable script (test mode).
+        cmd = [impl, "get", key]
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
+# Frontmatter composition
+# ---------------------------------------------------------------------------
+
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def _compose_frontmatter(
+    *,
+    title: str,
+    to: str,
+    topic: str,
+    delivery_mode: str,
+    body: str,
+    receiver_copy_path: str | None = None,
+    self_receipt: bool = False,
+    decision: str | None = None,
+    supersedes: str | None = None,
+) -> str:
+    """Compose the YAML frontmatter block for a memo.
+
+    Schema: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Memo frontmatter schema
+    """
+    today = _today()
+    status = "action_taken" if self_receipt else "open"
+    # F3 (code-reviewer P2): quote all string values so '#', leading '[', and
+    # trailing-space-before-':' in titles don't truncate via YAML parser.
+    # F4 (code-reviewer P2): 'topic' dropped from frontmatter — it lives in the
+    # filename, not the schema.
+    lines = [
+        "---",
+        f"title: {_yaml_quote(title)}",
+        f"from: claude-central-em",
+        f"to: {_yaml_quote(to)}",
+        f"created: {today}",
+        f"status: {status}",
+        f"delivery_mode: {delivery_mode}",
+    ]
+    if receiver_copy_path:
+        lines.append(f"receiver_copy_path: {_yaml_quote(receiver_copy_path)}")
+    if supersedes:
+        lines.append(f"supersedes: {_yaml_quote(supersedes)}")
+    if self_receipt:
+        lines.append(f"action_taken_at: {_now_iso()}")
+        lines.append(f"decision: {decision}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def _yaml_quote(value: str) -> str:
+    """Double-quote a string for YAML, escaping internal double-quotes and backslashes."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _compose_memo(
+    *,
+    title: str,
+    to: str,
+    topic: str,
+    delivery_mode: str,
+    body: str,
+    receiver_copy_path: str | None = None,
+    self_receipt: bool = False,
+    decision: str | None = None,
+    supersedes: str | None = None,
+) -> str:
+    """Compose the full memo document (frontmatter + body)."""
+    frontmatter = _compose_frontmatter(
+        title=title,
+        to=to,
+        topic=topic,
+        delivery_mode=delivery_mode,
+        body=body,
+        receiver_copy_path=receiver_copy_path,
+        self_receipt=self_receipt,
+        decision=decision,
+        supersedes=supersedes,
+    )
+    return frontmatter + "\n" + body.rstrip("\n") + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Write helpers
+# ---------------------------------------------------------------------------
+
+def _memo_filename(topic: str) -> str:
+    return f"{_today()}-{topic}.md"
+
+
+def _write_file(path: str, content: str) -> None:
+    """Write content to path, creating parent directories as needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    description = textwrap.dedent("""\
+        Dispatch a cross-repo memo to a receiver-EM working tree.
+
+        RECEIVER-EM IDENTITY MAPPING
+        The --to argument accepts a receiver-EM identifier. Known receivers and
+        their machine-local registry keys:
+          project-rag-em  → repos.project_rag
+          holodeck-em     → repos.claude_unreal_holodeck
+          dronesim-em     → repos.dronesim
+
+        If the mapping grows past 8 entries, promote to
+        schemas/cross-repo-receiver-map.yaml (not machine-local — paths are
+        per-machine, identities are global). This is the F3 promotion rule from
+        docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Dispatcher tooling.
+
+        MACHINE-LOCAL REGISTRY
+        This script reads machine-local (via _machine_local.py get repos.<key>)
+        to resolve receiver repo paths. It does NOT write to machine-local.
+        Reader only — never writes to machine-local. If you find yourself
+        wanting to write to machine-local from a script, stop. See:
+        docs/wiki/machine-local-registry.md § 5a–5b.
+
+        DIRTY-FILE BACKSTOP
+        The receiver-side memo is written but NOT committed. The receiver-EM
+        sees it as an untracked file in git status at every session-start,
+        /workday-start, and commit attempt. PM-relay remains the primary
+        channel; the dirty file is the structural backstop.
+    """)
+
+    parser = argparse.ArgumentParser(
+        prog="cross-repo-memo",
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--to",
+        required=True,
+        metavar="RECEIVER_EM_ID",
+        help=(
+            "Receiver-EM identifier (e.g. project-rag-em, holodeck-em, dronesim-em). "
+            "Unknown receivers fall back to --delivery-mode central-only."
+        ),
+    )
+    parser.add_argument(
+        "--topic",
+        required=True,
+        metavar="SLUG",
+        help="Short slug used in the memo filename (e.g. gate-check-failures).",
+    )
+    parser.add_argument(
+        "--title",
+        required=True,
+        metavar="ONE_LINE",
+        help="One-line memo title (appears in frontmatter and workday-start surfacing).",
+    )
+    parser.add_argument(
+        "--body-file",
+        metavar="PATH",
+        default=None,
+        help="Path to a file containing the memo body. Reads from stdin if omitted.",
+    )
+    parser.add_argument(
+        "--delivery-mode",
+        choices=["receiver-repo", "central-only"],
+        default=None,
+        help=(
+            "Delivery mode. Defaults to receiver-repo for known receiver IDs; "
+            "central-only when machine-local path is unresolvable or receiver "
+            "is unknown. Explicit --delivery-mode central-only forces archive-only delivery."
+        ),
+    )
+    parser.add_argument(
+        "--self-receipt",
+        action="store_true",
+        default=False,
+        help=(
+            "Dispatcher IS the receiver (central-EM acting in trio repo on its own behalf). "
+            "Sets status=action_taken, action_taken_at=<now>. Requires --decision. "
+            "Skips PM-relay reminder in stdout. Archive copy is audit trail only."
+        ),
+    )
+    parser.add_argument(
+        "--decision",
+        choices=["accepted", "declined", "partial", "superseded"],
+        default=None,
+        help="Decision outcome. Required when --self-receipt is set.",
+    )
+    parser.add_argument(
+        "--supersedes",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a prior memo this one supersedes (exercises supersession chain). "
+            "Written as `supersedes:` in frontmatter."
+        ),
+    )
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Main dispatch logic
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Returns exit code (0 = success, non-zero = failure)."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    # F2 (code-reviewer P1): validate --topic slug — refuse anything that could
+    # path-traverse out of tasks/memos/ or archive/cross-repo/.
+    if not _TOPIC_SLUG_RE.fullmatch(args.topic):
+        print(
+            f"cross-repo-memo: invalid --topic {args.topic!r}; must match "
+            f"lowercase-alphanum + dashes, start with alphanum (e.g. "
+            f"'gate-check-failures').",
+            file=sys.stderr,
+        )
+        return 2
+
+    # --self-receipt requires --decision.
+    if args.self_receipt and not args.decision:
+        print(
+            "cross-repo-memo: --self-receipt requires --decision "
+            "(accepted|declined|partial)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Read body.
+    if args.body_file:
+        try:
+            with open(args.body_file, "r", encoding="utf-8") as f:
+                body = f.read()
+        except OSError as exc:
+            print(f"cross-repo-memo: cannot read body file: {exc}", file=sys.stderr)
+            return 2
+    else:
+        body = sys.stdin.read()
+
+    # Resolve receiver repo path via machine-local.
+    repo_key = RECEIVER_EM_TO_REPO_KEY.get(args.to)
+    receiver_path: str | None = None
+
+    if repo_key:
+        receiver_path = _machine_local_get(repo_key)
+        if receiver_path is None:
+            print(
+                f"cross-repo-memo: note: machine-local key '{repo_key}' not set "
+                f"on this machine — falling back to central-only delivery.",
+                file=sys.stderr,
+            )
+    else:
+        print(
+            f"cross-repo-memo: note: receiver '{args.to}' not in identity mapping "
+            f"— falling back to central-only delivery.",
+            file=sys.stderr,
+        )
+
+    # Determine effective delivery mode.
+    if args.delivery_mode == "central-only":
+        effective_mode = "central-only"
+        receiver_path = None  # Ignore resolved path — explicit override.
+    elif receiver_path:
+        effective_mode = "receiver-repo"
+    else:
+        effective_mode = "central-only"
+
+    filename = _memo_filename(args.topic)
+    archive_dir = os.path.join(_claude_home(), "archive", "cross-repo")
+    archive_path = os.path.join(archive_dir, filename)
+
+    receiver_side_path: str | None = None
+    if effective_mode == "receiver-repo" and receiver_path:
+        receiver_side_path = os.path.join(receiver_path, "tasks", "memos", filename)
+
+    # Compose and write receiver-side memo first (to capture its path in archive).
+    if receiver_side_path:
+        receiver_content = _compose_memo(
+            title=args.title,
+            to=args.to,
+            topic=args.topic,
+            delivery_mode="receiver-repo",
+            body=body,
+            self_receipt=args.self_receipt,
+            decision=args.decision,
+            supersedes=args.supersedes,
+        )
+        _write_file(receiver_side_path, receiver_content)
+
+    # Compose and write archive copy (always written).
+    # F6 (code-reviewer nit): absolutize receiver_copy_path so the archive frontmatter
+    # field is resolvable from any working directory.
+    archive_content = _compose_memo(
+        title=args.title,
+        to=args.to,
+        topic=args.topic,
+        delivery_mode=effective_mode,
+        body=body,
+        receiver_copy_path=os.path.abspath(receiver_side_path) if receiver_side_path else None,
+        self_receipt=args.self_receipt,
+        decision=args.decision,
+        supersedes=args.supersedes,
+    )
+    _write_file(archive_path, archive_content)
+
+    # Stdout output.
+    if not args.self_receipt:
+        if receiver_side_path:
+            print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
+        else:
+            print(
+                "WARNING: no receiver-side file written — central-only delivery. "
+                "No dirty-file backstop will fire — PM-relay is the only channel."
+            )
+        print(f"Archive copy: {os.path.abspath(archive_path)}")
+        print("Reminder: Hand the PM both paths — PM-relay is still the primary channel.")
+    else:
+        if receiver_side_path:
+            print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
+        print(f"Archive copy (audit trail): {os.path.abspath(archive_path)}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
