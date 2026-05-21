@@ -15,7 +15,7 @@
 #
 # Modes:
 #   --red-only                emit lines only for RED verdicts (session-start)
-#   --red-and-stale           emit lines for RED + stale (>24h) + missing sentinels (workday-start, default)
+#   --red-and-stale           emit lines for RED + stale (>24h) + missing sentinels + plugins declaring a doctor with no sentinel (workday-start, default)
 #   --check-sentinel-presence fresh-install bootstrap check (session-start, alongside --red-only):
 #                               exit 0 + empty output  → no plugins installed, OR sentinels exist
 #                               exit 0 + one-line msg  → plugins installed but no sentinel in any data/ dir
@@ -179,5 +179,31 @@ except Exception:
       ;;
   esac
 done
+
+# Second pass: per-plugin absent-sentinel detection (--red-and-stale only).
+# Surfaces plugins that declare a doctor command but have never written a
+# sentinel — the "doctor exists, never ran" failure mode that the main loop
+# (which iterates existing sentinels) silently skips.
+if [[ "$MODE" == "--red-and-stale" ]]; then
+  shopt -s nullglob 2>/dev/null || true
+  plugin_dirs=( "$PLUGINS_ROOT"/*/ )
+  for plugin_dir in "${plugin_dirs[@]}"; do
+    plugin="${plugin_dir%/}"
+    plugin="${plugin##*/}"
+
+    # Detect a doctor command across known shapes:
+    #   <plugin>/commands/doctor.md
+    #   <plugin>/plugin/commands/doctor.md      (project-rag-shape)
+    #   <plugin>/**/commands/<plugin>:doctor.md (namespace-shaped)
+    doctor_md=$(find "$plugin_dir" -maxdepth 4 -type f \( -name 'doctor.md' -o -name "${plugin}:doctor.md" \) -path '*/commands/*' 2>/dev/null | head -1)
+    [[ -z "$doctor_md" ]] && continue
+
+    # Doctor declared; check sentinel presence. If sentinel exists, the main
+    # loop above already handled verdict/staleness — skip.
+    if [[ ! -f "$PLUGINS_ROOT/$plugin/data/doctor-last-run.json" ]]; then
+      echo "[health] ${plugin}: doctor has never run (sentinel absent). Run /${plugin}:doctor to bootstrap."
+    fi
+  done
+fi
 
 exit 0

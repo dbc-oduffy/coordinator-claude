@@ -319,7 +319,61 @@ Format:
 
 ## Step 1.10: Addon Health Sentinels
 
+**First**, refresh the coordinator-claude sentinel:
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/coordinator-doctor-sentinel.sh
+```
+
+This fires the P-1..P-10 probes defined in `docs/wiki/coordinator-doctor.md` and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` in the same schema sibling plugin doctors use. The script is silent on GREEN and brief on AMBER/RED; its real output is the sentinel itself, which the scanner picks up below. Always exits 0 — advisory, never gating.
+
 Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Run `bin/scan-addon-health.sh --red-and-stale` to surface RED + stale (>24h) verdicts; on non-empty output, render under a new `### Addon Health` section (between `### Auto-Push Health` and `### Priority Suggestions`); on empty, omit. Schema + EM dispatch flow: `docs/wiki/addon-health-sentinel.md`.
+
+Additionally, run `bin/check-plugin-drift.sh` to probe git-state and venv-state drift for all registered plugin live installs. On non-empty output (exit code 1), append findings into the same `### Addon Health` section. Format the drift summary as a single line followed by details on request:
+
+```
+Plugin propagation: <summary line e.g. "project-rag 22 commits behind, venv ok" or "all clean">
+```
+
+Full per-finding breakdown is available by running `bin/check-plugin-drift.sh` directly. If the registry has no `plugin.mirrors` entries, omit this sub-section silently. `source_is_live` entries (e.g. coordinator) surface as "n/a-by-design" and are not counted as drift.
+
+Spec backlink: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 1`
+
+## Step 1.10.5: MCP Tool Registration
+
+For each entry in `~/.claude.json mcpServers` (top-level AND per-project entries under `projects.<active-cwd>.mcpServers`), confirm tools registered in this session. The probe is mechanical: the deferred-tools registry visible to you in this session's `<system-reminder>` context contains the live tool inventory; grep it for `mcp__<server-name>__` per configured server.
+
+Procedure:
+
+1. Read `~/.claude.json` (top-level `mcpServers` + per-project `projects.<active-cwd>.mcpServers`).
+2. For each configured server:
+   - Skip if `enabled: false` is present in the entry (some plugin doctors disable entries during recovery — project-rag's Step 7b does this).
+   - Skip if the entry is in a per-project block whose key is not the active cwd.
+   - Otherwise: scan your session context for any deferred-tool name beginning with `mcp__<server-name>__`. Count matches.
+3. Servers with **0 matches** are the failure class this step exists to surface. Emit one line each under an `### MCP Tool Registration` section:
+   ```
+   - <server>: 0 tools registered. Configured at <transport>:<url-or-stdio-cmd>. Investigate with /<server>:doctor.
+   ```
+4. Servers with **>0 matches** are silent. (Verbose mode may log counts for debugging; default is silent.)
+
+**Sentinel — write outcome to disk regardless of verdict.** After the probe completes, atomically write `~/.claude/plugins/coordinator-claude/data/mcp-registration-last-check.json` with this schema:
+
+```json
+{
+  "ran_at": "<ISO-8601 UTC timestamp>",
+  "verdict": "GREEN" | "RED",
+  "checked_servers": [
+    {"name": "<server>", "tool_count": <int>, "transport": "stdio"|"http", "configured_at": "<url-or-cmd>"}
+  ],
+  "red_servers": ["<server>", ...]
+}
+```
+
+`verdict` is `RED` when any checked server has `tool_count == 0`; `GREEN` otherwise. Atomic-write convention: write to `<path>.tmp`, then `mv`. This sentinel feeds `scan-addon-health.sh` and gives the probe a checkable on-disk record — if the system-reminder format ever changes upstream and this probe silently no-ops, the sentinel goes stale and `scan-addon-health.sh --red-and-stale` surfaces the staleness in the next workday-start.
+
+**Render placement.** When the `### MCP Tool Registration` section has content, render it between `### Addon Health` and `### Priority Suggestions`. When empty, omit the section heading entirely.
+
+**Out of scope.** Auto-remediation (running `/<server>:doctor` from this surface). Surfacing only — remediation stays the operator's choice.
 
 ## Step 2: Doc Freshness
 
@@ -382,26 +436,23 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 When present:
 
-1. Resolve the registered project root from `~/.claude.json`:
-   ```bash
-   python -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); print(d['mcpServers']['project-rag']['args'][-1])"
-   ```
-   Returns the `--project-root` value passed to the MCP server boot.
+1. Invoke the staleness survey directly via `project-rag-cli`. Coordinator does NOT parse `~/.claude.json` to extract project-rag's internal state — the CLI resolves its own project root via env (`PROJECT_RAG_PROJECT_ROOT` / legacy `HOLODECK_PROJECT_ROOT`) or cwd-walk. Set the env var to the active project root and invoke:
 
-2. Locate the plugin's cli.py via `~/.claude.json` → `mcpServers.project-rag.args` (script path; same parse as step 1).
-
-3. Invoke the staleness survey:
    ```bash
-   python <plugin-cli-path> staleness-survey --project-root <project-root> --json
+   PROJECT_RAG_PROJECT_ROOT="$(pwd)" project-rag-cli staleness-survey --json
    ```
 
-4. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline
-   the rendered output into the Morning Briefing under a new **Project-RAG**
-   line (template below).
+   If `project-rag-cli` is not on PATH, fall back to:
 
-**Flag-only — never auto-run.** A reindex (`/project-rag:index --incremental`)
-can race with an open editor and risks project-lock contention. The PM invokes
-the recommendation manually after `/workday-start` completes.
+   ```bash
+   PROJECT_RAG_PROJECT_ROOT="$(pwd)" python -m project_rag.cli staleness-survey --json
+   ```
+
+2. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline the rendered output into the Morning Briefing under a new **Project-RAG** line (template below).
+
+**Doctrine — no parsing peer-plugin config from coordinator.** Coordinator's contract with plugin CLIs is `invoke + read exit code + read stdout`. Reaching into `~/.claude.json` to reconstruct args a plugin CLI could resolve itself is cross-plugin contract leakage and breaks whenever the plugin migrates transport (e.g., the 2026-05-13 stdio→HTTP migration that caused the dogfood bug this step now avoids). See `docs/wiki/plugin-extraction-and-distribution.md` § Cross-plugin contract for the general doctrine.
+
+**Flag-only — never auto-run.** A reindex (`/project-rag:index --incremental`) can race with an open editor and risks project-lock contention. The PM invokes the recommendation manually after `/workday-start` completes.
 
 ## Step 4: Priority Alignment
 

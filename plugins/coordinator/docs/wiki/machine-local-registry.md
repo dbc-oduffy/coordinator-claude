@@ -157,6 +157,27 @@ This is **belt-and-suspenders, not co-equal**. Registry is the preferred primary
 
 Port-time cleanup uses sibling-relatives because that is still better than absolute paths leaking into shipped code. Runtime discovery prefers machine-local because the operator has a stable location to declare their actual layout. Cross-link: `docs/wiki/plugin-extraction-and-distribution.md § 11`, `docs/wiki/cross-repo-citation-conventions.md § Sibling-layout convention`.
 
+## 5a. Schema-Authorship vs. Value-Writing — Who Owns What
+
+A recurring failure mode (observed across multiple EM sessions, 2026-05) is reading "the coordinator owns the registry" as "EMs other than the coordinator team should not write here," then sidecarring `~/.<tool>/config.toml` to avoid the perceived gate. That is the opposite of the design intent. Two distinct authorities are at play; conflating them is the bug:
+
+- **Schema authorship** (coordinator-team responsibility). The shape of shared keys (`repos.*`, `install.*`, `plugin.mirrors.*`), the resolution order (§4), the reader contract (§7), and the helper surface (`bin/machine-local`, `claude-machine-local.sh/ps1`, the Python module) are coordinator-governed because every consumer depends on them. Changing the reader contract, renaming a shared namespace, or adding a tracked baseline key requires coordinator-team coherence.
+
+- **Value writing** (anyone on the machine). Appending values under existing namespaces, opening a new tool-specific namespace (`mything.*`), or hand-editing per-machine paths in `registry.local.toml` does NOT require coordinator-team sign-off. The reader is schemaless by design — no per-key validation, no declaration step (§7). The registry's whole value proposition is being the convenient shared place that prevents per-tool sidecars from accreting; gatekeeping value-writes would defeat the substrate.
+
+The library/service distinction is useful here: this is a **library**, not a **service**. The coordinator ships the schema and helpers; callers freely write values under the schema. Treating it service-shaped (writes mediated by the coordinator team) is the misread §5b exists to correct.
+
+## 5b. Adding a Value or Namespace — The Cheap Path Is the Default
+
+Four shapes, only one is heavyweight:
+
+1. **Per-machine path that varies across your machines.** Append a key to `registry.local.toml`. No declaration step required. The reader is schemaless; declaring an empty placeholder in tracked `registry.toml` is *optional* and only useful if you want the key shape to be discoverable across machines via git.
+2. **New namespace cluster you own** (`mything.*`, `mytool.*`). Just use it. The `concerns` array (§6) gates *concern-file isolation* (whether `mything.*` reads from a separate `mything.toml`), not *namespace existence*. A new namespace under `registry.local.toml` needs zero registration.
+3. **Sanctioned auto-writer** (your installer or daemon writes values, not just reads them). Heavier — §6's machine-generated-write-authority criterion applies, with single registered writer, declared sources, loud-fail on collision, and a `[provenance]` table. Worked example on disk: `project_rag.toml`. This is the only path that warrants the heavier criteria; it is heavy because *unsupervised writers* need clobber-discipline, not because *humans/EMs adding values* do.
+4. **Hand-edited cross-machine value** (same on every machine — schema version, a public URL). Append to `registry.toml`. It travels via git.
+
+If you find yourself reading the wiki to figure out whether you "may" add a value — the answer is yes, cases 1, 2, and 4 are the default and need no authorization. Case 3 is the only one with criteria, and the criteria gate *automated writer patterns*, not human authorship.
+
 ## 6. Concern-file Convention
 
 Most values belong in the core `registry.toml`. A concern file (`unreal.toml`, `cuda.toml`) is warranted only when a surface meets at least one of:
@@ -165,7 +186,7 @@ Most values belong in the core `registry.toml`. A concern file (`unreal.toml`, `
 - Version-multiplexed values (e.g., Unreal 5.4, 5.5, 5.6 each with their own install root), OR
 - **Machine-generated write authority** — the file is written by an automated process from declared sources (e.g., `cli.py wire` aggregating each installed addon's `CorpusBand.required_env` declarations), not hand-edited by the operator. Concern-file isolation here is doing different work from the count/version criteria: it separates machine-generated content from operator-edited config so the automated writer's clobber radius can never touch operator-set values, and so the file's `[provenance]` attribution stays co-located with the keys it describes. The criterion gates on the **writer pattern** (registered automated aggregator from declared sources), not on key count or addon presence — a hypothetical addon whose two keys are hand-edited by the operator still belongs in `registry.local.toml`. Worked example: `project_rag.toml` (2 keys, unversioned, but written exclusively by `cli.py wire` from each installed addon's declared sources; loud-fail on cross-addon key collision; `[provenance]` table records addon→key attribution that the predecessor `wiring.env` lost). Hand-editing a `wire`-managed key would be silently clobbered on the next addon install — the operator's leverage is via the source declarations, not the concern file.
 
-When a concern file is listed in `registry.toml`'s `concerns` array, that concern's namespace (`unreal.*`, `cuda.*`) is **owned exclusively by the concern file**. Keys with that prefix in `registry.toml` are ignored and emit a warning — the concern file wins. Put `unreal.*` keys EITHER in the core registry OR in `unreal.toml`, never both.
+When a concern file is listed in `registry.toml`'s `concerns` array, that concern's namespace (`unreal.*`, `cuda.*`) is **resolved exclusively from the concern file**. Keys with that prefix in `registry.toml` are ignored and emit a warning — the concern file wins. Put `unreal.*` keys EITHER in the core registry OR in `unreal.toml`, never both. This is a read-resolution rule (avoids silent shadowing for operators), not an ownership/permission rule — see §5a for the schema-authorship-vs-value-writing distinction.
 
 **Extension path (per the Director of Engineering review, F7).** If a future need for per-repo metadata (kind, role, version, consumer-set) emerges, the extension path is a new concern file (e.g., `repos_meta.toml`), not restructuring the flat `repos.*` namespace. The flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). YAGNI: add the concern file if and when the need is concrete; this note just records that the extension path exists so a future contributor does not feel forced to restructure the baseline.
 
@@ -278,9 +299,38 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 | `~/.claude/machine-local/` | coordinator | TOML registry — see §1–10 above | The config substrate, not a project state dir |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |
 
-**Adding a new namespace.** Register here in the same commit that creates the directory on disk. PM-authorized; DoE-altitude doctrine call (the per-project namespace claim is shared infra, not a project-internal choice).
+**Adding a new top-level FS namespace under `~/.claude/<project>/`.** This is the DoE-altitude call: claiming a top-level directory under `~/.claude/` is an FS-namespace claim that other projects might collide with, and the §1.2 critique of `~/.<project>/` accretion is what this row exists to prevent. Register here in the same commit that creates the directory on disk; PM-authorized.
+
+**Distinct from — adding a TOML key or table inside the registry.** Adding a new key in `registry.local.toml`, opening a new dotted namespace (`mything.*`), or even authoring a new concern file under §6 criteria is NOT DoE-altitude. See §5a (authorship vs. value-writing) and §5b (the cheap path for adding values). The FS-namespace gate here is about *new top-level directories on disk*, not about *content inside the registry's existing namespace*.
 
 **Retiring `~/.<project>/` top-level dirs.** When a project still owns a `~/.<project>/` top-level namespace, migrate to `~/.claude/<project>/` and register here. Operator-visible path migration; one release of relocation logic. The `~/.project-rag/wiring.env` retirement (PM-handled, downstream of this registry shipping) is the worked precedent.
+
+## 12. `plugin.mirrors` — Plugin Live-Install Tracking
+
+<!-- spec-backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 -->
+
+The `plugin.mirrors` table namespace registers plugins whose live install may be a separate git checkout of the plugin's source repo. The drift probe (`bin/check-plugin-drift.sh`) reads these entries to detect when a live install has fallen behind its source.
+
+**Full schema, field reference, and operator examples live in `~/.claude/machine-local/README.md § plugin.mirrors`** — do not duplicate here. The summary below covers only the doctrine decision points.
+
+### Two modes, two structural shapes
+
+| Mode | When to use | Drift probe behavior |
+|---|---|---|
+| Default (git-checkout-managed) | Live install is a separate git checkout; source changes must be explicitly propagated via `bin/refresh-plugin-live-install.sh` | Checks git-state (commits-behind) and venv-state (editable pin, MAPPING integrity, console-script shims) |
+| `propagation_mode = "source_is_live"` | Live install IS the canonical source (e.g., coordinator — `~/.claude/` is both source and install) | Emits `[n/a] propagation_mode=source_is_live` and skips all checks |
+
+### `source_is_live` rationale
+
+For the coordinator plugin, edits happen directly inside `~/.claude/`. There is no "source → live" propagation step because source and live are the same directory. Registering this with `propagation_mode = "source_is_live"` communicates the structural distinction to the probe so it does not report false drift. Outward percolation (`install → publish-repo` via `publish.sh`) is a separate concern and unaffected by this entry. See `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` for the source-direction inversion rationale.
+
+### `track_ref` lifecycle
+
+**`track_ref` lifecycle.** Register against `origin/main` by default. Pin to a workbranch (e.g. `origin/work/<machine>/<date>`) only during active rollout, and flip back to `origin/main` at merge — otherwise the drift probe goes silent (when the workbranch is deleted post-merge) or errors. Plugin authors with separate-checkout-style live installs (project-rag, project-rag-ue-addon, future plugins) should set this field as part of registration; the drift probe (`bin/check-plugin-drift.sh`) reads it.
+
+### Idempotent registration
+
+`/coordinator:setup` Phase 3 Step 5 writes the `[plugin.mirrors.coordinator-claude]` entry to `registry.local.toml` on first run. Re-running `/setup` is idempotent — it checks for the section header before appending. Values set here follow the `registry.local.toml` gitignore convention (§9): the structural shape is declared in `registry.toml`; the machine-specific `live_path` goes in `registry.local.toml`.
 
 ## Verifying Registry Health
 

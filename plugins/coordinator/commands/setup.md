@@ -291,6 +291,90 @@ Under interactive, ask once via `AskUserQuestion`:
 
 **See:** `docs/wiki/machine-local-registry.md` (substrate doctrine + § 4a CLAUDE_HOME resolver), `coordinator/lib/install-substrate.sh` (mechanical contract), `coordinator/lib/claude-home/README.md` (claude-home module), `docs/wiki/coordinator-doctor.md` (post-install probes).
 
+### Step 5 — Register coordinator plugin in `plugin.mirrors` (idempotent)
+
+<!-- spec-backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 / AC-7 -->
+
+The coordinator plugin's live install IS the canonical source — `~/.claude/` itself. No inward propagation step is needed; edits flow outward via `publish.sh`. Register this structural fact in `registry.local.toml` under `plugin.mirrors` so the drift probe (`bin/check-plugin-drift.sh`) can surface it as `n/a-by-design` rather than treating it as an unchecked entry.
+
+Skip if `--check-only`. Run under `--non-interactive`.
+
+**Idempotency check:** before writing, check whether the section already exists.
+
+```bash
+_reg="$(claude-home machine-local)/registry.local.toml"
+if [ -f "$_reg" ] && grep -q '\[plugin\.mirrors\.coordinator-claude\]' "$_reg" 2>/dev/null; then
+  echo "plugin.mirrors.coordinator-claude already registered — skipping."
+else
+  # Resolve coordinator live_path via claude-home
+  _coordinator_live="$(claude-home plugins)/coordinator-claude/coordinator"
+
+  # Append the section (atomic: write to tmp, append content, mv into place is not safe for append;
+  # use a direct append after idempotency confirmed above)
+  cat >> "$_reg" <<TOML
+
+[plugin.mirrors.coordinator-claude]
+# Live install IS canonical source — registered automatically by /coordinator:setup
+# Drift probe and refresh script treat this as n/a-by-design; no git/venv legs to check.
+propagation_mode = "source_is_live"
+live_path = "${_coordinator_live}"
+TOML
+
+  echo "Coordinator plugin registered (source_is_live mode). Drift probe will skip it as n/a-by-design."
+fi
+```
+
+If `registry.local.toml` does not yet exist at this point (operator declined seed in Step 3), create it with minimal TOML boilerplate before appending:
+
+```bash
+_reg="$(claude-home machine-local)/registry.local.toml"
+if [ ! -f "$_reg" ]; then
+  printf 'schema = 1\n' > "$_reg"
+fi
+```
+
+Run this creation guard before the idempotency check above, so the grep is always against an existing file.
+
+**`--check-only` behavior:** if the section is absent, emit status row `coordinator_plugin_mirrors: would write`; if present, emit `coordinator_plugin_mirrors: ready`.
+
+Add a `Coordinator plugin.mirrors` row to the Phase 7 status table.
+
+---
+
+### Step 6 — Install `coordinator_whoami` package (idempotent)
+
+<!-- spec-backlink: docs/plans/2026-05-21-whoami-first-class-substrate.md § Chunk 1 / AC-1, AC-2, AC-3, AC-15 -->
+
+<!-- D4 annotation (coordinator_whoami install): default-with-warning — no prompt site; install fires mechanically. Under --non-interactive: same as interactive default (no prompt was ever asked). Status row is `failed` on non-zero pip exit; chain continues. -->
+
+Probe whether the package is already importable:
+
+```bash
+python3 -c "import coordinator_whoami" 2>/dev/null
+```
+
+**If import succeeds:** emit status row `coordinator_whoami: ready`. No mutation. (Re-using an existing install is invisible to the status table; the idempotency contract is satisfied.)
+
+**If import fails:**
+
+- Under `--check-only`: emit status row `coordinator_whoami: would write`. No mutation. Exit Step 6.
+- Otherwise: run the editable install:
+
+```bash
+python3 -m pip install -e "${CLAUDE_PLUGIN_ROOT}/coordinator/whoami/"
+```
+
+Capture the exit code.
+
+- On exit 0: emit status row `coordinator_whoami: ready`.
+- On non-zero exit: emit status row `coordinator_whoami: failed`. Log the pip stderr tail separately (do NOT encode reason into the status value — `failed` is a bare token per the schema). **Do not halt the setup chain** — surface the failure in the status table and continue. This step is not a hard precondition like the `machine-local` substrate in Step 1 (which issues FATAL and aborts). Missing `coordinator_whoami` is operationally visible but not chain-blocking.
+
+Under `--non-interactive`: behavior is identical to the default interactive path — the install fires without prompting. There is no prompt site in this step.
+
+Add a `coordinator_whoami` row to the Phase 7 status table.
+
+**See:** `docs/wiki/coordinator-doctor.md` — post-install probe P-5 (package importable) verifies this step's outcome on the live system.
+
 ---
 
 ## Phase 4 — Meta-repo doctrine
@@ -460,6 +544,7 @@ Present a summary table:
 | bin/ resolvers              | ... (`ready (7/7)` / `partial (N/7: <missing>)` / `FATAL`) — `machine-local` (registry reader) + `claude-home` (path resolver) + `python3.cmd` shim, plus three `.cmd` Windows shims |
 | Windows PATH + Python shims | ... (n/a non-Windows / `ready` / `PATH-added, restart shells` / `WARNING: <stub\|alias\|no-python>`) |
 | Registry seed               | ... (`seeded (Y)` / `declined (N)` / `skipped (non-interactive)` / `pre-existing`) |
+| Coordinator plugin.mirrors  | ... (`ready` / `would write` / `skipped (--check-only)`) |
 | `~/.claude` git tracking    | ... |
 | coordinator.local.md        | ... |
 | Percolation                 | ... (n/a if not a percolation source) |

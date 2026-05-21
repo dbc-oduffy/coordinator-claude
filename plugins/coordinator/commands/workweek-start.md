@@ -7,7 +7,7 @@ argument-hint: ""
 
 # Workweek Start — Weekly Strategic Orient
 
-PM-facing weekly bookend. Sets the week's context, surfaces carryover, and writes priorities into `tasks/week-changelog/HEADER.md`. Distinct from `/workday-start` (tactical daily orient) — this is the workstream-boundary ceremony.
+PM-facing weekly bookend. Sets the week's context, surfaces carryover, and writes priorities into `tasks/week-changelog/HEADER.md`. The workstream-boundary ceremony for the week — and by definition also the day's first orient, so this command chains into `/workday-start` at the end (Step 7).
 
 **Design contract:** handoffs are the atom; HEADER.md is the weekly index header. This command reads existing artifacts (changelog, tracker, handoffs) — it does not reconstruct or re-author them.
 
@@ -155,6 +155,16 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 
 ---
 
+## Step 7: Chain into /workday-start
+
+A new workweek's first session is also a new workday — the daily orient (session reaper, branch reconcile, handoff triage, staleness surfacing, orientation cache refresh) still has to happen. Invoke it now via `Skill(coordinator:workday-start)` so the PM gets a single chained briefing rather than having to re-invoke manually.
+
+If `/workday-start` has already run today (check `tasks/.workday-start-marker` or equivalent freshness signal it maintains), the skill itself will short-circuit — no special handling needed here. Just invoke unconditionally.
+
+After the chained `/workday-start` returns, emit the combined Workweek Start + Workday Start summary below.
+
+---
+
 ## Output
 
 After completing all steps, emit a brief summary:
@@ -177,6 +187,6 @@ After completing all steps, emit a brief summary:
 
 ### Relationship to Other Commands
 
-- **`/workday-start`** — tactical daily orient. Not the same ceremony.
+- **`/workday-start`** — tactical daily orient. Different ceremony, but `/workweek-start` chains into it (Step 7) because the week's first session is also a workday.
 - **`/workweek-complete`** — the weekly close; it resets HEADER.md and archives daily files as part of its Step 14. `/workweek-start` detects that reset and does a full re-init.
 - **`/pickup`** — gains a "while you were away" surface from the week-changelog; reads HEADER.md to determine week bounds.
