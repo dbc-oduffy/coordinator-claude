@@ -2,6 +2,13 @@
 #
 # Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.2
 #
+# HAND-EDIT CAUTION — this file is git-tracked and shared across machines.
+# Do NOT add machine-specific absolute paths here; they belong in registry.local.toml.
+# Use `machine-local set <key> <value>` for per-machine values (writes to .local.toml).
+# Direct edits to this file should be key DECLARATIONS (empty string values) or
+# values that are truly identical on every machine you work from.
+# If an EM or executor told you to add a path here, that is a bug — file it.
+#
 # Copy this file to registry.toml and fill in values for your machine.
 # Values that differ per-machine go in registry.local.toml (gitignored).
 # Single-machine operators can put all values here and skip the .local layer.
@@ -38,8 +45,17 @@ schema = 1
 # ---------------------------------------------------------------------------
 # publish.sh target registry (migrated from setup/publish-targets.sh).
 #
-# Array of pipe-separated rows matching the original TARGETS format:
-#   "<plugin-name>|<mode>|<source-path>|<dest-path>"
+# Array of pipe-separated rows. Two tuple shapes are supported:
+#
+#   Legacy 4-field:   "<plugin-name>|<mode>|<source-path>|<dest-path>"
+#   Extended 5-field: "<plugin-name>|<mode>|<source-path>|<dest-path>|<native_slugs>"
+#
+# native_slugs (optional 5th field): comma-separated list of marketplace
+# slugs that are EXPECTED in this target's content. publish.sh's personal-
+# data audit treats these as expected matches instead of REVIEW hits. Use
+# for publish targets whose published content naturally mentions another
+# marketplace identity (e.g. a target shipping a marketplace-flavored plugin
+# where the marketplace slug is part of the public identity).
 #
 # Uncomment and populate when you're ready to migrate from publish-targets.sh.
 # Leaving this key absent (commented out) lets _load_targets fall through to
@@ -49,6 +65,10 @@ schema = 1
 # Review: code-reviewer (F8) — empty-array default was misleading; operator
 # copying the example as-is would get a silent empty-array path with no targets.
 # "publish.targets" = []
+# "publish.targets" = [
+#   "coordinator-claude|mirror|/path/to/source/plugins/coordinator-claude|/path/to/coordinator-claude/plugins",
+#   "example-target|manifest|/path/to/source/plugins/example-plugin|/path/to/example-publish-repo|your-marketplace-slug",
+# ]
 
 # ---------------------------------------------------------------------------
 # Concern files.
@@ -64,4 +84,5 @@ schema = 1
 #
 # Uncomment and extend as needed:
 # concerns = ["unreal", "cuda"]
+concerns = ["project_rag", "unreal"]
 # ---------------------------------------------------------------------------

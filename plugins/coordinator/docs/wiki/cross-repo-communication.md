@@ -94,9 +94,41 @@ The default reflex on a cross-repo deliverable is to ship the contract artifact 
 
 Otherwise: verify in-session, ship both producer and consumer halves under one workstream, file no handoff.
 
+## Doctrine seeding vs. code/install-surface change — two different cross-repo altitudes
+
+> Added 2026-05-21 under PM ruling (see `~/.claude/docs/plans/2026-05-21-install-surface-completeness-doctrine.md` § PM-Q1 RESOLVED): not all cross-repo writes are the same. Doctrine and code live at different altitudes; conflating them produces churn.
+
+Two altitudes:
+
+### Doctrine seeding (DoE altitude)
+
+CLAUDE.md additions, `docs/wiki/` entries, agent-prompt amendments, skill/hook authorial changes — anything that shapes *how* a sibling repo's EM works rather than *what* code runs.
+
+- **Legitimate as direct cross-repo write** when authored from DoE / HoP altitude (central-EM acting on PM direction). The DoE has standing to seed alignment across repos.
+- **Provenance required.** Commit message names the doctrine-seeding context: `"DoE doctrine-seeding under PM direction <date>; sibling EM may amend on receipt"`.
+- **Sibling EM may amend on receipt.** Doctrine seeded into another repo isn't a fait-accompli; the receiving EM has the standing to refine, contextualize, or push back via memo if the seeded doctrine misfits.
+
+### Code / install-surface change (EM altitude)
+
+Source edits, machine-local entries, install scripts, sentinel files, registry edits, hook execution semantics — anything that changes *what runs* on a sibling repo's install surface.
+
+- **Routes via memo, not direct write — and the PM relays.** `archive/cross-repo/` for archival briefs, `tasks/memos/` for live consult chains. **Writing the memo file is half the work; the other half is handing the PM the path so they ferry it to the affected sibling EM.** A memo written without PM-relay is a document dropped in a hole — the affected EM has no signal to look at it. Per the decision-tree section above ("Tell another repo's EM about something"), the PM is the only cross-repo relay; the file is the record, not the trigger. Once briefed, the sibling EM lands the change with their own implementation context.
+- **PM-authorized direct writes are the documented exception**, not the default. Record the authorization in the commit message when invoked.
+- **Why the altitudes differ.** Doctrine is alignment work the DoE owns; code is implementation work the sibling EM owns. Conflating them produces churn in both directions — DoE doctrine that never lands because it routed through a slow memo loop, OR sibling-repo code edits that lose the implementing EM's context.
+
+### the Director of Engineering's cross-repo stance — lean, don't diktat
+
+The Director of Engineering (DoE) carries cross-team / cross-repo authority that EM-altitude reviewers (the Staff Engineer et al.) do not. **In meatspace, nobody likes a DoE who parades around making calls for another team.** the Director of Engineering's posture in this regime:
+
+- **Doctrine altitude: author and seed directly.** the Director of Engineering can write doctrine that lands in sibling repos (CLAUDE.md additions, wiki entries, agent prompts) under PM direction. This is alignment authority.
+- **Code/install-surface altitude: lean, name the direction, insist on coordination.** the Director of Engineering can say "the producer should expose X" or "the consumer is making an assumption that won't hold" — as a recommendation, with reasoning. Findings that implicate a sibling repo's code or install surface MUST surface as `cross_team_directive` requesting EM-coordination (memo to `archive/cross-repo/` or `tasks/memos/` **and PM-relay to the affected EM** — the Director of Engineering writes the memo, the EM dispatching the Director of Engineering hands the PM the link), not as a directive landed on the peer's surface.
+- **The catalyst, not the implementer (for code).** Code changes that follow from the Director of Engineering's recommendations route through the standard memo channel; the sibling EM lands the change in their own repo with their own context.
+- This narrows the previous the Director of Engineering framing ("Your finding stands as a directive, not a polite suggestion") to the *code-altitude* axis. Doctrine-altitude authority is preserved and made explicit. The previous framing produced cleanup churn when the Director of Engineering's code-altitude directives on peer-repo surfaces landed without the affected EM's context.
+
 ## See also
 
 - `skills/handoff/SKILL.md` Step 0 — handoff trigger gate (YES-tests / NO-tests)
 - `skills/spinoff/SKILL.md` Step 0 — PM-authorization gate
 - `skills/session-end/SKILL.md` — lessons/state capture
 - `CLAUDE.md` § Handoff Lineage — single-predecessor doctrine
+- `~/.claude/docs/wiki/install-surface-completeness.md` — the universal install-surface rule, which combines with the cross-repo doctrine differently at the two altitudes above

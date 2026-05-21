@@ -1,0 +1,29 @@
+# .percolate-ignore for the coordinator-claude-publish-repo-toplevel flat-mirror target.
+#
+# Files listed here are protected in BOTH directions:
+#   Phase 1 (src→dst): not synced from source (we don't carry them in dist/).
+#   Phase 2 (dst delete-not-in-source): protected from deletion in the publish repo root.
+#
+# These are publish-repo-owned infrastructure files, NOT content we originate.
+# The publish repo authors them locally; Claude Central does not back-percolate them.
+
+# The .percolate-ignore file itself shouldn't appear in the publish repo root —
+# it's a source-side control file, not OSS-facing content.
+.percolate-ignore
+
+# README-meta.md explains the dist/ namespace to EM sessions in Claude Central
+# — internal documentation, not OSS-facing content. Names Claude Central's
+# repo layout and source paths that should not appear at the publish repo root.
+README-meta.md
+
+# Publish-repo's own gitignore patterns (different from Claude Central's gitignore).
+.gitignore
+
+# Publish-repo's Python venv pin (per-publish-repo, not authored here).
+.python-version
+
+# Publish-repo's CLAUDE.md is the depersonalized OSS-facing variant of our doctrine.
+# Today it's authored in the publish repo; back-percolating it is a separate decision
+# (would require running depersonalize-for-publish.sh against ~/.claude/CLAUDE.md and
+# placing the output here). Deferred — protect for now.
+CLAUDE.md

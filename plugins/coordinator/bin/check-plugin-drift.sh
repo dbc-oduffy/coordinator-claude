@@ -142,11 +142,14 @@ _check_plugin() {
         site_packages="${venv_dir}/Lib/site-packages"
     else
         local sp_candidate
+        # Review: code-reviewer (chain-end finding #5) — python3.x was a non-functional
+        # placeholder when glob returns nothing. Leave site_packages="" on miss so
+        # downstream venv legs skip gracefully instead of probing a nonexistent path.
         sp_candidate="$(ls -d "${venv_dir}/lib/python"*/site-packages 2>/dev/null | head -1)"
         if [[ -n "$sp_candidate" ]] && [[ -d "$sp_candidate" ]]; then
             site_packages="$sp_candidate"
         else
-            site_packages="${venv_dir}/lib/python3.x/site-packages"
+            site_packages=""
         fi
     fi
 
@@ -215,17 +218,25 @@ import sys, hashlib, pathlib
 print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
 HASHEOF
 )" || current_hash=""
-        if [[ -n "$current_hash" ]] && [[ -f "$REFRESH_LOG" ]]; then
-            local last_hash
-            last_hash="$(grep " ${plugin_name} " "$REFRESH_LOG" 2>/dev/null | grep "pyproject_hash=" | tail -1 | sed 's/.*pyproject_hash=\([a-f0-9]*\).*/\1/' | tr -d '\r')" || last_hash=""
-            if [[ -n "$last_hash" ]] && [[ "$current_hash" != "$last_hash" ]]; then
+        # Review: code-reviewer (chain-end finding #2) — honor CURRENT_PYPROJECT_HASH_OVERRIDE
+        # when set by refresh-plugin-live-install.sh post-flight invocation.  This allows
+        # the probe to compare against the just-updated hash without requiring a pre-write
+        # to the audit log (which caused a double-row on every successful refresh).
+        local baseline_hash="${CURRENT_PYPROJECT_HASH_OVERRIDE:-}"
+        if [[ -z "$baseline_hash" ]] && [[ -f "$REFRESH_LOG" ]]; then
+            baseline_hash="$(grep " ${plugin_name} " "$REFRESH_LOG" 2>/dev/null | grep "pyproject_hash=" | tail -1 | sed 's/.*pyproject_hash=\([a-f0-9]*\).*/\1/' | tr -d '\r')" || baseline_hash=""
+        fi
+        if [[ -n "$current_hash" ]] && [[ -n "$baseline_hash" ]]; then
+            if [[ "$current_hash" != "$baseline_hash" ]]; then
                 echo "[drift] venv-pyproject: $plugin_name pyproject.toml changed since last refresh"
                 plugin_drift=1
-            elif [[ -z "$last_hash" ]]; then
-                echo "[info] venv-pyproject: $plugin_name no refresh baseline found"
             fi
-        elif [[ -n "$current_hash" ]] && [[ ! -f "$REFRESH_LOG" ]]; then
-            echo "[info] venv-pyproject: $plugin_name no refresh log found"
+        elif [[ -n "$current_hash" ]]; then
+            if [[ -f "$REFRESH_LOG" ]]; then
+                echo "[info] venv-pyproject: $plugin_name no refresh baseline found"
+            else
+                echo "[info] venv-pyproject: $plugin_name no refresh log found"
+            fi
         fi
     fi
 
@@ -247,18 +258,15 @@ for finder in finder_files:
         src = finder.read_text(encoding="utf-8")
         m = re.search(r'MAPPING\s*=\s*(\{[^}]*\})', src, re.DOTALL)
         if not m:
-            continue
+            # Review: code-reviewer (chain-end finding #12) — on eval failure, skip the
+            # MAPPING check entirely and emit NO_FINDER rather than running a global
+            # regex that can match 'str':'str' pairs in comments or docstrings.
+            print("NO_FINDER"); sys.exit(0)
         try:
             mapping_dict = eval(m.group(1))
         except Exception:
-            for vm in re.finditer(r"'[^']+'\s*:\s*'([^']+)'", src):
-                c = pathlib.Path(vm.group(1))
-                if not c.exists():
-                    stale_paths.append(str(c))
-                    continue
-                try: c.resolve().relative_to(live_path)
-                except ValueError: stale_paths.append(str(c))
-            continue
+            # Eval failed — skip rather than falling back to unscoped regex.
+            print("NO_FINDER"); sys.exit(0)
         if not isinstance(mapping_dict, dict):
             continue
         for path_str in mapping_dict.values():

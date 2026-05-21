@@ -122,7 +122,12 @@ machine-local get <key> --default <v>  # print value or default; always exit 0
 machine-local has <key>                # exit 0 if present, exit 1 if absent (no output)
 machine-local keys                     # list all known keys, one per line
 machine-local path                     # print absolute path to the active registry.toml
+machine-local set <key> <value>        # write a value to registry.local.toml (preferred over hand-edit)
+machine-local set <key> <value> --global   # write to registry.toml (tracked/shared)
+machine-local set <key> <value> --dry-run  # print what would be written without changing anything
 ```
+
+**`set` is the preferred write primitive.** Any EM, executor, or installer that needs to populate a registry value should use `machine-local set` rather than editing the TOML files directly. `set` is atomic (write-to-tmp + rename), idempotent (safe to re-run), and concern-aware (refuses to write keys that belong to a loaded concern file's namespace). Direct hand-edits are fragile — they do not reproduce on reinstall and will not transfer to a new machine automatically.
 
 ### Resolution order (most-specific first)
 

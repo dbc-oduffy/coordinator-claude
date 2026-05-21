@@ -65,9 +65,7 @@ Always ask the PM:
 
 - **(a)** → proceed to Phase 1.5 / Phase 2 unchanged. No injection.
 - **(b)** → STOP. Do not proceed to Phase 2. Report:
-  > _"You answered (b) — distribution repo. Onboarding infrastructure doesn't belong here — it's a product, not a workspace. Track work on this repo from your parent project's tracker instead."_
-  >
-  > _This is the correct exit — a distribution repo's CLAUDE.md is a template for downstream users, its .gitignore intentionally excludes session artifacts, and its workstreams belong in the tracker of whoever maintains it._
+  > _"You answered (b) — distribution repo. Onboarding infrastructure doesn't belong here. Track work on this repo from your parent project's tracker instead."_
 - **(c)** → proceed exactly like (a), AND inject a one-line note in the generated CLAUDE.md (Phase 3a) and the generated tracker (Phase 3b):
   > _"This repo is published as its own working artifact — consumers see the full directory shape including `tasks/` and `archive/`."_
 
@@ -91,7 +89,7 @@ If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) a
 
 Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
 
-**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show the captured profile to the PM in Phase 2 as labeled context above question 2 — `_(detected stack: <one-line summary>)_`. The PM's answer is authoritative; detection is sanity-check material, not a substitute. Output is advisory stdout only — no skill, agent, or hook reads it programmatically; adding a consumer requires a separate plan (per `archive/specs/2026-05-06-detect-project-runtime.md`).
+**Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show to PM in Phase 2 above question 2 as `_(detected stack: <one-line summary>)_`. PM's answer is authoritative; detection is sanity-check only. Output is advisory stdout — no skill/agent/hook reads it programmatically (adding a consumer requires a separate plan per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
 **Derived type from markers:** Once the marker scan returns, derive a `detected_type` (and `detected_subtypes` if applicable) using these rules, in priority order:
 
@@ -108,13 +106,12 @@ Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no t
 
 **Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold:
 
-- **1.5a:** Read project root `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present.
+- **1.5a:** Read `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present.
 - **1.5b:** If `tasks/handoffs/` exists, scan the most-recent 5 handoffs for stack/tooling clues.
-- **1.5c:** Peer-repo scout — if `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
-- Output: a 5–10 line "onboarding substrate snapshot" (toolchain, active workstreams, known conventions, sibling-repo context) to scratch before Phase 2.
-- Onboard from substrate before asking the PM; cold-ask is the fallback when substrate is empty.
+- **1.5c:** If `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
+- Output: a 5–10 line substrate snapshot (toolchain, workstreams, conventions, sibling-repo context). Cold-ask is the fallback when substrate is empty.
 
-**Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items to orient on what this repo has shipped in the last quarter — especially valuable when joining cold.
+**Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items — especially valuable when joining cold.
 
 ```bash
 bin/query-records --type completion --since "90d" --where "nature=roadmap" \
@@ -128,7 +125,7 @@ Render under a fixed subsection heading in the Phase 4 REPORT (per `docs/wiki/or
 <results — one bullet per row, or "(none)" when the query returns zero rows>
 ```
 
-The `(none)` case is expected on new repos or repos that haven't run the completion-log migration. Render the heading regardless — count-always.
+The `(none)` case is expected on new repos. Render the heading regardless — count-always.
 
 Otherwise:
 
@@ -140,7 +137,7 @@ Otherwise:
 Draft proposals from what you read:
 
 - **Project name** — from README H1 or repo directory name.
-- **Project type + subtypes** — from manifest signals + README role description, reconciled with the Phase 1 runtime-marker output. If the README/manifest-based proposal differs from `detected_type`, surface both with the proposed type winning (README role description is richer signal than file-presence heuristics), and emit this inline challenge in the ratification block:
+- **Project type + subtypes** — from manifest signals + README role description, reconciled with Phase 1 runtime-marker output. If proposal differs from `detected_type`, surface both with proposal winning and emit:
 
   > *Detected stack suggests `{detected_type}`. README/manifests suggest `{proposed_type}`. Going with `{proposed_type}` — confirm or override.*
 - **Initial workstreams (1-3)** — derived from README "what this does" + recent commit subjects + any "Roadmap" / "TODO" / "Status" sections. If the repo names sibling repos (path on disk, GitHub URL, or "split" / "addon" / "upstream" / "downstream" language), capture each as `peer_repo_candidates`.
@@ -161,45 +158,27 @@ Present proposals to the PM for ratification:
 
 On ratification: skip Phase 2's name + workstreams questions; only ask if PM corrected something or said "go cold."
 
-On peer-repo presence: ask once *"Dispatch parallel Explore scouts to peer repos before drafting the tracker? (recommended — they often carry schema-version, ship-state, and integration-contract context this repo doesn't.)"* If yes, dispatch Explore on each peer with a brief: *"Read README, CONTRIBUTING, and recent commits. Identify shared schemas, integration contracts, and shipped vs in-flight work relevant to {this repo's name}. Reply with file:line citations."* Wait for results before drafting tracker workstreams.
+On peer-repo presence: ask once whether to dispatch parallel Explore scouts (recommended). If yes, dispatch each with: *"Read README, CONTRIBUTING, and recent commits. Identify shared schemas, integration contracts, and shipped vs in-flight work relevant to {this repo's name}. Reply with file:line citations."* Wait for results before drafting tracker workstreams.
 
 ### Phase 2: ASK — PM Input
 
 **Skip questions Phase 1.5 already ratified. Phase 1.5 may have already pinned project name and/or workstreams; only ask the questions whose answers are still missing.**
 
-**If `coordinator.local.md` was found in Phase 1**, skip question 2 entirely — project type is already pinned. Present the remaining questions:
+**If `coordinator.local.md` was found in Phase 1**, skip question 2 — project type already pinned. Ask:
 
-> I need two things to set up this project:
->
-> **1. Project name** — short name for headers and references (e.g., "Geneva MVP", "DroneSim")
->
-> **2. Initial workstreams** (1-3) — what are you working on? For each:
->    - Name (short noun-phrase)
->    - 2-3 immediate deliverables
->    - (Optional: dependencies, blockers)
->
-> If you're not sure about workstreams yet, say "stubs" and I'll create placeholder sections you can fill in later.
+> **1. Project name** — short name (e.g., "Geneva MVP", "DroneSim")
+> **2. Initial workstreams** (1-3) — name, 2-3 deliverables, optional deps/blockers. Say "stubs" for placeholders.
 
-**If `coordinator.local.md` was NOT found in Phase 1** (cold-ask path), present all three questions:
+**If `coordinator.local.md` was NOT found** (cold-ask path), present all three:
 
-> I need three things to set up this project:
->
-> **1. Project name** — short name for headers and references (e.g., "Geneva MVP", "DroneSim")
->
-> _(detected stack: <one-line summary from Phase 1 marker scan, e.g. `Node (pnpm), Docker Compose, GitHub Actions CI`>)_
->
-> **2. Project type** — controls which domain agents and conventions are included:
+> **1. Project name** — short name (e.g., "Geneva MVP", "DroneSim")
+> _(detected stack: <one-line summary>)_
+> **2. Project type:**
 >    - `game-dev` — Game development (adds the Game Dev Reviewer reviewer, game-dev domain agents)
 >    - `web-dev` — Web frameworks (adds the Front-End Reviewer for front-end review, the UX Reviewer for UX)
 >    - `data-science` — Notebooks, pipelines (adds the Data Science Reviewer reviewer)
 >    - `general` — Standard conventions only
->
-> **3. Initial workstreams** (1-3) — what are you working on? For each:
->    - Name (short noun-phrase)
->    - 2-3 immediate deliverables
->    - (Optional: dependencies, blockers)
->
-> If you're not sure about workstreams yet, say "stubs" and I'll create placeholder sections you can fill in later.
+> **3. Initial workstreams** (1-3) — name, 2-3 deliverables, optional deps/blockers. Say "stubs" for placeholders.
 
 Wait for PM response before proceeding.
 
@@ -209,7 +188,7 @@ Create only what's missing. Use the templates in this skill's `templates/` direc
 
 #### Lazy-creation discipline
 
-Only scaffold files that have **meaningful day-1 content**. A file that is nothing but a header and a comment on day 1 is not load-bearing — it is a placeholder that will sit empty and train agents to ignore it. Empty scaffolding has zero signal value. Inspired by the lazy-file-creation principle from the mattpocock/skills audit (2026-04-29): create files and directories only when there is a real artifact to write.
+Only scaffold files that have **meaningful day-1 content**. A placeholder header trains agents to ignore the directory; empty scaffolding has zero signal value. Create files and directories only when there is a real artifact to write.
 
 **Audit verdict — Phase 3 scaffold items:**
 
@@ -238,7 +217,7 @@ Use `templates/CLAUDE.md.template` via `bin/render-template.sh`. The template co
 - If no global CLAUDE.md exists: set to empty string `""`
 
 **2. Construct `PROJECT_TYPE_BLOCK`:**
-Concatenate the block body for each selected project type (in selection order). Block bodies are literal strings — include a trailing newline between blocks when concatenating multiple.
+Concatenate block bodies for each selected type (in selection order); blank line between multiple blocks.
 
 - **`game-dev` block:**
   ```
@@ -291,11 +270,7 @@ bash "$HOME/.claude/plugins/coordinator/bin/render-template.sh" \
   PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
 ```
 
-The helper substitutes all `{{KEY}}` placeholders and exits non-zero if any remain unsubstituted after render — this is the guard against template/key drift. Use absolute `$HOME`-anchored paths because this skill runs inside the target project's cwd, where relative paths resolve against the project root, not the coordinator plugin directory.
-
-Write the processed template to `CLAUDE.md` at the project root.
-
-**Important:** The template has `<!-- Fill in -->` comments — these are prompts for the PM to complete, not for the skill to guess at. Leave them as-is.
+The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). Use absolute `$HOME`-anchored paths — relative paths resolve against the project root, not the plugin directory. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
 
 **Runtime conventions section:** populate the `## Runtime conventions` section bullets from the Phase 1 marker-scan output — one bullet per detected stack line. If the script reported "no known stack markers", replace the placeholder bullets with `- <!-- no runtime markers detected; PM to fill -->`. Do not edit other `<!-- Fill in -->` placeholders.
 
@@ -331,7 +306,7 @@ Do NOT create this file during onboarding — no meaningful day-1 content. Creat
 
 #### 3d. docs/README.md (if missing)
 
-Create a documentation index at `docs/README.md` — the top-level entry point for all project documentation, maintained by `/update-docs`. Structure:
+Create `docs/README.md` — the documentation index maintained by `/update-docs`. Structure:
 
 ```markdown
 # [Project Name] — Documentation Index
@@ -369,18 +344,18 @@ Replace `[Project Name]` and `[DATE]` with the appropriate values.
 
 #### 3e. Directories
 
-Only create directories that have real day-1 content or that are referenced by files being written in this phase:
+Only create directories with real day-1 content or referenced by files being written in this phase:
 
 ```bash
 mkdir -p docs   # for project-tracker.md (3b) and README.md (3d)
 mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 ```
 
-**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, or `tasks/review-trail/` with `.gitkeep` files — these are lazy directories, each created by the skill that first writes to them (see lazy-creation table above). Empty `.gitkeep` scaffolding has zero signal value and trains agents to ignore the directory.
+**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, or `tasks/review-trail/` with `.gitkeep` files — lazy directories created by the skill that first writes to them (see table above).
 
 #### 3f. .gitignore handling
 
-Ensure `.gitignore` contains the universal entries every working repo needs. The canonical block (per `docs/wiki/gitignore-policy.md`):
+Ensure `.gitignore` contains the canonical block (per `docs/wiki/gitignore-policy.md`):
 
 ```
 # Machine-specific Claude settings (do not commit)
@@ -400,12 +375,12 @@ Procedure:
 
 **Warning checks:**
 
-- If `.gitignore` contains a line that would ignore all of `.claude/` (like `.claude/` or `.claude/*`), warn: "Your .gitignore ignores the entire .claude/ directory. Only `.claude/settings.local.json` needs to be ignored — the rest of `.claude/` contains platform settings that are safe to track or ignore as you prefer."
-- If the repo already has tracked content under `scratch/` or matching `tasks/_*.log`, surface count and offer `git rm --cached -r` cleanup as a follow-up step (do not auto-untrack during onboarding — confirm with the PM first).
+- If `.gitignore` ignores all of `.claude/` (`.claude/` or `.claude/*`), warn: only `.claude/settings.local.json` needs ignoring.
+- If tracked content exists under `scratch/` or `tasks/_*.log`, surface count and offer `git rm --cached -r` cleanup (confirm with PM first — don't auto-untrack).
 
 #### 3f.5. Auto-push post-commit hook
 
-Check for `.git/hooks/post-commit`. If absent, install one that delegates to the canonical helper so SSH remotes on Windows route through PowerShell (1Password agent compatibility) and HTTPS remotes go straight through git:
+Check for `.git/hooks/post-commit`. If absent, install one that delegates to the canonical helper (SSH remotes on Windows → PowerShell; HTTPS → git directly):
 
 ```bash
 cat > .git/hooks/post-commit <<'HOOK'
@@ -429,7 +404,7 @@ Skip if a custom auto-push hook already exists and the PM has signed off on it.
 
 #### 3g. DIRECTORY.md
 
-Do NOT create this file directly. It requires source file analysis that `/update-docs` Phase 2 handles. Instead, note in the report that the PM should run `/update-docs` to generate the source index.
+Do NOT create this file directly — requires source file analysis handled by `/update-docs` Phase 2. Note in the report that the PM should run `/update-docs`.
 
 ### Phase 4: REPORT
 
@@ -460,15 +435,15 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
 
    ```sh
    # Compact JSON output — pipe through python -m json.tool if you want pretty-print.
+   # No --json flag needed — default output is compact JSON.
    python3 -m coordinator_whoami.project_rag        # POSIX / macOS
    py -3   -m coordinator_whoami.project_rag        # Windows Git Bash / PowerShell
    ```
 
-   Capture stdout and parse `binding.kind` and `binding.target` from the JSON envelope:
+   Parse `binding.kind` and `binding.target` from the JSON envelope (`cross-plugin-whoami-contract.md §Operator wiring`):
 
-   - **`binding.kind == "bound"` AND `binding.target` matches the current project root:** emit one line:
-     `Coordinator binding healthy: project-rag is bound to <binding.target>.`
-   - **`binding.kind == "bound"` AND `binding.target` does NOT match the current project root:** emit a mismatch block:
+   - **`binding.kind == "bound"` AND `binding.target` matches cwd:** emit `Coordinator binding healthy: project-rag is bound to <binding.target>.`
+   - **`binding.kind == "bound"` AND `binding.target` does NOT match cwd:** emit a mismatch block:
      ```
      Binding mismatch:
        envelope binding.target : <binding.target>
@@ -493,19 +468,13 @@ The documentation index is live at `docs/README.md`. Subdirectories are created 
 
 ## Onboarding Bug Fixes — Three-Layer Rule
 
-When an onboarding or install failure is discovered and fixed, a single fix is not enough. A cohort of users already hit the failure and won't re-install. Any onboarding bug fix that doesn't ship all three layers will recur:
+Any onboarding bug fix that doesn't ship all three layers will recur:
 
-**Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure. This is the obvious fix; it's necessary but not sufficient on its own.
+**Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure.
 
-**Layer 2 — Reactive repair:** A targeted recovery path that runs against existing broken state — for users who already hit the failure and won't re-run the full installer. The point is that the *recovery path exists*, not its specific shape. Valid shapes include:
+**Layer 2 — Reactive repair:** A targeted recovery path for users who already hit the failure and won't re-run the full installer. Valid shapes: a `doctor`-style script (`--fix` flag), or an idempotent slash command safe to re-run against broken state. What matters is the ability to recover without a clean-slate install.
 
-- A `doctor`-style standalone script that diagnoses by default and applies repair with a flag (e.g., `--fix`)
-- An idempotent slash command (e.g., `/coordinator:setup`) that is safe to re-run against an already-installed-but-broken environment and brings it back to a healthy state
-- Any other targeted entry point that performs the same repair function without requiring a full reinstall
-
-What makes a valid Layer 2 is the ability to recover broken-state operators without a clean-slate install — not the `--fix` flag pattern specifically.
-
-**Layer 3 — Searchable docs:** A row in the troubleshooting table (or a new table if none exists) keyed on the **literal error text** the user would see. Search-reflex users paste the error into a search or into the docs — they need to land on the fix immediately.
+**Layer 3 — Searchable docs:** A row in the troubleshooting table keyed on the **literal error text** the user would see.
 
 ```markdown
 | Error | Cause | Fix |
@@ -513,12 +482,14 @@ What makes a valid Layer 2 is the ability to recover broken-state operators with
 | `ModuleNotFoundError: No module named 'coordinator_whoami'` | coordinator-whoami package was not installed | Run `/coordinator:setup` to install the introspection package |
 ```
 
-**When onboarding flags a new failure:** Before closing the fix, verify all three layers exist. If a layer is missing, create it as part of the same fix — not a follow-up task.
+Layer 2 recovery: doctor probe P-5 in [coordinator-doctor.md](../../docs/wiki/coordinator-doctor.md).
+
+**When onboarding flags a new failure:** Verify all three layers exist before closing — missing layers are part of the same fix, not a follow-up task.
 
 ## Notes
 
-- This skill creates the **skeleton**. The tracker-maintenance skill (invoked by `/update-docs`) handles ongoing maintenance.
-- The project tracker format is defined in the tracker-maintenance skill — this skill uses the same format for consistency.
-- Handoffs live at `tasks/handoffs/` (git-tracked). `.claude/` contains only platform settings; `settings.local.json` should be in `.gitignore`.
-- **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files. Easier to maintain, stays under the 12-file ceiling.
-- **Self-contained design:** The CLAUDE.md template works standalone for marketplace users. If global `~/.claude/CLAUDE.md` exists, the DETECT phase adds an "extends global" reference. If not, the template is complete on its own.
+- This skill creates the **skeleton**; `/update-docs` handles ongoing tracker maintenance.
+- Tracker format matches the tracker-maintenance skill for consistency.
+- Handoffs live at `tasks/handoffs/` (git-tracked); `settings.local.json` in `.gitignore`.
+- **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files (stays under 12-file ceiling).
+- **Self-contained design:** Works standalone for marketplace users; DETECT phase adds "extends global" reference if `~/.claude/CLAUDE.md` exists.

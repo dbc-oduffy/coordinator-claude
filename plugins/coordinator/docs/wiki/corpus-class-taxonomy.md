@@ -105,7 +105,7 @@ it does not need a new class.
 - Host/addon split: [host-vs-addons.md](host-vs-addons.md)
 - Cross-repo memo: `X:/project-rag-ue-addon/tasks/cross-repo-memo-2026-05-16-to-project-rag-em.md`
 
-The addon-side wiki [`../../../project-rag-ue-addon/docs/wiki/mcp-port-mental-model.md`](../../../project-rag-ue-addon/docs/wiki/mcp-port-mental-model.md)
+The addon-side wiki `mcp-port-mental-model.md`
 describes a complementary but distinct framing. That wiki operates at
 **port-multiplexing altitude**: one MCP server port serves multiple corpus classes
 simultaneously, and the mental model concerns how a consumer distinguishes engine

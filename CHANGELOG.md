@@ -4,6 +4,28 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-05-21
+
+Bug-fix minor release. Headline theme: install-system reliability. The week was dominated by chasing install-surface defects — plugin live-install propagation across separate-checkout plugins (project-rag), `publish.sh` outward-only direction restoration after the 2026-05-20 ban on publish-repo → live install clobber, machine-local registry shape consolidation, and back-percolation of publish-repo orphans into Claude Central as the source-of-truth. Forward capability movement is modest; the value is install-path stability and doctrine seeding for cross-repo refresh.
+
+### Added
+
+- Managed-refresh model for plugin live-install propagation (`bin/refresh-plugin-live-install.sh`, `bin/check-plugin-drift.sh`); daily drift probe via `/workday-start` Step 1.10 Addon Health.
+- Cross-repo communication doctrine — dual altitudes (doctrine seeding vs. code/install-surface change), PM-relay requirement for sibling-EM landings.
+- Install-surface completeness wiki + lesson: the clean-install path on a fresh machine must reproduce locally-written state.
+- Plan-coverage-checker pre-flight (skill-internal trigger, no opt-out) — coverage / hedges / substrate-drift lenses.
+
+### Changed
+
+- `publish.sh` direction clarified: source → publish-repo only; publish-repo → live install path explicitly banned.
+- Session-end / handoff doctrine — `code-reviewer` (Sonnet) gates the diff before commit; personas reserved for plan/architecture.
+- Numerous skill/agent prompts amended for cross-session correctness on shared workstream branches.
+
+### Fixed
+
+- Multiple install-surface defects across plugins whose live install is a separate checkout.
+- Publish-repo orphan files back-percolated to Claude Central; publish-repo audit REVIEW items for bare-name attribution noted as PM-accepted (legitimate authorship).
+
 ## [2.2.0] — 2026-05-20
 
 Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-resolution definition as a load-bearing module that ships with `/coordinator:setup`, so peer-repo install scripts (project-rag, holodeck, deep-research, future Python/TS/Rust consumers) consume one canonical resolver instead of inlining a precedence chain in each repo. Also trims four pre-existing skills/commands to fit the CI spec-line-count ceiling (>500 lines), and ships the ergonomic-substrate / eager-agent-calibration chunks (meta-ask preamble snippet + sync verifier + templates-mirror verifier + new wiki).

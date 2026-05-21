@@ -16,18 +16,26 @@ from pathlib import Path
 from typing import Any
 
 from coordinator_whoami.envelope_base import build_envelope
-from coordinator_whoami.project_rag.cli import compose, WHOAMI_SCHEMA_VERSION
+from coordinator_whoami.project_rag.cli import compose, WHOAMI_SCHEMA_VERSION, _resolve_bound_project_root
 from coordinator_whoami.project_rag._paths import resolve_user_marker_dir
 
 
 def compose_envelope() -> dict[str, Any]:
     raw = compose()
     project = raw.get("project") or {}
-    project_root = project.get("root") if isinstance(project, dict) else None
     state = raw.get("project_rag_state") or {}
 
-    binding_kind = "bound" if project_root else "unbound"
-    binding_target = project_root if project_root else None
+    # binding.kind reflects project-rag source-registration for cwd, not cwd-existence
+    # (see contract wiki §binding semantics).
+    # Uses _resolve_bound_project_root() — the registry-aware primitive in cli.py — rather
+    # than project.get("root") (which is cwd-detection, not registration-detection).
+    # Without this, binding.kind is structurally always "bound" because cwd is always
+    # non-empty; the "unbound" branch in downstream consumers (project-onboarding,
+    # session-start) never fires. See 2026-05-21-whoami-first-class-substrate session-end
+    # code review Finding 1.
+    bound_root = _resolve_bound_project_root()
+    binding_kind = "bound" if bound_root else "unbound"
+    binding_target = str(bound_root) if bound_root else None
 
     # project-rag's own host-introspection payload (everything from compose() EXCEPT
     # the addon contributions — those lift to first-class extras keys per R3).

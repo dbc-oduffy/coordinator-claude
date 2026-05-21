@@ -6,6 +6,7 @@
 
 - **Quick orient (always):** Silently read `tasks/orientation_cache.md` and `tasks/lessons.md` before your first tool call. Don't announce. Enough for almost every prompt.
 - **`/session-start` is PM-invoked, not EM-judged.** Don't auto-invoke on vague openers or continuity hints — answer from quick-orient context.
+- **Model self-check at boot.** Your system prompt declares your active model ("You are powered by the model named …"). If it does not say Opus, your FIRST visible response must be a one-line WARN to the PM (e.g. `⚠ MODEL DRIFT — running on <model>, not Opus. Toggle via /model before load-bearing work.`) before answering anything else. The `check-model-is-opus.sh` SessionStart hook catches drift across sessions; this rule catches the fresh-startup case the hook can't see.
 
 ## Codebase Investigation
 
@@ -82,6 +83,7 @@ When a scout's deliverable is on disk, the dispatch prompt MUST end with:
 - **Subagents do not expand slash commands.** `Agent(prompt="/foo:bar")` is a no-op. Inline the procedure or Read the skill body from disk first.
 - **Investigation dispatches require explicit out-of-scope block** — verbatim: "Do NOT modify files, commit, or push. Read-only." Without it, scouts overreach.
 - **All write-capable autonomous dispatches must carry a destructive-action prohibition.** Add to Tripwires § Destructive-action list and include inline "Out-of-scope actions" block.
+- **Numbered skill steps are not all gates.** Many are colocated by topic, touching disjoint surfaces — execute in any order, batch parallel where independent. Skills with explicit `## Execution Shape` blocks name their gates and todo-list. Default behavior absent that block: scan READ/WRITE per step before treating numbered ordering as a gate. → `docs/wiki/skill-step-parallelization.md`.
 
 ## Roster Doctrine
 
@@ -263,7 +265,7 @@ Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble.**
 - **Every new reviewer ships with an upstream pre-flight in the producer skill.**
 - **Two-pipeline review on shared artifacts** combines per-stub depth (the Staff Engineer on each stub) with per-cohort coherence (one reviewer across cohort) plus docs-check.
-- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; the Staff Engineer escalation is *post-code-reviewer*, EM-judged on `code-reviewer`'s actual output (heavy findings OR architectural/strategic finding shape), not auto-on for chain-end. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 prelude reads trail to narrow the Staff Engineer's scope (and remains the structural backstop for chain-ends that shipped `code-reviewer`-only). → `docs/wiki/session-end-review.md`.
+- **Session-end review and marker trail.** `/session-end` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit; large diffs partition across multiple parallel `code-reviewer` dispatches — named reviewers (personas) are for plans/architecture, not code output. Records at `tasks/review-trail/*.json`; `/workday-complete` Step 9 emits `**Reviewed:**` lines; `/workweek-complete` Step 7 is the merge-gate ceremony (4 orthogonal lenses: security, deps, test-evidence, the Staff Engineer) — independent of, not a deferral from, session-end review. → `docs/wiki/session-end-review.md`.
 - **Personas run at Opus only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in their agent frontmatter; Sonnet-tier code review uses `code-reviewer` (`agents/code-reviewer.md`). Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override on the `Agent` call) is a doctrine violation — the persona's prompt complexity is calibrated for Opus judgment, not Sonnet pattern-matching. → `agents/code-reviewer.md`.
 
 ## Synthesis Discipline

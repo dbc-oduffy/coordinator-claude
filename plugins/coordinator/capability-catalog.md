@@ -39,6 +39,8 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 **the Front-End Reviewer** (senior-front-end) — front-end review (tokens, design system, CSS). **the UX Reviewer** — UX flow review (trust, clarity). Use `/review` (plan artifacts) or `/review-code` (code artifacts).
 
+**vp-product** (the VP-Product Reviewer, they/them) — VP of Product with software-engineering instincts. Stress-tests shape choices before they ship: refactor-over-patch advocacy, "have you considered a different shape", and the dumb questions experienced engineers skip. Distinct from the Staff Engineer (code quality) and the Director of Engineering (DoE backstop). Run the VP-Product Reviewer on plans, on completed work before merge, and any time the EM proposes a patch where a refactor would be cheaper long-term. Primary dispatch path: `/staff-session` when VP-of-Product lens is included; otherwise explicit PM ask only — not EM-self-triggered.
+
 **eng-director** (the Director of Engineering) — Director of Engineering. Three modes: (1) **standalone primary reviewer** (default; dispatched directly via `/review`, `/review-code`, or `coordinator:eng-director` for cross-team / cross-repo / generic-substrate reviews — peer of the Staff Engineer in technical rigor, with DoE-altitude authority to set cross-team boundaries the Staff Engineer would hedge on); (2) **backstop reviewer** (chained after the Staff Engineer on High-effort architectural reviews); (3) **staff-session synthesizer** (spawned by `/staff-session`, blocked until debaters complete, resolves contested topics with DoE authority — organizational benefit, customer-serving, velocity-over-time — not by averaging the loudest debaters).
 
 **Agent Teams** — collaborative multi-agent work with messaging and shared task coordination:
@@ -51,12 +53,18 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 
 When to use teams vs. subagents: teams when agents need to **communicate** (cross-pollinate, resolve contradictions, share discoveries); subagents when tasks are **independent** (no cross-agent value). Teams are fire-and-forget — the EM scopes, spawns, and is freed.
 
+**Merge-gate synthesizers** (invoked by specific ceremonies, not directly by EM):
+- **parallel-review-synthesizer** — reads the output of four orthogonal code reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) and synthesizes a structured BLOCKED/WARN/OK verdict. Writes `synthesis.json`; never rewrites finding text; emits verbatim quotes only. Invoked exclusively by `coordinator:parallel-code-review` as part of `/workweek-complete` Step 7 gate.
+
 **Pipeline orchestrators** (dispatch via commands, not directly):
 - **deep-research-orchestrator** — /deep-research dispatches this (lives in the deep-research plugin). Reads PIPELINE.md, runs Haiku→Sonnet→Opus. *(requires deep-research plugin)*
 
 **EM-driven pipelines** (command contains full orchestration logic, dispatches leaf agents directly):
 - `/bug-sweep` — EM scopes→dispatches Haiku/Sonnet scanners→triages→dispatches Sonnet executors→commits fixes.
 - `/architecture-audit` — EM scopes→dispatches Haiku scouts→dispatches Sonnet analysts→dispatches Opus synthesizer→commits atlas.
+
+**Pre-review pre-flight agents** (dispatched before the first Opus reviewer; write sidecars, not reviews):
+- **prior-art-checker** — cross-references a plan's claim surface against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Returns a sidecar with three buckets: Conflicts (plan contradicts prior art), Compatible-but-relevant (plan should cite), and Silent (no signal). Verdict is COMPATIBLE / WARN / BLOCKED-SURFACE-TO-PM / DEGRADED. Invoked inside `coordinator:plan` before the Staff Engineer; never modifies the plan itself.
 
 **Reviewer-routed workers** (dispatched by EM after a reviewer names them in a `## Worker Dispatch Recommendations` block — never dispatched directly by reviewers):
 - **test-evidence-parser** — runs a test command (Jest/pytest/cargo/Go/RSpec — auto-detected), classifies each failure as `real / flake / env / timeout / known-skip`, returns structured markdown table. Dispatch when the Staff Engineer or the Game Dev Reviewer flags test failures needing mechanical triage.

@@ -22,7 +22,13 @@ Resolution order (most-specific first):
 Negative-spec: env does NOT outrank registry layers (the Director of Engineering F1 inversion).
 Negative-spec: missing .local files are not errors — treated as empty.
 Negative-spec: no regex fallback, no PyYAML, no tomli — stdlib tomllib only.
-Negative-spec: reader is read-only; no writes, no caching files, no side effects.
+Negative-spec: reader is read-only for GET path; SET path writes only registry.local.toml
+              (or registry.toml with --global). SET never touches concern files.
+
+All consumers — including the ergonomic wrapper ``claude_machine_local.py`` —
+shell out to the ``machine-local`` CLI. Direct in-process import is the
+dual-identity anti-pattern (docs/wiki/dual-identity-module-hazard.md and
+docs/wiki/machine-local-registry.md §8(a)); shell-out is the only contract.
 """
 
 import sys
@@ -88,6 +94,29 @@ def _warn_schema(data: dict, path: str) -> None:
         )
 
 
+def _flatten_nested(data: dict, _prefix: str = "") -> dict:
+    """Recursively flatten nested dicts in a registry file into dotted keys.
+
+    Companion to _flatten_concern, but for registry.toml / registry.local.toml
+    where there is no concern-name prefix (the file is the root namespace).
+    This makes natural TOML table syntax (``[unreal]\\ninstall_root = "..."``)
+    or dotted-key syntax (``unreal.install_root = "..."``) visible to
+    ``machine-local get`` for keys whose namespace is NOT promoted to a
+    concern file. Belt-and-suspenders: keeps the registry reader robust to
+    hand-edits and to namespaces not yet (or no longer) promoted to concerns.
+    """
+    result = {}
+    for k, v in data.items():
+        if k in ("schema", "concerns"):
+            continue
+        full_key = f"{_prefix}{k}"
+        if isinstance(v, dict):
+            result.update(_flatten_nested(v, _prefix=f"{full_key}."))
+        else:
+            result[full_key] = v
+    return result
+
+
 def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
     """Prefix all keys in a concern file with '<concern_name>.<prefix>'.
 
@@ -95,6 +124,15 @@ def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
     table (not just 'versions') is reachable.  Native types are stored as-is
     so _resolve_key's isinstance(val, list) branch handles list→newline
     uniformly at resolve time rather than at flatten time.
+
+    Self-named top-level table elision: when the concern file uses
+    ``[<concern_name>]`` as the top-level table (e.g. ``[unreal]`` inside
+    ``unreal.local.toml``), the matching prefix is NOT doubled. The contents
+    of that table are merged into the concern's flat namespace. This lets
+    operators write the natural TOML form (``[unreal]\\ninstall_root = "..."``)
+    and have it resolve as ``unreal.install_root`` instead of
+    ``unreal.unreal.install_root``. Top-level keys placed directly (without
+    the self-named table) still work — they are auto-prefixed by concern_name.
 
     Review: code-reviewer (F2 + F5) — recursive flatten covers arbitrary nested
     tables; storing native types prevents str() at flatten time which drops
@@ -105,6 +143,14 @@ def _flatten_concern(concern_name: str, data: dict, _prefix: str = "") -> dict:
     for k, v in data.items():
         if k == "schema":
             continue  # meta-key, not a user key
+        # Self-named top-level table elision: at the root of the concern file
+        # (_prefix=""), a sub-table named after the concern itself collapses
+        # so that [unreal] inside unreal.local.toml produces unreal.<key>, not
+        # unreal.unreal.<key>. Below the root, table names are kept as-is —
+        # nested [unreal.versions] etc. still produce the natural dotted path.
+        if not _prefix and isinstance(v, dict) and k == concern_name:
+            result.update(_flatten_concern(concern_name, v, _prefix=""))
+            continue
         full_key = f"{base}{k}"
         if isinstance(v, dict):
             # Recurse: flatten nested table with dotted subkeys.
@@ -142,13 +188,17 @@ def _build_resolution_layers(reg_dir: str) -> list[dict]:
     # Build set of concern prefixes for namespace exclusivity check.
     concern_prefixes = {c.lower() for c in concerns_list}
 
-    # Clean registry dict: remove meta-keys and enforce namespace exclusivity.
+    # Clean registry dict: flatten nested dicts to dotted keys, drop meta-keys,
+    # then enforce namespace exclusivity on the flattened key set. Flattening
+    # first lets natural TOML table syntax (`[unreal]\ninstall_root = "..."`)
+    # and dotted-key syntax (`unreal.install_root = "..."`) both produce the
+    # canonical dotted key the resolver looks up. Belt-and-suspenders: concern
+    # files own promoted namespaces, but registry hand-edits or future
+    # namespaces should still resolve cleanly.
     def _clean_registry(data: dict, source_label: str) -> dict:
+        flat = _flatten_nested(data)
         cleaned = {}
-        for k, v in data.items():
-            if k in ("schema", "concerns"):
-                continue
-            # Check if this key's first segment is a loaded concern's prefix.
+        for k, v in flat.items():
             first_seg = k.split(".")[0].lower()
             if first_seg in concern_prefixes:
                 print(
@@ -158,8 +208,6 @@ def _build_resolution_layers(reg_dir: str) -> list[dict]:
                     file=sys.stderr,
                 )
                 continue
-            # Flatten list values to newline-joined string for keys subcommand,
-            # but preserve the raw value type for structured use in layers.
             cleaned[k] = v
         return cleaned
 
@@ -185,22 +233,8 @@ def _build_resolution_layers(reg_dir: str) -> list[dict]:
         if c_data:
             concern_base_layers.append(_flatten_concern(concern, c_data))
 
-    # Registry layers: clean to enforce namespace exclusivity.
-    reg_local_clean = {}
-    for k, v in registry_local.items():
-        if k in ("schema", "concerns"):
-            continue
-        first_seg = k.split(".")[0].lower()
-        if first_seg in concern_prefixes:
-            print(
-                f"machine-local: warning: key '{k}' in registry.local.toml "
-                f"belongs to concern namespace '{first_seg}' — "
-                "the concern file wins; this entry is ignored.",
-                file=sys.stderr,
-            )
-            continue
-        reg_local_clean[k] = v
-
+    # Registry layers: flatten + enforce namespace exclusivity via the same helper.
+    reg_local_clean = _clean_registry(registry_local, "registry.local.toml")
     reg_clean = _clean_registry(registry, "registry.toml")
 
     # Priority order: concern.local > concern > registry.local > registry
@@ -292,6 +326,134 @@ def cmd_path(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_set(args: argparse.Namespace) -> int:
+    """Implement: machine-local set <key> <value> [--global] [--dry-run]
+
+    Writes a string key=value pair to registry.local.toml (default) or
+    registry.toml (--global).  Atomic, idempotent, concern-aware.
+
+    Use this instead of editing registry files by hand — direct edits are
+    fragile: they do not reproduce on reinstall or transfer to a new machine,
+    and may be clobbered by a concurrent session.
+    """
+    import re
+    import datetime
+
+    reg_dir = _registry_dir()
+    target_file = "registry.toml" if args.write_global else "registry.local.toml"
+    target_path = os.path.join(reg_dir, target_file)
+
+    key = args.key
+    value = args.value
+    dry_run = args.dry_run
+
+    # Refuse to write keys that belong to a loaded concern namespace.
+    reg_path = os.path.join(reg_dir, "registry.toml")
+    if os.path.exists(reg_path):
+        reg_data = _load_toml(reg_path)
+        concerns = reg_data.get("concerns", [])
+        if isinstance(concerns, list):
+            first_seg = key.split(".")[0].lower()
+            for c in concerns:
+                if str(c).lower() == first_seg:
+                    print(
+                        f"machine-local: key '{key}' belongs to concern namespace '{c}'. "
+                        f"Write to {c}.local.toml instead (that concern file owns this namespace).",
+                        file=sys.stderr,
+                    )
+                    return 1
+
+    # Read existing content or seed a new file.
+    if os.path.exists(target_path):
+        with open(target_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        is_new = False
+    else:
+        is_new = True
+        content = (
+            f"# {target_file}  (created by `machine-local set`)\n"
+            "#\n"
+            "# WARNING: Use `machine-local set <key> <value>` to add or change values.\n"
+            "# Direct hand-edits are fragile: they do not reproduce on reinstall and\n"
+            "# will not transfer automatically to a new machine.\n"
+            "schema = 1\n"
+        )
+
+    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Find and replace an existing quoted key assignment (either basic-string or
+    # literal-string form), or append if absent. The pattern matches either form
+    # so that operators upgrading from the old basic-string writer shape get an
+    # in-place replacement (not a duplicate second line) on the first post-upgrade set.
+    # Matches:  "key.name"   =   "old-value"  OR  'old-value'  # optional trailing comment
+    #   groups: (prefix up to opening quote of value)(trailing whitespace+comment)
+    pattern = re.compile(
+        r'^(\s*"' + re.escape(key) + r'"\s*=\s*)(?:"[^"]*"|\'[^\']*\')([ \t]*(?:#[^\n]*)?)',
+        re.MULTILINE,
+    )
+
+    # Refuse to write values containing a single quote — TOML literal strings
+    # (single-quoted) have no escape mechanism. This matches the holodeck
+    # write_unreal_concern.py policy: refuse rather than guess.
+    if "'" in value:
+        print(
+            f"machine-local: refusing to write value containing single quote: {value!r}. "
+            "Literal-string TOML has no escape for single quote.",
+            file=sys.stderr,
+        )
+        return 1
+
+    value_literal = f"'{value}'"  # TOML literal string (no escape processing)
+
+    if pattern.search(content):
+        # Lambda avoids Python 3.12+ re.PatternError on bare \d, \U, \e etc. in
+        # f-string template replacements that re.sub would otherwise interpret
+        # as bad backreferences.
+        new_content = pattern.sub(
+            lambda m: f"{m.group(1)}{value_literal}{m.group(2)}",
+            content,
+        )
+        action = "updated"
+    else:
+        section_pat = re.compile(r"^\[", re.MULTILINE)
+        m = section_pat.search(content)
+        new_line = f'"{key}" = {value_literal}  # set {date_tag}\n'
+        if m:
+            insert_at = m.start()
+            new_content = content[:insert_at].rstrip("\n") + "\n" + new_line + "\n" + content[insert_at:]
+        else:
+            new_content = content.rstrip("\n") + "\n" + new_line
+        action = "added"
+
+    if dry_run:
+        print(f"[dry-run] would {action} {key!r} = {value!r} in {target_path}")
+        return 0
+
+    # Atomic write via tmp + rename.
+    tmp_path = target_path + f".tmp.{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        if not is_new:
+            try:
+                os.chmod(tmp_path, os.stat(target_path).st_mode)
+            except OSError:
+                pass
+        os.replace(tmp_path, target_path)
+    except Exception as exc:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        print(f"machine-local: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"machine-local: {action} {key!r} = {value!r} in {target_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="machine-local",
@@ -315,6 +477,25 @@ def main() -> int:
     # path
     subparsers.add_parser("path", help="Print absolute path to active registry.toml")
 
+    # set
+    set_p = subparsers.add_parser(
+        "set",
+        help="Write a key=value pair to the registry (prefer over hand-editing)",
+    )
+    set_p.add_argument("key", help="Dotted key (e.g. repos.project_rag)")
+    set_p.add_argument("value", help="String value to set")
+    set_p.add_argument(
+        "--global",
+        dest="write_global",
+        action="store_true",
+        help="Write to registry.toml (tracked/shared) instead of registry.local.toml (gitignored/per-machine)",
+    )
+    set_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be written without making changes",
+    )
+
     parsed = parser.parse_args()
 
     dispatch = {
@@ -322,6 +503,7 @@ def main() -> int:
         "has": cmd_has,
         "keys": cmd_keys,
         "path": cmd_path,
+        "set": cmd_set,
     }
     return dispatch[parsed.command](parsed)
 

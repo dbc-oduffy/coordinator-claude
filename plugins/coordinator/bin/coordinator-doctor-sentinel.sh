@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # coordinator-doctor-sentinel.sh — fire the coordinator-doctor wiki's probes
-# (P-1..P-9 plus P-10 claude-home smoke) and write a sentinel JSON that
-# bin/scan-addon-health.sh consumes.
+# (P-1..P-9 plus P-10 claude-home smoke and P-11 templates/setup drift) and
+# write a sentinel JSON that bin/scan-addon-health.sh consumes.
 #
 # Rationale: docs/wiki/coordinator-doctor.md defines runnable probes for the
 # substrate downstream plugins depend on (machine-local registry,
@@ -145,7 +145,9 @@ fi
 if [[ "$_p5_ok" -eq 1 ]]; then
   # Capture output separately so a non-zero exit from the producer is
   # distinguishable from a JSON-parse failure on the consumer side.
-  p6_out="$("$PY" -m coordinator_whoami.project_rag --json 2>/dev/null || true)"
+  # CLI defaults to JSON; --json is unrecognized. Suppress stderr (carries
+  # non-fatal warnings like marker_dir reconciliation hints) and parse stdout.
+  p6_out="$("$PY" -m coordinator_whoami.project_rag 2>/dev/null || true)"
   if [[ -z "$p6_out" ]]; then
     note_red "P-6" "coordinator_whoami.project_rag produced no output — module crash or missing CLI"
   elif ! echo "$p6_out" | "$PY" -c "
@@ -205,6 +207,19 @@ else
   note_red "P-10" "claude-home resolver not found — re-run /coordinator:setup Phase 3"
 fi
 
+# --- P-11: coordinator templates/setup drift detection ----------------------
+# OPTIONAL tool: if verify-templates-setup-sync.sh is not present (fresh
+# install before the script was shipped, or non-coordinator-claude install
+# tree), silently skip. Non-zero exit -> drift detected -> AMBER (operator
+# customization is legitimate; bugfixes in the template just won't reach
+# this operator until manually re-synced). See coordinator-doctor.md § P-11.
+_p11_script="$PLUGINS_ROOT/coordinator-claude/coordinator/bin/verify-templates-setup-sync.sh"
+if [[ -x "$_p11_script" ]]; then
+  if ! bash "$_p11_script" >/dev/null 2>&1; then
+    note_amber "P-11" "templates/setup drift detected — run verify-templates-setup-sync.sh (no flags) to inspect; --fix to copy live → template"
+  fi
+fi
+
 # --- Verdict synthesis ------------------------------------------------------
 if [[ "${#red_probes[@]}" -gt 0 ]]; then
   verdict="RED"
@@ -215,7 +230,7 @@ else
 fi
 
 if [[ "$verdict" == "GREEN" ]]; then
-  hint="All coordinator-doctor probes (P-1..P-10) passed."
+  hint="All coordinator-doctor probes (P-1..P-11) passed."
 else
   # Join hint lines with " | " for single-line sentinel hint field.
   hint=""

@@ -124,6 +124,14 @@ If any lines are emitted by either call, surface them verbatim under an **Addon 
 
 Schema and convention: `docs/wiki/addon-health-sentinel.md`.
 
+### Project-RAG Relevance
+
+```bash
+~/.claude/plugins/coordinator/bin/probe-cwd-project-rag-relevance.sh
+```
+
+If it emits any lines, surface them verbatim under a **Project-RAG Relevance** heading (inline with the Context Load output, separate from Addon Health). If it emits nothing, skip silently — the probe is silent when no project-RAG binding exists for the current cwd.
+
 ### Coordinator / project-rag binding spot-check
 
 Run an import probe, then branch on the result. Emit exactly one line into the Context Load output — choose the branch that matches the machine state.
@@ -150,7 +158,7 @@ Parse the JSON output and inspect `binding.kind` and `binding.target`.
   `whoami: unbound (run /project-onboarding or /project-rag:setup to bind this project)`
 
 - **`binding.kind == "bound"`:** Emit:
-  `whoami: bound → <binding.target> (<status.state>)`
+  `whoami: bound → <binding.target>`
 
 - **CLI exits non-zero, or the output is not parseable JSON:** Emit:
   `whoami: degraded (CLI failed; see /coordinator:doctor probe P-6)`

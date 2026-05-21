@@ -28,24 +28,20 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
-| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff**, with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal (§ Post-code-reviewer the Staff Engineer-escalation criteria) |
+| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
+| Chain-end AND chain diff too large for a single reviewer | **Partitioned `code-reviewer` dispatches** (see SKILL.md § Partitioning large surfaces). Named reviewers are for plans/architecture — Sonnet `code-reviewer` is the ceiling at session-end |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
 **Anchored-ranges note:** the numeric thresholds (50 LOC, 500 LOC, ≥3 segments) are worked examples for EM calibration, not gates that auto-dispatch or auto-skip. The executor-dispatch trigger in row 3 is mechanical; the diff-size dimension in rows 4–5 is judgment.
 
-## Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end)
+## No named-reviewer escalation from code review
 
-Row 5's default after `code-reviewer` returns is *no the Staff Engineer*. `code-reviewer` on the chain diff is the floor; the EM reads `code-reviewer`'s output and escalates to the Staff Engineer iff one or more of:
+Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at session-end — for any diff size, partition across as many `code-reviewer` slices as needed, but do not escalate to a named reviewer.
 
-- **High-volume findings** — rough anchor: ≥5 substantive findings, not nits. Volume itself signals the diff is denser than `code-reviewer` alone can confidently close out.
-- **Architectural / strategic shape** — any finding that names a cross-system boundary, an abstraction-level question, a taxonomy/enum/failure-reason refactor, a seam between independently-implemented chunks, or a tradeoff that the review-integrator cannot fold mechanically. Tactical fixes (wrong API name, missing import, precedence, factual paraphrase) do not trigger escalation.
-- **`code-reviewer`-recommended escalation** — `code-reviewer`'s own writeup recommends a deeper second pass, OR the EM reads `code-reviewer`'s output and is genuinely uncertain whether a flagged issue is tactical or structural.
+If `code-reviewer` surfaces an architectural finding, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision. The finding belongs in the planning stream, not the code-review stream.
 
-Tactical-only or clean `code-reviewer` → fold via `coordinator:review-integrator`, write the marker trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review is the structural backstop for chain-end work that reaches `main` without the Staff Engineer at session-end.
-
-**Why the default flipped.** Auto-defaulting row 5 to `code-reviewer`+the Staff Engineer front-loaded Opus cost on every heavy chain-end, including the many cases where `code-reviewer`'s actual output was clean or surfaced only tactical fixes. The new shape preserves the Staff Engineer on the diffs that *empirically* need a second lens (where `code-reviewer` found something the Staff Engineer-shaped) while letting the routine heavy-but-clean chain-ends close out on `code-reviewer` alone. The weekly parallel-code-review backstop catches what session-end the Staff Engineer-skip might miss before code reaches `main`.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony (4 orthogonal lenses: security-audit-worker, dep-cve-auditor, test-evidence-parser, the Staff Engineer on the combined diff). It runs at merge time regardless of session-end coverage — it is NOT a deferral path. Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
 
 ## Anti-ceremony-bias tripwire (code-reviewer-skip direction)
 
@@ -66,9 +62,11 @@ If a waive rationale boils down to "the plan was already reviewed," that's the s
 
 **2. Mechanical executor self-acceptance gates are not review proxies.** Grep returns 0, pytest passes, `bash -n` clean — these are correctness floors, not the lens a reviewer brings. None of them exercise cross-file integration, schema-vs-consumer agreement (e.g. did the producer schema in segment 2 actually match the consumer probe in segment 4 — *both green individually* doesn't mean *consistent across the seam*), or scope-creep detection. Treating mechanical gates as a stand-in for review collapses two distinct safety properties into one.
 
-**3. "`code-reviewer`-after-already-doing-plan-review feels like ceremony — skip" is the ceremony-bias shape that matters at session-end.** (An older version of this doctrine paired this with a symmetric "feels like ceremony — escalate to the Staff Engineer" tripwire; that auto-escalation has since been retired in favor of post-code-reviewer EM judgment per § Post-code-reviewer the Staff Engineer-escalation criteria. The *`code-reviewer`-skip* direction remains the live tripwire — ceremony-feeling is the tell for skipping a review that should happen.)
+**3. "`code-reviewer`-after-already-doing-plan-review feels like ceremony — skip" is the ceremony-bias shape that matters at session-end.** The *`code-reviewer`-skip* direction is the live tripwire — ceremony-feeling is the tell for skipping a review that should happen. There is no the Staff Engineer escalation path from code review to balance against; `code-reviewer` is both the floor and the ceiling.
 
 **4. "We've done a lot of review already" is the shape wrap-up pressure takes.** At `/session-end`, token-budget anxiety and session-fatigue create implicit "close out" pressure. Dressed up, that becomes "distributed coverage upstream was sufficient." Bare, it's: one more dispatch felt like one more thing. Naming this pattern explicitly is the durable fix — future EMs hitting the same pressure can recognize the shape.
+
+**5. "The handoff says the Staff Engineer reviewed it" — plan-vs-code conflation at chain-ends.** When reading a predecessor handoff, a "the Staff Engineer review → N findings folded" note refers to the *plan* the Staff Engineer reviewed before executors fired. Plan-level reviews do not appear in `tasks/review-trail/*.json`. The trail is the mechanical boundary: if no trail record exists for a sha-range, that range has no code-output coverage regardless of what handoff narrative says about plan-level reviews. This variant fires specifically at chain-ends, where the EM scans the chain's review history and sees "the Staff Engineer reviewed" without distinguishing plan-review from diff-review. The tell: the cited review refers to a `docs/plans/*.review-patrik.md` or a plan critique, not a `code-reviewer` dispatch. The Staff Engineer judging the plan before executors fired is *design intent* coverage; it says nothing about what the executors actually produced.
 
 **The pattern-match tell:** if the EM is drafting a "waiving with rationale" sentence on a row-3+ session, the rationale itself is the tell. Compose the sentence; read it back; if it leans on plan-time coverage, executor gates, distributed/heavy upstream review, or "we've already done a lot" — run the `code-reviewer`. It's one dispatch. The marker trail records `verdict=ok` in seconds and downstream load-shedding still benefits.
 
@@ -237,13 +235,13 @@ no change. See `docs/wiki/holodeck-doctrine.md §7.7` for the full convention.
 
 Spec backlink: `docs/plans/2026-05-15-ubt-compile-gate-review-trail.md` §Shape.
 
-## Boundary-relabeling defect class — a the Staff Engineer-escalation signal
+## Boundary-relabeling defect class — a cross-segment seam signal
 
-Chain-end review on row-5 diffs empirically catches **boundary-relabeling** bugs — where a refactor renames a failure-reason enum, retypes an error code, or relabels a status taxonomy, and prior mid-stream reviews fail to spot the relabel because each reviewer saw only their slice of the diff. The relabeled boundary surfaces only when the full chain is read in one pass.
+Chain-end review empirically catches **boundary-relabeling** bugs — where a refactor renames a failure-reason enum, retypes an error code, or relabels a status taxonomy, and prior mid-stream reviews fail to spot the relabel because each reviewer saw only their slice of the diff. The relabeled boundary surfaces only when the full chain is read in one pass.
 
 Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and downstream consumers that pattern-match on the old labels silently fall through to a default arm. Per-commit review confirms each individual rename is correct in isolation; chain-end review reads enough of the chain to notice the relabel happened at all.
 
-**How this maps to the current doctrine:** `code-reviewer` on the chain diff is the floor. If `code-reviewer` flags a boundary / seam / taxonomy / enum / failure-reason shift — or if the EM reads the diff and sees a taxonomy refactor that `code-reviewer`'s findings don't fully exercise — that is a strong post-code-reviewer the Staff Engineer-escalation signal under § Post-code-reviewer the Staff Engineer-escalation criteria. The defect class is real and universal across project types whenever failure-reason taxonomies are refactored; it does not by itself force *every* row-5 diff to pay an Opus call, but it is exactly the kind of structural finding the escalation criteria are designed to catch.
+**How this maps to the current doctrine:** when partitioning a chain diff into slices, assign one slice specifically to boundary/seam/taxonomy/enum surfaces when present — this is the highest-value partition, not the one to merge into a larger bucket. The defect class is cross-segment by nature; a slice that spans the chain's full vocabulary-change surface ensures at least one `code-reviewer` instance sees the relabel end-to-end. If `code-reviewer` flags a boundary/seam/taxonomy shift, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
 
 ## Cross-references
 

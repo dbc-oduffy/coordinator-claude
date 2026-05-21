@@ -117,7 +117,7 @@ with `default_blend=False`.
 | `kind=` as a separate filter kwarg alongside `source=band_name` | Demotes the kind from address-space to filter-space; net more complexity for the same expressiveness |
 
 The host enforces this by deriving `_known_source_names()` from band declarations at boot
-([`project_rag_mcp/audit.py:69-116`](../../project_rag_mcp/audit.py)). There is no
+([`project_rag_mcp/audit.py:69-116`](../../../../../plugins/project-rag/project_rag_mcp/audit.py)). There is no
 hardcoded enum to keep in sync; adding a new engine kind is purely an addon-side change.
 
 ## Authority — where the contract lives

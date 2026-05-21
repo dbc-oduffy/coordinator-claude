@@ -81,3 +81,34 @@ Stdlib-only; runs anywhere Python 3.9+ runs. 16 tests covering the full surface.
 `/coordinator:setup` Phase 3 Step 3 copies `_claude_home.py`, `claude-home`, and `claude-home.cmd` from this directory into `~/.claude/bin/`. The installed copies are what peer scripts shell out to / import; this directory is the canonical source.
 
 If an operator hand-customizes a file in `~/.claude/bin/`, setup preserves it and emits a notice rather than overwriting — same idempotency contract as the rest of Phase 3. Operator customization of `claude-home` is strongly discouraged (breaks the cross-repo contract); doctrine is to fix the upstream module here and re-run setup.
+
+## Adopting from a peer repo
+
+When a peer repo (project-rag, holodeck, deep-research, future Python/TS/Rust consumers) migrates its own `$HOME` resolver to consume this module, **the bootstrap-lookup and the contents-resolution use different env-var precedence chains**. Conflating them breaks test sandboxes.
+
+- **Bootstrap lookup** = where the module file LIVES on disk. Resolve via real `$HOME` only — `HOME` → `USERPROFILE` → `Path.home()`. Do **NOT** honor `CLAUDE_HOME` for this purpose. `_claude_home.py` is installed at `$HOME/.claude/bin/_claude_home.py` by `/coordinator:setup` against the operator's real `$HOME`; it is NOT replicated into every `CLAUDE_HOME=/tmp/sandbox` test root.
+- **Contents resolution** = what the module's API returns (paths to `~/.claude.json`, `~/.claude/`, sub-locations). Resolve via the full precedence chain — `CLAUDE_HOME` → `HOME` → `USERPROFILE` → `Path.home()` (§ Env-var precedence above). This is what the module exists to do.
+
+The two surfaces look identical (both involve `$HOME` resolution) but compose differently under test sandboxing. A test that sets `CLAUDE_HOME=tmp_path` to redirect content resolution will never find `_claude_home.py` at `tmp_path/.claude/bin/` — the bootstrap import fails, the peer's fallback fires, and the central path is never exercised under CI.
+
+**Reference shape for the bootstrap-lookup half** (e.g., in a peer repo's `_claude_config.py` shim):
+
+```python
+import os, sys
+from pathlib import Path
+
+# BOOTSTRAP lookup — find where the central module is installed.
+# Use REAL $HOME only; ignore CLAUDE_HOME deliberately.
+_real_home = Path(os.environ.get("HOME") or os.environ.get("USERPROFILE") or Path.home())
+_central_bin = _real_home / ".claude" / "bin"
+
+if not (_central_bin / "_claude_home.py").exists():
+    # Fall back to the peer's own copy of the resolution chain — central not installed.
+    ...
+else:
+    sys.path.insert(0, str(_central_bin))
+    from _claude_home import claude_config_path, read_config, write_config
+    # NOW the central module handles CONTENTS resolution with full CLAUDE_HOME precedence.
+```
+
+Doctrine: [`docs/wiki/machine-local-registry.md § 4a`](../../docs/wiki/machine-local-registry.md) — bootstrap-vs-contents distinction formalized in the same section that owns the env-var precedence chain.

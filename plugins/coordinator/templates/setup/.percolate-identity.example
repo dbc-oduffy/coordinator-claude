@@ -1,0 +1,65 @@
+#!/bin/bash
+# .percolate-identity — per-operator identity tokens for publish.sh audit.
+#
+# Copy this file to .percolate-identity (no .example) and edit with your own
+# values. The file is sourced by publish.sh early in startup; it is gitignored
+# (machine-specific).
+#
+# See ~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/percolate-setup.md
+#
+# ---------------------------------------------------------------------------
+# PERSONAL_EXPECTED_PATTERNS
+#   Tokens the audit gate skips when found in publishable files. These are
+#   expected matches that need no action — your name, your org slug, your
+#   working-branch prefix, etc.
+#
+#   Example:
+#     PERSONAL_EXPECTED_PATTERNS=(
+#       'mycompany-internal'
+#       "M'Surname"
+#       'My Full Name'
+#       'work/my-machine/'
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_EXPECTED_PATTERNS=()
+
+# ---------------------------------------------------------------------------
+# PERSONAL_REVIEW_PATTERNS
+#   PCRE patterns the audit gate FLAGS for review when found. These are paths
+#   or usernames specific to your machine that should not ship into publish
+#   repos. publish.sh already auto-derives generic patterns from $HOME and the
+#   drive letter of $SCRIPT_DIR; use this array for anything else that is
+#   uniquely yours (machine hostnames, secondary drives, project codenames).
+#
+#   Patterns are passed to `grep -E`, so escape backslashes for regex (use
+#   '\\\\' for one literal backslash in JSON-encoded strings, '\\' for one
+#   literal backslash in raw paths).
+#
+#   Example:
+#     PERSONAL_REVIEW_PATTERNS=(
+#       '\bmymachine\b'
+#       '\bMy-Codename\b'
+#       'D:\\\\Projects'
+#       'D:\\Projects'
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_REVIEW_PATTERNS=()
+
+# ---------------------------------------------------------------------------
+# PERSONAL_ALLOW_TOKENS
+#   Tokens added to the `\boduffy\b`-style identity allow regex. If your
+#   PERSONAL_REVIEW_PATTERNS catches a bare-identifier shape (e.g. your
+#   surname or GitHub login appearing alone), put the FULL allowed forms
+#   here — anything in the file that does NOT match these patterns will be
+#   flagged for review.
+#
+#   These are merged into the audit's `allow_re` alternation, so write each
+#   entry as a regex fragment.
+#
+#   Example:
+#     PERSONAL_ALLOW_TOKENS=(
+#       'mycompany-internal'
+#       "M'Surname"
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_ALLOW_TOKENS=()

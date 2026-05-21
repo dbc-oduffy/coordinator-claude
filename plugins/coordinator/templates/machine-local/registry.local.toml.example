@@ -2,6 +2,13 @@
 #
 # Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.2
 #
+# HAND-EDIT CAUTION — values set here must be reproduced independently on every
+# machine you work from. They are NOT committed and will NOT transfer automatically.
+# Prefer `machine-local set <key> <value>` over editing by hand — it is atomic,
+# idempotent, and safe to re-run.  Installers and setup scripts MUST call
+# `machine-local set` rather than writing to this file directly — direct writes are
+# fragile, not reproduced on reinstall, and may be clobbered by concurrent sessions.
+#
 # This file holds your machine's actual values for keys DECLARED in registry.toml.
 # It is gitignored — never committed. Each machine has its own copy.
 #

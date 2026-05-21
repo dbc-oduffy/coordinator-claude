@@ -163,9 +163,12 @@ esac
 
 # --- Threshold percentages ---
 # Auto-compaction trigger observed at ~60% of context window (2026-05-18).
-# CRITICAL fires just before that (~30K headroom on 1M); ADVISORY earlier.
-ADVISORY_PCT=50
-CRITICAL_PCT=57
+# CRITICAL at 50% gives ~10% headroom before compaction — enough for a handoff
+# to execute (several tool calls). ADVISORY at 40% is the "start wrapping up"
+# signal. Previous values (57/50) fired too late and sessions hit compaction
+# before the handoff could complete.
+ADVISORY_PCT=40
+CRITICAL_PCT=50
 
 # --- Convert to file size thresholds (bytes) ---
 BYTES_PER_TOKEN=5
@@ -224,7 +227,7 @@ if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
 JSONEOF
   else
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~60% of context window. You are close. RECOMMENDED: Run /handoff NOW to preserve session state. A fresh session will perform better. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~60% of context window — you are at the halfway point. Run /handoff NOW; the handoff itself consumes context and you need headroom to complete it. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
 JSONEOF
   fi
   exit 0

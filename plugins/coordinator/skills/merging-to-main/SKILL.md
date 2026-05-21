@@ -22,7 +22,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 1. **Run the coordinator hook test suite first:**
    ```bash
-   node --test ~/.claude/tests/plugins/run.js
+   node --test ~/.claude/plugins/coordinator/tests/plugin-ecosystem/run.js
    ```
    If this fails, halt and report which tests failed before proceeding. The hook suite
    covers load-bearing infrastructure (coordinator-safe-commit, verify-preamble-sync,

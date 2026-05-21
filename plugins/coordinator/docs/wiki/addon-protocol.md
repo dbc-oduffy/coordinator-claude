@@ -393,7 +393,7 @@ drift raises `AddonManifestError` as before. The probe runs strict validation
 across all installed addons, cross-references declared `registered_producers` /
 `registered_chunkers` / `registered_mcp_tools` against actual hookimpl returns,
 and surfaces the full drift picture in one place — without blocking boot.
-See [`docs/wiki/doctor-as-remediation-surface.md`](doctor-as-remediation-surface.md)
+See [`docs/wiki/doctor-as-remediation-surface.md`](../../../../project-rag/docs/wiki/doctor-as-remediation-surface.md)
 for the doctrine placing strict validation in `/doctor`, not the boot path.
 
 ### Rationale — type-confusion problem and motivating incident
@@ -498,7 +498,7 @@ constant has since been bumped to v3 by tc-4 for unrelated façade additions
 (`AddonDiagnostic` + `AddonReconciledDiagnostic`), and to v4 by tc-5
 (2026-05-15) for the `AddonDiagnostic.anchor_line` AC-8 dedup key — `canonical_id`
 derivation in `project_rag_mcp/tools/reconciler.py` now keys on `anchor_line` when set, falls
-back to `line_range` when None. See [`f-l4-reconciliation-policy.md`](f-l4-reconciliation-policy.md) §2.
+back to `line_range` when None. See [`f-l4-reconciliation-policy.md`](../../../../project-rag/docs/wiki/f-l4-reconciliation-policy.md) §2.
 — no version bump because `AddonProducerSpec` (the façade it wires) was already
 declared at v1 (PR-1). Authority: tc-6 precedent (`refine_scope_ranges`, additive
 hookspec with pre-existing façade, no bump).
@@ -981,7 +981,7 @@ registered entry-points, or when an addon's `setup()` raises, the host degrades 
 completes, UE-shaped tools return `extraction_skipped` (never a stack trace), and a `DEGRADED`
 doctor probe verdict is registered with an actionable install hint. Full doctrine — including the
 three implementation rules (probe at the seam, loud warnings, degrade not fail) and the canonical
-probe-site table — lives in [`docs/wiki/thin-wrapper-graceful-fail.md`](thin-wrapper-graceful-fail.md).
+probe-site table — lives in [`docs/wiki/thin-wrapper-graceful-fail.md`](../../../../project-rag/docs/wiki/thin-wrapper-graceful-fail.md).
 
 ## Facade discipline — tripwire allowlist exceptions
 

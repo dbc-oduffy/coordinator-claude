@@ -26,13 +26,14 @@ set -euo pipefail
 _ml_templates="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local"
 _ml_bin="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/bin"
 _ch_bin="${CLAUDE_PLUGIN_ROOT}/coordinator/lib/claude-home"
+_setup_src="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/setup"
 
 # --- Hard precondition: templates must exist ---
-for _required in "$_ml_templates" "$_ml_bin" "$_ch_bin"; do
+for _required in "$_ml_templates" "$_ml_bin" "$_ch_bin" "$_setup_src"; do
     if [[ ! -d "$_required" ]]; then
         cat >&2 <<EOF
 Phase 3 FATAL: required directory not found at $_required.
-Cannot lay down machine-local substrate, and downstream skills depend on it.
+Cannot lay down machine-local substrate or percolation mechanism, and downstream skills depend on it.
 The coordinator plugin install is broken or incomplete. Remediation:
   (a) reinstall the coordinator plugin via the marketplace,
   (b) verify CLAUDE_PLUGIN_ROOT resolves correctly (echo \$CLAUDE_PLUGIN_ROOT),
@@ -56,6 +57,15 @@ for _f in README.md .gitignore registry.toml.example registry.local.toml.example
         echo "[machine-local] operator-customized ${_f} preserved; template at ${_ml_templates}/${_f} for diff reference"
     fi
 done
+
+# --- Step 2b: concern baseline files (copy .example → live name, first-install only) ---
+# unreal.toml ships as the schema-only baseline for the `unreal.*` concern namespace.
+# Copied only when the target does not exist — never overwrites operator-provisioned state.
+# Spec backlink: cross-repo memo 2026-05-21 (unreal-concern-ownership-3-repo plan, AC-1).
+if [[ ! -f "${_ml_dst}/unreal.toml" ]]; then
+    cp "${_ml_templates}/unreal.toml.example" "${_ml_dst}/unreal.toml"
+    echo "[machine-local] installed unreal.toml baseline (schema-only; add values to unreal.local.toml)"
+fi
 
 # --- Step 3: bin/ resolvers ---
 # machine-local family + python3.cmd come from templates/bin/.
@@ -91,6 +101,22 @@ for _f in claude-home _claude_home.py claude-home.cmd; do
     [[ "$_f" == "claude-home" ]] && _exec=yes
     _install_one "${_ch_bin}/${_f}" "${_bin_dst}/${_f}" "$_exec" "claude-home"
 done
+
+# --- Step 3d: percolation mechanism (~/.claude/setup/) ---
+SETUP_DEST="${_install_base}/.claude/setup"
+mkdir -p "$SETUP_DEST"
+for _f in publish.sh publish_sync.py publish-targets.example.sh .percolate-identity.example; do
+    _exec=no
+    [[ "$_f" == "publish.sh" ]] && _exec=yes
+    _install_one "$_setup_src/$_f" "$SETUP_DEST/$_f" "$_exec" "machine-local"
+done
+
+# Sub-step: percolate-hooks/ doctrine README (subdirectory destination).
+# Only the generic README is shipped; per-target hook subdirectories
+# (~/.claude/setup/percolate-hooks/<target>/) are operator-authored and
+# never templated.
+mkdir -p "$SETUP_DEST/percolate-hooks"
+_install_one "$_setup_src/percolate-hooks/README.md" "$SETUP_DEST/percolate-hooks/README.md" "no" "machine-local"
 
 # --- Step 3b/3c: Windows-only PATH + AppX Python health ---
 # Skip silently on non-Windows.
