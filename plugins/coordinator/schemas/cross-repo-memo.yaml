@@ -1,0 +1,51 @@
+schema: cross-repo-memo
+applies_to: "archive/cross-repo/*.md"
+# ---------------------------------------------------------------------------
+# Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Memo frontmatter schema
+#
+# Applies only to memos with created: >= 2026-05-22 (grandfathered cutoff).
+# Memos dated 2026-05-21 and earlier are pre-lifecycle artifacts; the validator
+# skips them. See the plan § Migration of existing 4 memos for rationale.
+#
+# State machine: open → reviewed → action_taken → closed
+# Terminal out-of-band: superseded (replaces any other status via supersedes:/superseded_by:)
+#
+# Lifecycle timestamps are ISO-8601 CONVENIENCE METADATA only. The authoritative
+# audit trail lives in the receiver repo's git log of the lifecycle-transition commit.
+# The validator MUST NOT impose SHA-requirement logic on these timestamp fields —
+# this is a different pattern from handoff's shipped_in: <SHA>.
+# ---------------------------------------------------------------------------
+required:
+  title: string
+  from: string
+  to: string
+  created: iso-date
+  status:
+    type: enum
+    values: [open, reviewed, action_taken, closed, superseded]
+  delivery_mode:
+    type: enum
+    values: [receiver-repo, central-only]
+optional:
+  # Related artifact paths (optional list of path strings)
+  related: list-of-string
+  # Supersession chain: set on the new memo when re-issuing a pre-lifecycle memo
+  supersedes: string
+  # Set by receiver when this memo is superseded by a newer one
+  superseded_by: string
+  # Lifecycle timestamps (populated by receiver-side Edit + commit on the memo file).
+  # These are convenience metadata — authoritative audit trail is the commit itself.
+  received_at: string
+  received_by: string
+  reviewed_at: string
+  action_taken_at: string
+  closed_at: string
+  # Decision outcome (populated at action_taken time — F4 PM-endorsed):
+  # required when status=action_taken (enforced via cross-field rule in schema.js).
+  decision:
+    type: enum
+    values: [accepted, declined, partial, superseded]
+  # Optional free-text rationale populated alongside decision
+  decision_note: string
+  # Archive-copy field: path of the receiver-side dirty-file copy written by dispatcher
+  receiver_copy_path: string

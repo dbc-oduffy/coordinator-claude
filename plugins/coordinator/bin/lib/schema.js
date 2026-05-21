@@ -481,6 +481,97 @@ const CROSS_FIELD_RULES = {
       },
     },
   ],
+
+  // ---------------------------------------------------------------------------
+  // cross-repo-memo cross-field rules
+  // Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Validator rules
+  //
+  // CRITICAL: Memo lifecycle timestamps are ISO-8601 convenience metadata only.
+  // The authoritative audit trail lives in the receiver repo's git log of the
+  // lifecycle-transition commit. Do NOT impose SHA-requirement logic here —
+  // that is handoff's shipped_in: pattern, which does not apply to memos.
+  //
+  // Grandfather cutoff: memos with created < 2026-05-22 are skipped entirely.
+  // ---------------------------------------------------------------------------
+  'cross-repo-memo': [
+    // Grandfather mechanism: skip validation for pre-lifecycle memos.
+    // All subsequent rules return early when this fires.
+    {
+      check: (fm) => {
+        if (!fm.created) return null;
+        // created is YYYY-MM-DD; compare lexicographically (safe for ISO dates).
+        if (String(fm.created) < '2026-05-22') {
+          // Signal to applyCrossFieldRules via a special sentinel object.
+          // We use the special field '__skip__' which applyCrossFieldRules detects.
+          return { __skip__: true };
+        }
+        return null;
+      },
+    },
+    // status: action_taken requires action_taken_at AND decision.
+    {
+      check: (fm) => {
+        if (fm.status !== 'action_taken') return null;
+        const missing = [];
+        if (!fm.action_taken_at || String(fm.action_taken_at).trim() === '') missing.push('action_taken_at');
+        if (!fm.decision || String(fm.decision).trim() === '') missing.push('decision');
+        if (missing.length > 0) {
+          return {
+            field: missing.join(', '),
+            error: `required when status=action_taken`,
+            hint: `Set ${missing.join(' and ')} when marking a memo action_taken. decision must be one of: accepted, declined, partial, superseded.`
+          };
+        }
+        return null;
+      },
+    },
+    // status: closed requires closed_at AND action_taken_at AND decision.
+    {
+      check: (fm) => {
+        if (fm.status !== 'closed') return null;
+        const missing = [];
+        if (!fm.closed_at || String(fm.closed_at).trim() === '') missing.push('closed_at');
+        if (!fm.action_taken_at || String(fm.action_taken_at).trim() === '') missing.push('action_taken_at');
+        if (!fm.decision || String(fm.decision).trim() === '') missing.push('decision');
+        if (missing.length > 0) {
+          return {
+            field: missing.join(', '),
+            error: `required when status=closed`,
+            hint: `Set ${missing.join(', ')} when closing a memo. A closed memo must have a complete action record.`
+          };
+        }
+        return null;
+      },
+    },
+    // status: superseded requires superseded_by.
+    {
+      check: (fm) => {
+        if (fm.status !== 'superseded') return null;
+        if (!fm.superseded_by || String(fm.superseded_by).trim() === '') {
+          return {
+            field: 'superseded_by',
+            error: 'required when status=superseded',
+            hint: 'Set superseded_by to the path of the memo that supersedes this one (inverse of supersedes:).'
+          };
+        }
+        return null;
+      },
+    },
+    // delivery_mode: central-only requires to: (must address someone even without a receiver repo).
+    {
+      check: (fm) => {
+        if (fm.delivery_mode !== 'central-only') return null;
+        if (!fm.to || String(fm.to).trim() === '') {
+          return {
+            field: 'to',
+            error: 'required when delivery_mode=central-only',
+            hint: 'Specify the receiver EM identifier in "to:" even for central-only delivery. Used for workday-start surfacing and audit trail.'
+          };
+        }
+        return null;
+      },
+    },
+  ],
 };
 
 function applyCrossFieldRules(frontmatter, schema) {
@@ -490,7 +581,10 @@ function applyCrossFieldRules(frontmatter, schema) {
   const errors = [];
   for (const rule of rules) {
     const violation = rule.check(frontmatter);
-    if (violation) errors.push(violation);
+    if (!violation) continue;
+    // __skip__ sentinel: pre-cutoff grandfather mechanism fires — skip all remaining rules.
+    if (violation.__skip__) return [];
+    errors.push(violation);
   }
   return errors;
 }
