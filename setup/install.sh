@@ -860,6 +860,68 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# Setup/ percolation mechanism delivery
+# ---------------------------------------------------------------------------
+#
+# Mirrors the Step 3d delivery loop that ships in
+# coordinator/lib/install-substrate.sh — copies the publish/percolation
+# scripts from the just-copied coordinator plugin templates into
+# ~/.claude/setup/ so fresh users have a working `bash ~/.claude/setup/publish.sh`
+# entry point without re-cloning the publish repo.
+#
+# Why a minimal mirror and not a subprocess call to install-substrate.sh:
+#   install-substrate.sh is the coordinator /setup Phase 3 driver — it
+#   requires CLAUDE_PLUGIN_ROOT, hard-fails on any missing template dir, and
+#   executes machine-local substrate seeding + bin/ resolver installation +
+#   Windows PATH/AppX health checks. Invoking it from this installer would
+#   either run those side-effects out of band (wrong phase) or require a
+#   --setup-only flag that install-substrate.sh does not expose. The
+#   _install_one semantics for the setup/ files specifically are simple
+#   enough (existence check, no diff-preservation needed — operators don't
+#   customize publish.sh) that mirroring the loop is cheaper than refactoring
+#   install-substrate.sh to expose a partial-invocation surface.
+#
+# Dual-source-of-truth concern: the file list (publish.sh, publish_sync.py,
+# publish-targets.example.sh) and chmod-on-publish.sh rule are duplicated
+# here and in install-substrate.sh. If that list grows, both call sites need
+# updating. Acceptable for now — list has been stable since percolation
+# mechanism shipped; refactor to a shared lib only if it churns.
+deliver_setup_templates() {
+  local setup_src="$PLUGINS_TARGET/coordinator/templates/setup"
+  local setup_dest="$CLAUDE_DIR/setup"
+
+  # Silent skip if the coordinator plugin's setup templates aren't on disk.
+  # This happens when --plugins excluded coordinator (impossible — coordinator
+  # is always selected) or when an older coordinator plugin without the
+  # templates/setup/ directory got copied. Either way, not an installer fault.
+  if [[ ! -d "$setup_src" ]]; then
+    echo "  SKIP: ~/.claude/setup/ delivery (coordinator templates/setup/ not present at $setup_src)"
+    return 0
+  fi
+
+  mkdir -p "$setup_dest"
+  echo "Delivering ~/.claude/setup/ percolation scripts..."
+  for f in publish.sh publish_sync.py publish-targets.example.sh; do
+    local src_file="$setup_src/$f"
+    local dest_file="$setup_dest/$f"
+    if [[ ! -f "$src_file" ]]; then
+      echo "  WARN: template missing — $src_file (skipping)"
+      continue
+    fi
+    if [[ -f "$dest_file" ]]; then
+      echo "  KEEP: setup/$f (operator-preserved)"
+    else
+      cp "$src_file" "$dest_file"
+      echo "  OK:   setup/$f"
+    fi
+  done
+  # publish.sh must be executable; chmod is a no-op on Windows filesystems
+  # but harmless. The other two are not directly executed.
+  chmod +x "$setup_dest/publish.sh" 2>/dev/null || true
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
 # JSON helpers (inline Python)
 # ---------------------------------------------------------------------------
 
@@ -1255,6 +1317,7 @@ main() {
   fi
 
   copy_plugins
+  deliver_setup_templates
 
   echo "Registering JSON config files..."
   register_marketplace
