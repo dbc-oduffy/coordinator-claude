@@ -13,6 +13,8 @@ status: current
 
 **What this wiki is not.** It is not a slash skill — a `/coordinator:doctor` command would be bloat for a non-interactive verification surface. It is not a runtime validator or a programmatic API. It does not duplicate the substrate doctrines: for `machine-local/` resolution order, see [`machine-local-registry.md`](machine-local-registry.md); for the whoami envelope schema, see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md).
 
+**Cadence path — sentinel-writer primitive.** The wiki's "no slash skill" decision stands. To close the gap where coordinator-claude's substrate health was invisible to the daily addon-health sweep, the non-skill primitive `bin/coordinator-doctor-sentinel.sh` fires P-1..P-10 on cadence (from `/workday-start` Step 1.10, ahead of `scan-addon-health.sh`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` in the sentinel schema documented in [`addon-health-sentinel.md`](addon-health-sentinel.md). Operators retain the inline-invocation path of §3 below; the script is the same probes, batched and serialized. See §7 for the script's contract.
+
 ---
 
 ## Audience Routing
@@ -41,11 +43,12 @@ Severity values are from the vocabulary defined in §4.
 | **P-2** | `registry.toml` parses and declares `schema = 1` | `python3 -c "import tomllib,pathlib; d=tomllib.loads(pathlib.Path('~/.claude/machine-local/registry.toml').expanduser().read_text()); assert d.get('schema')==1"` | Exits 0 | File missing, unparseable TOML, or wrong schema version | `error` | Re-run Phase 3; check for manual edits that broke TOML structure |
 | **P-3** | At least one key under `repos.*` is populated in `registry.local.toml` | `machine-local keys \| grep -q '^repos\.' && echo healthy \|\| echo degraded` | `healthy` — at least one repo path declared | `degraded` — fresh install or operator never seeded machine-specific paths | `degraded` | Run `machine-local set repos.<name> <path>` for each sibling repo (see [`machine-local-registry.md`](machine-local-registry.md) §9 for the `.local.toml` discipline) |
 | **P-4** | `bin/machine-local` CLI shell-out works (smoke test) | `machine-local keys >/dev/null && echo healthy \|\| echo error` | `healthy` — CLI runs and registry is parseable | CLI not on PATH, `bin/` not linked, or registry.toml unparseable — setup incomplete | `error` | Run Phase 3; verify `~/.claude/bin/` is on PATH; verify `~/.claude/machine-local/registry.toml` exists and parses |
-| **P-5** | `coordinator_whoami` package is importable | `python3 -c "import coordinator_whoami; print('healthy')"` | `healthy` | ImportError — package not installed or Python env mismatch | `error` | `pip install -e ~/.claude/plugins/coordinator/whoami/` (or equivalent per install method) |
+| **P-5** | `coordinator_whoami` package is importable | `python3 -c "import coordinator_whoami; print('healthy')"` | `healthy` | ImportError — package not installed or Python env mismatch | `error` | Run `/coordinator:setup` (Phase 3 Step 6) — this is the primary remediation; re-running Phase 3 installs `coordinator_whoami` idempotently. Fallback: `pip install -e ~/.claude/plugins/coordinator/whoami/` |
 | **P-6** | Live `coordinator_whoami.project_rag` returns a v1-conformant envelope | `python3 -m coordinator_whoami.project_rag --human \| head -5` | Output contains `contract_version: 1` | JSON parse error, missing required fields, or non-zero exit | `error` | Check P-5 first; then inspect `~/.claude/machine-local/registry.toml` for missing keys the probe requires; see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §Validation |
 | **P-7** | `~/.claude.json` mcpServers entries for installed plugins are present and well-formed (**configuration-presence probe — not binding health**) | `python3 -c "import json,pathlib; cfg=json.loads(pathlib.Path('~/.claude.json').read_text()); assert 'mcpServers' in cfg and len(cfg['mcpServers'])>0; print('healthy')"` | `healthy` — config entry exists and is parseable JSON | Config entry absent, malformed JSON, or `mcpServers` key missing | `degraded` | Re-run plugin install to write the mcpServers entry; verify `~/.claude.json` is writable. **For live binding state, see P-6** — P-7 confirms the config exists, not that the binding is active. |
 | **P-8** | Sentinel presence: at least one `doctor-last-run.json` exists across installed plugins | `ls ~/.claude/plugins/*/data/doctor-last-run.json 2>/dev/null \| head -1 \| grep -q . && echo healthy \|\| echo degraded` | `healthy` — at least one doctor has been run | `degraded` — no plugin doctor has ever been run on this machine | `degraded` | Run each installed plugin's doctor once to bootstrap the sentinel; see [`addon-health-sentinel.md`](addon-health-sentinel.md) for the sentinel schema |
 | **P-9** | UE override paths resolve against registry-declared roots | `bash ~/.claude/bin/verify-ue-overrides.sh` | Exits 0 with no remediation output | Non-zero exit or remediation message emitted | `degraded` or `error` (per script output) | Follow the remediation hint from the script, which will point to the relevant machine-local key (typically `repos.claude_unreal_holodeck`); re-run after setting the key |
+| **P-10** | `bin/claude-home` path resolver smoke (added 2026-05-21 for resolver-family symmetry with P-4) | `~/.claude/bin/claude-home plugins` | Prints an absolute path to an existing directory | Command missing, prints empty, or path doesn't resolve to a directory | `error` | Re-run `/coordinator:setup` Phase 3; verify `~/.claude/bin/` is on PATH and the `claude-home` script + `_claude_home.py` are present |
 
 **Note on P-7 vs P-6.** P-7 is a *configuration-presence* probe: it verifies that the mcpServers entry exists and is well-formed JSON. It does NOT verify that the MCP server process is running, that the binding resolves, or that tool calls succeed. For binding health — "is this plugin's binding working?" — the answer comes from the live whoami call in P-6. Treating P-7 as a binding-health probe is the consumer-leak shape this wiki exists to close.
 
@@ -113,7 +116,46 @@ If P-1, P-2, or P-4 fail because the substrate does not exist yet, the operator 
 
 Run `/coordinator:setup` and follow the Phase 3 interactive prompts to seed the four baseline keys (`repos.coordinator_claude`, `repos.project_rag`, `repos.claude_unreal_holodeck`, and `publish.targets`). After Phase 3 completes, re-run P-1 through P-4 to confirm.
 
-For P-5 failures (package not importable), the package ships at `plugins/coordinator/whoami/` and installs via `pip install -e <path>`. Phase 3 handles this for fresh installs; if it regressed, re-run Phase 3 or install manually.
+For P-5 failures (package not importable), the package ships at `plugins/coordinator/whoami/` and installs via `pip install -e <path>`. Phase 3 Step 6 installs `coordinator_whoami` for fresh installs; if it regressed, re-run Phase 3 or install manually.
+
+---
+
+## Sentinel-Writer Primitive
+
+**Script.** `bin/coordinator-doctor-sentinel.sh` (in the coordinator-claude plugin tree). Fires P-1..P-10 in batch, classifies each result, and writes a sentinel at `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` for [`scan-addon-health.sh`](addon-health-sentinel.md) to consume.
+
+**Why a script and not a slash skill.** The §1 framing ("not a slash skill") remains the design. A slash skill would imply an interactive flow with EM choice points; the cadence path is the opposite — fire the probes, write the receipt, move on. The script is a thin glue layer over the same probes operators run inline.
+
+**Verdict synthesis.**
+
+- Any probe with severity `error` failing → `RED`
+- No errors, but one or more `degraded` failing → `AMBER`
+- All probes pass → `GREEN`
+- Probes that cannot execute (missing dependency tool) → `AMBER` with explanatory note in `hint`
+
+**Sentinel schema** (mirrors `addon-health-sentinel.md`, plus an `amber_probes` field for machine-readable AMBER triage — `scan-addon-health.sh` ignores unknown fields, so the extension is additive-safe):
+
+```json
+{
+  "ran_at":       "<ISO-8601 UTC, Z-suffix>",
+  "verdict":      "GREEN" | "AMBER" | "RED",
+  "red_probes":   ["P-1", "P-5", ...],
+  "amber_probes": ["P-3", "P-9", ...],
+  "hint":         "<one-line per failing probe, joined with ' | '>",
+  "plugin":       "coordinator-claude"
+}
+```
+
+**Severity rule for missing dependencies.** Probes for OPTIONAL tools whose dependency is absent (e.g. P-9 `verify-ue-overrides.sh` on a non-UE workstation) are silently skipped — not surfaced. Probes for REQUIRED INFRASTRUCTURE whose binary is missing (P-4 `machine-local` CLI, P-10 `claude-home` resolver) are RED — their absence means `/coordinator:setup` Phase 3 regressed and downstream plugins will fail.
+
+**Where it fires.**
+
+- `/workday-start` Step 1.10 — runs the script ahead of `scan-addon-health.sh` so the freshly-written sentinel is picked up the same run.
+- Direct operator invocation — `bash ~/.claude/plugins/coordinator/bin/coordinator-doctor-sentinel.sh` any time. Silent on GREEN; brief AMBER/RED stdout for direct visibility.
+
+**Citation contract carryover.** Downstream plugin doctors that need to verify coordinator substrate MUST still follow §5 — delegate to P-N or augment P-N, never reinvent. The sentinel-writer is the *batch-execution* path for our own scheduled probing; it does not change the contract for cross-plugin citations.
+
+**Environment honored.** `CLAUDE_HOME` (test sandboxes / CI), `COORDINATOR_PYTHON` (explicit interpreter override), `COORDINATOR_PLUGINS_ROOT` (alternate plugin root for testing).
 
 ---
 

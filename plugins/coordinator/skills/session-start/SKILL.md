@@ -126,15 +126,38 @@ Schema and convention: `docs/wiki/addon-health-sentinel.md`.
 
 ### Coordinator / project-rag binding spot-check
 
-**Conditional on project-rag plugin:** Only if `coordinator_whoami` is importable (i.e. the `coordinator-whoami` package was installed by `setup.sh`). Skip silently if the import fails.
+Run an import probe, then branch on the result. Emit exactly one line into the Context Load output — choose the branch that matches the machine state.
+
+**Step 1 — probe import:**
 
 ```bash
-python3 -m coordinator_whoami.project_rag --human 2>/dev/null | head -20 || true
+python3 -c "import coordinator_whoami"
 ```
 
-This surfaces the live binding between coordinator and project-rag — registered project root, MCP server args, and addon-health verdict — without launching a full doctor run. Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6.
+- **Non-zero (import fails):** Emit:
+  `whoami: not installed (run /coordinator:setup to install the introspection package)`
+  Skip Step 2.
 
-If the command emits nothing (package absent or project-rag not registered), skip silently — the addon-health block above already covers the sentinel-presence case.
+**Step 2 — read the live envelope (import succeeded):**
+
+```bash
+python3 -m coordinator_whoami.project_rag 2>/dev/null
+```
+
+Parse the JSON output and inspect `binding.kind` and `binding.target`.
+
+- **`binding.kind == "unbound"`:** Emit:
+  `whoami: unbound (run /project-onboarding or /project-rag:setup to bind this project)`
+
+- **`binding.kind == "bound"`:** Emit:
+  `whoami: bound → <binding.target> (<status.state>)`
+
+- **CLI exits non-zero, or the output is not parseable JSON:** Emit:
+  `whoami: degraded (CLI failed; see /coordinator:doctor probe P-6)`
+
+Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6.
+
+Note: session-start does NOT surface bound-but-cwd-mismatch — that is `/project-onboarding`'s job. Session-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
 
 ### Handoffs
 

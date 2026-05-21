@@ -73,6 +73,14 @@ Discovery via glob (`~/.claude/plugins/*/data/doctor-last-run.json`) is opt-in b
 
 Exit code is always 0 — advisory, never gating. Empty output ⇒ no surfaceable findings.
 
+## Related: drift detection for plugin live installs
+
+If your plugin's live install is a **separate git checkout** (e.g. `~/.claude/plugins/<plugin>/` is a clone of the plugin's source repo rather than the source repo itself), you should also register it for drift detection. The addon-health sentinel surfaces "doctor ran and said RED"; the drift probe surfaces "live checkout is N commits behind source" — orthogonal failure modes.
+
+Registration shape: add `[plugin.mirrors.<plugin>]` to `~/.claude/machine-local/registry.local.toml`. Schema documented in `machine-local-registry.md § plugin.mirrors`. Runtime self-doc: `bash bin/check-plugin-drift.sh --help` enumerates the probe's six drift legs (git-state, venv-pin, venv-pyproject, venv-mapping, venv-shim, working-tree).
+
+Both signals converge under `### Addon Health` in `/workday-start` Step 1.10 — operators see one section, not two.
+
 ## Not in scope
 
 - **Aggregate dashboards.** If the addon roster grows past a handful, consider a `/health:check` slash command that aggregates sentinels with more structure. For now, the one-line-per-RED-plugin shape is sufficient.

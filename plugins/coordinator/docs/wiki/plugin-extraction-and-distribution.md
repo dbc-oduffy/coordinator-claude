@@ -58,7 +58,23 @@ Generalized: disabling a plugin/hook (toggling `enabled: false`) is NOT uninstal
 
 ### Installed-vs-source plugin staleness — agents read from `~/.claude/plugins/`
 
-Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NOT from the meta-repo source tree. When debugging an agent's behavior, verify against the installed copy; source edits don't take effect until `bin/publish.sh` (or the equivalent percolation step) propagates them. A "fixed it in source" claim with no propagation step is a no-op for the running agent.
+Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NOT from the meta-repo source tree. When debugging an agent's behavior, verify against the installed copy. A "fixed it in source" claim with no propagation step is a no-op for the running agent.
+
+**Propagation model depends on how the live install was created.** Two modes:
+
+- **Separate git checkout (e.g. `project-rag`):** the live install at `~/.claude/plugins/<name>/` is its own git checkout with its own `.venv/`. Source changes require both legs to propagate:
+  1. **Git-state leg:** which HEAD is checked out in the live install. Stale when the live checkout's HEAD lags the source branch.
+  2. **Venv-state leg:** whether the editable install's `direct_url.json` resolves to the live checkout path, the MAPPING dict in `__editable___*_finder.py` reflects the current package layout, and console-script shims exist. Stale when `pyproject.toml` changed or a package directory was renamed without a re-install.
+
+  Canonical propagation primitive: `bash bin/refresh-plugin-live-install.sh <plugin>` — executes both legs atomically, with pre-flight (clean working tree check) and post-flight (drift probe). Both legs must close together; advancing git HEAD without re-running `uv pip install -e .` leaves the venv leg stale and can cause silent `ImportError`.
+
+- **Live install IS the canonical source (e.g. coordinator-claude — installed over `~/.claude/`):** there is no source → live propagation step. Edits made in `~/.claude/plugins/coordinator-claude/...` take effect immediately. These plugins carry `propagation_mode = "source_is_live"` in `~/.claude/machine-local/registry.local.toml::plugin.mirrors`. The drift probe treats them as structural no-ops; the refresh script skips them.
+
+**Drift detection:** `bash bin/check-plugin-drift.sh` probes both legs (git-state and venv-state) for each registered plugin and surfaces results in `/workday-start` Step 1.10 Addon Health daily.
+
+**`publish.sh` direction:** `publish.sh` runs source → publish-repo (sibling) for cross-machine distribution. It does NOT write back to the live install; the 2026-05-20 ban on publish-repo → live install clobber is preserved. These are orthogonal operations.
+
+Spec: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md`.
 
 ### 10. Plugin hooks belong in `hooks/hooks.json`, not user-scope `settings.json`
 
@@ -104,6 +120,19 @@ Cross-references: `machine-local-registry.md` (registry doctrine and schema); `c
 ### 12. Cross-repo port: prefer registration-seam over parallel-surface
 
 When porting a feature from a host repo into a plugin/addon, default to **using the host's registration hookspec or seam** rather than authoring a parallel front-end on the plugin side. A parallel-surface port creates two registration paths the host has to reconcile at runtime and routinely results in one path silently winning while the other looks active. Before authoring a plugin-side surface that mirrors an existing host surface, grep the host's registration corpus (hookspec discovery, pluggy entry points, plugin-manifest readers) and route through the existing seam. (2026-05-16, project-rag-ue-addon.)
+
+## Cross-plugin contract — coordinator never parses peer-plugin config
+
+When coordinator skills need data from a plugin (project root, transport URL, capability registry), the contract surface is **`invoke + read exit code + read stdout`** — pass through the plugin's CLI or daemon. Reaching into `~/.claude.json` from coordinator-side code to reconstruct args a plugin CLI could resolve itself is cross-plugin contract leakage and breaks the next time the plugin migrates transport (e.g. stdio → HTTP, as project-rag did 2026-05-13).
+
+The 2026-05-21 dogfood failure surfaced one instance: `/workday-start` Step 3.6 parsed `mcpServers.project-rag.args[-1]` to extract `--project-root` and crashed with `KeyError` after project-rag's HTTP-shape entry has no `args` array. The fix was not "guard `args[-1]` with a `type == 'stdio'` check" — the fix was to stop parsing project-rag's config entirely and let `project-rag-cli staleness-survey` resolve its own root via env (`PROJECT_RAG_PROJECT_ROOT`) or cwd-walk. See `docs/plans/2026-05-21-coordinator-side-dogfood-followup.md` for the worked example.
+
+The rule generalizes:
+- **Pass env vars or cwd to influence resolution.** `PROJECT_RAG_PROJECT_ROOT="$(pwd)" project-rag-cli ...` is the right shape.
+- **Do not parse the plugin's MCP entry shape from coordinator.** If you need state the plugin's CLI/daemon doesn't expose, ask the plugin author to add an endpoint (e.g. project-rag's planned `/state` endpoint) — don't reverse-engineer it from the registration.
+- **Plugin CLIs own their own resolution chain.** If a CLI doesn't yet resolve its own root, that's an upstream improvement; document it as a plugin-author ask, not a coordinator hack.
+
+This applies symmetrically: plugins should not parse coordinator's internal files (orientation cache, queue files) — same contract, opposite direction.
 
 ## Test From a Clean Profile
 
