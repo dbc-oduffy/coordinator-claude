@@ -94,6 +94,159 @@ The default reflex on a cross-repo deliverable is to ship the contract artifact 
 
 Otherwise: verify in-session, ship both producer and consumer halves under one workstream, file no handoff.
 
+## Lifecycle and dirty-file backstop
+
+> Added 2026-05-21 under PM ruling (plan `docs/plans/2026-05-21-cross-repo-memo-discoverability.md`): cross-repo memo delivery now has a belt-and-suspenders lifecycle with structural backstops.
+
+### Cross-repo write categories — three altitudes
+
+This plan introduces a third cross-repo write category alongside the two defined below:
+
+- **Doctrine-seeding writes** (DoE altitude) — CLAUDE.md additions, `docs/wiki/` entries, agent-prompt amendments. Authored from DoE / HoP altitude; the sibling EM may amend on receipt. Direct cross-repo write is legitimate.
+- **Implementation-intent writes** — source edits, machine-local entries, install scripts, sentinel files, registry edits, hook execution semantics. *Anything that changes what runs in the receiver repo.* These route via memo + PM-relay + sibling-EM-lands. The `## Doctrine seeding vs. code/install-surface change` section below governs these.
+- **Delivery-intent writes** — addressed artifacts placed in the receiver's working tree that do NOT change what runs. Specifically: `tasks/memos/YYYY-MM-DD-<topic>.md` files whose purpose is to signal the receiver EM. The dispatching EM is the author; the receiver EM is the intended reader. The write is intentionally uncommitted so it surfaces as a dirty-file signal. This is NOT a PM-authorized exception — it is a PM-endorsed primary delivery primitive for the belt-and-suspenders lifecycle codified here.
+
+The key carve criterion is **artifact effect**, not subject matter:
+
+> A cross-repo write is **delivery-intent** if the artifact itself, landing in the receiver tree, does not alter what runs in the receiver repo — even if its *contents* recommend an implementation change. The recommendation, if accepted, lands as a separate commit on the receiver side under their own implementation context. Delivery-intent writes are the memo itself; implementation-intent writes are the receiver's response to it.
+
+### Schema
+
+Memo files use `plugins/coordinator/schemas/cross-repo-memo.yaml`. Key fields:
+
+- `from:` / `to:` — author EM id and receiver EM id (e.g. `claude-central-em`, `project-rag-em`)
+- `status:` — `open | reviewed | action_taken | closed | superseded`
+- `delivery_mode:` — `receiver-repo | central-only`
+- `decision:` — required at `action_taken` (`accepted | declined | partial | superseded`)
+- Lifecycle timestamps: `received_at`, `reviewed_at`, `action_taken_at`, `closed_at` (ISO-8601; authoritative audit trail is the receiver's git log of the transition commit)
+
+State machine: `open → reviewed → action_taken → closed`. Transitions happen via receiver-side Edit-and-commit on the memo file. `superseded` is an out-of-band terminal (chain via `supersedes:` / `superseded_by:`).
+
+### Dispatcher CLI
+
+`plugins/coordinator/bin/cross-repo-memo` writes both the receiver-side memo and the central archive copy.
+
+```
+cross-repo-memo --to <receiver-em-id> --topic <slug> --title "<one-line>" \
+  [--body-file <path>] [--delivery-mode receiver-repo|central-only]
+```
+
+Receiver repo path resolves via `machine-local get repos.<key>` (e.g. `project-rag-em → repos.project_rag`). On machines where the repo isn't present, falls back to `--delivery-mode central-only` and prints an explicit warning.
+
+The dispatcher always prints both paths and a one-line reminder: `Hand the PM both paths — PM-relay is still the primary channel.`
+
+**`--self-receipt` mode:** when the dispatching EM is effectively the receiver (central-EM acting in a trio repo on its own behalf), pass `--self-receipt`. The memo is written and committed immediately with `status: action_taken`. The PM-relay reminder is suppressed. The archive copy is also written at `action_taken` (not `open`) — audit trail only, not delivery.
+
+### `/workday-start` Step 1.45 surfacing
+
+A step inserted between Step 1.4 (cross-reference completed archive) and Step 1.55 (Recent Roadmap Orientation) queries `~/.claude/archive/cross-repo/*.md`, parses frontmatter, filters to `status ∈ {open, reviewed}`, and surfaces:
+
+```
+Outstanding cross-repo memos (DoE attention):
+- 2026-05-13 → holodeck-em: marker-dir collision — open (8 days)
+- 2026-05-21 → project-rag-em: gate-check failures — reviewed (action pending)
+```
+
+Staleness flags:
+- `open` >7 days: append ` [STALE — receiver hasn't read]`
+- `reviewed` >14 days: append ` [STALE — action pending]`
+
+Cap: ≤8 entries; `(N more — see ~/.claude/archive/cross-repo/ for full list)` truncation prompt beyond that.
+
+`action_taken` and `closed` drop off the surface. The helper script is `bin/workday-start-cross-repo-memo-surface.sh`.
+
+### Grandfather cutoff
+
+**Pre-2026-05-22 memos are grandfathered.** The schema validator applies only to memos with `created: >= 2026-05-22`. Step 1.45 also skips pre-cutoff memos by design — they will not surface in `/workday-start`. If a pre-cutoff memo has unfinished business with its addressee, options are: (a) re-issue under the new schema via `cross-repo-memo` with `supersedes: <old-archive-path>` set (preferred — exercises the supersession chain), or (b) handle out-of-band. Pre-cutoff memos will not self-surface; the re-issue path is the correct routing for anything still live.
+
+**Pre-cutoff inventory (as of 2026-05-21):**
+
+Archive copies (in `~/.claude/archive/cross-repo/`, all grandfathered):
+- `~/.claude/archive/cross-repo/2026-05-21-holodeck-em-marker-dir-collision.md`
+- `~/.claude/archive/cross-repo/2026-05-21-project-rag-em-gate-check-failures.md`
+- `~/.claude/archive/cross-repo/2026-05-21-project-rag-em-session-start-hook-resolver.md`
+- `~/.claude/archive/cross-repo/2026-05-21-project-rag-em-three-findings-host-substrate.md`
+
+Live consult traffic (in `~/.claude/tasks/memos/`, all with `created: <= 2026-05-21` are grandfathered):
+- `~/.claude/tasks/memos/2026-05-19-machine-local-doe-reply.md`
+- `~/.claude/tasks/memos/2026-05-19-project-rag-addon-em-whoami-sentinel.cover.md`
+- `~/.claude/tasks/memos/2026-05-19-project-rag-em-whoami-sentinel.md`
+- `~/.claude/tasks/memos/2026-05-19-project-rag-host-em-whoami-sentinel.md`
+- `~/.claude/tasks/memos/2026-05-19-project-rag-host-em-whoami-sentinel.reply.md`
+- `~/.claude/tasks/memos/2026-05-19-whoami-contract-ready.md`
+- `~/.claude/tasks/memos/2026-05-19-whoami-ue-addon-coordination.md`
+- `~/.claude/tasks/memos/2026-05-20-doe-reply-machine-local-third-criterion.md`
+- `~/.claude/tasks/memos/2026-05-20-em-memo-coordinator-substrate-and-doctor.md`
+- `~/.claude/tasks/memos/2026-05-21-addon-em-ack-producer-seam-disposition-4.md`
+- `~/.claude/tasks/memos/2026-05-21-host-em-reply-producer-seam.md`
+
+### Worked example
+
+Memo from `claude-central-em` to `project-rag-em`, walked through the full `open → reviewed → action_taken → closed` lifecycle.
+
+**Step 1 — Dispatcher writes the memo (2026-05-22).**
+
+`~/.claude/archive/cross-repo/2026-05-22-gate-check-fix.md` (archive copy, committed by central-EM):
+```yaml
+---
+title: "Gate-check failures in bin/check-plugin-drift.sh — recommended fix"
+from: claude-central-em
+to: project-rag-em
+created: 2026-05-22
+status: open
+delivery_mode: receiver-repo
+receiver_copy_path: X:/project-rag/tasks/memos/2026-05-22-gate-check-fix.md
+---
+```
+
+`X:/project-rag/tasks/memos/2026-05-22-gate-check-fix.md` (receiver-side copy, NOT committed — left as `??` in project-rag's `git status`):
+```yaml
+---
+title: "Gate-check failures in bin/check-plugin-drift.sh — recommended fix"
+from: claude-central-em
+to: project-rag-em
+created: 2026-05-22
+status: open
+delivery_mode: receiver-repo
+---
+```
+
+Dispatcher prints both paths and: `Hand the PM both paths — PM-relay is still the primary channel.`
+
+**Step 2 — project-rag-EM sees the dirty file** at next session-start (`git status` shows `?? tasks/memos/2026-05-22-gate-check-fix.md`), reads it, transitions to `reviewed`:
+```yaml
+status: reviewed
+received_at: 2026-05-23T09:15:00Z
+received_by: project-rag-em
+reviewed_at: 2026-05-23T09:20:00Z
+```
+Commits with message: `memo: mark 2026-05-22-gate-check-fix reviewed`
+
+**Step 3 — project-rag-EM implements the fix, transitions to `action_taken`:**
+```yaml
+status: action_taken
+action_taken_at: 2026-05-23T11:05:00Z
+decision: accepted
+decision_note: "Fixed gate-check exit-code handling in bin/check-plugin-drift.sh"
+```
+Commits alongside the fix commit.
+
+**Step 4 — central-EM reconciles at workday-start.** Step 1.45 surfaces the memo as still `open` (archive copy hasn't been updated yet). Central-EM queries project-rag git log, sees the `action_taken` commit, updates the archive copy:
+```yaml
+status: closed
+closed_at: 2026-05-23T14:00:00Z
+action_taken_at: 2026-05-23T11:05:00Z
+decision: accepted
+```
+
+Memo drops off Step 1.45 surface at next workday-start.
+
+### "Never" list update
+
+The existing "Never" list in the decision-tree above prohibits writing to `tasks/handoffs/` and `tasks/spinoffs/` in other repos. That prohibition remains. However, **`tasks/memos/` writes ARE permitted** under the delivery-intent lifecycle described in this section — they are the delivery primitive, not a surface you "don't own." The distinction: memos are addressed artifacts with the receiver's lifecycle control; handoffs/spinoffs are session-continuity artifacts that only the owning repo's session-start ceremonies should manage.
+
+Closes `tasks/coordinator-improvement-queue.md:221` (2026-05-21 entry on memo shape convention).
+
 ## Doctrine seeding vs. code/install-surface change — two different cross-repo altitudes
 
 > Added 2026-05-21 under PM ruling (see `~/.claude/docs/plans/2026-05-21-install-surface-completeness-doctrine.md` § PM-Q1 RESOLVED): not all cross-repo writes are the same. Doctrine and code live at different altitudes; conflating them produces churn.

@@ -207,6 +207,10 @@ _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stu
 
 **Why query, not grep (2026-05-08, revised 2026-05-15):** `deployment_state` obviates grep-walks; `ready_to_fire` is the primary list, `awaiting_gate` is its own subsection for cross-workstream gate awareness.
 
+## Step 1.45: Outstanding Cross-Repo Memos
+
+Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surface.sh`. Non-empty output → surface verbatim under heading `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.45`.
+
 ## Step 1.55: Recent Roadmap Orientation
 
 Surface last quarter's top-10 roadmap completions by size for a 30-second narrative orientation — grounding the day's work in recent delivery context before triage decisions. Per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern: a fixed subsection heading renders regardless of row count.

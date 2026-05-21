@@ -107,6 +107,11 @@ class TestSelfNamedTableElision:
         result = _run_ml(sandbox, ["get", "unreal.install_root"])
         assert result.returncode == 0, f"stderr: {result.stderr}"
         assert result.stdout.strip() == "E:/dev/UE"
+        # Negative: bare key without concern prefix must NOT resolve.
+        assert _run_ml(sandbox, ["get", "install_root"]).returncode != 0
+        # Negative: doubled prefix must NOT resolve — guards against a regression
+        # where top-level-key auto-prefix fires a second time on already-prefixed keys.
+        assert _run_ml(sandbox, ["get", "unreal.unreal.install_root"]).returncode != 0
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +193,12 @@ class TestCmdSetWindowsPath:
         _seed_registry(sandbox)
         _run_ml(sandbox, ["set", "repos.foo", r"E:\dev\foo"])
         content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
-        # Must contain single-quoted literal form
-        assert "'E:\\dev\\foo'" in content or "'E:/dev/foo'" in content or "E:\\dev\\foo" in content
+        # Assert literal-string (single-quoted) form. First two disjuncts cover
+        # backslash-preserved and forward-slash-normalised variants; the dropped
+        # third disjunct ("E:\\dev\\foo" in content) was vacuously true because
+        # raw path bytes appear inside basic-string form too — it would have
+        # passed even if cmd_set was still writing the old double-quoted shape.
+        assert "'E:\\dev\\foo'" in content or "'E:/dev/foo'" in content
         # Must NOT contain double-quoted basic-string form with backslash-escaped path
         assert '"E:\\\\dev\\\\foo"' not in content
 

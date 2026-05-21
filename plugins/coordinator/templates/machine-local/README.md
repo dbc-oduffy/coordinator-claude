@@ -16,8 +16,9 @@ Think of it in the spirit of `~/.gitconfig` — you set it up once per machine, 
 
 ## Format — TOML
 
-Registry files use TOML. Keys are flat dotted strings; values are strings (or arrays for the `publish.targets` case). No nested tables in the core registry — the reader contract is intentionally simple.
+Registry files use TOML. Keys are dotted strings; values are strings (or arrays for the `publish.targets` case). The reader supports two equivalent shapes:
 
+**Quoted flat-key form** (preferred for explicitness — the key name is unambiguous):
 ```toml
 schema = 1
 
@@ -25,6 +26,22 @@ schema = 1
 "repos.project_rag"            = "/path/to/project-rag"
 "unreal.install_root"          = "/path/to/UnrealEngine"
 ```
+
+**Natural TOML table form** (convenient for hand-edits with many keys under one namespace):
+```toml
+schema = 1
+
+[repos]
+coordinator_claude = "/path/to/coordinator-claude"
+project_rag        = "/path/to/project-rag"
+
+[unreal]
+install_root = "/path/to/UnrealEngine"
+```
+
+Both forms produce the same dotted keys (`repos.coordinator_claude`, `unreal.install_root`). The reader flattens nested tables at load time via `_flatten_nested`. You may mix both forms in the same file.
+
+**Concern-file namespaces** (`unreal.*`, `cuda.*`) do NOT resolve through the registry's flatten path — they resolve exclusively from their concern file (`unreal.toml` / `unreal.local.toml`) when that concern is listed in the `concerns` array. Keys with a concern prefix in `registry.toml` are ignored (a warning is emitted). See the Concern files section below.
 
 Dotted-namespace keys group related values. The namespace prefix (`repos`, `unreal`, `cuda`) is the first segment. Keys within a namespace are further-dotted as needed.
 
