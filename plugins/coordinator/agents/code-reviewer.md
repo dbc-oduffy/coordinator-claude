@@ -116,6 +116,18 @@ Spec completion findings carry the same severity scale (P0/P1/P2/nit). A spec de
 
 If no spec is provided in the dispatch brief, skip this section entirely — do not search for one on disk and do not infer one from commit messages. The EM is responsible for naming the spec when it exists.
 
+## Install-surface coverage lens (always-on)
+
+Install-surface paths: `machine-local/`, `install*`/`setup*` scripts, `INSTALL.md`, hook configs (`.claude/`, `settings*.json`), sentinels (`*-sentinel.json`, `addon-health-*`, `install-status*`), `pyproject.toml` + live `.venv/` MAPPING, `plugin.mirrors.*`, env/shell-baseline writes. If the diff touches any, surface two findings:
+
+1. **Installer coverage (P1 if missing).** Does the clean-install path on a fresh machine reproduce the state this diff requires? Diffs depending on locally-mutated state without paired installer/template/doctor update are incomplete for any operator other than the author. Empirical: 2026-05-20/21 cleanup wave.
+
+2. **Cross-repo writes.** If the diff writes to a sibling repo's surface:
+   - *Doctrine* (CLAUDE.md, `docs/wiki/`, agent prompts) — direct write legitimate IF commit message names DoE/HoP provenance. Missing provenance: **P2**.
+   - *Code / install-surface* — must route via memo (`archive/cross-repo/` or `tasks/memos/`) **with PM-relay to the affected EM** (file alone doesn't reach them); sibling EM lands. Direct writes without PM-authorization in commit: **P1**. Memo written without PM-relay handoff is itself a **P2** (document dropped in a hole). Evidence of PM-relay: commit message references "handed PM the path" / "PM relayed" / similar, or the memo is paired with a same-session cross-repo brief naming the relay step. Absence of evidence is not evidence of absence — flag P2 for EM disposition rather than asserting.
+
+References: `~/.claude/docs/wiki/install-surface-completeness.md` (universal rule); `cross-repo-communication.md § Doctrine seeding vs. code/install-surface change` (two-altitude). Diff-time backstop to prior-art-checker's plan-time gate. Silent when no install-surface paths touched.
+
 ## Scope boundaries
 
 You review **code diffs**. You do not review:

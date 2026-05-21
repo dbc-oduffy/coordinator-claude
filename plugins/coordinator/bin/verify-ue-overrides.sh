@@ -17,8 +17,8 @@
 # machine-local keys consumed (must be set in registry.local.toml):
 #   repos.claude_unreal_holodeck  — root of the claude-unreal-holodeck repo
 #   repos.project_rag             — root of the project-rag repo
-#   (repos.dronesim not yet in registry baseline; DroneSim check skipped
-#    until that key is added — see NOTE-dronesim below)
+#   repos.dronesim                — root of the DroneSim UE project (optional;
+#                                   skipped if unset on this machine)
 #
 # If machine-local is absent or a required key is not set, the script fails
 # loud with a remediation hint. This is intentional: a missing registry is a
@@ -35,6 +35,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 ML_BIN=""
 if command -v machine-local >/dev/null 2>&1; then
   ML_BIN="machine-local"
+elif [[ -x "$HOME/.claude/bin/machine-local" ]]; then
+  ML_BIN="$HOME/.claude/bin/machine-local"
 elif [[ -x "$SCRIPT_DIR/machine-local" ]]; then
   ML_BIN="$SCRIPT_DIR/machine-local"
 fi
@@ -49,6 +51,9 @@ if [[ -z "$ML_BIN" ]]; then
 fi
 
 # Resolve a machine-local key; fail loud with remediation if key is not set.
+# (Fail-loud variant. The sibling script bin/verify-plan-coverage-sync.sh
+#  defines a skip-friendly `resolve_key_or_empty` for optional consumers;
+#  here we want hard-fail because UE-context dirs are load-bearing.)
 resolve_key() {
   local key="$1"
   local val
@@ -61,22 +66,33 @@ resolve_key() {
   echo "$val"
 }
 
+# Resolve a machine-local key; print empty on miss (caller decides skip vs fail).
+# Used for optional UE-context dirs like DroneSim that may not be registered on
+# every machine.
+resolve_key_or_empty() {
+  local key="$1"
+  [[ -z "$ML_BIN" ]] && return 0
+  "$ML_BIN" get "$key" 2>/dev/null || true
+}
+
 # ---------------------------------------------------------------------------
 # Resolve UE-context directory roots from the machine-local registry.
 # ---------------------------------------------------------------------------
 HOLODECK_ROOT="$(resolve_key "repos.claude_unreal_holodeck")"
 PROJECT_RAG_ROOT="$(resolve_key "repos.project_rag")"
 
-# NOTE-dronesim: the DroneSim repo (formerly hardcoded as /x/DroneSim) has no
-# established key in the machine-local registry baseline. Adding one requires a
-# PM-gated baseline key addition. Until repos.dronesim is in the baseline, this
-# script skips the DroneSim check rather than carrying a Striker-specific
-# hardcode. Track: docs/plans/2026-05-20-coordinator-doctor-wiki.md § Chunk 10.
+# DroneSim is an optional UE-context dir; include only if repos.dronesim is set
+# on this machine. (Previously hardcoded as /x/DroneSim, then skipped pending
+# baseline registry key; key now exists and resolves when present.)
 NAMED_DIRS=(
   "$HOLODECK_ROOT"
   "$PROJECT_RAG_ROOT"
   "$HOME/.claude"
 )
+_DRONESIM_ROOT="$(resolve_key_or_empty "repos.dronesim")"
+if [[ -n "$_DRONESIM_ROOT" ]]; then
+  NAMED_DIRS+=("$_DRONESIM_ROOT")
+fi
 
 # ---------------------------------------------------------------------------
 # settings.json reader (jq or node fallback)
@@ -105,9 +121,18 @@ else
   exit 1
 fi
 
+# Plugins required to be enabled in each UE-context settings.json.
 EXPECTED_KEYS=(
   "holodeck-control@claude-unreal-holodeck"
   "holodeck@claude-unreal-holodeck"
+)
+
+# Either-vendor sets: at least one entry from each set must be enabled. Avoids
+# the dual-vendor conflict where two plugins claim the same agent surface (e.g.
+# game-dev is vendored by both coordinator-claude and claude-unreal-holodeck;
+# the holodeck-vendored variant is preferred when present, but only one should
+# be active per machine to keep agent routing unambiguous).
+EITHER_VENDOR_GAME_DEV=(
   "game-dev@claude-unreal-holodeck"
   "game-dev@coordinator-claude"
 )
@@ -144,6 +169,17 @@ for dir in "${NAMED_DIRS[@]}"; do
       FAIL=1
     fi
   done
+
+  # Either-vendor check: at least one game-dev vendor must be enabled.
+  game_dev_ok=0
+  for key in "${EITHER_VENDOR_GAME_DEV[@]}"; do
+    val=$(read_key "$SETTINGS" "$key")
+    [[ "$val" == "true" ]] && game_dev_ok=1
+  done
+  if [[ "$game_dev_ok" -eq 0 ]]; then
+    echo "WRONG: $SETTINGS — no game-dev vendor enabled (expected at least one of: ${EITHER_VENDOR_GAME_DEV[*]})" >&2
+    FAIL=1
+  fi
 done
 
 [[ $FAIL -eq 0 ]] && echo "all known UE-context dirs carry the expected override"

@@ -1,0 +1,63 @@
+# Expected routing manifest for sample-lessons.md
+# Validates the four-record routing produced by /lesson-triage cross-project mode
+# against the canonical change-kind taxonomy + per-lesson schema.
+
+- id: "fixture-l1"
+  source: "tests/fixtures/lesson-triage/sample-lessons.md:9"
+  summary: "Subagent dispatch billing inheritance"
+  scope: universal
+  destinations:
+    - target: "plugins/coordinator-claude/coordinator/CLAUDE.md"
+      section: "(new section) Subagent Dispatch — Billing Tier Inheritance"
+      change_kind: doctrine-edit
+      rationale: "applies to every coord plugin user, not just one repo"
+      priority: HIGH
+    - target: "tests/fixtures/lesson-triage/sample-lessons.md:9"
+      section: "(this entry)"
+      change_kind: strip-local
+      rationale: "promoted to central; gate on doctrine-edit commit SHA"
+      priority: HIGH
+      depends_on: "fixture-l1.destinations[0]"
+  open_questions: []
+
+- id: "fixture-l2"
+  source: "tests/fixtures/lesson-triage/sample-lessons.md:15"
+  summary: "Skeletal mesh socket attachment ordering"
+  scope: project
+  destinations:
+    - target: "tests/fixtures/lesson-triage/sample-lessons.md:15"
+      section: "(this entry)"
+      change_kind: retag-local
+      rationale: "already correctly tagged [ue]; no action needed beyond confirming"
+      priority: LOW
+  open_questions: []
+
+- id: "fixture-l3"
+  source: "tests/fixtures/lesson-triage/sample-lessons.md:21"
+  summary: "Build script auto-discovery sweeps stale backups"
+  scope: project
+  destinations:
+    - target: "<originating-project>/build.sh"
+      section: "auto-discovery glob block"
+      change_kind: project-structural
+      rationale: "concrete code change in the originating repo, not central doctrine"
+      priority: MEDIUM
+    - target: "docs/wiki/cleanup-sweep-hazards.md"
+      section: "(new file)"
+      change_kind: wiki-new
+      rationale: "battle-story preservation — pattern recurs across projects"
+      priority: MEDIUM
+  open_questions:
+    - "which originating project? sample-lessons.md doesn't carry source-repo context"
+
+- id: "fixture-l4"
+  source: "tests/fixtures/lesson-triage/sample-lessons.md:27"
+  summary: "TEXT-ONLY hallucination — disk-first verification"
+  scope: universal
+  destinations:
+    - target: "tests/fixtures/lesson-triage/sample-lessons.md:27"
+      section: "(this entry)"
+      change_kind: strip-local
+      rationale: "already encoded centrally per the entry's own admission"
+      priority: HIGH
+  open_questions: []

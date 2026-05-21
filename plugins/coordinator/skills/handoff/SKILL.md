@@ -30,6 +30,32 @@ When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each
 
 **CRITICAL: Write the handoff file FIRST, before commits or anything else.** Handoffs are typically invoked when the session is near compaction. If you do git operations first, you risk losing the conversation context that makes the handoff valuable. Get the knowledge out of your head and onto disk immediately.
 
+## Execution Shape — gates vs. todo-list
+
+This skill has a small set of sequential gates and a TODO-LIST cluster. Treat them as such — do not ladder-walk the todo-list under context pressure. Convention: `docs/wiki/skill-step-parallelization.md`.
+
+**Sequential gates (real data-dependency edges — must be in this order):**
+
+1. **Step 0** (trigger check) — gate must pass to continue.
+2. **Step 1** (write handoff) — produces the `scope:` block that Step 3 reads.
+3. **Step 2.10** (code review consideration) — integrator-edited files must be staged in Step 3.
+4. **Step 3** (commit + verify remote) — consumes Step 1's `scope:` and any Step 2.10 integrator edits.
+5. **Step 3.5** (archive session claim) — consumes Step 3's pushed commit.
+6. **Step 4** (confirm) — informational summary after 3.5.
+
+**Todo-list (no edges between *peer* todo-list steps — execute in any order, batch parallel where two independently read/write different files):**
+
+- **Step 2** — lessons (`tasks/lessons.md`)
+- **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
+- **Step 2.6** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`)
+- **Step 2.7** — archive uncaptured work (`archive/completed/`)
+- **Step 2.8** — build/test awareness (a note appended to the handoff body's Current State — reads Step 1's output)
+- **Step 2.9** — refresh orientation documents (pinboard + tracker + action-items)
+
+These six touch disjoint surfaces *relative to each other* and none consumes another's output. All six share Step 1's handoff file as a prerequisite (Step 2.8 explicitly so — it appends to the body), which is captured by the sequential gate ordering: Step 1 always runs before any todo-list item. Where two todo-list peers are disk operations on different paths, run them in the same response via parallel tool calls. Step 2.10 has a soft preference to land *with* the todo-list cluster so its integrator edits stage with Step 3, but does not consume the 2.x cluster's output.
+
+**Doctrine-load-bearing exception:** Step 1's "CRITICAL: write the handoff file FIRST" remains absolute — the handoff body is the irreversible artifact under context pressure, and every other step (including the todo-list cluster) is recoverable from disk on a successor session if compaction strikes. Order: Step 1 first (absolute). Then the todo-list cluster and Step 2.10 in any interleaving — disjoint surfaces, parallel-safe. Then Step 3 (fan-in of both), Step 3.5, Step 4.
+
 ## Step 0: Trigger check — is context pressure actually forcing this?
 
 Before writing anything, run this binary gate. The PRIMARY question is whether the current session can still take its next action; if it can, you are not handing off, you are deferring — and that's a doctrine violation regardless of how "tidy" the current state looks.

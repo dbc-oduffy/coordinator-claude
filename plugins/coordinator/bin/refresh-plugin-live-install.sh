@@ -542,25 +542,17 @@ if [[ $NEED_VENV_INSTALL -eq 1 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 9-pre: Write audit row BEFORE post-flight probe so probe's venv-pyproject
-# hash check reads the updated hash (ordering fix: probe at step 9 reads the log
-# written here; step 10 appends the same row again — idempotent since grep matches
-# the most recent entry by plugin name). This prevents false venv-pyproject drift
-# on post-flight when pyproject.toml changed in the git-leg.
-# ---------------------------------------------------------------------------
-
-_PRE_FLIGHT_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-echo "${_PRE_FLIGHT_TS}  ${PLUGIN}  ${OLD_SHA:0:12}->${NEW_SHA:0:12}  pyproject_changed=${PYPROJECT_CHANGED}  venv_refreshed=${VENV_REFRESHED}  install_tool=${INSTALL_TOOL}  pyproject_hash=${CURRENT_PYPROJECT_HASH}" \
-    >> "$REFRESH_LOG"
-
-# ---------------------------------------------------------------------------
 # Step 9: Post-flight drift probe — assert zero items
 # ---------------------------------------------------------------------------
+# Review: code-reviewer (chain-end finding #2) — eliminated the step 9-pre double-write.
+# Previously, a duplicate audit row was written here before the probe ran so the
+# probe's venv-pyproject hash check would see the updated hash. Now we pass
+# CURRENT_PYPROJECT_HASH_OVERRIDE via env instead; Step 10 is the single audit write.
 
 POST_FLIGHT_CLEAN=1
 
 if [[ -x "$DRIFT_PROBE" ]]; then
-    if ! "$DRIFT_PROBE" "$PLUGIN" 2>/dev/null; then
+    if ! CURRENT_PYPROJECT_HASH_OVERRIDE="$CURRENT_PYPROJECT_HASH" "$DRIFT_PROBE" "$PLUGIN" 2>/dev/null; then
         POST_FLIGHT_CLEAN=0
     fi
 else
@@ -574,8 +566,18 @@ if [[ $POST_FLIGHT_CLEAN -eq 0 ]]; then
     echo "refresh-plugin-live-install.sh: ERROR: post-flight drift check failed — restoring from snapshot." >&2
     echo "  Snapshot: $SNAPSHOT_PATH" >&2
     if [[ -d "$SNAPSHOT_PATH" ]]; then
-        rm -rf "$LIVE_PATH"
-        mv "$SNAPSHOT_PATH" "$LIVE_PATH"
+        # Review: code-reviewer (chain-end finding #17) — .git safety guard: refuse to
+        # delete LIVE_PATH when it is not a git repo (guards against misconfigured
+        # live_path pointing at a broad directory).
+        if [[ ! -d "$LIVE_PATH/.git" ]]; then
+            echo "refresh-plugin-live-install.sh: ABORT: $LIVE_PATH is not a git repo — refusing rm -rf for safety." >&2
+            echo "  Manual recovery: restore from $SNAPSHOT_PATH" >&2
+            exit 1
+        fi
+        # Review: code-reviewer (chain-end finding #10) — use cp -r instead of rm-rf+mv.
+        # The old destructive-first pattern left LIVE_PATH absent if mv failed.
+        # cp -r keeps LIVE_PATH intact throughout; only cleaned up after success.
+        cp -r "$SNAPSHOT_PATH/." "$LIVE_PATH/"
         echo "refresh-plugin-live-install.sh: restored from snapshot. Investigate and retry." >&2
     else
         echo "refresh-plugin-live-install.sh: snapshot not found at $SNAPSHOT_PATH — manual recovery required." >&2

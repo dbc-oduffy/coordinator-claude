@@ -554,6 +554,8 @@ allowed-tools:
 but `access-mode: read-only` cannot write — the deliverable disappears. Default agents that
 produce file output to `access-mode: read-write`.
 
+**`access-mode` is a capability declaration, not a behavioral promise.** The field answers "can this agent mutate?" (Claude Code platform enforcement), not "will this agent mutate?" (body-level discipline). An agent with `Bash` in its tools list for read-only CLI invocation (e.g. `ls`, `grep`, artifact parsing) correctly declares `read-write` because `Bash` carries mutation capability — even when the body explicitly prohibits `Edit` / `Write`. The body's "Do NOT use Edit or Write" is behavioral self-discipline within the `read-write` capability envelope; it is not a contradiction. Setting `read-only` on such an agent would cause `Bash` to be blocked by the platform, silently breaking any deliverable-write-via-Bash protocol. → `coordinator-tripwires.md` § validate-agent-tools.
+
 **Prompts live in one place.** A driver/skill/command MUST `@`-reference the canonical prompt
 template, never inline its body. Drift between inlined copy and template is a silent correctness
 bug.

@@ -17,6 +17,32 @@ When invoked, capture lessons and update plan/project documentation to reflect c
 
 **Design note:** Multiple agents may be running concurrently. This skill closes out ONE agent's session without heavy repo-wide operations that could conflict with other agents.
 
+## Execution Shape — gates vs. todo-list
+
+This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus a TODO-LIST cluster of independent post-work cleanup steps. Treat them as such — do not ladder-walk the todo-list. Convention: `docs/wiki/skill-step-parallelization.md`.
+
+**Sequential gates (real data-dependency edges — must be in this order):**
+
+1. **Step 1 → Step 1.2 micro-chain** — classification reads the lesson Step 1 just wrote. Skip both together if no new lesson.
+2. **Step 2.6 internal chain** (Steps 2.6.1 → 2.6.2 → 2.6.3 → 2.6.4 → 2.6.5 → 2.6.5a → 2.6.6 → 2.6.7) — the per-entry archive write is a real chain: AUTO-MIGRATE → chain-slug resolve → Sonnet nature-infer → session-id resolve → LoE block → write entry. Internal to Step 2.6 only.
+3. **Step 2.9** (code review) — integrator-edited files must be staged in Step 3.
+4. **Step 3** (commit + verify remote) — fan-in of ALL preceding file edits (lessons, plan docs, archive entries, orientation cache, action-items, review-integrator outputs); commit consumes the union via explicit-path staging.
+5. **Step 3.5** (archive session claim) — consumes Step 3's pushed commit.
+6. **Step 4** (final summary) — informational.
+
+**Todo-list (no edges between *peer* todo-list slots — execute in any order, batch parallel where two independently read/write different files):**
+
+- **Step 1 (then 1.2) — run as an inseparable pair, one todo-list slot** — lessons capture + classification (`tasks/lessons.md`). The 1→1.2 edge is real; run them sequentially as a unit; the *pair* parallelizes with the other slots.
+- **Step 2** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`, etc.)
+- **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
+- **Step 2.6** — archive uncaptured work (`archive/completed/YYYY-MM/`; internal chain 2.6.1→2.6.7 is real but isolated to this slot)
+- **Step 2.7** — archive predecessor handoff (file move only — independent of all other slots)
+- **Step 2.8** — refresh orientation documents (pinboard + tracker + action-items + docs README)
+
+These six slots touch disjoint surfaces and none consumes another's output. Where two are pure disk operations on different paths, run them in the same response via parallel tool calls. Step 2.9 (review) has a soft preference to land *with* the todo-list cluster so its integrator edits stage with Step 3, but does not consume the 2.x cluster's output.
+
+**Step 3 is a fan-in, not a sequence.** It stages the union of all files touched by the cluster — peer step ordering relative to each other is irrelevant; only their position before Step 3 matters.
+
 ### Step 1: Capture Lessons
 
 Read `tasks/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first.
@@ -299,8 +325,8 @@ Assess whether this session's diff warrants a code review pass before committing
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
-| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff (default) |
-| Chain-end AND any of: chain diff >500 LOC, touches public API / schema / security-adjacent code, ≥3 segments in chain, novel external API integration | **`code-reviewer` on the chain diff** (partition into multiple parallel dispatches when surface is too large for one reviewer — see § Partitioning large surfaces), with EM-judged the Staff Engineer escalation *post-code-reviewer* on signal — see § Post-code-reviewer the Staff Engineer-escalation criteria |
+| Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
+| Chain-end AND chain diff too large for a single reviewer (>500 LOC rough anchor, ≥3 segments, or multi-surface) | **Partitioned `code-reviewer` dispatches** — see § Partitioning large surfaces. Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at session-end |
 
 **Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
 
@@ -319,26 +345,22 @@ This is **diff partitioning under capacity limits**, not the workweek parallel-o
 4. Trail write at end uses `--reviewer code-reviewer` (single value); record the partition shape in the wrap-up sentence, not the trail field.
 5. Post-`code-reviewer` the Staff Engineer-escalation criteria below apply to the **combined** finding set (sum across slices), not each slice independently.
 
-If you find yourself partitioning into more than ~4 slices, the diff is workweek-territory — surface to PM as a candidate `/workweek-complete`-style parallel review, don't fan out a sixth `code-reviewer`.
+There is no upper bound on partition count — if the diff genuinely requires 6 or 8 `code-reviewer` dispatches, dispatch 6 or 8. The constraint is per-reviewer context fit, not total slice count. The workweek merge-gate ceremony (`coordinator:parallel-code-review`) is orthogonal: it runs 4 fixed lenses at merge time regardless of how many session-end partitions ran.
 
-**Post-code-reviewer the Staff Engineer-escalation criteria (row 5 chain-end):**
-Default after `code-reviewer` returns is *no the Staff Engineer*. Escalate iff the report shows one or more of:
-- A high-volume finding count (rough anchor: ≥5 substantive findings, not nits).
-- Any finding flagged as architectural, strategic, cross-system, or boundary/seam/taxonomy-shaped — i.e. not a tactical fix the integrator can fold mechanically.
-- The reviewer itself recommends a deeper second pass, OR EM reads the report and is genuinely uncertain whether a flagged issue is tactical or structural.
+**No named-reviewer escalation from code review.** Named reviewers (the Staff Engineer, personas) are for plans and architecture. Code output review at session-end is Sonnet `code-reviewer` only — partition across slices as needed. If `code-reviewer` surfaces an architectural finding, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
 
-Tactical-only or clean `code-reviewer` → fold via integrator, write the trail, ship. The weekly `/workweek-complete` Step 7 parallel-code-review remains the structural backstop for chain-end work that reaches main without the Staff Engineer at session-end.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony (4 orthogonal lenses: security, deps, test-evidence, plus the Staff Engineer on the combined diff). It is a merge-gate, NOT a deferral path — do not skip session-end review and "surface to PM for workweek." Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
 
 **Anti-ceremony-bias tripwire (`code-reviewer`-skip direction — still load-bearing):**
 > "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
 
 **Symmetric anti-ceremony tripwire (row 3+ — `code-reviewer` floor):**
-> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. (Post-`code-reviewer` the Staff Engineer escalation is a separate question — governed by the actual report per § Post-code-reviewer the Staff Engineer-escalation criteria, not by ceremony intuition.) See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
+> "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
 
 **Chain-end detection:**
 - Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Additional the Staff Engineer-escalation signal:** if `/handoff` Step 0's NO-test gate previously fired and routed the session to `/session-end`, the session is shipped/complete — weight that into the post-`code-reviewer` escalation decision alongside the report's findings.
+- **Trail is the only valid code-output coverage signal.** When scanning chain history for prior reviews, read `tasks/review-trail/*.json` records ONLY. A "the Staff Engineer reviewed the plan" note in a predecessor handoff body is plan-level design-intent coverage — it does NOT satisfy the chain-end `code-reviewer` floor. Plan-level the Staff Engineer reviews (`docs/plans/*.review-patrik.md`) are not trail records and count as zero code-output coverage. If no trail record exists covering the chain diff's sha-range, the chain diff is unreviewed regardless of what the handoff narrative says.
 
 **Diff scope:**
 - Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`

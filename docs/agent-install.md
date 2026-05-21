@@ -68,7 +68,7 @@ Use only if `setup/install.sh` cannot run (no bash, sandboxed environment, etc.)
 
 1. `mkdir -p ~/.claude/plugins/coordinator-claude`
 2. `cp -r plugins/* ~/.claude/plugins/coordinator-claude/`
-3. Copy `.claude-plugin/marketplace.json` into `~/.claude/plugins/coordinator-claude/.claude-plugin/marketplace.json`, rewriting each plugin's `source` field from `./plugins/<name>` to `./<name>` (flat layout).
+3. Copy `.claude-plugin/marketplace.json` into `~/.claude/plugins/.claude-plugin/marketplace.json`, rewriting each plugin's `source` field from `./plugins/<name>` to `./<name>` (flat layout).
 4. Merge an entry into `~/.claude/plugins/known_marketplaces.json` for `coordinator-claude` pointing at the install dir.
 5. Merge entries into `~/.claude/plugins/installed_plugins.json` (one per plugin, key `<name>@coordinator-claude`, with `installPath` and `version` from each plugin's `plugin.json`).
 6. Merge `~/.claude/settings.json`: enable plugins under `enabledPlugins`, register the marketplace under `extraKnownMarketplaces`, and add `Edit` and `Write` to `permissions.allow` (background subagents need these — `defaultMode: dontAsk` does not propagate to them).

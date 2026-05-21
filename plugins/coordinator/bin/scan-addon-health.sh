@@ -14,8 +14,8 @@
 #   }
 #
 # Modes:
-#   --red-only                emit lines only for RED verdicts (session-start)
-#   --red-and-stale           emit lines for RED + stale (>24h) + missing sentinels + plugins declaring a doctor with no sentinel (workday-start, default)
+#   --red-only                emit lines only for RED verdicts (session-start — signal-not-noise)
+#   --red-and-stale           emit lines for RED + AMBER + stale (>24h) + missing sentinels + plugins declaring a doctor with no sentinel (workday-start, default — triage posture)
 #   --check-sentinel-presence fresh-install bootstrap check (session-start, alongside --red-only):
 #                               exit 0 + empty output  → no plugins installed, OR sentinels exist
 #                               exit 0 + one-line msg  → plugins installed but no sentinel in any data/ dir
@@ -162,7 +162,24 @@ except Exception:
       [[ -n "$hint" ]] && hint_clause=" — ${hint}."
       echo "[health] ${plugin}: doctor RED${probe_clause}${hint_clause} Run /${plugin}:doctor for details."
       ;;
-    GREEN|AMBER|"")
+    AMBER)
+      # AMBER surfaces in --red-and-stale (workday-start: operator already in triage posture)
+      # but NOT in --red-only (session-start: signal-not-noise). Empirically, a sentinel's
+      # AMBER verdict can age out of sync with substrate before the staleness threshold
+      # fires (project-rag-ue-addon, 2026-05-21: AMBER at 10:03Z, RED at 10:30Z, sentinel
+      # still wall-clock-fresh) — surfacing AMBER avoids silent workday-start under those
+      # inversions. Stale-AMBER inherits the older 'stale' notice shape for age clarity.
+      if [[ "$MODE" == "--red-and-stale" ]]; then
+        hint_clause=""
+        [[ -n "$hint" ]] && hint_clause=" — ${hint}."
+        if [[ "$stale" -eq 1 && "$age_days" != "?" ]]; then
+          echo "[health] ${plugin}: doctor AMBER (${age_days}d old)${hint_clause} Run /${plugin}:doctor to re-probe."
+        else
+          echo "[health] ${plugin}: doctor AMBER${hint_clause} Run /${plugin}:doctor to re-probe."
+        fi
+      fi
+      ;;
+    GREEN|"")
       if [[ "$MODE" == "--red-and-stale" && "$stale" -eq 1 ]]; then
         if [[ "$age_days" == "?" ]]; then
           echo "[health] ${plugin}: doctor sentinel ran_at unparseable. Run /${plugin}:doctor."

@@ -49,7 +49,7 @@ You do not prescribe which resolution. You report; the EM decides.
 Read the plan artifact in full. Note the plan path — you will need it for the sidecar output path.
 
 Check whether a prior sidecar exists at `<plan-path>.plan-coverage-check.md`. If it does:
-- Rename it to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new sidecar. Use the prior file's mtime for the timestamp (e.g., `2026-05-18T14:23:07Z`). If mtime is unavailable via `Bash` `stat`, suffix with the current UTC timestamp and `.prev`.
+- Rename it to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new sidecar. Use the prior file's mtime for the timestamp, formatted **filename-safe** with hyphens substituted for the standard ISO-8601 colons (e.g., `2026-05-18T14-23-07Z`, NOT `2026-05-18T14:23:07Z`). The `:` character is invalid in Windows filenames — Windows substitutes U+F03A (Private Use Area lookalike) automatically, producing unreadable paths. If mtime is unavailable via `Bash` `stat`, suffix with the current UTC timestamp (same hyphenated shape) and `.prev`.
 - Never delete a prior sidecar. The feedback history matters.
 
 ### Phase 1: Detect Oracle and Slate Tables
@@ -201,7 +201,7 @@ plan: <plan-path-relative-to-repo-root>
 - You write exactly **one file**: the sidecar at `<plan-path>.plan-coverage-check.md`.
 - Never edit the plan itself.
 - Never edit any wiki, lesson, or queue file.
-- If the sidecar already exists from a prior run, rename it to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new sidecar (see Phase 0). Never delete a prior sidecar.
+- If the sidecar already exists from a prior run, rename it to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new sidecar (see Phase 0 — timestamp MUST be filename-safe, hyphens not colons: `2026-05-18T14-23-07Z`). Never delete a prior sidecar.
 - You do not commit. Write the sidecar, then report back to the coordinator.
 
 ## Stuck Detection

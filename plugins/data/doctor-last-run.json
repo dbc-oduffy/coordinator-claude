@@ -1,0 +1,8 @@
+{
+  "ran_at": "2026-05-21T15:51:25Z",
+  "verdict": "GREEN",
+  "red_probes": [],
+  "amber_probes": [],
+  "hint": "All coordinator-doctor probes (P-1..P-11) passed.",
+  "plugin": "coordinator-claude"
+}

@@ -14,6 +14,20 @@ Canonical reference for the percolation setup procedure — registering a publis
 - `/percolate` Branch 0 — fires on first run against an unconfigured target; skips silently on subsequent runs.
 - `/setup` percolation phase — fires when the repo is detected as a percolation source with no registered targets.
 
+## Fresh-install path
+
+Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). It now arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
+
+- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:setup` Phase 3 (ongoing maintenance, via `install-substrate.sh`) install `publish.sh`, `publish_sync.py`, and `publish-targets.example.sh` into `~/.claude/setup/`.
+- Operator then registers targets (see Step 1a/1b/1c below — machine-local is preferred, `publish-targets.sh` is legacy).
+- Operator authors `~/.claude/setup/.percolate-identity` from `.percolate-identity.example` with their own identity tokens.
+- If org-slug rewrites are needed, operator copies `~/.claude/plugins/coordinator/bin/depersonalize-identity.sh.example` to `depersonalize-identity.sh` and edits it.
+
+Spec backlinks:
+- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` — `source_is_live` propagation model.
+- `docs/wiki/coordinator-installer-shape.md § 2` — operator-local vs publish-target distinction (basis for non-circular framing).
+- `docs/wiki/post-sync-hook-doctrine.md` — touched-file-list stdin contract for post-rsync hooks.
+
 **Scaffold guards (prior-art entry 2026-05-08 — `**/` regression):**
 - This wiki's header comment discloses the supported pattern subset: `**/` is NOT supported in `.percolate-ignore`. Directory patterns are already recursive without it.
 - Before writing `.percolate-ignore`, walk the matcher against a fixture set (Step 3d) to verify patterns resolve as expected. Do not skip the pre-write verification pass.

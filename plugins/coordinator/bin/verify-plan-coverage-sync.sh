@@ -81,6 +81,31 @@ if [ ! -f "$SNIPPET_FILE" ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# machine-local resolver (mirrors bin/verify-ue-overrides.sh § resolve_key)
+# ---------------------------------------------------------------------------
+# Used to resolve the holodeck sibling-repo path from the per-machine registry
+# rather than hardcoding /x/claude-unreal-holodeck. Env var HOLODECK_REPO_ROOT
+# still takes precedence (env > registry > skip) for ad-hoc overrides.
+ML_BIN=""
+if command -v machine-local >/dev/null 2>&1; then
+    ML_BIN="machine-local"
+elif [[ -x "$HOME/.claude/bin/machine-local" ]]; then
+    ML_BIN="$HOME/.claude/bin/machine-local"
+elif [[ -x "$SCRIPT_DIR/machine-local" ]]; then
+    ML_BIN="$SCRIPT_DIR/machine-local"
+fi
+
+# Resolve a machine-local key; print empty string on miss (caller decides whether
+# to fail or skip). Unlike verify-ue-overrides.sh's resolve_key (which is fail-loud),
+# this variant is skip-friendly: the holodeck sibling repo is an optional consumer,
+# and a missing key should let the script continue with the other consumers.
+resolve_key_or_empty() {
+    local key="$1"
+    [[ -z "$ML_BIN" ]] && return 0
+    "$ML_BIN" get "$key" 2>/dev/null || true
+}
+
 MODE="${1:-verify}"
 
 # Review: code-reviewer — unknown MODE values silently fell through to the verify path; guard ensures callers get an error on typos.
@@ -97,10 +122,17 @@ HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/../data-science/agents/staff-data-sci.md"
     "$PLUGIN_ROOT/../web-dev/agents/senior-front-end.md"
     "$PLUGIN_ROOT/agents/eng-director.md"
-    # Review: code-reviewer — holodeck sibling repo listed for completeness; skip-if-absent handles missing repo.
-    # holodeck sibling repo — override with HOLODECK_REPO_ROOT env var if it lives elsewhere on your machine
-    "${HOLODECK_REPO_ROOT:-/x/claude-unreal-holodeck}/game-dev/agents/staff-game-dev.md"
 )
+
+# Resolve holodeck sibling repo: env var override wins, otherwise machine-local
+# registry key repos.claude_unreal_holodeck, otherwise skip the consumer.
+# Spec backlink: docs/wiki/machine-local-registry.md § Registered keys
+_HOLODECK_ROOT="${HOLODECK_REPO_ROOT:-$(resolve_key_or_empty "repos.claude_unreal_holodeck")}"
+if [[ -n "$_HOLODECK_ROOT" ]]; then
+    HARDCODED_CONSUMERS+=("$_HOLODECK_ROOT/game-dev/agents/staff-game-dev.md")
+else
+    echo "NOTE-repos.claude_unreal_holodeck: key unset and HOLODECK_REPO_ROOT empty — skipping holodeck sibling consumer" >&2
+fi
 
 # --- find consumers ---
 find_consumers() {

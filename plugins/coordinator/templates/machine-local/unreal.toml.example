@@ -1,0 +1,28 @@
+# ~/.claude/machine-local/unreal.toml  (TRACKED — shared baseline)
+#
+# Spec backlink: cross-repo memo 2026-05-21 (claude-unreal-holodeck → project-rag-ue-addon + coordinator-claude)
+#
+# Concern file for the `unreal.*` namespace.
+#
+# Ownership map (one writer per key):
+#   unreal.install_root          — project-rag-ue-addon (seeder: _seed_unreal_keys.py)
+#   unreal.lyra_root             — project-rag-ue-addon (when Lyra is discovered)
+#   unreal.engine_root           — claude-unreal-holodeck (its install/setup)
+#   unreal.engine_corpus_dir     — claude-unreal-holodeck
+#   unreal.uproject_path         — claude-unreal-holodeck
+#   unreal.editor_exe            — claude-unreal-holodeck
+#   unreal.screenshot_dir        — claude-unreal-holodeck
+#
+# All actual values live in `unreal.local.toml` (gitignored, per-machine).
+# This baseline carries the schema declaration only; do NOT pre-declare keys
+# with empty strings here — an empty baseline value would mask "not provisioned
+# yet" as "provisioned to empty" at the GET layer.
+
+schema = 1
+
+# Place machine-specific values in unreal.local.toml using the natural TOML
+# table form:
+#
+#   [unreal]
+#   install_root = 'E:/dev/UnrealEngine'    # TOML literal string — no escape processing
+#   lyra_root    = 'E:/dev/LyraStarterGame'

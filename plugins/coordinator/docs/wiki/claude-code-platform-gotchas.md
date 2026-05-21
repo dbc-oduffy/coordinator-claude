@@ -219,7 +219,7 @@ Instructions in the EM's CLAUDE.md are invisible to subagents — they only read
 
 ### Built-in `Plan` and `feature-dev:code-architect` ship read-only
 
-`Agent(...)` calls without a `subagent_type` default to `Plan`, which excludes Write/Edit/NotebookEdit — planners return plan text for the EM to write out instead of persisting it. Override at `~/.claude/agents/Plan.md` and `~/.claude/agents/code-architect.md` with Write/Edit added to enable disk persistence.
+`Agent(...)` calls without a `subagent_type` default to `Plan`, which excludes Write/Edit/NotebookEdit — planners return plan text for the EM to write out instead of persisting it. Override at `~/.claude/agents/Plan.md` with Write/Edit added to enable disk persistence. The coordinator plugin ships its own `code-architect` agent at `plugins/coordinator/agents/code-architect.md` with Write/Edit enabled.
 
 ### Agent Teams 7-teammate limit requires phased spawning for extra pipeline steps
 

@@ -10,6 +10,12 @@
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect-wrapper.sh",
             "timeout": 5,
             "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-model-is-opus.sh",
+            "timeout": 3,
+            "async": false
           }
         ]
       },
