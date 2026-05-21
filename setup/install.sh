@@ -882,10 +882,11 @@ PYEOF
 #   install-substrate.sh to expose a partial-invocation surface.
 #
 # Dual-source-of-truth concern: the file list (publish.sh, publish_sync.py,
-# publish-targets.example.sh) and chmod-on-publish.sh rule are duplicated
-# here and in install-substrate.sh. If that list grows, both call sites need
-# updating. Acceptable for now — list has been stable since percolation
-# mechanism shipped; refactor to a shared lib only if it churns.
+# publish-targets.example.sh, .percolate-identity.example, and the
+# percolate-hooks/README.md doctrine file) plus the chmod-on-publish.sh rule
+# are duplicated here and in install-substrate.sh. If that list grows, both
+# call sites need updating. Acceptable for now — list has been stable since
+# percolation mechanism shipped; refactor to a shared lib only if it churns.
 deliver_setup_templates() {
   local setup_src="$PLUGINS_TARGET/coordinator/templates/setup"
   local setup_dest="$CLAUDE_DIR/setup"
@@ -901,7 +902,7 @@ deliver_setup_templates() {
 
   mkdir -p "$setup_dest"
   echo "Delivering ~/.claude/setup/ percolation scripts..."
-  for f in publish.sh publish_sync.py publish-targets.example.sh; do
+  for f in publish.sh publish_sync.py publish-targets.example.sh .percolate-identity.example; do
     local src_file="$setup_src/$f"
     local dest_file="$setup_dest/$f"
     if [[ ! -f "$src_file" ]]; then
@@ -915,8 +916,26 @@ deliver_setup_templates() {
       echo "  OK:   setup/$f"
     fi
   done
+
+  # percolate-hooks/ doctrine README — subdirectory destination.
+  # Only the generic README ships; per-target hook subdirs
+  # (~/.claude/setup/percolate-hooks/<target>/) are operator-authored.
+  mkdir -p "$setup_dest/percolate-hooks"
+  local hooks_src="$setup_src/percolate-hooks/README.md"
+  local hooks_dest="$setup_dest/percolate-hooks/README.md"
+  if [[ -f "$hooks_src" ]]; then
+    if [[ -f "$hooks_dest" ]]; then
+      echo "  KEEP: setup/percolate-hooks/README.md (operator-preserved)"
+    else
+      cp "$hooks_src" "$hooks_dest"
+      echo "  OK:   setup/percolate-hooks/README.md"
+    fi
+  else
+    echo "  WARN: template missing — $hooks_src (skipping)"
+  fi
+
   # publish.sh must be executable; chmod is a no-op on Windows filesystems
-  # but harmless. The other two are not directly executed.
+  # but harmless. The other files are not directly executed.
   chmod +x "$setup_dest/publish.sh" 2>/dev/null || true
   echo ""
 }
