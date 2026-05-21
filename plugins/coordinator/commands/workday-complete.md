@@ -273,7 +273,7 @@ non-lead). Running Step 4.5 again immediately afterward is a no-op (0 dispatches
 ## Step 5: Plugin Validation Suite (blocking gate)
 
 ```bash
-node --test ~/.claude/tests/plugins/run.js
+node --test ~/.claude/plugins/coordinator/tests/plugin-ecosystem/run.js
 ```
 
 Capture exit code for the changelog `Validation:` field.

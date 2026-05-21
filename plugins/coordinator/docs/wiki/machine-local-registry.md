@@ -143,6 +143,17 @@ The shell-out form is preferred for cross-language portability AND avoids the du
 
 **Out of scope.** `CLAUDE_HOME` resolves *where the directory lives*, not *what is inside it*. Values inside (sibling-repo roots, vendor SDK paths, etc.) continue to resolve through the machine-local registry chain (§4). The two chains are orthogonal and compose cleanly: `CLAUDE_HOME` selects which `~/.claude/machine-local/registry.toml` the reader opens; the reader's own precedence chain then resolves keys within it.
 
+**Bootstrap-lookup vs. contents-resolution — DO NOT conflate.** A peer repo importing the central `_claude_home.py` module hits two distinct $HOME-resolution surfaces with opposite precedence rules. The mistake is using `CLAUDE_HOME` for both; the failure mode is silent test-sandbox bypass of the central path.
+
+| Surface | What it answers | Precedence |
+|---|---|---|
+| **Bootstrap lookup** | Where does `_claude_home.py` LIVE on disk? | `HOME` → `USERPROFILE` → `Path.home()`. **NOT `CLAUDE_HOME`.** |
+| **Contents resolution** | What paths does the module's API return (`~/.claude.json`, `~/.claude/`, etc.)? | Full chain: `CLAUDE_HOME` → `HOME` → `USERPROFILE` → `Path.home()`. |
+
+Why: `/coordinator:setup` installs `_claude_home.py` at the operator's REAL `$HOME/.claude/bin/`, never at `CLAUDE_HOME/.claude/bin/`. A test setting `CLAUDE_HOME=/tmp/sandbox` to redirect contents resolution will find no module at `/tmp/sandbox/.claude/bin/`, the import fails, the peer falls back to its inlined copy, and the central path is never exercised under CI. The bug is invisible until production drift between the two copies surfaces.
+
+Reference adoption shape: `coordinator/lib/claude-home/README.md § "Adopting from a peer repo"` carries the canonical Python snippet for the bootstrap-lookup half. Peer repos retiring inlined `_claude_config.py`-shaped modules MUST use the real-`$HOME`-only chain for the bootstrap import and let the central module own the full-precedence chain for everything it returns.
+
 ## 5. Relationship to `plugin-extraction-and-distribution.md` and `cross-repo-citation-conventions.md`
 
 These two wikis define the **port-time cleanup contract** for the coordinator install chain: when extracting a plugin or porting vendored code, sweep absolute paths and replace them with sibling-relative references (`../<sibling-repo>/<path>`). That contract is **unchanged by this wiki** — at port time, the consumer does not yet exist to be told about machine-local. Sibling-relative is the correct vocabulary for the extraction step.
@@ -173,7 +184,7 @@ Four shapes, only one is heavyweight:
 
 1. **Per-machine path that varies across your machines.** Append a key to `registry.local.toml`. No declaration step required. The reader is schemaless; declaring an empty placeholder in tracked `registry.toml` is *optional* and only useful if you want the key shape to be discoverable across machines via git.
 2. **New namespace cluster you own** (`mything.*`, `mytool.*`). Just use it. The `concerns` array (§6) gates *concern-file isolation* (whether `mything.*` reads from a separate `mything.toml`), not *namespace existence*. A new namespace under `registry.local.toml` needs zero registration.
-3. **Sanctioned auto-writer** (your installer or daemon writes values, not just reads them). Heavier — §6's machine-generated-write-authority criterion applies, with single registered writer, declared sources, loud-fail on collision, and a `[provenance]` table. Worked example on disk: `project_rag.toml`. This is the only path that warrants the heavier criteria; it is heavy because *unsupervised writers* need clobber-discipline, not because *humans/EMs adding values* do.
+3. **Sanctioned auto-writer** (your installer or daemon writes values, not just reads them). Heavier — §6's machine-generated-write-authority criterion applies, with single registered writer, declared sources, loud-fail on collision, and a `[provenance]` table. Worked example on disk: `project_rag.toml`. This is the only path that warrants the heavier criteria; it is heavy because *unsupervised writers* need clobber-discipline, not because *humans/EMs adding values* do. **Concern-file provenance shape:** the `[provenance]` block lives at the concern-file root (not `[provenance.<concern>]`) because the concern name is already the file's namespace; provenance uses per-key sub-tables (e.g., `[provenance.install_root]`) to support multi-writer collision diagnosis when more than one automated writer contributes keys to the same concern file.
 4. **Hand-edited cross-machine value** (same on every machine — schema version, a public URL). Append to `registry.toml`. It travels via git.
 
 If you find yourself reading the wiki to figure out whether you "may" add a value — the answer is yes, cases 1, 2, and 4 are the default and need no authorization. Case 3 is the only one with criteria, and the criteria gate *automated writer patterns*, not human authorship.

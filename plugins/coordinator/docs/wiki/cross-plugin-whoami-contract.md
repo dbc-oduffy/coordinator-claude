@@ -196,7 +196,7 @@ Operators — as distinct from plugin authors implementing the contract — cons
 
 The cross-plugin whoami contract is wired into operator-facing pipelines at three points. Future doctrine maintainers extending the contract surface (e.g., adding a new adopter subpackage) must extend at least these three or document why not:
 
-1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`.
+1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`. Default CLI output is compact single-line JSON (no flag needed); --human pretty-prints for human reading.
 2. **`/project-onboarding` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/project-onboarding/SKILL.md`.
 3. **`/session-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/session-start/SKILL.md`.
 

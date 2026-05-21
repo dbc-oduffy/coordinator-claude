@@ -24,19 +24,19 @@ single-page index; §3 adds per-hookspec detail.
 
 | Hookspec | Returns | MUST / SHOULD | Notes |
 |---|---|---|---|
-| [`project_rag_register_corpus_provider`](../../core/addon_hookspecs.py) | `list[CorpusBand]` | MUST (for corpus addons) | Parallel-call. Returns band instances for every corpus this addon declares. |
-| [`project_rag_register_doctor_probe`](../../core/addon_hookspecs.py) | `list[FailureCatalogRow]` | MUST (for corpus addons) | v8 NEW. Parallel-call. Addon-contributed failure catalog rows merged at boot. |
-| [`project_rag_register_chunker`](../../core/addon_hookspecs.py) | `list[AddonChunkerSpec]` | MUST (for chunker addons) | Parallel-call. |
-| [`project_rag_register_chunk_metadata_extras`](../../core/addon_hookspecs.py) | `list[AddonChunkMetadataExtrasSpec]` | SHOULD (if custom chunk fields) | v7. Parallel-call. |
-| [`project_rag_register_producer`](../../core/addon_hookspecs.py) | `list[AddonProducerSpec]` | SHOULD (if reindex pipeline) | Parallel-call. |
-| [`project_rag_register_extractor`](../../core/addon_hookspecs.py) | `list[AddonExtractorSpec]` | SHOULD (if schema tables) | Parallel-call. |
-| [`project_rag_register_health_field`](../../core/addon_hookspecs.py) | `list[AddonHealthFieldSpec]` | SHOULD (if addon-specific health) | v5. Parallel-call. |
-| [`project_rag_register_cli_subcommand`](../../core/addon_hookspecs.py) | `list[AddonCliSubcommandSpec]` | OPTIONAL | v6. |
-| [`project_rag_register_watch_pattern`](../../core/addon_hookspecs.py) | `list[AddonWatchPatternSpec]` | OPTIONAL | v6. |
-| [`project_rag_register_extra_macros`](../../core/addon_hookspecs.py) | `list[AddonMacroSkipListSpec]` | OPTIONAL | v6. C++ macro skip-lists. |
-| [`project_rag_register_long_lived_subprocess`](../../core/addon_hookspecs.py) | `list[AddonLongLivedSubprocessSpec]` | OPTIONAL | v2. GPU/CPU sidecar processes. |
-| [`project_rag_register_eval_bank`](../../core/addon_hookspecs.py) | `list[AddonBankSpec]` | OPTIONAL | v5. |
-| [`project_rag_register_eval_probe`](../../core/addon_hookspecs.py) | `list[AddonProbeSpec]` | OPTIONAL | v5. |
+| [`project_rag_register_corpus_provider`](../../../../project-rag/core/addon_hookspecs.py) | `list[CorpusBand]` | MUST (for corpus addons) | Parallel-call. Returns band instances for every corpus this addon declares. |
+| [`project_rag_register_doctor_probe`](../../../../project-rag/core/addon_hookspecs.py) | `list[FailureCatalogRow]` | MUST (for corpus addons) | v8 NEW. Parallel-call. Addon-contributed failure catalog rows merged at boot. |
+| [`project_rag_register_chunker`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonChunkerSpec]` | MUST (for chunker addons) | Parallel-call. |
+| [`project_rag_register_chunk_metadata_extras`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonChunkMetadataExtrasSpec]` | SHOULD (if custom chunk fields) | v7. Parallel-call. |
+| [`project_rag_register_producer`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonProducerSpec]` | SHOULD (if reindex pipeline) | Parallel-call. |
+| [`project_rag_register_extractor`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonExtractorSpec]` | SHOULD (if schema tables) | Parallel-call. |
+| [`project_rag_register_health_field`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonHealthFieldSpec]` | SHOULD (if addon-specific health) | v5. Parallel-call. |
+| [`project_rag_register_cli_subcommand`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonCliSubcommandSpec]` | OPTIONAL | v6. |
+| [`project_rag_register_watch_pattern`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonWatchPatternSpec]` | OPTIONAL | v6. |
+| [`project_rag_register_extra_macros`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonMacroSkipListSpec]` | OPTIONAL | v6. C++ macro skip-lists. |
+| [`project_rag_register_long_lived_subprocess`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonLongLivedSubprocessSpec]` | OPTIONAL | v2. GPU/CPU sidecar processes. |
+| [`project_rag_register_eval_bank`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonBankSpec]` | OPTIONAL | v5. |
+| [`project_rag_register_eval_probe`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonProbeSpec]` | OPTIONAL | v5. |
 
 Hookspec definitions: `core/addon_hookspecs.py`. Discovery key: `project_rag.addons` entry-point group.
 

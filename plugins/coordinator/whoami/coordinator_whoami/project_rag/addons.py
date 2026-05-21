@@ -77,7 +77,7 @@ def discover_contributors() -> list[Any]:
         # guard above for why this is the correct authority for addon discovery.
         from project_rag_mcp.graph.schema import SCHEMA_VERSION  # type: ignore[import-not-found]
 
-        pm = discover_addons(project_root=Path.cwd(), schema_version=SCHEMA_VERSION)
+        pm = discover_addons(project_root=Path.cwd(), graph_schema_version=SCHEMA_VERSION)
         contributors = aggregate_whoami_contributors(pm)
 
         # aggregate_whoami_contributors already enforces namespace uniqueness and

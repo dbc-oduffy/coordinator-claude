@@ -38,8 +38,11 @@
 #   Donal O'Duffy & Claude        → the Coordinator Authors  (ASCII variant)
 #   Donal + Claude                → the Coordinator Authors
 #   Dónal                         → the PM  (defensive — stray first-name use)
-#   oduffy-delphi/coordinator-claude   → dbc-oduffy/coordinator-claude
-#   oduffy-delphi/deep-research-claude → dbc-oduffy/deep-research-claude
+#
+# Per-operator org-slug rewrites (private-org → public-org) are loaded from an
+# optional sibling file `depersonalize-identity.sh` (see
+# `depersonalize-identity.example.sh` for the shape). Without that file, no
+# org-slug rewrites are applied.
 #
 # Path mapping (dev-tree → publish-tree):
 #   plugins/coordinator-claude/coordinator/ → plugins/coordinator/  (two-segment collapse, applied first)
@@ -75,16 +78,19 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: depersonalize-for-publish.sh --check PATH
-       depersonalize-for-publish.sh --fix PATH
+       depersonalize-for-publish.sh --fix [--keep-bak] PATH
 
-  --check  Scan PATH (file or dir); print file:line:hit; exit 1 if any persona
-           names, identity strings, or dev-tree plugin paths found. Default mode
-           if --check / --fix omitted.
-  --fix    Rewrite files in-place, substituting persona names and identity strings
-           for role labels and canonical public identifiers, and rewriting dev-tree
-           plugin paths to publish-tree form.
-           Backups written to <file>.bak before rewrite.
-           Path rewrite runs BEFORE persona substitution (structural-first).
+  --check     Scan PATH (file or dir); print file:line:hit; exit 1 if any persona
+              names, identity strings, or dev-tree plugin paths found. Default mode
+              if --check / --fix omitted.
+  --fix       Rewrite files in-place, substituting persona names and identity strings
+              for role labels and canonical public identifiers, and rewriting dev-tree
+              plugin paths to publish-tree form.
+              Backups written to <file>.bak before rewrite; cleaned up on exit by
+              default (see --keep-bak).
+              Path rewrite runs BEFORE persona substitution (structural-first).
+  --keep-bak  Preserve .bak files for manual recovery (default: clean up after
+              rewrite). Use when running outside the publish hook flow.
 
 Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixes:
   archive/, tasks/, experiments/, evals/, docs/{plans,research,decisions,specs}/.
@@ -111,8 +117,10 @@ Identity vocabulary table:
   Donal O'Duffy & Claude             → the Coordinator Authors
   Donal + Claude                     → the Coordinator Authors
   Dónal                              → the PM
-  oduffy-delphi/coordinator-claude   → dbc-oduffy/coordinator-claude
-  oduffy-delphi/deep-research-claude → dbc-oduffy/deep-research-claude
+
+Per-operator org-slug rewrites are loaded from an optional sibling file
+`depersonalize-identity.sh` (see `depersonalize-identity.example.sh` for the
+shape). Without that file, no org-slug rewrites are applied.
 EOF
 }
 
@@ -122,12 +130,14 @@ if (( $# == 0 )); then
 fi
 
 MODE="check"
+KEEP_BAK=false
 TARGET=""
 while (( $# > 0 )); do
   case "$1" in
-    --check) MODE="check"; shift ;;
-    --fix)   MODE="fix"; shift ;;
-    -h|--help) usage; exit 0 ;;
+    --check)    MODE="check"; shift ;;
+    --fix)      MODE="fix"; shift ;;
+    --keep-bak) KEEP_BAK=true; shift ;;
+    -h|--help)  usage; exit 0 ;;
     *)
       if [[ -z "$TARGET" ]]; then
         TARGET="$1"; shift
@@ -173,9 +183,8 @@ declare -A NAME_TO_ROLE=(
   ["Donal O'Duffy & Claude"]="the Coordinator Authors"
   ["Donal + Claude"]="the Coordinator Authors"
   ["Dónal"]="the PM"
-  # Identity vocabulary — private org slugs
-  ["oduffy-delphi/coordinator-claude"]="dbc-oduffy/coordinator-claude"
-  ["oduffy-delphi/deep-research-claude"]="dbc-oduffy/deep-research-claude"
+  # Per-operator org-slug rewrites are merged in below from
+  # `depersonalize-identity.sh` (sibling file, optional).
 )
 
 # Fix-application order: compound identity forms before their substrings,
@@ -186,8 +195,6 @@ ORDERED_KEYS=(
   "Donal O'Duffy & Claude"
   "Donal + Claude"
   "Dónal"
-  "oduffy-delphi/coordinator-claude"
-  "oduffy-delphi/deep-research-claude"
   "Patrik"
   "Zolí"
   "YK"
@@ -218,6 +225,31 @@ if [[ "$self_corrupted" == "true" ]]; then
   echo "       \$(realpath \"\$0\")" >&2
   # Review: code-reviewer — exit 2 is usage error; self-corruption is a state/environment fault.
   exit 3
+fi
+
+# ---------------------------------------------------------------------------
+# Per-operator identity overrides. Sourced from a sibling `depersonalize-identity.sh`
+# if present. The override file declares `OPERATOR_NAME_TO_ROLE` (assoc array)
+# and `OPERATOR_ORDERED_KEYS` (indexed array); we merge them into the main
+# tables here. Without the file, no org-slug rewrites fire — the static tables
+# above contain only role/identity vocabulary that ships with the coordinator
+# plugin itself. See `depersonalize-identity.example.sh` for the shape.
+# ---------------------------------------------------------------------------
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_OP_IDENTITY="${_SCRIPT_DIR}/depersonalize-identity.sh"
+if [[ -f "$_OP_IDENTITY" ]]; then
+  # shellcheck source=/dev/null
+  source "$_OP_IDENTITY"
+  # Note: ${VAR[@]+set} (not ${VAR+set}) is required for assoc/indexed arrays;
+  # bare ${VAR+set} probes index 0, which is unset for sparse/string-keyed arrays.
+  if [[ -n "${OPERATOR_NAME_TO_ROLE[@]+set}" ]]; then
+    for _k in "${!OPERATOR_NAME_TO_ROLE[@]}"; do
+      NAME_TO_ROLE["$_k"]="${OPERATOR_NAME_TO_ROLE[$_k]}"
+    done
+  fi
+  if [[ -n "${OPERATOR_ORDERED_KEYS[@]+set}" ]] && (( ${#OPERATOR_ORDERED_KEYS[@]} > 0 )); then
+    ORDERED_KEYS+=("${OPERATOR_ORDERED_KEYS[@]}")
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -501,6 +533,15 @@ for f in "${FILES[@]}"; do
   echo "rewrote: $f (backup: ${f}.bak)"
 done
 
+# Self-clean .bak files unless --keep-bak was passed. The publish hook
+# (setup/percolate-hooks/coordinator-claude/post-rsync/10-depersonalize.sh)
+# handles its own cleanup post-hook; this default-clean covers manual
+# invocations outside the hook flow, which is how .bak residue ended up
+# committed in the publish repo (commits 771b9f6, 6780f4a).
+if [[ "$KEEP_BAK" == "false" ]]; then
+  find "$TARGET" -name "*.bak" -delete 2>/dev/null || true
+fi
+
 if (( fixed == 0 && path_fixed_count == 0 )); then
   echo "depersonalize-for-publish: no files needed rewriting."
 elif (( fixed == 0 )); then
@@ -509,7 +550,11 @@ elif (( fixed == 0 )); then
 else
   echo ""
   echo "depersonalize-for-publish: rewrote $fixed file(s) (persona/identity). Review diffs:"
-  echo "  for f in ${TARGET}/**/*.bak; do diff \"\$f\" \"\${f%.bak}\"; done"
-  echo "  (or use git diff if files are tracked)"
+  if [[ "$KEEP_BAK" == "true" ]]; then
+    echo "  for f in ${TARGET}/**/*.bak; do diff \"\$f\" \"\${f%.bak}\"; done"
+  else
+    echo "  git diff HEAD -- ${TARGET}/"
+    echo "  (.bak files were removed; use git diff against the upstream branch to review changes)"
+  fi
 fi
 exit 0

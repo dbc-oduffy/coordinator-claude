@@ -48,7 +48,9 @@ Plugins MAY include additional fields; the scanner ignores unknown keys.
 
 ### `/workday-start` (Step 1.9)
 
-Runs `scan-addon-health.sh --red-and-stale`. Surfaces RED verdicts AND stale sentinels (>24h since `ran_at`) AND missing/malformed sentinels under a `### Addon Health` section in the Morning Briefing. Threshold override: `COORDINATOR_HEALTH_STALE_SEC`.
+Runs `scan-addon-health.sh --red-and-stale`. Surfaces RED verdicts, AMBER verdicts, stale sentinels (>24h since `ran_at`), and missing/malformed sentinels under a `### Addon Health` section in the Morning Briefing. Threshold override: `COORDINATOR_HEALTH_STALE_SEC`.
+
+AMBER is surfaced in workday-start (but not session-start) because sentinel verdicts can age out of sync with substrate before the wall-clock staleness threshold fires — observed 2026-05-21 with `project-rag-ue-addon` (sentinel AMBER at 10:03Z, live re-probe RED at 10:30Z, sentinel still inside the 24h freshness window). Workday-start is already a triage posture, so the noise cost is low; the alternative is silent workday-start under verdict inversion.
 
 ### `/session-start` (Lessons section)
 
@@ -68,8 +70,9 @@ Discovery via glob (`~/.claude/plugins/*/data/doctor-last-run.json`) is opt-in b
 
 | Mode | Caller | Surfaces |
 |------|--------|----------|
-| `--red-only` | `/session-start` | RED verdicts only |
-| `--red-and-stale` (default) | `/workday-start` | RED, stale (>24h), malformed, unknown verdict |
+| `--red-only` | `/session-start` | RED verdicts only (signal-not-noise) |
+| `--red-and-stale` (default) | `/workday-start` | RED, AMBER, stale (>24h), malformed, unknown verdict (triage posture) |
+| `--check-sentinel-presence` | `/session-start` (alongside `--red-only`) | Bootstrap notice: emits one line when plugins are installed but NO sentinel exists anywhere (fires at most once per install life); silent once any sentinel is written |
 
 Exit code is always 0 — advisory, never gating. Empty output ⇒ no surfaceable findings.
 

@@ -39,7 +39,7 @@ Run the complete validation stack:
 
 ```bash
 python .github/scripts/run-all-checks.py
-node --test ~/.claude/tests/plugins/run.js
+node --test ~/.claude/plugins/coordinator/tests/plugin-ecosystem/run.js
 ```
 
 Any blocking failure → stop and report. Fix before proceeding. Do not proceed to Step 3 on a failing validation.

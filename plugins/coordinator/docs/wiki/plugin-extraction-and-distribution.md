@@ -188,6 +188,30 @@ The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the pu
 
 Spec backlink: `docs/plans/2026-05-18-publish-repo-toplevel-wiki-sync.md` § Shape decision A*.
 
+### Publish-Repo Content Authoring (setup scripts and top-level docs)
+
+**The publish repo is a percolation target, not a source of truth.** All publish-repo content is authored in Claude Central (`~/.claude/`) and percolated outward via `setup/publish.sh`. Editing the publish repo directly is always wrong — it bypasses the planning, review, and doctrine pipeline that governs the rest of the coordinator system.
+
+The four authoring flows:
+
+- `plugins/*` ← `~/.claude/plugins/coordinator-claude/` (existing `coordinator-claude` mirror target)
+- `docs/wiki/*` ← `…/coordinator/docs/wiki/` (existing `coordinator-claude-toplevel-wiki` flat-mirror target — the established precedent for this section)
+- `setup/*.sh` ← `…/coordinator/dist/publish-repo-setup/` (new `coordinator-claude-publish-repo-setup` flat-mirror target)
+- top-level docs ← `…/coordinator/dist/publish-repo-toplevel/` (new `coordinator-claude-publish-repo-toplevel` flat-mirror target)
+
+**Why this matters.** Direct publish-repo edits drift silently across sessions: they accumulate as orphan branches, rot when the next percolation run overwrites them, and compound without any doctrine trail. The 2026-05-21 audit (cross-repo memo at `archive/cross-repo/`) found three orphan setup scripts and eight orphan top-level docs that had been edited in the publish repo over multiple sessions; the back-percolation work documented in `docs/plans/2026-05-21-back-percolate-publish-repo-orphans.md` is the corrective.
+
+**Flat-namespace note.** The `dist/publish-repo-*` naming is a flat namespace. Future siblings (e.g. `dist/publish-repo-workflows/` if `.github/workflows/` ever back-percolates) are parallel entries, not nested under any current member. Nesting under an `oss-distribution/` umbrella is intentionally declined: the coordinator system has multiple publish repos (`coordinator-claude` and `deep-research-claude`), and the explicit publish-repo prefix is clearer than a presumed-singular umbrella.
+
+**Recovery — when a publish-repo edit happens anyway:**
+
+1. Copy the edited file from the publish repo back into the appropriate `coordinator/dist/publish-repo-*/` source directory. Manual `cp` is correct here — back-percolation is the genuine exception to "publish.sh is the authority," which governs the source → publish-repo direction only.
+2. Commit in Claude Central with a `back-percolate:` subject prefix.
+3. Re-run `bash setup/publish.sh <target>` to verify the source-of-truth now drives the publish-repo state.
+4. Surface the incident in `tasks/lessons.md` if the edit was substantive, so the doctrine compounds.
+
+**Per-target `.percolate-ignore`.** Publish-repo-owned infra files (e.g. `.gitignore`, `.python-version`, the publish repo's own `CLAUDE.md`) are protected via `dist/publish-repo-toplevel/.percolate-ignore`. These files remain owned by the publish repo by design; back-percolating them is a separate, per-file decision, not an automatic consequence of this doctrine.
+
 ## Scan/Substitution Division of Labor
 
 Two tools enforce the publish boundary; they solve different failure modes and are not interchangeable:

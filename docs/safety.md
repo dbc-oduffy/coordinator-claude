@@ -29,7 +29,7 @@ Source: `copy_plugins()` function, `setup/install.sh` lines 579–639.
 ### Marketplace manifest written
 
 ```
-~/.claude/plugins/coordinator-claude/.claude-plugin/marketplace.json
+~/.claude/plugins/.claude-plugin/marketplace.json
 ```
 
 This file tells Claude Code where to find the installed plugins. It is generated from `<repo>/.claude-plugin/marketplace.json` with source paths rewritten to the flat install layout.
@@ -126,7 +126,7 @@ Expected output: one subdirectory per installed plugin (`coordinator`, `web-dev`
 ### Inspect the marketplace manifest
 
 ```bash
-cat ~/.claude/plugins/coordinator-claude/.claude-plugin/marketplace.json
+cat ~/.claude/plugins/.claude-plugin/marketplace.json
 ```
 
 ### Check known_marketplaces.json
