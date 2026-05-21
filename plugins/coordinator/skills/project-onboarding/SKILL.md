@@ -456,7 +456,31 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
 2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
 3. **Run `/session-start`** — verifies everything is wired up correctly
-4. **Introspect coordinator / plugin bindings** — `coordinator_whoami` is the canonical introspection surface; run `python3 -m coordinator_whoami.project_rag --human` (or `py -3 -m coordinator_whoami.project_rag --human` on Windows Git Bash) to verify the coordinator sees this project correctly. Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
+4. **Introspect coordinator / plugin bindings** — run the envelope-branch check below to verify the coordinator sees this project correctly.
+
+   ```sh
+   # Compact JSON output — pipe through python -m json.tool if you want pretty-print.
+   python3 -m coordinator_whoami.project_rag        # POSIX / macOS
+   py -3   -m coordinator_whoami.project_rag        # Windows Git Bash / PowerShell
+   ```
+
+   Capture stdout and parse `binding.kind` and `binding.target` from the JSON envelope:
+
+   - **`binding.kind == "bound"` AND `binding.target` matches the current project root:** emit one line:
+     `Coordinator binding healthy: project-rag is bound to <binding.target>.`
+   - **`binding.kind == "bound"` AND `binding.target` does NOT match the current project root:** emit a mismatch block:
+     ```
+     Binding mismatch:
+       envelope binding.target : <binding.target>
+       expected (cwd)          : <cwd>
+     Run /project-rag:setup to re-register this project root.
+     ```
+   - **`binding.kind == "unbound"`:** emit:
+     `project-rag is not bound to this project. Run /project-rag:setup to register this project root.`
+   - **Import fails (`ModuleNotFoundError`) OR the command exits non-zero:** emit:
+     `coordinator_whoami is not installed. Run /coordinator:setup to install the introspection package.`
+
+   Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
 5. **If `machine-local get repos.*` fails** — the machine-local registry is not yet bootstrapped for this project. See [`coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md) probes P-1 through P-4 to bootstrap the registry.
 
 ### Documentation System
@@ -473,18 +497,20 @@ When an onboarding or install failure is discovered and fixed, a single fix is n
 
 **Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure. This is the obvious fix; it's necessary but not sufficient on its own.
 
-**Layer 2 — Reactive repair:** A `doctor`-style standalone script that:
-- **By default:** diagnoses the environment and reports what's wrong (non-destructive)
-- **With a flag** (e.g., `--fix`): applies the repair in place
+**Layer 2 — Reactive repair:** A targeted recovery path that runs against existing broken state — for users who already hit the failure and won't re-run the full installer. The point is that the *recovery path exists*, not its specific shape. Valid shapes include:
 
-Users who already hit the failure won't re-run the full installer. They need a targeted recovery path that works against their existing broken state.
+- A `doctor`-style standalone script that diagnoses by default and applies repair with a flag (e.g., `--fix`)
+- An idempotent slash command (e.g., `/coordinator:setup`) that is safe to re-run against an already-installed-but-broken environment and brings it back to a healthy state
+- Any other targeted entry point that performs the same repair function without requiring a full reinstall
+
+What makes a valid Layer 2 is the ability to recover broken-state operators without a clean-slate install — not the `--fix` flag pattern specifically.
 
 **Layer 3 — Searchable docs:** A row in the troubleshooting table (or a new table if none exists) keyed on the **literal error text** the user would see. Search-reflex users paste the error into a search or into the docs — they need to land on the fix immediately.
 
 ```markdown
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `ModuleNotFoundError: No module named 'X'` | Y was not installed | Run `doctor --fix` or `pip install X` |
+| `ModuleNotFoundError: No module named 'coordinator_whoami'` | coordinator-whoami package was not installed | Run `/coordinator:setup` to install the introspection package |
 ```
 
 **When onboarding flags a new failure:** Before closing the fix, verify all three layers exist. If a layer is missing, create it as part of the same fix — not a follow-up task.

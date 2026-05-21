@@ -241,7 +241,7 @@ Default: code runs on a machine you've never seen. Path resolution: explicit fla
 
 For sibling-repo paths and other per-machine values, the registry-correct shape is shorter than the hardcoded literal. Python: `from claude_machine_local import repos; repos.project_rag / "subdir"`. Shell: `source ~/.claude/bin/claude-machine-local.sh && echo "$REPO_PROJECT_RAG/subdir"`. PowerShell: `. ~/.claude/bin/claude-machine-local.ps1; "$($env:REPO_PROJECT_RAG)/subdir"`. Helpers wrap `bin/machine-local`; the registry is still the audited source.
 
-Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.claude/machine-local/`; read via `bin/machine-local get <key>`. See `docs/wiki/machine-local-registry.md`.
+Per-machine values (install roots, sibling-repo paths, vendor SDKs) live in `~/.claude/machine-local/`; read via `bin/machine-local get <key>`. **Writing is open to any EM/installer on the machine** — coordinator authors the schema and ships the reader, it does not mediate writes. Append to `registry.local.toml` directly; the reader is schemaless (no declaration step required). Sidecarring `~/.<your-tool>/config.toml` to avoid the registry is the anti-pattern the directory exists to prevent. Full schema-authorship-vs-value-writing distinction + the four-case cheap-path table: `docs/wiki/machine-local-registry.md § 5a–5b`.
 
 ## Implementation Standards
 

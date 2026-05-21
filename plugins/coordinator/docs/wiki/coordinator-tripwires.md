@@ -75,6 +75,8 @@ Snippet-sync flow for `plan-coverage-check-consumption`: edit `snippets/plan-cov
   - Paths under `archive/completed/<YYYY-MM>/<entry>.md` (per-entry shape) — pattern requires the filename to follow `completed/` directly, so an intermediate `YYYY-MM/` segment prevents matching.
   - All non-Write/Edit/NotebookEdit tool calls (Bash, Read, etc.) — the migration helper's own `git mv` invocation is a Bash call, not subject to this hook.
 
+- **Whoami substrate is setup's job, not the EM's:** When an EM hits `ModuleNotFoundError: No module named 'coordinator_whoami'`, or an unbound envelope from `python -m coordinator_whoami.project_rag`, or otherwise observes that the whoami introspection surface is absent — the answer is `/coordinator:setup` (install) or `/project-onboarding` (bind), not DIY introspection via grep, `git status`, or hand-rolled binding checks. Each sibling-repo EM that reinvents coordinator-binding introspection wastes session bandwidth and produces a one-off probe that decays out of sync with the canonical contract. Override env var: none — the wiring is unconditional; the package is part of the setup substrate. References: `cross-plugin-whoami-contract.md`, `coordinator-doctor.md` (P-5 probe), `docs/plans/2026-05-21-whoami-first-class-substrate.md`.
+
 ## Tripwire call-shape coverage
 
 Static-grep tripwires must enumerate every call shape: literal string, array form, kwarg-split, here-doc. A tripwire that grep-matches one shape and misses the others fires asymmetrically and erodes trust in the gate.
