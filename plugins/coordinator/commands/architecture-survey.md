@@ -1,11 +1,11 @@
 ---
-name: architecture-audit
+name: architecture-survey
 description: Bootstrap or refresh the architecture atlas via multi-phase agent pipeline (Haiku scouts → Sonnet analysts → Opus synthesizer)
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob"]
 argument-hint: "[--refresh]"
 ---
 
-# Architecture Audit — Deep System Discovery
+# Architecture Survey — Deep System Discovery
 
 Produce a comprehensive **architecture atlas** — narrative system descriptions, philosophy-versus-reality assessments, ASCII flow diagrams, cross-system dependency matrices, and per-system observations. The atlas is a persistent artifact that weekly audits maintain incrementally.
 
@@ -33,11 +33,11 @@ Produce a comprehensive **architecture atlas** — narrative system descriptions
 
 Auto-detection: check for `docs/architecture/systems-index.md`. If it exists and `--refresh` wasn't passed, ask the PM: "Atlas already exists. Did you mean `--refresh`?"
 
-Announce: "I'm running `/architecture-audit` to [bootstrap / refresh] the architecture atlas."
+Announce: "I'm running `/architecture-survey` to [bootstrap / refresh] the architecture atlas."
 
 ## Atlas Directory Structure
 
-**Location: `docs/architecture/`** — the atlas is an evergreen reference artifact (narrative system descriptions, dependency matrices, connectivity diagrams), not work-in-flight. It belongs alongside `docs/wiki/` and `docs/decisions/`, not under `tasks/` (which holds handoffs, backlogs, scratch). Audit run scratch DOES live under `tasks/scratch/deep-architecture-audit/{run-id}/` — that's transient pipeline state, distinct from the persistent atlas output.
+**Location: `docs/architecture/`** — the atlas is an evergreen reference artifact (narrative system descriptions, dependency matrices, connectivity diagrams), not work-in-flight. It belongs alongside `docs/wiki/` and `docs/decisions/`, not under `tasks/` (which holds handoffs, backlogs, scratch). Audit run scratch DOES live under `tasks/scratch/deep-architecture-survey/{run-id}/` — that's transient pipeline state, distinct from the persistent atlas output.
 
 ```
 docs/architecture/
@@ -87,7 +87,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
    - Each file assigned to exactly ONE system. No overlaps.
    - Sub-chunk systems with >12 files into 8-12 file groups by concern. Label: `{system}-A`, `{system}-B`, etc.
    - Write focus questions for each chunk
-   - **Generate run ID** — `YYYY-MM-DD-HHhMM`. Create: `tasks/scratch/deep-architecture-audit/{run-id}/`
+   - **Generate run ID** — `YYYY-MM-DD-HHhMM`. Create: `tasks/scratch/deep-architecture-survey/{run-id}/`
    - **Output:** Chunk table (system, sub-chunks, file count, mode: full, focus questions)
 
 4. **Refresh — identify churned systems:**
@@ -106,13 +106,13 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 **Dispatch:** One Haiku agent per sub-chunk with `model: "haiku"`.
 
-**Read the template:** Open `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-audit/agent-prompts.md`. Copy the relevant template verbatim:
+**Read the template:** Open `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md`. Copy the relevant template verbatim:
 - **First run:** Copy **Phase 1: Haiku Function-Level Inventory Prompt**. Fill in: `[CHUNK LETTER]`, `[SYSTEM NAME]`, `[SUB-CHUNK LABEL]`, `[LIST OF DIRECTORIES/FILES]`, `[SCRATCH_PATH]`.
 - **Refresh:** Copy **Phase 1R: Haiku Delta Inventory Prompt (Refresh)**. Fill in: `[CHUNK LETTER]`, `[SYSTEM NAME]`, `[SUB-CHUNK LABEL]`, `[CHANGED FILES LIST]`, `[EXISTING ATLAS ENTRY]`, `[SCRATCH_PATH]`.
 
 **Do NOT write a custom prompt** — the template's guardrails prevent Haiku from confabulating relationships.
 
-**Scratch path:** `tasks/scratch/deep-architecture-audit/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
+**Scratch path:** `tasks/scratch/deep-architecture-survey/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
 
 **Scratch verification — disk-poll, not reply-trust.** Before Phase 2, verify all expected scratch files exist on disk. Do NOT rely on agent "DONE" replies — empirically ~30% of Haikus on heavy parallel dispatch hallucinate a "TEXT ONLY constraint" and either (a) reply DONE without writing, or (b) write the file but reply with meta-commentary that obscures progress. Disk is the only reliable signal.
 
@@ -138,7 +138,7 @@ Skip sub-chunk on second failure (after Sonnet retry also misses).
 
 **No grading in Phase 2.** Observations only.
 
-**Scratch path:** `tasks/scratch/deep-architecture-audit/{run-id}/{chunk-letter}-phase2-sonnet.md`
+**Scratch path:** `tasks/scratch/deep-architecture-survey/{run-id}/{chunk-letter}-phase2-sonnet.md`
 
 **Scratch verification:** Verify all Phase 2/2R files exist on disk before Phase 3 (use the polling pattern above). The TEXT-ONLY hallucination affects Sonnet too at lower rate — apply the same recovery preamble on retry. Skip system on second failure.
 
@@ -173,11 +173,11 @@ The Opus agent produces all atlas artifacts:
 - `file-index.md` — file-to-system mapping
 - `systems/{name}.md` — per-system pages with YAML frontmatter
 
-**No grades in Phase 3.** Weekly-architecture-audit adds grades incrementally.
+**No grades in Phase 3.** Weekly-architecture-survey adds grades incrementally.
 
 ## Phase 4: Integration and Report (YOU do this)
 
-**Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; architecture-audit agents do not.
+**Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; architecture-survey agents do not.
 
 1. **Review atlas for completeness:**
    - Every system has a file in `systems/`
@@ -195,13 +195,19 @@ The Opus agent produces all atlas artifacts:
 3. **Quarterly narrative-drift reminder (per the Data Science Reviewer F7):**
    - Check each system's `last_mapped` date in `systems-index.md`. For any system >90 days since last mapped, note it in the report: "Narrative drift risk: [system] mapped [date]. Recommend a re-read sweep — narrative atlases drift silently when systems reorganize."
 
-4. **Atomic commit:**
+4. **Write the `Last full audit` clock (full-pass only):** A genuine full survey pass (first run / `--refresh`) is the ONLY surface that writes `Last full audit` in `tasks/health-ledger.md`. Update (or add) the header line:
+   ```
+   **Last full audit:** YYYY-MM-DD
+   ```
+   This is the clock the session-start / survey-staleness nudge reads. **Do NOT write it on the targeted single-system refresh path** (Phase 1 § targeted refresh) — that path updates one system page only and is not a full pass; writing `Last full audit` there would falsely mark the whole atlas fresh. The targeted *audit* (`/architecture-audit`) writes the separate `Last targeted audit` clock, never this one. (Clock-separation rationale: `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Strand 3b.)
+
+5. **Atomic commit:**
    ```bash
-   git add docs/architecture/
-   git commit -m "deep-architecture-audit: [first run|refresh] — [N] systems mapped"
+   git add docs/architecture/ tasks/health-ledger.md
+   git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped"
    ```
 
-5. **Calculate rotation target:** Score each system using recent roadmap activity from the completion log plus structural signals. Run:
+6. **Calculate rotation target:** Score each system using recent roadmap activity from the completion log plus structural signals. Run:
 
    ```bash
    bin/query-completions --since "30d" --where "nature=roadmap" --format json \
@@ -214,9 +220,9 @@ The Opus agent produces all atlas artifacts:
 
    Rationale: commit churn doesn't distinguish doctrine edits from refactors from feature work; `nature: roadmap` with LoE weighting does — suggested starting point for weekly-architecture-audit.
 
-6. **Report to PM:**
+7. **Report to PM:**
    ```markdown
-   ## Architecture Audit Complete
+   ## Architecture Survey Complete
 
    **Mode:** [first run / refresh]
    **Systems mapped:** [N] ([list])
@@ -227,7 +233,7 @@ The Opus agent produces all atlas artifacts:
    **Atlas location:** docs/architecture/
    ```
 
-7. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-audit/{run-id}/`
+8. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-survey/{run-id}/`
    Only delete after commit succeeds. On Phase 2/3 failure, scratch contains earlier phases for recovery.
 
 ## Cost Profile

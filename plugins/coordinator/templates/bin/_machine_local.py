@@ -34,6 +34,8 @@ docs/wiki/machine-local-registry.md §8(a)); shell-out is the only contract.
 import sys
 import os
 import argparse
+import re
+import datetime
 
 # Hard requirement: fail loud on Python < 3.11 rather than silently degrade.
 # coordinator requires Python 3.11+ for TOML parsing via stdlib tomllib.
@@ -332,6 +334,118 @@ def cmd_path(args: argparse.Namespace) -> int:
     return 0
 
 
+def _locate_existing_definition(content: str, key: str) -> dict | None:
+    """Find an existing definition of `key` in TOML content.
+
+    Returns a dict describing how the key is currently defined, or None if no
+    matching structure exists. Three shapes:
+
+      - {"kind": "flat", "match": <re.Match>}
+          Found as `"key.with.dots" = "value"` anywhere in the file (the form
+          machine-local set has historically written).
+      - {"kind": "table-leaf", "leaf_match": <re.Match>, "abs_start": int,
+         "abs_end": int}
+          Found as a bare-leaf assignment inside an existing `[table.path]`
+          header (the form natural TOML uses for grouped config — and the form
+          that triggered the 2026-05-23 duplicate-write bug when set only knew
+          about the flat shape).
+      - {"kind": "table-header-only", "section_start": int, "section_end": int,
+         "leaf_path": str}
+          The `[table.path]` header exists but the leaf is absent inside it.
+          cmd_set inserts the new leaf into the existing section body — a flat
+          append below subsequent `[other.section]` headers would be a TOML
+          parse error.
+      - {"kind": "array-of-tables-detected", "table_path": str}
+          The key's table path is defined as an array-of-tables ([[table.path]]).
+          cmd_set cannot modify this shape — surface an actionable error.
+
+    The search tries the longest table-path prefix first so that, for a key
+    like `a.b.c.d`, it prefers an existing `[a.b.c]\nd = …` over `[a.b]\nc.d = …`
+    if both exist (the registry only uses one form per key in practice).
+    """
+    # Review: code-reviewer (F11) — re and datetime moved to module-level imports.
+
+    flat_pat = re.compile(
+        r'^(\s*"' + re.escape(key) + r'"\s*=\s*)(?:"[^"]*"|\'[^\']*\')([ \t]*(?:#[^\n]*)?)',
+        re.MULTILINE,
+    )
+    fm = flat_pat.search(content)
+    if fm:
+        return {"kind": "flat", "match": fm}
+
+    parts = key.split(".")
+    next_section_pat = re.compile(r"^\[", re.MULTILINE)
+
+    def _build_header_pats(prefix_parts):
+        """Build (header_pat, aot_pat) for a given table prefix."""
+        table_path = ".".join(prefix_parts)
+        # Review: code-reviewer (F1) — OR bare-key and quoted-segment forms.
+        quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
+        h_pat = re.compile(
+            r"^\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\][ \t]*(?:#[^\n]*)?$",
+            re.MULTILINE,
+        )
+        # Review: code-reviewer (F7) — detect [[table.path]] array-of-tables.
+        aot_pat = re.compile(
+            r"^\[\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\]\][ \t]*(?:#[^\n]*)?$",
+            re.MULTILINE,
+        )
+        return h_pat, aot_pat
+
+    # Review: code-reviewer (F2) — two-pass approach: first pass finds table-leaf
+    # matches (longest prefix first); second pass finds table-header-only matches.
+    # This prevents returning table-header-only for [a.b.c] when [a.b] already
+    # has c.d = "..." as a dotted-leaf assignment inside it.
+
+    # Pass 1: look for table-leaf matches only (longest prefix first).
+    for i in range(len(parts) - 1, 0, -1):
+        prefix_parts = parts[:i]
+        leaf_path = ".".join(parts[i:])
+        h_pat, aot_pat = _build_header_pats(prefix_parts)
+        # Array-of-tables check is done in pass 1 so it still exits early.
+        if aot_pat.search(content):
+            return {"kind": "array-of-tables-detected", "table_path": ".".join(prefix_parts)}
+        hm = h_pat.search(content)
+        if not hm:
+            continue
+        section_start = hm.end()
+        nm = next_section_pat.search(content, section_start)
+        section_end = nm.start() if nm else len(content)
+        section_body = content[section_start:section_end]
+        leaf_pat = re.compile(
+            r"^(\s*" + re.escape(leaf_path) + r"\s*=\s*)(?:\"[^\"]*\"|'[^']*')([ \t]*(?:#[^\n]*)?)",
+            re.MULTILINE,
+        )
+        leaf_m = leaf_pat.search(section_body)
+        if leaf_m:
+            return {
+                "kind": "table-leaf",
+                "leaf_match": leaf_m,
+                "abs_start": section_start + leaf_m.start(),
+                "abs_end": section_start + leaf_m.end(),
+            }
+
+    # Pass 2: look for table-header-only matches (longest prefix first).
+    for i in range(len(parts) - 1, 0, -1):
+        prefix_parts = parts[:i]
+        leaf_path = ".".join(parts[i:])
+        h_pat, _aot = _build_header_pats(prefix_parts)
+        hm = h_pat.search(content)
+        if not hm:
+            continue
+        section_start = hm.end()
+        nm = next_section_pat.search(content, section_start)
+        section_end = nm.start() if nm else len(content)
+        return {
+            "kind": "table-header-only",
+            "section_start": section_start,
+            "section_end": section_end,
+            "leaf_path": leaf_path,
+        }
+
+    return None
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     """Implement: machine-local set <key> <value> [--global] [--dry-run]
 
@@ -342,8 +456,7 @@ def cmd_set(args: argparse.Namespace) -> int:
     fragile: they do not reproduce on reinstall or transfer to a new machine,
     and may be clobbered by a concurrent session.
     """
-    import re
-    import datetime
+    # Review: code-reviewer (F11) — re and datetime moved to module-level imports.
 
     reg_dir = _registry_dir()
     target_file = "registry.toml" if args.write_global else "registry.local.toml"
@@ -394,17 +507,6 @@ def cmd_set(args: argparse.Namespace) -> int:
 
     date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Find and replace an existing quoted key assignment (either basic-string or
-    # literal-string form), or append if absent. The pattern matches either form
-    # so that operators upgrading from the old basic-string writer shape get an
-    # in-place replacement (not a duplicate second line) on the first post-upgrade set.
-    # Matches:  "key.name"   =   "old-value"  OR  'old-value'  # optional trailing comment
-    #   groups: (prefix up to opening quote of value)(trailing whitespace+comment)
-    pattern = re.compile(
-        r'^(\s*"' + re.escape(key) + r'"\s*=\s*)(?:"[^"]*"|\'[^\']*\')([ \t]*(?:#[^\n]*)?)',
-        re.MULTILINE,
-    )
-
     # Refuse to write values containing a single quote — TOML literal strings
     # (single-quoted) have no escape mechanism. This matches the holodeck
     # write_unreal_concern.py policy: refuse rather than guess.
@@ -418,16 +520,50 @@ def cmd_set(args: argparse.Namespace) -> int:
 
     value_literal = f"'{value}'"  # TOML literal string (no escape processing)
 
-    if pattern.search(content):
-        # Lambda avoids Python 3.12+ re.PatternError on bare \d, \U, \e etc. in
-        # f-string template replacements that re.sub would otherwise interpret
-        # as bad backreferences.
-        new_content = pattern.sub(
-            lambda m: f"{m.group(1)}{value_literal}{m.group(2)}",
-            content,
+    # Existing-definition detection has four shapes:
+    #   1. Flat:  "key.with.dots" = "old"   anywhere in file
+    #   2. Table-form leaf:  [table.path]\nleaf = "old"  — leaf inside an existing table
+    #   3. Table-form header without leaf:  [table.path] exists but no matching leaf
+    #   4. Array-of-tables / inline table — detected but not modifiable by this writer
+    # We try (1) → (2) → (3) → inline-table pre-check → append-as-flat, in order.
+    # The dispatch covers the 2026-05-23 bug where set saw only (1) and appended a
+    # duplicate when the existing definition was (2), creating a TOML where the
+    # table-form silently won on read.
+    update_result = _locate_existing_definition(content, key)
+
+    if update_result is not None and update_result["kind"] == "array-of-tables-detected":
+        # Review: code-reviewer (F7) — array-of-tables detected; route to actionable error.
+        print(
+            f"machine-local: key '{key}' resolves in '{target_path}' but its "
+            "definition shape (inline table, array-of-tables, or other) is not "
+            "modifiable by this writer. Hand-edit the file to update it.",
+            file=sys.stderr,
         )
-        action = "updated"
-    else:
+        return 1
+
+    if update_result is None:
+        # Review: code-reviewer (F3) — inline-table pre-check before falling through to
+        # flat-append. If the key resolves via tomllib but no regex shape matched it,
+        # the definition is an inline table, array-of-tables, or other unmodifiable form.
+        # The round-trip check below would also catch this, but surfacing the specific
+        # diagnosis here is far more actionable.
+        try:
+            pre_parsed = tomllib.loads(content)
+            pre_resolved = _flatten_nested(pre_parsed).get(key)
+        except tomllib.TOMLDecodeError:
+            pre_resolved = None  # malformed — let write proceed, round-trip check will catch it
+
+        if pre_resolved is not None:
+            print(
+                f"machine-local: key '{key}' resolves in '{target_path}' but its "
+                "definition shape (inline table, array-of-tables, or other) is not "
+                "modifiable by this writer. Hand-edit the file to update it.",
+                file=sys.stderr,
+            )
+            return 1
+
+        # No existing definition anywhere — append a flat quoted-dotted-key line
+        # before the first [<section>] header (or at EOF if none).
         section_pat = re.compile(r"^\[", re.MULTILINE)
         m = section_pat.search(content)
         new_line = f'"{key}" = {value_literal}  # set {date_tag}\n'
@@ -437,6 +573,87 @@ def cmd_set(args: argparse.Namespace) -> int:
         else:
             new_content = content.rstrip("\n") + "\n" + new_line
         action = "added"
+    else:
+        kind = update_result["kind"]
+        if kind == "flat":
+            m = update_result["match"]
+            new_content = (
+                content[:m.start()]
+                + m.group(1) + value_literal + m.group(2)
+                + content[m.end():]
+            )
+            action = "updated"
+        elif kind == "table-leaf":
+            abs_start = update_result["abs_start"]
+            abs_end = update_result["abs_end"]
+            leaf_m = update_result["leaf_match"]
+            new_content = (
+                content[:abs_start]
+                + leaf_m.group(1) + value_literal + leaf_m.group(2)
+                + content[abs_end:]
+            )
+            action = "updated"
+        elif kind == "table-header-only":
+            # Table header exists but the leaf is absent inside it. Inject the
+            # leaf at the end of the table's body (before the next section header
+            # or EOF). Flat-append would be a TOML error if subsequent
+            # [<other.section>] headers follow this one — TOML forbids reopening
+            # a closed table from outside any table.
+            section_start = update_result["section_start"]
+            section_end = update_result["section_end"]
+            leaf_path = update_result["leaf_path"]
+            section_body = content[section_start:section_end]
+            # Review: code-reviewer (F6) — match sibling key indentation rather than
+            # always injecting unindented. Standard registry TOML has no indentation,
+            # so this falls back to no-indent for the common case.
+            indent_match = re.search(r"^([ \t]+)\S", section_body, re.MULTILINE)
+            indent = indent_match.group(1) if indent_match else ""
+            trimmed = section_body.rstrip("\n")
+            suffix = section_body[len(trimmed):]
+            new_section = (
+                trimmed
+                + f"\n{indent}{leaf_path} = {value_literal}  # set {date_tag}\n"
+                + suffix
+            )
+            new_content = content[:section_start] + new_section + content[section_end:]
+            action = "added"
+        else:  # pragma: no cover — defensive
+            print(f"machine-local: internal error: unknown match kind {kind!r}", file=sys.stderr)
+            return 1
+
+    # Post-build round-trip sanity check: the new content must parse and the
+    # requested key must resolve to the requested value via _flatten_nested.
+    # Review: code-reviewer (F4) — this check verifies parse+flatten correctness
+    # for the file being written. It does NOT verify the full resolution stack:
+    # concern-namespace exclusivity is already handled by the guard above; env-var
+    # resolution is below all TOML layers and irrelevant for write verification.
+    try:
+        parsed = tomllib.loads(new_content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: refusing to write — post-build TOML is malformed: {exc}. "
+            "This is a bug in machine-local set, not in your input. "
+            "File a report and edit the registry by hand for now.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Resolve via the same flatten logic the reader uses so a quoted-dotted-key
+    # (`"repos.holodeck" = ...` parses as a single flat key) and a nested table
+    # (`[repos]\nholodeck = ...` parses as `{"repos": {"holodeck": ...}}`) both
+    # resolve to the dotted key the operator typed. Walking parsed with split(".")
+    # mishandles the quoted-key shape because TOML keeps the literal dot in the key.
+    resolved = _flatten_nested(parsed).get(key)
+    if resolved != value:
+        print(
+            f"machine-local: refusing to write — post-build round-trip read of "
+            f"{key!r} returned {resolved!r}, expected {value!r}. "
+            "Likely cause: the registry contains a definition shape this writer "
+            "does not yet handle, leaving a stale value still in scope. "
+            "File a report and edit the registry by hand for now.",
+            file=sys.stderr,
+        )
+        return 1
 
     if dry_run:
         print(f"[dry-run] would {action} {key!r} = {value!r} in {target_path}")

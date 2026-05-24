@@ -1,24 +1,42 @@
 #!/usr/bin/env bash
-# workday-start-cross-repo-memo-surface.sh — Surface outstanding cross-repo memos for /workday-start Step 1.45.
+# workday-start-cross-repo-memo-surface.sh — Surface inbound cross-repo memos for /workday-start Step 1.45.
 #
-# Purpose: Glob the cross-repo archive, parse frontmatter, filter to open/reviewed memos
-# (skipping grandfathered pre-cutoff ones), compute staleness, emit one line per memo.
-# Emits nothing if zero qualifying memos — callers may skip the section heading.
+# Purpose: Glob THIS repo's cross-repo/inbox/ directory (receiver-inbound), parse frontmatter,
+# filter to status: open memos (skipping grandfathered pre-cutoff ones), compute staleness,
+# emit one line per memo. Emits nothing if zero qualifying memos — callers may skip the
+# section heading.
 #
-# Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md §Chunk 3
+# Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+# Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 3
+#
+# Single-delivery-copy model: sender writes ONE dirty file into receiver's cross-repo/.
+# This script surfaces memos awaiting THIS repo's EM action (status: open).
+# Receiver flips status: open → actioned in place via Edit + commit — no move.
 #
 # Usage:
 #   bash workday-start-cross-repo-memo-surface.sh
-#   CROSS_REPO_ARCHIVE_DIR=/some/tmpdir bash workday-start-cross-repo-memo-surface.sh
+#   CROSS_REPO_INBOX_DIR=/some/tmpdir bash workday-start-cross-repo-memo-surface.sh
 #
 # Environment:
-#   CROSS_REPO_ARCHIVE_DIR — override archive directory (used by smoke tests)
+#   CROSS_REPO_INBOX_DIR — override inbox directory (default: cross-repo/inbox/ at repo root).
+#                          Used by smoke tests. Detect repo root via git if available,
+#                          otherwise falls back to cwd.
+# Review: F9 — corrected default path from cross-repo/ to cross-repo/inbox/
 #
 # Exit: always 0. Emits nothing when no qualifying memos exist (silent per spec).
 
 set -euo pipefail
 
-ARCHIVE_DIR="${CROSS_REPO_ARCHIVE_DIR:-${HOME}/.claude/archive/cross-repo}"
+# Resolve THIS repo's cross-repo/inbox/ directory (receiver-inbound inbox).
+# Priority: CROSS_REPO_INBOX_DIR env override → git root → cwd.
+if [[ -n "${CROSS_REPO_INBOX_DIR:-}" ]]; then
+  INBOX_DIR="$CROSS_REPO_INBOX_DIR"
+elif git_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+  INBOX_DIR="${git_root}/cross-repo/inbox"
+else
+  INBOX_DIR="$(pwd)/cross-repo/inbox"
+fi
+
 # MOCK_TODAY: override for testing (ISO-8601 date string e.g. "2026-06-15").
 # When set, all age/staleness computations use this date instead of date.today().
 MOCK_TODAY="${MOCK_TODAY:-}"
@@ -38,15 +56,15 @@ CUTOFF_DATE="2026-05-21"
 # Max entries before truncation line.
 MAX_ENTRIES=8
 
-if [[ ! -d "$ARCHIVE_DIR" ]]; then
+if [[ ! -d "$INBOX_DIR" ]]; then
   exit 0
 fi
 
 # Collect qualifying memos via Python YAML parsing.
-# Each line: "<created>|<to>|<title>|<status>|<reviewed_at>"
+# Each line: "<created>|<from>|<title>|<status>"
 memo_lines=()
 
-for f in "$ARCHIVE_DIR"/*.md; do
+for f in "$INBOX_DIR"/*.md; do
   [[ -f "$f" ]] || continue
   result=$("$PY" - "$f" <<'PYEOF'
 import sys, re
@@ -63,20 +81,26 @@ m = re.match(r'^---\r?\n(.*?)\r?\n---', content, re.DOTALL)
 if not m:
     sys.exit(0)
 
-try:
-    import yaml
-    fm = yaml.safe_load(m.group(1))
-except Exception:
+# code-review F3: replace yaml.safe_load (optional dep, silently exits on missing)
+# with regex flat-frontmatter extraction — same approach used elsewhere in this script.
+# Handles simple key: value lines only; sufficient for the memo schema fields we care about.
+fm = {}
+for kv_line in m.group(1).splitlines():
+    kv_m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)', kv_line)
+    if kv_m:
+        k, v = kv_m.group(1), kv_m.group(2).strip()
+        # Strip surrounding double-quotes (dispatcher quotes string values).
+        if len(v) >= 2 and v.startswith('"') and v.endswith('"'):
+            v = v[1:-1].replace('\\"', '"').replace('\\\\', '\\')
+        fm[k] = v
+
+if not fm:
     sys.exit(0)
 
-if not isinstance(fm, dict):
-    sys.exit(0)
-
-created     = str(fm.get("created", "")).strip()
-to          = str(fm.get("to", "")).strip()
-title       = str(fm.get("title", "")).strip()
-status      = str(fm.get("status", "")).strip()
-reviewed_at = str(fm.get("reviewed_at", "")).strip()
+created = str(fm.get("created", "")).strip()
+sender  = str(fm.get("from", "")).strip()
+title   = str(fm.get("title", "")).strip()
+status  = str(fm.get("status", "")).strip()
 
 # Must have a status field to be a lifecycle-aware memo.
 if not status:
@@ -86,11 +110,11 @@ if not status:
 if created and created <= "2026-05-21":
     sys.exit(0)
 
-# Only surface open or reviewed.
-if status not in ("open", "reviewed"):
+# Receiver-inbound: surface only memos awaiting action (status: open).
+if status != "open":
     sys.exit(0)
 
-print(f"{created}|{to}|{title}|{status}|{reviewed_at}")
+print(f"{created}|{sender}|{title}|{status}")
 PYEOF
   )
   [[ -n "$result" ]] && memo_lines+=("$result")
@@ -104,45 +128,35 @@ unset IFS
 
 output_lines=()
 for line in "${sorted[@]}"; do
-  IFS='|' read -r created to title status reviewed_at <<< "$line"
+  IFS='|' read -r created sender title status <<< "$line"
 
   # Compute age in days from created date.
-  age_days=$("$PY" -c "
-import os
+  # code-review F15: pass created as a positional arg (sys.argv[1]) to avoid
+  # shell-interpolation of an untrusted frontmatter field into Python source.
+  if [[ ! "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    age_days=0
+  else
+    age_days=$("$PY" -c "
+import os, sys
 from datetime import date
 mock = os.environ.get('MOCK_TODAY', '').strip()
 today = date.fromisoformat(mock) if mock else date.today()
 try:
-    c = date.fromisoformat('${created}')
+    c = date.fromisoformat(sys.argv[1])
     print((today - c).days)
 except Exception:
     print(0)
-")
-
-  stale_flag=""
-  if [[ "$status" == "open" ]] && [[ "$age_days" -gt 7 ]]; then
-    stale_flag=" [STALE — receiver hasn't read]"
-  elif [[ "$status" == "reviewed" ]]; then
-    # F5 (code-reviewer P2): if reviewed_at is absent, fall back to created so
-    # staleness degrades gracefully instead of silently masking a stale memo.
-    reviewed_age=$("$PY" -c "
-import os
-from datetime import date
-mock = os.environ.get('MOCK_TODAY', '').strip()
-today = date.fromisoformat(mock) if mock else date.today()
-anchor = '${reviewed_at}' or '${created}'
-try:
-    r = date.fromisoformat(anchor)
-    print((today - r).days)
-except Exception:
-    print(0)
-")
-    if [[ "$reviewed_age" -gt 14 ]]; then
-      stale_flag=" [STALE — action pending]"
-    fi
+" "$created")
   fi
 
-  output_lines+=("- ${created} → ${to}: ${title} — ${status} (${age_days} days)${stale_flag}")
+  stale_flag=""
+  # Receiver-inbound: only status: open memos surface here.
+  # Stale if sitting open for more than 7 days without being actioned.
+  if [[ "$age_days" -gt 7 ]]; then
+    stale_flag=" [STALE — awaiting your action]"
+  fi
+
+  output_lines+=("- ${created} from ${sender}: ${title} (${age_days} days old)${stale_flag}")
 done
 
 total=${#output_lines[@]}
@@ -154,5 +168,5 @@ done
 
 if [[ "$total" -gt "$MAX_ENTRIES" ]]; then
   remaining=$(( total - MAX_ENTRIES ))
-  echo "(${remaining} more — see ${ARCHIVE_DIR} for full list)"
+  echo "(${remaining} more — see ${INBOX_DIR} for full list)"
 fi

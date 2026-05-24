@@ -303,6 +303,15 @@ const REF_ALLOWLIST = new Set([
   'coordinator:writing-plans',          // renamed to coordinator:plan 2026-05-07; cited in v2.0.0 rename note
   'coordinator:requesting-code-review', // renamed to coordinator:review-code 2026-05-07; cited in v2.0.0 rename note
   'coordinator:using-git-worktrees',    // removed 2026-05-07 (rule lives in CLAUDE.md); cited in v2.0.0 rename note
+  // By-design non-command: the coordinator doctor is a wiki (coordinator-doctor.md) + sentinel
+  // script, NOT a slash skill. The wiki itself argues a /coordinator:doctor command "would be
+  // bloat for a non-interactive verification surface" — the backticked mention is the false positive.
+  'coordinator:doctor',                 // doctor is docs/wiki/coordinator-doctor.md + coordinator-doctor-sentinel.sh, not a skill (2026-05-20)
+  // Project-specific agent in holodeck consumer repo (plugin/game-dev/agents/schema-migration-auditor.md).
+  // The agent exists but lives in the project repo, not the global game-dev plugin — the prefix
+  // 'game-dev' is known but the specific agent-id is not resolvable from the coordinator-plugin tree.
+  // Reference in docs/wiki/install-surface-completeness.md:97 is a cross-ref advisory, not a dispatch.
+  'game-dev:schema-migration-auditor',  // holodeck project-local game-dev agent; coordinator wiki cross-ref only (2026-05-24)
 ]);
 
 // ---------------------------------------------------------------------------
@@ -324,7 +333,10 @@ function main() {
   // wiki, docs all reference skills/agents/commands and must stay accurate).
   const violations = []; // { file, line, kind, ref }
 
-  for (const file of walkMarkdown(root)) {
+  // Exclude dist/ — generated publish-repo snapshots whose CHANGELOGs legitimately
+  // name removed/renamed skills as history. Live-dispatch coverage issues in real
+  // source are caught in the non-dist tree; publish-sync is verify-dist-publish-repo-sync.sh's job.
+  for (const file of walkMarkdown(root, new Set(['dist']))) {
     const content = fs.readFileSync(file, 'utf-8');
     const refs = extractReferences(content, plugins);
     for (const r of refs) {

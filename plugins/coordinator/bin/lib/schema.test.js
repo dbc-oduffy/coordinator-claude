@@ -41,6 +41,10 @@ describe('loadSchemas', () => {
     assert.ok(names.includes('lesson-entry'), 'lesson-entry schema missing');
     assert.ok(names.includes('completion-entry'), 'completion-entry schema missing');
     assert.ok(names.includes('cross-repo-memo'), 'cross-repo-memo schema missing');
+    // code-review F13: the count 8 names the schemas enumerated by the includes() checks
+    // above: handoff, handoff-archived, decision, plan, review, lesson-entry,
+    // completion-entry, cross-repo-memo. Update this comment (not just the count) when
+    // a schema is added or removed, so the assertion stays self-documenting.
     assert.equal(names.length, 8, `expected 8 schemas, got ${names.length}`);
   });
 
@@ -456,10 +460,37 @@ describe('validateFrontmatter — cross-repo-memo', () => {
     assert.ok(result.ok, `Expected ok, got errors: ${JSON.stringify(result.errors)}`);
   });
 
-  it('matchSchemaForPath routes archive/cross-repo/*.md to cross-repo-memo schema', () => {
-    const match = matchSchemaForPath('archive/cross-repo/2026-05-22-test-topic.md', SCHEMAS);
-    assert.ok(match !== null, 'expected a match for archive/cross-repo path');
+  // code-review F1 (downgraded): 'actioned' is the simple-model terminal — decision
+  // is OPTIONAL. No required-field rule for actioned (unlike grandfathered action_taken).
+  it('status:actioned without decision passes (simple-model terminal, decision optional)', () => {
+    const fm = baseMemo({
+      status: 'actioned',
+      action_taken_at: '2026-05-24T10:00:00Z',
+      // decision intentionally omitted — optional for actioned
+    });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Expected ok for actioned without decision, got errors: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('status:actioned with optional decision also passes', () => {
+    const fm = baseMemo({
+      status: 'actioned',
+      action_taken_at: '2026-05-24T10:00:00Z',
+      decision: 'accepted',
+    });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Expected ok for actioned with decision, got errors: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('matchSchemaForPath routes cross-repo/YYYY-MM-DD-topic.md to cross-repo-memo schema', () => {
+    const match = matchSchemaForPath('cross-repo/2026-05-23-test-topic.md', SCHEMAS);
+    assert.ok(match !== null, 'expected a match for cross-repo/ dated memo path');
     assert.equal(match.schemaName, 'cross-repo-memo');
+  });
+
+  it('matchSchemaForPath does NOT route cross-repo/README.md to cross-repo-memo schema (digit-prefix glob)', () => {
+    const match = matchSchemaForPath('cross-repo/README.md', SCHEMAS);
+    assert.equal(match, null, 'cross-repo/README.md must not match the digit-prefixed glob');
   });
 });
 
@@ -505,11 +536,32 @@ describe('validateLessonsFile', () => {
   it('multiple invalid tags in same file accumulate errors', () => {
     const content = [
       '- **[deprecated] Old tag** — was once allowed.',
-      '- **[tier-1] Another bad tag** — not in enum.',
+      '- **[obsolete] Another bad tag** — not in enum.',
     ].join('\n');
     const result = validateLessonsFile(content, lessonSchema);
     assert.equal(result.ok, false);
     assert.ok(result.errors.length >= 2);
+  });
+
+  it('digit-containing bracket tokens are prose, not candidate tags', () => {
+    // Version refs, codecs, doc-tier refs, footnotes, citation keys, section
+    // refs, and wikilinks on an entry line are NOT tags — a real tag (or its
+    // typo) is pure lowercase alpha. None of these should produce a violation.
+    const content = [
+      '- **Prose-heavy entry** — uses [v2], [h264], [tier-1], [1], [11] and [[wikilink]].',
+    ].join('\n');
+    const result = validateLessonsFile(content, lessonSchema);
+    assert.ok(result.ok, `digit/bracket prose must not flag, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('uppercase-cased tag typo ([Universal]) is the accepted miss — slips silently', () => {
+    // Documented tradeoff: catching this requires allowing uppercase-initial
+    // tokens, which re-introduces citation-key ([Smith2020]) false positives.
+    // This test is a tripwire: if a future change starts catching it, decide
+    // deliberately rather than by accident.
+    const content = ['- **[Universal] cased typo** — slips by design.'].join('\n');
+    const result = validateLessonsFile(content, lessonSchema);
+    assert.ok(result.ok, `[Universal] is the accepted miss and must not flag, got: ${JSON.stringify(result.errors)}`);
   });
 
   it('empty file passes', () => {
@@ -546,6 +598,23 @@ describe('_matchGlob', () => {
 
   it('Windows backslash paths are normalised', () => {
     assert.ok(_matchGlob('tasks/handoffs/*.md', 'tasks\\handoffs\\foo.md'));
+  });
+
+  // Bracket character-class passthrough tests.
+  // Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+  it('[0-9]* bracket-class glob matches a dated memo filename', () => {
+    assert.ok(_matchGlob('cross-repo/[0-9]*.md', 'cross-repo/2026-05-23-test-topic.md'),
+      'digit-prefixed dated memo should match');
+  });
+
+  it('[0-9]* bracket-class glob does NOT match cross-repo/README.md', () => {
+    assert.ok(!_matchGlob('cross-repo/[0-9]*.md', 'cross-repo/README.md'),
+      'README.md must not match digit-prefixed glob');
+  });
+
+  it('[0-9]* bracket-class glob does NOT match cross-repo/topic-only.md (no leading digit)', () => {
+    assert.ok(!_matchGlob('cross-repo/[0-9]*.md', 'cross-repo/topic-only.md'),
+      'non-digit-prefixed file must not match');
   });
 });
 

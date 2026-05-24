@@ -1,17 +1,26 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 cross-repo-memo — dispatch a cross-repo memo to a receiver-EM's working tree.
 
-Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
-Purpose: Write a memo addressed to a receiver-EM into their working tree as a
-deliberately uncommitted dirty file (the dirty-file backstop), and write an
-archive copy to ~/.claude/archive/cross-repo/ for DoE-side visibility.
+Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
 
-The dirty-file backstop is the mechanism: the receiver-EM sees the untracked
-tasks/memos/ file in git status at every session-start, /workday-start, and
-commit attempt without any new hook code. When they action the memo, they
-transition the lifecycle frontmatter and commit — clearing the dirty state and
-landing the audit trail in their repo's history.
+Purpose: Write ONE dirty delivery memo into the RECEIVER's repo at
+  <receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<topic>.md
+left uncommitted (dirty) so it surfaces in the receiver's `git status`.
+
+Single-delivery-copy model (PM ruling 2026-05-23):
+- Sender writes ONE memo into receiver's cross-repo/ directory — NO sender copy,
+  NO archive/cross-repo/ write at send time.
+- The CLI prints the receiver path and a "hand the PM this path for relay" line.
+- The receiver reads the dirty file, acts on it, flips status: open → actioned
+  in place via a normal Edit + commit. Terminal state — no move, no closure
+  subcommand, no second side.
+- The act of sending is noted in the sender's normal session-end notes.
+
+Negative-spec: There is NO closure subcommand. The receiver edits the memo in
+place (open → actioned). Do NOT add a --close/--action subcommand — receiver
+uses a plain Edit on the memo file and commits it in their repo.
 
 Reader-only relationship to machine-local registry
 ---------------------------------------------------
@@ -26,15 +35,28 @@ only. See: docs/wiki/machine-local-registry.md § 5a–5b (Reader only — never
 writes to machine-local. If you find yourself wanting to write to machine-local
 from a script, stop.)
 
-Receiver-EM identity mapping (F3 rule)
----------------------------------------
-The mapping table RECEIVER_EM_TO_REPO_KEY below is script-internal. It maps
-global receiver-EM identities (stable across machines) to per-machine registry
-keys (resolved per-machine). This is intentional: identity space is global
-doctrine; path space is per-machine. If this mapping grows past 8 entries,
-promote to schemas/cross-repo-receiver-map.yaml rather than extending this
-script — identity mappings at that scale benefit from machine-independent
-discoverability (per plan § Dispatcher tooling, F3 PM-endorsed).
+Receiver-EM identity → repo resolution (convention over table)
+--------------------------------------------------------------
+The receiver set IS the machine-local repo list — there is no hand-maintained
+identity→repo table to keep in sync (PM ruling 2026-05-23). A receiver-EM
+identity resolves to a registry key by convention:
+
+    <receiver>-em  →  repos.<receiver with dashes→underscores>
+
+e.g. project-rag-ue-addon-em → repos.project_rag_ue_addon,
+     dronesim-em            → repos.dronesim.
+
+Consequence: any repo registered in the machine-local registry under
+repos.<name> is automatically a valid receiver, with NO code change here.
+Register the repo (machine-local set repos.<name> <path>) and <name>-em (dashes
+for underscores) delivers to it. Anyone installing the coordinator gets this for
+free — the receiver list is THEIR machine-local repo list, not ours.
+
+RECEIVER_EM_ALIASES holds ONLY the handful of identities whose stable doctrine
+name diverges from the repo's registry shortname (e.g. holodeck-em ↔
+repos.claude_unreal_holodeck). It does NOT grow with the number of repos —
+convention covers those — so it stays tiny. Identity space is still global
+doctrine; path space is still per-machine — the registry resolves the path.
 """
 
 import argparse
@@ -45,21 +67,114 @@ import subprocess
 import sys
 import textwrap
 
-# F2 (code-reviewer P1): --topic must be filesystem-safe to prevent path traversal.
+# --topic must be filesystem-safe to prevent path traversal out of cross-repo/.
 # Allows: lowercase alphanum + dashes, must start with alphanum. No '..', '/', '\'.
 _TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 
 # ---------------------------------------------------------------------------
-# Receiver-EM → machine-local registry key mapping.
-# F3 rule: script-internal ≤8 entries; grow past 8 → promote to
-# schemas/cross-repo-receiver-map.yaml (NOT to machine-local — paths are
-# per-machine, identities are global doctrine).
+# Receiver-EM identity → machine-local registry key.
+#
+# Convention-first: <receiver>-em → repos.<receiver, dashes→underscores>. The
+# receiver set is therefore the machine-local repo list (repos.*) — register a
+# repo and its <name>-em identity delivers to it with no edit here.
+#
+# RECEIVER_EM_ALIASES is ONLY for identities whose doctrine name diverges from
+# the repo's registry shortname. It does not grow with repo count — keep tiny.
 # ---------------------------------------------------------------------------
-RECEIVER_EM_TO_REPO_KEY: dict[str, str] = {
-    "project-rag-em": "repos.project_rag",
-    "holodeck-em": "repos.claude_unreal_holodeck",
-    "dronesim-em": "repos.dronesim",
+RECEIVER_EM_ALIASES: dict[str, str] = {
+    # holodeck-em is the doctrine identity; the repo registers under its full
+    # name (repos.claude_unreal_holodeck).
+    "holodeck": "claude_unreal_holodeck",
 }
+
+# ---------------------------------------------------------------------------
+# Central-receiver identity set (B2 — DM1)
+#
+# Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2
+#
+# The ~/.claude meta-repo (coordinator home) is a valid EXPLICIT receiver.
+# EMs hand-writing memos into ~/.claude was the root-cause symptom; this set
+# is the fix — `--to claude-central-em` (or either alias) resolves to
+# _claude_home() rather than attempting a repos.* registry lookup.
+#
+# Single source of truth for BOTH the receiver path resolver (_resolve_receiver_path)
+# AND the sender identity (_em_id_for_root emits "claude-central-em" — the canonical
+# set member). Keeping both sides on this one constant prevents drift.
+#
+# "No implicit fallback" guarantee is PRESERVED: only an explicit --to <member>
+# triggers central delivery; an unregistered sibling still hard-errors.
+# ---------------------------------------------------------------------------
+_CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset({
+    "claude-central-em",
+    "central-em",
+    "central",
+})
+
+
+def _is_central_receiver(receiver_em_id: str) -> bool:
+    """True when receiver_em_id (case/whitespace-normalised) names the central coordinator."""
+    return receiver_em_id.strip().lower() in _CENTRAL_RECEIVER_IDS
+
+
+# ---------------------------------------------------------------------------
+# Publish-target receiver rejection set (H — D6)
+#
+# Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § H (D6)
+#
+# Publish-target repos (OSS distribution mirrors) are NOT EM working trees.
+# They are outward publish.sh destinations — a memo dropped there is invisible
+# to EMs and gets clobbered on the next publish run.
+#
+# IMPORTANT: Only OSS-mirror repos that are NOT EM working trees belong here.
+# Do NOT add repos that publish into a subdirectory of an EM working tree.
+# Carve-out: `holodeck` appears in setup/publish-targets.sh but publishes INTO
+# /x/claude-unreal-holodeck/plugin (a subdirectory of the holodeck EM tree) —
+# holodeck-em remains a valid memo receiver and must NOT be added here.
+#
+# Source of truth for which repos are publish targets: setup/publish-targets.sh
+# (per-operator, machine-local). The CLI hardcodes this set because it is small,
+# stable, and cross-machine — OSS distribution targets do not vary per operator.
+# Both the bare name and the -em form are included so that either convention
+# used in --to is caught.
+#
+# Empirical trigger: 2026-05-23 DoE memo misdelivered to
+# X:/coordinator-claude/cross-repo/ where no EM reads it.
+# Review: F1 — clarify holodeck carve-out so future authors don't add holodeck-em
+# ---------------------------------------------------------------------------
+_PUBLISH_TARGET_EM_IDS: frozenset[str] = frozenset({
+    "coordinator-claude-em",
+    "coordinator-claude",
+    "deep-research-claude-em",
+    "deep-research-claude",
+})
+
+
+def _is_publish_target_em(receiver_em_id: str) -> bool:
+    """True when receiver_em_id (case/whitespace-normalised) names a publish-target repo.
+
+    Publish targets are outward distribution mirrors, not EM working trees.
+    Memos sent there are invisible and get clobbered on next publish.
+    """
+    return receiver_em_id.strip().lower() in _PUBLISH_TARGET_EM_IDS
+
+
+def _receiver_repo_key(receiver_em_id: str) -> str:
+    """Map a receiver-EM identity to its machine-local repos.<name> key.
+
+    Strips a trailing '-em' (a bare shortname without the suffix is also
+    accepted), applies RECEIVER_EM_ALIASES for the divergent cases, then converts
+    dashes→underscores under the repos. namespace. The returned key may or may
+    not exist in the registry — the caller resolves it via machine-local and
+    hard-errors when absent (single-surface model).
+    """
+    shortname = receiver_em_id[:-3] if receiver_em_id.endswith("-em") else receiver_em_id
+    # code-review F12: guard against an empty shortname after stripping '-em'
+    # (e.g. receiver_em_id == "-em" alone). Empty shortname → 'repos.' is degenerate;
+    # a cleaner error surfaces downstream when machine-local rejects the empty key.
+    if not shortname:
+        shortname = receiver_em_id  # keep original so caller gets a clear key to report
+    shortname = RECEIVER_EM_ALIASES.get(shortname, shortname)
+    return "repos." + shortname.replace("-", "_")
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -124,8 +239,8 @@ def _machine_local_get(key: str) -> str | None:
     """Call machine-local get <key> and return the value, or None on failure.
 
     On a machine where repos.<key> is absent from the registry, this returns
-    None and the caller falls back to central-only delivery — the correct
-    behaviour per plan § PM-Q3 (non-trio repos / OSS consumers).
+    None and the caller hard-errors — a dirty memo cannot be written to a repo
+    that isn't on this machine (single-surface model: no central-only fallback).
 
     Suppresses the unrel.install_root namespace warning that machine-local
     emits on stderr on this machine — that warning is cosmetic and unrelated
@@ -152,6 +267,133 @@ def _machine_local_get(key: str) -> str | None:
     return result.stdout.strip()
 
 
+def _repo_key_to_em_id(key: str) -> str:
+    """Inverse of _receiver_repo_key: repos.<name> → <name>-em.
+
+    Reverses the alias map and converts underscores→dashes. The exact inverse
+    of the receiver convention, so the same machine-local repo list yields both
+    valid receivers and the sender's own identity.
+    """
+    inverse_alias = {v: k for k, v in RECEIVER_EM_ALIASES.items()}
+    name = key[len("repos."):]
+    name = inverse_alias.get(name, name)
+    return name.replace("_", "-") + "-em"
+
+
+def _machine_local_repos_keys() -> list[str]:
+    """Return the raw repos.* keys known to the machine-local registry.
+
+    Best-effort: returns [] on any failure. Backs both the receiver-diagnostic
+    list and sender self-identification — never affects delivery directly.
+    """
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    if impl.endswith(".py") or impl.endswith(".py3"):
+        cmd = [python, impl, "keys"]
+    else:
+        cmd = [impl, "keys"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip().startswith("repos.")
+    ]
+
+
+def _known_receiver_ids() -> list[str]:
+    """Return the receiver-EM identities known on this machine, for diagnostics.
+
+    Prepends 'claude-central-em' (the canonical central identity) so it appears
+    in the repo-absent error hint even though central is not a repos.* key.
+    Used only for the error message — never affects delivery.
+    """
+    sibling_ids = sorted(_repo_key_to_em_id(k) for k in _machine_local_repos_keys())
+    return ["claude-central-em"] + sibling_ids
+
+
+def _resolve_receiver_path(receiver_em_id: str, home: str) -> str | None:
+    """Resolve a receiver-EM identity to an absolute repo path, or None on failure.
+
+    Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2 (DM1)
+
+    Two-branch resolution, mirroring _em_id_for_root on the sender side:
+      1. Central special-case: if receiver_em_id is any member of _CENTRAL_RECEIVER_IDS
+         (case/whitespace-normalised), return _claude_home(). Central is NOT a repos.*
+         sibling — this branch handles it without touching the registry.
+      2. Fall-through: convert receiver_em_id to a repos.<name> key via
+         _receiver_repo_key and look it up via machine-local. Returns None when the
+         key is absent (caller hard-errors — no implicit central fallback).
+
+    Preserves the "no implicit fallback" guarantee: only an explicit --to <central-alias>
+    triggers branch 1; any other unregistered identity returns None → hard-error.
+    """
+    if _is_central_receiver(receiver_em_id):
+        return home
+    repo_key = _receiver_repo_key(receiver_em_id)
+    return _machine_local_get(repo_key)
+
+
+def _same_path(a: str, b: str) -> bool:
+    """True if two paths point at the same directory, tolerant of slash style
+    and drive-letter case (Windows). Falls back to normalized-string compare
+    when the paths don't both exist (so registry entries for absent repos don't
+    raise)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+
+def _current_repo_root() -> str | None:
+    """The git repo root of the cwd this CLI was invoked from — the sender's
+    repo. Returns None when cwd is not inside a git repo or git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _em_id_for_root(root: str | None, home: str, repo_key_paths: dict[str, str]) -> str:
+    """Pure resolution of a sender-EM identity from a repo root.
+
+    (1) the ~/.claude meta-repo is always claude-central-em (it's the coordinator
+    home, not a repos.* sibling); (2) a root matching a registered repos.* path
+    reverses the convention to <name>-em; (3) an unregistered repo falls back to
+    its directory basename + '-em' — still 'the repo the session is in', just
+    unverified; (4) no root at all → unknown-sender-em.
+    """
+    if root is None:
+        return "unknown-sender-em"
+    if _same_path(root, home):
+        return "claude-central-em"
+    for key, path in repo_key_paths.items():
+        if path and _same_path(path, root):
+            return _repo_key_to_em_id(key)
+    return os.path.basename(root.rstrip("/\\")) + "-em"
+
+
+def _sender_em_id() -> str:
+    """Identify the sending EM from the repo this CLI runs in — never hardcoded,
+    never an EM self-identify step. Inferred from cwd's git root against the
+    machine-local repo list (the inverse of receiver resolution)."""
+    root = _current_repo_root()
+    home = _claude_home()
+    paths = {k: _machine_local_get(k) for k in _machine_local_repos_keys()}
+    return _em_id_for_root(root, home, {k: v for k, v in paths.items() if v})
+
+
 # ---------------------------------------------------------------------------
 # Frontmatter composition
 # ---------------------------------------------------------------------------
@@ -169,46 +411,69 @@ def _compose_frontmatter(
     title: str,
     to: str,
     topic: str,
-    delivery_mode: str,
     body: str,
-    receiver_copy_path: str | None = None,
     self_receipt: bool = False,
     decision: str | None = None,
     supersedes: str | None = None,
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
-    Schema: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Memo frontmatter schema
+    Schema: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+    Single-delivery-copy model: status is always 'open' (receiver flips to 'actioned'
+    in place via Edit + commit in their repo). --self-receipt writes the terminal
+    'actioned' state directly for the dispatcher-is-receiver pattern. delivery_mode
+    is always 'receiver-repo' —
+    the single-surface model has no central-only delivery; the schema retains
+    'central-only' only as a grandfathered value for pre-2026-05-23 memos.
+
+    'from' is resolved dynamically from the sender's repo (_sender_em_id) — the
+    repo the CLI runs in, not a hardcoded identity and not an EM self-identify.
     """
+    # code-review F17: guard against decision=None slipping through when self_receipt=True.
+    # _compose_frontmatter would emit 'decision: "None"' (the string "None") if called
+    # without a decision. The argparse layer already blocks this via --self-receipt
+    # requires --decision, but _compose_frontmatter is a public helper — fail loudly
+    # if called incorrectly rather than silently writing a malformed frontmatter field.
+    if self_receipt and decision is None:
+        raise ValueError(
+            "_compose_frontmatter: decision is required when self_receipt=True. "
+            "Pass a decision value (accepted|declined|partial|superseded)."
+        )
     today = _today()
-    status = "action_taken" if self_receipt else "open"
-    # F3 (code-reviewer P2): quote all string values so '#', leading '[', and
-    # trailing-space-before-':' in titles don't truncate via YAML parser.
-    # F4 (code-reviewer P2): 'topic' dropped from frontmatter — it lives in the
-    # filename, not the schema.
+    # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
+    # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
+    status = "actioned" if self_receipt else "open"
+    # All string values are quoted so '#', leading '[', and trailing-space-before-':'
+    # in titles don't truncate via the YAML parser. 'topic' is intentionally absent
+    # from frontmatter — it lives in the filename, not the schema.
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
-        f"from: claude-central-em",
+        f"from: {_yaml_quote(_sender_em_id())}",
         f"to: {_yaml_quote(to)}",
         f"created: {today}",
         f"status: {status}",
-        f"delivery_mode: {delivery_mode}",
+        f"delivery_mode: receiver-repo",
     ]
-    if receiver_copy_path:
-        lines.append(f"receiver_copy_path: {_yaml_quote(receiver_copy_path)}")
     if supersedes:
         lines.append(f"supersedes: {_yaml_quote(supersedes)}")
     if self_receipt:
         lines.append(f"action_taken_at: {_now_iso()}")
-        lines.append(f"decision: {decision}")
+        lines.append(f"decision: {_yaml_quote(decision)}")
     lines.append("---")
     return "\n".join(lines) + "\n"
 
 
 def _yaml_quote(value: str) -> str:
-    """Double-quote a string for YAML, escaping internal double-quotes and backslashes."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    """Double-quote a string for YAML, escaping backslashes, double-quotes, and
+    newlines/tabs so an embedded newline in --title can't break frontmatter."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
     return f'"{escaped}"'
 
 
@@ -217,9 +482,7 @@ def _compose_memo(
     title: str,
     to: str,
     topic: str,
-    delivery_mode: str,
     body: str,
-    receiver_copy_path: str | None = None,
     self_receipt: bool = False,
     decision: str | None = None,
     supersedes: str | None = None,
@@ -229,9 +492,7 @@ def _compose_memo(
         title=title,
         to=to,
         topic=topic,
-        delivery_mode=delivery_mode,
         body=body,
-        receiver_copy_path=receiver_copy_path,
         self_receipt=self_receipt,
         decision=decision,
         supersedes=supersedes,
@@ -247,9 +508,50 @@ def _memo_filename(topic: str) -> str:
     return f"{_today()}-{topic}.md"
 
 
-def _write_file(path: str, content: str) -> None:
-    """Write content to path, creating parent directories as needed."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+def _write_file(path: str, content: str, receiver_path: str) -> None:
+    """Write content to path, creating parent directories as needed.
+
+    Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B1 (T1)
+
+    code-review F2: the path argument is the composed receiver_side_path, derived from
+    machine-local receiver_path + 'cross-repo/inbox/' + validated topic slug. Even so,
+    we resolve to realpath and assert the result stays within the receiver repo root
+    before writing, to guard against registry-value or OS symlink shenanigans.
+
+    T1 fix (correctness trap): expected_root is now anchored directly to receiver_path
+    rather than being derived by walking up from the composed path. With the new path
+    shape cross-repo/inbox/<file>, walking up ONE parent yields cross-repo/inbox/ and
+    walking up TWO parents yields cross-repo/ — both wrong. Anchoring to receiver_path
+    directly is unambiguous regardless of how many subdirs deep the target lives.
+    Negative-spec: do NOT re-derive expected_root by walking up from `path` — with
+    cross-repo/inbox/<file> that requires walking two parents, a brittle count that
+    breaks silently if the path depth changes again.
+    """
+    # T1: anchor the traversal guard to receiver_path — the repo root known at the call
+    # site — not derived by walking up from the composed path (which is one level deeper
+    # now that the target is cross-repo/inbox/<file> instead of cross-repo/<file>).
+    expected_root = receiver_path
+
+    # Amended 2026-05-23 per code-reviewer chain-end review (F5 — security):
+    # Run the realpath guard BEFORE os.makedirs — spec § B3 DM2 requires zero
+    # filesystem mutation on the hard-error path. os.path.realpath resolves symlinks
+    # in the existing portion of each path without requiring the target to exist, so
+    # the traversal-via-symlink case is caught correctly without creating directories.
+    # Review: F5 — move makedirs after guard; orphan dirs on traversal-via-symlink path
+    inbox_dir = os.path.dirname(path)  # e.g. /work/project-rag/cross-repo/inbox
+    real_path = os.path.realpath(path)
+    real_root = os.path.realpath(expected_root)
+
+    # Normalise for case-insensitive file systems (Windows).
+    if not os.path.normcase(real_path).startswith(os.path.normcase(real_root + os.sep)):
+        raise ValueError(
+            f"Path-traversal guard: resolved path {real_path!r} escapes receiver root "
+            f"{real_root!r}. Refusing write."
+        )
+
+    # makedirs only after the guard passes — no filesystem mutation on the error path.
+    os.makedirs(inbox_dir, exist_ok=True)
+
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -262,17 +564,19 @@ def _build_parser() -> argparse.ArgumentParser:
     description = textwrap.dedent("""\
         Dispatch a cross-repo memo to a receiver-EM working tree.
 
-        RECEIVER-EM IDENTITY MAPPING
-        The --to argument accepts a receiver-EM identifier. Known receivers and
-        their machine-local registry keys:
-          project-rag-em  → repos.project_rag
-          holodeck-em     → repos.claude_unreal_holodeck
-          dronesim-em     → repos.dronesim
+        RECEIVER-EM IDENTITY RESOLUTION
+        The --to argument accepts a receiver-EM identifier. It resolves to a
+        machine-local registry key by convention:
+          <receiver>-em → repos.<receiver, dashes→underscores>
+          e.g. project-rag-ue-addon-em → repos.project_rag_ue_addon
+               dronesim-em             → repos.dronesim
+        The receiver set IS your machine-local repo list — any repo registered
+        under repos.<name> is a valid <name>-em receiver with no code change.
+        Run `machine-local keys | grep '^repos\\.'` to see them.
 
-        If the mapping grows past 8 entries, promote to
-        schemas/cross-repo-receiver-map.yaml (not machine-local — paths are
-        per-machine, identities are global). This is the F3 promotion rule from
-        docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Dispatcher tooling.
+        Divergent identities (doctrine name ≠ repo shortname) are handled by
+        RECEIVER_EM_ALIASES in this script — currently only:
+          holodeck-em → repos.claude_unreal_holodeck
 
         MACHINE-LOCAL REGISTRY
         This script reads machine-local (via _machine_local.py get repos.<key>)
@@ -282,10 +586,18 @@ def _build_parser() -> argparse.ArgumentParser:
         docs/wiki/machine-local-registry.md § 5a–5b.
 
         DIRTY-FILE BACKSTOP
-        The receiver-side memo is written but NOT committed. The receiver-EM
-        sees it as an untracked file in git status at every session-start,
-        /workday-start, and commit attempt. PM-relay remains the primary
-        channel; the dirty file is the structural backstop.
+        The receiver-side memo is written to <receiver>/cross-repo/inbox/ but NOT
+        committed. The receiver-EM sees it as an untracked file in git status
+        at every session-start, /workday-start, and commit attempt.
+        PM-relay is the primary channel; the dirty file is the structural
+        backstop. The receiver edits the memo in place (open → actioned) and
+        commits in their own repo — no move, no closure subcommand.
+
+        SINGLE-SURFACE MODEL — NO CENTRAL-ONLY FALLBACK
+        Delivery is always one dirty file in the receiver repo. If the receiver
+        repo is not registered on this machine, the CLI hard-errors (exit 1) —
+        it will not silently degrade to a central-only no-op. Register the repo
+        or route the memo via the PM's next session in that repo.
     """)
 
     parser = argparse.ArgumentParser(
@@ -298,8 +610,12 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="RECEIVER_EM_ID",
         help=(
-            "Receiver-EM identifier (e.g. project-rag-em, holodeck-em, dronesim-em). "
-            "Unknown receivers fall back to --delivery-mode central-only."
+            "Receiver-EM identifier (e.g. project-rag-em, project-rag-ue-addon-em, "
+            "dronesim-em, claude-central-em). Sibling repos resolve to repos.<name> "
+            "in the machine-local registry by convention. claude-central-em (aliases: "
+            "central-em, central) delivers to the coordinator home (~/.claude). If a "
+            "sibling repo isn't registered on this machine, the CLI hard-errors — "
+            "route via the PM's next session instead."
         ),
     )
     parser.add_argument(
@@ -321,23 +637,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to a file containing the memo body. Reads from stdin if omitted.",
     )
     parser.add_argument(
-        "--delivery-mode",
-        choices=["receiver-repo", "central-only"],
-        default=None,
-        help=(
-            "Delivery mode. Defaults to receiver-repo for known receiver IDs; "
-            "central-only when machine-local path is unresolvable or receiver "
-            "is unknown. Explicit --delivery-mode central-only forces archive-only delivery."
-        ),
-    )
-    parser.add_argument(
         "--self-receipt",
         action="store_true",
         default=False,
         help=(
             "Dispatcher IS the receiver (central-EM acting in trio repo on its own behalf). "
-            "Sets status=action_taken, action_taken_at=<now>. Requires --decision. "
-            "Skips PM-relay reminder in stdout. Archive copy is audit trail only."
+            "Writes the terminal status=actioned with action_taken_at=<now>. Requires "
+            "--decision. Skips PM-relay reminder in stdout."
         ),
     )
     parser.add_argument(
@@ -367,8 +673,42 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    # F2 (code-reviewer P1): validate --topic slug — refuse anything that could
-    # path-traverse out of tasks/memos/ or archive/cross-repo/.
+    # Reject an empty/whitespace --to before it derives a degenerate 'repos.' key.
+    if not args.to.strip():
+        print(
+            "cross-repo-memo: --to must be a non-empty receiver-EM identifier "
+            "(e.g. project-rag-ue-addon-em).",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Reject publish-target repos as receivers — they are outward distribution
+    # mirrors, not EM working trees. A memo dropped there is invisible to EMs
+    # and gets clobbered on the next publish run. See D6.
+    # Override: COORDINATOR_OVERRIDE_PUBLISH_TARGET_RECEIVER=1 (rare use — e.g.
+    # testing publish mechanics, fixture authoring).
+    #
+    # Exit-code note (Review: F7 — document deliberate exit-1-for-semantic distinction):
+    # exit 1 = delivery-time semantic error (publish-target rejection — valid arg, wrong meaning).
+    # exit 2 = argument validation error (empty --to, bad topic slug — malformed input).
+    # The distinction is intentional: callers that care about "is this even a real receiver?"
+    # can distinguish semantic rejection (1) from input validation failure (2).
+    if _is_publish_target_em(args.to) and os.environ.get("COORDINATOR_OVERRIDE_PUBLISH_TARGET_RECEIVER") != "1":
+        known = _known_receiver_ids()
+        hint = (
+            f"\n  Known EM receivers: {', '.join(known)}."
+            if known else ""
+        )
+        print(
+            f"cross-repo-memo: cannot deliver to '{args.to}': it is a publish target "
+            f"(outward distribution mirror), not an EM working repo. A memo dropped "
+            f"there will be invisible to EMs and clobbered on next publish. "
+            f"Did you mean `claude-central-em`?{hint}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Validate --topic slug — refuse anything that could path-traverse out of cross-repo/.
     if not _TOPIC_SLUG_RE.fullmatch(args.topic):
         print(
             f"cross-repo-memo: invalid --topic {args.topic!r}; must match "
@@ -398,87 +738,109 @@ def main(argv: list[str] | None = None) -> int:
     else:
         body = sys.stdin.read()
 
-    # Resolve receiver repo path via machine-local.
-    repo_key = RECEIVER_EM_TO_REPO_KEY.get(args.to)
-    receiver_path: str | None = None
+    # Resolve receiver repo path. _resolve_receiver_path handles both the
+    # central special-case (--to claude-central-em / central-em / central →
+    # _claude_home()) and the fall-through to the repos.* registry.
+    # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B2
+    home = _claude_home()
+    receiver_path = _resolve_receiver_path(args.to, home)
 
-    if repo_key:
-        receiver_path = _machine_local_get(repo_key)
-        if receiver_path is None:
-            print(
-                f"cross-repo-memo: note: machine-local key '{repo_key}' not set "
-                f"on this machine — falling back to central-only delivery.",
-                file=sys.stderr,
-            )
-    else:
+    # Single-surface model: delivery is always one dirty file in the receiver
+    # repo. There is NO implicit central fallback — a memo to a repo that isn't
+    # on this machine cannot be written, so we hard-error rather than silently
+    # degrade. Valid explicit targets include claude-central-em (and aliases
+    # central-em, central). Route via the PM's next session for unreachable repos.
+    if receiver_path is None:
+        repo_key = _receiver_repo_key(args.to)
+        known = _known_receiver_ids()
+        hint = (
+            f"\n  Known receivers on this machine: {', '.join(known)}."
+            if known else ""
+        )
         print(
-            f"cross-repo-memo: note: receiver '{args.to}' not in identity mapping "
-            f"— falling back to central-only delivery.",
+            f"cross-repo-memo: cannot deliver to '{args.to}' — it resolves to "
+            f"machine-local key '{repo_key}', which is not registered on this "
+            f"machine. A dirty memo cannot be written to a repo that isn't here.\n"
+            f"  Remediation: if that repo lives on this machine, register it with "
+            f"`machine-local set {repo_key} <path>`. Otherwise route this memo via "
+            f"the PM's next session in that repo — there is no central-only "
+            f"fallback in the single-surface model.\n"
+            f"  Note: claude-central-em (aliases: central-em, central) is a valid "
+            f"explicit target and delivers directly to the coordinator home.{hint}",
             file=sys.stderr,
         )
+        return 1
 
-    # Determine effective delivery mode.
-    if args.delivery_mode == "central-only":
-        effective_mode = "central-only"
-        receiver_path = None  # Ignore resolved path — explicit override.
-    elif receiver_path:
-        effective_mode = "receiver-repo"
-    else:
-        effective_mode = "central-only"
-
+    # Single-delivery-copy model: ONE dirty file in receiver's cross-repo/inbox/.
+    # No archive copy, no sender-side copy — the send is noted in the sender's
+    # session-end notes as a natural part of the session record.
+    # B1: target is cross-repo/inbox/<file> (not flat cross-repo/).
+    # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B1
     filename = _memo_filename(args.topic)
-    archive_dir = os.path.join(_claude_home(), "archive", "cross-repo")
-    archive_path = os.path.join(archive_dir, filename)
+    # DM4: single receiver_side_path variable feeds BOTH the gitignore check
+    # (B3) AND the _write_file call — no separately-constructed string that
+    # could drift. B1 must land before B3 (ordering constraint in plan § DM4).
+    receiver_side_path = os.path.join(receiver_path, "cross-repo", "inbox", filename)
 
-    receiver_side_path: str | None = None
-    if effective_mode == "receiver-repo" and receiver_path:
-        receiver_side_path = os.path.join(receiver_path, "tasks", "memos", filename)
-
-    # Compose and write receiver-side memo first (to capture its path in archive).
-    if receiver_side_path:
-        receiver_content = _compose_memo(
-            title=args.title,
-            to=args.to,
-            topic=args.topic,
-            delivery_mode="receiver-repo",
-            body=body,
-            self_receipt=args.self_receipt,
-            decision=args.decision,
-            supersedes=args.supersedes,
+    # B3: gitignore delivery guard — run BEFORE any filesystem mutation.
+    # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B3
+    #
+    # The delivery contract is "dirty file → receiver sees it in git status."
+    # If the receiver's .gitignore swallows the inbox path, the memo is written
+    # but invisible — the sender believes it delivered; the receiver never sees it.
+    # Check first (before makedirs in _write_file), hard-error on confirmed ignored.
+    #
+    # Exit-code semantics for `git check-ignore`:
+    #   exit 0  → path IS ignored → hard-error (silent delivery impossible)
+    #   exit 1  → path is NOT ignored → proceed
+    #   exit 128 / OSError → not a git repo, or git unavailable → PROCEED-not-block
+    #     (a non-git receiver cannot gitignore anything; blocking here would
+    #      wrongly deny legitimate delivery to a freshly-registered/non-git path)
+    #
+    # Relative-path form for check-ignore: git -C <root> check-ignore <rel>.
+    # git check-ignore is pure pattern matching — does NOT stat the filesystem,
+    # so the parent directory need not exist. No TOCTOU concern; no "parent must
+    # exist" concern. Running in main() BEFORE _write_file ensures zero filesystem
+    # mutation (no makedirs, no file write) on the hard-error path.
+    rel_inbox_path = os.path.join("cross-repo", "inbox", filename)
+    try:
+        gi_result = subprocess.run(
+            ["git", "-C", receiver_path, "check-ignore", rel_inbox_path],
+            capture_output=True,
         )
-        _write_file(receiver_side_path, receiver_content)
+        if gi_result.returncode == 0:
+            # Path IS gitignored — delivery would be invisible.
+            print(
+                f"cross-repo-memo: refusing to deliver to '{receiver_side_path}': "
+                f"it is gitignored in the receiver repo and would be invisible in "
+                f"`git status`. Remediation: fix the receiver's .gitignore — it must "
+                f"not swallow cross-repo/ (global CLAUDE.md § deny-all .gitignore "
+                f"patterns are forbidden).",
+                file=sys.stderr,
+            )
+            return 1
+        # exit 1 → not ignored → proceed; exit 128 → not a git repo → proceed
+    except OSError:
+        # git not available on PATH → treat as non-git receiver → proceed
+        pass
 
-    # Compose and write archive copy (always written).
-    # F6 (code-reviewer nit): absolutize receiver_copy_path so the archive frontmatter
-    # field is resolvable from any working directory.
-    archive_content = _compose_memo(
+    receiver_content = _compose_memo(
         title=args.title,
         to=args.to,
         topic=args.topic,
-        delivery_mode=effective_mode,
         body=body,
-        receiver_copy_path=os.path.abspath(receiver_side_path) if receiver_side_path else None,
         self_receipt=args.self_receipt,
         decision=args.decision,
         supersedes=args.supersedes,
     )
-    _write_file(archive_path, archive_content)
+    _write_file(receiver_side_path, receiver_content, receiver_path)
 
     # Stdout output.
+    abs_receiver = os.path.abspath(receiver_side_path)
+    print(f"Receiver-side: {abs_receiver}")
     if not args.self_receipt:
-        if receiver_side_path:
-            print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
-        else:
-            print(
-                "WARNING: no receiver-side file written — central-only delivery. "
-                "No dirty-file backstop will fire — PM-relay is the only channel."
-            )
-        print(f"Archive copy: {os.path.abspath(archive_path)}")
-        print("Reminder: Hand the PM both paths — PM-relay is still the primary channel.")
-    else:
-        if receiver_side_path:
-            print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
-        print(f"Archive copy (audit trail): {os.path.abspath(archive_path)}")
+        print(f"Hand the PM this path for relay: {abs_receiver}")
+        print("Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.")
 
     return 0
 

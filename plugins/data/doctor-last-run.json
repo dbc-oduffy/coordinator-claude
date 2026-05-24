@@ -1,8 +1,11 @@
 {
-  "ran_at": "2026-05-21T15:51:25Z",
-  "verdict": "GREEN",
+  "ran_at": "2026-05-24T10:14:57Z",
+  "verdict": "AMBER",
   "red_probes": [],
-  "amber_probes": [],
-  "hint": "All coordinator-doctor probes (P-1..P-11) passed.",
+  "amber_probes": [
+    "P-11",
+    "P-12"
+  ],
+  "hint": "P-11: templates/setup drift detected \u2014 run verify-templates-setup-sync.sh (no flags) to inspect; --fix to copy live \u2192 template | P-12: canonical structure incomplete at /c/Users/oduffy/.claude \u2014 run scaffold-canonical-structure.sh --root /c/Users/oduffy/.claude to restore; or re-run /coordinator:setup",
   "plugin": "coordinator-claude"
 }

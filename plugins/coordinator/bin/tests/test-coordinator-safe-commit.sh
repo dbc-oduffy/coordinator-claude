@@ -486,7 +486,11 @@ test_missing_subject() {
     && assert_contains "T16" "subject" "$out"
 }
 
-# T17: Multiple live sessions with no CLAUDE_SESSION_ID → error naming candidates
+# T17: Multiple live sessions with no env-var session id → error naming candidates.
+# Both CLAUDE_SESSION_ID (explicit override) and CLAUDE_CODE_SESSION_ID (platform
+# injected) must be unset to exercise the PID-scan fallback — the test runner
+# itself runs inside a Claude Code session that exports CLAUDE_CODE_SESSION_ID,
+# which would otherwise short-circuit resolution before the scan.
 test_multi_live_sessions_error() {
   setup_repo
   # Create two sessions both with "live" PIDs by using the shell's own PID
@@ -499,7 +503,7 @@ test_multi_live_sessions_error() {
 
   local out rc
   rc=0
-  out=$(bash "$HELPER" "test: multi" 2>&1) || rc=$?
+  out=$(env -u CLAUDE_SESSION_ID -u CLAUDE_CODE_SESSION_ID bash "$HELPER" "test: multi" 2>&1) || rc=$?
 
   teardown_repo
   [[ $rc -ne 0 ]] \

@@ -166,8 +166,21 @@ function parseScalar(text) {
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a glob pattern to a RegExp. Handles *, **, ?.
+ * Convert a glob pattern to a RegExp. Handles *, **, ?, and bracket character-classes.
  * Uses posix-style / separators regardless of platform.
+ *
+ * Bracket character-classes ([0-9], [a-z], [abc]) are passed through verbatim into
+ * the RegExp — they are NOT escaped. This allows `cross-repo/[0-9]*.md` to match
+ * dated memos (e.g. cross-repo/2026-05-23-topic.md) while excluding non-digit-prefixed
+ * files like cross-repo/README.md.
+ *
+ * code-review F7: the bracket passthrough scans for the FIRST ']' after '['
+ * (via p.indexOf(']', i+1)), so classes with an embedded literal ']' as the first
+ * character (e.g. []] or []a]) will early-terminate incorrectly. This is intentional —
+ * the supported subset is "simple character classes without embedded ']'" such as
+ * [0-9], [a-z], [abc]. Patterns with embedded ']' inside a class are not supported.
+ *
+ * Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
  */
 function globToRegex(pattern) {
   // Normalise separators
@@ -186,7 +199,20 @@ function globToRegex(pattern) {
     } else if (c === '?') {
       re += '[^/]';
       i++;
-    } else if ('.+^${}()|[]\\'.includes(c)) {
+    } else if (c === '[') {
+      // Pass bracket character-class through verbatim until the closing ']'.
+      // This allows [0-9], [a-z], [abc] etc. to work as regex character-classes.
+      // An unmatched '[' (no closing ']') falls through to literal-escape below.
+      const closeIdx = p.indexOf(']', i + 1);
+      if (closeIdx !== -1) {
+        re += p.slice(i, closeIdx + 1);
+        i = closeIdx + 1;
+      } else {
+        // No closing bracket — escape the '[' as a literal character.
+        re += '\\[';
+        i++;
+      }
+    } else if ('.+^${}()|\\'.includes(c)) {
       re += '\\' + c;
       i++;
     } else {
@@ -484,7 +510,9 @@ const CROSS_FIELD_RULES = {
 
   // ---------------------------------------------------------------------------
   // cross-repo-memo cross-field rules
-  // Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Validator rules
+  // Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+  // Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Validator rules
+  // code-review F8: updated primary backlink to the 2026-05-23 spec; 2026-05-21 retained as prior art.
   //
   // CRITICAL: Memo lifecycle timestamps are ISO-8601 convenience metadata only.
   // The authoritative audit trail lives in the receiver repo's git log of the
@@ -508,6 +536,15 @@ const CROSS_FIELD_RULES = {
         return null;
       },
     },
+    // code-review F1: 'actioned' is the SIMPLE-MODEL terminal (decision optional).
+    // The receiver flips status: open → actioned in place (via Edit + commit).
+    // No action_taken_at or decision is required — those are grandfathered fields
+    // from the pre-2026-05-23 'action_taken' lifecycle.
+    // 'action_taken' is a GRANDFATHERED-ONLY value — kept for backward compat only.
+    // New memos MUST use 'actioned'; 'action_taken' retains its stricter cross-field
+    // requirements (action_taken_at AND decision both required) to prevent data loss
+    // on old memos that relied on those fields being present.
+
     // status: action_taken requires action_taken_at AND decision.
     {
       check: (fm) => {
@@ -682,8 +719,25 @@ function validateLessonsFile(content, lessonSchema) {
 
   // Match bold-title entry lines: **Some Title**
   const entryRe = /^\s*[-*]?\s*\*\*[^*]+\*\*/;
-  // Match tags like [universal] or [project] within a line
-  const tagRe = /\[([^\]]+)\]/g;
+  // A bracket token is a *candidate tag* only if it is tag-shaped: a single
+  // bracket pair wrapping a bareword of lowercase letters with optional
+  // hyphen-joined segments — the shape every real tag has. The enum values
+  // (universal, project) are pure lowercase alpha, and a *typo* of a real tag
+  // is too (univeral, projct), so a valid candidate tag never contains a digit
+  // or an uppercase letter. Anything else is bracket prose and is ignored:
+  //   [[wikilink]]  → captured as "[wikilink" (leading bracket fails ^[a-z])
+  //   [11§L4]       → digit-initial (and § is outside the class)
+  //   [1]           → digit-initial footnote
+  //   [Smith2020]   → uppercase-initial citation key
+  //   [v2] [h264]   → contain digits → not a tag shape (version refs, codecs)
+  // Only candidate tags get allowlist-checked, so genuine invalid tags
+  // ([univeral], [deprecated]) are still caught. This is an allowlist-shaped
+  // guard, not a denylist of known-bad bracket forms: the latter grows a new
+  // false positive every time someone invents a bracket convention.
+  // Accepted miss: an uppercase-cased typo of a real tag ([Universal]) slips,
+  // because catching it requires allowing uppercase-initial tokens, which
+  // re-introduces the citation-key false positive — the more common case.
+  const tagShapeRe = /^[a-z]+(?:-[a-z]+)*$/;
   // Strip inline code spans and markdown link text before tag-matching so
   // model-ID literals like `claude-opus-4-7[1m]`, array-ish prose like
   // `arr[0]`, and link text like `[some link](url)` are not mistaken for
@@ -691,20 +745,24 @@ function validateLessonsFile(content, lessonSchema) {
   // matches CommonMark-style runs: an opening backtick run of length N closes
   // on the next backtick run of identical length N. This handles nested /
   // mixed runs (e.g. ``weird`code``) that simple non-greedy regexes mis-strip.
-  const stripNoise = (s) => stripCodeSpansAndLinks(s);
+  // NOTE: this strip pass deliberately does NOT collapse [[wikilink]] into its
+  // inner text — wikilink immunity comes from the leading-bracket capture
+  // artefact above (tagShapeRe rejects "[wikilink"). If a future change makes
+  // the strip pass rewrite wikilinks to bare [text], reconfirm tagShapeRe still
+  // rejects them, or the immunity is lost.
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!entryRe.test(line)) continue;
 
     // Collect all bracket-enclosed tokens on this line, ignoring those inside
-    // code spans or markdown link text.
-    const scrubbed = stripNoise(line);
+    // code spans or markdown link text. matchAll yields a fresh iterator each
+    // call, so there is no shared regex lastIndex to reset per line.
+    const scrubbed = stripCodeSpansAndLinks(line);
     const tags = [];
-    let m;
-    tagRe.lastIndex = 0;
-    while ((m = tagRe.exec(scrubbed)) !== null) {
-      tags.push(m[1]);
+    for (const m of scrubbed.matchAll(/\[([^\]]+)\]/g)) {
+      // Only tag-shaped tokens are candidate tags; bracket prose is ignored.
+      if (tagShapeRe.test(m[1])) tags.push(m[1]);
     }
 
     if (tags.length === 0) {

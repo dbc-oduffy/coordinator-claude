@@ -20,8 +20,9 @@
 # ubt-compile: automated build verdict produced by bin/check-ubt-build-fresh.sh
 #
 # Session-id resolution (strict precedence):
-#   1. CLAUDE_SESSION_ID env var (if set and non-empty)
-#   2. Sentinel file: $(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id
+#   1. CLAUDE_SESSION_ID env var (explicit override; if set and non-empty)
+#   2. CLAUDE_CODE_SESSION_ID env var (platform-injected, Claude Code ≥ ~2.1.150)
+#   3. Sentinel file: $(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id
 #   3. If neither resolves → exit 3 with a clear error naming both sources attempted.
 #
 # Idempotency contract:
@@ -150,8 +151,12 @@ SESSION_ID=""
 
 if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
   SESSION_ID="$CLAUDE_SESSION_ID"
+elif [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+  # Platform-injected session id (Claude Code ≥ ~2.1.150). Per-session and
+  # unclobberable by sibling sessions — beats the last-writer-wins sentinel.
+  SESSION_ID="$CLAUDE_CODE_SESSION_ID"
 else
-  # Sentinel fallback
+  # Sentinel fallback (last-writer-wins; only reached on old Claude Code)
   REPO_ROOT=""
   if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
     SENTINEL="${REPO_ROOT}/.git/coordinator-sessions/.current-session-id"
@@ -164,8 +169,9 @@ fi
 if [[ -z "$SESSION_ID" ]]; then
   echo "ERROR: Could not resolve session-id. Attempted:" >&2
   echo "  1. CLAUDE_SESSION_ID env var — not set or empty" >&2
+  echo "  2. CLAUDE_CODE_SESSION_ID env var — not set or empty" >&2
   SENTINEL_PATH="${REPO_ROOT:-<git-root-unavailable>}/.git/coordinator-sessions/.current-session-id"
-  echo "  2. Sentinel file: ${SENTINEL_PATH} — not found or empty" >&2
+  echo "  3. Sentinel file: ${SENTINEL_PATH} — not found or empty" >&2
   echo "Set CLAUDE_SESSION_ID or create the sentinel file before invoking this helper." >&2
   exit 3
 fi

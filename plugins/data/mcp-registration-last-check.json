@@ -1,0 +1,9 @@
+{
+  "ran_at": "2026-05-24T10:15:26Z",
+  "verdict": "GREEN",
+  "checked_servers": [
+    {"name": "holodeck-control", "tool_count": 83, "transport": "stdio", "configured_at": "top-level"},
+    {"name": "project-rag", "tool_count": 60, "transport": "stdio", "configured_at": "top-level"}
+  ],
+  "red_servers": []
+}

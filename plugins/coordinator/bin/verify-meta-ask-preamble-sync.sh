@@ -38,25 +38,12 @@ else
 fi
 
 _cs_claim_if_session() {
+    # Delegate to the shared lib helper (env-var fast path; falls back to a
+    # live-session scan only on old Claude Code). Single source of truth in
+    # lib/coordinator-session.sh::cs_self_claim.
     [[ "$_CS_LIB_LOADED" -eq 0 ]] && return 0
-    local _sids
-    _sids="$(cs_live_session_ids 2>/dev/null)" || return 0
-    local _sid_count
-    if [[ -z "$_sids" ]]; then _sid_count=0
-    else _sid_count=$(echo "$_sids" | wc -l | tr -d ' \n'); fi
-    if [[ "$_sid_count" -eq 0 ]]; then
-        echo "coordinator-session: no active session found — skipping self-claim for $1" >&2
-        return 0
-    fi
-    if [[ "$_sid_count" -gt 1 ]]; then
-        echo "coordinator-session: ${_sid_count} live sessions (ambiguous) — skipping self-claim for $1" >&2
-        return 0
-    fi
-    local _sid
-    _sid=$(echo "$_sids" | head -1)
-    local _sdir
-    _sdir=$(_cs_session_dir "$_sid" 2>/dev/null) || return 0
-    cs_atomic_dedup_append "${_sdir}/touched.txt" "$1" 2>/dev/null || return 0
+    command -v cs_self_claim &>/dev/null || return 0  # version-skew guard
+    cs_self_claim "$1"
 }
 
 BEGIN_SENTINEL='<!-- BEGIN meta-ask-preamble (synced from snippets/meta-ask-preamble.md) -->'

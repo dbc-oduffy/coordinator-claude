@@ -137,10 +137,15 @@ Use `env`-based shebangs for all interpreted scripts:
 | Interpreter | Portable shebang |
 |---|---|
 | Bash | `#!/usr/bin/env bash` |
-| Python 3 | `#!/usr/bin/env python3` |
+| Python 3 (Linux/macOS) | `#!/usr/bin/env python3` |
+| Python 3 (Windows-capable) | `#!/usr/bin/env python` |
 | Node.js | `#!/usr/bin/env node` |
 
 `/usr/bin/env` is present and stable on Linux, macOS, and Windows Git Bash / MSYS2. It resolves the interpreter through `$PATH`, picking up the environment-local version.
+
+**Windows exception — `python3` is not on PATH.** On standard Windows Python installs (python.org installer), only `python` and `py` are available; `python3` is not symlinked. Scripts using `#!/usr/bin/env python3` fail on Windows with exec-127, which may be misdiagnosed as a "key unset" or other upstream error. Use `#!/usr/bin/env python` for any script that must run on Windows operators (coordinator hook chains, MCP scripts, cross-repo tooling). If the script is Linux/macOS-only, `python3` remains correct.
+
+*Lesson origin:* 4 coordinator scripts (`cross-repo-memo`, `cross-repo-memo.test.py`, `_machine_local.py`, `publish_sync.py`) changed from `python3` to `python` shebang in commit 6fe5a986. The original lesson entry misdiagnosed exec-127 as a key-unset symptom and proposed a PowerShell workaround; the one-line shebang change is the actual fix.
 
 ### Exception
 
@@ -210,6 +215,34 @@ Any hit in a script that may run on Windows is a portability risk requiring the 
 
 ---
 
+## 5. PowerShell `machine-local` helper routes through `bash -c`
+
+**Source:** 2026-05-20, eager-agent-calibration workstream.
+
+### Symptom
+
+`bin/claude-machine-local.ps1` sources `machine-local` by invoking `bash -c`. If `bash` is not on the Windows user PATH (rare but possible on minimal Windows installs) or if the bash subprocess receives a different `PATH` than the interactive PowerShell session, the helper silently fails — exports are missing, no error surfaced to the caller.
+
+### Why it routes through bash
+
+`machine-local` is a bash script. PowerShell cannot source or execute it directly as a native command. The `.ps1` helper therefore wraps: `$result = bash -c "source ~/.claude/bin/machine-local && ..."`. This is a latent-bug carve-out: on any machine where bash is unavailable to PowerShell, the helper is a no-op.
+
+### Fix / Mitigation
+
+- The `coordinator:setup` Step 3 health check confirms `bash` is on PATH before declaring the shim install complete. If bash is absent, the `machine-local.cmd` shim still routes correctly for cmd.exe / PowerShell callers using PATHEXT lookup.
+- Scripts that need registry values from PowerShell should prefer `bash -c "~/.claude/bin/machine-local get <key>"` directly rather than dot-sourcing `claude-machine-local.ps1`.
+- The latent-bug is documented in `bin/claude-machine-local.ps1` itself — do not remove this comment.
+
+### Greppable signature
+
+```
+claude-machine-local.ps1
+```
+
+Any future refactor of this helper must preserve the `bash -c` routing and the latent-bug comment.
+
+---
+
 ## Detection signatures (greppable)
 
 | Signature | Risk |
@@ -218,6 +251,7 @@ Any hit in a script that may run on Windows is a portability risk requiring the 
 | Shell scripts in repo without `.gitattributes` rule for `*.sh` | CRLF breaks shebang resolution |
 | `#!/bin/bash` (instead of `#!/usr/bin/env bash`) | Hardcoded path breaks on macOS Homebrew and MSYS2 |
 | `flock` invocations in scripts targeting Windows runners | `flock` absent on Git Bash; locking silently skipped |
+| `#!/usr/bin/env python3` in coordinator or MCP scripts | exec-127 on Windows; misdiagnosed as upstream error; change to `python` |
 
 ---
 

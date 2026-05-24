@@ -119,6 +119,11 @@ make_sentinel() {
 # Test suite
 # ---------------------------------------------------------------------------
 
+# NOTE: these cases must reach sentinel validation / PID-scan, so both env
+# session sources are unset via `env -u`. Setting CLAUDE_SESSION_ID="" is not
+# enough — the test runner runs inside a Claude Code session that exports
+# CLAUDE_CODE_SESSION_ID (resolver Priority 2), which would short-circuit before
+# the sentinel path. Mirrors the env -u fix in bin/tests/test-coordinator-safe-commit.sh T17.
 echo "=== Phase 1: sentinel validation fall-through ==="
 
 echo ""
@@ -127,7 +132,7 @@ REPO=$(setup_repo)
 cd "$REPO"
 make_sentinel "$REPO" "deadbeef1234"
 # No session dirs (only sentinel; session dir does not exist)
-output=$(CLAUDE_SESSION_ID="" "$HELPER" "test subject" 2>&1) || true
+output=$(env -u CLAUDE_SESSION_ID -u CLAUDE_CODE_SESSION_ID "$HELPER" "test subject" 2>&1) || true
 assert_output_contains "(a) stale sentinel: warning emitted" "sentinel points at" "$output"
 assert_output_contains "(a) stale sentinel: session gone message" "session dir is gone" "$output"
 assert_output_contains "(a) stale sentinel: no live session error" "No live session found" "$output"
@@ -140,7 +145,7 @@ cd "$REPO"
 make_sentinel "$REPO" "deadbeef5678"
 sdir_a=$(make_session_dir "$REPO" "aaaaaa1111111" "$$")
 sdir_b=$(make_session_dir "$REPO" "bbbbbb2222222" "$PPID")
-output=$(CLAUDE_SESSION_ID="" "$HELPER" "test subject" 2>&1) || true
+output=$(env -u CLAUDE_SESSION_ID -u CLAUDE_CODE_SESSION_ID "$HELPER" "test subject" 2>&1) || true
 assert_output_contains "(c) 2+ live: sentinel warn" "sentinel points at" "$output"
 # The result depends on whether _cs_pid_alive recognises the test PIDs.
 # Both outcomes are valid per spec:

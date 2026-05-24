@@ -23,6 +23,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 | `tasks/*/` | Feature task directories | Delete dirs where all `todo.md` items are `[x]` AND the feature branch is merged or deleted |
 | `tasks/handoffs/` | Active handoffs | **Out of scope** — `pipelines/update-docs/handoff-archival.md` (Phase 8) handles these |
 | `tasks/doc-link-check-*.md` | doc-link-checker reports from prior `/update-docs` runs | Keep the 3 most recent; delete the rest (PRUNE rule below) |
+| `cross-repo/archive/` | Closed `actioned` memos swept here after the receiver has acted | Delete memos with `status: actioned` older than **90 days** — 90d is chosen as ≥3× the expected `/distill` cadence so this janitorial sweep never deletes un-mined evergreen content before `/distill` has had a chance to run; if the `/distill` cadence lengthens past 30d, raise this floor proportionally. **Ordering hazard:** this 90d floor MUST exceed the max distill-run interval — if update-docs deletes a >90d actioned memo that `/distill` never mined, any evergreen content is lost (git history survives, but the promotion job never ran). The cadence-exceeds-floor anchor is what closes this hazard. |
 
 ## Steps
 
@@ -42,6 +43,11 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
      - PRUNE if `todo.md` exists and all items are `[x]`, AND no `lessons.md` with unmerged entries, AND the feature branch (if identifiable from the dir name) is merged or deleted.
      - KEEP if any `[ ]` items remain or unmerged lessons present.
      - **Never delete:** `tasks/lessons.md` (global), `tasks/health-ledger.md`, `tasks/bug-backlog.md`, `tasks/debt-backlog.md`, `docs/architecture/`, `tasks/improvement-queue.md`, `tasks/coordinator-improvement-queue.md`, `tasks/handoffs/` (active), `tasks/week-changelog/`.
+   - **Cross-repo archive memos (`cross-repo/archive/*.md`):**
+     - PRUNE if `status: actioned` AND file mtime > 90 days. Parse `status:` from YAML frontmatter; do NOT prune memos lacking a `status:` field (treat as open/unknown).
+     - KEEP if `status:` is absent, `open`, or any value other than `actioned`, regardless of age — these are not yet closed channel traffic.
+     - KEEP if `status: actioned` AND mtime ≤ 90 days — `/distill` should have a chance to mine them first.
+     - **`cross-repo/archive/` is NOT on the never-delete list** — age-based pruning of actioned memos here is safe and intentional. The 90d floor is the guard against premature deletion before `/distill` runs (see Scope table rationale above).
 
 2. **If nothing classifies as PRUNE,** record `prune_count: 0` for the Phase 13 summary and exit this pipeline.
 
@@ -62,6 +68,7 @@ Use `git rm` so deletions appear in git history:
 - Archived handoffs: `git rm archive/handoffs/<file>`
 - doc-link-check reports: `git rm tasks/doc-link-check-<file>`
 - Feature task dirs: `git rm -r tasks/<feature>/`
+- Cross-repo archive memos: `git rm cross-repo/archive/<file>` (individual files, NOT `git rm -r cross-repo/archive/` — the directory and its README must survive)
 
 Remove any empty directories left behind on the filesystem.
 

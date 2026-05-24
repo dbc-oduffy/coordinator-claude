@@ -242,11 +242,13 @@ if [[ -f "$_OP_IDENTITY" ]]; then
   source "$_OP_IDENTITY"
   # Note: ${VAR[@]+set} (not ${VAR+set}) is required for assoc/indexed arrays;
   # bare ${VAR+set} probes index 0, which is unset for sparse/string-keyed arrays.
+  # shellcheck disable=SC2199  # intentional: ${VAR[@]+set} probes whole-array set-ness for sparse/string-keyed maps
   if [[ -n "${OPERATOR_NAME_TO_ROLE[@]+set}" ]]; then
     for _k in "${!OPERATOR_NAME_TO_ROLE[@]}"; do
       NAME_TO_ROLE["$_k"]="${OPERATOR_NAME_TO_ROLE[$_k]}"
     done
   fi
+  # shellcheck disable=SC2199  # same rationale as above
   if [[ -n "${OPERATOR_ORDERED_KEYS[@]+set}" ]] && (( ${#OPERATOR_ORDERED_KEYS[@]} > 0 )); then
     ORDERED_KEYS+=("${OPERATOR_ORDERED_KEYS[@]}")
   fi

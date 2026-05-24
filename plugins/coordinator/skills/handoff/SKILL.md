@@ -207,7 +207,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 | em_tokens | <!-- from coordinator-session-loe.sh --> |
 | tshirt | <!-- from coordinator-session-loe.sh --> |
 | commits | <!-- git log --oneline since session start --> |
-| session_id | <!-- from .git/coordinator-sessions/.current-session-id --> |
+| session_id | <!-- $CLAUDE_CODE_SESSION_ID, sentinel fallback --> |
 | created | <!-- ISO-8601 timestamp at handoff-write time --> |
 ```
 
@@ -216,8 +216,9 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 **Invocation:** `coordinator-session-loe.sh` does not emit a `--format markdown` mode. Use `--format json` and render the table fields manually:
 
 ```bash
-# Resolve session ID
-SID=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")
+# Resolve session ID — platform env var (per-session, unclobberable) first;
+# sentinel (last-writer-wins) only as fallback for old Claude Code.
+SID="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")}"
 
 # Get LoE metrics
 LOE=$(bash plugins/coordinator/bin/coordinator-session-loe.sh \
@@ -366,14 +367,14 @@ Now that the final commit has landed and pushed, archive this session's claim di
 
 Run:
 ```bash
-sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
+sid="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null)}" && \
   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 
-Idempotent — already-archived sessions return 0 silently. Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the sentinel is missing or the lib is unavailable.
+Idempotent — already-archived sessions return 0 silently. Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the session id can't be resolved or the lib is unavailable.
 
-**Note on session_id source:** The sentinel is "last writer wins" across concurrent sessions. If `CLAUDE_SESSION_ID` is exported in your environment, prefer it over the sentinel — that's the session that actually owns this handoff.
+**Note on session_id source:** Prefer the platform env var `$CLAUDE_CODE_SESSION_ID` (Claude Code ≥ ~2.1.150) — it is per-session and cannot be clobbered by a sibling session, so it is the session that actually owns this handoff. The `.current-session-id` sentinel is "last writer wins" across concurrent sessions and is only a fallback for older Claude Code. An ambiguous sentinel read (it flips between two ids across reads) means two sessions are live — do **not** act on it; use the env var.
 
 #### Step 4: Confirm
 
@@ -390,7 +391,7 @@ Remind the user:
 - Keep it concise — aim for under 50 lines. The next session will also have MEMORY.md and project context.
 - Focus on state that MEMORY.md doesn't capture: in-progress work, blockers, uncommitted changes
 - If the user provides arguments (e.g., `/handoff focus on auth refactor`), incorporate that context
-- **Cross-repo communication is not a handoff use-case.** Telling another repo's EM something routes through the PM as relay (copy-paste in chat, or `archive/cross-repo/<topic>.md` link for big briefs). See `docs/wiki/cross-repo-communication.md`.
+- **Cross-repo communication is not a handoff use-case.** Telling another repo's EM something routes through the PM as relay (copy-paste in chat, or use `cross-repo-memo --to <receiver-em> --topic <slug>` for structured briefs). See `docs/wiki/cross-repo-communication.md`.
 - **Cleanup:** During `/handoff`, archive the predecessor after carrying forward its unresolved items. General handoff archiving (48-hour sweep) is handled by `/update-docs` — no broader sweep here.
 - **Active vs archived:** Active handoffs live in `tasks/handoffs/` (available for pickup). Archived handoffs live in `archive/handoffs/` (paper trail). Both are git-tracked.
 - **User context:** If `$ARGUMENTS` is provided (e.g., `/handoff focus on auth refactor`), incorporate that context into the handoff's "In-Progress Work" and "Recommended Next Steps" sections.

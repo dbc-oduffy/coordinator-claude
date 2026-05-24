@@ -54,14 +54,15 @@ When a reviewer returns findings, **accept their expertise** — implement ALL i
 When to use teams vs. subagents: teams when agents need to **communicate** (cross-pollinate, resolve contradictions, share discoveries); subagents when tasks are **independent** (no cross-agent value). Teams are fire-and-forget — the EM scopes, spawns, and is freed.
 
 **Merge-gate synthesizers** (invoked by specific ceremonies, not directly by EM):
-- **parallel-review-synthesizer** — reads the output of four orthogonal code reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) and synthesizes a structured BLOCKED/WARN/OK verdict. Writes `synthesis.json`; never rewrites finding text; emits verbatim quotes only. Invoked exclusively by `coordinator:parallel-code-review` as part of `/workweek-complete` Step 7 gate.
+- **parallel-review-synthesizer** — reads the output of N code-semantics chunk reviewers (`code-reviewer-weekly`) + 3 mechanical workers (security-audit-worker + dep-cve-auditor + test-evidence-parser) and synthesizes a structured BLOCKED/WARN/OK verdict, plus an `arch_tier_candidates` bucket aggregated from chunk reviewers' `escalate_to_architecture` flags. Writes `synthesis.json`; never rewrites finding text; emits verbatim quotes only. Invoked exclusively by `coordinator:parallel-code-review` as part of `/workweek-complete` Step 7 gate.
+- **code-reviewer-weekly** — weekly-gate variant of `code-reviewer` (Sonnet, code-semantics lens). Same obsessive standards but writes findings incrementally to a single assigned `$FINDINGS_DIR/chunk-<k>.md` (crash-safe under compaction), and marks architectural findings `escalate_to_architecture: true`. One instance per disjoint file-scope chunk. Dispatched only by `coordinator:parallel-code-review`.
 
 **Pipeline orchestrators** (dispatch via commands, not directly):
 - **deep-research-orchestrator** — /deep-research dispatches this (lives in the deep-research plugin). Reads PIPELINE.md, runs Haiku→Sonnet→Opus. *(requires deep-research plugin)*
 
 **EM-driven pipelines** (command contains full orchestration logic, dispatches leaf agents directly):
 - `/bug-sweep` — EM scopes→dispatches Haiku/Sonnet scanners→triages→dispatches Sonnet executors→commits fixes.
-- `/architecture-audit` — EM scopes→dispatches Haiku scouts→dispatches Sonnet analysts→dispatches Opus synthesizer→commits atlas.
+- `/architecture-survey` — EM scopes→dispatches Haiku scouts→dispatches Sonnet analysts→dispatches Opus synthesizer→commits atlas.
 
 **Pre-review pre-flight agents** (dispatched before the first Opus reviewer; write sidecars, not reviews):
 - **prior-art-checker** — cross-references a plan's claim surface against project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Returns a sidecar with three buckets: Conflicts (plan contradicts prior art), Compatible-but-relevant (plan should cite), and Silent (no signal). Verdict is COMPATIBLE / WARN / BLOCKED-SURFACE-TO-PM / DEGRADED. Invoked inside `coordinator:plan` before the Staff Engineer; never modifies the plan itself.

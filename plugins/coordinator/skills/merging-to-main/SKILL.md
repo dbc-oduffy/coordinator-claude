@@ -16,7 +16,45 @@ Merge a work or feature branch to main via PR with CI gating. Creates the PR, wa
 
 ## The Process
 
-### Step 0: Test Suite Gate
+### Step 0: Acceptance-Oracle Gate + Test Suite Gate
+
+#### Step 0a: Acceptance-Oracle Gate (AUTHORITATIVE)
+
+<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — authoritative gate seam topology -->
+
+Before any test-suite or PR work, run the acceptance-oracle gate for the branch's plan.
+
+**Plan-path discovery (try in order):**
+1. Frontmatter `plan:` field on the branch's most-recent plan document.
+2. Explicit `--plan <path>` flag in `$ARGUMENTS`.
+3. If neither yields a path → **skip-with-offer**: _"No plan path found — acceptance oracle can be validated manually with `bash bin/check-acceptance-oracle.sh <plan-path>` if a plan exists for this branch."_ Continue to Step 0b.
+
+**If `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` is set:**
+Skip the gate entirely. Log: _"Acceptance-oracle gate bypassed via COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 — exceptional use only."_ Continue to Step 0b.
+
+**If plan path resolved AND the plan contains a bindable `## Acceptance Criteria` table** (columns: `ID | Criterion | Test | Binding-Class | Status`):
+
+```bash
+bash bin/check-acceptance-oracle.sh <plan-path>
+```
+
+- **Exit 0 (all gate-bound rows green or cited-resolved):** Log the verdict and continue to Step 0b. _"Acceptance oracle: all gate-bound tests pass."_
+- **Non-zero exit (any gate-bound row red or missing):** Hard-block the merge:
+  ```
+  Merge blocked: acceptance oracle has red or unresolved gate-bound tests.
+  
+  <verdict from check-acceptance-oracle.sh>
+  
+  Fix the failing tests and re-run /merge-to-main, or set
+  COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 to bypass (exceptional use only —
+  the accepted accommodation for environment-bound tests is cited: rows, not this override).
+  ```
+  Stop. Do NOT proceed to PR creation.
+
+**If plan path resolved but the plan has no bindable `## Acceptance Criteria` table** (old-form plan):
+Skip-with-offer: _"Plan found but no bindable acceptance-criteria table detected — oracle gate skipped. Consider upgrading to the bindable-table form (`docs/wiki/writing-plans.md` § Acceptance Oracle) when you next revise this plan."_ Continue to Step 0b.
+
+#### Step 0b: Test Suite Gate
 
 Before creating a PR, attempt the project's test suite to catch issues early.
 
@@ -37,7 +75,7 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 3. **Run the project test suite.** If tests pass: proceed to Step 1. If tests fail: alert the PM and halt — _"Test suite failed before merge. Fix the failures first, or use `/merge-to-main --force` to bypass the test gate for hotfixes."_ Do NOT proceed to PR creation.
 
 4. **`--force` escape hatch:** If `$ARGUMENTS` contains `--force`:
-   - Skip the test suite entirely
+   - Skip the test suite entirely (Step 0b only — the acceptance-oracle gate in Step 0a is NOT bypassed by `--force`; use `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` for that)
    - Log: _"Force-merge requested — test suite gate bypassed."_
    - Proceed to Step 1
    - This is for hotfixes where the PM/EM has decided the merge is urgent

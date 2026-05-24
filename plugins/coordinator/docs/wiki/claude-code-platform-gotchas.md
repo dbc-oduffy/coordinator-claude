@@ -28,25 +28,38 @@ Claude Code triggers the `PreCompact` event for events that don't actually compr
 
 **Defense:** gate the message on actual transcript-size shrink (≥15%) — record pre-size at `PreCompact`, compare against post-size at the next `PostToolUse`.
 
-### `session_id` reaches hooks but NOT subprocesses
+### `session_id` in subprocesses — `CLAUDE_CODE_SESSION_ID` (the var name matters)
 
-`session_id` arrives in hook stdin JSON but is never exported as `CLAUDE_SESSION_ID` to the EM's interactive Bash. CLI tools that need it (e.g. `coordinator-safe-commit`) must:
+**Update 2026-05-23 (Claude Code 2.1.150):** the platform now exports
+`CLAUDE_CODE_SESSION_ID` into every tool subprocess. This supersedes the
+"never exported / use a sentinel" guidance below — but note the **name**: the
+platform sets `CLAUDE_CODE_SESSION_ID`, NOT `CLAUDE_SESSION_ID`. Coordinator
+code that only checked `CLAUDE_SESSION_ID` (the name no platform version ever
+set) silently fell through to the clobberable sentinel for months. Probe both
+the EM's interactive Bash and a subagent's Bash and you get the **same** value:
+the subagent inherits the *dispatching* EM's id — exactly the cross-session
+linkage that the `.agents/<aid>/em-session-id.txt` back-pointer reconstructs the
+hard way. Per-session and unclobberable by a sibling session's SessionStart.
 
-- Read a sentinel file written by a SessionStart hook, OR
-- Accept it as an arg, OR
-- Scan session-dir metadata.
+Resolution precedence the helpers now use (`coordinator-safe-commit`,
+`coordinator-write-review-trail.sh`, `coordinator-session-loe.sh`,
+`cs_claim_handoff`):
 
-Don't assume the env var exists.
+1. `CLAUDE_SESSION_ID` — explicit override (manual / test harness).
+2. `CLAUDE_CODE_SESSION_ID` — platform-injected, authoritative for the session.
+3. `.git/coordinator-sessions/.current-session-id` sentinel — last-writer-wins
+   fallback, only reached on old Claude Code (≤ 2.1.128 did not export the var).
+4. PID scan of session-dir metadata.
 
-### `CLAUDE_SESSION_ID` unavailable in subagent environments
+**Historical (≤ 2.1.128):** `CLAUDE_SESSION_ID` was NOT present in any env —
+EM Bash or subagent. Probe (2026-05-05): subagent env had `CLAUDECODE=1`,
+`CLAUDE_CODE_ENTRYPOINT=cli`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, no
+session id; `$PPID = 1` (Cygwin/MSYS shim), `tty` "not a tty", side channels
+dead. The sentinel (`session-init.sh` writes it on every SessionStart) was the
+only mechanism. It remains the fallback for those versions.
 
-Confirmed via probe (2026-05-05): `CLAUDE_SESSION_ID` is NOT present in subagent env. Subagent env contains: `AI_AGENT=claude-code_2-1-128_agent`, `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT=cli`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. No `CLAUDE_SESSION_ID`, no `CLAUDE_PARENT_SESSION_ID`.
-
-`$PPID = 1` (Cygwin/MSYS shim — no real parent visible). `tty` returns "not a tty". Side-channel signals also dead. Session-ID-based cross-session linkage via env is infeasible.
-
-**Defense:** Use on-disk state (sentinel files). `session-init.sh:77` writes the current `session_id` to `.git/coordinator-sessions/.current-session-id` on every SessionStart — read this sentinel from shell scripts that need it.
-
-Source: `tasks/probes/2026-05-05-probe-0-1-results.md`.
+Sources: `tasks/probes/2026-05-05-probe-0-1-results.md` (historical); live probe
+2026-05-23 on 2.1.150 (env var present in EM + subagent, identical value).
 
 ## Git — Windows-Specific
 
@@ -142,6 +155,10 @@ Source: `tasks/probes/2026-05-05-probe-0-2-results.md`.
 
 ## Python / Windows Tooling
 
+### Windows bash / CRLF — `bash -n` false-positives on heredoc-heavy scripts
+
+On a Windows working tree with `git config core.autocrlf=true`, `bash -n` false-positives on heredoc-heavy installers: CRLF makes the closer line (`DELIM\r`) not match the opener, so the heredoc swallows to EOF and bash reports a bogus "syntax error near unexpected `fi`". The committed LF blob is clean — `git show HEAD:<path>` has zero CRLF while the working tree has thousands. Before treating a `bash -n` heredoc/`fi` error on an installer as a real defect, check `git config core.autocrlf` + the committed blob's line endings (`git show HEAD:<path>` piped to a CR counter). **Use ShellCheck (the real lint, run in `/workweek-complete`) as the syntax gate on installers, not `bash -n`.** Source: 2026-05-24 project-rag `install-project-rag-plugin.sh` (SC1017 literal-CR rabbit hole; 0 CRLF in the committed blob, 3132 in the working tree).
+
 ### `python3` may not be on PATH on Windows hosts
 
 On many Windows hosts, `python3` is NOT on PATH. Only `python` (e.g. Python 3.13) and `py` (launcher) are available. Scripts gating on `command -v python3` exit silently. `jq` is also frequently absent on Windows.
@@ -156,7 +173,36 @@ else echo "ERROR: no Python found" >&2; exit 1; fi
 
 Use `$PYTHON_BIN` everywhere instead of hardcoding `python3`. For JSON: prefer Python-with-fallback-resolver over `jq` since jq is not guaranteed.
 
+**Prefer `py -3` over the command-v chain when the Python Launcher is available.** `py.exe` (the Python Launcher, bundled with the python.org installer) is more reliable on Windows than either `python3` (absent on many installs) or `python` (may resolve conda/embedded variants). Updated preference order for hook-chain scripts:
+
+```bash
+if command -v py &>/dev/null; then PYTHON_BIN="py -3"
+elif command -v python &>/dev/null; then PYTHON_BIN=python
+else echo "ERROR: no Python found" >&2; exit 1; fi
+```
+
+Apply the `WindowsApps` exclusion if using `command -v python3`:
+```bash
+_path=$(command -v python3 2>/dev/null)
+case "$_path" in */WindowsApps/*|*\\WindowsApps\\*) _path="" ;; esac
+```
+
+**Cross-repo resolver shape.** The correct propagation shape for this resolver is shape α: document the pattern in `docs/wiki/windows-cmd-shims.md`, vendor per-repo. Shape β (shared `~/.claude/lib/resolve-python.sh` runtime lib) is deferred until a third unique callsite needs the same fix. Shape γ (registry mutation to disable App Execution Aliases) is explicitly rejected — operator system-state mutation is out of our lane. → DR-059.
+
 Source: `archive/completed/2026-05.md`.
+
+### Windows Open-With picker flood — ShellExecute + AppX Execution Alias
+
+**Root cause (2026-05-19, Striker empirical).** The Claude Code harness and MCP layer may call `ShellExecuteEx` (not `CreateProcess`) when launching hook scripts or Python MCP scripts — especially via Node's `child_process.exec` / `.NET Process.Start(UseShellExecute=true)`. Unlike `CreateProcess`, `ShellExecute` treats unresolvable names as documents and falls back to the file-association picker GUI. Two common Windows configurations trigger picker-flood across all concurrent sessions:
+
+1. **Extensionless names** (e.g. bare `machine-local`) — `ShellExecute` walks `PATHEXT`, hits `.py` association, pops picker.
+2. **`python3` with an orphan AppX stub** — `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` exists as a zero-byte reparse point after uninstalling the Store Python package. The AppX App-Execution-Alias subsystem is consulted **independently** of PATH; a broken stub opens the picker without ever reaching the PATHEXT fallthrough. Shell-level invocations (git-bash, PowerShell, cmd.exe) do NOT reproduce this — the flood originates from Windows API calls inside the harness.
+
+**Fix:** `coordinator:setup` Step 3 installs `machine-local.cmd` and `python3.cmd` shims on the Windows user PATH, and Step 3c runs a health check (detect orphan reparse-point stubs, detect Store-alias-on-PATH, detect missing Python). The shims are found by `CreateProcess` before any `ShellExecute` fallback fires.
+
+**Upstream:** Anthropic upstream filing explicitly deferred by PM — the harness-side ShellExecute-vs-CreateProcess behavior is the root cause we cannot fix from substrate.
+
+→ Full detail: `docs/wiki/windows-cmd-shims.md`.
 
 ### Windows console window flash — process window flags
 
@@ -178,6 +224,16 @@ Bootstrap test harnesses on Windows (e.g., Python `subprocess.Popen`, Node `chil
 Source: central improvement queue (2026-05-06).
 
 ## Plugins
+
+### `CLAUDE_PLUGIN_ROOT` resolves to the plugin install dir (marketplace source subdir), not the repo root
+
+For a marketplace plugin whose `marketplace.json` sets `source: "./plugin"`, `${CLAUDE_PLUGIN_ROOT}` resolves to the **plugin install dir = that subdir** (`<repo>/plugin`), NOT the repo / marketplace-checkout root. Consequences for path references in command/lib files:
+
+- `${CLAUDE_PLUGIN_ROOT}/commands/lib/...` — correct.
+- `${CLAUDE_PLUGIN_ROOT}/plugin/commands/...` — DOUBLES to `…/plugin/plugin/…` (wrong).
+- `${CLAUDE_PLUGIN_ROOT}/../project_scripts/...` — correct for a repo-root sibling (the `../` climbs out of `plugin/`).
+
+**Mechanical agent extraction of command bodies is a known source of wrong-prefix path bugs** — agents invent variables (`$PLUGIN_ROOT` for the canonical `${CLAUDE_PLUGIN_ROOT}`) and propagate wrong prefixes that existence/inventory tripwires don't catch (every wrong path is non-empty, it just points at nothing). **Smoke-test resolved paths with the correct root:** `export CLAUDE_PLUGIN_ROOT=<repo>/plugin && ls "${CLAUDE_PLUGIN_ROOT}/<resolved-rel-path>"` for one helper per call shape. Authority for the contract is an executable test that hardcodes the root (e.g. `tests/install/test_claude_plugin_root_resolution.py`). Source: 2026-05-21/23 project-rag `doctor.md` extraction (118 doubled-prefix + 72 missing-`../` fixes).
 
 ### Plugin enablement is per-project, not user-global
 
@@ -339,3 +395,22 @@ A shell script that uses `realpath`, `readlink -f`, GNU-extension flags (`sed -i
 3. **Conditional success log** — `cmp` before/after the I/O block and report `"rewrote: N file(s) (M unchanged)"`, not unconditional `"rewrote: <count>"`.
 
 Two-phase failure shape: corruption happens once, then becomes invisible. "Rewrote" log fired = file touched, not = file changed.
+
+### PowerShell 5.1 strips embedded double-quotes in native-command args — use temp file for JSON
+
+*2026-05-24, claude-unreal-holodeck.* PowerShell 5.1's native-command invocation strips embedded double-quote characters when passing a string argument to an external executable. A JSON payload passed inline as a native-command argument (e.g. `my-tool --config '{"key":"value"}'`) arrives at the process with the double-quotes stripped, producing malformed JSON. Defense: write the JSON payload to a temp file and pass `--config-file <path>` (or equivalent file-path argument) instead. This affects any tool invoked from a PowerShell 5.1 context (including Claude Code's Bash tool on Windows when the shell is PowerShell), any JSON argument with non-trivial structure. PowerShell 7.x improves this, but the fix via temp file is portable across both versions. (Source: 2026-05-24 claude-unreal-holodeck)
+
+### PowerShell here-string `@'…'@` silently corrupts commit subjects in Bash tool
+
+*2026-05-24, project-rag-ue-addon.* When a Bash tool invocation uses a PowerShell here-string (`@'…'@`) to supply a multi-line git commit message, the resulting commit subject may be corrupted — the here-string is interpreted by PowerShell before being passed to Bash, and the line-ending handling differs. The commit subject arrives as an empty string, or the first line of the here-string body is swallowed. Defense: use a POSIX Bash heredoc inside the Bash tool invocation for git commit messages:
+
+```bash
+git commit -m "$(cat <<'EOF'
+Subject line here
+
+Body line here
+EOF
+)"
+```
+
+PowerShell here-strings are not a safe vehicle for multi-line string literals in Bash tool calls — use Bash heredocs exclusively. (Source: 2026-05-24 project-rag-ue-addon)

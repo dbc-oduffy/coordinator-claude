@@ -459,8 +459,9 @@ cs_archive() {
 #   Archive sessions meeting the reaper criterion:
 #     inactive_for > 24h AND no alive PID in meta.json AND
 #     no commits referencing this scope in last 24h
-#   The third condition (git log check) is skipped if too expensive — the first
-#   two conditions are the primary guard.
+#   The third condition (git log check) is not implemented — the first two
+#   conditions are sufficient in practice; a git log scan would add O(n) commit
+#   graph traversal per session.
 #   Prints "reaped <session_id>" to stdout for each archived session.
 cs_reap_stale() {
   local base
@@ -575,6 +576,73 @@ cs_live_session_ids() {
   local now_epoch
   now_epoch=$(_cs_now_epoch)
   local thirty_min=$(( 30 * 60 ))
+
+  # Fast path: one Python invocation parses every meta.json + computes the
+  # last_activity epoch in-process, replacing the per-dir
+  #   _cs_read_meta_field × 2  (sed|head subprocesses) +
+  #   _cs_iso_to_epoch         (date or python subprocess)
+  # — 3 subprocess spawns per dir. On Windows that ran ~200ms/dir, so a 250-dir
+  # accumulation took 29s. The Python startup is paid once (~200ms total);
+  # bash then applies the elapsed filter and the (subprocess-free) kill -0
+  # builtin in a tight loop. Falls back to the per-dir scan below when Python
+  # is unavailable.
+  local _lib_rp="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
+  [[ ! -f "$_lib_rp" ]] && _lib_rp="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
+  if [[ -f "$_lib_rp" ]]; then
+    # shellcheck source=/dev/null
+    source "$_lib_rp"
+  fi
+  if [[ -n "${PYTHON_BIN:-}" ]]; then
+    local tsv
+    # `-` reads script from stdin; "$base" lands in sys.argv[1] (Git Bash
+    # auto-translates the POSIX path to a Windows path for native .exe binaries
+    # invoked via Git Bash — applies to python.exe and pythonw.exe, but the `py`
+    # launcher receives the raw POSIX path (relevant on the py -3 PYTHON_ARGS path)).
+    tsv=$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" - "$base" <<'PYEOF' 2>/dev/null
+import sys, os, glob, json, datetime
+base = sys.argv[1]
+for meta in glob.glob(os.path.join(base, '*', 'meta.json')):
+    sid = os.path.basename(os.path.dirname(meta))
+    if sid in ('.archive', '.agents'):
+        continue
+    try:
+        with open(meta, encoding='utf-8') as f:
+            d = json.load(f)
+        pid = str(d.get('pid', '') or '')
+        la = (d.get('last_activity', '') or '').rstrip('Z')
+        try:
+            ep = int(datetime.datetime.fromisoformat(la)
+                       .replace(tzinfo=datetime.timezone.utc).timestamp())
+        except Exception:
+            ep = 0
+        sys.stdout.write(f"{sid}\t{pid}\t{ep}\n")
+    except Exception:
+        pass
+PYEOF
+)
+    if [[ -n "$tsv" ]]; then
+      local sid pid last_epoch elapsed
+      while IFS=$'\t' read -r sid pid last_epoch; do
+        [[ -z "$sid" ]] && continue
+        # Strip trailing CR — Python's text-mode stdout on Windows writes \r\n,
+        # and bash `read` strips \n but not \r, leaving the last field with a
+        # trailing carriage return that breaks the arithmetic below. ONLY the
+        # last TSV field carries the CR (interior fields are split clean by
+        # IFS=$'\t'). If a future column is appended after last_epoch, the strip
+        # must be moved to the new last field — not left here on last_epoch.
+        last_epoch="${last_epoch%$'\r'}"
+        [[ -z "$last_epoch" || ! "$last_epoch" =~ ^[0-9]+$ ]] && last_epoch=0
+        elapsed=$(( now_epoch - last_epoch ))
+        if [[ "$elapsed" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
+          echo "$sid"
+        fi
+      done <<< "$tsv"
+    fi
+    return 0
+  fi
+
+  # Fallback path (no Python): per-dir sed-based parse — preserves the original
+  # behavior on hosts where resolve-python.sh finds no interpreter.
   for sdir in "${base}"/*/; do
     [[ -d "$sdir" ]] || continue
     local sid
@@ -582,16 +650,67 @@ cs_live_session_ids() {
     [[ "$sid" == ".archive" ]] && continue
     [[ "$sid" == ".agents" ]] && continue
 
-    local pid last_iso last_epoch elapsed
     pid=$(_cs_read_meta_field "$sdir" "pid")
     last_iso=$(_cs_read_meta_field "$sdir" "last_activity")
     last_epoch=$(_cs_iso_to_epoch "$last_iso")
     elapsed=$(( now_epoch - last_epoch ))
 
-    if _cs_pid_alive "$pid" && [[ "$elapsed" -lt "$thirty_min" ]]; then
+    # Cheap-check ordering: timestamp first (pure bash arithmetic), then
+    # kill -0 (bash builtin) — same per-dir cost as before for the fallback,
+    # but skip kill on stale sessions for a small additional saving.
+    if [[ "$elapsed" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
       echo "$sid"
     fi
   done
+}
+
+# cs_self_claim <path>
+#   Record <path> in the current session's touched.txt (best-effort attribution
+#   for tools that edit files outside the Edit/Write hook path — e.g. the
+#   verify-*-sync.sh fixers and check-mcp-versions.sh).
+#
+#   Resolution prefers the platform-injected session id ($CLAUDE_SESSION_ID
+#   override, then $CLAUDE_CODE_SESSION_ID — Claude Code ≥ ~2.1.150). That is
+#   O(1) and unambiguous: no need to enumerate live sessions. Only when neither
+#   env var is set (old Claude Code) does it fall back to cs_live_session_ids,
+#   which is O(n) over every session dir — hundreds, with subprocess spawns each,
+#   tens of seconds on Windows — and claims only when exactly one session is live.
+#
+#   Always returns 0 (fail-open): attribution is advisory, never blocks the caller.
+#   Replaces the byte-identical _cs_claim_if_session that was copy-pasted across
+#   8 sync scripts.
+cs_self_claim() {
+  local path="${1:?path required}"
+
+  # Fast path: platform tells us our own session id directly.
+  local sid="${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+  if [[ -n "$sid" ]]; then
+    local sdir
+    sdir=$(_cs_session_dir "$sid" 2>/dev/null) || return 0
+    [[ -d "$sdir" ]] || return 0  # session dir gone — nothing to claim against
+    cs_atomic_dedup_append "${sdir}/touched.txt" "$path" 2>/dev/null || return 0
+    return 0
+  fi
+
+  # Fallback (no session env var): enumerate live sessions; claim only when
+  # exactly one is live (otherwise attribution is ambiguous — skip).
+  local sids
+  sids="$(cs_live_session_ids 2>/dev/null)" || return 0
+  local count
+  if [[ -z "$sids" ]]; then count=0
+  else count=$(echo "$sids" | wc -l | tr -d ' \n'); fi
+  if [[ "$count" -eq 0 ]]; then
+    echo "coordinator-session: no active session found — skipping self-claim for $path" >&2
+    return 0
+  fi
+  if [[ "$count" -gt 1 ]]; then
+    echo "coordinator-session: ${count} live sessions (ambiguous) — skipping self-claim for $path" >&2
+    return 0
+  fi
+  sid=$(echo "$sids" | head -1)
+  local sdir
+  sdir=$(_cs_session_dir "$sid" 2>/dev/null) || return 0
+  cs_atomic_dedup_append "${sdir}/touched.txt" "$path" 2>/dev/null || return 0
 }
 
 # cs_atomic_dedup_append <touched-file> <new-entry>
@@ -654,8 +773,16 @@ cs_atomic_dedup_append() {
 cs_claim_handoff() {
   local basename="${1:?basename required}"
   local sid="${COORDINATOR_SESSION_ID:-}"
+  # Explicit test override — mirrors resolve_session_id's Priority 1 slot so
+  # test harnesses can inject a known id without clobbering the real env var.
+  # Review: code-reviewer — asymmetric with cs_self_claim and resolve_session_id.
+  [[ -z "$sid" ]] && sid="${CLAUDE_SESSION_ID:-}"
+  # Platform-injected session id (Claude Code ≥ ~2.1.150). Per-session and
+  # unclobberable by sibling sessions — prefer it over the last-writer-wins
+  # sentinel. Mirrors coordinator-safe-commit resolve_session_id Priority 2.
+  [[ -z "$sid" ]] && sid="${CLAUDE_CODE_SESSION_ID:-}"
   if [[ -z "$sid" ]]; then
-    # Fall back to sentinel file — same Priority-2 resolution as coordinator-safe-commit
+    # Fall back to sentinel file (last-writer-wins; only reached on old Claude Code)
     local root
     root=$(_cs_git_root) || return 1
     local sentinel="${root}/.git/coordinator-sessions/.current-session-id"

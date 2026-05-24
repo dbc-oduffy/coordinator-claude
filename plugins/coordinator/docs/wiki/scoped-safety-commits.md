@@ -326,7 +326,7 @@ the `--include-orphans` flag is not yet available — it lacks the overlap gate 
 
 Your session hasn't touched any files via tracked tools, and mtime fallback found nothing after subtraction. Check:
 - Does `.git/coordinator-sessions/<id>/touched.txt` exist? If not, the session directory wasn't initialized — the hook may not have fired yet (first session with no tracked edits).
-- Is `CLAUDE_SESSION_ID` resolving correctly? Look at `.git/coordinator-sessions/.current-session-id` or `echo $CLAUDE_SESSION_ID`.
+- Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source) — it should match a `.git/coordinator-sessions/<id>/` dir. The `.current-session-id` sentinel is last-writer-wins and only a fallback for old Claude Code; if it flips between reads, two sessions are live and you should trust the env var.
 - Did you only make Bash-driven edits? Those fall to mtime — they'll appear if another session doesn't claim them.
 
 **"I'm on a different branch than my session started on"**
@@ -351,6 +351,24 @@ This is the canonical fallback (see `feedback_git_commit_explicit_path.md`). Exp
 `COORDINATOR_OVERRIDE_SCOPE=1` is the wrong tool here: it disables scope-checking entirely (and would happily commit other sessions' files). The override is for genuine emergencies; explicit-path is for misidentification.
 
 After committing, if you can identify the root cause (e.g. the session sentinel pointing to a dead session), fix it so the helper works on the next commit.
+
+**"Resolvers always fall through to the `.current-session-id` sentinel even when running inside Claude Code"** (fixed 2026-05-23)
+
+Root cause: The four resolvers (`coordinator-safe-commit`, `coordinator-write-review-trail.sh`, `coordinator-session-loe.sh`, `cs_claim_handoff`) checked `CLAUDE_SESSION_ID` — a variable no platform version actually exports. The correct variable is `CLAUDE_CODE_SESSION_ID`, which Claude Code 2.1.150+ injects into every tool subprocess. With the wrong name checked, resolution always fell through to the last-writer-wins `.current-session-id` sentinel, making multi-session contention invisible to the fast-path.
+
+Fix: `CLAUDE_CODE_SESSION_ID` inserted as the first resolution source above the sentinel in all four resolvers (commit `031909d8`). Test suites require `env -u CLAUDE_CODE_SESSION_ID` to cover fallback paths because the test runner itself runs inside a Claude Code session.
+
+If you are on an old coordinator version and the sentinel is racing: verify with `echo $CLAUDE_CODE_SESSION_ID` from a Bash tool call — if it prints a value, the resolver should pick it up. If the resolver still falls through, the fix is not yet installed; run `/coordinator:setup` to update.
+
+**Performance note — `cs_live_session_ids` 170× speedup (2026-05-23)**
+
+If session-start or commit feels slow (~30s), the likely cause is the old `cs_live_session_ids` implementation: it called `_cs_read_meta_field` (sed/jq subprocesses) and `_cs_iso_to_epoch` (date/python subprocess) per session directory — ~600ms/dir on Windows Git Bash, ~29s total with 250+ accumulated dead dirs.
+
+The rewrite: one Python invocation globs every `meta.json`, parses all in-process via stdlib `json` + `datetime.fromisoformat`, and emits TSV. The bash layer applies the elapsed filter and `kill -0`. Startup cost paid once. Expected timing: 28.9s → 0.17s.
+
+Accumulated dead session dirs compound this. `cs_reap_stale` and `cs_reap_agents` are wired into `session-init.sh` with a 12h `.last-reap` marker gate — they clean automatically on each boot without taxing it. If you accumulated dirs before this was wired, the first `/session-start` after the fix performs a one-time sweep.
+
+CRLF gotcha on Windows: Python text-mode stdout writes `\r\n`; bash `read` strips `\n` only, leaving `\r` in the last TSV column. This breaks arithmetic. The rewrite strips CRLF from the last column explicitly.
 
 **"I need to bypass for an emergency"**
 
@@ -565,3 +583,17 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 - Silent-no-op fix in helper: HEAD-unchanged sentinel + `if ! git commit ...; then echo FAIL; exit 2; fi` wrapper on all commit-attempting paths (`do_scoped`, `do_scope_from`, `do_override`, `do_blanket`, orphan-claim subpaths).
 - pytest harness for hooks + helper (coord-improvement-queue line 272).
 - Session-detection substrate rebuild — would be required only if the helper is ever re-promoted to default; demote avoids the need.
+
+**SC-DR-009 — Session-id resolution: `CLAUDE_CODE_SESSION_ID` not `CLAUDE_SESSION_ID` (2026-05-23)**
+
+*Problem:* Four resolvers checked `CLAUDE_SESSION_ID`, which no Claude Code version exports. The platform's actual variable is `CLAUDE_CODE_SESSION_ID` (available since Claude Code 2.1.150 for tool subprocesses). Resolution always fell through to the `.current-session-id` sentinel — a last-writer-wins file that races under concurrent sessions.
+
+*Decision:* Insert `CLAUDE_CODE_SESSION_ID` as the highest-priority resolution source in all four resolvers. The sentinel remains as Priority-2 fallback for pre-2.1.150 deployments.
+
+*Alternatives considered:* Removing the sentinel entirely (rejected — backward compatibility with old Claude Code). Making env-var mandatory and failing loud if absent (rejected — breaks pre-2.1.150 installs).
+
+*Test discipline:* Test suites covering fallback paths must `env -u CLAUDE_CODE_SESSION_ID` to suppress the injected session ID — otherwise the test runner's own session short-circuits the fallback paths under test.
+
+## SC-DR-010 — Path-Scoped `git add` Does Not Scope Hunks Within a File
+
+*2026-05-24, project-rag-ue-addon.* `git add -- path/to/file.py` stages the ENTIRE file, not just the hunks your executor edited. If another concurrent session also edited that file, its hunks ride your commit. The scoped-commit discipline protects against cross-file contamination but does NOT protect against cross-hunk contamination within a shared file. When a file you edited is also in another session's declared scope, use `git add -p -- path/to/file.py` (interactive hunk selection) to stage only the hunks from your changes. Treat `Edit` + path-scoped `git add` on a contested file as blanket-staging by another name — it includes every modification on disk at commit time, not just yours. (Source: 2026-05-24 project-rag-ue-addon)

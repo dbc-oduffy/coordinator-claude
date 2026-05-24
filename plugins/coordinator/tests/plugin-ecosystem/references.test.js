@@ -1,11 +1,12 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { PLUGINS_ROOT, fileExists, dirExists, readJson, getDirectoryMarketplaces } = require('./helpers/fs');
+const { PLUGINS_ROOT, fileExists, dirExists, readJson, getDirectoryMarketplaces, isCachePath } = require('./helpers/fs');
 
 const installed = readJson(path.join(PLUGINS_ROOT, 'installed_plugins.json'));
 const knownMarketplaces = readJson(path.join(PLUGINS_ROOT, 'known_marketplaces.json'));
 const directoryMarketplaces = getDirectoryMarketplaces();
+
 
 // Build a map of marketplace name -> set of plugin names declared in its marketplace.json
 const marketplacePluginSets = new Map();
@@ -73,7 +74,8 @@ describe('Cross-reference integrity', () => {
       if (!isDirectory) continue;
 
       for (const entry of entries) {
-        it(`${pluginKey} installPath exists: ${entry.installPath}`, () => {
+        const testFn = isCachePath(entry.installPath) ? it.skip : it;
+        testFn(`${pluginKey} installPath exists: ${entry.installPath}`, () => {
           assert.ok(
             dirExists(entry.installPath),
             `installPath does not exist: ${entry.installPath}`

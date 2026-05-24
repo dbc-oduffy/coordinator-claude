@@ -410,9 +410,12 @@ test_sentinel_fallback() {
   mkdir -p "${SCRATCH_DIR}/.git/coordinator-sessions"
   printf '%s' "$sentinel_id" > "${SCRATCH_DIR}/.git/coordinator-sessions/.current-session-id"
 
+  # Unset BOTH env sources so resolution reaches the sentinel: the test runner
+  # runs inside a Claude Code session that exports CLAUDE_CODE_SESSION_ID, which
+  # would otherwise win over the sentinel (correct precedence — see resolver).
   local out rc
   rc=0
-  out=$(unset CLAUDE_SESSION_ID; bash "$HELPER" "${STANDARD_ARGS[@]}" 2>&1) || rc=$?
+  out=$(unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID; bash "$HELPER" "${STANDARD_ARGS[@]}" 2>&1) || rc=$?
 
   local found_file
   found_file=$(find "${SCRATCH_DIR}/tasks/review-trail" -name "*-${sentinel_short}.json" | head -1)
@@ -441,9 +444,11 @@ test_no_session_id() {
   # Ensure sentinel does NOT exist (setup_repo doesn't create it)
   rm -f "${SCRATCH_DIR}/.git/coordinator-sessions/.current-session-id" 2>/dev/null || true
 
+  # Unset BOTH env sources (the runner's session exports CLAUDE_CODE_SESSION_ID)
+  # so no id is resolvable and the helper exits 3.
   local out rc
   rc=0
-  out=$(unset CLAUDE_SESSION_ID; bash "$HELPER" "${STANDARD_ARGS[@]}" 2>&1) || rc=$?
+  out=$(unset CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID; bash "$HELPER" "${STANDARD_ARGS[@]}" 2>&1) || rc=$?
 
   local result=true
   [[ $rc -eq 3 ]] || { echo "    exit code was $rc, expected 3" >&2; result=false; }

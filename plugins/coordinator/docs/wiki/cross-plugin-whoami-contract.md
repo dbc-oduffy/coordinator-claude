@@ -13,7 +13,7 @@ authoring_plan: [docs/plans/2026-05-19-cross-plugin-whoami-contract.md, docs/pla
 
 This wiki defines the shared introspection envelope that every MCP-bearing plugin in the `~/.claude` ecosystem must implement. Coordinator-claude owns the envelope schema; each plugin implements a conformant MCP tool in its own repo and test suite.
 
-The contract answers the question every coordinator-level tool or scanner has when it queries a plugin: *"What is this plugin bound to, and is it healthy?"* Previously that question was answered only by project-rag's `project_whoami` tool, whose response shape was project-rag-internal doctrine. As holodeck-control joined the ecosystem as a second MCP-bearing plugin, the need for a shared cross-plugin contract became concrete — the wrong-shape arrangement (holodeck-control piggybacking on project-rag's tool for cross-plugin introspection) was itself the evidence the abstraction was overdue. PM authorized hoisting the contract to coordinator-claude on 2026-05-19 (DoE memo `tasks/memos/2026-05-19-machine-local-doe-reply.md` § 5b).
+The contract answers the question every coordinator-level tool or scanner has when it queries a plugin: *"What is this plugin bound to, and is it healthy?"* Previously that question was answered only by project-rag's `project_whoami` tool, whose response shape was project-rag-internal doctrine. As holodeck-control joined the ecosystem as a second MCP-bearing plugin, the need for a shared cross-plugin contract became concrete — the wrong-shape arrangement (holodeck-control piggybacking on project-rag's tool for cross-plugin introspection) was itself the evidence the abstraction was overdue. PM authorized hoisting the contract to coordinator-claude on 2026-05-19 (DoE memo `~/.claude/cross-repo/archive/2026-05-19-machine-local-doe-reply.md` § 5b — grandfathered pre-cutoff memo).
 
 Each plugin exposes its own named MCP tool (e.g. `project_whoami` for project-rag, `holodeck_whoami` for holodeck-control). The coordinator validates the envelope shape; plugin-specific extension fields live in the per-plugin `extras` slot, validated by the plugin itself.
 
@@ -80,6 +80,15 @@ extras: {
 2. All keys match `^[a-z_][a-z0-9_]*$` — lowercase snake_case identifiers only; non-conformant keys are rejected at parse time
 
 Coordinator does NOT validate the contents of any `extras[<plugin>]` sub-object — those are per-plugin concerns, validated by the plugin against its own schema. The canonical snake_case identifier format means any consumer language (Python, C++, JS, Rust) can map keys to native field names without escaping.
+
+### Addon collision semantics
+
+Two collision cases are handled at the `addons.py` envelope-build layer:
+
+- **Addon namespace collides with plugin canonical key** (e.g. an addon tries to write `extras["project_rag"]`): log warning + skip. Silent overwrite is not permitted — the plugin's canonical key is reserved and cannot be shadowed by an addon.
+- **Addon-vs-addon collision** (two addons claim the same namespace): log warning + first-wins. The ordering is deterministic (hookspec collection order); the warning surfaces the conflict.
+
+Both are logged but non-fatal. The contract does not hard-fail on collision — degraded output with a logged warning is preferable to a broken whoami response.
 
 ### Namespace disambiguation
 
@@ -162,6 +171,23 @@ The coordinator validates the following when consuming a whoami response. Valida
 
 The coordinator does NOT validate the contents of `extras[<plugin_id>]` sub-objects. Per-plugin contents are the plugin's own concern, validated by the plugin against its own schema (e.g. via `jsonschema` in the plugin's own test suite).
 
+### JSON Schema `examples:` keyword is annotation-only
+
+The `examples:` keyword in JSON Schema draft 2020-12 is **annotation-only** — `jsonschema` >=4.18 does NOT auto-validate examples against the surrounding schema. Plugin test suites that want to verify their example envelopes are conformant MUST add an explicit step: load each example and run `Draft202012Validator.validate()` against the schema body, recording pass/fail per example. Do not rely on `examples:` appearing in the schema file as evidence that the examples were validated.
+
+---
+
+## Tripwires and failure recovery
+
+**DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or session-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
+
+- **Missing install:** run `/coordinator:setup` (installs the `coordinator_whoami` package via pip in Phase 3 Step 6).
+- **Unbound envelope:** run `/project-onboarding` or `/project-rag:setup` to bind the project.
+
+Do NOT reach for grep, `git status`, or hand-rolled binding checks as a substitute. Those produce inconsistent output that diverges from the contract surface over time; the contract surface exists precisely to give one authoritative introspection path.
+
+Registered in `docs/wiki/coordinator-tripwires.md`. Override env var: none (wiring is unconditional).
+
 ---
 
 ## How addon-extension surfaces fit
@@ -192,11 +218,24 @@ Operators — as distinct from plugin authors implementing the contract — cons
 
 4. **Live-call rule.** Operators and consumers wanting current binding health MUST call live `*_whoami` MCP, NOT read persisted snapshots. This is the Live-not-receipt invariant from **§ Error semantics** above, and it is also the binding-health rule named in [`coordinator-doctor.md`](coordinator-doctor.md) §5. Any file on disk labelled "whoami snapshot" is by definition stale — it was conformant at write time, not now.
 
+### Session-start four-branch surfacing spec
+
+The session-start Context Load emits exactly one line per session, branching on import state:
+
+1. **Import fails:** `whoami: not installed (run /coordinator:setup to install the introspection package)`
+2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /project-onboarding or /project-rag:setup to bind this project)`
+3. **Import succeeds, `binding.kind == "bound"`:** `whoami: bound → <binding.target> (<status.state>)`
+4. **Import succeeds but envelope unparseable / non-zero CLI exit:** `whoami: degraded (CLI failed; see /coordinator:doctor probe P-6)`
+
+Note: session-start does NOT surface bound-but-target-mismatched as a separate state — that is `/project-onboarding`'s responsibility. Surfacing mismatch at session-start generates false positives for operators in a folder that is not the bound project root.
+
+Auto-repair on import failure is explicitly out of scope. The loud nudge (branch 1) is the correct primitive — surfacing with remediation path, not mutating on the operator's behalf.
+
 ### Operator wiring — where the contract enters the pipelines
 
 The cross-plugin whoami contract is wired into operator-facing pipelines at three points. Future doctrine maintainers extending the contract surface (e.g., adding a new adopter subpackage) must extend at least these three or document why not:
 
-1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`. Default CLI output is compact single-line JSON (no flag needed); --human pretty-prints for human reading.
+1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`. Default CLI output is compact single-line JSON (no flag needed); --human pretty-prints for human reading. Status vocabulary for this step: `ready` (importable — whether freshly installed or re-used), `would write` (--check-only mode against an absent package), `failed` (non-zero pip exit — reason logged to stderr; chain continues without hard-stopping). These are the three states the coordinator-installer status schema records for the `coordinator_whoami` identifier row.
 2. **`/project-onboarding` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/project-onboarding/SKILL.md`.
 3. **`/session-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/session-start/SKILL.md`.
 
@@ -338,13 +377,19 @@ When holodeck-control cannot locate a `.ueproject` file:
 
 - `coordinator_whoami/schemas/whoami-envelope.v1.json` — JSON Schema draft 2020-12 encoding of this wiki's §Envelope schema. Each plugin's conformance tests validate against this schema in their own repo.
 
+### Coordination constraint: `core/marker_dir.py` retention at project-rag
+
+The project-rag host MUST retain `core/marker_dir.py` whole-file even after `resolve_user_marker_dir` was extracted into `coordinator_whoami._paths`. The addon imports BOTH `resolve_project_marker_dir` AND `resolve_user_marker_dir` from that module (`seed_project_sentinels.py:73`, `preflight.py:94,372`); the former is NOT migrated. Deleting `core/marker_dir.py` from the project-rag tree breaks both files loudly (hard import, no try/except).
+
+This is a cross-repo coordination obligation, not a coordinator-claude implementation concern — it lives here as a reminder because the migration that necessitated it originated in Claude Central.
+
 ---
 
 ## Provenance
 
 The contract emerged from a DoE-altitude consult on 2026-05-19:
 
-1. **DoE memo** `tasks/memos/2026-05-19-machine-local-doe-reply.md` § 5b — PM authorized hoisting the whoami contract from project-rag-internal doctrine to coordinator-claude ownership, citing holodeck-control as a second MCP-bearing plugin that needed a shared introspection surface.
+1. **DoE memo** `~/.claude/cross-repo/archive/2026-05-19-machine-local-doe-reply.md` § 5b (grandfathered pre-cutoff memo) — PM authorized hoisting the whoami contract from project-rag-internal doctrine to coordinator-claude ownership, citing holodeck-control as a second MCP-bearing plugin that needed a shared introspection surface.
 
 2. **Spinoff** `archive/handoffs/2026-05-19_175021_coordinator-whoami-contract.md` — workstream handoff carrying the implementation mandate (archived post-pickup).
 

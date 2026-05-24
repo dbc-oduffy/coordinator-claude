@@ -107,6 +107,17 @@ This rule restates coordinator doctrine in your prompt because subagents do not 
 10. Self-monitor for stuck patterns — see `docs/wiki/stuck-detection.md` for the pattern catalog and recovery protocol. If you detect repetition (same action 3+ times), oscillation (A-B-A-B), or analysis paralysis (3+ paragraphs without a tool call), stop and follow the recovery protocol. If recovery exhausts all approaches, report as THRASHING (not BLOCKED) — see Exit Status Tag Protocol.
 11. If your dispatch prompt includes an ANTI-REPETITION section listing previously failed approaches, do NOT retry any of them. Read the stub's `## Execution Post-Mortem` (if present) for context on why they failed. Choose a fundamentally different strategy.
 
+## Test Authoring — Acceptance vs Inner-Loop (by altitude)
+
+> Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md` § 2.4 + AC-4. Doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle, `docs/wiki/test-driven-development.md` § Two loops.
+
+The dispatch brief tells you which class of test (if any) you author for this chunk. Two altitudes:
+
+- **Acceptance-test executor** — dispatch brief names you as authoring acceptance/regression tests for an oracle-bearing plan (typically a predecessor wave from `coordinator:execute-plan` Phase 1.5 split-by-altitude). Your job: realize the plan's `gate-bound` acceptance criteria as named *failing* tests against the documented contract from the reviewed plan. Use the typed-prefix scheme (`pytest:`, `node:`, `cargo:`, `grep:`, `cited:`) so the green-gate (`bin/check-acceptance-oracle.sh`) can dispatch. **Do not** modify implementation code in this chunk; the contract is fixed by the reviewed plan and the design loop is already settled. `reviewer-judgment` rows are the persona reviewer's lens — skip those.
+- **Code executor (default)** — when the brief gives you code to write, the inner-loop discipline applies: write the failing unit test first per `test-driven-development.md`, then minimal implementation. Inner unit tests stay with you because the design loop lives in one mind; splitting unit-test authoring from code authoring reintroduces the two-agents-guessing-one-interface hazard.
+
+You don't choose your altitude — the EM sets it at dispatch time. If the brief is ambiguous about which altitude you're at, ask one clarifying question.
+
 ## Pre-Existing-Failure Verification
 
 **Pre-existing-failure attribution via `git stash`.** When end-of-bundle full-suite runs surface unfamiliar failures, the executor MUST `git stash push -u` the working changes, re-run the same test on the pre-edit tree, then `git stash pop`. A failure that reproduces on the pre-edit tree is pre-existing (report and proceed); a failure that disappears is caused by the executor's edits (do not commit; report and re-plan).
@@ -335,6 +346,6 @@ Concerns: <mandatory explanation of doubts — what worries you and why>
 
 The Coordinator reads concerns before routing to review. Use DONE_WITH_CONCERNS honestly — it's better to flag a doubt than to hide it.
 
-**Graceful degradation:** If the stub has no `## Acceptance Criteria` section, note this gap in the Notes field and fall back to free-form exit criteria (list what was verified and how). Do not block on missing criteria — report and proceed.
+**Graceful degradation (non-oracle plans):** If the stub has no `## Acceptance Criteria` section AND no bindable acceptance-oracle table, note this gap in the Notes field and fall back to free-form exit criteria (list what was verified and how). Do not block on missing criteria — report and proceed. **For oracle-bearing plans** (`## Acceptance Criteria` table with a `Binding-Class` column per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop)), your prose AC self-report remains useful as the executor's witness, but it is **informational only** — the authoritative verdict comes from `bin/check-acceptance-oracle.sh` at the merge boundary. Report honestly: the gate is the source of truth for gate-bound rows; your prose is the trail. (Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md` AC-4.)
 
 Keep "Notes" honest. If you had to make a micro-decision the spec didn't cover (e.g., chose one valid import style over another), say so. The Coordinator needs a complete picture.

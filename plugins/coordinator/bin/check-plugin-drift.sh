@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# _fixtures/check-plugin-drift.real.sh
-# Real probe implementation used by Chunk 7 regression test.
-# This file is the canonical implementation when the coordinator bin version has
-# been corrupted by Chunk 2's test_refresh_plugin_live_install_sh.py stubs.
-# See: tests/install/test_plugin_propagation_regression_2026_05_21.py
+# bin/check-plugin-drift.sh — Read-only drift probe for registered plugin live installs.
+#
+# Purpose: detect when a live install has fallen behind its source — git-state drift
+# (commits-behind), venv-state drift (stale editable pin / MAPPING), and SHA-sentinel
+# drift (copy_install mode). Surfaces daily via /workday-start Step 1.10 Addon Health.
 #
 # Spec backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md §Chunk 1
+# Extended by: docs/plans/2026-05-23-copy-install-drift-coverage.md §Chunk 2
 
 set -uo pipefail
 
@@ -77,7 +78,37 @@ try:
 except Exception as e:
     print(f"ERROR: failed to parse registry: {e}", file=sys.stderr)
     sys.exit(2)
-mirrors = data.get("plugin", {}).get("mirrors", {})
+
+# Build the mirrors dict from two sources:
+# 1. Nested table form: [plugin.mirrors.<name>] entries (data["plugin"]["mirrors"])
+# 2. Flat dotted-key form: "plugin.mirrors.<name>.<field>" = "..." top-level keys
+#    written by `machine-local set` (which uses flat string keys, not TOML tables).
+# Both forms are valid registry writes; both must be visible to the probe.
+mirrors = {}
+# Source 1: nested tables (coordinator-claude, project-rag style).
+nested = data.get("plugin", {}).get("mirrors", {})
+if isinstance(nested, dict):
+    for plugin_name, entry in nested.items():
+        if isinstance(entry, dict):
+            mirrors[plugin_name] = dict(entry)
+
+# Source 2: flat dotted-key form (`"plugin.mirrors.<name>.<field>" = "..."`) —
+# emitted by `machine-local set` which writes flat string keys.
+PREFIX = "plugin.mirrors."
+for raw_key, raw_val in data.items():
+    if not isinstance(raw_key, str) or not raw_key.startswith(PREFIX):
+        continue
+    rest = raw_key[len(PREFIX):]  # e.g. "holodeck.propagation_mode"
+    parts = rest.split(".", 1)
+    if len(parts) != 2:
+        continue
+    plugin_name, field = parts
+    if plugin_name not in mirrors:
+        mirrors[plugin_name] = {}
+    # Only set if not already present from the nested-table form (nested wins).
+    if field not in mirrors[plugin_name]:
+        mirrors[plugin_name][field] = raw_val
+
 if not mirrors:
     print("NO_MIRRORS")
     sys.exit(0)
@@ -108,6 +139,58 @@ _check_plugin() {
         return 0
     fi
 
+    # copy_install: self-contained early-return — no git/venv legs follow.
+    # This branch does NOT consume track_ref or dist_name defaults; it exits before
+    # any git-state, venv-state, or working-tree leg can be reached.
+    if [[ "$prop_mode" == "copy_install" ]]; then
+        # Normalise backslashes (Windows paths from registry).
+        local ci_live_path="${live_path//\\//}"
+        local ci_source_path="${source_path//\\//}"
+
+        # --check-clean-only: copy_install has no live git working tree;
+        # re-running the idempotent copy installer is always safe — nothing to block on.
+        if [[ $CHECK_CLEAN_ONLY -eq 1 ]]; then
+            return 0
+        fi
+
+        # (a) Missing live path → drift.
+        if [[ -z "$ci_live_path" ]] || [[ ! -d "$ci_live_path" ]]; then
+            echo "[drift] $plugin_name: copy_install — live_path missing or not a directory: '$ci_live_path'"
+            return 1
+        fi
+
+        # (b) No version.txt sentinel → info (not drift; installer may not have written one yet).
+        local sentinel_file="${ci_live_path}/version.txt"
+        if [[ ! -f "$sentinel_file" ]]; then
+            echo "[info] $plugin_name: copy_install — no version.txt sentinel (installer did not write one; see holodeck memo)"
+            return 0
+        fi
+
+        # (c) Sentinel present — validate format (must be 40 hex chars).
+        local sentinel_sha
+        sentinel_sha="$(tr -d '\r\n' < "$sentinel_file")"
+        local sentinel_len="${#sentinel_sha}"
+        if [[ $sentinel_len -ne 40 ]] || ! [[ "$sentinel_sha" =~ ^[0-9a-f]+$ ]]; then
+            echo "[warn] $plugin_name: version.txt malformed (len=${sentinel_len}) — refresh to rewrite sentinel"
+            return 0
+        fi
+
+        # (d/e) Compare sentinel to current source HEAD (no fetch — local HEAD only).
+        local source_head
+        source_head="$(git -C "$ci_source_path" rev-parse HEAD 2>/dev/null | tr -d '\r')" || {
+            echo "[warn] $plugin_name: copy_install — could not read source HEAD from '$ci_source_path'"
+            return 0
+        }
+
+        if [[ "$sentinel_sha" == "$source_head" ]]; then
+            echo "[ok] $plugin_name: copy_install — sentinel matches source HEAD (${sentinel_sha:0:12})"
+        else
+            echo "[drift] copy_install: $plugin_name live is at ${sentinel_sha:0:12}, source HEAD ${source_head:0:12} — run: refresh-plugin-live-install.sh $plugin_name"
+            return 1
+        fi
+        return 0
+    fi
+
     live_path="${live_path//\\//}"
 
     if [[ -z "$live_path" ]] || [[ ! -d "$live_path" ]]; then
@@ -116,6 +199,8 @@ _check_plugin() {
     fi
 
     if [[ $CHECK_CLEAN_ONLY -eq 1 ]]; then
+        # copy_install entries exit early above; this git status call is only for
+        # git-checkout-managed entries that have a live git working tree.
         local porcelain
         porcelain="$(git -C "$live_path" status --porcelain 2>&1 | tr -d '\r')" || { return 1; }
         if [[ -n "$porcelain" ]]; then
