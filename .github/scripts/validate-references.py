@@ -7,6 +7,15 @@ import pathlib
 
 LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
 
+# Top-level directories in this publish repo. Resolved link targets whose
+# first path component is not one of these are sibling-repo references
+# (e.g. project-rag, project-rag-ue-addon) that exist in the source meta-repo
+# layout but not here; skip rather than fail.
+REPO_TOP_DIRS = {
+    "archive", "assets", "cross-repo", "docs", "evals", "experiments",
+    "plugins", "setup", "tasks", "tests", ".github",
+}
+
 
 def check_routing_files(errors: list):
     """Check that agent names in routing.md files have matching agent .md files."""
@@ -90,6 +99,20 @@ def check_memory_links(errors: list):
     pass
 
 
+# Addon-protocol wikis mirrored from the project-rag sibling repo. Their
+# internal cross-links reference neighbor files in project-rag's wiki that
+# aren't copied into this publish layout; the docs themselves are still
+# useful here as addon-protocol reference. Skip link-validation on these.
+ADDON_PROTOCOL_MIRROR_WIKIS = {
+    "docs/wiki/addon-chunker-categories.md",
+    "docs/wiki/addon-protocol.md",
+    "docs/wiki/capability-dispatch.md",
+    "docs/wiki/corpus-band-protocol.md",
+    "docs/wiki/host-addon-separation-of-concerns.md",
+    "docs/wiki/host-vs-addons.md",
+}
+
+
 def is_excluded_path(path: pathlib.Path) -> bool:
     """Skip upstream reference docs and bundled content we don't control."""
     parts = path.parts
@@ -99,6 +122,15 @@ def is_excluded_path(path: pathlib.Path) -> bool:
     # Skip known upstream files copied from Anthropic
     if path.name == "anthropic-best-practices.md":
         return True
+    posix = path.as_posix()
+    # Skip install-time rendered templates under plugins/coordinator/dist/publish-repo-*/.
+    # Their relative links (docs/wiki/, setup/, etc.) resolve at the consumer's ~/.claude/
+    # after setup/install.sh, not at publish time in this repo.
+    if "/dist/publish-repo-" in posix or posix.startswith("plugins/coordinator/dist/publish-repo-"):
+        return True
+    # Skip addon-protocol mirror wikis (sibling-repo internal links).
+    if posix in ADDON_PROTOCOL_MIRROR_WIKIS:
+        return True
     return False
 
 
@@ -106,7 +138,11 @@ def check_markdown_links(errors: list):
     """Check relative markdown links in plugins/ and docs/ directories.
 
     Skips plugins/cache/ (third-party plugins we don't control) and reference docs.
+    Skips links whose resolved target escapes the repo root — those reference
+    sibling repos (e.g. project-rag, project-rag-ue-addon) that exist in the
+    source meta-repo layout but not in this publish-repo's layout.
     """
+    repo_root = pathlib.Path(".").resolve()
     search_dirs = [pathlib.Path("plugins"), pathlib.Path("docs")]
     for search_dir in search_dirs:
         if not search_dir.is_dir():
@@ -128,6 +164,18 @@ def check_markdown_links(errors: list):
                     if target_path.startswith("["):
                         continue
                     resolved = (base_dir / target_path).resolve()
+                    # Skip sibling-repo references — targets that either escape
+                    # repo root via '..', or whose first path component is not
+                    # a known top-level dir in this repo (e.g. '../../../../project-rag/...'
+                    # collapses to '<repo>/project-rag/...' which doesn't exist here
+                    # but resolves correctly in the source meta-repo layout).
+                    try:
+                        rel = resolved.relative_to(repo_root)
+                    except ValueError:
+                        continue
+                    rel_parts = rel.parts
+                    if rel_parts and rel_parts[0] not in REPO_TOP_DIRS:
+                        continue
                     if not resolved.exists():
                         errors.append(f"{md_file}:{line_num}: broken link '{target}' — target not found")
 

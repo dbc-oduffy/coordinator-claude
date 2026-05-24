@@ -6,3 +6,15 @@
 # check-persona-names script and the depersonalize substitution map.
 docs/ci-pipeline.md:37
 docs/ci-pipeline.md:45
+
+# test-depersonalize-identity.sh is the regression test for the depersonalize
+# substitution map — it MUST name 'Patrik' literally to verify the
+# 'Patrik → the Staff Engineer' substitution still works.
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:13
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:98
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:180
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:181
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:183
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:187
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:188
+plugins/coordinator/bin/tests/test-depersonalize-identity.sh:190

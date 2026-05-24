@@ -9,7 +9,11 @@ PLUGINS_ROOT = pathlib.Path("plugins")
 CEILING = 500
 WARNING_THRESHOLD = 400
 
-KNOWN_EXCEPTIONS: set[str] = set()
+KNOWN_EXCEPTIONS: set[str] = {
+    # Logged in source-repo tasks/coordinator-improvement-queue.md 2026-05-24 — trim pending.
+    "coordinator/commands/workweek-complete.md",
+    "coordinator/skills/learn-lessons/SKILL.md",
+}
 
 SPEC_PATTERNS = [
     "*/agents/*.md",
