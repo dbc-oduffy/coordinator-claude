@@ -64,11 +64,11 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 *No session flags architecture drift. No process surfaces the accumulation. The system works until it doesn't, and by then the debt is load-bearing.*
 
 **Addressed by:**
-- `/architecture-audit` — Bootstrap or refresh the architecture atlas via multi-phase agent pipeline. Produces a structured, queryable record of system architecture.
-- `/architecture-rotation` — Weekly rotation through project systems. Weighted scoring for audit target selection. Systematic coverage rather than reactive triage.
+- `/architecture-survey` — Bootstrap or refresh the architecture atlas via multi-phase agent pipeline. Produces a structured, queryable record of system architecture.
+- `/architecture-audit` — Weekly rotation through project systems. Weighted scoring for audit target selection. Systematic coverage rather than reactive triage.
 - `debt-triage` skill — Review and prioritize the technical debt backlog. EM-PM conversation, not a dispatched agent. Keeps PM aligned on what's accumulating.
 - `/code-health` — Night-shift code health review: scan recent commits, dispatch reviewer, apply findings, update health ledger.
-- `weekly-architecture-audit` / `deep-architecture-audit` skills — Structured audit protocols with health ledger templates.
+- `weekly-architecture-audit` / `deep-architecture-survey` skills — Structured audit protocols with health ledger templates.
 - atlas-integrity-check routine — Check changed files against the architecture atlas for unmapped entries. Runs inline in `/update-docs` Phase 11 (see `pipelines/update-docs/atlas-integrity-check.md`).
 
 ---
@@ -117,8 +117,8 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/enrich-and-review` | Run enrichment pipeline on chunk directories |
 | `/mise-en-place` | Autonomous backlog execution — gather ready items, execute without stopping |
 | `/research` | Deep research pipeline — `--mode=web` (Pipeline A), `--mode=repo` (Pipeline B), `--mode=structured` (Pipeline C) |
-| `/architecture-audit` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
-| `/architecture-rotation` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
+| `/architecture-survey` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
+| `/architecture-audit` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
 | `/bug-blitz` | Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`) |
@@ -126,7 +126,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (26)
+### Skills (27)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -158,7 +158,7 @@ Full component inventory for the record. The failure-mode sections above are the
 **Health & Maintenance:**
 - `daily-code-health` — Review recent commits for issues, dispatch reviewer, update health tracking.
 - `weekly-architecture-audit` — Systematic rotation through project systems. Weighted scoring for audit target selection.
-- `deep-architecture-audit` — Deep-dive architecture audit of a specific system or subsystem.
+- `deep-architecture-survey` — Deep-dive architecture audit of a specific system or subsystem.
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
 - `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.

@@ -56,4 +56,16 @@ TARGETS=(
   # 5-field shape (with native_slugs — comma-separated marketplace slugs
   # expected to appear in this target's content):
   "example-target|manifest|/path/to/source/plugins/example-plugin|/path/to/example-publish-repo|your-marketplace-slug"
+
+  # publish-repo content targets (flat-mirror, no native_slugs):
+  # flat-mirror at publish repo root pulls top-level files from dist/publish-repo-toplevel/;
+  # flat-mirror at publish repo's setup/ subdir pulls scripts from dist/publish-repo-setup/;
+  # flat-mirror at publish repo's docs/ subdir pulls top-level docs from dist/publish-repo-docs/.
+  # All rely on sync_flat_mirror's iterdir-based file scan (publish_sync.py:207-251) —
+  # directories at the dest are protected; only top-level files participate. The docs/ target
+  # carries a substantial .percolate-ignore (large for a single-file target): it controls only the files Claude Central authors
+  # (today: agent-install.md) and protects every other top-level docs/*.md from delete-not-in-source.
+  # "coordinator-claude-publish-repo-toplevel|flat-mirror|/path/to/plugins/coordinator/dist/publish-repo-toplevel|/path/to/coordinator-claude"
+  # "coordinator-claude-publish-repo-setup|flat-mirror|/path/to/plugins/coordinator/dist/publish-repo-setup|/path/to/coordinator-claude/setup"
+  # "coordinator-claude-publish-repo-docs|flat-mirror|/path/to/plugins/coordinator/dist/publish-repo-docs|/path/to/coordinator-claude/docs"
 )

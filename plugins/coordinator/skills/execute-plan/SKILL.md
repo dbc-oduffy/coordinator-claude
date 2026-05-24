@@ -120,9 +120,27 @@ Stop executing and consult the PM when, in your best judgment, there is genuine 
 
 After all tasks are complete and verified:
 
+### Phase 4a: Early Acceptance-Oracle Feedback (non-authoritative)
+
+<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — execute-plan Phase 4 early non-authoritative gate -->
+
+Before invoking `finishing-a-development-branch`, run the acceptance oracle as early advisory feedback. The plan path is `$ARGUMENTS` (the plan document this skill was invoked with).
+
+```bash
+bash bin/check-acceptance-oracle.sh "$ARGUMENTS"
+```
+
+**This gate is advisory only at this surface** — the authoritative gate is at `coordinator:merging-to-main` Step 0a. Do NOT hard-block here regardless of exit code.
+
+- **Exit 0:** Log _"Acceptance oracle: all gate-bound tests pass."_ and continue to Phase 4b.
+- **Non-zero exit:** Log the verdict from the script (it will name which rows are red), then continue to Phase 4b. Frame the output as early feedback: _"Acceptance oracle reports red tests — iterate on these before reaching the merge boundary at /merging-to-main, where the gate is authoritative."_
+- **Script not found or no plan path:** Skip silently and continue to Phase 4b.
+
+### Phase 4b: Invoke Finishing Skill
+
 Announce: _"I'm using the coordinator:finishing-a-development-branch skill to complete this work."_
 
-Invoke the `coordinator:finishing-a-development-branch` skill. Follow it exactly — it verifies tests, presents the 4 structured options, and executes the PM's choice. This is a required sub-skill, not optional.
+Invoke the `coordinator:finishing-a-development-branch` skill, passing the plan path explicitly so it can thread through to its own gate invocation. Follow it exactly — it verifies tests, presents the 4 structured options, and executes the PM's choice. This is a required sub-skill, not optional.
 
 ---
 

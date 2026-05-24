@@ -179,7 +179,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    - `status: active` → `status: consumed`
    - `deployment_state: <whatever>` → `deployment_state: in_flight`
-   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_SESSION_ID` first (if exported), falling back to `cat .git/coordinator-sessions/.current-session-id` (the sentinel written by `session-init.sh`). Never the machine name. Same resolution pattern as `/session-end` Step 2.7.
+   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_CODE_SESSION_ID` first (platform-injected, per-session, unclobberable by sibling sessions; Claude Code ≥ ~2.1.150), falling back to `cat .git/coordinator-sessions/.current-session-id` (the last-writer-wins sentinel written by `session-init.sh`, for older Claude Code). Never the machine name. Same resolution pattern as `/session-end` Step 2.7.
    - Do NOT remove `pickup_ready: true` if present — it stays as authorial-intent record on the consumed handoff.
 
    ### Commit

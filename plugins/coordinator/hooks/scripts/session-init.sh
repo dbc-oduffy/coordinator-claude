@@ -3,9 +3,15 @@
 # .current-session-id sentinel so coordinator-safe-commit can resolve the
 # session_id from a non-hook subprocess (the EM's interactive Bash).
 #
-# Without this hook, the helper has no path to the session_id:
-#   - CLAUDE_SESSION_ID is not exported to the EM's subprocess (Claude Code only
-#     puts session_id in hook input JSON).
+# Primary mechanism update (2026-05-23): Claude Code (≥ ~2.1.150) now exports
+# CLAUDE_CODE_SESSION_ID into every tool subprocess — the EM's interactive Bash
+# AND dispatched subagents (which inherit the dispatching EM's id). The helpers'
+# resolve_session_id prefers that env var; it is per-session and cannot be
+# clobbered by a sibling session, so it is the authoritative source. The sentinel
+# this hook writes is now a FALLBACK for older Claude Code (≤ 2.1.128 did not
+# export the var). Keep writing it.
+#
+# Without env var AND without this hook, the helper has no path to the session_id:
 #   - track-touched-files.sh creates session dirs only on the first Edit/Write,
 #     so early-session helper invocations would fail.
 #   - The PID-scan fallback is broken because cs_init records $$ (the hook
@@ -13,10 +19,10 @@
 #
 # Concurrency note: the sentinel is "last writer wins". When two Claude Code
 # sessions run in the same repo, the most recently started session owns the
-# sentinel. Other sessions must use CLAUDE_SESSION_ID explicitly. This is
-# acceptable — the sentinel is a convenience for the common single-session case;
-# the helper's post-filter (touched.txt membership requirement) prevents foreign
-# files from being staged even on sentinel collisions.
+# sentinel — which is why the env var (per-session, unclobberable) is preferred
+# over it. On old Claude Code where only the sentinel exists, the helper's
+# post-filter (touched.txt membership) still prevents foreign files from being
+# staged even on sentinel collisions.
 #
 # Input schema (SessionStart):
 #   { "session_id": "<id>", "source": "startup|compact|clear", ... }
@@ -73,8 +79,46 @@ else
 fi
 
 # --- Write the .current-session-id sentinel ---
-# This is what coordinator-safe-commit's Priority-2 resolution reads.
+# This is what coordinator-safe-commit's Priority-3 resolution reads (the
+# fallback below the CLAUDE_CODE_SESSION_ID env var, for old Claude Code).
 echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
+
+# --- Periodic stale-session reaper (gated: at most once per 12h) ---
+#
+# cs_reap_stale archives sessions that are >24h inactive AND have a dead PID;
+# cs_reap_agents bounds the .agents/ back-pointer index the same way. Without a
+# caller these never ran, so session dirs accumulated unbounded — hundreds on a
+# long-lived machine — and every cs_live_session_ids scan (safe-commit foreign-
+# path check, agent-id union) degraded to tens of seconds.
+#
+# The reaper itself is an O(n) scan with a subprocess or two per dir, so we do
+# NOT pay it on every boot: a marker file (.last-reap) gates it to roughly once
+# per 12h. Most boots are a single stat of the marker; once per window we run the
+# scan. Post-sweep the dir count stays small, so the gated run is cheap. The
+# current session is never reaped (its last_activity is fresh). Best-effort —
+# wrapped so it can never block or fail session start.
+#
+# Concurrent session-init firings within the same 12h window produce benign
+# double-runs: the second mv fails ENOENT (file already archived), cs_archive
+# returns 1, and cs_reap_stale silently skips the entry. No data loss, no
+# double-archive. Review: code-reviewer — confirmed idempotent.
+if command -v cs_reap_stale &>/dev/null; then
+  REAP_MARKER="${SESSIONS_DIR}/.last-reap"
+  REAP_INTERVAL=$(( 12 * 3600 ))
+  _reap_now=$(date +%s 2>/dev/null || echo 0)
+  _reap_last=0
+  if [[ -f "$REAP_MARKER" ]]; then
+    # Review: code-reviewer — fallback 0 is intentional: unknown mtime → treat
+    # as epoch-0, so the gap always exceeds REAP_INTERVAL and the reaper fires.
+    # "trigger reap" default, not "skip reap".
+    _reap_last=$(stat -c %Y "$REAP_MARKER" 2>/dev/null || stat -f %m "$REAP_MARKER" 2>/dev/null || echo 0)
+  fi
+  if [[ "$_reap_now" -gt 0 && $(( _reap_now - _reap_last )) -ge "$REAP_INTERVAL" ]]; then
+    cs_reap_stale  >/dev/null 2>&1 || true
+    cs_reap_agents >/dev/null 2>&1 || true
+    : > "$REAP_MARKER" 2>/dev/null || true
+  fi
+fi
 
 # --- Orphan consumed-handoff sweep (spec backlink: tasks/split-pickup-archival/plan.md § Edit 7) ---
 #
@@ -179,11 +223,13 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
             || last_epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$sid_last_activity" +%s 2>/dev/null) \
             || last_epoch=0
           if [ "$last_epoch" -eq 0 ]; then
-            # Python fallback (Windows/portable)
+            # Python fallback (Windows/portable) — use env-var pattern to avoid
+            # shell-interpolation injection via sid_last_activity value.
+            # Review: code-reviewer — mirrors lib's env-var pattern.
             if command -v python3 &>/dev/null; then
-              last_epoch=$(python3 -c "import datetime,sys; ts='${sid_last_activity%Z}'; print(int(datetime.datetime.fromisoformat(ts).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" python3 -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
             elif command -v python &>/dev/null; then
-              last_epoch=$(python -c "import datetime,sys; ts='${sid_last_activity%Z}'; print(int(datetime.datetime.fromisoformat(ts).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" python -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
             fi
           fi
           inactive_for=$(( now_epoch - last_epoch ))

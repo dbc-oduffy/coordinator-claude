@@ -13,6 +13,8 @@ Turn the PM's intent into a design spec through collaborative dialogue. The PM d
 
 **When NOT to invoke:** Well-scoped follow-ups (PM is asking for a specific next step on a workstream that already has a spec, plan, or completed prior iteration) go straight to `coordinator:plan` — or just do it, if trivial. Brainstorming is for genuine *ambiguity in shape*, not for *next-step-on-known-shape*. If the request answers "what should we build?" with one sentence already, the design exists; jump to plan. If the request would require 2+ rounds of *what is this even?* clarifying questions, brainstorming applies.
 
+**Brainstorming vs. `/shape` (`coordinator:shape`):** these are siblings, not twins. Brainstorming is for *not knowing what to build* — it explores approaches and produces a design spec (a solution artifact). `/shape` is for *converging on the problem* — the PM holds a problem and wants the EM's understanding of it confirmed before any solutioning. The discriminating test: *if the PM HAS a problem and wants confirmation you understood it (vs. not knowing what to build at all) → `coordinator:shape`, not `coordinator:brainstorming`.* Both terminate in `coordinator:plan`.
+
 <HARD-GATE>
 Once brainstorming has started, do NOT invoke any implementation skill, write any code, scaffold any project, or dispatch any executor until the spec is written and PM-approved. The only exit from brainstorming is a completed spec that transitions to `coordinator:plan`.
 

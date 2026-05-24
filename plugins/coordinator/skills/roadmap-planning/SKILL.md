@@ -1,7 +1,7 @@
 ---
 name: roadmap-planning
 description-budget: 400
-description: PM-GATED. Roadmap shaping from research/deep-dive/peer-repo inputs. Four-phase pipeline (Synthesize → Substantiate → Plan → Dispatch) producing kind:spinoff-roadmap stubs with deployment_state, blocks/blocked_by graph, machine-readable STUB-INDEX. Stubs cite a PM-approved OVERVIEW and primary-research corpus, not EM hand-waving. Triggers — "shape a roadmap", "build a roadmap from these deep-dives", "plan a sprint sequence from this research".
+description: PM-GATED. Roadmap shaping from research/deep-dive/peer-repo inputs via Synthesize → Substantiate → Plan → Dispatch pipeline producing kind:spinoff-roadmap stubs with deployment_state, blocks/blocked_by graph, machine-readable STUB-INDEX. Stubs cite PM-approved OVERVIEW + research corpus, not EM hand-waving. Triggers — "shape a roadmap", "plan a sprint sequence from this research".
 version: 1.1.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "<input-corpus-path> [--run-id <slug>]"
@@ -79,6 +79,18 @@ Before Phase 1.5, verify:
 ---
 
 ## Phase 1.5 — Substantiate: research corpus + OVERVIEW + peer-team asks (PM-gated, double-approved)
+
+### Precondition — UE-internal-API engine RAG availability (gate-first; check before any other Phase 1.5 work on UE clusters)
+
+For any cluster planning UE-internal-API work (`FNiagaraStackGraphUtilities`, `UWorldPartitionBuilder`, `UGameplayEffect::GEComponents`, `UAnimBlueprintGeneratedClass`, `FAnimNode_StateMachine`, or any 5.x-specific engine class/struct/function), `mcp__project-rag__project_semantic_search` with `source="unreal"` MUST be available as a *precondition*, not a tier-2 nice-to-have. The skill's "solo scout default" assumes web-discoverability; UE is empirically not web-discoverable for internal-API specifics — web search returns UE 4.x forum posts + stale 5.0-era blogs, and LLM training data is similarly stale for 5.7+ specifics. Solo Sonnet scouts dispatched on this surface produce confident-looking research-corpus files grounded in noise — worse than no artifact because the noise encodes into Phase 2 stubs as if substrated.
+
+**If `source="unreal"` is unavailable** (addon down, corpus not registered, daemon not reachable for that source): STOP planning UE-internal-API clusters, do NOT substitute solo web scouts, surface the block to the PM with the specific clusters affected and the cheapest path to restore the RAG (typically: run `/project-rag-ue-addon:doctor`, then `/project-rag-ue-addon:setup` if needed). Other clusters (non-UE-internal, e.g. tooling, build, infrastructure) may proceed.
+
+Verification call shape:
+```
+mcp__project-rag__project_semantic_search(query="UClass", source="unreal", limit=1)
+```
+A non-empty response with engine-corpus hits proves liveness. Anything else (404, "no addon registered for source=unreal", empty result) is the block signal.
 
 **Goal:** stubs in Phase 2 cite primary research and a PM-approved architectural overview, not EM hand-waving. The empirical motivator is the project-rag retrospective (ESC-4, ESC-5) — thin Phase 1 → Phase 2 transition let stubs encode contested architecture as fait accompli. Phase 1.5 forces the contested decisions into the open *before* they get cast as 20+ stubs.
 
@@ -258,6 +270,7 @@ Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{
 - **`gate_dependency:` frontmatter is for HARD gates only.** A hard gate is a precondition that must land before this stub can be dispatched at all — typically a sibling tc-id, a merged PR, or a flipped feature flag. Soft cross-repo seams (advisory coordination cues like "consider coordinating with peer-repo PR-N" or "watch for X downstream") belong in the stub body's `## Notes` section, NOT in machine-read `gate_dependency:` frontmatter. The frontmatter field drives query-records surfacing and `/pickup` gating logic; polluting it with advisory text causes false "still gated" reports.
 - **Soft seams declared in body, not frontmatter.** Each stub MUST include a `## Soft seams` section in its body (Step 2.2) enumerating workstreams it may overlap with, advisory cross-repo coordination notes, and any "consider coordinating with X" cues. Format: bulleted list, each entry one line, naming the peer workstream/PR/stub and the nature of the overlap (file-region, schema-shape, timing). The frontmatter `scope:` block remains the HARD declaration (machine-readable, drives `/pickup` safety-commit pathspec); `## Soft seams` is the SOFT declaration (human-readable, drives EM judgment when sequencing parallel waves). See `docs/wiki/spinoff-handoffs.md` § "Soft-seams discipline" for the full rule and rationale.
 - **Audit-spike sizing heuristic.** When an audit/spike has exactly one downstream consumer, fold it as Phase 0 of that consumer's implementation stub rather than authoring a standalone audit stub — the audit's output never reaches a second consumer, so the stub overhead is pure ceremony. Standalone audit stubs earn their own tc-id only when ≥2 downstream consumers will read the audit output to define their own behavior. Cross-EM gate-waiting on a single-consumer audit-spike costs more than the leverage it delivers.
+- **Stub-dedup canonical = git commit provenance, not the filename timestamp.** When two stubs of the same tc-id exist (e.g. `11xxxx_…_tc-3.md` and `14xxxx_…_tc-3.md`), the canonical is whichever was committed FIRST as a deliberate per-stub commit — NOT whichever has the earlier HHMMSS prefix. Filename timestamps can invert the truth when an HHMMSS-earlier draft gets bulk-committed later than the HHMMSS-later canonical. Determine canonical from `git log -- <each-stub-path>` + the STUB-INDEX + any existing archival precedent (e.g. prior `.DUPLICATE-FROM-BULK-COMMIT.md`-suffixed siblings). When the duplicated pairs are **divergent** (drafts sometimes structurally richer than the canonical — extra sections, more thorough acceptance criteria), the safe dedup is `git mv` to `archive/` with a `.DUPLICATE-FROM-BULK-COMMIT.md` suffix, NOT `git rm` — it preserves draft-only content at zero cost for the eventual implementing EM, who may want the richer draft's text. The 2026-05-23 DroneSim roadmap (each tc-N authored twice via overlapping bulk-commit + per-stub-commit passes) is the empirical case.
 
 ### Step 2.2 — Body sections (per stub)
 

@@ -491,7 +491,7 @@ Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the Sessi
 
 ## What This Does NOT Do
 
-Run bug-sweep / daily-code-health / deep-architecture-audit / update-docs (dedicated invocations). Merge to main (use `/merge-to-main`). Choose work (session-start's Engage section).
+Run bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedicated invocations). Merge to main (use `/merge-to-main`). Choose work (session-start's Engage section).
 
 ## Relationship & Concurrent Safety
 

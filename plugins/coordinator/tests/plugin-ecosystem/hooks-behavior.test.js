@@ -131,7 +131,9 @@ describe('coordinator-safe-commit', () => {
 
       const r = runBash(SAFE_COMMIT, ['test: explicit path'], {
         cwd: subRepo,
-        env: { ...process.env, CLAUDE_SESSION_ID: scopedSid, HOME: os.homedir() },
+        // Set both env tiers to the scoped id: ...process.env spreads the runner's
+        // real CLAUDE_CODE_SESSION_ID (resolver Priority 2), which must not leak in.
+        env: { ...process.env, CLAUDE_SESSION_ID: scopedSid, CLAUDE_CODE_SESSION_ID: scopedSid, HOME: os.homedir() },
       });
       assert.equal(r.status, 0, `Expected exit 0, got ${r.status}. stderr: ${r.stderr}`);
       const log = execSync('git log -1 --name-only --pretty=format: -- myfile.md', {
@@ -159,6 +161,7 @@ describe('coordinator-safe-commit', () => {
         env: {
           ...process.env,
           CLAUDE_SESSION_ID: bSid,
+          CLAUDE_CODE_SESSION_ID: bSid,
           CLAUDE_INVOKING_COMMAND: 'session-start',
           HOME: os.homedir(),
         },
@@ -179,7 +182,7 @@ describe('coordinator-safe-commit', () => {
 
       const r = runBash(SAFE_COMMIT, ['--blanket', 'test: rejected blanket'], {
         cwd: subRepo,
-        env: { ...process.env, CLAUDE_SESSION_ID: bSid, HOME: os.homedir() },
+        env: { ...process.env, CLAUDE_SESSION_ID: bSid, CLAUDE_CODE_SESSION_ID: bSid, HOME: os.homedir() },
       });
       assert.notEqual(r.status, 0, 'Expected non-zero exit when blanket used without CLAUDE_INVOKING_COMMAND');
       assert.ok(
@@ -207,6 +210,7 @@ describe('coordinator-safe-commit', () => {
         env: {
           ...process.env,
           CLAUDE_SESSION_ID: oSid,
+          CLAUDE_CODE_SESSION_ID: oSid,
           COORDINATOR_OVERRIDE_SCOPE: '1',
           HOME: os.homedir(),
         },
@@ -254,7 +258,7 @@ describe('coordinator-safe-commit', () => {
         'test: scope-from',
       ], {
         cwd: subRepo,
-        env: { ...process.env, CLAUDE_SESSION_ID: sfSid, HOME: os.homedir() },
+        env: { ...process.env, CLAUDE_SESSION_ID: sfSid, CLAUDE_CODE_SESSION_ID: sfSid, HOME: os.homedir() },
       });
       assert.equal(r.status, 0, `Expected exit 0 for --scope-from. stderr: ${r.stderr}`);
 

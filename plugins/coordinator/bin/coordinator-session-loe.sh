@@ -84,13 +84,18 @@ SESSIONS_BASE="${GIT_ROOT}/.git/coordinator-sessions"
 # Resolve session ID
 # ---------------------------------------------------------------------------
 
+# Resolution mirrors coordinator-safe-commit: explicit override first, then the
+# platform-injected env var (per-session, unclobberable; beats the last-writer-wins
+# sentinel), then the sentinel fallback below for old Claude Code.
+[[ -z "$SESSION_ID" ]] && SESSION_ID="${CLAUDE_SESSION_ID:-}"
+[[ -z "$SESSION_ID" ]] && SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
 if [[ -z "$SESSION_ID" ]]; then
   CURRENT_FILE="${SESSIONS_BASE}/.current-session-id"
   if [[ -f "$CURRENT_FILE" ]]; then
     SESSION_ID=$(cat "$CURRENT_FILE" 2>/dev/null || true)
   fi
   if [[ -z "$SESSION_ID" ]]; then
-    echo "Error: no --session-id and .current-session-id not found at ${CURRENT_FILE}" >&2
+    echo "Error: no --session-id, CLAUDE_CODE_SESSION_ID unset, and .current-session-id not found at ${CURRENT_FILE}" >&2
     exit 1
   fi
 fi

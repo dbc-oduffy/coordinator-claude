@@ -202,18 +202,18 @@ def sync_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bo
 
 
 # ---------------------------------------------------------------------------
-# Flat-mirror mode — top-level .md only, no subdirs
+# Flat-mirror mode — top-level files only, no subdirs
 # ---------------------------------------------------------------------------
 def sync_flat_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bool) -> tuple[int, int]:
     synced = 0
     removed = 0
 
-    # Phase 1: top-level .md from src → dst
-    for src_file in sorted(src_dir.glob("*.md")):
+    # Phase 1: top-level files from src → dst
+    for src_file in sorted(src_dir.iterdir()):
         if not src_file.is_file():
             continue
         rel_path = src_file.name
-        if rel_path == "_archived" or rel_path == ".orphaned_at":
+        if _archived_or_orphan(rel_path):
             continue
         if ignore.matches(rel_path):
             continue
@@ -229,13 +229,13 @@ def sync_flat_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_ru
             print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel_path}")
         synced += 1
 
-    # Phase 2: delete top-level .md from dst that src no longer has
+    # Phase 2: delete top-level files from dst that src no longer has
     if dst_dir.is_dir():
-        for dst_file in sorted(dst_dir.glob("*.md")):
+        for dst_file in sorted(dst_dir.iterdir()):
             if not dst_file.is_file():
                 continue
             rel_path = dst_file.name
-            if rel_path == "_archived" or rel_path == ".orphaned_at":
+            if _archived_or_orphan(rel_path):
                 continue
             if ignore.matches(rel_path):
                 continue

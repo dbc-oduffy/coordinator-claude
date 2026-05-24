@@ -1199,7 +1199,7 @@ Contributors compose under a top-level `addons:` key, nested per namespace:
 }
 ```
 
-The namespaced shape (vs. the addon EM's original top-level-merge proposal) is the deliberate re-shape negotiated in `archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md` — operator tooling can iterate contributors without knowing the addon set in advance, and host-owned top-level keys never collide with addon-contributed keys (anticipated Unity addon).
+The namespaced shape (vs. the addon EM's original top-level-merge proposal) is the deliberate re-shape negotiated in `X:/project-rag/archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md` (grandfathered pre-cutoff memo) — operator tooling can iterate contributors without knowing the addon set in advance, and host-owned top-level keys never collide with addon-contributed keys (anticipated Unity addon).
 
 ### Contracts the addon must honor
 
@@ -1213,7 +1213,7 @@ Enforcement of the must-not-raise and time-budget contracts is consumer-side (`c
 ### Cross-repo origin
 
 - Ask doc: `../project-rag-ue-addon/archive/cross-repo/2026-05-19-host-whoami-hookspec-request.md`
-- Reply doc: `archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md`
+- Reply doc: `X:/project-rag/archive/cross-repo/2026-05-19-host-whoami-hookspec-reply.md` (grandfathered pre-cutoff memo)
 - the Staff Engineer review: APPROVED_WITH_NOTES on the in-tree diff; all 7 findings folded inline.
 
 ---

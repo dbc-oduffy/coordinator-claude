@@ -209,7 +209,7 @@ done
 
 ### Step 7 prelude — trail-reading and scope computation
 
-Before invoking `parallel-code-review`, compute the Staff Engineer's narrowed scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the Staff Engineer's lens narrows.
+Before invoking `parallel-code-review`, compute the narrowed **code-semantics** scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk. (The helper's JSON keys are still named `patrik`/`patrik_seam_files` for back-compat; post-restructure the `patrik` SHA set is the code-semantics chunking input and `patrik_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.)
 
 Run the helper (fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`):
 
@@ -229,16 +229,62 @@ Output JSON shape: `{ "patrik": [sha...], "patrik_seam_files": [path...], "mecha
 
 After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
 
-Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, dispatches four orthogonal reviewers (the Staff Engineer + security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the no-rewrite synthesizer narrates 'the Staff Engineer scoped to gap+seams; mechanical workers full diff' in the BLOCKED|WARN|OK verdict.
+Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, chunks the narrowed code-semantics scope into N disjoint file-scope partitions, dispatches **N Sonnet `code-reviewer-weekly` chunks + 3 mechanical workers** (security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. **the Staff Engineer is NOT in this gate** — he runs a separate architecture pass in Step 7.5. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
 
 - **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
 - **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
 - **OK:** proceed silently; verdict line still goes into the release-notes draft for the record.
-- **OK (patrik trail-covered, mechanical clean):** when the trail covers all weekly the Staff Engineer-tier scope AND no findings from any worker. Informational subvariant of OK; the dispatch still ran.
+- **OK (code-semantics trail-covered, mechanical clean):** when the trail covers all weekly code-semantics-tier scope AND no findings from any worker. Informational subvariant of OK; the dispatch still ran.
 
-**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip the Staff Engineer on doc-only weeks; skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
+**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip the code-semantics chunk reviewers on doc-only weeks (mechanical workers still run); skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
 
-**Plan:** `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`.
+**Plan:** `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`; restructure `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md`.
+
+---
+
+## Step 7.5: the Staff Engineer Layer-2 — Architecture Pass (advisory, does NOT gate merge)
+
+The Staff Engineer comes off the diff-level gate (Step 7) and runs at architecture altitude instead. This step is **decoupled from the merge decision** — the mechanical gate (Step 7) is the only hard block. An architecture-altitude concern surfaces to the PM as a *recommendation*; it never silently blocks merge (DECISION D3).
+
+**Run only when there is something architectural to read.** Skip Step 7.5 (note "no arch-tier signal this week") if ALL of: `arch_tier_candidates` is empty AND `convergent_findings` is empty AND the seam-file set is empty. Otherwise dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with these four inputs:
+
+1. **Changelog digest** — the week's `tasks/week-changelog/*.md` daily summaries (what shipped, at a glance).
+2. **`arch_tier_candidates`** — from `$FINDINGS_DIR/synthesis.json`; the findings the Sonnet chunk reviewers flagged `escalate_to_architecture: true`. This is the explicit "a Sonnet thought this needed Opus judgment" feed.
+3. **`convergent_findings`** — from `synthesis.json`; issues independently flagged by ≥2 lenses. Convergence is a cross-cutting signal N independently-scoped Sonnets cannot self-produce.
+4. **Seam-file set** — `patrik_seam_files` from `tasks/review-trail/.weekly-reviewer-scopes.json` (the actual cross-segment integration surface computed by `workweek-trail-scope.sh`). The integration surface is exactly where multi-session erosion lives.
+
+**the Staff Engineer's output:** a tech-debt / refactor-consolidate / YAGNI architectural read. The Staff Engineer **produces candidates only — he never auto-authors spinoff files** (spinoff is PM-gated, `/spinoff` Step 0). He is read-only at this step.
+
+**EM routes the Staff Engineer's candidates down the disposition ladder** (same ladder as the architecture-audit skill, Strand 3a):
+- **Trivial / tradeoff-free AND non-structural** (one-liners, mechanical corrections, no module/interface/cross-system boundary touch) → EM dispatches an executor immediately; ordinary EM remit, no PM gate.
+- **Mid-size cluster** → EM groups into ONE bundled spinoff candidate (`Candidate spinoff: <slug> — <topic>. Authorize?`), surfaced to PM.
+- **Large / genuinely structural** → standalone spinoff candidate or escalate to `/plan`.
+
+Any boundary-touching finding (module move, interface change, cross-system surface) is ineligible for the trivial path regardless of line count — it routes to a bundled/standalone spinoff candidate so it stays recorded.
+
+**Surface the Staff Engineer's spinoff candidates to the PM alongside the release-notes draft (Step 9)** — they are part of the weekly read-out, not a merge blocker.
+
+**Residual accepted loss (architectural OOS):** a cross-cutting erosion spanning multiple chunks that no individual Sonnet flags as architectural — and so never appears in `arch_tier_candidates` — is not caught at the weekly gate. Accepted because session-end covers within-session integration, the seam set + `convergent_findings` substantially close the gap, and an Opus full-diff read at weekly cadence is not justified by frequency.
+
+---
+
+## Step 7.6: Architecture Audit Staleness Fold
+
+The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Make it self-enforcing here on **two triggers**:
+
+**Hard floor (automatic):** run the staleness check:
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"
+```
+It reads the `Last targeted audit` clock from `tasks/health-ledger.md`. `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle. `FRESH` → no fold. `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.
+
+**EM discretion:** even when the clock reads `FRESH`, the EM MAY trigger the targeted audit when the week's churn warrants it (heavy multi-system churn — a large refactor landing across several systems — even on a fresh calendar).
+
+**Scope when folded — targeted-on-diff (DECISION D6):** audit only the systems the week's diff actually touched (read diff-touched paths from the trail / `git diff --name-only origin/main...HEAD` mapped through `docs/architecture/file-index.md`), NOT a full atlas rebuild. The full breadth survey stays a deliberate PM invocation of `/architecture-survey`. Read `${CLAUDE_PLUGIN_ROOT}/skills/architecture-audit/SKILL.md` and run it scoped to the diff-touched systems.
+
+**Disposition:** the folded audit **never edits code** — it packages findings as spinoff candidates down the disposition ladder (immediate executor for trivial+non-structural / bundled spinoff candidate / standalone-or-plan for large) and writes only the `Last targeted audit` clock + atlas metadata. Surface its spinoff candidates to the PM **alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9)** — a single architecture-candidate read-out. The fold does NOT block merge.
+
+If skipped (FRESH and no EM churn trigger): note _"Architecture audit: fresh (Last targeted audit within 10d) — no fold."_ in the summary.
 
 ---
 
@@ -472,7 +518,9 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 **Bug backlog:** [N open P1/P2 items — /bug-blitz proposed/deferred/not needed / file absent]
 **Code stats:** [summary or "scc not available"]
 **ShellCheck:** [clean / N issues fixed]
-**Code-review gate:** [BLOCKED|WARN|OK] — convergent: N — patrik / security / deps / tests summary
+**Code-review gate:** [BLOCKED|WARN|OK] — convergent: N — code-semantics (N chunks) / security / deps / tests summary
+**Arch pass (Step 7.5):** [N arch-tier candidates surfaced / no arch-tier signal this week]
+**Arch audit fold (Step 7.6):** [folded targeted-on-diff audit — N spinoff candidates surfaced / fresh — no fold / staleness UNKNOWN]
 **Tracker:** [N workstreams updated]
 **Merged to main:** [yes — PR #N / blocked: reason]
 **Week-changelog:** archived to archive/week-changelogs/<week-starting>/, HEADER.md reset
@@ -496,3 +544,6 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 - **`/merge-to-main`** — invoked in Step 11.
 - **`/update-docs`** — invoked in Step 3; absorbed prior artifact-consolidation (Step 12) into Phase 8b 2026-05-06.
 - **`bin/check-weekly-staleness.sh`** — informational script `/workday-complete` uses to nudge PM here.
+- **`bin/check-arch-audit-staleness.sh`** — reads the `Last targeted audit` clock from `tasks/health-ledger.md`; consumed by Step 7.6 to decide whether to auto-fold a targeted-on-diff architecture audit (STALE = >10 days).
+- **`/architecture-audit`** — the rotational audit folded in by Step 7.6 when stale; packages findings as spinoff candidates (never edits code), writes `Last targeted audit`.
+- **`/architecture-survey`** — the full breadth survey (PM-invoked, not folded); writes `Last full audit`.

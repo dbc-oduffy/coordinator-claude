@@ -84,7 +84,7 @@ Skills that read `CONTEXT.md` for orientation use canonical terms in their outpu
 Current consumers (this plan, v1):
 - `coordinator:brainstorming` (reads before first PM question, if present)
 - `coordinator:plan` (reads before file-mapping, if present)
-- `/architecture-audit` synthesizer (reads if present; flags glossary candidates without writing)
+- `/architecture-survey` synthesizer (reads if present; flags glossary candidates without writing)
 
 Future consumer rollout (follow-up plan): `docs/wiki/systematic-debugging.md` (formerly the systematic-debugging skill, demoted 2026-05-06), `coordinator:debt-triage`, `coordinator:review-code`, and others. Do not add "read CONTEXT.md" to additional skills/wikis without a plan that explicitly authorizes the addition — that's how cargo-cult expansion starts.
 

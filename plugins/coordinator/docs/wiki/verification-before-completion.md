@@ -99,7 +99,7 @@ Two universal rules that apply after any executor or apply-agent dispatch:
 
 ### (a) Diff is ground truth — not the agent's chat summary
 
-Executor and apply-agents consistently under-count their own work in chat (observed repeatedly in distill and architecture-audit runs). After any multi-file executor dispatch:
+Executor and apply-agents consistently under-count their own work in chat (observed repeatedly in distill and architecture-survey runs). After any multi-file executor dispatch:
 
 1. Run `git diff --stat <expected-path-glob>` — treat the diff as ground truth, not the agent's completion report.
 2. **Empty diff for an agent that claimed work = re-dispatch** with the explicit list of unfinished files. Do not accept "I completed all files" alongside a zero-line diff.

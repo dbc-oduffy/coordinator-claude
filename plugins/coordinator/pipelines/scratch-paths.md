@@ -20,4 +20,4 @@ tasks/scratch/{pipeline-name}/{run-id}/
 - `artifact-distillation` — Haiku scanner + QG scratch, Sonnet synthesis scratch, Sonnet 3a/3b/3d scratch (`phase3a-contradictions-{cluster-tag}.md`, `phase3b-dedup.md`, `phase3d-deletion-manifest.md`), coordinator 3c preview (`phase3c-directory-guide-preview.md`), escalation scratch (`phase3-esc-resolution.md`)
 - `deep-research` — managed by the `deep-research` plugin. Relay pattern scratch (decisions.md, dispatch-manifest.md, prompts/).
 - `deep-research-teams` — managed by the `deep-research` plugin. Agent Teams scratch (specialist findings, synthesis).
-- `deep-architecture-audit` — Haiku function inventory + Sonnet system analysis scratch
+- `deep-architecture-survey` — Haiku function inventory + Sonnet system analysis scratch

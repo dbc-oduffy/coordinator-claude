@@ -104,12 +104,7 @@ Capture these as part of the Phase 1 profile. If `coordinator.local.md` already 
 
 Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no top-level manifest).
 
-**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold:
-
-- **1.5a:** Read `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present.
-- **1.5b:** If `tasks/handoffs/` exists, scan the most-recent 5 handoffs for stack/tooling clues.
-- **1.5c:** If `~/.claude/tasks/repo-registry.md` has sibling entries by `stack_tags`, Read their `CLAUDE.md` for stack-shared conventions.
-- Output: a 5–10 line substrate snapshot (toolchain, workstreams, conventions, sibling-repo context). Cold-ask is the fallback when substrate is empty.
+**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold: `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present (1.5a); most-recent 5 handoffs for stack/tooling clues if `tasks/handoffs/` exists (1.5b); sibling `CLAUDE.md` files for stack-shared conventions via `~/.claude/tasks/repo-registry.md` `stack_tags` (1.5c). Output: a 5–10 line substrate snapshot. Cold-ask is the fallback when substrate is empty.
 
 **Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items — especially valuable when joining cold.
 
@@ -118,16 +113,7 @@ bin/query-records --type completion --since "90d" --where "nature=roadmap" \
   --sort "-loe.tshirt" --limit 10 --format markdown-list
 ```
 
-Render under a fixed subsection heading in the Phase 4 REPORT (per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern):
-
-```markdown
-#### Recent roadmap (last 90d, top-10 by size)
-<results — one bullet per row, or "(none)" when the query returns zero rows>
-```
-
-The `(none)` case is expected on new repos. Render the heading regardless — count-always.
-
-Otherwise:
+Render under `#### Recent roadmap (last 90d, top-10 by size)` in the Phase 4 REPORT (count-always per `docs/wiki/orientation-surfacing-doctrine.md`; `(none)` is expected on new repos). Otherwise:
 
 1. Read top-level `README.md` / `README.rst` / `README.txt` if present.
 2. Read `CONTRIBUTING.md` if present.
@@ -162,9 +148,7 @@ On peer-repo presence: ask once whether to dispatch parallel Explore scouts (rec
 
 ### Phase 2: ASK — PM Input
 
-**Skip questions Phase 1.5 already ratified. Phase 1.5 may have already pinned project name and/or workstreams; only ask the questions whose answers are still missing.**
-
-**If `coordinator.local.md` was found in Phase 1**, skip question 2 — project type already pinned. Ask:
+**Skip questions Phase 1.5 already ratified. Phase 1.5 may have already pinned project name and/or workstreams; only ask the questions whose answers are still missing.** **If `coordinator.local.md` was found in Phase 1**, skip question 2 — project type already pinned. Ask:
 
 > **1. Project name** — short name (e.g., "Geneva MVP", "DroneSim")
 > **2. Initial workstreams** (1-3) — name, 2-3 deliverables, optional deps/blockers. Say "stubs" for placeholders.
@@ -199,12 +183,14 @@ Only scaffold files that have **meaningful day-1 content**. A placeholder header
 | `docs/README.md` | EAGER | Structural index with project name, pointers to plans/research/wikis |
 | `.gitignore` entry | EAGER | Prevents accidental credential commits from first commit onwards |
 | Post-commit hook | EAGER | Auto-push crash insurance is needed from the very first commit |
+| `cross-repo/` dir | EAGER (contract-bearing) | Inbound cross-repo memo channel — sibling EMs address this repo's `cross-repo/` by name; must exist before any memo arrives. Scaffolded with `README.md` (real content, not `.gitkeep`) by `scaffold-canonical-structure.sh`. Schema: `cross-repo-memo`. Source of truth: `canonical-structure.yaml`; plan: `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Lazy-vs-eager reconciliation`. |
 | `tasks/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
 | `tasks/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
 | `archive/completed/` dir | LAZY | No completed work until first work item ships |
 | `docs/wiki/` dir | LAZY | Wiki guides come from `/distill` after artifacts accumulate |
 | `docs/plans/` dir | LAZY | Plans come from plan mode; none exist on day 1 |
 | `docs/research/` dir | LAZY | Research outputs come from `/deep-research` pipelines |
+| `tasks/review-trail/` dir | LAZY | Review records written by `/session-end` and `/handoff` |
 
 LAZY items are NOT created here. Each has a designated "create on first use" owner noted in its section below.
 
@@ -351,7 +337,18 @@ mkdir -p docs   # for project-tracker.md (3b) and README.md (3d)
 mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 ```
 
-**Do NOT pre-create** `tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, or `tasks/review-trail/` with `.gitkeep` files — lazy directories created by the skill that first writes to them (see table above).
+**Scaffold contract-bearing directories** by invoking `scaffold-canonical-structure.sh`. This is idempotent — safe to re-run; never clobbers existing content:
+
+```bash
+# Resolve scaffold script from the coordinator plugin location, not cwd.
+_scaffold_script="$HOME/.claude/plugins/coordinator/bin/scaffold-canonical-structure.sh"
+# Pass --root explicitly so the scaffold targets the project repo, not the coordinator plugin root.
+bash "$_scaffold_script" --root "$(pwd)"
+```
+
+The script reads `canonical-structure.yaml` and creates every `creation: eager` directory entry with a `README.md` (not a `.gitkeep`). Currently that means `cross-repo/` with its schema-documenting README — the file an inbound sender's EM looks for before writing a memo.
+
+**Do NOT pre-create the LAZY directories above** (`tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, `tasks/review-trail/`) **with `.gitkeep` files** — they are created by the skill that first writes to them (see table above). Contract-bearing dirs (`cross-repo/`) are scaffolded with READMEs by `scaffold-canonical-structure.sh`.
 
 #### 3f. .gitignore handling
 
@@ -466,6 +463,12 @@ The documentation index is live at `docs/README.md`. Subdirectories are created 
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
 
+## Coordinator Conventions — Discovery Summary
+
+When a new project is onboarded, surface these convention introductions so the EM has them at hand from day one. These are one-line pointers; the canonical docs hold the full mechanics.
+
+- **Acceptance oracle (outer-loop):** Non-trivial reviewed plans declare bindable acceptance criteria gated at `/merging-to-main`. See `docs/wiki/writing-plans.md` § Acceptance Oracle.
+
 ## Onboarding Bug Fixes — Three-Layer Rule
 
 Any onboarding bug fix that doesn't ship all three layers will recur:
@@ -488,8 +491,6 @@ Layer 2 recovery: doctor probe P-5 in [coordinator-doctor.md](../../docs/wiki/co
 
 ## Notes
 
-- This skill creates the **skeleton**; `/update-docs` handles ongoing tracker maintenance.
-- Tracker format matches the tracker-maintenance skill for consistency.
+- This skill creates the **skeleton**; `/update-docs` handles ongoing tracker maintenance. Tracker format matches the tracker-maintenance skill for consistency.
 - Handoffs live at `tasks/handoffs/` (git-tracked); `settings.local.json` in `.gitignore`.
-- **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files (stays under 12-file ceiling).
-- **Self-contained design:** Works standalone for marketplace users; DETECT phase adds "extends global" reference if `~/.claude/CLAUDE.md` exists.
+- **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files (stays under 12-file ceiling). Works standalone for marketplace users; DETECT phase adds "extends global" reference if `~/.claude/CLAUDE.md` exists.

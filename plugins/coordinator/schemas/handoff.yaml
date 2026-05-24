@@ -10,9 +10,10 @@ required:
   predecessor:
     type: string-or-null
 optional:
-  # Session id of the consuming /pickup invocation; sourced from $CLAUDE_SESSION_ID
-  # with .git/coordinator-sessions/.current-session-id fallback. Used by /session-end
-  # Step 2.7 detection and session-init.sh orphan sweep. Never the machine name.
+  # Session id of the consuming /pickup invocation; sourced from $CLAUDE_CODE_SESSION_ID
+  # (platform-injected, unclobberable) with .git/coordinator-sessions/.current-session-id
+  # last-writer-wins fallback. Used by /session-end Step 2.7 detection and
+  # session-init.sh orphan sweep. Never the machine name.
   consumed_by: string
   consumed_at: iso-date
   session_goal: string

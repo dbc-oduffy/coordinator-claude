@@ -56,12 +56,21 @@ Check whether a prior sidecar exists at `<plan-path>.plan-coverage-check.md`. If
 
 **Oracle detection** — parse the plan for a structured found-facts list. Heuristics in priority order:
 
+**Exclusion — the `## Acceptance Criteria` heading is NEVER an audit oracle.** This section is reserved for the *acceptance oracle* (bindable AC table, gate-bound by `bin/check-acceptance-oracle.sh` at the merge boundary) per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop). Skip the `## Acceptance Criteria` heading and any table directly under it before running the heuristics below — even when the table carries an `ID` column that would otherwise match heuristic 3 below. The acceptance oracle is the green-gate's domain, not the coverage-checker's. (Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md` AC-9; substrate seam surfaced by prior-art-checker 2026-05-24.)
+
+0. **Ratified problem-set (highest priority).** If the plan frontmatter carries a `problem_set:` key (read it only when **literally present** in frontmatter — never infer from body prose):
+   - **`problem_set: <path>`** — read that file. If it has frontmatter `status: ratified`, use its problem list (the `## Problems` items) as the **primary** oracle. An internal audit table found via heuristics 1–4, if present, becomes a secondary oracle. If the file is missing or its `status` is not `ratified` (e.g. `draft`), treat as no ratified problem-set (it does NOT count as an oracle) and fall through.
+   - **`problem_set: inline (§ ...)`** — the ratified problem-set lives inside the plan. Validate ratification by confirming a `> Ratified by PM <name> <date>` blockquote line exists within the cited section. If present, use that section's problem list as the primary oracle. If the blockquote marker is absent, the inline block is `draft` and does NOT count — fall through.
+   - **`problem_set: none`** — fall through to heuristics 1–4.
 1. A heading matching `/^#+\s*(Audit|Findings|Issues|Known.*Issues|Substrate.*Findings|Bugs|Gaps|Items)\b/i` with a numbered or bulleted list underneath.
 2. A heading containing "found", "discovered", "scan results" followed by a list.
 3. A frontmatter or body table with columns including one of: `id`, `item`, `issue`, `finding`, `gap`.
 4. An explicit `**Oracle:**` marker the plan author wrote.
 
-If no oracle is found after checking all heuristics: emit sidecar with verdict `SCOPE-MISMATCH`, reason "no audit/findings oracle found — plan-coverage-checker requires a structured found-facts list to cross-reference against." Stop here. This is the correct silent skip for greenfield design plans.
+**If no oracle is found after checking all heuristics — run the advisory-nudge check FIRST, then emit SCOPE-MISMATCH:**
+
+1. **Advisory problem-set nudge (control-flow: this runs BEFORE the SCOPE-MISMATCH stop).** Read the plan's `scope_mode` frontmatter. If `scope_mode` is `feature`, `architecture`, or `spike` AND there is no ratified problem-set (heuristic 0 fell through), write **one advisory finding line** into the sidecar: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* This is an advisory **finding line that rides alongside the verdict** — it is NOT a verdict-enum member and does NOT change the verdict or force INCOMPLETE. For `production-patch` / audit / unset scope_modes, emit nothing (silent — these legitimately have no problem-set).
+2. **Then** emit the sidecar with verdict `SCOPE-MISMATCH`, reason "no audit/findings oracle found — plan-coverage-checker requires a structured found-facts list (or a ratified `problem_set:`) to cross-reference against." This is still the correct silent skip for greenfield design plans — but for feature/architecture/spike plans the sidecar now also carries the advisory nudge above. The sidecar IS written on the SCOPE-MISMATCH path (so the nudge has a surface to land on). Stop here.
 
 **Slate detection** — parse the plan for the corresponding fix list. Heuristics:
 
@@ -165,9 +174,10 @@ plan: <plan-path-relative-to-repo-root>
 
 **Plan:** <path>
 **Verdict:** COMPLETE | INCOMPLETE | BLOCKED-SURFACE-TO-PM | SCOPE-MISMATCH | DEGRADED
-**Oracle items:** N (source: <heading or table found>)
+**Oracle items:** N (source: <heading | table | ratified problem-set: `<path>` | inline ratified problem-set>)
 **Slate items:** M
 **Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Substrate-drift:** W
+**Advisory:** <advisory finding line, if applicable — omit field entirely when not applicable> <!-- code-reviewer F5: replaced instructional angle-bracket content with minimal placeholder; emit conditions already stated in Phase 1 -->
 
 ### Missed audit items (no slate entry, no architectural OOS)
 
@@ -190,7 +200,7 @@ plan: <plan-path-relative-to-repo-root>
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift. AMBIGUOUS items do not affect COMPLETE verdict — they appear for EM review but do not gate.
 - **INCOMPLETE** — one or more MISSED, weak-OOS, or substrate-drift findings. EM must fold findings into the plan before named reviewer dispatch. AMBIGUOUS items are included in sidecar for review but do NOT count toward INCOMPLETE.
 - **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items in the MISSED bucket (MISSED count alone, not MISSED+AMBIGUOUS combined), OR ≥3 substrate-drift findings (suggests plan was written against a stale tree). EM escalates to PM before continuing.
-- **SCOPE-MISMATCH** — no oracle table located. Treat as no signal; review proceeds without this lens.
+- **SCOPE-MISMATCH** — no oracle table located (and no ratified `problem_set:`). Treat as no signal; review proceeds without this lens. For `feature` / `architecture` / `spike` plans, the sidecar additionally carries the advisory problem-set nudge (an advisory line, not a verdict change — SCOPE-MISMATCH remains the verdict).
 - **DEGRADED** — agent ran with incomplete coverage (token cap hit, oracle parsing ambiguous, file unreadable, etc.). Treat as no signal.
 
 **Cost estimate:** ~N tokens

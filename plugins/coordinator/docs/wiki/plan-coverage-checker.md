@@ -50,7 +50,9 @@ Three classification buckets: **MATCHED** (signal confirmed), **AMBIGUOUS** (sig
 
 M:N semantics apply: a slate chunk that consolidates multiple oracle items must enumerate them explicitly. Oracle members not explicitly cited in a consolidating chunk → AMBIGUOUS (not MISSED).
 
-When no oracle table is found, the agent emits `SCOPE-MISMATCH` and stops — this is the correct silent skip for greenfield design plans.
+**Highest-priority oracle — the ratified problem-set (external).** Before the in-plan heuristics, the agent checks the plan frontmatter for a `problem_set:` key. A `problem_set: <path>` pointing at a `status: ratified` file (or `problem_set: inline (§ ...)` validated by a `> Ratified by PM <name> <date>` blockquote) becomes the **primary** oracle, with any in-plan audit table demoted to secondary. This is the only oracle source for feature/PRD-shaped plans, which otherwise carry no audit table. Because the problem-set is authored *before* and *outside* the plan (via `coordinator:shape`), it is a genuine external check — the plan cannot grade its own homework. See `docs/wiki/writing-plans.md § Problem-set as external oracle`.
+
+When no oracle is found — no ratified problem-set AND no in-plan audit table — the agent emits `SCOPE-MISMATCH` and stops. This is the correct silent skip for greenfield design plans. **For `feature` / `architecture` / `spike` plans lacking a ratified problem-set, the agent first writes an advisory nudge line** (*"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."*) into the SCOPE-MISMATCH sidecar — an advisory line, not a verdict change, and silent for `production-patch`/audit plans.
 
 For full matching rubric, bucket definitions, and OOS sub-classification (OOS-ARCHITECTURAL vs. OOS-WEAK), see the agent body: `agents/plan-coverage-checker.md § Phase 2`.
 
@@ -82,8 +84,9 @@ For extraction heuristics, verification procedure, and scope boundary, see the a
 
 | Plan shape | plan-coverage-checker? |
 |---|---|
+| Plan has a `problem_set:` frontmatter key → ratified external file (or inline ratified block) | **Run** — the problem-set is the primary oracle (highest priority). |
 | Plan contains an audit/findings/issues table (any size) | **Run.** |
-| Plan is greenfield design with no found-facts oracle | Skip silently — agent emits `SCOPE-MISMATCH`. |
+| Plan is greenfield design with no found-facts oracle | Skip silently — agent emits `SCOPE-MISMATCH` (+ advisory nudge for feature/architecture/spike). |
 | Plan is single-file mechanical fix (no design content) | Skip silently. |
 | Plan is doc redesign / wiki rewrite | Skip silently. |
 
@@ -105,7 +108,7 @@ Five verdicts:
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift. AMBIGUOUS does not gate.
 - **INCOMPLETE** — one or more gating findings. EM folds before reviewer dispatch.
 - **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items MISSED (MISSED count alone, not MISSED+AMBIGUOUS) OR ≥3 substrate-drift findings.
-- **SCOPE-MISMATCH** — no oracle found. No signal; review proceeds normally.
+- **SCOPE-MISMATCH** — no oracle found (no audit table and no ratified problem_set:). Agent writes a sidecar carrying the SCOPE-MISMATCH verdict; for feature/architecture/spike plans lacking a ratified problem-set, the sidecar also carries the advisory nudge. Review proceeds normally — no coverage lens ran. <!-- code-reviewer F1: wiki "Five verdicts" SCOPE-MISMATCH row was inconsistent with agent body; agent writes sidecar on this path, wiki now reflects that -->
 - **DEGRADED** — agent ran with incomplete coverage. No signal; review proceeds as if lens did not run.
 
 Prior sidecars are never deleted. On re-run, the agent renames the existing sidecar to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new one. This preserves the re-run history for feedback-loop analysis.
@@ -114,7 +117,7 @@ Prior sidecars are never deleted. On re-run, the agent renames the existing side
 
 The trigger heuristic is skill-internal, so "when not to run" is encoded in the skip logic rather than EM judgment. The agent silently skips plans without an oracle table. Concretely, this covers:
 
-- **Greenfield design plans** — no audit table, no found-facts list, just a proposed design. The agent emits `SCOPE-MISMATCH` immediately and writes no sidecar.
+- **Greenfield design plans** — no audit table, no found-facts list, just a proposed design. The agent emits `SCOPE-MISMATCH` and writes a sidecar carrying that verdict (and, for `feature` / `architecture` / `spike` plans lacking a ratified problem-set, the advisory problem-set nudge). The verdict still signals "no coverage lens ran"; the sidecar exists so the advisory nudge has a surface to land on.
 - **Single-file mechanical fixes** — a plan that says "edit line 47 of file X to fix Y" has no oracle/slate structure worth parsing. Skip.
 - **Doc redesigns and wiki rewrites** — no fix-slate shape. Skip.
 

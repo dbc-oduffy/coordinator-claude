@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # coordinator-doctor-sentinel.sh — fire the coordinator-doctor wiki's probes
-# (P-1..P-9 plus P-10 claude-home smoke and P-11 templates/setup drift) and
-# write a sentinel JSON that bin/scan-addon-health.sh consumes.
+# (P-1..P-9 plus P-10 claude-home smoke, P-11 templates/setup drift, and
+# P-12 canonical document structure presence) and write a sentinel JSON that
+# bin/scan-addon-health.sh consumes.
 #
 # Rationale: docs/wiki/coordinator-doctor.md defines runnable probes for the
 # substrate downstream plugins depend on (machine-local registry,
@@ -220,6 +221,25 @@ if [[ -x "$_p11_script" ]]; then
   fi
 fi
 
+# --- P-12: canonical document structure present (eager dirs + READMEs intact)
+# spec-backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 6
+# Resolve scaffold relative to THIS script's directory (siblings in bin/) so the probe
+# fires regardless of COORDINATOR_PLUGINS_ROOT (which may be a test-env override that
+# points to a scratch directory without a real coordinator install).
+# OPTIONAL: if scaffold-canonical-structure.sh is not present (pre-Chunk-2 install),
+# silently skip. severity: degraded — missing cross-repo/ breaks memo discoverability
+# but does not halt coordinator function like P-1/P-4/P-10 do.
+_p12_sentinel_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_p12_scaffold="${_p12_sentinel_dir}/scaffold-canonical-structure.sh"
+if [[ -x "$_p12_scaffold" ]]; then
+  _p12_dry_out="$(bash "$_p12_scaffold" --root "$CLAUDE_HOME" --dry-run 2>/dev/null || true)"
+  # --dry-run prints "would create" for missing items; "skip (exists)" for present ones.
+  # A fully healthy install produces ONLY "skip (exists)" lines (plus the header lines).
+  if echo "$_p12_dry_out" | grep -q "would create"; then
+    note_amber "P-12" "canonical structure incomplete at $CLAUDE_HOME — run scaffold-canonical-structure.sh --root $CLAUDE_HOME to restore; or re-run /coordinator:setup"
+  fi
+fi
+
 # --- Verdict synthesis ------------------------------------------------------
 if [[ "${#red_probes[@]}" -gt 0 ]]; then
   verdict="RED"
@@ -230,7 +250,7 @@ else
 fi
 
 if [[ "$verdict" == "GREEN" ]]; then
-  hint="All coordinator-doctor probes (P-1..P-11) passed."
+  hint="All coordinator-doctor probes (P-1..P-12) passed."
 else
   # Join hint lines with " | " for single-line sentinel hint field.
   hint=""

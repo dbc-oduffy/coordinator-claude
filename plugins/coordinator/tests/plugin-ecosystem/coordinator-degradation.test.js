@@ -162,23 +162,22 @@ describe('suggest-sonnet-research.sh — without deep-research (degradation path
 
 describe('suggest-sonnet-research.sh — with deep-research present', () => {
 
-  it('mentions /deep-research command when plugin is present', () => {
+  it('mentions /research --mode=web when plugin is present', () => {
     if (!bashAvailable || !dirExists(DEEP_RESEARCH_DIR)) return; // skip if not installed
     if (withDrError) {
       assert.fail(`Script failed with deep-research present: ${withDrError.message}`);
     }
     assert.ok(
-      withDrResult.ctx.includes('/deep-research'),
-      'With deep-research installed, output must reference /deep-research command'
+      withDrResult.ctx.includes('/research --mode=web'),
+      'With deep-research installed, output must reference /research --mode=web'
     );
   });
 
-  it('mentions /structured-research when plugin is present', () => {
+  it('mentions /research --mode=structured when plugin is present', () => {
     if (!bashAvailable || !dirExists(DEEP_RESEARCH_DIR) || withDrError) return;
     assert.ok(
-      withDrResult.ctx.includes('/structured-research') ||
-      withDrResult.ctx.includes('structured-research'),
-      'With deep-research installed, output must reference structured-research'
+      withDrResult.ctx.includes('/research --mode=structured'),
+      'With deep-research installed, output must reference /research --mode=structured'
     );
   });
 
@@ -239,11 +238,11 @@ describe('capability-catalog.md — deep-research dependent features are annotat
     assert.ok(fileExists(CATALOG_PATH), `Capability catalog not found: ${CATALOG_PATH}`);
   });
 
-  it('annotates /deep-research web as requiring the plugin', () => {
+  it('annotates /research --mode=web as requiring the plugin', () => {
     if (!catalog) return;
     assert.ok(
-      catalog.includes('/deep-research web'),
-      'Catalog must reference /deep-research web'
+      catalog.includes('/research --mode=web'),
+      'Catalog must reference /research --mode=web'
     );
     assert.ok(
       catalog.includes('requires deep-research plugin'),
@@ -251,11 +250,11 @@ describe('capability-catalog.md — deep-research dependent features are annotat
     );
   });
 
-  it('annotates /structured-research as requiring the plugin', () => {
+  it('annotates /research --mode=structured as requiring the plugin', () => {
     if (!catalog) return;
     assert.ok(
-      catalog.includes('/structured-research'),
-      'Catalog must reference /structured-research'
+      catalog.includes('/research --mode=structured'),
+      'Catalog must reference /research --mode=structured'
     );
     // The annotation is shared — verified by the presence check above
   });

@@ -16,6 +16,17 @@ The machine-local registry is **operator-set, machine-specific configuration** �
 
 The scope is: stable per-machine paths and environment roots that any tool, language, or repo needs to find — sibling-repo roots, vendor SDK roots (Unreal install, CUDA toolkit), and other per-machine invariants. The empirical origin is four independent EM teams each inventing the same primitive for inter-repo discovery, none aware of the others; §1 of the design plan documents all four cases.
 
+**What this replaces — the four independent reinventions (plan §1.2):**
+
+| Prior approach | Location | Why it fell short |
+|---|---|---|
+| `setup/publish-targets.sh` | coordinator meta-repo | Shell-only, single-purpose; unknown to any other tool |
+| `~/.project-rag/wiring.env` | project-rag | Shell-sourceable env assignments; `.env` format breaks non-shell consumers; per-project namespace doesn't scale |
+| Proposed `addon-resolvers/<addon>.py` | holodeck (proposal) | Wrong scope dimension (per-addon, not per-machine); dual-identity hazard |
+| Distributed env-var sprawl | holodeck | ~9 cross-machine env vars + 5 orthogonal doctor precedence chains |
+
+The registry is the single audited place all of these needed to be. The anti-pattern each represents is still alive; if you see a new `~/.<tool>/config.toml` or a per-repo `TOOL_ROOT=` env var being invented, that is the reinvention detector firing.
+
 ## 2. When to Put a Value in Machine-local vs. Discover at Runtime
 
 The discriminator is **stability and source of truth**:
@@ -26,6 +37,7 @@ The discriminator is **stability and source of truth**:
 | Runtime state (which corpus is currently bound, daemon PID, active consumer-project path) | Live MCP introspection | Changes with each invocation; a stale file would be a receipt, not an answer |
 | Per-project state (project root, project type, skill overrides) | Project `.claude/` config | Varies per project, not per machine |
 | Universal constant (same on every machine, not sensitive) | The relevant repo, committed | Git-tracked durability is the right primitive; no operator action needed |
+| Sibling-repo path needed by a dispatcher CLI | `machine-local/registry.local.toml` | Cross-repo memo dispatcher resolves receiver paths at runtime; registry is the only cross-machine-stable source (PM-endorsed 2026-05-21) |
 | Per-invocation override (CI one-off, test harness path) | `MACHINE_LOCAL_<KEY>` env var | The intentional escape hatch — see §4 resolution order |
 
 Per `docs/wiki/plugin-identity-and-health-sentinels.md`: live = MCP truth (current = answer); persistent = receipt (stale = signal). Machine-local values sit on the "persistent, operator-audited" side. They change when the operator reorganizes their machine, not when a tool runs. If you find yourself wanting to write to machine-local from an MCP server or a script, stop — see anti-patterns §7(b).
@@ -233,6 +245,8 @@ echo "$REPO_PROJECT_RAG/subdir/file.py"
 
 Exports `$REPO_<NAME>` for every declared `repos.*` key (note: prefix is singular `REPO_`, not `REPOS_`). Hyphens in keys are normalized to underscores; identifiers that fail POSIX validation are skipped with a stderr warning.
 
+> **Naming note.** The export prefix is singular `REPO_` (not `REPOS_`). This is the shipped convention; the original plan spec used `REPOS_` but the final implementation settled on `REPO_`. Hyphens and dots in key names are both normalized to underscores — `repos.project-rag` exports as `REPO_PROJECT_RAG`.
+
 **PowerShell** — dot-source:
 
 ```powershell
@@ -299,13 +313,13 @@ The test: *"If I cloned `~/.claude` to a second machine right now, would this va
 
 Machine-local handles operator-set config (key-value, TOML, reader-mediated). The orthogonal substrate is **per-project state directories** under `~/.claude/<project>/` — bespoke paths each project owns for runtime artifacts (PID files, lockfiles, status JSON, install logs, sentinels) that aren't shaped like key-value config. Two substrates, one canonical root.
 
-**Doctrine (2026-05-19, DoE):** The §1.2 namespace-scalability critique of `~/.project-rag/` (per the DoE reply memo, `~/.claude/tasks/memos/2026-05-19-machine-local-doe-reply.md`) is content-agnostic. State directories do NOT get a top-level carve-out — `~/.<project>/` is the anti-pattern whether the contents are config or state. State lives under `~/.claude/<project>/` alongside the project's other claude-home artifacts. XDG's `STATE_HOME` vs `CONFIG_HOME` split informs sub-path naming inside the namespace, not separate top-level dirs.
+**Doctrine (2026-05-19, DoE):** The §1.2 namespace-scalability critique of `~/.project-rag/` (per the DoE reply memo, `~/.claude/cross-repo/archive/2026-05-19-machine-local-doe-reply.md` — grandfathered pre-cutoff memo) is content-agnostic. State directories do NOT get a top-level carve-out — `~/.<project>/` is the anti-pattern whether the contents are config or state. State lives under `~/.claude/<project>/` alongside the project's other claude-home artifacts. XDG's `STATE_HOME` vs `CONFIG_HOME` split informs sub-path naming inside the namespace, not separate top-level dirs.
 
 **Registered namespaces:**
 
 | Namespace | Owner | Contents | Notes |
 |---|---|---|---|
-| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/tasks/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` |
+| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/tasks/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` (grandfathered pre-cutoff memo) |
 | `~/.claude/project-rag/` | project-rag host | host runtime state | Existing; predates this doctrine |
 | `~/.claude/machine-local/` | coordinator | TOML registry — see §1–10 above | The config substrate, not a project state dir |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |
@@ -324,16 +338,88 @@ The `plugin.mirrors` table namespace registers plugins whose live install may be
 
 **Full schema, field reference, and operator examples live in `~/.claude/machine-local/README.md § plugin.mirrors`** — do not duplicate here. The summary below covers only the doctrine decision points.
 
-### Two modes, two structural shapes
+**No provenance stamp on `plugin.mirrors.<name>` writes (DoE ruling 2026-05-23).** Each `[plugin.mirrors.<name>]` table is repo-namespaced and single-writer — only that plugin's own installer ever writes its table, so the table key already encodes the writer. The `[provenance]` convention (§5b case 3, §6) exists specifically for *multi-writer collision diagnosis* — disambiguating which automated writer set a key several installers can write (e.g. `[provenance.unreal]` on the shared `unreal.install_root`, seeded by more than one installer). It is **not** a universal stamp on every `registry.local.toml` write. A single-writer namespaced table has nothing to disambiguate, so a provenance stamp there is ceremony, not signal. Append-only writers that structurally preserve sibling tables (read → `tomllib`-parse-absent-check → append → atomic `os.replace`) satisfy the preserve-unrelated-tables property by construction and need no provenance. (Triggered by project-rag-em's question on `_register_plugin_mirror.py`.)
+
+### Three modes, three structural shapes
 
 | Mode | When to use | Drift probe behavior |
 |---|---|---|
 | Default (git-checkout-managed) | Live install is a separate git checkout; source changes must be explicitly propagated via `bin/refresh-plugin-live-install.sh` | Checks git-state (commits-behind) and venv-state (editable pin, MAPPING integrity, console-script shims) |
 | `propagation_mode = "source_is_live"` | Live install IS the canonical source (e.g., coordinator — `~/.claude/` is both source and install) | Emits `[n/a] propagation_mode=source_is_live` and skips all checks |
+| `propagation_mode = "copy_install"` | Live install is a file-copy produced by a copy-based installer (e.g., the holodeck trio — `holodeck`, `holodeck-control`, `game-dev`); no git remote in the live path | SHA-sentinel drift class: compares `version.txt` (40-char SHA written by the installer) against `git -C <source_path> rev-parse HEAD`; no git fetch, no venv legs |
 
 ### `source_is_live` rationale
 
 For the coordinator plugin, edits happen directly inside `~/.claude/`. There is no "source → live" propagation step because source and live are the same directory. Registering this with `propagation_mode = "source_is_live"` communicates the structural distinction to the probe so it does not report false drift. Outward percolation (`install → publish-repo` via `publish.sh`) is a separate concern and unaffected by this entry. See `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` for the source-direction inversion rationale.
+
+### `propagation_mode = "copy_install"`
+
+<!-- spec-backlink: docs/plans/2026-05-23-copy-install-drift-coverage.md § Chunk 1 -->
+
+For plugins whose live install is produced by a copy-based installer (rather than a git
+checkout), set `propagation_mode = "copy_install"`. The canonical example is the
+`claude-unreal-holodeck` trio (`holodeck`, `holodeck-control`, `game-dev`), installed via
+`scripts/install-plugin.sh` from the holodeck source repo.
+
+**Applicable fields.** Only `source_path` and `live_path` are used. `track_ref` and
+`dist_name` do not apply — no git remote is consulted and no venv editable-install is
+involved.
+
+**SHA-sentinel drift class.** This is a distinct third drift class alongside git-state drift
+and venv-state drift. The installer writes a 40-char source HEAD SHA to
+`<live_path>/version.txt` at copy time. The probe detects drift by comparing:
+
+```
+version.txt  (live install at copy time)
+    vs.
+git -C <source_path> rev-parse HEAD  (currently-checked-out source HEAD — no fetch)
+```
+
+Using the local HEAD (not `origin/main`) avoids constant false-positive drift: these plugins
+develop on `work/*` branches ahead of main.
+
+**Refresh action.** `refresh-plugin-live-install.sh <plugin>` on a `copy_install` entry runs the
+registry-supplied `refresh_cmd` from `source_path`, with a snapshot + REPLACE-semantics rollback
+on failure. The git-state and venv-state legs are skipped entirely.
+
+```bash
+( cd <source_path> && bash -c "<refresh_cmd>" )    # e.g. bash scripts/install-control-plugin.sh --allow-standalone --no-enable
+```
+
+The coordinator does **not** hardcode `install-plugin.sh <plugin> --no-enable`: the holodeck trio
+gates standalone component installs behind `HOLODECK_UMBRELLA_INSTALL=1` (a bare component install
+is *refused*), reachable only via the component forwarders' `--allow-standalone` passthrough — and
+the docs/umbrella component has no forwarder. The correct invocation is installer-internal
+knowledge, so it lives in `refresh_cmd` (operator/installer-supplied, same trust level as the paths
+the script already executes against). `--no-enable` bypasses `enable_plugin.py` (the `settings.json`
+lock). **If no `refresh_cmd` is registered, refresh prints the manual path (`/holodeck:setup` or the
+per-component forwarder) and exits non-zero — it never silently no-ops or guesses an invocation.**
+
+**No-sentinel state.** If `version.txt` is absent, the probe emits `[info] no sentinel` and
+exits 0 — this is honest degraded state, not drift. The sentinel is only written when
+`requires_plugin_source_index: true` is set in the plugin manifest; for plugins without it,
+`[info] no sentinel` is the expected output until the holodeck installer is updated (see
+the holodeck repo's `cross-repo/2026-05-23-copy-install-drift.md` (holodeck pre-restructure root-level placement; will move to cross-repo/inbox/ on next migration) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)).
+
+**Known limitation.** SHA-sentinel catches **committed drift only**. Uncommitted source edits
+are invisible. Content-diff (the only alternative) is a false-positive machine because the
+installer injects BOMs into `.ps1` files, copies the marketplace manifest, and strips
+`.mcp.json`. The sentinel is the deliberate tradeoff.
+
+**Registration example** (Striker, holodeck trio):
+
+```bash
+bin/machine-local set plugin.mirrors.holodeck-control.propagation_mode copy_install
+bin/machine-local set plugin.mirrors.holodeck-control.source_path X:/claude-unreal-holodeck
+bin/machine-local set plugin.mirrors.holodeck-control.live_path C:/Users/oduffy/.claude/plugins/claude-unreal-holodeck/holodeck-control
+bin/machine-local set plugin.mirrors.holodeck-control.refresh_cmd 'bash scripts/install-control-plugin.sh --allow-standalone --no-enable'
+# game-dev: same shape, refresh_cmd → install-game-dev-plugin.sh --allow-standalone --no-enable
+# holodeck (docs, no forwarder): refresh_cmd → 'HOLODECK_UMBRELLA_INSTALL=1 bash scripts/install-plugin.sh holodeck --no-enable'
+```
+
+For clean-install reproducibility on a fresh machine, installers should self-register these
+entries at install time. See the holodeck repo's `cross-repo/2026-05-23-copy-install-drift.md` (holodeck pre-restructure root-level placement; will move to cross-repo/inbox/ on next migration) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)
+for the memo requesting this from the holodeck installer.
 
 ### `track_ref` lifecycle
 
@@ -342,6 +428,12 @@ For the coordinator plugin, edits happen directly inside `~/.claude/`. There is 
 ### Idempotent registration
 
 `/coordinator:setup` Phase 3 Step 5 writes the `[plugin.mirrors.coordinator-claude]` entry to `registry.local.toml` on first run. Re-running `/setup` is idempotent — it checks for the section header before appending. Values set here follow the `registry.local.toml` gitignore convention (§9): the structural shape is declared in `registry.toml`; the machine-specific `live_path` goes in `registry.local.toml`.
+
+### TOML flat-key table-scoping gotcha
+
+Flat keys appended *after* a `[table]` header are scoped to that table, not the document root. `tomllib.loads()` (what the `machine-local` reader uses) scopes them correctly — so a key written after `[plugin.mirrors.coordinator-claude]` resolves as `plugin.mirrors.coordinator-claude."unreal.install_root"`, NOT as a top-level `unreal.install_root`. A naïve append to the end of the file lands the key inside whatever table happens to be last.
+
+**Insert flat quoted keys BEFORE the first `[table]` header** (e.g. via a `_first_table_header_line()` helper); `[header]`-shaped blocks like `[provenance.unreal]` go at the end since they open their own table. **Verify by reader lookup, not text-search:** `machine-local get unreal.install_root` confirms the key resolves at the intended scope — a text-grep of the file passes even when the reader lookup fails because the key is mis-scoped.
 
 ## Verifying Registry Health
 

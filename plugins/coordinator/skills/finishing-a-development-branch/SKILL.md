@@ -16,7 +16,28 @@ Guide completion of development work by presenting clear options and handling ch
 
 ## The Process
 
-### Step 1: Verify Tests
+### Step 1: Acceptance-Oracle Early Feedback + Test Verification
+
+#### Step 1a: Acceptance-Oracle Early Feedback (non-authoritative)
+
+<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — finishing-a-development-branch early non-authoritative gate -->
+
+Run the acceptance oracle as early advisory feedback before presenting options.
+
+**Plan-path threading:** When invoked from `coordinator:execute-plan` Phase 4b, the plan path is passed explicitly from that context — use it directly. When invoked standalone with no plan path available, emit a skip-with-offer and continue.
+
+- **Plan path known (passed from execute-plan or provided by invoker):**
+  ```bash
+  bash bin/check-acceptance-oracle.sh <plan-path>
+  ```
+  - **Exit 0:** Log _"Acceptance oracle: all gate-bound tests pass."_ Continue to Step 1b.
+  - **Non-zero exit:** Log the verdict (the script names which rows are red). This is advisory — do NOT block here. Continue to Step 1b and note: _"You have red acceptance tests — consider iterating before merging, since the authoritative gate at /merging-to-main Step 0a will hard-block on these."_
+  - **Script not found:** Skip silently and continue to Step 1b.
+
+- **No plan path available (standalone invocation):**
+  Emit skip-with-offer: _"Acceptance oracle can be validated with `bash bin/check-acceptance-oracle.sh <plan-path>` — provide a plan path if this branch has one."_ Continue to Step 1b. Never scan the working directory for plan files (concurrent EMs would pick the wrong one).
+
+#### Step 1b: Verify Tests
 
 **Before presenting options, verify tests pass:**
 

@@ -33,13 +33,19 @@ const COORDINATOR_DIR = path.join(PLUGINS_ROOT, 'coordinator-claude', 'coordinat
 const SWEEP_SCRIPT = path.join(COORDINATOR_DIR, 'bin', 'orphan-branch-sweep.sh');
 
 // ---------------------------------------------------------------------------
-// Bash availability guard
+// Bash + jq availability guards
 // ---------------------------------------------------------------------------
 let bashAvailable = false;
 try {
   const r = spawnSync('bash', ['--version'], { stdio: 'pipe' });
   bashAvailable = r.status === 0;
 } catch { /* no bash */ }
+
+let jqAvailable = false;
+try {
+  const r = spawnSync('jq', ['--version'], { stdio: 'pipe' });
+  jqAvailable = r.status === 0;
+} catch { /* no jq */ }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,9 +125,9 @@ const branch = process.argv[1];
 const m = JSON.parse(fs.readFileSync(process.argv[2], "utf-8"));
 const pr = m[branch];
 if (pr == null) {
-  process.stdout.write("[]\n");
+  process.stdout.write("[]\\n");
 } else {
-  process.stdout.write(JSON.stringify([pr]) + "\n");
+  process.stdout.write(JSON.stringify([pr]) + "\\n");
 }
 ' "$BRANCH" "$MAP_FILE"
 `;
@@ -217,10 +223,12 @@ describe('orphan-branch-sweep.sh', { skip: !bashAvailable }, () => {
     }
   });
 
-  it('classifies work/test/orphaned-after-merge as CRITICAL', () => {
+  it('classifies work/test/orphaned-after-merge as CRITICAL', { skip: !jqAvailable && 'jq required for --format json' }, () => {
     const env = {
       ...process.env,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      // Use ':' (POSIX PATH separator) not path.delimiter — bash always uses ':'
+      // regardless of host OS; ';' (Windows delimiter) is not understood by bash.
+      PATH: `${shimDir}:${process.env.PATH}`,
       HOME: repoPath,
     };
     const r = spawnSync(
@@ -239,12 +247,12 @@ describe('orphan-branch-sweep.sh', { skip: !bashAvailable }, () => {
     assert.ok(critical.length >= 1, `Expected CRITICAL for orphaned-after-merge, got:\n${r.stdout}`);
   });
 
-  it('classifies the stale no-PR branch as WARNING', () => {
+  it('classifies the stale no-PR branch as WARNING', { skip: !jqAvailable && 'jq required for --format json' }, () => {
     const staleDayStr = new Date(Date.now() - 3 * 24 * 3600 * 1000)
       .toISOString().split('T')[0];
     const env = {
       ...process.env,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      PATH: `${shimDir}:${process.env.PATH}`,
       HOME: repoPath,
     };
     const r = spawnSync(
@@ -263,10 +271,10 @@ describe('orphan-branch-sweep.sh', { skip: !bashAvailable }, () => {
     assert.ok(warnings.length >= 1, `Expected WARNING for stale no-PR branch (${staleDayStr}), got:\n${r.stdout}`);
   });
 
-  it('--severity-min critical suppresses WARNING entries', () => {
+  it('--severity-min critical suppresses WARNING entries', { skip: !jqAvailable && 'jq required for --format json' }, () => {
     const env = {
       ...process.env,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      PATH: `${shimDir}:${process.env.PATH}`,
       HOME: repoPath,
     };
     const r = spawnSync(
@@ -285,7 +293,7 @@ describe('orphan-branch-sweep.sh', { skip: !bashAvailable }, () => {
   it('text format emits readable lines', () => {
     const env = {
       ...process.env,
-      PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      PATH: `${shimDir}:${process.env.PATH}`,
       HOME: repoPath,
     };
     const r = spawnSync(

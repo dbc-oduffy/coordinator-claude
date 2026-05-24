@@ -6,6 +6,7 @@ status: current
 ---
 
 <!-- spec-backlink: plugins/project-rag/docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 2 (sibling repo) -->
+<!-- extended-by: docs/plans/2026-05-23-copy-install-drift-coverage.md § Chunk 3 -->
 
 # Live-Install Drift Audit
 
@@ -17,12 +18,27 @@ status: current
 
 The coordinator uses a publisher-mirroring model: plugins are authored in `~/.claude/` and published outward to OSS sibling repos (e.g. `coordinator-claude`) via `setup/publish.sh`. Per-machine live installs are separate git checkouts managed independently.
 
-The 2026-ban on publish-repo → live-install clobber (per `feedback_no_publish_sh_overwrites_live_install.md`) means propagation is **never automatic**. An operator must explicitly run a refresh after publishing. Two failure modes emerge from this design:
+The 2026-ban on publish-repo → live-install clobber (per `feedback_no_publish_sh_overwrites_live_install.md`) means propagation is **never automatic**. An operator must explicitly run a refresh after publishing. Three failure modes emerge from this design:
 
 - **Git-state drift.** The live checkout is N commits behind the source tree. The operator's live install is running stale code.
 - **Venv-state drift.** The editable-install MAPPING in the live checkout's `.venv/` is stale relative to the plugin's `pyproject.toml`. The runtime resolves against an outdated package shape even when the source files are current.
+- **Copy-install drift (SHA-sentinel).** The live install was produced by a copy-based installer and the source has advanced past the SHA recorded in `version.txt` at copy time. There is no git remote in the live path; only the sentinel reveals the gap.
 
-Both failure modes are silent without an active probe.
+All three failure modes are silent without an active probe.
+
+---
+
+## Configuring a refresh-managed install — verbs, not hand-edits
+
+The drift failure modes above have a doctrine corollary for *how operators configure* a refresh-managed plugin: **configure through the provided verbs; never hand-edit the wiring or the source.** Because a background refresh periodically runs `git checkout <track_ref>` against the live directory, source-tree edits in a refresh-managed checkout (a) do nothing useful — configuration lives in the registry, env, and per-project wiring, not the source tree — and (b) get silently reverted on the next refresh.
+
+This is the refresh-managed analogue of coordinator's own *source-is-live* rule ("edit `~/.claude`, not a clone" — see `getting-started.md` Movement 2). In both cases the true mental model is identical: **you are configuring an infra tool, not maintaining a fork.**
+
+The provided verbs vary by plugin — e.g. `machine-local set <key> <val>` for registry keys; a plugin's `setup` / `wire` command for env knobs and per-project MCP wiring. Each plugin documents its own configuration-surface table; the universal rule is that hand-editing the refresh-managed checkout is the anti-pattern. Genuine per-project live files (sentinels, `coordinator.local.md` `project_type`) are the documented exceptions — editing those in place IS the correct verb.
+
+<!-- Cross-team origin: project-rag-em, 2026-05-23 cross-repo consult (configure-not-edit framing); folded into coordinator doctrine by DoE. -->
+
+**Per-project plugin gating.** When two plugins expose overlapping domain routing (e.g. `game-dev@coordinator-claude` and `holodeck-control@claude-unreal-holodeck`), enable only one per project via per-project `enabledPlugins`. See `docs/wiki/plugin-extraction-and-distribution.md § Competing Plugins in Overlapping Domains` and `docs/wiki/per-project-plugin-gating.md` for the gating mechanism.
 
 ---
 
@@ -32,7 +48,9 @@ These primitives are documented here for operator reference. Do NOT re-implement
 
 ### `bin/check-plugin-drift.sh`
 
-Read-only probe. Six drift legs:
+Read-only probe. Six drift legs for Default (git-checkout-managed) mode; SHA-sentinel for copy_install mode:
+
+**Default (git-checkout-managed) legs:**
 
 | Leg | What it checks |
 |-----|----------------|
@@ -43,31 +61,110 @@ Read-only probe. Six drift legs:
 | `venv-shim` | Shim scripts present and pointing at the correct interpreter |
 | `working-tree` | No uncommitted local changes in the live checkout |
 
+**copy_install SHA-sentinel leg:**
+
+| Output | Meaning |
+|--------|---------|
+| `[ok] <plugin>: copy_install — sentinel matches source HEAD (<sha:12>)` | Live install is current |
+| `[drift] copy_install: <plugin> live is at <sha:12>, source HEAD <sha:12> — run: refresh-plugin-live-install.sh <plugin>` | Live sentinel behind source HEAD; refresh needed |
+| `[info] <plugin>: copy_install — no version.txt sentinel (installer did not write one; see holodeck memo)` | Honest degraded state; no sentinel yet; see Known Limitation #1 |
+| `[warn] <plugin>: version.txt malformed (len=N) — refresh to rewrite sentinel` | Sentinel exists but is not a valid 40-char hex SHA; does NOT count as drift |
+
 Exit 0 = clean; exit 1 = drift detected. Surfaced daily via `/workday-start` Step 1.10 Addon Health. Run `bash bin/check-plugin-drift.sh --help` for the full probe description and per-leg remediation hints.
+
+**Why `[warn]` (malformed sentinel) exits 0, not 1 (deliberate, not an oversight).** A malformed
+`version.txt` is a *corruption* signal, not a *behind-source* signal — exit-1 would conflate it with
+genuine drift in the aggregate Addon-Health roll-up and could noise a transient/partial write into a
+red gate. The actionable surface is the printed `[warn]` line (operator re-runs refresh to rewrite the
+sentinel); the exit code stays 0 so a corrupt sentinel on one plugin doesn't mask or fake drift state
+for others. `[info]` (no sentinel) and `[warn]` (malformed sentinel) are both "can't compare yet,
+here's why" states — distinct from `[drift]` ("compared, and live is behind").
 
 ### `bin/refresh-plugin-live-install.sh <plugin>`
 
-Atomic two-leg refresh:
+**Default (git-checkout-managed) mode:** Atomic two-leg refresh:
 
 - **Git-state leg:** `git fetch && git checkout <track_ref>` in the live checkout directory.
 - **Venv-state leg:** `uv pip install -e .` against the live checkout's `.venv/` when `pyproject.toml` has changed or the MAPPING is stale.
 
-Takes `<plugin>` name from the `plugin.mirrors.*` registry in `~/.claude/machine-local/registry.local.toml`. Idempotent and resumable. **Never auto-applied** — operator runs it after `check-plugin-drift.sh` flags drift. Exits non-zero if the pre-flight working-tree check in the live checkout fails (uncommitted local changes would be clobbered by the git-state leg).
+**copy_install mode:** Single-action refresh via the registry-supplied `refresh_cmd`:
+
+- Runs `refresh_cmd` from `source_path` (e.g. `bash scripts/install-control-plugin.sh --allow-standalone --no-enable`), with a snapshot + REPLACE-semantics rollback on failure. Git-state and venv-state legs are skipped entirely.
+- The coordinator does **not** hardcode the install invocation: the holodeck trio refuses bare standalone component installs (`HOLODECK_UMBRELLA_INSTALL=1` gate), reachable only via the forwarders' `--allow-standalone` passthrough (and the docs component has no forwarder). The correct command is installer-internal knowledge, so it lives in `refresh_cmd`. `--no-enable` bypasses `enable_plugin.py` (the `settings.json` lock).
+- **No `refresh_cmd` registered → refresh prints the manual path (`/holodeck:setup` or the per-component forwarder) and exits non-zero.** It never guesses an invocation or silently no-ops.
+
+Takes `<plugin>` name from the `plugin.mirrors.*` registry in `~/.claude/machine-local/registry.local.toml`. Idempotent and resumable. **Never auto-applied** — operator runs it after `check-plugin-drift.sh` flags drift.
 
 ### `[plugin.mirrors.<plugin>]` in `~/.claude/machine-local/registry.local.toml`
 
-Registration surface. Schema fields:
+Registration surface. Three modes:
+
+| Mode | `propagation_mode` value | Drift probe behavior |
+|------|--------------------------|----------------------|
+| Default (git-checkout-managed) | `""` (empty / absent) | Six-leg git + venv check |
+| `source_is_live` | `"source_is_live"` | Structural no-op; `[n/a]` |
+| `copy_install` | `"copy_install"` | SHA-sentinel comparison; no git/venv legs |
+
+**Schema fields for copy_install:**
 
 | Field | Semantics |
 |-------|-----------|
-| `source_path` | Absolute path to the plugin source tree (the authored copy) |
-| `live_path` | Absolute path to the plugin live install (separate git checkout) |
-| `track_ref` | Branch or tag the live checkout should track (e.g. `main`) |
-| `propagation_mode` | `"managed"` (default) or `"source_is_live"` (see below) |
+| `source_path` | Absolute path to the plugin source repo root (for `git rev-parse HEAD` + locating the installer) |
+| `live_path` | Absolute path to the live install directory (for reading `version.txt`) |
+| `refresh_cmd` | Shell command run from `source_path` to reinstall the plugin. If absent, refresh prints the manual path and exits non-zero — it never guesses. |
+
+**Why `refresh_cmd` and not a direct `install-plugin.sh` call.** The holodeck trio refuses bare standalone component installs via the `HOLODECK_UMBRELLA_INSTALL=1` gate; the correct command is installer-internal knowledge. A registry-supplied `refresh_cmd` keeps the coordinator generic and routes around umbrella gates without coordinator knowing about them. Dogfood-proven: both refresh-success and refresh-failure paths verified in a live round-trip (2026-05-23).
+
+**No `refresh_cmd` registered → refresh prints the manual path (`/holodeck:setup` or the per-component forwarder) and exits non-zero.** Never guesses or silently no-ops.
+
+`track_ref` and `dist_name` do not apply to `copy_install` entries.
 
 `propagation_mode = "source_is_live"` applies to self-install plugins (coordinator-claude itself, installed over `~/.claude/`). `check-plugin-drift.sh` treats these as structural no-ops — there is no separate live checkout to diverge.
 
 Run `bin/machine-local keys | grep plugin.mirrors` to enumerate registered plugins on the current machine.
+
+---
+
+## `copy_install` Mode — Mechanism and Rationale
+
+The `copy_install` propagation mode covers plugins installed by a file-copy installer rather
+than a git checkout. The canonical example is the `claude-unreal-holodeck` trio (`holodeck`,
+`holodeck-control`, `game-dev`), installed via `scripts/install-plugin.sh` from the holodeck
+source repo.
+
+### SHA-sentinel — why not content-diff?
+
+The installer writes a 40-char source HEAD SHA to `<live_path>/version.txt` at copy time.
+The probe compares this sentinel to `git -C <source_path> rev-parse HEAD`. No network fetch —
+the local HEAD is the comparison target, since these plugins develop on `work/*` branches ahead
+of `origin/main`.
+
+Content-diff (comparing live files to source files) would be a false-positive machine: the
+installer injects UTF-8 BOMs into every `.ps1`, copies in the marketplace manifest, and strips
+`.mcp.json` — so `live ≠ source` by construction even when perfectly current. The sentinel
+sidesteps all of it.
+
+### Known Limitations
+
+1. **SHA-sentinel catches committed drift only.** Uncommitted source edits are invisible:
+   `version.txt` records the committed HEAD, so if source has uncommitted changes that haven't
+   been copied to the live install, the probe will show `[ok]` even though the live install
+   lags behind. Acceptable: the 3-day-drift incident (2026-05-20 → 2026-05-23) was committed
+   drift, and content-diff is the only way to catch uncommitted drift — and it is a
+   false-positive machine. Documented here; not deferred by appetite.
+
+2. **`holodeck` and `game-dev` report `[info] no sentinel`** until the holodeck installer
+   is updated to write `version.txt` unconditionally (currently gated on
+   `requires_plugin_source_index: true` in the plugin manifest, set only for
+   `holodeck-control`). See the holodeck repo's `cross-repo/inbox/2026-05-23-copy-install-drift.md` (memo requesting the fix) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)
+   for the memo requesting the fix. This is honest degraded state — the prior coverage was
+   zero; `[info]` is progress, not silence.
+
+3. **Clean-install reproducibility** depends on the holodeck installer self-registering
+   `plugin.mirrors` entries at install time. Until that lands, a fresh machine requires a
+   manual `machine-local set` pass. The cross-repo memo is the close for this gap.
+
+4. **`rm -rf` restore guard.** The post-flight restore guard is hardened to check that `LIVE_PATH` is a resolved-physical-path under `$PLUGINS_DIR` (not a self-compare). This matters because `refresh_cmd` is operator-controlled registry content — the trust model was confirmed: `refresh_cmd` adds no privilege-escalation beyond the ability to write the registry.
 
 ---
 
@@ -116,8 +213,10 @@ The plan contains the implementation rationale and dispatch decomposition. This 
 
 ## Cross-References
 
-- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md` — implementation spec and rationale
-- `docs/wiki/machine-local-registry.md § plugin.mirrors` — registry schema and value-writing discipline
+- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md` — implementation spec and rationale for Default + source_is_live modes
+- `docs/plans/2026-05-23-copy-install-drift-coverage.md` — implementation spec for copy_install mode
+- `docs/wiki/machine-local-registry.md § plugin.mirrors` — registry schema and value-writing discipline; § 12 copy_install subsection
 - `docs/wiki/addon-health-sentinel.md` — health sentinel convention; design contrast documented above
 - `docs/wiki/plugin-identity-and-health-sentinels.md` — scanner-is-reader-never-writer rule
+- the holodeck repo's `cross-repo/inbox/2026-05-23-copy-install-drift.md` (memo requesting the fix) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`) — cross-repo memo requesting version.txt ungating + installer self-registration
 - Global CLAUDE.md § Plugin live-install propagation — managed-refresh model
