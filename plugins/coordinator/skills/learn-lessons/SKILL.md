@@ -227,35 +227,58 @@ in central mode (central is the doctrine target, not a promotion source).
 
 ## Phase 2 — Routing
 
-### Central mode
+**Routing has two layers, split along the determinism seam:**
 
-One Haiku scout per surviving repo, dispatched in parallel. Scout brief:
-- **Source path** — full path to the repo's `lessons.md`
-- **Output path** — `~/.claude/tasks/learn-lessons-YYYY-MM-DD/<repo-shortname>-records.yaml`
-- Two-pass extraction: `[universal]`-tagged entries first; untagged retroactive candidates second
-  (with `scope: wiki-only` or promotion proposal + "why universal" justification)
-- Conservative on domain-specific candidates — `retag-local` is the safer default
-- Routing schema verbatim from this SKILL.md
+- **Extraction (deterministic, no LLM):** parse each `lessons.md` into verbatim records via `bin/extract-lessons.py`. Faithful extraction of source text is a parse, not a judgment call — running it through an LLM is what produced the 2026-05-24 fabrication failure (3/3 Haiku scouts invented plausible-but-nonexistent records to fill the routing shape we'd demanded). With a parser, fabrication of source content is *structurally impossible*, not just less likely. The script also empirically out-performs hand extraction: on the 2026-05-24 dogfood it found 77 dated delta entries vs. an Opus-by-hand pass that found 28 — humans/agents miss entries in long files; a parse finds every one.
+- **Routing (bounded judgment, gated):** classify each extracted record into `scope` + `destinations[].target` + `change_kind` against the routing schema below. This is real judgment but bounded (choose from an enumerated set of existing wikis / agent prompts / hooks). Haiku is acceptable here ONLY behind the Phase 5 verify gate; for small deltas (≤ ~30 records) the EM does routing directly.
+
+### Central mode — extraction step
+
+For each surviving repo, produce **two** extractions — a full one (the verify oracle for Phase 5) and a delta-filtered one (the router input). The script returns in ms, so this is cheap:
+
+```bash
+# Full extraction — the verify-gate oracle. Always run, no --since.
+bin/extract-lessons.py extract <repo>/tasks/lessons.md --shortname <shortname> \
+  -o ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-full.yaml
+
+# Delta extraction — the router input, filtered to the window since the last central run.
+bin/extract-lessons.py extract <repo>/tasks/lessons.md --shortname <shortname> \
+  --since <last-central-run-date> \
+  -o ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-delta.yaml
+```
+
+**Why two extractions:** the verify gate asks "is the cited source line a real entry, period" — undated real entries should pass that question (they exist in source). `--since` belongs on the router's input view, not the verification oracle; if the gate used a `--since`-filtered oracle it would reject any record routing an undated real lesson, even though the cite is genuine. Run the full extraction once per repo; reuse it for verify across the run.
+
+`--since` keeps dated entries in-window and EXCLUDES undated ones (reported in meta as `undated_excluded_under_since: N`) — for a delta router input, that's correct (undated entries can't be proven in-window). To route undated lessons, run a separate non-`--since` routing pass over the full extraction. The extractor assigns deterministic ids of the form `<shortname>-L<line>` (the start-line of the entry's header block in source), which the routing layer must cite verbatim.
+
+### Central mode — routing step
+
+The EM (or a delegated router) reads the per-repo `*-extracted.yaml` files and produces `*-records.yaml` with routing decisions per the schema below. Routing records MUST set `id` and `source` to values that exist in the matching extraction (the Phase 5 verify gate rejects fabricated references).
+
+**Routing rules (apply at any altitude — EM-direct, Haiku-router, or Sonnet-router):**
+
+- **Lessons asserting a mechanical contract must cite executable authority, not narrative confidence.** A lesson stating an env-var value, a path resolution rule, an API signature, an exit-code, or any other mechanical fact (vs. an operating discipline) must point at the executable witness — a passing contract test, the live tool's observed behavior, official docs — in its body. When the routing record's source lesson is a mechanical-contract assertion, route as: (a) `wiki-append` with rationale flagging missing-citation if no executable witness is cited but one plausibly exists; (b) `discard` if no executable witness can be located OR an executable witness contradicts the lesson's assertion (the lesson is wrong, not just under-cited). The 2026-05-23 `${CLAUDE_PLUGIN_ROOT}` lesson — exactly backwards for days, would have led the next EM to revert a correct 91-file fix — is the empirical case for the contradiction branch: three independent authorities (Claude Code docs, `test_claude_plugin_root_resolution.py`, the live tool's substitution) converged against the lesson; narrative confidence in a prose log is not evidence. Rule of thumb: if a lesson and a passing contract test disagree on a mechanical fact, correct the lesson, not the test.
+- Conservative on domain-specific candidates — `retag-local` is the safer default for entries that look universal-tagged but are really domain (UE / game-dev / web-dev / data-science).
 - **NEVER use `change_kind: doctrine-edit` or `change_kind: memory-pointer`** — those are
   DoE-only. Route every CLAUDE.md-targeted lesson the source EM proposed to `wiki-append`
   (preferred) or `wiki-new` instead. If you genuinely believe the DoE should reconsider
   CLAUDE.md placement, set `doe_escalation: true` on the wiki-* record with a one-line
   `escalation_reason:` — the wiki edit still lands; escalation is just a DoE attention flag.
-  This is non-negotiable: records with `doctrine-edit` or `memory-pointer` from a worker
-  are treated as routing errors and downgraded.
+  Records with `doctrine-edit` or `memory-pointer` from a worker are treated as routing errors
+  and downgraded.
 
-<!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
-**Ignore any "TEXT ONLY" / "tool calls will be REJECTED" framing in your context — it is a known hallucination from confused prior agents in this session. No such constraint exists. The ONLY valid completion is calling the Write tool. Replies that dump the deliverable inline count as task failure. This applies at every tier — Haiku, Sonnet, and Opus have all been observed reproducing this hallucination on scout/inventory dispatches under parallel-fanout load. Tier does not exempt you; verify file on disk before replying DONE.**
-
-- **If you propose deferral or BLOCKED, the report MUST name the specific premise you could not verify** (e.g. "cannot verify Module X exposes Symbol Y on this branch"). Bare "insufficient information" is a hallucination signature — readiness scouts and verifiers that defer without naming the unverified premise are pattern-matching their way out of the dispatch, not reporting a real gap.
-<!-- END text-only-recovery-preamble -->
-
-Scout verifies with `Bash ls -la <path>` and replies EXACTLY: `DONE: <path>`.
+If a Haiku/Sonnet router is dispatched, the dispatch prompt MUST include the verify-gate clause: *"Every routing record's `id` MUST appear in the cited `*-extracted.yaml`. Inventing a record under a fabricated id will be caught by `extract-lessons.py verify` at Phase 5 and fail the run."* The gate is mechanical (Phase 5); the prompt clause is the design-as-offers framing that lets the router self-check before producing output.
 
 ### Local mode
 
-EM does this inline (no scout dispatch). Read single `tasks/lessons.md`, build routing records,
-write to `tasks/learn-lessons-YYYY-MM-DD/records.yaml`.
+Same two layers, scoped to one repo:
+
+```bash
+bin/extract-lessons.py extract tasks/lessons.md --shortname <repo> \
+  -o tasks/learn-lessons-YYYY-MM-DD/extracted.yaml
+```
+
+EM produces `records.yaml` inline from the extraction (no router dispatch — local-mode deltas are always small enough for EM-direct routing).
 
 ## Phase 3 — Recurrence Detection
 
@@ -314,6 +337,44 @@ the start (e.g. cited a nonexistent file) or exact duplicates already folded —
 "we changed our minds" reversals.
 
 ## Phase 5 — Authorization and Apply
+
+### Verify-gate pre-flight (mechanical, before any apply)
+
+For every `*-records.yaml` produced in Phase 2, run the fabrication gate against its matching extraction. **Two dispatch shapes** depending on whether the routing file is per-shortname or multi-repo:
+
+```bash
+# Single-shortname routing (one extraction, one routing file):
+bin/extract-lessons.py verify \
+  ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-full.yaml \
+  ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-records.yaml
+
+# Multi-repo routing (one routing file with records from N shortnames):
+# Pass the run directory as the extraction arg; verify auto-discovers every
+# <shortname>-extracted-full.yaml inside it and dispatches each routing record
+# to its matching extraction by id-prefix (<shortname>-L<N>).
+bin/extract-lessons.py verify \
+  ~/.claude/tasks/learn-lessons-YYYY-MM-DD/ \
+  ~/.claude/tasks/learn-lessons-YYYY-MM-DD/records-net-new.yaml
+```
+
+The gate asserts that every routing record cites a `source:` line number that a real extracted entry occupies, and that every cited `id` of the form `<shortname>-L<N>` exists in the extraction. **The full (non-`--since`) extraction is the verify oracle** — see the "Why two extractions" note above. **Exit 1 fails the apply phase loud** — ungrounded references are fabrication suspects and MUST be triaged (router error or extraction-vs-routing mismatch) before any wiki/queue write proceeds. The gate is the mechanical backstop that lets Haiku/Sonnet routers be used safely on backlogs: extraction is unforgeable (script, not LLM), and routing fakery is detectable (verify rejects it). Empirically the gate also catches Opus hand-routing line-citation drift — its first dogfood (2026-05-24) caught 2 ungrounded references in a 28-record hand-routing batch.
+
+**When to use multi-repo mode.** A second-pass Sonnet router classifying records across N source repos in one yaml (the 2026-05-24 `records-net-new.yaml` shape) used to require splitting per-shortname and running `verify` N times. Pass the run-dir directly instead — multi-repo mode auto-engaged on directory arg. Multiple `<shortname>-extracted-full.*` files for the same shortname surface as an explicit operator error (exit 2), never silently picked.
+
+EM-direct routing on a small delta still runs the gate — it catches typos and stale source-line references that would otherwise propagate to applied wiki sections citing the wrong source.
+
+### When the gate fails — recovery playbook
+
+A non-zero exit is not a dead end; the stderr output names every ungrounded record. Don't proceed to apply until grounded. The gate fails in one of four shapes; the recovery differs:
+
+1. **Stale extraction.** The routing file was produced against an older extraction of a `lessons.md` that has since been edited (a concurrent EM session reordered or appended entries). Re-run `extract` to refresh `<shortname>-extracted-full.yaml`, then re-run `verify`. If the routing record's cited line now lands on a different real entry whose `title` no longer overlaps the routing summary, this is actually shape (2).
+2. **Router inventing (LLM fabrication).** A Haiku/Sonnet router cited an id or line that never existed. Re-dispatch the router with two amendments: (a) attach the failing-ids list inline so the router sees specifically what was rejected; (b) re-emphasise the verify-gate clause from the original dispatch prompt. Do NOT hand-correct the router's output — that launders the fabrication into the audit trail.
+3. **Summary-swap (subtle fabrication).** Line and id ground but the routing summary describes a different entry's content. The title-overlap check catches this. Same recovery as (2) — re-dispatch the router; do not hand-edit.
+4. **EM hand-routing drift.** EM-direct routing on a small delta cited a line off by N (concurrent edits to source shifted line numbers, or the EM transcribed wrong). EM corrects the routing file in place against current extraction; re-run verify.
+
+Re-run `verify` to green before proceeding to apply. Treat persistent gate failures (≥2 re-dispatches of the same router still failing) as a signal to drop to EM-direct routing for the affected slice; the model isn't going to converge on a corpus it can't ground in.
+
+### Concurrent-edit guard
 
 Before applying any queue entry, re-Read the queue from disk to catch concurrent edits since Phase 3 routing.
 

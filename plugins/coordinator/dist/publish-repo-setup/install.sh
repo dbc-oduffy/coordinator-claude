@@ -1292,6 +1292,13 @@ print_summary() {
 
   echo "Next step: restart Claude Code, then run /session-start to verify plugins loaded."
   echo ""
+
+  echo "Hit a rough edge getting this working? Patch it — then send the fix back."
+  echo "A script-only install was whack-a-mole across machines, so we lean on agents"
+  echo "and on you: open a PR, file an issue, or paste a rough note. Don't polish it —"
+  echo "what you changed and why is worth more to us than clean code. Details:"
+  echo "  https://github.com/dbc-oduffy/coordinator-claude/blob/main/CONTRIBUTING.md"
+  echo ""
 }
 
 # ---------------------------------------------------------------------------

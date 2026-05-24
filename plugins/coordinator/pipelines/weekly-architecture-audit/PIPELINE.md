@@ -1,16 +1,17 @@
 # Weekly Architecture Audit — Systematic System Rotation
 
-> Referenced by `/architecture-rotation`. This is a pipeline definition, not an invocable skill.
+> Referenced by `/architecture-audit`. This is a pipeline definition, not an invocable skill.
 
 ## Overview
 
-Rotate through project systems ensuring complete coverage. Uses a weighted scoring formula to select the highest-priority audit target. Discovers debt, doesn't fix it inline — debt goes through the plan-review-execute pipeline.
+Rotate through project systems ensuring complete coverage. Uses a weighted scoring formula to select the highest-priority audit target. **Discovers findings, never edits code** — findings are packaged as spinoff candidates down the EM disposition ladder (immediate executor for trivial+non-structural / bundled spinoff candidate / standalone-or-plan for large). Writes the `Last targeted audit` clock, not `Last full audit`.
 
-**Announce at start:** "I'm using /architecture-rotation to audit [system name]."
+**Announce at start:** "I'm using /architecture-audit to audit [system name]."
 
 ## When to Trigger
 
-- Surfaced at session-start when `Last full audit` in health ledger is >7 days old
+- Surfaced at session-start when `Last targeted audit` in health ledger is >10 days old
+- Auto-folded by `/workweek-complete` Step 7.6 when `check-arch-audit-staleness.sh` returns STALE
 - Available as maintenance menu option (Option 6 in session-start)
 - Can be invoked directly any time
 
@@ -20,7 +21,7 @@ Rotate through project systems ensuring complete coverage. Uses a weighted scori
 
 **Prerequisite check:** If no health ledger exists (`tasks/health-ledger.md`) AND no atlas exists (`docs/architecture/systems-index.md`):
 
-> _"No baseline exists. Use /architecture-audit first to bootstrap the atlas and health ledger."_
+> _"No baseline exists. Use /architecture-survey first to bootstrap the atlas and health ledger."_
 
 Stop here — the weekly audit needs a baseline to rotate through. If a health ledger exists but no atlas, proceed normally (the audit predates the atlas feature).
 
@@ -72,9 +73,9 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 
 0. **Generate run ID** — format: `YYYY-MM-DD-HHhMM`. Scratch directory: `tasks/scratch/weekly-architecture-audit/{run-id}/`
 1. **Sub-chunk** the system into groups of 8-12 files, organized by concern (not alphabetical — group by what the files do together)
-2. **Dispatch Haiku inventory agents (parallel)** — one per sub-chunk. Use the Phase 1: Haiku Function-Level Inventory Prompt from `deep-architecture-audit/agent-prompts.md`. These agents read files and catalog what exists — no analysis. Pass scratch path `tasks/scratch/weekly-architecture-audit/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md` as `[SCRATCH_PATH]`. Instruct the agent in its prompt to use the Write tool for this. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
+2. **Dispatch Haiku inventory agents (parallel)** — one per sub-chunk. Use the Phase 1: Haiku Function-Level Inventory Prompt from `deep-architecture-survey/agent-prompts.md`. These agents read files and catalog what exists — no analysis. Pass scratch path `tasks/scratch/weekly-architecture-audit/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md` as `[SCRATCH_PATH]`. Instruct the agent in its prompt to use the Write tool for this. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
    **Scratch verification:** Before dispatching Sonnet, verify all expected Haiku scratch files exist. Re-dispatch once on failure; skip that sub-chunk on second failure.
-3. **Dispatch Sonnet analysis agents (parallel)** — one per system — reads ALL Haiku sub-chunk inventories from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase1-haiku.md`. Use the Phase 2: Sonnet System Analysis Prompt from `deep-architecture-audit/agent-prompts.md` (the variant with grading). Include the existing atlas page as context so Sonnet focuses on changes and quality assessment, not rediscovery. Pass scratch path `tasks/scratch/weekly-architecture-audit/{run-id}/{chunk-letter}-phase2-sonnet.md` as `[SCRATCH_PATH]`. Instruct the agent in its prompt to use the Write tool for this. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
+3. **Dispatch Sonnet analysis agents (parallel)** — one per system — reads ALL Haiku sub-chunk inventories from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase1-haiku.md`. Use the Phase 2: Sonnet System Analysis Prompt from `deep-architecture-survey/agent-prompts.md` (the variant with grading). Include the existing atlas page as context so Sonnet focuses on changes and quality assessment, not rediscovery. Pass scratch path `tasks/scratch/weekly-architecture-audit/{run-id}/{chunk-letter}-phase2-sonnet.md` as `[SCRATCH_PATH]`. Instruct the agent in its prompt to use the Write tool for this. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.)
    **Scratch verification:** Before dispatching Opus reviewer, verify Sonnet scratch files exist. Re-dispatch once on failure.
 4. **Dispatch domain reviewer (Opus)** with **summarized Sonnet findings (read from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase2-sonnet.md`)** — reviewer brings judgment and cross-cutting insight, not file-reading labor. Do NOT send raw files to the domain reviewer.
 5. Reviewer grades the system and adds/updates the grade on the atlas page
@@ -82,43 +83,31 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 
 **Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to the backstop dispatch.
 
-**Note:** Templates for Haiku and Sonnet agents are in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-audit/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
+**Note:** Templates for Haiku and Sonnet agents are in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
 
-### Step 4: Apply Inline Fixes
+### Step 4: Package Findings as Spinoff Candidates (the audit NEVER edits code)
 
-Route reviewer findings through the review-integrator:
+The audit pass **never edits code** — it reads, scores, and hands findings to the EM. There is no inline-fix step. The EM routes each finding down a disposition ladder (people over process):
 
-- **Minor, mechanical findings** (naming, formatting, small corrections): apply inline
-- **Structural, architectural findings** (refactors, module moves, interface changes): convert to debt backlog entries
-- The review-integrator's complexity threshold handles this automatically
+- **Trivial / tradeoff-free AND non-structural** → EM dispatches an executor immediately (ordinary EM remit, no PM gate). **Guardrail:** any finding touching a module boundary, interface, or cross-system surface is ineligible regardless of line count — it routes to a spinoff candidate so it stays recorded.
+- **Mid-size cluster** → EM groups into ONE bundled spinoff candidate.
+- **Large / genuinely structural** → standalone spinoff candidate, or escalate to `/plan`.
 
-### Step 5: Update Debt Backlog
+Spinoff candidates surface as PM-gated `Candidate spinoff: <slug> — <topic>. Authorize?` prompts; the audit never auto-authors spinoff files (`/spinoff` Step 0). The immediate-executor path bypasses the gate by design.
 
-For findings that represent real debt:
+### Step 5: (retired — no auto-debt-backlog write)
 
-1. Add entries to `tasks/debt-backlog.md` with:
-   - ID: `WAA-{date}-{N}` (Weekly Architecture Audit prefix)
-   - Source: `weekly-audit/{reviewer}/{date}`
-   - Status: `open`
-2. These go to the PM for triage, then through the pipeline if prioritized
-
-**Concurrency note:** `debt-backlog.md` may be written by overlapping sessions (e.g., `/code-health` running concurrently). Always append new rows at the bottom of the table — never rewrite or reorganize existing rows. When updating an entry's status, match by ID column only. Update the `> Last triaged:` header line to today's date; do not remove or reorder any other header fields.
-
-**Backlog overflow nag:** If the backlog exceeds 20 open items, apply the escalating nag below. This is a passive nag — not a gate. The audit still completes; the nag is appended to the Step 7 report.
-
-- **>20 items:** _"Debt backlog has N open items. The Staff Engineer notes with mild concern that the backlog is growing. Consider running `/debt-triage`."_
-- **>30 items:** _"Debt backlog has N open items. The Staff Engineer is visibly disappointed. A quality system that accumulates 30+ unreviewed debt items is not practicing what it preaches. Run `/debt-triage` before this audit adds more."_
-- **>40 items:** _"Debt backlog has N open items. The Staff Engineer has put down his coffee. He is staring at you. Forty items means the debt governance system has failed its own invariants. Running `/debt-triage` is no longer a suggestion — it is the next action. Do it now."_
+**D5 (PM 2026-05-24):** the audit no longer writes `tasks/debt-backlog.md` entries. The disposition ladder (Step 4) + spinoff-candidate pattern is the dedicated home for audit findings. `debt-backlog.md` remains only for items the EM/PM explicitly choose to **defer with a reason** (architectural OOS) — not the default sink for audit findings. The Step 4 guardrail keeps structural findings recorded as spinoff candidates so nothing goes dark.
 
 ### Step 6: Update Health Ledger
 
 1. Update the system's row: new grade, status, audit date, open issue counts
-2. Update `Last full audit` date in the header
+2. Update the **`Last targeted audit`** date in the header — this rotational audit writes the targeted clock, NOT `Last full audit` (only `/architecture-survey` writes that; `check-arch-audit-staleness.sh` reads `Last targeted audit`).
 3. Calculate the next rotation target and update `Next rotation target` in the header
-4. Commit:
+4. Commit (health-ledger only — no debt-backlog write, no code edits):
    ```bash
-   git add tasks/health-ledger.md tasks/debt-backlog.md
-   git commit -m "weekly-audit: [system] audited, grade [X]→[Y]"
+   git add tasks/health-ledger.md
+   git commit -m "arch-audit: [system] audited, grade [X]→[Y]; Last targeted audit bumped"
    ```
 
 ### Step 6.5: Update Atlas Page

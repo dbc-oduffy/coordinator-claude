@@ -1,6 +1,6 @@
 # Deep Architecture Audit — Agent Prompt Templates
 
-Seven templates covering both full and refresh modes, plus chunk table templates for Phase 0 output. Phase 2 has two variants: Discovery (no grade, used by deep-architecture-audit) and Audit (with grade, used by weekly-architecture-audit).
+Seven templates covering both full and refresh modes, plus chunk table templates for Phase 0 output. Phase 2 has two variants: Discovery (no grade, used by deep-architecture-survey) and Audit (with grade, used by weekly-architecture-audit).
 
 ---
 
@@ -200,7 +200,7 @@ Read each changed file and produce a delta inventory:
 
 ## Phase 2: Sonnet System Analysis Prompt (Discovery)
 
-_Used by deep-architecture-audit (first run and refresh). No grade — observations only._
+_Used by deep-architecture-survey (first run and refresh). No grade — observations only._
 
 ```
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->
@@ -414,7 +414,7 @@ Top 3-5 most notable aspects of this system, ranked by architectural significanc
 
 ## Phase 2R: Sonnet System Analysis Update Prompt (Refresh)
 
-_Used by deep-architecture-audit refresh mode. Observations only — no grade._
+_Used by deep-architecture-survey refresh mode. Observations only — no grade._
 
 ```
 <!-- BEGIN text-only-recovery-preamble (synced from snippets/text-only-recovery-preamble.md) -->

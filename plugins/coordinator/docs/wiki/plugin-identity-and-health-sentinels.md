@@ -47,7 +47,7 @@ For machine-local operator-set values (sibling-repo roots, Unreal install root, 
 
 ## Why no `whoami.json`
 
-The shape "second on-disk sentinel for **plugin runtime identity**" was proposed 2026-05-19 and deferred by mutual consent of the holodeck EM, project-rag host EM, and project-rag-ue-addon EM. Memos at `~/.claude/tasks/memos/2026-05-19-project-rag-*-whoami-sentinel*.md`. The principle:
+The shape "second on-disk sentinel for **plugin runtime identity**" was proposed 2026-05-19 and deferred by mutual consent of the holodeck EM, project-rag host EM, and project-rag-ue-addon EM. Memos at `~/.claude/cross-repo/archive/2026-05-19-project-rag-*-whoami-sentinel*.md` (grandfathered pre-cutoff memos). The principle:
 
 **Identity is runtime state with a live source. Don't persist what you can query.**
 
@@ -94,6 +94,8 @@ If a future incident motivates surfacing additional state, the path-of-least-res
 3. **Add a doctor probe.** For yes/no health questions with a remediation step (corpus schema currentness, plugin Binaries freshness), extend the doctor skill so the verdict flows through the existing receipt sentinel.
 4. **New disk sentinel.** Only when none of (1)–(3) fit — e.g., the writer must be a skill, the decay model is distinct, the verdict-reduction has structural value. The doctor sentinel is the existence proof; the bar for a second one is high.
 
+   The **setup-state receipt** (`~/.claude/coordinator-setup-state.yaml`) is the justified second disk sentinel: its writer must be a skill (`/setup` + the EM-facilitated orientation, no MCP/doctor owns it), its decay model is distinct (a milestone set once and never re-checked for currency — unlike the doctor receipt's "stale = re-run" nudge), and its yes/no verdict (`setup_concluded_at` present?) is a cross-repo chaining gate sibling repos consume. → [`coordinator-setup-state-receipt.md`](coordinator-setup-state-receipt.md).
+
 ## Known follow-up items (not blocking, not yet scoped)
 
 Surfaced during the 2026-05-19 consult and parked for the next consumer-driven trigger:
@@ -105,10 +107,10 @@ Both are receipt/health-shaped, not identity-shaped. Both unblock when a concret
 
 ## Cross-references
 
-- `~/.claude/tasks/memos/2026-05-19-project-rag-host-em-whoami-sentinel.md` — original consult to host EM
-- `~/.claude/tasks/memos/2026-05-19-project-rag-host-em-whoami-sentinel.reply.md` — host EM reply (canonical statement of the writer-boundary rule)
-- `~/.claude/tasks/memos/2026-05-19-project-rag-addon-em-whoami-sentinel.cover.md` — addon EM consult after host reply
-- `~/.claude/tasks/memos/2026-05-19-project-rag-em-whoami-sentinel.md` — initial addon EM consult
+- `~/.claude/cross-repo/archive/2026-05-19-project-rag-host-em-whoami-sentinel.md` — original consult to host EM (grandfathered pre-cutoff memo)
+- `~/.claude/cross-repo/archive/2026-05-19-project-rag-host-em-whoami-sentinel.reply.md` — host EM reply (canonical statement of the writer-boundary rule)
+- `~/.claude/cross-repo/archive/2026-05-19-project-rag-addon-em-whoami-sentinel.cover.md` — addon EM consult after host reply
+- `~/.claude/cross-repo/archive/2026-05-19-project-rag-em-whoami-sentinel.md` — initial addon EM consult
 
 ## Decision shape (for the next person to find this)
 

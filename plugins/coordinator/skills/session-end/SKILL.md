@@ -163,8 +163,9 @@ Sonnet classifies to one of `[roadmap | bugfix | tech-debt | infra]` and returns
 
 **`$em_sid` sourcing (env-var-primary):**
 1. If `$em_sid` is set in the environment, use it directly.
-2. Else read from `.git/coordinator-sessions/.current-session-id` (the platform sentinel — `session-init.sh:77` writes the current `session_id` there on every SessionStart, per `docs/wiki/claude-code-platform-gotchas.md:47`).
-3. Do NOT use `meta.json`-based lookup — it is circular (you need `$em_sid` to find the directory containing `meta.json`).
+2. Else use `$CLAUDE_CODE_SESSION_ID` — the platform-injected session id (Claude Code ≥ ~2.1.150). Per-session and unclobberable by a sibling session, so it is authoritative.
+3. Else read from `.git/coordinator-sessions/.current-session-id` (last-writer-wins sentinel — `session-init.sh` writes it on every SessionStart; only a fallback for old Claude Code, per `docs/wiki/claude-code-platform-gotchas.md`). If the sentinel read is ambiguous (flips between ids across reads), two sessions are live — do not trust it; the env var in step 2 is the answer.
+4. Do NOT use `meta.json`-based lookup — it is circular (you need `$em_sid` to find the directory containing `meta.json`).
 
 `<sid6>` = last 6 characters of the resolved `$em_sid`. If `$em_sid` cannot be resolved, generate a 6-char hex fallback from the current timestamp (`date +%s | tail -c 7 | head -c 6`).
 
@@ -267,13 +268,43 @@ Frontmatter field semantics:
 
 Not every commit is a work item. Group related commits into a single archive entry. Skip trivial commits (typo fixes, formatting). If a session produced no substantive commits beyond doc/lesson housekeeping, no archive entry is needed — skip silently.
 
+### Step 2.65: Cross-repo memo lifecycle sweep — flip resolved memos to `actioned`
+
+When the session's work resolves a request from a cross-repo memo sitting in **this repo's** `cross-repo/inbox/`, the receiver-side lifecycle requires flipping `status: open → actioned` in the memo file (with an optional `decision:` line) so the inbox accurately reflects channel state. A receiver that ships the requested fix without flipping the status leaves the memo looking unresolved — a silent drift between "what got done" and "what the inbox says is still pending."
+
+**Detection — non-automatable; prompt the EM.** No reliable programmatic signal connects a session's commits to a memo's resolution (memo topics need not appear in commit messages; the resolution may span multiple commits or non-commit work). Treat this as a session-end checklist surface:
+
+1. **Glob** `cross-repo/inbox/*.md` in the current repo. Parse YAML frontmatter; filter to `status: open` (or absent → treat as open).
+2. **If zero matches:** skip this step silently.
+3. **If ≥1 matches:** list each as a numbered line — `N. <basename> — <title or first heading> (from: <from>, topic: <topic>)`. Then ask once, plain prose: _"Any of these resolved this session? If yes, give me the numbers; I'll flip `status: actioned` and add a one-line `decision:` you dictate. (Type none if none.)"_
+4. **For each named memo:** Edit the file in place — set `status: actioned` and append `decision: <PM-supplied line>` to the frontmatter. Then **sweep it out of the inbox**: `git mv cross-repo/inbox/<file> cross-repo/archive/<file>`. The `/workday-start` inbox scan filters by `status ∈ {open, reviewed}`, so an actioned memo won't re-surface — but the inbox is the *active* channel and actioned memos clutter it; the archive is their terminal resting place. Keeping the move coupled to the status flip also makes the channel robust to any future scanner that filters by location rather than status. Both the in-place edit and the move fold into Step 3's commit (no separate commit; this is housekeeping, not a workstream event). Create `cross-repo/archive/` if it does not exist.
+
+**Out of scope here:** the sender side (nothing to update — the sender keeps no copy per the single-delivery-copy model); memos that the session created or moved (Chunks A/F-style migration work has its own commit story); memos in `cross-repo/archive/` (already closed). Do NOT touch any other repo's `cross-repo/`.
+
+**Why session-end specifically:** the receiver-side state flip is small enough that asking inline at the moment of resolution would be ceremony; batching at session-end (when the EM is already reviewing the session's scope) is the cheaper cadence. The PM's framing is the trigger: "if one was resolved in the chain."
+
+### Step 2.66: Sender-side — do NOT re-surface already-sent memos
+
+**Counterpart to Step 2.65, sender-side.** If this session (or any earlier session in the chain) ran `cross-repo-memo` or made a doctrine-seeding direct write into a sibling repo, **do NOT list those memos / seeds as "pending PM-relay" or "pending your action" in the Final Summary, in any `Flag to PM:` block, or in a follow-on `/handoff` body.** The PM was handed the receiver path once at send time — that is the relay. The receiving repo's `/workday-start` Step 1.45 inbox surfacing is the canonical channel; staleness is already flagged there.
+
+**Why:** sender-side knowledge of whether the receiving EM has actioned a memo decays fast and silently. Re-surfacing a memo the receiver may already have closed (and just not yet had a session you've seen) wastes PM attention on a hand-rolled status board that the inbox maintains authoritatively. Trust the channel.
+
+**Concretely banned phrasings in `/session-end` output:**
+- *"Two PM-relays still pending your action — (1) ... (2) ..."*
+- *"Cross-repo memo X awaiting your relay"*
+- *"DoE doctrine-seed Y pending sibling-EM action"*
+
+The only legitimate sender-side mention is at the moment the CLI runs (Receiver-side path + relay reminder in that turn's output). After that turn, the memo is the receiver's surface, not yours.
+
+→ `docs/wiki/cross-repo-communication.md` § Don't re-nag the PM about already-sent memos.
+
 ### Step 2.7: Archive Predecessor Handoff (if applicable)
 
 When this session was opened with `/pickup`, the consumed handoff still lives in `tasks/handoffs/` (mutation-only at pickup time). If this session is ending via `/session-end` rather than `/handoff`, archive the predecessor now.
 
 **Detection:** scan `tasks/handoffs/*.md`. For each file, read its frontmatter `consumed_by:` field.
 
-- Resolve this session's id: `$CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
+- Resolve this session's id: `$CLAUDE_CODE_SESSION_ID` env var first (platform-injected, unclobberable); `.git/coordinator-sessions/.current-session-id` sentinel fallback only when the env var is empty.
 - Zero matches → skip silently.
 - One match → archive it (see Action below).
 - More than one match → log to stderr and archive all. (A session that legitimately consumed multiple predecessors is rare but not invalid — no fail-loud.)
@@ -345,11 +376,11 @@ This is **diff partitioning under capacity limits**, not the workweek parallel-o
 4. Trail write at end uses `--reviewer code-reviewer` (single value); record the partition shape in the wrap-up sentence, not the trail field.
 5. Post-`code-reviewer` the Staff Engineer-escalation criteria below apply to the **combined** finding set (sum across slices), not each slice independently.
 
-There is no upper bound on partition count — if the diff genuinely requires 6 or 8 `code-reviewer` dispatches, dispatch 6 or 8. The constraint is per-reviewer context fit, not total slice count. The workweek merge-gate ceremony (`coordinator:parallel-code-review`) is orthogonal: it runs 4 fixed lenses at merge time regardless of how many session-end partitions ran.
+There is no upper bound on partition count — if the diff genuinely requires 6 or 8 `code-reviewer` dispatches, dispatch 6 or 8. The constraint is per-reviewer context fit, not total slice count. The workweek merge-gate ceremony (`coordinator:parallel-code-review`) is orthogonal: it runs N code-semantics chunk reviewers + 3 mechanical workers at merge time regardless of how many session-end partitions ran.
 
 **No named-reviewer escalation from code review.** Named reviewers (the Staff Engineer, personas) are for plans and architecture. Code output review at session-end is Sonnet `code-reviewer` only — partition across slices as needed. If `code-reviewer` surfaces an architectural finding, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
 
-The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony (4 orthogonal lenses: security, deps, test-evidence, plus the Staff Engineer on the combined diff). It is a merge-gate, NOT a deferral path — do not skip session-end review and "surface to PM for workweek." Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`) + 3 mechanical workers (security, deps, test-evidence) → no-rewrite synthesizer; the Staff Engineer runs a separate advisory architecture pass at Step 7.5, not the gate. It is a merge-gate, NOT a deferral path — do not skip session-end review and "surface to PM for workweek." Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
 
 **Anti-ceremony-bias tripwire (`code-reviewer`-skip direction — still load-bearing):**
 > "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
@@ -358,7 +389,7 @@ The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ce
 > "Plan-time review and post-implementation review catch different defect classes — complementary, not substitutional. Mechanical executor gates (grep/pytest/`bash -n`) are correctness floors, not review lenses. 'We've done a lot of review already' is the shape wrap-up pressure takes at session-end. If you're drafting a waiving-with-rationale sentence on a row-3+ session to skip `code-reviewer`, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. See `docs/wiki/session-end-review.md` § why-post-implementation-review-is-not-redundant for the worked example."
 
 **Chain-end detection:**
-- Resolve session-id: `CLAUDE_SESSION_ID` env var first; sentinel fallback at `.git/coordinator-sessions/.current-session-id` only when env var is empty.
+- Resolve session-id: `$CLAUDE_CODE_SESSION_ID` env var first (platform-injected, unclobberable); `.git/coordinator-sessions/.current-session-id` sentinel fallback only when the env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
 - **Trail is the only valid code-output coverage signal.** When scanning chain history for prior reviews, read `tasks/review-trail/*.json` records ONLY. A "the Staff Engineer reviewed the plan" note in a predecessor handoff body is plan-level design-intent coverage — it does NOT satisfy the chain-end `code-reviewer` floor. Plan-level the Staff Engineer reviews (`docs/plans/*.review-patrik.md`) are not trail records and count as zero code-output coverage. If no trail record exists covering the chain diff's sha-range, the chain diff is unreviewed regardless of what the handoff narrative says.
 
@@ -420,14 +451,22 @@ Now that the final commit has landed and pushed, archive this session's claim di
 
 Run:
 ```bash
-sid=$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null) && \
+sid="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null)}" && \
   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 
-Idempotent — already-archived sessions return 0 silently (verified: a session archived by `/handoff` and re-archived here is a no-op). Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the sentinel is missing or the lib is unavailable.
+Idempotent — already-archived sessions return 0 silently (verified: a session archived by `/handoff` and re-archived here is a no-op). Failures are non-fatal (the 24h reaper is the safety net). Skip silently if the session id can't be resolved or the lib is unavailable.
 
-**Note on session_id source:** The sentinel is "last writer wins" across concurrent sessions. If `CLAUDE_SESSION_ID` is exported in your environment, prefer it over the sentinel — that's the session that actually owns this exit.
+**Note on session_id source:** Prefer the platform env var `$CLAUDE_CODE_SESSION_ID` (Claude Code ≥ ~2.1.150) — per-session and unclobberable, so it is the session that actually owns this exit. The `.current-session-id` sentinel is "last writer wins" across concurrent sessions and is only a fallback for older Claude Code; an ambiguous sentinel read (flips between ids) means two sessions are live — use the env var, don't act on the sentinel.
+
+### Step 3.8: Acceptance-oracle offer (non-blocking)
+
+If this session executed an oracle-bearing plan (one that went through `coordinator:review` and carries a bindable `## Acceptance Criteria` table with `gate-bound` rows) and any `gate-bound` ACs remain red or unrun, emit an offer-shaped notice before the final summary:
+
+> "You have unresolved acceptance tests in `<plan-path>`: <count> red/unrun gate-bound AC(s). Run `bash bin/check-acceptance-oracle.sh <plan-path>` before merging via `/merging-to-main`."
+
+**Never a hard block.** `/session-end` is not a merge surface — teeth live at `coordinator:merging-to-main` Step 0. This is advisory only: design-as-offers, not friction. If no oracle-bearing plan was involved this session, or all gate-bound ACs are green, skip silently.
 
 ### Step 4: Final Summary
 
@@ -444,7 +483,5 @@ Present a brief end-of-session summary:
 ```
 
 **Flag to PM:** Explicitly note the push so they can verify nothing breaks for other consumers.
-
-**Reminder:** Run `/update-docs` periodically for repo-wide documentation maintenance — it doesn't need to happen every session.
 
 If `$ARGUMENTS` is provided, use it as context for what was accomplished this session.

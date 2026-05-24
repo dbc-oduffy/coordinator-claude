@@ -70,6 +70,18 @@ While drafting, walk the VP-Product Reviewer questions against your own plan **b
 
 If a the VP-Product Reviewer question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
 
+## Problem-set as external oracle
+
+A plan documents a PM-owned PRD half (the problem, what "solved" means) and an EM-owned SDD half (architecture, fix-locus, sequencing). When the problem was converged via the `/shape` ceremony (`coordinator:shape`), the PRD half lives in its own ratified file at `docs/problems/YYYY-MM-DD-<slug>.md`, and the plan links it via the `problem_set:` frontmatter key.
+
+That file is the plan's **external coverage oracle.** Because it is authored *before* and *outside* the plan, `plan-coverage-checker` can verify the fix slate covers every ratified problem without the plan grading its own homework — the self-referential trap that an in-plan audit table cannot escape. For feature/PRD-shaped plans (which carry no internal audit table and otherwise get a silent `SCOPE-MISMATCH` skip), a ratified problem-set is the *only* thing that gives the coverage check a target.
+
+- **Integrity marker:** `status: ratified` + a `> Ratified by PM <name> <date>` blockquote. Unratified = `status: draft` = not an oracle.
+- **Linkage values:** `problem_set: <path>` (external file), `problem_set: inline (§ ...)` (a ratified block inside the plan — validated by the same blockquote marker), or `problem_set: none`.
+- **No problem-set on a feature/architecture/spike plan?** The coverage check emits an advisory nudge (not a verdict-gate) — confirm problem understanding with the PM before dispatch. See `docs/wiki/plan-coverage-checker.md`.
+
+Authoring the problem-set is `/shape`'s job, not the plan's. If you arrived at `coordinator:plan` without one and the work is non-trivial, that is the Branch B doubt-check's cue (see `skills/plan/SKILL.md`).
+
 ## Definition of Ready (pre-drafting gate)
 
 Before writing tasks, confirm each item or explicitly waive it. If multiple are missing, recommend brainstorming or a spike instead of a plan.
@@ -161,6 +173,10 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
 
+**Registrar-bound callables read like globals — grep the registration shape before asserting invocation counts.** Before drafting a plan whose fix slate cites N invocations of a callable like `foo()`, grep the registration shape (`def register_*`, FastMCP `register_*_tools`, FastAPI `Depends`, pytest fixtures) for `foo` as a *parameter* — a global-looking identifier at a call site may be bound at registration time by production wiring (e.g. `register_live_tools(mcp, get_project_root, …)` bound to `lambda: _effective_project_root()`). Grepping the literal name confirms the name *exists*, not what it *resolves to*; read the production call site that constructs the registrar args. plan-coverage-checker misses this — it verifies token presence at cited lines, not the symbol's binding. Source: 2026-05-21 project-rag (a plan asserted "10 boot-pinned `get_project_root()` sites" that were already parameter-bound and correct; would have shipped a duplicate of already-shipped code).
+
+**Content-migration inbound-link greps must enumerate every citation form.** For any cross-repo / mass-delete content migration, the inbound-link grep pattern MUST enumerate all three markdown ref shapes per target — absolute (`docs/wiki/name.md`), bare-name (`name.md`), and self-relative (`./name.md`) — not just the absolute-prefix form. Markdown ref resolution is per-source-file relative, so the same target appears in 3+ shapes across the tree; a writer-mental-model grep ("how the path appears in MY edits") misses the reader-mental-model shapes. Source: 2026-05-23 holodeck W6b PRUNE — an absolute-prefix-only grep let 25 broken links escape to the final gate.
+
 ## Fix-locus discrimination
 
 <!-- Review: code-reviewer — structural displacement fix (F2): moved Fix-locus discrimination to after the full Negative-Search procedure so the numbered 1-5 list correctly reads under its own heading. Dimension question label dropped and folded into Green clause (F3). Tier 2 narrowing broadened to Tier 1–3 (F4). -->
@@ -232,9 +248,14 @@ This structure informs task decomposition — each task should produce self-cont
 
 ## Acceptance Criteria
 
-- [ ] [Testable criterion 1]
-- [ ] [Testable criterion 2]
-- [ ] [Testable criterion 3]
+<!-- For plans going through coordinator:review, use the bindable table form below.
+     Trivial/unreviewed plans may keep simple prose checkboxes.
+     Full doctrine: § Acceptance Oracle (outer-loop) below. -->
+
+| ID | Criterion (prose — pre-review) | Test (typed-prefix) | Binding-Class | Status |
+|----|--------------------------------|---------------------|---------------|--------|
+| AC-1 | [Pre-review prose, testable-shaped] | `pending realization` | gate-bound | ☐ |
+| AC-2 | [Tone/shape criterion the reviewer judges] | `reviewer-judgment` | reviewer-judgment | ☐ |
 
 ## Non-Goals
 
@@ -245,10 +266,72 @@ This structure informs task decomposition — each task should produce self-cont
 
 **Why these fields are required:**
 - **Scope mode** routes review depth and the evidence bar. Reviewers and `/merge-to-main` read it.
-- **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it."
+- **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." For plans going through `coordinator:review`, the prose checkboxes upgrade to a bindable table with binding-class and typed-prefix Test cells — see § Acceptance Oracle (outer-loop) below.
 - **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
 
 The `Status:` field is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. See ARCHITECTURE.md § "The Write-Ahead Status Protocol" for the full state machine.
+
+## Acceptance Oracle (outer-loop)
+
+> Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md`. Sibling doctrine: `docs/wiki/test-driven-development.md` § Two loops.
+
+When a plan goes through `coordinator:review`, its `## Acceptance Criteria` section is bindable: each row links to a named executable test that the *green-gate* runs at the merge boundary. This is the **outer loop** of test-driven development (acceptance-test-driven at the plan boundary), distinct from — and complementary to — the inner red-green cycle the executor runs per function.
+
+**Gate predicate (no new predicate; rides the existing review trigger):** a plan that warranted a review warrants verifiable exit criteria. Trivial/unreviewed plans keep prose checkboxes or nothing.
+
+### Two-altitude flow
+
+`plan draft (prose criteria) → coordinator:review (reviewer reads criteria as a design lens — unphraseable criterion ⇒ underspecified spec) → realize each as a named FAILING test → implementation → tests green → done-gate`.
+
+**"Post-review" means after the *plan* review, not the *code* review.** The acceptance test is still authored before its implementation — test-first at the acceptance altitude, compatible with the inner-loop discipline. State this explicitly so "post-review" is never read as licensing tests-after-code.
+
+### AC binding-class
+
+Every AC row carries one of two binding classes:
+
+- **`gate-bound`** — the Test cell is a typed-prefix expression the gate dispatcher can execute. The acceptance gate enforces this row: a red or missing test blocks the done-verdict at the merge boundary.
+- **`reviewer-judgment`** — the criterion is about tone, shape, or semantic quality that no mechanical test can confirm. The gate does NOT bind this row; it is the persona reviewer's lens at plan review. Presence-grepping a subjective criterion would produce a proxy that passes trivially — that is the prose-checkbox failure the acceptance oracle exists to kill.
+
+The gate binds the bindable; the reviewer owns the unbindable; neither pretends.
+
+### Typed-prefix test-cell scheme
+
+The gate dispatches on a prefix tag in the Test cell:
+
+| Prefix | Runner | Example |
+|--------|--------|---------|
+| `pytest:path::nodeid` | pytest | `pytest:tests/test_oracle.py::test_gate_fires` |
+| `node:path -t name` | node:test or Jest | `node:tests/oracle.test.js -t "gate fires"` |
+| `cargo:module::test` | cargo test | `cargo:oracle_tests::gate_fires` |
+| `grep:pattern@path` | bash grep | `grep:acceptance oracle@docs/wiki/writing-plans.md` |
+| `cited:ref` | citation validator | `cited:abc1234` or `cited:logs/run-2026-05-24.txt` |
+
+Adding a new language runner requires only a new prefix branch in the gate dispatcher.
+
+**`grep:` multi-path semantics.** A `grep:pattern@path1,path2` cell requires the pattern to match in **every** listed path (all-must-match). A criterion asserting a fact across N files binds to a test that fails if any one file is missing it — closing the single-file-grep-passes-while-half-the-criterion-unmet hole.
+
+**Path convention.** Test-cell paths resolve from the gate's invocation cwd, which is the **project root** for the normal `coordinator:merging-to-main` Step 0a invocation. Use repo-root-relative paths in Test cells (e.g. `plugins/foo/docs/wiki/X.md`, not `docs/wiki/X.md`, when the file lives inside a plugin). Surfaced empirically by the 2026-05-24 dogfood — 9 of 9 gate-bound ACs went red on the first run because the plan used plugin-relative paths; updated Test cells to repo-root and the gate flipped to all-green in one iteration.
+
+**`cited:` validation.** A `cited:` cell is NOT a free-text bypass. The gate validates that the cited ref resolves: a commit SHA must exist in the local git history, or a run-log path must exist on disk. If the ref does not resolve, the gate treats the row as red. Successful citation is logged loudly in the verdict ("AC-N satisfied by citation `<ref>` — NOT re-run on this host"), enabling human inspection. Prefer the citation be present at plan-review time so the reviewer saw it.
+
+### Executor-split-by-test-altitude
+
+Dispatch-graph doctrine: at `coordinator:execute-plan` Phase 1.5, the EM decides which executor authors which test class.
+
+- **Acceptance/regression tests** (contract-derived; the contract is fixed by the reviewed plan) → separable into a dedicated executor or front-loaded as a predecessor wave. No design loop to split because the contract is already settled.
+- **Inner unit tests** (implementation-coupled to the code) → stay with the code executor. Splitting reintroduces the two-agents-guessing-one-interface hazard; the inner-loop discipline already governs these (see `test-driven-development.md`).
+
+### Green-gate seam topology
+
+The acceptance-oracle gate runs as **authoritative** at `coordinator:merging-to-main` Step 0 — the merge choke point: oracle-bearing plans with red/missing gate-bound tests hard-block the merge via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the merge boundary). `/session-end` and `/workday-complete` emit offer-shaped notices, never hard blocks (they are not merges). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the merge-boundary skill is the choke; CI is a separate infrastructure concern.
+
+Gate mechanism: `bin/check-acceptance-oracle.sh <plan-path>`. Override: `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` skips the gate (exceptional use; `cited:` is the routine accommodation). Registered in `docs/wiki/coordinator-tripwires.md`.
+
+### Design philosophy — teeth at the verdict, offers everywhere else
+
+The acceptance oracle forks the *carrot* of TDD (executable definition of done) without the Superpowers *stick* (see global `~/.claude/CLAUDE.md` § design-as-offers and `docs/wiki/eager-agent-calibration.md`). **Teeth are correct at exactly one place — the non-zero exit code at the done-verdict** — because a false "done" is the failure we exist to prevent. Authoring, realization, messaging, and every upstream surface are offer-shaped. The exit code is teeth; the message is carrot; the two are strictly orthogonal (never soften the exit code to match the friendly tone).
+
+**Teeth at the backstop license carrots upstream.** Because the merge-boundary gate is hard, every upstream surface (oracle authoring, test realization, executor reports) can lead with the better alternative rather than imperatives — any discipline lost upstream is recovered at the authoritative gate before "done" can be declared. This is the general principle the acceptance oracle instances.
 
 ## Task Structure
 
@@ -534,3 +617,23 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 **If Parallel Session chosen:**
 - Guide them to open new session in worktree
 - New session uses `/execute-plan`
+
+## Porting Patterns Carries Source Tokens
+
+*2026-05-24, project-rag.* When a plan ports logic from a reference implementation (another repo, upstream project, earlier version), the executor inherits env-specific tokens: command names, flag names, path shapes, import aliases, and routing-table entries that were valid in the SOURCE environment but may be wrong or absent in the TARGET. Before dispatching: enumerate all env-specific tokens in the ported block and verify each against the target repo's live state (file tree, routing table, `pyproject.toml`, `package.json`, etc.). A porting plan that doesn't name this verification step is incomplete. (Source: 2026-05-24 project-rag)
+
+## Re-Export Shim Blast Radius Before Deleting a Vendored Constant
+
+*2026-05-24, project-rag.* Deleting a constant (or any symbol) from a module requires grepping not just direct importers but ALSO any re-export shim sites — lines with `# noqa: F401` or `__all__` entries that back-compat-re-export the symbol from a transitional shim module. These lines do not show up as "uses" in a naive grep for the symbol name; they show up only when you grep the shim file's body for the constant name. Miss a shim, and consuming code that imports via the shim breaks silently at runtime. (Source: 2026-05-24 project-rag)
+
+## Durability Assertions Must Cover ALL Writers of a File
+
+*2026-05-24, project-rag.* A durability assertion like "this file is never overwritten by X" is only meaningful if X is the ONLY writer. If multiple code paths write the file, single-source coverage is a silently-false durability claim — the un-asserted writer can overwrite at any time. Before writing a durability assertion, grep ALL write-direction patterns (open-for-write, rename-to, shutil.move, os.replace) for the target path. If multiple writers exist, the assertion must cover all of them or be scoped narrower. (Source: 2026-05-24 project-rag)
+
+## Vocabulary Substitution Must Be Cross-Checked Against Authoritative Glossary
+
+*2026-05-24, project-rag-ue-addon.* A plan brief that instructs mass-rename of vocabulary tokens (e.g. "rename `foo` → `bar` everywhere") must cross-check the NEW tokens against `CONTEXT.md` or the authoritative glossary BEFORE dispatch. A vocabulary substitution that introduces a non-canonical synonym — or conflicts with an existing term — ships the wrong vocabulary into every file it touches. The check takes one grep and prevents a second sweep to undo the damage. (Source: 2026-05-24 project-rag-ue-addon)
+
+## Vacuous-True Acceptance Criteria Is Not a Pass
+
+*2026-05-24, project-rag-ue-addon.* An acceptance criterion that turns out vacuously true at close (the condition is always satisfied regardless of the code's behavior — e.g. "the function returns a non-None value" when the type annotation already guarantees that) is not a pass — it's a stub-quality finding. When a close reveals an AC is vacuous, re-anchor it to the moved seam (what is the real behavioral contract?), replace the vacuous criterion with one that would actually fail if the implementation were wrong, or surface it explicitly as a stub-quality gap for the plan author to resolve. Marking it PASS and moving on hides incomplete specification. (Source: 2026-05-24 project-rag-ue-addon)

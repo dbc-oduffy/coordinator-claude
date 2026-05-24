@@ -405,6 +405,97 @@ The integrator does not auto-apply import-fallback findings — they always land
 
 ---
 
+## Parallel Code Review Gate (merge boundary only)
+
+The `coordinator:parallel-code-review` skill is the merge-gate ceremony, wired into
+`/merging-to-main` Step 1.54. It is **NOT** a mid-implementation review tool and must
+refuse invocation from any context other than merge. The parallel exception to the
+sequential-dispatch HARD RULE lives here — frozen diff at merge boundary means no
+integration occurs between reviewers, so parallel-blind + synthesizer is the correct shape.
+
+### Dispatch graph (as of 2026-05-23)
+
+**Step A (sequential):** Snapshot diff to `tasks/review-findings/<timestamp>/diff.patch`.
+Run Step 7 prelude (external to skill body) to compute seam-first chunks and write
+`tasks/review-trail/.weekly-reviewer-scopes.json`.
+
+**Step B (parallel — single Agent batch):**
+- N × `code-reviewer-weekly` (Sonnet variant, Write-capable for findings files only):
+  one instance per seam-first chunk of narrowed scope. Seam-first chunking is a **hard
+  constraint** — non-negotiable. Each cross_segment_seam file plus the union of hunks
+  touching it forms an atomic nucleus assigned whole to ONE chunk; only non-seam
+  co-touching files may spill if nucleus exceeds size target.
+- `security-audit-worker` (Sonnet): semgrep/bandit/gitleaks, full week diff always.
+- `dep-cve-auditor` (Sonnet): language CVE feed, full week diff always.
+- `test-evidence-parser` (Sonnet): runs test suite, classifies failures, full week diff always.
+
+The three mechanical workers ALWAYS run on the full week diff. They are never scoped down
+by the trail — session-end reviews do not invoke them, so "trail-covered" ≠ "mechanically
+covered."
+
+**Step C (sequential — after all workers return):**
+Synthesizer (Sonnet) reads N chunk-reviewer files + 3 specialist files from disk. Per the
+no-rewrite contract: every finding appears verbatim (quote or omit, never paraphrase).
+Output JSON:
+```json
+{
+  "verdict": "BLOCKED|WARN|OK",
+  "convergent_findings": [],
+  "per_reviewer_findings": {"chunk-1": "...", "chunk-2": "...", "security": "...", "deps": "...", "tests": "..."},
+  "arch_tier_candidates": [],
+  "requires_em_resolution": []
+}
+```
+`arch_tier_candidates` collects verbatim `escalate_to_architecture` flags from chunk-reviewers.
+Convergence fires across chunk-reviewer × specialist (different lens domains) or when ≥2
+chunks independently flag the same seam file.
+
+**Step D (gate):**
+- `BLOCKED` → halts merge.
+- `WARN` → proceeds with warning in PR body.
+- `OK` → proceeds silently. Subvariant: `OK (patrik trail-covered, mechanical clean)` when
+  chunk-reviewer scope was empty and mechanical workers found nothing.
+
+PR body line: `**Code-review gate:** [BLOCKED | WARN | OK] — convergent: N — code-review: <chunk-count> — security: <count> — deps: <count> — tests: <pass/fail/flake>`
+
+**Step 7.5 (post-gate, sequential):** the Staff Engineer Layer-2 architecture-altitude pass. Input:
+(i) week's changelog digest, (ii) synthesizer's `arch_tier_candidates`, (iii) synthesizer's
+`convergent_findings`, (iv) seam-file set. Output: tech-debt / refactor-consolidate / YAGNI
+recommendations, packaged as spinoff candidates. The Staff Engineer Layer-2 NEVER blocks merge — it
+surfaces to PM as recommendations only.
+
+### Skip rules
+
+| Condition | Action |
+|---|---|
+| Diff <10 lines OR touches only `tasks/`, `tmp/`, `archive/`, `docs/wiki/` | Skip entirely |
+| Doc-only diff | Skip chunk-reviewers; run mechanical workers |
+| Plan/spec-only diff | Run chunk-reviewers; skip mechanical workers |
+| Force flag | Run all regardless |
+
+### agent/code-reviewer-weekly.md — thin variant
+
+The base `code-reviewer.md` is read-only. The weekly variant authorizes exactly one Write
+target: the assigned findings path (`$FINDINGS_DIR/chunk-<k>.md`). The base read-only
+contract is intentionally preserved — adding Write to the base would grant Write to
+session-end dispatches (explicitly out-of-scope). Any extension of the weekly variant's
+Write surface requires EM explicit scope-check on return via `git status`.
+
+### Cost envelope (per merge gate invocation)
+
+| Worker | Token range |
+|---|---|
+| docs-checker (conditional, Sonnet) | 5–15K |
+| N × code-reviewer-weekly (Sonnet, per chunk) | ~5–30K each |
+| security-audit-worker (Sonnet) | 10–30K |
+| dep-cve-auditor (Sonnet) | 10–25K |
+| test-evidence-parser (Sonnet) | 5–30K |
+| synthesizer (Sonnet, in/out) | 15–40K / 3–8K |
+
+Total: ~75–200K tokens. Expected frequency: 1–3× per active day. This is the justified
+cost — multi-lens mechanical sweep at merge is the gate that session-end reviews and
+plan-time reviews do not substitute for.
+
 ## Reviewer Elevation Past Charter
 
 *2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking the Staff Engineer with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
@@ -431,3 +522,30 @@ Three explicit behaviors:
 3. Nitpicks are NOT auto-applied to the artifact
 
 The filter criterion is `severity != "nitpick"` — not prose-based filtering. Applied in Phase 3.5 step 5.
+
+## Reviewer Altitude Rules
+
+These rules are cross-cutting tripwires that apply regardless of which pipeline phase you are in.
+
+**1. Personas are Opus-only.** the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering carry `model: opus` in
+their agent frontmatter. Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override)
+is a **doctrine violation** — persona prompt complexity is calibrated for Opus judgment;
+Sonnet yields a "Sonnet-flavored the Staff Engineer" without the payoff. → `agents/code-reviewer.md`.
+
+**2. Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** The dedicated agent
+at `agents/code-reviewer.md` is the correct tool for session-end review, handoff review, mid-session
+quick review, and all code-output review contexts. Read-only tool surface (no Edit/Write);
+OK/WARN/BLOCKED verdict enum where BLOCKED is advisory (EM retains shipping authority).
+
+**3. Plan review altitude is binary: named Opus persona OR skip.** There is no Sonnet plan
+reviewer. `code-reviewer` is the diff reviewer, scoped to weak tests / dead code / naming /
+correctness on a frozen diff — not architectural judgment on a plan body. If a plan is worth
+reviewing, dispatch the appropriate Opus persona; if it's not worth that ceremony, skip review
+and let `code-reviewer` catch issues on the diff at `/session-end`. Triage happens at
+plan-time (plan-or-just-do-it), not at review-time (review-or-downgrade).
+
+**4. Parallel dispatch exception is merge-gate-only.** The carve-out from the sequential-dispatch
+HARD RULE applies exactly when: (a) artifact is a frozen diff at a merge boundary, (b) all
+reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses
+combined output. Plan/stub/doc review remains sequential. The exception sentence names all
+three conditions to prevent scope creep.

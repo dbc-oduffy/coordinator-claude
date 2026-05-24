@@ -72,6 +72,14 @@ All three rules below share a shape: comments-as-stories don't age well; structu
 
 - **A workaround that relies on a flag's incidental name/value** (e.g. piggy-backing on `--legacy-compat` to enable an unrelated behavior) is not a solution — it's debt the next refactor will silently break. Add an explicit named contract (a new flag, a constant, an env var) when the behavior is intentional.
 
+## Shared-layer read/write conflation
+
+- **A shared-layer constructor that is both a read and a write path (e.g. `chromadb.PersistentClient`) should not receive a pattern-match guard at construction time** — that guard blocks legitimate read callers who happen to pass through the shared constructor. Ownership data and caller-inference belong at a WRITE-ONLY seam (the path that actually mutates state), not at the shared constructor that reads and writes share. When adding a guard to prevent unauthorized writes, locate the guard at the point where the write diverges from the read path. (Source: 2026-05-24 project-rag)
+
+## Gate on Discriminating Signal, Not Coarse Aggregate
+
+- **When a downstream consumer needs to distinguish between multiple outcome types, gate it on the discriminating signal, not a coarse aggregate rollup.** An `OVERALL_VERDICT` flag that collapses `[PASS, WARN, SKIP]` → `PASS` and `[FAIL, ERROR]` → `FAIL` loses the WARN and SKIP distinctions that downstream consumers may need to branch on. Callers who only care about pass/fail get a simpler API; callers who need finer discrimination get a broken one. Prefer: emit the full structured result, let each consumer pick the rollup they need. If an aggregate IS needed, compute it from the structured result at the callsite rather than baking it into the producer. (Source: 2026-05-24 project-rag)
+
 ## Related
 
 - `coordinator/CLAUDE.md` § Implementation Standards — the cross-cutting flat-bullet rules

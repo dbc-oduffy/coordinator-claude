@@ -1,14 +1,25 @@
 schema: cross-repo-memo
-applies_to: "archive/cross-repo/*.md"
+applies_to: "cross-repo/inbox/[0-9]*.md"
 # ---------------------------------------------------------------------------
-# Spec backlink: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Memo frontmatter schema
+# Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
+# Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Memo frontmatter schema
+#
+# Single surface: cross-repo/ at receiver-repo root. Sender writes one dirty file
+# here (status: open); receiver flips to status: actioned in place. No dual-write,
+# no sender-side copy, no closure move. Terminal state lives in receiver's git log.
+#
+# applies_to uses digit-prefixed glob [0-9]*.md to match dated memos
+# (YYYY-MM-DD-topic.md) while excluding cross-repo/README.md and other
+# non-memo files. [0-9] bracket-class passthrough is handled by globToRegex
+# in bin/lib/schema.js.
 #
 # Applies only to memos with created: >= 2026-05-22 (grandfathered cutoff).
 # Memos dated 2026-05-21 and earlier are pre-lifecycle artifacts; the validator
-# skips them. See the plan § Migration of existing 4 memos for rationale.
+# skips them.
 #
-# State machine: open → reviewed → action_taken → closed
-# Terminal out-of-band: superseded (replaces any other status via supersedes:/superseded_by:)
+# State machine: open → actioned (terminal, in-place)
+# Back-compat statuses retained for grandfathered memos: reviewed, action_taken,
+# closed, superseded (from the 2026-05-21 dual-write lifecycle — no longer issued).
 #
 # Lifecycle timestamps are ISO-8601 CONVENIENCE METADATA only. The authoritative
 # audit trail lives in the receiver repo's git log of the lifecycle-transition commit.
@@ -22,9 +33,16 @@ required:
   created: iso-date
   status:
     type: enum
-    values: [open, reviewed, action_taken, closed, superseded]
+    # Primary lifecycle: open → actioned (terminal, receiver-side in-place edit).
+    # Back-compat values retained for grandfathered 2026-05-21 dual-write memos:
+    # reviewed, action_taken, closed, superseded.
+    values: [open, actioned, reviewed, action_taken, closed, superseded]
   delivery_mode:
     type: enum
+    # Single-surface model: the CLI only ever issues 'receiver-repo' (one dirty
+    # file in the receiver repo). 'central-only' is retained as a grandfathered
+    # value for pre-2026-05-23 memos — no longer produced. There is no
+    # central-only delivery path; an unregistered receiver hard-errors instead.
     values: [receiver-repo, central-only]
 optional:
   # Related artifact paths (optional list of path strings)
@@ -47,5 +65,5 @@ optional:
     values: [accepted, declined, partial, superseded]
   # Optional free-text rationale populated alongside decision
   decision_note: string
-  # Archive-copy field: path of the receiver-side dirty-file copy written by dispatcher
-  receiver_copy_path: string
+  # Optional note set by receiver at actioning time (free-text rationale or decision summary)
+  actioned_note: string

@@ -63,11 +63,26 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 **Scope.** CLAUDE.md governs the EM; executors get the meta-ask preamble. The two surfaces are complementary and non-overlapping.
 
+**Applied example (2026-05-21).** When `probe-cwd-project-rag-relevance.sh` was designed to surface MCP availability at session start, the default implementation instinct was a warning-shape tripwire ("project-rag is available but MCP not configured"). The PM reframe: "take this MCP system!" not "Danger Will Robinson!" The final probe leads with the capability framing — "you have this equipment" — and names restoration as unlocking value, not as remediation of a failure. This is the design-as-offers shape applied to a concrete tool-author decision. The distinction is: what does the agent see first — an asset, or a gap?
+
 ## What This Replaces
 
 Nothing. This is a net-new doctrine surface. There was no prior doctrine for executor-calibration or ergonomic-substrate design on this stack.
 
 This doctrine complements but is **distinct from** the just-landed Engagement Modes doctrine (commit 8cc7d6c8, `~/.claude/CLAUDE.md` § First Officer Doctrine ¶ Engagement Modes). Engagement Modes governs how the EM and PM communicate with each other — dialogue altitude, when to ask vs. act, how to frame escalations. Eager-agent calibration governs how the EM designs tooling that executors encounter — substrate ergonomics, preamble transmission, offer-shape vs. nag-shape. The shared word is "engagement" as an ethos; the scopes are non-overlapping.
+
+## Known Limits — Calibration vs. Enforcement
+
+**Dogfood result (2026-05-20).** AC10(a) PASS — the preamble is transmitted correctly to every executor dispatch via `bin/verify-meta-ask-preamble-sync.sh`. AC10(b) FAIL on both test runs — the executor still hardcoded `X:/project-rag/CLAUDE.md` literals despite the preamble being present.
+
+Two hypotheses explain the failure, and both point at the same architectural conclusion:
+
+1. **Soft framing.** The preamble is offer-shape by design: "If you find yourself about to type X:/... in code, reach for the helpers." An executor optimizing for "small one-off scratch utility" judged the import overhead unnecessary. This is the cost of offer-shape: it tilts behavior, it does not guarantee it.
+2. **No in-context examples.** The executor had abstract instruction but no observed usage of `repos.project_rag` in the current session. First-time preamble exposure produces weaker uptake than sessions where the correct shape appears in prior tool calls.
+
+**Conclusion: preamble + substrate together are calibration, not enforcement.** They change the prior toward the right shape; they do not assert invariants. This validates the portability-guard spinoff (warn-at-edit or block-on-merge) as a necessary complement, not an over-engineering. Calibration first; enforcement layer added after dogfood confirms the shape — this sequencing is intentional and correct.
+
+**Re-dogfood triggers:** run AC10 again when any of: (a) portability-guard spinoff lands, (b) preamble extended to other write-capable agents, (c) `repos.*` usage appears in production committed code (giving executors in-context examples).
 
 ## Failure Modes This Prevents
 
@@ -89,6 +104,6 @@ The fork: offer-shape applies when the agent is eager but misdirected; friction-
 
 ## Follow-Up Work (Deferred)
 
-**Portability-guard spinoff.** `docs/plans/2026-05-20-portability-guard-system.md` is a PM-authorized spinoff that adds a safety-net layer *over* the substrate this wiki describes. That plan layers edit-time or commit-time detection on top of the ergonomic helpers. It is explicitly deferred until after this plan's surfaces are dogfooded — by design (offer-shape first, friction-as-warning second if needed). It should be picked up as a separate workstream.
+**Portability-guard spinoff.** `tasks/handoffs/2026-05-20_212935_portability-guard-system.md` (`deployment_state: ready_to_fire`) is a PM-authorized spinoff that adds a safety-net layer *over* the substrate this wiki describes. That plan layers edit-time or commit-time detection on top of the ergonomic helpers. It is explicitly deferred until after this plan's surfaces are dogfooded — by design (offer-shape first, friction-as-warning second if needed). **Dogfood (2026-05-20) confirmed AC10(b) fails without enforcement — the spinoff is necessary, not redundant.** Pick up as a separate workstream. → DR-061.
 
 **Preamble extension to other write-capable agents.** The meta-ask preamble ships first in `agents/executor.md`. Future work extends it to `agents/enricher.md`, `agents/review-integrator.md`, and the holodeck/web-dev/data-science executor analogues. Deferred to allow dogfood on the `executor.md` instance first — phrasing issues discovered there should be fixed once, not propagated to N places before the first run.

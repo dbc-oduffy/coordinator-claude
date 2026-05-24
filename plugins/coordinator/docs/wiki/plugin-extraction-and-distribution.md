@@ -170,9 +170,50 @@ Workflow during percolation:
 
 To add or modify a hook for a target: place an executable `*.sh` script under `setup/percolate-hooks/<target>/<hook-point>/`. Numeric prefixes (`10-`, `20-`) order execution. Authoring help: see `docs/wiki/percolate-setup.md` (walked by `/percolate` Branch 0 and `/setup` percolation phase) — it scaffolds the hook directories with `.gitkeep`. Registration is convention-based discovery — no manifest required.
 
-Source-side publish-content policy (`.percolate-ignore`) lives at `$SOURCE_DIR/.percolate-ignore` (gitignore-shaped, simplified subset — `**/` not supported). `publish.sh` `sync_mirror` honors it in both copy and delete phases. See `docs/wiki/percolate-setup.md` (walked by `/percolate` Branch 0 and `/setup` percolation phase) for the full audit-and-scaffold procedure, including classification taxonomy and grey-zone handling.
+Source-side publish-content policy (`.percolate-ignore`) lives at `$SOURCE_DIR/.percolate-ignore` (gitignore-shaped, simplified subset — `**/` not supported). `publish.sh` `sync_mirror` honors it in both copy and delete phases. Details below.
+
+**`.percolate-ignore` policy details:**
+
+- **Location:** source plugin root (e.g. `~/.claude/plugins/coordinator-claude/.percolate-ignore`), one per `SOURCE_DIR` in `publish-targets.sh`, parallel to `.gitignore`. Source-keyed, not target-keyed — authoring agents must see the policy from their cwd; a target-keyed file makes the policy invisible to authoring-time scrutiny.
+- **Format:** gitignore-shaped lines. Simplified-subset semantics — `**/` is NOT supported under bash `[[ ]]` matching. Supported: plain `dir/` (prefix-anchored), `*.ext` (basename match), explicit paths. Blank lines and `#`-comments ignored.
+- **Default scaffold body:** `_archived/`, `scratch/`, `*.bak`, `*.tmp`.
+- **Integration:** `sync_mirror` reads once per source plugin at top of sync; `is_ignored()` helper applies in both copy and delete phases. The inline `_archived/` skip at publish.sh:150 and :192 is retained as defense-in-depth alongside `.percolate-ignore`.
+- **Coverage drift detection:** `/percolate` Step 2 surfaces files newer than `.percolate-ignore` mtime — a signal the policy may not have been reviewed since those files were added.
+- **Surface B coupling:** Surface B (mirror+depersonalize oscillation) may redesign `sync_mirror`; the inline `_archived/` skip must be re-evaluated alongside that work. `cp -p` / `rsync -t` preserve mtime through any staging dance; naive `cp` resets mtime and makes every source file appear "newer than policy" on next dry-run.
+
+See `docs/wiki/percolate-setup.md` (walked by `/percolate` Branch 0 and `/setup` percolation phase) for the full audit-and-scaffold procedure, including classification taxonomy and grey-zone handling.
 
 The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the publish repo): the Staff Engineer → the Staff Engineer; the Director of Engineering → the Director of Engineering; the VP-Product Reviewer → the VP-Product Reviewer; the Game Dev Reviewer → the Game Dev Reviewer; the Front-End Reviewer → the Front-End Reviewer; the UX Reviewer → the UX Reviewer; the Data Science Reviewer → the Data Science Reviewer.
+
+### Hook Registry Architecture
+
+The hook registry is conventional-discovery, no manifest required. Key mechanics:
+
+- **Hook-point directory:** `setup/percolate-hooks/<target-name>/{pre-rsync,post-rsync,pre-ci}/`. Pre-rsync receives `$1=source_dir $2=target_dir`; post-rsync receives `$1=target_dir` and synced-files list via stdin; pre-ci receives `$1=target_dir`.
+- **Ordering:** lexical sort; numeric prefixes (`10-foo.sh`, `20-bar.sh`) order execution. Scripts invoked via `bash "$hook"` (not sourced — isolation). Executable bit NOT required.
+- **Empty-glob safety:** MUST use `shopt -s nullglob` scoped in subshell OR `[[ -e "$hook" ]] || continue` guard. Raw `*.sh` glob with no files expands literally under bash.
+- **Failure semantics:** non-zero hook exit aborts publish (`set -euo pipefail`). Post-rsync abort = destination partially mutated. Recovery: fix the hook and re-run `/percolate` — depersonalize is idempotent.
+- **Out-of-percolation guard:** `setup/percolate-hooks/` lives at meta-repo root, OUTSIDE every `SOURCE_DIR`. Runtime guard MUST assert `$hooks_dir` is not a subpath of `$SOURCE_DIR`.
+- **Hook discovery logging:** even in non-dry-run, emit one line per hook-point: `"  <hook-point> hooks: <comma-sep-names or '(none)'>"`.
+- **Depersonalize hook is a thin wrapper** calling `bin/depersonalize-for-publish.sh`. Registered as `post-rsync/10-depersonalize.sh` for `coordinator-claude` and `deep-research-claude`; deliberately absent for `holodeck`. Only the hook lives meta-repo-local; the binary it calls ships with the coordinator plugin and percolates with it.
+
+### /percolate Skill — Step Sequence and Gates
+
+The `/percolate` skill wraps `publish.sh` with a structured confirmation gate. The seven steps are:
+
+1. **Pre-flight:** verify target name exists in `setup/publish-targets.sh`. If not, list registered targets and exit non-zero.
+2. **Dry-run:** `bash ~/.claude/setup/publish.sh --dry-run <target>`. Capture stdout + exit code. Compute coverage-drift panel: `find "$source_dir" -type f -newer "$source_dir/.percolate-ignore" 2>/dev/null | head -20` (surface if non-empty; shows files changed since policy was last reviewed).
+3. **PM confirmation gate:** fires iff a deletion is present, OR dry-run touches ≥10 files, OR dry-run touches sensitive paths (`CLAUDE.md`, `settings.json`, `hooks/`, `agents/`). If dry-run reports zero changes: skip gate AND real run, but still run CI smoke (Step 5).
+4. **Real run:** `bash ~/.claude/setup/publish.sh <target>`. Surface any `WARNING: REVIEW` lines from Phase 4 verbatim.
+5. **Optional CI smoke:** if target repo has `.github/scripts/run-all-checks.py`, run it from repo root. Skip silently if missing. Call `run-all-checks.py`, not `check-persona-names.py` directly.
+6. **Unified summary** (4 lines): dry-run exit / real-run exit or "skipped (no-op)" / CI-check exit or "n/a" / overall verdict. `PASS` = all exits 0 AND no Phase 4 REVIEW lines; `PASS-WITH-WARNINGS` = all exits 0 AND REVIEW lines present; `FAIL` = any non-zero exit.
+7. **Stop on first failure:** print failing step's stderr + one-line manual-recovery hint.
+
+The skill does NOT call `depersonalize-for-publish.sh` directly, does NOT modify `publish.sh`/`publish-targets.sh`, does NOT commit/push publish-repo results. All triggers (percolate, push to publish repo, publish to `<target>`, sync meta to publish) map to this skill.
+
+**Dogfood discipline:** a clean-tree no-op pass does NOT satisfy convergence. The acceptance-test sequence must include: (1) clean no-op, (2) trivial-edit happy path, (3) sensitive-path edit forcing confirmation, (4) bad-target name (Step 1 exit), (5) missing source-dir (Step 7 failure), (6) CI smoke on clean target, (7) verify summary line counts in all cases.
+
+**Cygwin/fork-exhaustion note:** `publish.sh` is fork-heavy (grep/sed loops over large trees). If a dry-run dies at ~9 KB output with "fork: retry: Resource temporarily unavailable" the shell session is wedged — restart the session, do not re-invoke. Script timeouts: 20s maximum for percolation scripts. Re-invoking on a wedged shell produces zero-byte output files.
 
 > **Publish-repo follow-up (2026-05-17):** The `the Director of Engineering → the Director of Engineering` mapping replaces the prior `the Director of Engineering → the Ambition Advocate` mapping. The publish repo's `docs/customization.md` "Reviewer Roles" table, any `check-persona-names.py` allow-list, and any personalizer script that maps role labels back to user-chosen names must be updated to match — `the Ambition Advocate` is retired, `the Director of Engineering` is the new canonical role label. Personalizers should let the new user pick any name for the DoE role; the title carries the rank, the name is cosmetic. Previously-published copies of files containing `the Ambition Advocate` will need a search-and-replace at next publish.
 
@@ -187,6 +228,10 @@ The vocabulary table (also in `docs/customization.md` "Reviewer Roles" of the pu
 **When NOT to use the allowlist:** if a plugin-side wiki and a publish-side wiki need to converge into one canonical source, move the publish-side authoring back to the plugin and remove from allowlist. The allowlist is for genuinely divergent lifecycles, not for resisting normalization.
 
 Spec backlink: `docs/plans/2026-05-18-publish-repo-toplevel-wiki-sync.md` § Shape decision A*.
+
+### `dist/publish-repo-docs/` corner and bidirectional `.percolate-ignore`
+
+A fourth authoring source (in addition to the three listed in `## Publish-Repo Content Authoring`) handles publish-repo-owned top-level `docs/*.md` files that are not driven by the plugin tree. `coordinator/dist/publish-repo-docs/` controls only `agent-install.md` (with a "if you had to patch to install, send it back" section). A bidirectional `.percolate-ignore` inside this source dir protects every other top-level publish-repo `docs/*.md` from the flat-mirror delete-not-in-source pass — preventing the sync from removing docs whose lifecycle lives in the publish repo. A `maxdepth-1` depersonalize post-rsync hook is scoped to never touch `docs/wiki/` or other targets' subdirs.
 
 ### Publish-Repo Content Authoring (setup scripts and top-level docs)
 
@@ -225,6 +270,14 @@ Scan-vs-substitute division of labor: the content scan (regex inventory pass) is
 
 When `publish.sh` uses `rsync --delete` to mirror source-to-dest, add `--exclude=<pattern>` for files the dest has already shipped that the source intentionally lacks (e.g. dest's own README, CHANGELOG generated by release tooling). Without excludes, `--delete` strips the dest's local artifacts.
 
+**Path-rewrite enumeration.** The static floor of five plugins for path rewriting is: `coordinator`, `data-science`, `deep-research`, `game-dev`, `web-dev`. `holodeck-control` and `holodeck-docs` are NOT in the publish tree. The discovery step enumerates `$TARGET/plugins/*/` to pick up plugins added since the floor was last updated. The self-validation guard: if static path-mapping seed patterns start with `plugins/` and don't contain `coordinator-claude`, the substitution has already run — fail loud with restore-from-source instructions.
+
+**Path-rewrite order within depersonalize.** Path rewrite runs BEFORE persona substitution (structural normalization first, naming second).
+
+**Post-percolate verification gate.** After `--fix`, `10-depersonalize.sh` greps for residual `plugins/coordinator-claude` in `.md` files under the publish tree (excluding `archive/`, `tasks/`, `docs/plans/`, `docs/research/`, `docs/decisions/`, `docs/specs/`). Any hit → exit non-zero.
+
+**Pending rename.** `bin/depersonalize-for-publish.sh` is queued for rename to `bin/publish-time-transform.sh` (the name no longer matches the job after path-rewrite addition). When rename ships: update `DEPERSONALIZE_BIN` in `10-depersonalize.sh` AND in `20-depersonalize.sh` in the same commit — single-seam variable makes it a one-line edit per hook.
+
 ## Path-Rewrite Mechanics at Percolate Time
 
 The substitution pass in `depersonalize-for-publish.sh --fix` handles more than persona names — it also normalizes dev-tree plugin path references into publish-tree form. This collapse happens at `post-rsync` as part of the same hook invocation.
@@ -260,7 +313,13 @@ At LLM speeds, the human heuristic of "batch small release notes" no longer appl
 
 ## Plugin-Bundled Wiki Authoring Direction
 
-Edits to plugin-bundled wikis (`<plugin>/docs/wiki/<name>.md`) belong on the dev-side authoring tree first; `bin/sync-plugin-wiki.sh` mirrors authoring → bundled. Editing the bundled copy directly without the dev-side counterpart gets silently undone the next time the sync script runs. Mirror-sync scripts must detect direction-of-truth asymmetry pre-sync and escalate rather than overwrite. Executor briefs editing bundled wikis should include the dev-side path explicitly.
+Plugin doctrine wikis live ONLY at `<plugin>/docs/wiki/<name>.md` — the bundled copy IS the canonical source. There is no dev-side mirror at `~/.claude/docs/wiki/` for plugin-doctrine wikis. Editing the bundled copy directly is the correct and only authoring verb; any dev-side file at that path is a write-direction trap.
+
+**Why single-tree?** Practice evidence: after 9 days of the original dual-tree model, 5 wikis existed only in the bundled tree; 2 same-day drift instances occurred; the dual-tree invariant fails under concurrent authoring because executors read from bundled and write back. Maintaining a two-tree invariant at authoring frequency costs more than it saves.
+
+`bin/sync-plugin-wiki.sh` semantics: if `~/.claude/docs/wiki/<name>.md` EXISTS → exit 5 (dev-side mirror of plugin-doctrine wiki — delete to restore single-tree invariant). If only bundled exists: OK. If neither exists: WARN.
+
+The `PreToolUse` hook `block-dev-side-mirror-wiki.sh` blocks Write/Edit/NotebookEdit to `~/.claude/docs/wiki/<name>.md` when `~/.claude/plugins/*/docs/wiki/<name>.md` exists. Override: `COORDINATOR_OVERRIDE_WIKI_MIRROR=1`.
 
 ## Plugin-Bundled Wiki Reference Convention
 

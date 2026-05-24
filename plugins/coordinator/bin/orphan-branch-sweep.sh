@@ -68,6 +68,23 @@ if command -v gh &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Guard: jq is required for --format json. Auto-fall-back to text and warn
+# rather than dying under `set -e`, so /workday-start (which calls this in
+# JSON mode) still surfaces severities on machines missing jq. Install hint
+# is the actionable remediation; the fallback is the safety net.
+#
+# NOTE for downstream callers: when this fallback fires, stdout is text not
+# JSON. Callers that pipe into a JSON parser must either check stderr for the
+# "falling back to --format text" signal, or accept that JSON-parse errors in
+# this path are jq-missing symptoms (not malformed data).
+# ---------------------------------------------------------------------------
+if [[ "$FORMAT" == "json" ]] && ! command -v jq &>/dev/null; then
+  echo "orphan-branch-sweep.sh: jq not found on PATH — falling back to --format text." >&2
+  echo "  Install jq for JSON output: https://jqlang.org/download/" >&2
+  FORMAT="text"
+fi
+
+# ---------------------------------------------------------------------------
 # Severity ordering helper
 # ---------------------------------------------------------------------------
 severity_rank() {

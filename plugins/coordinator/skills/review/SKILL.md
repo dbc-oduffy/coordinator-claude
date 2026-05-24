@@ -41,6 +41,16 @@ Both checks fire independently. A plan can be non-trivial AND cite C++/UE APIs �
 
 _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
 
+**Check 2b — Acceptance-criteria shape (offer, not block)** _(runs independently; offer-shaped)_
+
+<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.5 — review-skill offer -->
+
+When the reviewed plan's `## Acceptance Criteria` section is in **old prose-checkbox form** (lines like `- [ ] prose description`) rather than the bindable-table form (`ID | Criterion | Test | Binding-Class | Status`), NOTICE this and offer the template — do NOT block.
+
+Offer: _"This plan's acceptance criteria are in prose-checkbox form. If this plan warrants review, it warrants verifiable exit criteria — the bindable-table form makes acceptance tests mechanically enforceable at merge time. Template and two-altitude flow: `docs/wiki/writing-plans.md` § Acceptance Oracle. Pre-review `Test` cells stay `pending realization`; they're realized as named failing tests after review. No action needed now — this is just a heads-up before the reviewer reads the criteria as a design lens."_
+
+The reviewer's **substantive design-lens job is unchanged** — evaluating whether the criteria are testable-shaped, complete, and correctly scoped is always the reviewer's primary role here. This is a mechanical shape nudge, not a blocker. If the plan already uses the bindable-table form, skip this check silently.
+
 **Check 3 — Plan internal completeness (plan-coverage-checker)** _(runs independently of Checks 1 and 2)_
 
 | Plan shape | plan-coverage-checker? |

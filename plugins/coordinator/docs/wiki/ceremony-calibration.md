@@ -92,6 +92,45 @@ Mid-session offering to defer non-blocking work to a future session — "want me
 
 When a phase's smoke-test would re-prove something a sibling phase already proved, defer the phase with documented rationale (`# DEFERRED: redundant with Phase 3 smoke`) rather than running it for completeness. Redundant smoke-spend is a workflow tax with no signal gain — the deferral note carries the audit trail; the re-run carries nothing the previous phase didn't.
 
+## Pipeline structure — EM owns dispatch, subagents are leaves
+
+The coordinator pipeline (architecture-audit, distill, bug-sweep, learn-lessons) MUST follow a
+structural rule: subagents dispatched into a phase cannot fan out further. Once a subagent is in
+flight, it cannot dispatch additional subagents to parallelize its own work.
+
+**Why this matters:** Phase 3 of /distill timed out repeatedly (Phase 5 had the same problem in
+2026-04) when a single Opus monolith tried to do cross-reference assembly, contradiction detection,
+decision-record dedup, DIRECTORY_GUIDE.md assembly, and deletion manifest generation serially in
+one agent call. The EM owns the fan-out; the subagents are the leaves.
+
+**Pattern:** EM-orchestrated Sonnet fan-out, Opus retained only as opt-in escalation for genuine
+contradictions that Sonnet sub-phases surface and cannot resolve. When Phase 3a (contradiction
+detection) reports zero unresolvable contradictions, Opus is never dispatched.
+
+**Anti-pattern:** A monolith Phase 3 that "does everything" is both an output-timeout risk and a
+correctness risk — when Opus handles cross-reference assembly AND dedup AND deletion manifest in
+one context window, it drops edge cases at the seam between tasks.
+
+**Distill rubric carve-out — delete-default for archived handoffs and cross-repo memos.** The `/distill` trim+archive rubric (DR-NEW-8: allowlist stays in place, denylist archives to `archive/`) applies to canonical specs and evergreen docs. Exception: archived handoffs (`archive/handoffs/`) and cross-repo memos (`cross-repo/`) are DELETED-after-extraction by default — their value is fully captured in the distillation output, and retention in `archive/` compounds file-count without benefit. This carve-out does NOT apply to decision records, plans, or research outputs, which follow the trim+archive default.
+
+## Daily-ceremony gate discipline
+
+Daily ceremony gates (gates in /workday-complete, /session-end, /workday-start) MUST test
+TODAY'S WORK — the diff, the commits, the branch state. Machine-configuration diagnostics and
+pre-publish style lints do not belong in daily-ceremony gates.
+
+**Wrong-cadence blocking validators anti-pattern:** A validator added under "while we're here,
+also check X" framing — when X is a machine-config diagnostic or a cross-repo UE override check —
+turns into a chronic daily blocker with no signal gain. When it breaks silently (grep no-match
+kills the loop under `set -euo pipefail`), it becomes gate-as-theater. (Motivating case 2026-05-15:
+/workday-complete Step 0a/0b burned ~20 minutes, had hardcoded peer-dir paths that had rotted, and
+one was broken under pipefail — all blocking daily wrap-up for work unrelated to what they checked.)
+
+**Placement rule:**
+- Machine-config diagnostics → standalone manual helpers, never auto-fired by ceremony
+- Pre-publish style lints → weekly or PR cadence, advisory-only
+- Cross-repo path-drift checks → /workday-start advisory section or standalone doctor
+
 ## Negative space — what doesn't earn ceremony
 
 - **Naming, formatting, file location** — implementation discretion, EM acts.
@@ -117,3 +156,4 @@ Reviewer auto-dispatch surfaces accumulate triggers; calibrate against who actua
 - `coordinator/CLAUDE.md` § Self-Improvement Loop — instance-#3 rule, lessons cadence
 - `coordinator/CLAUDE.md` § Plan-First Workflow — plan-skill invocation discipline
 - `coordinator/CLAUDE.md` § Challenging the PM — what to ask vs what to act on
+- `coordinator/PIPELINE.md` — distill + update-docs pipeline internals (phase sub-structure, timeout strategies, parallel fan-out shapes)

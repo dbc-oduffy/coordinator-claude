@@ -125,7 +125,7 @@ When a peer repo has already run an extraction, distillation, or audit pipeline 
 
 Procedure:
 
-1. Before invoking an extraction pipeline (e.g. `/learn-lessons central`, `/architecture-audit`), check peer registry entries with overlapping `stack_tags`.
+1. Before invoking an extraction pipeline (e.g. `/learn-lessons central`, `/architecture-survey`), check peer registry entries with overlapping `stack_tags`.
 2. Read each peer's most recent output (typically under `tasks/learn-lessons-*` or `docs/architecture/`).
 3. Lift overlapping records as **inputs** to the local synthesizer phase, not as a separate scout.
 4. Run extraction only on the local-unique delta.

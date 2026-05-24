@@ -188,7 +188,28 @@ except Exception as e:
     print(f"ERROR: failed to parse registry: {e}", file=sys.stderr)
     sys.exit(4)
 
-mirrors = data.get("plugin", {}).get("mirrors", {})
+# Build the mirrors dict from two sources (must match check-plugin-drift.sh
+# _read_all_mirrors): (1) nested [plugin.mirrors.<name>] tables; (2) flat
+# dotted-key form "plugin.mirrors.<name>.<field>" = "..." written by
+# `machine-local set`. Both are valid registry writes; nested wins on collision.
+mirrors = {}
+nested = data.get("plugin", {}).get("mirrors", {})
+if isinstance(nested, dict):
+    for _name, _entry in nested.items():
+        if isinstance(_entry, dict):
+            mirrors[_name] = dict(_entry)
+_PREFIX = "plugin.mirrors."
+for _raw_key, _raw_val in data.items():
+    if not isinstance(_raw_key, str) or not _raw_key.startswith(_PREFIX):
+        continue
+    _parts = _raw_key[len(_PREFIX):].split(".", 1)
+    if len(_parts) != 2:
+        continue
+    _pname, _field = _parts
+    mirrors.setdefault(_pname, {})
+    if _field not in mirrors[_pname]:
+        mirrors[_pname][_field] = _raw_val
+
 if plugin_name not in mirrors:
     print(f"NOT_REGISTERED", file=sys.stderr)
     sys.exit(5)
@@ -203,16 +224,29 @@ source_path = entry.get("source_path", "")
 live_path   = entry.get("live_path", "")
 track_ref   = entry.get("track_ref", "origin/main")
 dist_name   = entry.get("dist_name", plugin_name.replace("-", "_"))
+refresh_cmd = entry.get("refresh_cmd", "")
+
+# Enforce the single-line constraint HERE — the shell `IFS='=' read` loop would
+# silently truncate a multi-line value to its first line (code-reviewer F1). Fail
+# loud at the read locus instead, where the newline is still observable.
+if "\n" in refresh_cmd or "\r" in refresh_cmd:
+    print(f"ERROR: refresh_cmd for '{plugin_name}' contains a newline — single-line commands only", file=sys.stderr)
+    sys.exit(7)
 
 if not source_path or not live_path:
     print(f"ERROR: registry entry for '{plugin_name}' missing source_path or live_path", file=sys.stderr)
     sys.exit(6)
 
-# Emit shell-safe key=value pairs (no spaces in values expected per doctrine)
+# Emit shell-safe key=value pairs. Values may contain spaces and embedded '='
+# (e.g. refresh_cmd = "VAR=1 bash scripts/foo.sh --flag"); the shell parser uses
+# `IFS='=' read -r key value`, so the remainder after the first '=' lands in value
+# intact (including further '=' and spaces). refresh_cmd MUST NOT contain a newline.
+print(f"propagation_mode={prop_mode}")
 print(f"source_path={source_path}")
 print(f"live_path={live_path}")
 print(f"track_ref={track_ref}")
 print(f"dist_name={dist_name}")
+print(f"refresh_cmd={refresh_cmd}")
 PYEOF
 }
 
@@ -237,17 +271,21 @@ if [[ "$REGISTRY_OUTPUT" == "SOURCE_IS_LIVE" ]]; then
 fi
 
 # Parse key=value output into shell variables.
+PROPAGATION_MODE=""
 SOURCE_PATH=""
 LIVE_PATH=""
 TRACK_REF="origin/main"
 DIST_NAME=""
+REFRESH_CMD=""
 
 while IFS='=' read -r key value; do
     case "$key" in
+        propagation_mode) PROPAGATION_MODE="$value" ;;
         source_path) SOURCE_PATH="$value" ;;
         live_path)   LIVE_PATH="$value"   ;;
         track_ref)   TRACK_REF="$value"   ;;
         dist_name)   DIST_NAME="$value"   ;;
+        refresh_cmd) REFRESH_CMD="$value" ;;
     esac
 done <<< "$REGISTRY_OUTPUT"
 
@@ -258,6 +296,135 @@ fi
 if [[ -z "$SOURCE_PATH" ]]; then
     echo "refresh-plugin-live-install.sh: failed to parse source_path from registry output" >&2
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# copy_install mode — branch before git/venv legs.
+#
+# Refresh action = the registry-supplied refresh_cmd, run from source_path. We do
+# NOT hardcode `install-plugin.sh <plugin> --no-enable`: the holodeck trio gates
+# standalone component installs behind HOLODECK_UMBRELLA_INSTALL=1 (the gate at
+# install-plugin.sh refuses a bare component install), reachable only via the
+# component forwarders' --allow-standalone passthrough — and the docs/umbrella
+# component has no forwarder at all. The correct invocation is holodeck-install
+# internal knowledge, so it lives in the registry (operator/installer-supplied,
+# same trust level as source_path/live_path the script already executes against),
+# not coordinator-hardcoded. See docs/wiki/live-install-drift-audit.md § copy_install.
+# ---------------------------------------------------------------------------
+
+if [[ "$PROPAGATION_MODE" == "copy_install" ]]; then
+    # Normalise backslashes (Windows paths from registry).
+    SOURCE_PATH="${SOURCE_PATH//\\//}"
+    LIVE_PATH="${LIVE_PATH//\\//}"
+
+    # rm-rf safety guard for the registry-supplied live_path. The restore paths
+    # below `rm -rf` this path; a malformed, broad, traversal (`.../plugins/../..`),
+    # or symlinked registry value must never reach that. Resolve to the physical
+    # path — `cd … && pwd -P` collapses `..` and symlinks AND requires the dir to
+    # exist — then require a `/plugins/` segment in the *resolved* path, and rm-rf
+    # only the resolved path. (the Staff Engineer F0: the prior self-compare guarded nothing;
+    # code-reviewer F2/F6: substring-on-raw-path missed `..` traversal and symlinks,
+    # and the "$HOME" case arms were redundant with the empty/"/" arms.)
+    LIVE_PATH_RESOLVED="$(cd "$LIVE_PATH" 2>/dev/null && pwd -P)" || true
+    if [[ -z "$LIVE_PATH_RESOLVED" ]]; then
+        echo "refresh-plugin-live-install.sh: ABORT: live_path '$LIVE_PATH' is not an existing directory — refusing copy_install refresh." >&2
+        exit 1
+    fi
+    # Require the resolved live_path to live UNDER the coordinator plugins dir, not
+    # merely contain a `/plugins/` substring (security-audit medium: a substring guard
+    # accepts `/home/user/my-plugins-archive/live`). Resolve PLUGINS_DIR too so the
+    # prefix compare is physical-vs-physical.
+    PLUGINS_DIR_RESOLVED="$(cd "$PLUGINS_DIR" 2>/dev/null && pwd -P)" || true
+    if [[ -z "$PLUGINS_DIR_RESOLVED" ]] || [[ "$LIVE_PATH_RESOLVED" != "$PLUGINS_DIR_RESOLVED"/* ]]; then
+        echo "refresh-plugin-live-install.sh: ABORT: resolved live_path '$LIVE_PATH_RESOLVED' is not under the coordinator plugins dir '$PLUGINS_DIR_RESOLVED' — refusing (rm-rf guard)." >&2
+        exit 1
+    fi
+    LIVE_PATH="$LIVE_PATH_RESOLVED"
+
+    # No refresh_cmd registered → cannot auto-refresh (the bare installer would hit
+    # the standalone gate). Print the actionable manual path and exit non-zero.
+    # The cross-repo memo asks the holodeck installer to self-register refresh_cmd
+    # at install time so this degraded path closes on a clean machine.
+    if [[ -z "$REFRESH_CMD" ]]; then
+        cat >&2 <<EOF
+refresh-plugin-live-install.sh: [copy_install] $PLUGIN has no refresh_cmd registered — cannot auto-refresh.
+  Refresh manually, then re-run the probe (check-plugin-drift.sh $PLUGIN):
+    holodeck trio (umbrella):  /holodeck:setup
+    per-component (standalone): ( cd "$SOURCE_PATH" && bash scripts/install-<component>-plugin.sh --allow-standalone --no-enable )
+  To enable automated refresh, register the invocation (run from source_path):
+    machine-local set plugin.mirrors.$PLUGIN.refresh_cmd '<command>'
+EOF
+        exit 1
+    fi
+
+    # Skip the git clean-tree pre-flight — copy_install has no live git working tree;
+    # re-running the idempotent copy installer is always safe.
+
+    # Snapshot live install for rollback insurance.
+    ISO_TS="$(date -u '+%Y%m%dT%H%M%SZ')"
+    SNAPSHOT_PATH="$SNAPSHOTS_DIR/${PLUGIN}-${ISO_TS}"
+    mkdir -p "$SNAPSHOTS_DIR"
+    echo "refresh-plugin-live-install.sh: [copy_install] snapshotting $LIVE_PATH -> $SNAPSHOT_PATH"
+    cp -r "$LIVE_PATH" "$SNAPSHOT_PATH" || {
+        echo "refresh-plugin-live-install.sh: snapshot failed — aborting for safety." >&2
+        exit 1
+    }
+
+    # Run the registry-supplied refresh command from source_path. Capture non-zero
+    # exit explicitly — do not rely solely on bare set -euo pipefail through the subshell.
+    # bash -euo pipefail -c so pipeline failures inside refresh_cmd fail-fast
+    # (a plain `bash -c` would let `failing | true` mask errors — code-reviewer F7).
+    echo "refresh-plugin-live-install.sh: [copy_install] running (cwd=$SOURCE_PATH): $REFRESH_CMD"
+    if ! ( cd "$SOURCE_PATH" && bash -euo pipefail -c "$REFRESH_CMD" ); then
+        echo "refresh-plugin-live-install.sh: copy-install refresh failed — restoring from snapshot." >&2
+        if [[ -d "$SNAPSHOT_PATH" ]]; then
+            # REPLACE semantics (not overlay): LIVE_PATH already validated by the
+            # rm-rf guard above; clear-and-copy so a partial install leaves no orphans.
+            rm -rf "$LIVE_PATH"
+            cp -r "$SNAPSHOT_PATH" "$LIVE_PATH" || {
+                echo "refresh-plugin-live-install.sh: restore failed — manual recovery required from $SNAPSHOT_PATH" >&2
+                exit 1
+            }
+            echo "refresh-plugin-live-install.sh: restored from snapshot." >&2
+        else
+            echo "refresh-plugin-live-install.sh: snapshot not found at $SNAPSHOT_PATH — manual recovery required." >&2
+        fi
+        exit 1
+    fi
+
+    # Post-flight drift probe — assert sentinel now matches source HEAD.
+    BIN_DIR_CI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    DRIFT_PROBE_CI="$BIN_DIR_CI/check-plugin-drift.sh"
+    POST_FLIGHT_CLEAN_CI=1
+    if [[ -x "$DRIFT_PROBE_CI" ]]; then
+        # Forward the same registry the main script resolved, so the post-flight
+        # probe can't drift to a different registry on a non-standard install (F3).
+        if ! MACHINE_LOCAL_REGISTRY_DIR="$(dirname "$REGISTRY_LOCAL")" "$DRIFT_PROBE_CI" "$PLUGIN" 2>/dev/null; then
+            POST_FLIGHT_CLEAN_CI=0
+        fi
+    fi
+
+    if [[ $POST_FLIGHT_CLEAN_CI -eq 0 ]]; then
+        echo "refresh-plugin-live-install.sh: ERROR: post-flight drift probe failed for copy_install — restoring from snapshot." >&2
+        if [[ -d "$SNAPSHOT_PATH" ]]; then
+            rm -rf "$LIVE_PATH"
+            cp -r "$SNAPSHOT_PATH" "$LIVE_PATH" || {
+                echo "refresh-plugin-live-install.sh: restore failed — manual recovery required from $SNAPSHOT_PATH" >&2
+                exit 1
+            }
+            echo "refresh-plugin-live-install.sh: restored from snapshot. Investigate and retry." >&2
+        else
+            echo "refresh-plugin-live-install.sh: snapshot not found — manual recovery required." >&2
+        fi
+        exit 1
+    fi
+
+    # Append audit row.
+    END_TS_CI="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "${END_TS_CI}  ${PLUGIN}  copy_install  refresh_cmd=${REFRESH_CMD}" \
+        >> "$REFRESH_LOG"
+    echo "refresh-plugin-live-install.sh: done (copy_install). Audit row appended to $REFRESH_LOG"
+    exit 0
 fi
 
 # ---------------------------------------------------------------------------
@@ -566,17 +733,19 @@ if [[ $POST_FLIGHT_CLEAN -eq 0 ]]; then
     echo "refresh-plugin-live-install.sh: ERROR: post-flight drift check failed — restoring from snapshot." >&2
     echo "  Snapshot: $SNAPSHOT_PATH" >&2
     if [[ -d "$SNAPSHOT_PATH" ]]; then
-        # Review: code-reviewer (chain-end finding #17) — .git safety guard: refuse to
-        # delete LIVE_PATH when it is not a git repo (guards against misconfigured
-        # live_path pointing at a broad directory).
+        # .git safety guard: refuse destructive restore when LIVE_PATH is not a git repo.
+        # Guards against misconfigured live_path pointing at a broad directory.
+        # Note: copy_install entries exit via their own branch above and never reach here —
+        # this guard applies only to Default (git-checkout-managed) entries.
         if [[ ! -d "$LIVE_PATH/.git" ]]; then
             echo "refresh-plugin-live-install.sh: ABORT: $LIVE_PATH is not a git repo — refusing rm -rf for safety." >&2
             echo "  Manual recovery: restore from $SNAPSHOT_PATH" >&2
             exit 1
         fi
-        # Review: code-reviewer (chain-end finding #10) — use cp -r instead of rm-rf+mv.
-        # The old destructive-first pattern left LIVE_PATH absent if mv failed.
-        # cp -r keeps LIVE_PATH intact throughout; only cleaned up after success.
+        # Use cp -r (overlay) for git-checkout-managed restore. The destructive rm-rf+mv
+        # pattern left LIVE_PATH absent if mv failed; cp -r keeps LIVE_PATH intact throughout.
+        # copy_install uses REPLACE semantics (rm-rf then cp-r) in its own branch above,
+        # because a failed copy install may have left orphaned files.
         cp -r "$SNAPSHOT_PATH/." "$LIVE_PATH/"
         echo "refresh-plugin-live-install.sh: restored from snapshot. Investigate and retry." >&2
     else

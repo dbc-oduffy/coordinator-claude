@@ -13,7 +13,9 @@
 #   coordinator-safe-commit --dry-run "<subject>"         # show what would be staged, no commit
 #
 # Environment:
-#   CLAUDE_SESSION_ID            — session ID (highest priority source)
+#   CLAUDE_SESSION_ID            — explicit session-ID override (manual / tests)
+#   CLAUDE_CODE_SESSION_ID       — platform-injected session ID (Claude Code ≥ ~2.1.150;
+#                                  authoritative for the running session, beats the sentinel)
 #   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: session-start, workday-complete, update-docs, relay-protocol, distillation)
 #   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
 #
@@ -156,13 +158,27 @@ fi
 # ---------------------------------------------------------------------------
 
 resolve_session_id() {
-  # Priority 1: environment variable
+  # Priority 1: explicit override (manual / test harness). Historically the only
+  # env source; the platform never sets this name, so in real operation it is
+  # empty and we fall through to Priority 2.
   if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
     echo "$CLAUDE_SESSION_ID"
     return 0
   fi
 
-  # Priority 2: sentinel file
+  # Priority 2: platform-injected session id. Claude Code (≥ ~2.1.150) exports
+  # CLAUDE_CODE_SESSION_ID into every tool subprocess — the EM's interactive Bash
+  # AND dispatched subagents (a subagent inherits the *dispatching* EM's id, which
+  # is exactly what the .agents back-pointer machinery reconstructs the hard way).
+  # This is per-session and cannot be clobbered by a sibling session's SessionStart,
+  # so it is strictly more reliable than the last-writer-wins sentinel below. Older
+  # Claude Code (≤ 2.1.128) did not export it; the sentinel fallback covers that.
+  if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+    echo "$CLAUDE_CODE_SESSION_ID"
+    return 0
+  fi
+
+  # Priority 3: sentinel file (last-writer-wins; only reached on old Claude Code)
   local root
   root=$(_cs_git_root) || true
   if [[ -n "$root" ]]; then
@@ -182,13 +198,13 @@ resolve_session_id() {
           return 0
         else
           echo "WARNING: sentinel points at '${sid}' but session dir is gone — falling through to PID scan" >&2
-          # sid="" and fall through to Priority 3
+          # sid="" and fall through to Priority 4
         fi
       fi
     fi
   fi
 
-  # Priority 3: find a session dir whose meta.json PID matches a live process
+  # Priority 4: find a session dir whose meta.json PID matches a live process
   local base
   base=$(_cs_sessions_dir) || true
   if [[ -z "$base" || ! -d "$base" ]]; then

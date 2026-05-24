@@ -168,13 +168,21 @@ This is engineering housekeeping under the EM's remit, not a product call; the E
 - **`git -C <path>` / `git --git-dir=<path>/.git`** — cross-repo forms are policed by the same shape rules (allowed if the target branch name is canonical `work/{machine}/{date-or-span}` or `main`; denied otherwise). No override needed for shape-canonical names. The parser captures the `-C <path>` value to validate `is_local_branch` and `@{-1}` resolution against the sibling repo's refs, not `$GIT_ROOT`. (Relaxed from outright deny by spec `2026-05-08-daily-branch-discipline-cross-repo.md`.)
 - **`cd <path> && git ...`** — cross-repo via `cd` is denied outright when a branch-mutating subcommand follows; the hook subprocess cannot resolve the post-`cd` cwd (`$GIT_ROOT` is captured at entry, before the `cd`). Use `COORDINATOR_OVERRIDE_BRANCH=1` for legitimate cd-then-git cross-repo work.
 
+**`session-init.sh` committing to `main` during orphan-handoff sweep (fixed 2026-05-20)**
+
+`session-init.sh` ran an orphan-handoff sweep that called `git mv` + `git commit` on whatever branch was currently checked out. Post-`/merge-to-main`, the active branch was often `main` — violating read-only-main doctrine and causing `sync-main.sh` to abort on the next workday-start (`local main != origin/main`).
+
+Fix: a branch guard was added at the top of the sweep block. If the current branch is `main`, orphan handoffs are noted but not committed — they are picked up by the next session that boots on a live work branch.
+
+This failure mode is not hookable at the PreToolUse layer (the script runs at SessionStart, not from a Bash tool call). The guard lives in the script itself.
+
 ## "Shipped" definition — branch tip ≠ origin/main
 
 `bin/check-shipped-on-main.sh <commit>` is the authoritative gate. Branch-tip is not shipping. PR-merged-from-this-branch is shipping IFF no further commits landed on the source branch after the merge. Run it before any handoff/doc/lessons/memory update asserts shipping. Edit-A wording in CLAUDE.md § Verification Before Done is the doctrine surface; this script is the enforcement.
 
 ## R-3 Sonnet-dispatch prohibition (verbatim)
 
-Inlined in every Sonnet-dispatching autonomous skill (`/update-docs`, `/distill`, `/architecture-audit`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`):
+Inlined in every Sonnet-dispatching autonomous skill (`/update-docs`, `/distill`, `/architecture-survey`, `/mise-en-place`, `/workday-complete`, `/workweek-complete`):
 
 > DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly.
 

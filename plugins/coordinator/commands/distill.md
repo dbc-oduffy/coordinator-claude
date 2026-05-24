@@ -150,6 +150,57 @@ Add `archive/handoffs/<basename>.md` to the path-rewrite ripgrep set. Healing ta
 
 ---
 
+## Cross-repo archive distillation (added 2026-05-23)
+
+Spec backlink: `docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md` § D3 + § Chunk E.
+
+### Input enumeration
+
+Distill enumerates closed cross-repo memos via a direct glob — `cross-repo/archive/*.md` — filtered to files whose frontmatter carries `status: actioned`. There is no `query-records` type for cross-repo memos; use Glob + frontmatter parse directly (the same approach as the workday-start surface query uses for inbox memos).
+
+Do NOT enumerate `cross-repo/inbox/*.md` — active memos in the inbox are never distillation candidates; they are in-flight channel traffic, not closed historical artifacts.
+
+### Extraction targets
+
+| Source content | Target | Notes |
+|---|---|---|
+| Cross-repo decisions with lasting architectural significance | DR in `docs/decisions/` | E.g. "project-rag confirmed co-located archive over top-level archive/cross-repo/" — rare |
+| Cross-cutting patterns surfaced in a memo thread | Wiki entry in `docs/wiki/` | E.g. a sequence of memos that converged on a new installation discipline |
+| Neither (routine actioned memos with no evergreen content) | No extraction | Eligible for delete under Phase 5 safety guards |
+
+**Extraction is rare.** Most cross-repo memos are coordination records — they do not contain architectural decisions worth promoting. The overwhelming majority are `→ DELETE` (routine coordination extracted to `[EPHEMERAL]`). The distill agent must resist the impulse to force-promote; only genuinely evergreen cross-repo decisions earn wiki or DR entries.
+
+### Provenance frontmatter — `cross_repo_memo:` key
+
+Wiki or DR entries promoted from a cross-repo memo carry:
+
+```yaml
+cross_repo_memo:
+  - path: cross-repo/archive/2026-05-23-gate-check-fix.md
+    from: project-rag-em
+    to: claude-central-em
+    distilled: 2026-05-23
+```
+
+Sibling key to `archived_handoff:` (handoff distillation) and `provenance:` (archived-spec distillation). Do NOT use `provenance:` — that key is taken by Phase 5b's archived-spec schema.
+
+### Delete safety (same four guards as handoff distillation)
+
+A cross-repo archive memo is eligible for delete in Phase 5 ONLY if all four guards pass:
+
+1. **Extraction-artifact present OR empirically content-free.** At least one DR or wiki entry was written this run referencing the source via `cross_repo_memo:` provenance frontmatter, OR the memo is routine coordination with no decisions or patterns (the common case — classify as `[EPHEMERAL]`).
+2. **`status: actioned` confirmed.** A memo without `status: actioned` is not yet closed channel traffic — do NOT delete. Surface to PM with a "memo not yet actioned" note.
+3. **Active-reference check.** Ripgrep the memo filename across `docs/`, `tasks/`, `archive/`, and plugin sources. Any live cite blocks deletion — the memo is still being referenced.
+4. **Distillation-log row.** Same ≥8-word domain-prose requirement as existing scaffolding rows (per Phase 5c). Reason field describes the memo content or states "routine coordination, no evergreen content."
+
+Git history remains the permanent record. The `cross-repo/archive/` path is git-tracked (per D5 — inbox + archive both have committed READMEs); `git log -- cross-repo/archive/<filename>` retrieves the full history.
+
+### Phase 5d link-heal extension (cross-repo memos)
+
+Add `cross-repo/archive/<basename>.md` to the path-rewrite ripgrep set alongside archived handoffs. Healing target: any cross-reference from wiki/DR to a now-deleted archived memo gets rewritten to the wiki/DR that absorbed it (with parenthetical `(formerly cross-repo/archive/<basename>.md @ <sha>)`). Cross-repo memos that were purely coordination records with no extraction will not have a rewrite target — those references should simply be deleted rather than repointed.
+
+---
+
 ## Phase 5 — Apply, Trim + Archive, Delete, Heal
 
 Phase 5 has four major sub-steps. They run in order; each depends on the prior.

@@ -138,8 +138,11 @@ optional:
 
   authored_by: string
   # Session ID of the authoring EM ($em_sid), for forensic tracing only. Optional —
-  # present when sourced from .git/coordinator-sessions/.current-session-id or $em_sid
-  # env var; absent when neither is available (e.g. detached-head or non-coordinator env).
+  # resolve from $CLAUDE_CODE_SESSION_ID (platform-injected, per-session, unclobberable)
+  # or $em_sid env var, falling back to the .git/coordinator-sessions/.current-session-id
+  # last-writer-wins sentinel; absent only when none is available (e.g. detached-head or
+  # non-coordinator env). Prefer the env var: an ambiguous sentinel (flips between ids
+  # across reads) means two sessions are live — that ambiguity is what left this null.
 
   workstream: string
   # Free-form slug grouping cross-chain related work, mirrors the handoff schema's

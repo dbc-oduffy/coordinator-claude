@@ -41,7 +41,7 @@ Named reviewers (the Staff Engineer, personas) are for plans and architecture, n
 
 If `code-reviewer` surfaces an architectural finding, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision. The finding belongs in the planning stream, not the code-review stream.
 
-The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony (4 orthogonal lenses: security-audit-worker, dep-cve-auditor, test-evidence-parser, the Staff Engineer on the combined diff). It runs at merge time regardless of session-end coverage — it is NOT a deferral path. Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — **N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`, partitioned over the narrowed scope) + 3 mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) → no-rewrite synthesizer**. The Staff Engineer is NOT in the gate — consistent with "named reviewers are for plans/architecture, not code output" above; he runs a separate advisory architecture pass at Step 7.5 (fed by the synthesizer's `arch_tier_candidates` + `convergent_findings` + the seam set), which surfaces spinoff candidates but never blocks merge. The gate runs at merge time regardless of session-end coverage — it is NOT a deferral path. Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
 
 ## Anti-ceremony-bias tripwire (code-reviewer-skip direction)
 
@@ -126,7 +126,14 @@ coordinator-write-review-trail.sh \
   --diff-loc 247
 ```
 
-Session-id resolution uses strict precedence: `CLAUDE_SESSION_ID` environment variable first; sentinel fallback (`.git/coordinator-sessions/.current-session-id`) only when the env var is empty. The helper fails loud (exit 2) on collision detection — if the target file already exists with different content, it exits non-zero and does not overwrite. If it already exists with byte-identical content, it exits 0 (idempotent no-op).
+Session-id resolution uses strict precedence: `CLAUDE_SESSION_ID` (explicit override) first; then `CLAUDE_CODE_SESSION_ID` (platform-injected, per-session, unclobberable — Claude Code ≥ ~2.1.150); then the `.git/coordinator-sessions/.current-session-id` sentinel (last-writer-wins, fallback for old Claude Code). The helper fails loud (exit 2) on collision detection — if the target file already exists with different content, it exits non-zero and does not overwrite. If it already exists with byte-identical content, it exits 0 (idempotent no-op).
+
+**Reviewer enum current values (as of 2026-05-18 migration):**
+`code-reviewer | patrik | code-reviewer+patrik | waived | ubt-compile`
+
+Historical JSON records written before 2026-05-18 retain `reviewer: "sonnet"` as data. No back-compat read path is required — historical records are not consumed by the weekly prelude's sha-range logic. New writes must use the current enum.
+
+The `code-reviewer` value refers specifically to a dispatch of `agents/code-reviewer.md` (Sonnet-locked, read-only). Do NOT substitute a generic Sonnet dispatch and label it `code-reviewer` — the agent file is the contract.
 
 **Daily roll-up:** `/workday-complete` Step 9 reads today's `tasks/review-trail/*.json` and emits one `**Reviewed:**` line per record into the day's changelog block:
 
@@ -148,7 +155,7 @@ This field is optional; handoffs without it are valid (field is only present whe
 
 ## Downstream load-shedding contract
 
-`/workweek-complete` Step 7 prelude reads the trail before dispatching `coordinator:parallel-code-review`. The prelude narrows the scope passed to the Staff Engineer reviewer; the three mechanical workers always run on the full week diff regardless.
+`/workweek-complete` Step 7 prelude reads the trail before dispatching `coordinator:parallel-code-review`. The prelude narrows the **code-semantics** scope (now chunked across N `code-reviewer-weekly` instances — the Staff Engineer is no longer the gate reviewer); the three mechanical workers always run on the full week diff regardless.
 
 **Prelude logic (Step 7, external to `parallel-code-review` skill body):**
 
@@ -158,22 +165,26 @@ This field is optional; handoffs without it are valid (field is only present whe
 3. weekly_diff_shas = git log origin/main..HEAD --format=%H
 4. unreviewed_set = weekly_diff_shas - reviewed_set
 5. cross_segment_seams = files modified in ≥2 different reviewed segments
-6. patrik_scope = unreviewed_set + cross_segment_seams
+6. code_semantics_scope = unreviewed_set + cross_segment_seams
    mechanical_scope = full week diff (always)
 7. Write tasks/review-trail/.weekly-reviewer-scopes.json:
-     {"patrik": "<patrik_scope_sha_list>", "mechanical_workers": "full"}
+     {"patrik": "<scope_sha_list>", "patrik_seam_files": "<seam_paths>", "mechanical_workers": "full"}
+   (The JSON keys are still named `patrik`/`patrik_seam_files` for back-compat — the helper
+   `workweek-trail-scope.sh` was not renamed. Post-restructure the `patrik` SHA set is the
+   code-semantics CHUNKING input; `patrik_seam_files` additionally feeds the Staff Engineer's advisory
+   Layer-2 pass at Step 7.5.)
    Pass this scope file in the brief to parallel-code-review.
    The synthesizer reads it and narrates:
-     "the Staff Engineer scoped to gap+seams; mechanical workers full diff."
+     "code-semantics chunks scoped to gap+seams; mechanical workers full diff."
 ```
 
-The `parallel-code-review` skill body itself is NOT modified. All scope-narrowing happens in Step 7's prelude, preserving the doctrine-guarded carve-out from `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md`.
+The `parallel-code-review` skill body IS modified for the N-chunk model (Strand 1), but the doctrine-guarded carve-out from `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` is preserved: scope-narrowing still happens in Step 7's prelude, and the frozen-diff / orthogonal-lens / no-rewrite-synthesizer conditions still hold (orthogonality now spans the 3 specialist lenses + code-semantics-as-a-class; the N chunks partition that class disjointly by file-scope).
 
-**`cross_segment_seams` defined precisely:** a *segment* is the sha-range of one trail record (one session-end review). Cross-segment seams are the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The per-segment file-touch set is derived from `git diff --name-only <sha-range>`. These seams carry integration risk because multiple independent sessions touched them; they warrant fresh the Staff Engineer attention regardless of whether each individual session already passed review.
+**`cross_segment_seams` defined precisely:** a *segment* is the sha-range of one trail record (one session-end review). Cross-segment seams are the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The per-segment file-touch set is derived from `git diff --name-only <sha-range>`. These seams carry integration risk because multiple independent sessions touched them; they feed BOTH the code-semantics chunk review (seam-first chunking gives them extra integration scrutiny) AND the Staff Engineer's advisory Layer-2 pass at Step 7.5, which reads the seam set as an integration-surface signal but does NOT gate merge.
 
-**Verdict subvariant:** when `patrik_scope` is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (patrik trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
+**Verdict subvariant:** when the code-semantics scope is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (code-semantics trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
 
-**Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (the Staff Engineer or `code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all four lenses covered" — it means "the Staff Engineer lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
+**Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (`code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all lenses covered" — it means "code-semantics lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
 
 ## Three-Surface Composition — Automated Build Verdicts (UBT pattern, 2026-05-15)
 
@@ -242,6 +253,12 @@ Chain-end review empirically catches **boundary-relabeling** bugs — where a re
 Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and downstream consumers that pattern-match on the old labels silently fall through to a default arm. Per-commit review confirms each individual rename is correct in isolation; chain-end review reads enough of the chain to notice the relabel happened at all.
 
 **How this maps to the current doctrine:** when partitioning a chain diff into slices, assign one slice specifically to boundary/seam/taxonomy/enum surfaces when present — this is the highest-value partition, not the one to merge into a larger bucket. The defect class is cross-segment by nature; a slice that spans the chain's full vocabulary-change surface ensures at least one `code-reviewer` instance sees the relabel end-to-end. If `code-reviewer` flags a boundary/seam/taxonomy shift, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
+
+## Review-findings folder ownership is by scope header, not timestamp
+
+`tasks/review-findings/YYYYMMDDTHHMMSSZ/` folder names encode *when* a review was dispatched, not *which workstream* owns it. A pickup session that crashed after dispatching a parallel review (but before committing the integrator fixes) leaves a folder that looks like the current workstream's pending review — but may hold a mix of real artifacts (the Staff Engineer.md, security.md at full size) and placeholder stubs (tests.md = "hello") from a different session/chain.
+
+**Rule:** at pickup, before treating any `review-findings/` folder as in-progress work for the current branch, grep the folder's inner `artifact scope:` header and compare its named HEAD SHA against `git rev-parse HEAD`. A mismatch means the review belongs to a different session — don't integrate its findings into the current diff.
 
 ## Cross-references
 

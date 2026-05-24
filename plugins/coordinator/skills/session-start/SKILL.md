@@ -30,6 +30,16 @@ Secure any uncommitted work before touching branches:
 
 **Do not ask permission.** Non-negotiable safety measure.
 
+### Setup-state self-heal (silent)
+
+On `source_is_live` machines, coordinator-claude's install IS the source — the operator is the author and never runs `/coordinator:setup`, so the receipt at `~/.claude/coordinator-setup-state.yaml` (the cross-repo chaining gate read by sibling-repo setups) never gets written by the normal path. Self-heal by recording `setup_concluded` implicitly when the registry confirms `source_is_live`. Idempotent (first-write-wins), silent on every call, emits no orientation prompt.
+
+```bash
+~/.claude/plugins/coordinator/bin/coordinator-setup-state.sh auto-record-if-source-is-live
+```
+
+No output to surface. On non-`source_is_live` machines this is a no-op; on `source_is_live` machines it writes the receipt once and is a no-op thereafter.
+
 ### Agent worktree check
 
 Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); session-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
@@ -161,7 +171,7 @@ Parse the JSON output and inspect `binding.kind` and `binding.target`.
   `whoami: bound → <binding.target>`
 
 - **CLI exits non-zero, or the output is not parseable JSON:** Emit:
-  `whoami: degraded (CLI failed; see /coordinator:doctor probe P-6)`
+  `whoami: degraded (CLI failed; see coordinator-doctor.md probe P-6)`
 
 Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6.
 
@@ -205,6 +215,8 @@ Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated 
 
 **Stale advisory / call-note markdowns are not pendency.** Files in `tasks/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
 
+**Acceptance-oracle notice (one-liner, when applicable):** When surfacing actionable handoffs or active workstreams, check whether the relevant plan is oracle-bearing (carries a bindable `## Acceptance Criteria` table). If so, append a single line to the handoff entry: "Plan carries an acceptance oracle — run `bash bin/check-acceptance-oracle.sh <path>` for current status." This is informational; do not make it a gate or a hard stop.
+
 **Do NOT load, summarize, or act on any handoff.** This applies even if there's only one. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
 
 **When the PM indicates they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for the Engage section. Alternatively, the PM may use `/pickup` which is purpose-built for handoff resumption and skips the general orientation ceremony.
@@ -216,6 +228,12 @@ Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated 
 **Why query, not grep:** `deployment_state` filters out handoffs that aren't ready for execution — the prior per-file walk surfaced everything regardless of state, which is grep-shaped behavior. Sub-second queryability requires a clear filter; the stale-gate flag preserves the deferred-work signal for `awaiting_gate` items without forcing them through the primary list.
 
 **If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked. `tasks/` contains handoffs and plan docs; `archive/` contains the completion history. `.claude/` contains only platform-managed files (settings, hooks) and need not be tracked.
+
+### Outstanding cross-repo memos
+
+Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surface.sh`. Non-empty output → surface verbatim under heading `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip silently.
+
+Same surface, same semantics, same helper as `/workday-start` Step 1.45 — cross-repo memos awaiting this repo's action (`status: open`) are pendency just like handoffs and deserve the same boot-time visibility. Receiver flips `status: open → actioned` in place after action. Details: `pipelines/workday-start-internals.md § Step 1.45`.
 
 ### Action items and roadmap
 

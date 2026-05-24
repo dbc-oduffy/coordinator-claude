@@ -7,7 +7,7 @@
 //   - Section ordering: specialist template sections appear in the correct sequence
 //   - Cross-template consistency: artifacts referenced in one template are referenced
 //     in the others that consume them (e.g. atlas-sketch outputs, survey.md)
-//   - repo.md structural properties: step numbering, template references, mode implication docs
+//   - repo-driver.md structural properties: step numbering, template references, mode implication docs
 //
 // What is NOT covered:
 //   - Behavioral correctness: a template can pass every test here and still instruct
@@ -28,7 +28,11 @@ const { PLUGINS_ROOT, fileExists } = require('./helpers/fs');
 
 const DEEP_RESEARCH_DIR = path.join(PLUGINS_ROOT, 'coordinator-claude', 'deep-research');
 const PIPELINES_DIR = path.join(DEEP_RESEARCH_DIR, 'pipelines');
-const COMMANDS_DIR = path.join(DEEP_RESEARCH_DIR, 'commands');
+// Pipeline B driver moved from commands/repo.md into pipelines/repo-driver.md in commit
+// 13f723e9 (2026-05-06, skill-budget Phase C: collapse /web /repo /structured into
+// /research --mode flag). Step numbering, mode implications, template refs, and the
+// phased lifecycle all live in repo-driver.md now.
+const REPO_DRIVER_PATH = path.join(PIPELINES_DIR, 'repo-driver.md');
 
 // Helper: read file content
 function readFile(filePath) {
@@ -83,14 +87,13 @@ describe('Pipeline B template integrity', () => {
       });
     }
 
-    it('repo.md command exists', () => {
-      const p = path.join(COMMANDS_DIR, 'repo.md');
-      assert.ok(fileExists(p), `Missing command: ${p}`);
+    it('repo-driver.md exists', () => {
+      assert.ok(fileExists(REPO_DRIVER_PATH), `Missing driver: ${REPO_DRIVER_PATH}`);
     });
   });
 
-  describe('repo.md references all Pipeline B templates', () => {
-    const repoMd = readFile(path.join(COMMANDS_DIR, 'repo.md'));
+  describe('repo-driver.md references all Pipeline B templates', () => {
+    const repoMd = readFile(REPO_DRIVER_PATH);
 
     const expectedRefs = [
       'repo-scout-prompt-template.md',
@@ -105,7 +108,7 @@ describe('Pipeline B template integrity', () => {
       it(`references ${ref}`, () => {
         assert.ok(
           repoMd.includes(ref),
-          `repo.md does not reference ${ref}`
+          `repo-driver.md does not reference ${ref}`
         );
       });
     }
@@ -177,8 +180,8 @@ describe('Pipeline B template integrity', () => {
     });
   });
 
-  describe('repo.md step numbering', () => {
-    const content = readFile(path.join(COMMANDS_DIR, 'repo.md'));
+  describe('repo-driver.md step numbering', () => {
+    const content = readFile(REPO_DRIVER_PATH);
 
     it('has sequential step numbers without gaps', () => {
       const stepRe = /^## Step (\d+(?:\.\d+)?)\b/gm;
@@ -210,19 +213,19 @@ describe('Pipeline B template integrity', () => {
   });
 
   describe('mode implication chain', () => {
-    const repoMd = readFile(path.join(COMMANDS_DIR, 'repo.md'));
+    const repoMd = readFile(REPO_DRIVER_PATH);
 
     it('--deepest implies --deeper', () => {
       assert.ok(
         /--deepest[\s\S]{0,200}--deeper|--deeper[\s\S]{0,200}--deepest/.test(repoMd),
-        'repo.md should document that --deepest implies --deeper'
+        'repo-driver.md should document that --deepest implies --deeper'
       );
     });
 
     it('--deepest implies --survey', () => {
       assert.ok(
         /--deepest.*--survey|--survey.*--deepest/s.test(repoMd),
-        'repo.md should document that --deepest implies --survey'
+        'repo-driver.md should document that --deepest implies --survey'
       );
     });
   });
@@ -340,7 +343,7 @@ describe('Pipeline B template integrity', () => {
   });
 
   describe('phased team lifecycle', () => {
-    const repoMd = readFile(path.join(COMMANDS_DIR, 'repo.md'));
+    const repoMd = readFile(REPO_DRIVER_PATH);
 
     it('atlas sketch is dispatched as a subagent, not a teammate', () => {
       // Should NOT have team_name in the atlas sketch Agent() call

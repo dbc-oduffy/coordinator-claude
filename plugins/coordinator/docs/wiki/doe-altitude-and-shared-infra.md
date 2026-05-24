@@ -16,6 +16,16 @@ Routing signals — DoE-altitude question when ≥1 of:
 
 When NONE of these apply, the project-EM owns it. DoE doesn't review project-internal code, doesn't pick implementation details, doesn't dispatch project-level reviewers. The altitude is doctrinal and structural, not tactical.
 
+## What `~/.claude` is — three delivery directions for any item under it
+
+`~/.claude/` is itself a git checkout (remote `dbc-oduffy/.claude-prime`, a private dotfiles repo) — not a loose pile of operator-local files. Any audit of `~/.claude` substrate that asks "is there a writer for this file?" is asking the wrong question: every tracked item already has a delivery owner. The right question for any item under `~/.claude/` is **which of three delivery directions owns it:**
+
+1. **Coordinator-plugin percolation** — ships outward to consumer repos / OSS via `setup/publish.sh`. (Plugin source under `plugins/coordinator-claude/`, bundled wikis, agent prompts, hooks.)
+2. **Claude Prime dotfiles publication** — shipped via `git push` to the private dotfiles remote. (CONTEXT.md, top-level `agents/`, `docs/`, machine-agnostic config.)
+3. **Operator-local-by-design** — gitignored, never shipped. (`machine-local/`, session transcripts, per-machine secrets.)
+
+Before classifying anything under `~/.claude/` as an orphan, `cd ~/.claude && git remote -v` + `git ls-files <path>`. The migration question for a candidate is usually "should this move from direction (2) to direction (1)?" — i.e. ship via the coordinator installer rather than a Claude Prime clone — not "does this have a writer?" *(Canonical mis-frame: a 2026-05-21 surface-coverage audit classified tracked Prime files as ORPHAN-RISK, costing ~2h of wrong-shape work before the geometry was corrected.)*
+
 ## The consult-chain methodology
 
 PM-facilitated, not EM-initiated. A project-EM observing a shared-infra question surfaces it; the PM relays to the DoE; the DoE pre-commits a position; the PM relays back to the relevant project-EM(s) for pushback or concurrence. The DoE synthesizes the final shape.

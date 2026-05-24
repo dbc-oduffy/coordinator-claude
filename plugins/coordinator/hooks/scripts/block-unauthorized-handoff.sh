@@ -18,7 +18,7 @@
 #
 # Blocked: new-file Write into tasks/handoffs/ or tasks/spinoffs/ with no
 # detectable skill context. Block message names the four legit triggers and
-# the cross-repo primitive (copy-paste in chat / archive/cross-repo/ link).
+# the cross-repo primitive (cross-repo-memo CLI + PM-relay).
 #
 # Override: set COORDINATOR_HANDOFF_AUTHORIZED=1 before the Write only if you
 # are deliberately authoring outside the three skills (rare).
@@ -103,11 +103,13 @@ If you reached for this because the work feels "done" or "tidy here":
   -> commit and stop, or run /workday-complete
 
 If you are trying to communicate with another repo's EM:
-  -> Default: copy-paste the message into chat for the PM to relay.
-  -> Large/complex brief: write it to archive/cross-repo/YYYY-MM-DD-<topic>.md and
-     hand the PM the link. The PM is the relay between repos.
-  -> Do NOT seed tasks/handoffs/ as a queue for the other repo to drain — that
-     surface belongs to this repo's session continuity, not cross-repo messaging.
+  -> Use the cross-repo-memo CLI. It writes ONE dirty memo into the receiver's
+     repo at <receiver>/cross-repo/YYYY-MM-DD-<topic>.md and prints the path:
+       cross-repo-memo --to <receiver-em-id> --topic <slug> --title "<one-line>"
+     Then hand the PM the printed path for relay. The PM is the relay between repos.
+  -> Do NOT hand-roll a memo file, and do NOT seed tasks/handoffs/ as a queue for
+     the other repo to drain — that surface belongs to this repo's session
+     continuity, not cross-repo messaging.
 
 Override (only if you are inside /handoff, /session-end, or /spinoff and the
 transcript-detection missed it — e.g. a long autonomous run where the skill

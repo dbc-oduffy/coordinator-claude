@@ -64,7 +64,7 @@ Run Steps 1-7 above (narrative-drift), then additionally:
     ```
     NOTE: Potential new system detected — the following changed files are not mapped in the architecture atlas:
       - [file path] ([parent directory])
-    Consider running /architecture-audit --refresh to remap, or manually add these files to the appropriate system in docs/architecture/.
+    Consider running /architecture-survey --refresh to remap, or manually add these files to the appropriate system in docs/architecture/.
     ```
 
 12. **If all changed files are mapped (or no changed files):** Note: `"Atlas file-index check: all changed files mapped."`
@@ -77,4 +77,4 @@ Run Steps 1-7 above (narrative-drift), then additionally:
 - **Reporting stale health status.** The atlas captures health grades at audit time — don't assume a passing grade from last month still applies after significant churn. Flag for re-audit when many files in a system have changed.
 - **Confusing narrative-drift with file-coverage findings.** On RAG repos, the goal is "does the prose still match the system's actual role?" not "does every file have an index entry?" The prose is the deliverable; the file-index is secondary.
 - **Missing pages for new systems.** When a new module or directory is added, it won't automatically appear in the atlas. Unmapped files (RAG-absent mode) are candidates for a new system page, not just individual file entries.
-- **Forgetting to update grades after audits.** Running `/architecture-audit` generates findings but grades only update when explicitly recorded. An unupdated grade after an audit is misleading.
+- **Forgetting to update grades after audits.** Running `/architecture-survey` generates findings but grades only update when explicitly recorded. An unupdated grade after an audit is misleading.

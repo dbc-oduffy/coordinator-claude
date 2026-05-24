@@ -96,7 +96,7 @@ system B (e.g., "function X calls into chunk B's module Y"), verify that special
 assessment confirms receiving that flow. Flag any one-sided connections as
 `[UNCONFIRMED — reported by chunk {letter} only]`.
 
-This is adapted from architecture-audit boundary validation. Pipeline B specialists
+This is adapted from architecture-survey boundary validation. Pipeline B specialists
 produce execution-trace assessments, not boundary catalogs — validate via reported
 data flows, not explicit boundary markers.
 

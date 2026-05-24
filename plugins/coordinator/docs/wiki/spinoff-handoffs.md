@@ -239,6 +239,39 @@ Multi-session time-box. Wave-N+1 stubs gate on all-of-wave-N completing; `/hando
 
 Commit-granularity is incident-scoped, not workstream-scoped: if two concurrent workstreams both crashed, that's two recovery handoffs (separate `predecessor:` pointers to each crashed handoff's SHA), not one merged "we crashed" handoff. Each successor picking up either workstream needs its own framing of what was in flight, what got committed pre-crash, and what didn't.
 
+## query-records handoff-archived type
+
+`bin/query-records` supports a `handoff-archived` type (distinct from `handoff`) that maps to `archive/handoffs/*.md`. Same schema applies, or relaxed-schema sibling `schemas/handoff-archived.yaml` where `deployment_state:` is not required. Use `--older-than Nd` (inverse of `--since Nd`) to enumerate archived handoffs older than N days. Note: `--where "created<14d"` uses non-ISO comparand and returns garbage — use `--older-than 14d` instead. Used by `/distill` for archive enumeration.
+
+## /distill delete safety guards for archived handoffs
+
+Three conditions must ALL be met before `/distill` may delete an archived handoff:
+
+1. `shipped_in:` frontmatter key is populated (git history is the permanent paper trail; without this, the archive entry is not auditable).
+2. At least one extraction artifact (DR in `docs/decisions/` or wiki entry in `docs/wiki/`) was written referencing the source via the `archived_handoff:` provenance frontmatter key — a **top-level** key, NOT a sub-key under `provenance:` (which is a different schema: list-of-objects with `path` + `last_verbose_sha`). OR the handoff is empirically content-free.
+3. Active-reference check: ripgrep `archive/handoffs/<basename>.md` across `docs/`, `tasks/`, `archive/specs/`, and plugin sources. Any live reference blocks deletion.
+
+If `shipped_in:` is absent, surface to PM with "missing-paper-trail" diagnosis; do not delete.
+
+## Roadmap-planning pipeline — STUB-INDEX query callout constraint
+
+The STUB-INDEX uses a `bin/query-records` query callout, not a hand-maintained table:
+
+```markdown
+<!-- query-callout:start type=handoff where="roadmap_id=<id>" sort="sprint,wave" -->
+<!-- query-callout:end -->
+```
+
+**Single-clause-only constraint:** `bin/refresh-queries.js` token-splits the BEGIN marker on `\s+`, so multi-condition `where=kind=spinoff-roadmap AND roadmap_id=<id>` gets tokenized into three tokens — only the first contributes, others are silently dropped. Multi-condition `where=` only works from the CLI, not inside query callouts. Workaround: use `where=roadmap_id=<id>` (single clause — the cross-field validator guarantees `roadmap_id` implies `kind: spinoff-roadmap`).
+
+Wave order is derived from topological sort over `blocked_by`. Visualize: `bin/query-records --type handoff --where "kind=spinoff-roadmap AND roadmap_id=<id>" --format graph-dot | dot -Tsvg`.
+
+## pm-gates.md — PM gate document
+
+The roadmap-planning skill writes `pm-gates.md` listing each product-coupled question, the sprint it gates, and the disposition format. Schema: `| sprint | tc_id | gate question | disposition format | resolved? |`
+
+Validator rule: any stub with `gate_dependency:` text that starts "PM " OR contains "decision needed" / "approval needed" / "policy" / "scope" / "user-facing" MUST have a corresponding row in `pm-gates.md`. A gated stub with no matching pm-gates row blocks Phase 3 entry.
+
 ## See also
 
 - `skills/pickup/SKILL.md` — premise check (Step 3.4e) and awaiting_gate aging (Step 3.4d) consumers.

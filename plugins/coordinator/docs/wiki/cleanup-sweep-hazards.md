@@ -225,6 +225,25 @@ Composes with §11 (consumer rewrite — grep imports before celebrating) and §
 
 **Rule:** when documenting a convention that has a script-shaped enforcer, name the auto-run mechanism in the same edit. If no such mechanism exists, file the gap as an improvement-queue entry rather than declaring the convention shipped.
 
+## 24. Sequential Same-Path Bugs Signal a Pair-Shaped-Refactor Completion Gap
+
+*2026-05-23, claude-unreal-holodeck.* When a smoke surfaces several sequential bugs along the same code path, suspect ONE refactor's incomplete propagation rather than N independent bugs. Refactors often touch one half of a pair — `.sh`/`.ps1`, producer/consumer, frontend/backend, schema/reader — and the other half slips. A five-bug cascade unblocked one-at-a-time turned out to be two completion gaps: three bugs from a `.ps1` refactor that never propagated to the `.sh` counterpart, plus three from a corpus-layout rollout left behind in downstream readers.
+
+**Rule:** when fixing the first sibling-drift bug, immediately grep the parent refactor's git log + spec backlinks for what else should have moved together; diff the paired surfaces (`.sh` vs `.ps1`, producer vs consumer) for the same file-pair. Treat the cascade as a single workstream's completion-gap, not as independent bugs — fixing them one-by-one as they surface wastes the cascade's shared root.
+
+## 25. Rename Audits Must Drive Entrypoints, Not Just Pattern-Match Strings
+
+*2026-05-24, project-rag.* When auditing a rename for completeness, a string-pattern grep of the OLD name can miss usages hidden inside dynamic-loader calls — e.g. `os.path.join(_plugin_root, "scripts")` passed to `spec_from_file_location`. The old directory name lives inside a variable or join expression, not as a bare literal, so the grep fires clean while the loader still resolves the OLD path at runtime. Two compound rules apply:
+
+1. **Grep dynamic-loader call sites** (`importlib.util.spec_from_file_location`, `importlib.import_module`, `__import__`, `exec(open(...))`, Node `require()`, etc.) separately from bare string-literal greps. These call sites accept constructed paths that don't contain the old name as a literal.
+2. **Drive the entrypoint, not the module.** A unit test that imports the module directly cannot catch an incorrect path in the loader call. The test must call the CLI / entrypoint / plugin-load surface so the loader actually runs. If the loader resolves a wrong path, a module-direct test will still green because it bypasses the loader entirely.
+
+(Source: 2026-05-24 project-rag)
+
+## 26. Impact-Radius Scouts Must Enumerate WRITE-Direction Patterns
+
+*2026-05-24, project-rag-ue-addon.* An impact-radius scout grepping for usages of a symbol, env var, or path typically finds READ-direction patterns (`import X`, `$X`, `os.environ["X"]`) but silently misses WRITE-direction patterns: `export X=`, `env[X] = ...`, subprocess env injection (`{"X": ...}`), or config-file writes that set X. A rename or deletion that only audits read-direction leaves a writer that now sets the wrong name, producing a value nobody reads. Defense: for any scan that declares "all usages found," explicitly enumerate write-direction patterns as a second grep pass and include their count in the finding. (Source: 2026-05-24 project-rag-ue-addon)
+
 ## Skill Checklist Reference
 
 `/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class.

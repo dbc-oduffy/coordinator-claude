@@ -1,6 +1,6 @@
 ---
 name: code-health
-description: Night-shift code health review — queries today's completion entries for touched surfaces, dispatches a reviewer, applies findings, and updates health tracking for next session-start
+description: Night-shift code health review — queries completion entries for today's surfaces, dispatches reviewer, applies findings, updates health tracking.
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---
@@ -112,7 +112,7 @@ For any findings not fixed inline:
 
 3. Update the header summary counts.
 
-**Concurrency note:** `debt-backlog.md` may be written by overlapping sessions (e.g., `/architecture-rotation` running concurrently). Always append new rows at the bottom of the table — never rewrite or reorganize existing rows. When updating an entry's status, match by ID column only. Update the `> Last triaged:` header line to today's date; do not remove or reorder any other header fields.
+**Concurrency note:** `debt-backlog.md` may be written by overlapping sessions (e.g., `/architecture-audit` running concurrently). Always append new rows at the bottom of the table — never rewrite or reorganize existing rows. When updating an entry's status, match by ID column only. Update the `> Last triaged:` header line to today's date; do not remove or reorder any other header fields.
 
 ---
 
@@ -124,6 +124,10 @@ For any findings not fixed inline:
    # System Health Ledger
 
    > Last daily check: YYYY-MM-DD | Last full audit: never
+
+   **Last full audit:** (none — run /architecture-survey)
+   **Last targeted audit:** (none — folds into /workweek-complete when >10 days)
+
    > Next rotation target: [pending first audit]
 
    ## System Index
@@ -136,7 +140,7 @@ For any findings not fixed inline:
 3. If findings changed system grades, update the relevant rows.
 4. If a system was touched by commits but has no row yet, add it with grade `?` (unaudited).
 
-**Grade synchronization:** The health ledger is the single source of truth for system grades. `/architecture-rotation` also updates grades here after weekly audits. When updating a row, read the existing grade first — only change it if the daily review's findings explicitly warrant a grade change. Do not downgrade a system that was just upgraded by a recent `/architecture-rotation` run unless new P0/P1 findings justify it.
+**Grade synchronization:** The health ledger is the single source of truth for system grades. `/architecture-audit` also updates grades here after weekly audits. When updating a row, read the existing grade first — only change it if the daily review's findings explicitly warrant a grade change. Do not downgrade a system that was just upgraded by a recent `/architecture-audit` run unless new P0/P1 findings justify it.
 
 **Grading anchors:**
 

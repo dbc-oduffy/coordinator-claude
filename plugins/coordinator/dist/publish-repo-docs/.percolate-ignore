@@ -1,0 +1,35 @@
+# .percolate-ignore for the coordinator-claude-publish-repo-docs flat-mirror target.
+#
+# Source: dist/publish-repo-docs/  →  dest: <publish-repo>/docs/  (top-level files only).
+#
+# Files listed here are protected in BOTH directions:
+#   Phase 1 (src→dst): not synced from source (we don't carry them in dist/).
+#   Phase 2 (dst delete-not-in-source): protected from deletion in the publish repo's docs/.
+#
+# WHY THIS LIST IS LONG: flat-mirror deletes any top-level file in the dest that
+# the source doesn't have (publish_sync.py sync_flat_mirror Phase 2). Today this
+# corner controls exactly ONE file — agent-install.md. Every other top-level
+# *.md in the publish repo's docs/ is still authored publish-repo-side and is
+# NOT back-percolated here yet; each must be listed below or it would be wiped on
+# the next publish. Subdirectories (decisions/, evolution/, plans/, research/,
+# specs/, wiki/) are auto-protected — flat-mirror only touches top-level files,
+# and docs/wiki/ has its own dedicated target (coordinator-claude-toplevel-wiki).
+#
+# When a docs/ file graduates to Claude-Central-authored, move it into this dir
+# and delete its line below.
+
+# Source-side control files — skipped in Phase 1 (not synced) and protected in Phase 2 (not deleted).
+# (agent-install.md, the one file we DO control, is intentionally absent here — it syncs.)
+.percolate-ignore
+README-meta.md
+
+# Publish-repo-authored docs/ files (not yet back-percolated; protect from deletion).
+README.md
+architecture.md
+ci-pipeline.md
+contracts.md
+customization.md
+getting-started.md
+gitignore-policy.md
+pretooluse-deny-contract.md
+safety.md

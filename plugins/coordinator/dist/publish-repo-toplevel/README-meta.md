@@ -37,9 +37,9 @@ publish-repo's user-facing `README.md`, which is content, not meta-documentation
 
 ## Flat namespace
 
-`dist/publish-repo-setup/` and `dist/publish-repo-toplevel/` are siblings in a flat
-namespace under `dist/`. Future additions (e.g. `dist/publish-repo-workflows/`) extend
-the flat list — do not nest under an existing member.
+`dist/publish-repo-setup/`, `dist/publish-repo-toplevel/`, and `dist/publish-repo-docs/`
+are siblings in a flat namespace under `dist/`. Future additions (e.g.
+`dist/publish-repo-workflows/`) extend the flat list — do not nest under an existing member.
 
 ## Doctrine reference
 

@@ -354,3 +354,31 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 
 - `docs/wiki/oom-reproducer-strategy.md` — multi-dimension assertions for fan-out OOM reproducers (RSS + commit count + concurrent-session count + wall-clock).
 - `docs/wiki/round-trip-contract-tests.md` — producer/consumer schemas need round-trip tests, not parallel fabrications.
+
+## 32. Autouse HOME-Isolation Fixtures Break Subprocess Tests
+
+*2026-05-24, project-rag.* A pytest autouse fixture like `_isolate_project_rag_home` that redirects `HOME` (or its Windows equivalent) in the test process will be inherited by any subprocess spawned via `subprocess.run` / `Popen` — and if that subprocess calls `os.environ.copy()`, it picks up the hijacked directory. The test appears to pass (the in-process path is correct) while the subprocess silently uses a wrong root. Defense: add a `@pytest.mark.real_home` escape-hatch marker and skip the fixture for tests whose subject path explicitly spans a subprocess boundary. (Source: 2026-05-24 project-rag)
+
+## 33. Fixture-Substitution Masking Production Drift
+
+*2026-05-24, project-rag.* When a test fixture substitutes a real implementation for a stub "at test time" to make the test green, the on-disk artifact under test IS the stub — not the real impl. The test is green because the fixture swaps in the thing the stub was supposed to be; production uses the stub and is broken. Fix: the on-disk artifact must BE the real implementation; the fixture must not substitute it. If substitution is genuinely needed (e.g. costly external), the test contract must degrade gracefully without asserting on the real code path. (Source: 2026-05-24 project-rag)
+
+## 34. Never Mark a Guard or Contract Test `@pytest.mark.slow`
+
+*2026-05-24, project-rag.* A guard test, tripwire test, or contract test marked `pytest.mark.slow` is deselected from the default `-m "not slow"` run. The guard is invisible to CI while the bug it guards against ships. Rule: guard tests, tripwire tests, and cross-contract tests are NEVER marked `slow` regardless of actual runtime. If runtime genuinely must be gated, extract the slow work to a helper and keep the guard assertion in an un-marked test that drives the entrypoint at minimal cost. (Source: 2026-05-24 project-rag)
+
+## 35. Mechanical AST-Walk Guards for "Every X Must Call Y" Contracts
+
+*2026-05-24, project-rag-ue-addon.* "Every plugin module must call `register()`" and similar structural contracts enforced only by docstring-convention are not contracts — they're suggestions that decay silently. Convert them to CI-enforced rules via AST-walk: parse the module tree, assert the required call is present. This is two dozen lines of Python, catches entire missing-call classes at commit time, and turns a docstring convention into a failing test. Applies to any "all X must Y" structural invariant you'd otherwise enforce by review comment. (Source: 2026-05-24 project-rag-ue-addon)
+
+## 36. Build a 60-Second Reproducer Before Re-Firing a 30-Minute Job
+
+*2026-05-24, project-rag-ue-addon.* When a long-running job (build, full test suite, slow smoke) fails, resist re-firing it to see if the fix works. Build the smallest reproducer that exercises the same code path in under 60 seconds. Iterate on the reproducer until the fix is confirmed, then fire the long job once for final validation. The iteration radius must match the actual change radius — if you changed one function, a 30-minute full build is not the right feedback loop. (Source: 2026-05-24 project-rag-ue-addon)
+
+## 37. Never `git commit` Inside a Hook Smoke Test on an Auto-Push Branch
+
+*2026-05-24, project-rag-ue-addon.* A git-hook smoke test that calls `git commit` inside the working repo (even on a "test" branch) will trigger auto-push hooks on branches with auto-push configured — pushing phantom test commits to the remote. Fix: initialize a throwaway scratch repo via `git init` in a `tempfile.mkdtemp()` / `tmpdir` and run all hook invocations there. The smoke test should never touch the real repo's commit history. (Source: 2026-05-24 project-rag-ue-addon)
+
+## 38. Multi-Test Failure Cluster May Be Stale-Bytecode Flake
+
+*2026-05-24, project-rag-ue-addon.* When several unrelated tests fail together — especially after a file rename, module move, or branch switch — suspect stale `.pyc` files in `__pycache__` before triaging each failure individually. The bytecode mismatch causes import errors that look like real failures. Defense: `find . -type d -name __pycache__ | xargs rm -rf && find . -name "*.pyc" -delete` before re-running in isolation. If the failures disappear after the cache clear, the root cause was bytecode flake, not a regression. (Source: 2026-05-24 project-rag-ue-addon)

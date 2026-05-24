@@ -45,7 +45,7 @@ This applies to:
 - Enricher agents (10-15 min each)
 - Executor agents (5-15 min each)
 - Research scouts and verifiers (Haiku/Sonnet phases within pipelines)
-- Top-level orchestrator agents (research --mode=structured, architecture-audit)
+- Top-level orchestrator agents (research --mode=structured, architecture-survey)
 - Code health reviewers
 
 **Exceptions** (keep foreground):
