@@ -187,7 +187,7 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 ## Customization
 
 - **Name your reviewers (optional).** Role labels ship as the default — `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"` binds chosen names to role labels across all plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
-- **Create your own domain reviewer.** The shipped domain plugins are the reference pattern: web-dev ships the Front-End Reviewer (frontend) and the UX Reviewer (UX), data-science ships the Data Science Reviewer (ML/statistics). Each is a self-contained plugin with an agent prompt, a `CLAUDE.md`, and a `.claude-plugin/plugin.json` — copy any of them as a starting point for your own specialization.
+- **Create your own domain reviewer.** The shipped domain plugins are the reference pattern: web-dev ships a Front-end Reviewer and a UX Reviewer, data-science ships a Data Science Reviewer (ML/statistics). Each is a self-contained plugin with an agent prompt, a `CLAUDE.md`, and a `.claude-plugin/plugin.json` — copy any of them as a starting point for your own specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
 See [docs/customization.md](docs/customization.md) for templates, the full persona registry, and instructions for adding skills and CI checks.
@@ -215,8 +215,8 @@ coordinator-claude/
 │   │   └── skills/             # 34 skills (planning, review, debugging, TDD, etc.)
 │   ├── deep-research/          # Pipelines A/B/C + 6 research agents
 │   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
-│   ├── web-dev/                # Front-end + UX flow reviewers (the Front-End Reviewer; the UX Reviewer the UX Reviewer)
-│   └── data-science/           # ML, statistics reviewer (the Data Science Reviewer the Data Science Reviewer)
+│   ├── web-dev/                # Front-end + UX flow reviewers
+│   └── data-science/           # ML, statistics reviewer (the Data Science Reviewer)
 ├── docs/                       # Architecture, customization, research
 ├── setup/                      # Installer
 └── assets/                     # Social preview
