@@ -32,17 +32,6 @@
       ]
     },
     {
-      "name": "game-dev",
-      "source": "./plugins/game-dev",
-      "description": "Game development reviewer: the Game Dev Reviewer (Unreal Engine, Blueprint/C++, gameplay mechanics). Includes Blueprint inspector agents.",
-      "tags": [
-        "game-development",
-        "unreal-engine",
-        "ue5",
-        "blueprint"
-      ]
-    },
-    {
       "name": "data-science",
       "source": "./plugins/data-science",
       "description": "Data science reviewer: the Data Science Reviewer (ML pipelines, statistics, data modeling, LLM workflows).",
