@@ -76,6 +76,10 @@ Agents at runtime read from `~/.claude/plugins/<name>/` (the installed copy), NO
 
 Spec: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md`.
 
+**Holodeck-owned plugins — one-way install-only, explicitly NOT in OSS coordinator-claude.** Plugins whose value is entirely contingent on the holodeck/UE-addon infrastructure (e.g. `game-dev`) flow holodeck-repo → holodeck install, one direction only. Nothing flows them outward to `X:/coordinator-claude` or any OSS distribution target. No bidirectional back-prop or merge script is maintained; that asymmetry is structural — it would reintroduce the multi-master state the 2026-05-20 publish→live clobber ban closed.
+
+The adjudicating rule for packaging calls: **coordinator ships a coherent operating system for our colleagues, not generic personae as a contribution to the OSS community.** Domain content whose value requires infrastructure the OSS user does not have belongs to the specialized distribution, not the naked OSS coordinator-claude publish. The UE-specialization-migrates-OUT polarity principle that governs *why* holodeck owns this content is documented in `docs/wiki/peer-repo-polarity.md`. The `game-dev` retirement (2026-05-26) is the canonical precedent; see `docs/plans/2026-05-26-retire-game-dev-from-oss.md`.
+
 ### 10. Plugin hooks belong in `hooks/hooks.json`, not user-scope `settings.json`
 
 A SessionStart/PreToolUse/etc. hook registered in `~/.claude/settings.json` works on the author's machine but doesn't follow the plugin to marketplace consumers — install lays down the script but never registers the event. Always ship `hooks/hooks.json` alongside the script in the plugin tree so install auto-wires it. User-scope settings is for non-plugin overrides only. Treat this as a portability check at extraction time: grep `~/.claude/settings.json` for any hook entry whose script lives under the plugin tree, and migrate it to the plugin's `hooks/hooks.json` before shipping.

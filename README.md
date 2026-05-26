@@ -49,7 +49,7 @@ Most tools hand you a bag of commands and wish you luck. This system has *routin
 
 **Building.** Claude delegates to Sonnet subagents for implementation — cheaper, faster, fresh context. A `PreToolUse` hook nudges Claude away from doing implementation work directly, because the orchestrator's context is too valuable to spend on writing code. This is the same principle as a real EM: you don't want your engineering manager writing production code when they should be coordinating.
 
-**Reviewing.** Code review comes from named personas with rich behavioral profiles — a domain expert reviews first (e.g., a game-dev specialist for Unreal code), all findings are applied, then a generalist reviews the clean artifact. Sequential, with mandatory fix gates. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) (literature-backed for judgment-routing tasks; for mechanical bug-finding our [own controlled experiment](docs/research/2026-03-26-persona-experiment-results.md) found no recall gain — that's why bug-sweeps use bare agents) and [multi-agent review gains](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic's own eval showed 90.2% improvement over single-agent). Plan-review with personas — the system's main use of named reviewers — leans on industry-standard PRD/SDD review patterns; we have not separately benchmarked it.
+**Reviewing.** Code review comes from named personas with rich behavioral profiles — a domain expert reviews first (e.g., a web-dev specialist for front-end work, or a data-science specialist for ML pipelines), all findings are applied, then a generalist reviews the clean artifact. Sequential, with mandatory fix gates. Research supports both the [persona mechanism](docs/research/2026-03-19-named-persona-performance.md) (literature-backed for judgment-routing tasks; for mechanical bug-finding our [own controlled experiment](docs/research/2026-03-26-persona-experiment-results.md) found no recall gain — that's why bug-sweeps use bare agents) and [multi-agent review gains](https://www.anthropic.com/engineering/multi-agent-research-system) (Anthropic's own eval showed 90.2% improvement over single-agent). Plan-review with personas — the system's main use of named reviewers — leans on industry-standard PRD/SDD review patterns; we have not separately benchmarked it.
 
 **Staying coherent.** Long sessions hit a hard constraint: context compaction. When triggered, the model summarizes what it *thinks* happened — a retrospective reconstruction that loses intent. A `PostToolUse` hook monitors context pressure and prompts Claude to create a structured handoff *before* compaction fires: decisions made, state reached, explicit next steps. Each handoff chains forward from its predecessor. Research shows structured handoffs significantly outperform automatic summarization ([Kang et al. 2025, ACON](https://arxiv.org/abs/2510.00615); Sourcegraph [retired compaction](https://sourcegraph.com/blog) in their Amp agent in favor of explicit handoffs after measuring degradation).
 
@@ -179,7 +179,6 @@ For evidence — what was actually built under this workflow, alongside the cont
 | **[coordinator](plugins/coordinator/)** | Core orchestration, reviewers, all workflow skills | Always |
 | **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines — internet (A), repo (B), structured (C) | Any project that needs grounded research |
 | **[notebooklm](plugins/deep-research/notebooklm/)** | NotebookLM-backed research pipeline (D) — YouTube, podcasts, audio sources | When you need media Claude can't read directly |
-| **[game-dev](plugins/game-dev/)** | Unreal Engine specialist (architecture, C++/Blueprint) | Unreal Engine projects |
 | **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
 | **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
 
@@ -188,7 +187,7 @@ The coordinator plugin is always enabled. Domain plugins are toggled per-project
 ## Customization
 
 - **Name your reviewers (optional).** Role labels ship as the default — `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"` binds chosen names to role labels across all plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
-- **Create your own domain reviewer.** The game-dev plugin is a reference implementation — same structure for any specialization.
+- **Create your own domain reviewer.** The shipped domain plugins are the reference pattern: web-dev ships Palí (frontend) and Fru (UX), data-science ships Camelia (ML/statistics). Each is a self-contained plugin with an agent prompt, a `CLAUDE.md`, and a `.claude-plugin/plugin.json` — copy any of them as a starting point for your own specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
 See [docs/customization.md](docs/customization.md) for templates, the full persona registry, and instructions for adding skills and CI checks.
@@ -216,9 +215,8 @@ coordinator-claude/
 │   │   └── skills/             # 34 skills (planning, review, debugging, TDD, etc.)
 │   ├── deep-research/          # Pipelines A/B/C + 6 research agents
 │   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
-│   ├── game-dev/               # Unreal Engine specialist (the Game Dev Reviewer + Blueprint inspector agents)
-│   ├── web-dev/                # Front-end + UX flow reviewers (the Front-End Reviewer; the UX Reviewer)
-│   └── data-science/           # ML, statistics reviewer (the Data Science Reviewer)
+│   ├── web-dev/                # Front-end + UX flow reviewers (Palí; Fru the UX Reviewer)
+│   └── data-science/           # ML, statistics reviewer (Camelia the Data Science Reviewer)
 ├── docs/                       # Architecture, customization, research
 ├── setup/                      # Installer
 └── assets/                     # Social preview
