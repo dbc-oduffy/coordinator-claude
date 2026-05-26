@@ -4,27 +4,22 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
-## [2.3.0] — 2026-05-21
+## [2.5.1] — 2026-05-26
 
-Bug-fix minor release. Headline theme: install-system reliability. The week was dominated by chasing install-surface defects — plugin live-install propagation across separate-checkout plugins (project-rag), `publish.sh` outward-only direction restoration after the 2026-05-20 ban on publish-repo → live install clobber, machine-local registry shape consolidation, and back-percolation of publish-repo orphans into Claude Central as the source-of-truth. Forward capability movement is modest; the value is install-path stability and doctrine seeding for cross-repo refresh.
+Patch release — cleanup. Retires the `game-dev` plugin from the OSS distribution: it is Unreal-Engine/holodeck-coupled by nature (references the holodeck-docs/holodeck-control MCP servers and the `claude-unreal-holodeck` sibling repo) and its MCP health gate aborts on use in a naked consumer, so it has no working configuration for an OSS installer. The plugin is now solely owned by the holodeck distribution. Coordinator ships a coherent operating system for colleagues, not generic personae as an OSS contribution.
+
+### Removed
+
+- **`plugins/game-dev/`** — the Game Dev Reviewer plus its Blueprint inspector/worker agents, knowledge base, and routing. Removed from `marketplace.json` and the README plugin inventory. The "build your own domain reviewer" reference framing now points at the shipped web-dev and data-science plugins.
 
 ### Added
 
-- Managed-refresh model for plugin live-install propagation (`bin/refresh-plugin-live-install.sh`, `bin/check-plugin-drift.sh`); daily drift probe via `/workday-start` Step 1.10 Addon Health.
-- Cross-repo communication doctrine — dual altitudes (doctrine seeding vs. code/install-surface change), PM-relay requirement for sibling-EM landings.
-- Install-surface completeness wiki + lesson: the clean-install path on a fresh machine must reproduce locally-written state.
-- Plan-coverage-checker pre-flight (skill-internal trigger, no opt-out) — coverage / hedges / substrate-drift lenses.
-
-### Changed
-
-- `publish.sh` direction clarified: source → publish-repo only; publish-repo → live install path explicitly banned.
-- Session-end / handoff doctrine — `code-reviewer` (Sonnet) gates the diff before commit; personas reserved for plan/architecture.
-- Numerous skill/agent prompts amended for cross-session correctness on shared workstream branches.
+- **Publish-time guard** (`setup/percolate-hooks/coordinator-claude/pre-rsync/`) — aborts a coordinator-claude publish if a `game-dev/` plugin dir reappears in the mirror source; override via `COORDINATOR_OVERRIDE_GAMEDEV_GUARD=1`. Registered in the tripwires wiki.
+- **Doctrine** — one-way ownership note for holodeck-owned plugins in `plugin-extraction-and-distribution.md` (no bidirectional back-prop); editorial principle in the meta-repo local instructions.
 
 ### Fixed
 
-- Multiple install-surface defects across plugins whose live install is a separate checkout.
-- Publish-repo orphan files back-percolated to Claude Central; publish-repo audit REVIEW items for bare-name attribution noted as PM-accepted (legitimate authorship).
+- **Spec line-count ceiling** — trimmed `commands/workday-start.md` back under the 500-line CI ceiling.
 
 ## [2.2.0] — 2026-05-20
 
