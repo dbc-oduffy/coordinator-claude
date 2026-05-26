@@ -2,6 +2,20 @@
 
 Thanks for your interest in contributing! This project is community-first and we welcome improvements.
 
+## Patches and Hotwires — Send Them Back (Even Rough)
+
+Installation and setup lean on agents on purpose. A script-only install turned into whack-a-mole: it worked on the author's machine and broke in small, machine-specific ways on everyone else's. Handing the install to an agent that can read errors and adapt is how we route around that — but it means *your* machine is where the remaining rough edges get found.
+
+So: **if something doesn't work, patch it. Hotwire whatever you need to get running locally — you have our blessing.** Then send the fix back. Three ways, in rough order of preference:
+
+1. **Open a PR** with your patch (see [How to Contribute](#how-to-contribute) below).
+2. **Open an issue** describing what broke and what you changed.
+3. **Leave a note** — a paragraph pasted into an issue is plenty.
+
+**Don't polish it, and don't worry about whether the code is "good."** We mean that literally. In an agentic world the valuable part is the *what, how, and why*: what you were trying to fix, how you worked around it, and why the original failed on your setup. A throwaway hack carries all three — far more than a one-line bug report ever could — and we can generalize a proper fix from it. A rough patch you actually sent beats a clean one you didn't.
+
+The agent that did your install is well-placed to write this up — it has the error in context and made the fix. Ask it to draft the PR or issue for you.
+
 ## What We're Looking For
 
 - **New skills** — codified workflows for development patterns we haven't covered

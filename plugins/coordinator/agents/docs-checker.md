@@ -94,7 +94,7 @@ LSP requires a file path and position — use it when you can locate the symbol 
 
 When a claim is **UE-semantic** — touches `UObject`, `UCLASS`, `UFUNCTION`, `UPROPERTY`, `WITH_EDITOR`, cooked-vs-editor behavior, `.uproject`, `AssetRegistry`, `UHT`, `BlueprintCallable`, or other specifier semantics — the core `mcp__project-rag__*` tools above are producer-agnostic and **insufficient on their own** for verification. Per peer-repo polarity doctrine (`coordinator/docs/wiki/peer-repo-polarity.md`), UE-specialization lives in the project-rag-ue-addon namespace, not in producer-agnostic core.
 
-Once the addon-namespaced UE-semantic tools land (`mcp__project-rag__ue_check` and downstream, per the jetbrains sprint Stream D / G / F-L1/2/3/4), they will appear in this agent's tool surface and become the authoritative verifier for UE-semantic claims. Until then:
+The addon-namespaced UE-semantic tools **have shipped** (project-rag-ue-addon Stream D — verified registered on the host 2026-05-26): `mcp__project-rag__validate_ue_api`, `validate_specifiers`, `validate_cpp_file`, and `find_violations` (the UE rule-library, formerly referred to speculatively as `ue_check`). When these resolve in the tool surface, they are the authoritative verifier for UE-semantic claims — route to them rather than marking UNVERIFIED. When they do NOT resolve (naked consumer without the UE addon mounted):
 
 - Mark UE-semantic in-repo symbol claims as `UNVERIFIED` and note the polarity rationale in the verification table.
 - Do NOT auto-fix UE-semantic claims — the AUTO-FIX allowlist below assumes core/standard-lib correctness, not engine-specific semantics.
@@ -102,7 +102,7 @@ Once the addon-namespaced UE-semantic tools land (`mcp__project-rag__ue_check` a
 
 The abstention rationale for the verification report, when applicable:
 
-> ABSTAIN: claim is UE-semantic (touches `<UObject | specifier | WITH_EDITOR | cooked | …>`). Core `mcp__project-rag__*` tools are producer-agnostic; UE-semantic verification lives in the addon namespace (`mcp__project-rag__ue_check` and siblings, post-W2 of jetbrains sprint). Marking UNVERIFIED rather than auto-fixing.
+> ABSTAIN: claim is UE-semantic (touches `<UObject | specifier | WITH_EDITOR | cooked | …>`). Core `mcp__project-rag__*` tools are producer-agnostic; UE-semantic verification lives in the addon surface (`validate_ue_api` / `validate_specifiers` / `validate_cpp_file` / `find_violations`). Those tools are not registered in this consumer; marking UNVERIFIED rather than auto-fixing.
 
 **Status values:**
 - `VERIFIED` — docs confirm this API exists and the usage matches the documented signature

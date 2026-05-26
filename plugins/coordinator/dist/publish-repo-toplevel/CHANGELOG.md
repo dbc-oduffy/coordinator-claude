@@ -4,6 +4,23 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.5.1] — 2026-05-26
+
+Patch release — cleanup. Retires the `game-dev` plugin from the OSS distribution: it is Unreal-Engine/holodeck-coupled by nature (references the holodeck-docs/holodeck-control MCP servers and the `claude-unreal-holodeck` sibling repo) and its MCP health gate aborts on use in a naked consumer, so it has no working configuration for an OSS installer. The plugin is now solely owned by the holodeck distribution. Coordinator ships a coherent operating system for colleagues, not generic personae as an OSS contribution.
+
+### Removed
+
+- **`plugins/game-dev/`** — the Game Dev Reviewer plus its Blueprint inspector/worker agents, knowledge base, and routing. Removed from `marketplace.json` and the README plugin inventory. The "build your own domain reviewer" reference framing now points at the shipped web-dev and data-science plugins.
+
+### Added
+
+- **Publish-time guard** (`setup/percolate-hooks/coordinator-claude/pre-rsync/`) — aborts a coordinator-claude publish if a `game-dev/` plugin dir reappears in the mirror source; override via `COORDINATOR_OVERRIDE_GAMEDEV_GUARD=1`. Registered in the tripwires wiki.
+- **Doctrine** — one-way ownership note for holodeck-owned plugins in `plugin-extraction-and-distribution.md` (no bidirectional back-prop); editorial principle in the meta-repo local instructions.
+
+### Fixed
+
+- **Spec line-count ceiling** — trimmed `commands/workday-start.md` back under the 500-line CI ceiling.
+
 ## [2.2.0] — 2026-05-20
 
 Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-resolution definition as a load-bearing module that ships with `/coordinator:setup`, so peer-repo install scripts (project-rag, holodeck, deep-research, future Python/TS/Rust consumers) consume one canonical resolver instead of inlining a precedence chain in each repo. Also trims four pre-existing skills/commands to fit the CI spec-line-count ceiling (>500 lines), and ships the ergonomic-substrate / eager-agent-calibration chunks (meta-ask preamble snippet + sync verifier + templates-mirror verifier + new wiki).
