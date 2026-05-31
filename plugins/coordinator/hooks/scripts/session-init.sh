@@ -58,6 +58,24 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 SESSIONS_DIR="${GIT_ROOT}/.git/coordinator-sessions"
 mkdir -p "$SESSIONS_DIR" 2>/dev/null || exit 0
 
+# --- Boot-time orphaned-git-lock sweep (best-effort, near-zero cost) ---
+# Self-heal an orphaned `.git/index.lock` (etc.) left by a prior session's commit under
+# concurrent-EM on Git-for-Windows, so this session doesn't hit "Unable to create
+# '.../index.lock': File exists" on its first commit. The reaper removes ONLY aged + stable
+# locks (never a fresh/in-flight one), and incurs no latency when no orphan exists.
+# Spec: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md; docs/wiki/concurrent-em-hazards.md § H21.
+# Both helpers resolve the git dir from cwd, so pin cwd to the repo root (this hook's
+# cwd is not guaranteed). Subshell keeps the cd local to each call.
+_REAPER="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-reap-stale-locks"
+[[ -x "$_REAPER" ]] && ( cd "$GIT_ROOT" && "$_REAPER" ) >/dev/null 2>&1 || true
+
+# --- Idempotent git-config hardening (gc.autoDetach false) ---
+# Ensures every coordinator-active repo has the production-reduction setting even if it was
+# never formally onboarded — git's detached auto-maintenance is the orphaned-lock contributor.
+# Idempotent and near-zero cost (a `git config --get`, plus one `--set` on first boot only).
+_CFGGIT="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-configure-git"
+[[ -x "$_CFGGIT" ]] && ( cd "$GIT_ROOT" && "$_CFGGIT" ) >/dev/null 2>&1 || true
+
 # --- Source the lib and call cs_init for proper session-dir setup ---
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
 [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"

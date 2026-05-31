@@ -114,6 +114,30 @@ Macros that auto-register types by stringifying their names also stringify any f
 
 Corollary: when debugging auto-registration round-trip failures, always print the raw stringified name before asserting — the drift is almost always a prefix/suffix encoding difference, not a logic error.
 
+## A False-Passing Gate Is Worse Than No Gate — Reuse the Canonical Parser, Run Against the Real Artifact
+
+*Recurs: L319, holodeck-L5. Consolidated 2026-05-27. [universal]*
+
+A new gate or parser that consumes a shared config format (machine-local registry, BOM-prefixed file, manifest, on-disk schema) can pass **41 fixture tests and still return a vacuous "all clean exit 0" against the real artifact** — because fixtures don't reproduce the format's accumulated variform reality. A vacuous all-clear gate is the worst outcome: it ships confidence with zero coverage.
+
+**Concrete failure (holodeck-L5).** `bin/check-reverse-drift.sh` passed all fixture tests but no-op'd against the real registry — three bugs: unstripped CRLF → installed plugins read as false `[missing]`; `IFS=$'\t'` whitespace-collapse → empty field shifted the next field into the wrong slot; mixed-slash Windows path → `-d` existence check failed. Coordinator's `check-plugin-drift.sh` had **already solved all three** (tomllib both-key-shapes, `| tr -d '\r'`, `${path//\\//}`, pipe delimiter) — the new gate hand-rolled a regex/tab variant and re-introduced every bug.
+
+**Rule.** A new consumer of a shared format MUST:
+1. **Reuse the canonical sibling parser verbatim** — don't hand-roll a regex/tab/split variant. The canonical parser has absorbed the format's real-world variance (CRLF, both TOML key-shapes, backslash paths, BOM); a fresh re-implementation re-discovers each one as a production bug.
+2. **Run once against the REAL artifact** before trusting green fixtures. Fixtures are the floor; the real artifact is the verdict.
+
+This is the parser/gate analogue of the producer→consumer round-trip rule: fabricated-on-each-side fixtures lie, and a re-implemented parser tested only against its own fixtures is testing the re-impl against itself (test-design §16, "real-shell for real-shell semantics").
+
+## Refactoring a Resolution Seam Breaks Tests That Mock the Old Seam — Re-Mock at the New Boundary
+
+*Recurs: L313, holodeck-L879. Consolidated 2026-05-27. [universal]*
+
+A mock pins the call shape at one boundary. Moving the boundary — routing resolution *upstream* of invocation — makes the old mock match nothing, and a fall-through default branch usually reads as success. The failure is invisible: the test still "passes," wrongly, or passes for the wrong reason.
+
+**Concrete failure (holodeck-L879).** A probe-helpers refactor routed `subprocess.run([name, ...])` through a `shutil.which`-first kit, changing `cmd[0]` from the bare name to a resolved abspath. Every test that mocked `subprocess.run` and keyed on `cmd[0] == "node"` / `"tasklist"` / `"machine-local"` **silently fell through to its default branch → false PASS** (an "absent" test saw success). Hit 5 separate test files identically.
+
+**Rule.** When a refactor *moves* a resolution seam, the test mocks must move with it — **re-mock at the new boundary**, don't trust green-on-old-mocks. The regression-net-before-refactor principle (test-design §5) assumes the net is wired to the seam under test; when the refactor moves the seam, the net is now wired to nothing. Greppable trigger: a refactor that changes what a downstream mock keys on (`cmd[0]`, a resolved path, a normalized identifier) → grep every mock of that boundary and verify it still matches the new call shape. Composes with test-design §10 (mock at the helper boundary, not the stdlib boundary) — both are "the mock doesn't intercept what the code actually calls."
+
 ## Reference Pattern: `writing-plans` Skill Checklist
 
 When drafting a plan that introduces a new producer or consumer to an existing on-disk-artifact pipeline, the plan must name the round-trip contract test explicitly — not as a follow-up. If it isn't named in the plan, executors won't add it, and CI green will keep lying.

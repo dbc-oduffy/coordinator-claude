@@ -241,8 +241,8 @@ describe('capability-catalog.md — deep-research dependent features are annotat
   it('annotates /research --mode=web as requiring the plugin', () => {
     if (!catalog) return;
     assert.ok(
-      catalog.includes('/research --mode=web'),
-      'Catalog must reference /research --mode=web'
+      catalog.includes('/deep-research:research --mode=web'),
+      'Catalog must reference /deep-research:research --mode=web'
     );
     assert.ok(
       catalog.includes('requires deep-research plugin'),
@@ -253,8 +253,8 @@ describe('capability-catalog.md — deep-research dependent features are annotat
   it('annotates /research --mode=structured as requiring the plugin', () => {
     if (!catalog) return;
     assert.ok(
-      catalog.includes('/research --mode=structured'),
-      'Catalog must reference /research --mode=structured'
+      catalog.includes('/deep-research:research --mode=structured'),
+      'Catalog must reference /deep-research:research --mode=structured'
     );
     // The annotation is shared — verified by the presence check above
   });

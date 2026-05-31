@@ -4,6 +4,30 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.7.0] — 2026-05-31
+
+Minor release. A large batch of session-lifecycle, hook, and skill work, plus the previously-undocumented 2.6.0 safety hook folded in. Headlines: EM-environment and boundary-guard hooks, a generated-tracker system, the cross-repo memo `--kind` lifecycle, the fan-out demotion, and assorted reviewer/skill hardening.
+
+### Added
+
+- **EM-environment & boundary-guard hooks** — effort/model self-check baked into the three start ceremonies and the `/plan` entry point; a nudge that catches the probe-spray loop at the boundary; a `git -C`-over-`cd` redirect; `block-destructive-rm` to guard uncommitted-work loss; `guard-settings-integrity` to auto-recover a clobbered `settings.json`.
+- **`block-destructive-git-orphan` safety hook** (originally 2.6.0) — blocks destructive git operations that would orphan commits; pairs with the tool-output-flakiness floors.
+- **Generated-tracker system** — schema fields, `query-records` memo type + renderer, producer templates emitting category+summary, lifecycle wire-ins, and edit-resistance for generated trackers.
+- **Cross-repo memo `--kind {ask,consult,fyi}`** — a validated kind enum, `/pickup` form-classification fork, and surfacing priority by kind.
+- **New skills** — `coordinator:systematic-debugging` (single-issue root-cause discipline) and `/coordinator-update` (OSS self-update).
+- **`editable_sibling_venv` propagation mode** — drift-check support for addons editable-installed into a sibling host venv.
+
+### Changed
+
+- **Fan-out demoted from a skill to a methodology** — it collided with native Claude Code vocabulary; `fan-out-dispatch.sh` plus the dispatching-parallel-agents wiki are now the surface. Concurrency uses an organic ramp instead of a hard 6–8 cap.
+- **`block-unauthorized-handoff`** reworked from a hard block into a warn-not-block nudge.
+- **`bug-blitz`** now runs the full test suite every run and treats failing tests as first-class fix items.
+- **`/workweek-complete` version bump** deferred to the consumer's `versioning-convention.md`.
+
+### Fixed
+
+- Tool-output-flakiness stop-at-floors (re-run-solo discipline, destructive-git/rm floors); session-end reviewer routing (named reviewers for plans/arch, not code output); install-portability sweep (bash-4 / BSD-GNU / python3 gotchas across the install surface); drift-check path corrections; assorted hook and skill repairs.
+
 ## [2.5.1] — 2026-05-26
 
 Patch release — cleanup. Retires the `game-dev` plugin from the OSS distribution: it is Unreal-Engine/holodeck-coupled by nature (references the holodeck-docs/holodeck-control MCP servers and the `claude-unreal-holodeck` sibling repo) and its MCP health gate aborts on use in a naked consumer, so it has no working configuration for an OSS installer. The plugin is now solely owned by the holodeck distribution. Coordinator ships a coherent operating system for colleagues, not generic personae as an OSS contribution.

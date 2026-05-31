@@ -3,10 +3,10 @@ title: prior-art-checker pre-review doctrine
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator/agents/prior-art-checker.md
-  - plugins/coordinator/snippets/prior-art-check-consumption.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
-  - plugins/coordinator/skills/learn-lessons/SKILL.md
+  - plugins/coordinator-claude/coordinator/agents/prior-art-checker.md
+  - plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
   - docs/wiki/docs-checker-pre-review.md
   - docs/wiki/lesson-triage.md
   - tasks/handoffs/2026-05-06_165124_wired-in-wikis-lesson-checker.md
@@ -81,7 +81,7 @@ The verdict is advisory. The agent never auto-blocks; only the EM/PM may halt a 
 
 ## Prior-art mutability — DoE-reviewer override path
 
-*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (the Director of Engineering, or the Staff Engineer elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
+*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (Zolí, or Patrik elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
 
 **When the override applies:**
 
@@ -129,14 +129,14 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 ## Distribution
 
-The reviewer-side consumption block is synced via `plugins/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
+The reviewer-side consumption block is synced via `plugins/coordinator-claude/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
-- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
-- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
-- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
+- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (Zolí)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 
@@ -173,6 +173,16 @@ The prior-art-checker is mechanical, not judgmental. It can over-match (false-fl
 
 **Operational hook:** during `/workweek-complete` Step 4 (improvement-queue triage), the EM scans recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`, and flags wikis cited ≥3 times across those dispositions as candidates for revision. Repeated `update-prior-art` against the same wiki is the strongest signal — two plans correcting the same entry within a quarter means the entry is structurally stale, not just occasionally wrong. The in-flight bidirectional resolution handles individual conflicts at plan time; the weekly pass exists for cross-plan pattern detection that in-flight resolution cannot see. This is judgment-based, not automated — but the responsibility lives in weekly cadence so it doesn't drift.
 
+## EM Disposition Prose Against a Conflict Needs Substrate Grep
+
+**When the EM writes disposition prose against a prior-art-checker Conflict — especially a non-existence claim ("no typed X exists in this codebase") — that prose is a hypothesis until substrate-grepped, not authoritative framing.**
+
+The prior-art-checker surfaces a Conflict; the EM responds with a disposition direction (e.g. `update-prior-art` with rationale "we don't have X"). If the rationale rests on a non-existence claim, it must be substrate-grepped before landing in the integration commit — the same no-fabrication discipline that applies to plan body assertions applies here. A disposition that convincingly argues "we have no typed Y" without a grep citation is fabrication with more prose around it.
+
+**How to apply:** before writing an `update-prior-art` or `override-and-document` disposition that relies on a non-existence or existence claim about your codebase, run `grep -rn "<claimed identifier>" src/ tests/ plugins/ commands/` and quote a file:line result (or the zero-result) in the disposition. The sidecar body carries the rationale; the rationale is only load-bearing when it's grounded.
+
+*Source: 2026-05-28 project-rag (tasks/lessons.md:5), companion to this wiki's § Bidirectional resolution.*
+
 ## Audit-side closure must cross-check pre-existing test signal
 
 *2026-05-16, project-rag.* When an audit triage proposes closing a candidate as "out of scope" or "covered elsewhere," cross-check against pre-existing test failures on that candidate before closing. Convergent signal (audit says skip + existing test already red on the same surface) beats a unilateral audit-side contract-boundary assumption. The audit is reasoning forward from claim surface; the failing test is reasoning backward from observed behavior. When they disagree, the test wins until the audit explains the failure.
@@ -184,6 +194,16 @@ The prior-art-checker is mechanical, not judgmental. It can over-match (false-fl
 *2026-05-13, project-rag-ue-addon.* A "Tree-sitter ERROR-byte coverage %" figure cited in a plan or audit is meaningless without locus-vs-consumer-query context. ERROR bytes in regions never touched by the consumer's queries cost zero; ERROR bytes inside a query's target subtree are total failures. Coverage % aggregates both into one number, hiding the only distinction that matters.
 
 **Rule:** when prior art cites a tree-sitter ERROR-byte percentage as evidence, demand the breakdown by consumer-query locus. "97% non-ERROR" is admissible only with "and the 3% does not overlap any of queries X, Y, Z." Without the locus split, treat the coverage figure as unverified.
+
+## Sibling-Spinoff Pre-Commit Gate
+
+**Plan-time spurious-spinoff drift caught by prior-art-checker is the highest-ROI pre-flight.** When a plan-writer assumes downstream infrastructure doesn't exist and authors a sibling spinoff for it, prior-art-checker's scout-artifact cross-reference catches the drift before the spinoff ships to disk.
+
+Any sibling-spinoff handoff authored by a plan-writer MUST go through prior-art-checker before being committed — the spinoff substrate may already exist in the peer repo. The checker should search for the proposed hookspec name, dataclass name, and boot-block pattern across the peer-repo corpus (`peer_repos:` field in the checker brief).
+
+*Canonical (2026-05-28, tc-7):* A plan-writer authored a project-rag-side spinoff for `project_rag_register_mcp_tool` hookspec, `AddonToolRegistration` dataclass, and boot-iteration block. All three already existed in project-rag's Wave-2 substrate (`core/addon_hookspecs.py:42`, `core/addon_protocol.py:190`, `mcp/project_rag_server.py:1308`, documented at `docs/wiki/addon-protocol-v1.md`). Prior-art-checker surfaced this from 3 scout artifacts within 5 minutes; spinoff was revoked, the deliverable collapsed into a ~10-line hookimpl.
+
+**Operational trigger:** In `coordinator:plan` Branch C, when a chunk authors or commits a spinoff handoff, fire prior-art-checker with `peer_repos:` populated with the spinoff's target repo before the chunk is committed to disk.
 
 ## Cost target
 

@@ -243,6 +243,141 @@ Any future refactor of this helper must preserve the `bash -c` routing and the l
 
 ---
 
+## 6. Interactive-Prompt Bypass for `/dev/tty`-less Environments
+
+**Source:** rag-ue-addon 2026-05-28.
+
+### Symptom
+
+A publish or release script that uses `read -p "Confirm? [y/N]: "` to gate an externally-visible action hard-requires `/dev/tty` for keyboard input. In a Claude Code Bash-tool-driven session on Windows Git Bash (no `/dev/tty`) or in some CI runners, the script hangs or fails — blocking automated or agent-driven publish flows even when the PM has authorized the action.
+
+### Why interactive-prompt bypass differs from safety override
+
+`_OVERRIDE` env vars (e.g., `COORDINATOR_OVERRIDE_NO_VERIFY=1`) are for bypassing *safety checks*. An interactive-prompt block is an *environmental constraint*, not a safety concern — the PM has already authorized the action; the issue is that `/dev/tty` is absent. Conflating the two by reusing the same env var mixes authorization semantics.
+
+### Fix
+
+Add a third `elif` branch to the confirmation gate:
+
+```bash
+if [ -t 0 ]; then
+    read -p "Confirm? [y/N]: " answer
+    [[ "$answer" =~ ^[Yy] ]] || exit 1
+elif [ -n "${SCRIPT_CONFIRM:-}" ]; then
+    echo "Non-interactive: SCRIPT_CONFIRM set — proceeding"
+else
+    echo "Non-interactive and SCRIPT_CONFIRM not set — aborting" >&2; exit 1
+fi
+```
+
+The `_CONFIRM` suffix signals "I am explicitly bypassing the interactive prompt" (not a safety bypass). Default unset preserves human-at-keyboard as the gate; explicit value (`SCRIPT_CONFIRM=yes`) is the documented escape hatch for agent-driven and CI contexts.
+
+---
+
+## 7. PowerShell Here-String Syntax Corrupts Commit Subjects in the Bash Tool
+
+**Source:** rag-ue-addon 2026-05-23.
+
+### Symptom
+
+A multi-line `git commit -m` message authored via PowerShell here-string syntax (`@'…'@`) in the **Bash tool** produces a commit where the subject is the literal `@` character and the intended subject is demoted to the body.
+
+### Why
+
+PowerShell here-string syntax (`@'…'@`) is valid PowerShell only — it is interpreted by the PowerShell engine before reaching the command. In the **Bash tool** it is not interpreted; bash treats the raw `@` + newline as the start of the message, making the first real line the body, not the subject.
+
+### Fix
+
+In the Bash tool, always pass git commit messages via:
+
+```bash
+git commit -m "$(cat <<'EOF'
+Subject line here
+
+Body here.
+EOF
+)"
+```
+
+or a single `-m "..."`. Reserve `@'…'@` for the **PowerShell tool** only. If a concurrent EM stacks a commit on top of a malformed one on a shared branch, the subject cannot be cleanly amended — use the H8 plumbing-reword procedure.
+
+---
+
+## 8. `bash -n` False Positives on CRLF Working Trees
+
+**Source:** project-rag 2026-05-24.
+
+### Symptom
+
+`bash -n <installer.sh>` reports a syntax error ("unexpected `fi`" or similar) on a heredoc-heavy installer even though the committed blob is clean. Root cause: `core.autocrlf=true` expands the LF-committed blob to CRLF in the working tree; the heredoc closer (`DELIM\r`) no longer matches the opener (`DELIM`), causing the heredoc to swallow to EOF and confuse the parser. SC1017 (literal CR) is the ShellCheck signal.
+
+### Diagnostic
+
+```bash
+git config core.autocrlf   # should be true on Windows
+git show HEAD:<path> | python -c "import sys; print('CRLF' if b'\r\n' in sys.stdin.buffer.read() else 'LF')"
+# LF → committed blob is clean; the working-tree checkout is the problem
+```
+
+### Fix
+
+Use ShellCheck (the real lint) rather than `bash -n` as the syntax gate on installers in this repo. ShellCheck is aware of CRLF (SC1017) and correctly isolates the line-ending issue. `bash -n` is not an appropriate syntax-validity gate on a Windows working tree with `core.autocrlf=true`.
+
+`/workweek-complete` already runs ShellCheck — do not add `bash -n` as a parallel gate.
+
+---
+
+## 9. Extensionless Python CLIs break under a `bash <script>` prefix — add a polyglot trampoline
+
+**Source:** 2026-05-30 self (`cross-repo-memo` papercut).
+
+### Symptom
+
+An extensionless Python CLI on PATH (e.g. `cross-repo-memo`, `install-sentinel-write`) is *designed* to be invoked directly — `cross-repo-memo --to … --topic …` — relying on its `#!/usr/bin/env python` shebang. But the habitual reach for "run a script at a path" is `bash <path>`, and the agent (or a human) types:
+
+```bash
+bash ~/.claude/.../bin/cross-repo-memo --to project-rag-em --topic …
+```
+
+`bash` then tries to interpret **Python** as shell. Best case it drops into the Python REPL banner and a traceback; worst case it executes stray lines (`from … import …` → `import: command not found`, then a `SyntaxError near unexpected token '('`). The CLI never runs, and the operator burns a round guessing whether the flags or the path were wrong — when neither was; only the `bash ` prefix was.
+
+The script's own docstring warning ("do NOT invoke as `bash <script>`") does **not** prevent this: the docstring is only visible *after* the failed invocation. Documentation cannot fix a muscle-memory problem — the file has to absorb the habit.
+
+### Fix — sh/python polyglot trampoline
+
+Add one inert-to-Python, executable-to-sh line directly below the shebang. Under sh/bash it re-execs the file under `python`; under Python it is a no-op string literal:
+
+```python
+#!/usr/bin/env python
+''''exec python "$0" "$@" #'''
+"""Real module docstring continues here…"""
+```
+
+Now `bash <script>`, `python <script>`, and direct shebang invocation all re-exec under `python` identically — the `bash` prefix is *forgiven*, not punished. Recovery improves too: `bash <script> --help` prints the argparse help instead of a traceback. Keep `python` (not `python3`) in the exec line for the same Windows reason as §3.
+
+**`from __future__` interaction (gotcha-within-the-gotcha).** A `from __future__ import …` statement must be the file's first statement, and the *only* string literal permitted before it is the module docstring. The trampoline line is a string literal — so it occupies that single slot. A file that has *both* a trampoline **and** a `"""docstring"""` before `from __future__` raises `SyntaxError: from __future__ imports must occur at the beginning of the file`. Resolution: let the trampoline be the sole leading string and demote the human docstring to a `#` comment block (CLIs carry their `--help` text in argparse's `description=`, so nothing reads `__doc__`). See `bin/install-sentinel-write` for the worked example.
+
+### Why this over a separate `.sh` wrapper
+
+A sibling `cross-repo-memo.sh` that execs the python would also make `bash …` work, but it doubles the surface (two files per tool, flag/help drift, two PATH entries) and the operator may still call the bare name. The polyglot keeps it **one file**. (`bin/machine-local` uses the separate-wrapper form for historical reasons and works fine — but new extensionless Python CLIs should prefer the trampoline.)
+
+### Greppable signature
+
+```bash
+# Extensionless Python CLIs in bin/ that lack the trampoline. The `.py`
+# extension is itself a "this is Python" signal, so `*.py` files are exempt —
+# the trap is specific to extensionless names that read like commands.
+for f in bin/*; do
+  case "$(basename "$f")" in *.*) continue;; esac     # skip files with an extension
+  [ -f "$f" ] && head -1 "$f" | grep -q python \
+    && ! grep -qF 'exec python "$0"' "$f" && echo "no trampoline: $f"
+done
+```
+
+Any hit is a `bash <script>` papercut waiting to happen.
+
+---
+
 ## Detection signatures (greppable)
 
 | Signature | Risk |
@@ -252,6 +387,11 @@ Any future refactor of this helper must preserve the `bash -c` routing and the l
 | `#!/bin/bash` (instead of `#!/usr/bin/env bash`) | Hardcoded path breaks on macOS Homebrew and MSYS2 |
 | `flock` invocations in scripts targeting Windows runners | `flock` absent on Git Bash; locking silently skipped |
 | `#!/usr/bin/env python3` in coordinator or MCP scripts | exec-127 on Windows; misdiagnosed as upstream error; change to `python` |
+| `read -p "..."` in publish/release scripts with no `_CONFIRM` bypass | Hangs in Bash-tool / CI sessions with no `/dev/tty`; use the `_CONFIRM` env-var escape hatch |
+| `git commit -m @'…'@` in the Bash tool | PowerShell here-string syntax; subject becomes `@`, body shifts down; use heredoc or `-m "..."` |
+| `bash -n` used as syntax gate on installers in Windows working tree | False positives under `core.autocrlf=true` (SC1017 literal CR); use ShellCheck instead |
+| Extensionless Python CLI in `bin/` (shebang `python`, no `''''exec python "$0"` line) | `bash <script>` feeds Python to bash → traceback; add the §9 polyglot trampoline |
+| Trampolined file with BOTH a `''''exec…'''` line AND a `"""docstring"""` before `from __future__` | Two leading string literals → `SyntaxError: from __future__ … must occur at the beginning`; let the trampoline be the sole leading string (§9), demote the docstring to a `#` comment block |
 
 ---
 

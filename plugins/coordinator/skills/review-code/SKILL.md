@@ -151,6 +151,16 @@ Walk each finding against the triage table — it lands in exactly one row:
 
 **Executor brief out-of-scope reminder.** When building an executor brief from these findings, include this constraint: Removing/weakening production safeguards to satisfy pre-existing test mocks is OUT OF SCOPE. Tests follow production; surface the conflict instead.
 
+**Probe-wiring brief authority surface.** When building an executor brief that wires a
+new coordinator-doctor probe (adding or editing a health/drift probe), name
+`docs/wiki/coordinator-doctor.md` (plugin-root-relative:
+`plugins/coordinator/docs/wiki/coordinator-doctor.md`) as the
+authority surface in the brief. The coordinator doctor is **wiki-only by design** — there
+is no `commands/doctor.md`. A brief that tells a delegate to "find the doctor command"
+sends it searching for a file that does not exist; name the wiki explicitly so the
+delegate reads the authority surface directly. Confirm the wiki path exists before
+quoting it (spec backlinks outlive their cited spec).
+
 ---
 
 ## Cross-reference exit

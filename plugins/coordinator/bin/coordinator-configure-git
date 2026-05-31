@@ -1,0 +1,67 @@
+#!/bin/bash
+# coordinator-configure-git — apply coordinator's git-config hardening to a repo.
+#
+# Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (holodeck consult);
+#   docs/wiki/concurrent-em-hazards.md § H21.
+#
+# Sets `gc.autoDetach false`: git's default auto-gc/maintenance DETACHES into a background
+# process on Git-for-Windows, and that detached child is the likely concurrent handle-holder
+# that blocks a commit's `index.lock` cleanup under concurrent-EM (see the consult memo for
+# the full root-cause). Setting autoDetach=false makes auto-gc run SYNCHRONOUSLY in the
+# foreground of the triggering command, so it completes and releases its handles before the
+# command returns — eliminating the "lock outlived the process that created it" race while
+# preserving automatic repacking (no unbounded loose-object growth, unlike `gc.auto 0`).
+#
+# Idempotent: re-running is a no-op if already set. Per-repo by default; pass --global to
+# set the machine-wide default at coordinator install time (covers every current and future
+# coordinator-managed repo on the machine).
+#
+# Usage:
+#   coordinator-configure-git            # configure the current repo
+#   coordinator-configure-git --global   # set the machine-wide default
+#
+# Exit codes: 0 — configured (or already correct); 1 — not a git repo / git config failed.
+
+set -uo pipefail
+
+# Scope as an array so the empty (per-repo) case expands to nothing without the
+# unquoted-word-splitting hazard (shellcheck SC2086).
+declare -a SCOPE=()
+SCOPE_LABEL="repo"
+if [[ "${1:-}" == "--global" ]]; then
+  SCOPE=("--global")
+  SCOPE_LABEL="global"
+fi
+
+if [[ "$SCOPE_LABEL" == "repo" ]]; then
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "coordinator-configure-git: not a git repository" >&2
+    exit 1
+  fi
+fi
+
+# Desired hardening settings: key -> value.
+# gc.autoDetach=false is the index.lock-orphan mitigation (see header).
+declare -a KEYS=("gc.autoDetach")
+declare -a VALS=("false")
+
+changed=0
+for i in "${!KEYS[@]}"; do
+  key="${KEYS[$i]}"; want="${VALS[$i]}"
+  cur="$(git config "${SCOPE[@]+"${SCOPE[@]}"}" --get "$key" 2>/dev/null || true)"
+  if [[ "$cur" == "$want" ]]; then
+    continue
+  fi
+  if git config "${SCOPE[@]+"${SCOPE[@]}"}" "$key" "$want" 2>/dev/null; then
+    echo "coordinator-configure-git: set ${SCOPE_LABEL} ${key}=${want} (was: ${cur:-<unset>})" >&2
+    changed=1
+  else
+    echo "coordinator-configure-git: ERROR — failed to set ${key}=${want}" >&2
+    exit 1
+  fi
+done
+
+if (( changed == 0 )); then
+  echo "coordinator-configure-git: ${SCOPE_LABEL} git config already hardened (no change)" >&2
+fi
+exit 0

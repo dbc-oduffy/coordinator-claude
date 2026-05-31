@@ -102,7 +102,9 @@ Full component inventory for the record. The failure-mode sections above are the
 | **staff-eng** | Opus | Senior staff engineer (the Staff Engineer) — rigorous review of code, plans, architecture, documentation |
 | **eng-director** | Opus | Director of Engineering (the Director of Engineering) — peer of the Staff Engineer in technical rigor with cross-team / cross-repo authority. Three modes: standalone primary reviewer (default), backstop after the Staff Engineer, staff-session synthesizer. |
 
-### Commands (11)
+### Slash commands
+
+> A mix of `commands/` (hook/ceremony auto-runners) and top-level `skills/` — both are invoked as `/name`; neither self-fires.
 
 | Command | Purpose |
 |---------|---------|
@@ -116,7 +118,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/execute-plan` | Execute a PM-approved implementation plan in the coordinator session |
 | `/enrich-and-review` | Run enrichment pipeline on chunk directories |
 | `/mise-en-place` | Autonomous backlog execution — gather ready items, execute without stopping |
-| `/research` | Deep research pipeline — `--mode=web` (Pipeline A), `--mode=repo` (Pipeline B), `--mode=structured` (Pipeline C) |
+| `/deep-research:research` | Deep research pipeline — `--mode=web` (Pipeline A), `--mode=repo` (Pipeline B), `--mode=structured` (Pipeline C) |
 | `/architecture-survey` | Bootstrap or refresh the architecture atlas via multi-phase agent pipeline |
 | `/architecture-audit` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
@@ -126,7 +128,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
 
-### Skills (27)
+### Skills (selected)
 
 **Workflow & Planning:**
 - `brainstorming` — Collaborative dialogue to refine ideas into designs. Scope assessment, design-for-isolation, existing-codebase awareness.
@@ -139,6 +141,7 @@ Full component inventory for the record. The failure-mode sections above are the
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced.
 - Systematic debugging — see `docs/wiki/systematic-debugging.md`. Root-cause debugging process.
 - Dispatching parallel agents — see `docs/wiki/dispatching-parallel-agents.md`. Dispatch independent tasks in parallel; concurrency budget + worktree doctrine.
+- Fan-out dispatch (a methodology, not a skill — the `/fan-out` command was demoted 2026-05-30) — see `docs/wiki/dispatching-parallel-agents.md` § Executing a Fan-Out Wave. Run `fan-out-dispatch.sh` (overlap pass + scoped prompts), then dispatch the compiled wave with EM-serial commit.
 - Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol — repetition, oscillation, analysis paralysis detection.
 
 **Code Review:**
@@ -167,7 +170,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 ### Hooks
 
-- **SessionStart** — Coordinator reminder (EM role/pipeline awareness), project orientation, UE knowledge distrust guard
+- **SessionStart** — `project-orientation.sh` injects the boot orientation RAM cache (the `── Orientation ──` block); this is what loads context at boot — *not* the `/session-start` skill, which is separately PM-invoked. Plus coordinator-reminder (EM role/pipeline awareness), settings-integrity / model / dropped-files guards, and the UE knowledge-distrust guard.
 - **PreToolUse (Bash)** — validate-commit: blocks bad commit patterns before they run
 - **PreToolUse (WebSearch|WebFetch)** — suggest-sonnet-research: advisory to use deep-research pipelines instead of direct web calls
 - **PostToolUse (ExitPlanMode)** — plan-persistence-check: ensures plan content is written to disk, not held in context
@@ -192,8 +195,11 @@ Create `coordinator.local.md` in your project:
 ```yaml
 ---
 project_type: game-dev  # general | game-dev | web-dev | data-science
+fast_test_cmd: python project_rag_scripts/run-tests.py --tier fast  # optional
 ---
 ```
+
+`fast_test_cmd` is optional. When set, the daily (`/workday-complete` Step 1) and weekly (`/workweek-complete` Step 2) validate gates run this command instead of a conventional script. When absent, the gate reports `Validation: skipped` and prints a remediation hint. The env var `COORDINATOR_FAST_TEST_CMD` takes precedence over the file value when both are set.
 
 Default (no config): core-only (the Staff Engineer + Zoli).
 

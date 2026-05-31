@@ -205,6 +205,157 @@ describe('validateFrontmatter — handoff', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateFrontmatter — handoff category + summary (cutoff-gated cross-field rules)
+// Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — handoff category + summary cutoff rules', () => {
+  const handoffSchema = SCHEMAS['handoff'];
+
+  // Base valid post-cutoff handoff with all required + new fields.
+  function basePostCutoff(overrides = {}) {
+    return Object.assign({
+      title: 'Post-cutoff handoff',
+      created: '2026-05-29',
+      branch: 'work/striker/2026-05-29',
+      status: 'active',
+      predecessor: null,
+      category: 'infra',
+      summary: 'Schema extended with category and summary fields for handoff enrichment',
+    }, overrides);
+  }
+
+  it('legacy handoff (created < 2026-05-29) without category or summary passes', () => {
+    const fm = {
+      title: 'Legacy handoff',
+      created: '2026-05-28',
+      branch: 'work/striker/2026-05-28',
+      status: 'active',
+      predecessor: null,
+      // category and summary intentionally absent
+    };
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.ok(result.ok, `Legacy handoff without category/summary should pass (pre-cutoff), got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('pre-cutoff handoff (created: 2026-05-01) without category passes', () => {
+    const fm = {
+      title: 'Old handoff',
+      created: '2026-05-01',
+      branch: 'work/striker/2026-05-01',
+      status: 'consumed',
+      predecessor: null,
+    };
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.ok(result.ok, `Pre-cutoff handoff without category should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('post-cutoff handoff (created >= 2026-05-29) without category FAILS', () => {
+    const fm = basePostCutoff({ category: undefined });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, 'Post-cutoff handoff without category should fail');
+    const err = result.errors.find(e => e.field === 'category');
+    assert.ok(err, `Expected category error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /required for handoffs created on or after 2026-05-29/);
+  });
+
+  it('post-cutoff handoff without summary FAILS', () => {
+    const fm = basePostCutoff({ summary: undefined });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, 'Post-cutoff handoff without summary should fail');
+    const err = result.errors.find(e => e.field === 'summary');
+    assert.ok(err, `Expected summary error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /required for handoffs created on or after 2026-05-29/);
+  });
+
+  it('post-cutoff handoff with 121-char summary FAILS', () => {
+    const longSummary = 'A'.repeat(121);
+    const fm = basePostCutoff({ summary: longSummary });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, '121-char summary should fail');
+    const err = result.errors.find(e => e.field === 'summary');
+    assert.ok(err, `Expected summary length error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /exceeds 120 characters/);
+  });
+
+  it('post-cutoff handoff with valid category + ≤120-char summary PASSES', () => {
+    const result = validateFrontmatter(basePostCutoff(), handoffSchema);
+    assert.ok(result.ok, `Valid post-cutoff handoff with category + summary should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('post-cutoff handoff with exactly 120-char summary PASSES', () => {
+    const exactly120 = 'B'.repeat(120);
+    const fm = basePostCutoff({ summary: exactly120 });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.ok(result.ok, `Exactly-120-char summary should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('category enum validation still fires (invalid category value fails)', () => {
+    const fm = basePostCutoff({ category: 'typo-category' });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, 'Invalid category enum value should fail');
+    const err = result.errors.find(e => e.field === 'category');
+    assert.ok(err, `Expected category enum error, got: ${JSON.stringify(result.errors)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateFrontmatter — cross-repo-memo summary length rule
+// Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — cross-repo-memo summary length rule', () => {
+  const memoSchema = SCHEMAS['cross-repo-memo'];
+
+  function baseMemo(overrides = {}) {
+    return Object.assign({
+      title: 'Test memo',
+      from: 'claude-central-em',
+      to: 'project-rag-em',
+      created: '2026-05-29',
+      status: 'open',
+      delivery_mode: 'receiver-repo',
+    }, overrides);
+  }
+
+  it('post-cutoff memo with 121-char summary FAILS', () => {
+    const longSummary = 'C'.repeat(121);
+    const fm = baseMemo({ summary: longSummary });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, '121-char memo summary should fail');
+    const err = result.errors.find(e => e.field === 'summary');
+    assert.ok(err, `Expected summary length error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /exceeds 120 characters/);
+  });
+
+  it('post-cutoff memo with ≤120-char summary PASSES', () => {
+    const fm = baseMemo({ summary: 'Notify project-rag-em about revised plugin extract doctrine' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Valid memo with short summary should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('post-cutoff memo without summary PASSES (summary is optional)', () => {
+    const fm = baseMemo();
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Memo without summary should pass (optional field), got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('pre-cutoff memo (created < 2026-05-22) with long summary is grandfathered (passes)', () => {
+    const fm = {
+      title: 'Old memo',
+      from: 'claude-central-em',
+      to: 'holodeck-em',
+      created: '2026-05-21',
+      status: 'open',
+      delivery_mode: 'receiver-repo',
+      summary: 'D'.repeat(121),  // would fail if validated, but pre-cutoff grandfather fires
+    };
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Pre-cutoff memo with long summary should be grandfathered, got: ${JSON.stringify(result.errors)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateFrontmatter — plan schema (status enum incl. superseded)
 // ---------------------------------------------------------------------------
 
@@ -482,9 +633,69 @@ describe('validateFrontmatter — cross-repo-memo', () => {
     assert.ok(result.ok, `Expected ok for actioned with decision, got errors: ${JSON.stringify(result.errors)}`);
   });
 
-  it('matchSchemaForPath routes cross-repo/YYYY-MM-DD-topic.md to cross-repo-memo schema', () => {
-    const match = matchSchemaForPath('cross-repo/2026-05-23-test-topic.md', SCHEMAS);
-    assert.ok(match !== null, 'expected a match for cross-repo/ dated memo path');
+  // kind enum — optional field; absent is valid (back-compat); present must be ask|consult|fyi.
+  // Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C3 + § Pinned interface
+  it('kind: ask passes', () => {
+    const fm = baseMemo({ kind: 'ask' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `kind:ask should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('kind: consult passes', () => {
+    const fm = baseMemo({ kind: 'consult' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `kind:consult should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('kind: fyi passes', () => {
+    const fm = baseMemo({ kind: 'fyi' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `kind:fyi should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('kind absent (undefined) passes — back-compat, pre-2026-05-30 memos are valid', () => {
+    const fm = baseMemo();   // no kind field
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `absent kind should pass (back-compat), got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('kind: bogus fails with clear enum error', () => {
+    const fm = baseMemo({ kind: 'bogus' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'invalid kind should fail');
+    const err = result.errors.find(e => e.field === 'kind');
+    assert.ok(err, `Expected kind error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /invalid enum value "bogus"/);
+    assert.match(err.hint, /ask, consult, fyi/);
+  });
+
+  it('kind: ack fails (ack is receipt-state, not a sender-declared kind)', () => {
+    const fm = baseMemo({ kind: 'ack' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'kind:ack should fail');
+    const err = result.errors.find(e => e.field === 'kind');
+    assert.ok(err, `Expected kind error for ack, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.hint, /ack.*not a kind|not a kind.*ack/i);
+  });
+
+  it('kind: ask on a pre-cutoff memo is still grandfathered (grandfather fires first, kind not checked)', () => {
+    // Pre-cutoff memos skip ALL cross-field rules — kind validation is one of them.
+    const fm = {
+      title: 'Old memo',
+      from: 'claude-central-em',
+      to: 'holodeck-em',
+      created: '2026-05-21',
+      status: 'open',
+      delivery_mode: 'receiver-repo',
+      kind: 'bogus',  // would fail for post-cutoff memos, but grandfather fires first
+    };
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `Pre-cutoff memo should pass regardless of kind value, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('matchSchemaForPath routes cross-repo/inbox/YYYY-MM-DD-topic.md to cross-repo-memo schema', () => {
+    const match = matchSchemaForPath('cross-repo/inbox/2026-05-23-test-topic.md', SCHEMAS);
+    assert.ok(match !== null, 'expected a match for cross-repo/inbox/ dated memo path');
     assert.equal(match.schemaName, 'cross-repo-memo');
   });
 
@@ -647,5 +858,114 @@ describe('_parseYaml', () => {
     const yaml = 'items:\n  - foo\n  - bar\n';
     const result = _parseYaml(yaml);
     assert.deepEqual(result.items, ['foo', 'bar']);
+  });
+
+  // Regression: skipPast must consume the same lines parseList does when a list
+  // block contains an indented comment between items. If the two functions
+  // disagree on the line count, the key AFTER the list is dropped or misparsed.
+  // Guards the skipPast indent/trim handling (original bug used raw.trimEnd().startsWith('#'),
+  // which misses indented comments; trim refactored in 0ba69974). Verified falsifiable:
+  // against the pre-fix skipPast this case returns target_surfaces=undefined, trailing_key=undefined.
+  it('keeps the key following a list that contains an indented comment', () => {
+    const yaml = [
+      'target_surfaces:',
+      '  - alpha',
+      '  # indented comment between list items',
+      '  - beta',
+      'trailing_key: kept',
+    ].join('\n');
+    const result = _parseYaml(yaml);
+    assert.deepEqual(result.target_surfaces, ['alpha', 'beta'], 'list contents');
+    assert.equal(result.trailing_key, 'kept', 'trailing key survived list-skip');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateFrontmatter — nested object (loe / chain_loe in completion-entry)
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — nested object (completion-entry loe)', () => {
+  const baseFm = { title: 'x', created: '2026-05-28', nature: 'infra' };
+  const schema = SCHEMAS['completion-entry'];
+
+  it('accepts a well-formed loe object', () => {
+    const fm = { ...baseFm, loe: { agent_dispatches: 5, opus_dispatches: 1, em_tokens: 12000, tshirt: 'M' } };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+  });
+
+  it('accepts legacy all-null loe (Phase 1 entries)', () => {
+    const fm = { ...baseFm, loe: { agent_dispatches: null, opus_dispatches: null, em_tokens: null, tshirt: null } };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+  });
+
+  it('accepts em_tokens: null but rejects em_tokens as string', () => {
+    const okFm = { ...baseFm, loe: { agent_dispatches: 5, opus_dispatches: 1, em_tokens: null, tshirt: 'M' } };
+    assert.equal(validateFrontmatter(okFm, schema).ok, true);
+    const badFm = { ...baseFm, loe: { agent_dispatches: 5, opus_dispatches: 1, em_tokens: 'lots', tshirt: 'M' } };
+    const badResult = validateFrontmatter(badFm, schema);
+    assert.equal(badResult.ok, false);
+    assert.equal(badResult.errors[0].field, 'loe.em_tokens');
+    assert.match(badResult.errors[0].error, /number or null/);
+  });
+
+  it('rejects a bad tshirt enum value with dotted field path', () => {
+    const fm = { ...baseFm, loe: { agent_dispatches: 5, opus_dispatches: 1, em_tokens: null, tshirt: 'XXXL' } };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0].field, 'loe.tshirt');
+    assert.match(result.errors[0].error, /invalid enum value/);
+    assert.match(result.errors[0].hint, /XS, S, M, L, XL/);
+  });
+
+  it('rejects a string where a sub-field expects a number', () => {
+    const fm = { ...baseFm, loe: { agent_dispatches: 'five', opus_dispatches: 0, em_tokens: null, tshirt: 'S' } };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0].field, 'loe.agent_dispatches');
+    assert.match(result.errors[0].error, /expected number/);
+  });
+
+  it('rejects an array where an object is expected', () => {
+    const fm = { ...baseFm, loe: [] };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0].field, 'loe');
+    assert.match(result.errors[0].error, /expected object, got array/);
+  });
+
+  it('rejects a scalar where an object is expected', () => {
+    const fm = { ...baseFm, loe: 'broken' };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0].field, 'loe');
+    assert.match(result.errors[0].error, /expected object, got string/);
+  });
+
+  it('allows loe to be entirely absent (optional field)', () => {
+    const result = validateFrontmatter({ ...baseFm }, schema);
+    assert.equal(result.ok, true);
+  });
+
+  it('validates chain_loe with the same shape', () => {
+    const fm = { ...baseFm, chain_loe: { sessions: 6, agent_dispatches: 87, opus_dispatches: 12, em_tokens: 1847000, tshirt: 'XL' } };
+    assert.equal(validateFrontmatter(fm, schema).ok, true);
+    const badFm = { ...baseFm, chain_loe: { sessions: 6, agent_dispatches: 87, opus_dispatches: 12, em_tokens: null, tshirt: 'GIGA' } };
+    const badResult = validateFrontmatter(badFm, schema);
+    assert.equal(badResult.ok, false);
+    assert.equal(badResult.errors[0].field, 'chain_loe.tshirt');
+    assert.match(badResult.errors[0].error, /invalid enum value/);
+    assert.match(badResult.errors[0].hint, /XS, S, M, L, XL/);
+  });
+
+  it('rejects non-null wrong type on number-or-null sub-fields (F3 coverage)', () => {
+    // agent_dispatches is declared number-or-null — null passes, but a string
+    // must fail. This guards the schema-accuracy fix per code-reviewer F3.
+    const fm = { ...baseFm, loe: { agent_dispatches: 'lots', opus_dispatches: 0, em_tokens: null, tshirt: 'S' } };
+    const result = validateFrontmatter(fm, schema);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0].field, 'loe.agent_dispatches');
+    assert.match(result.errors[0].error, /number or null/);
   });
 });

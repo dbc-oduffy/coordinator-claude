@@ -1,0 +1,115 @@
+#!/usr/bin/env python
+# ── sh/python polyglot trampoline ──────────────────────────────────────────────
+# The next line is inert Python (a bare string literal) but executable sh/bash,
+# so `bash install-sentinel-write ...`, `python install-sentinel-write ...`, and
+# direct shebang invocation all re-exec under python identically. Under sh/bash
+# the line resolves the interpreter as `python3 || python || py` (modern Linux,
+# e.g. Ubuntu 22.04+, ships only python3; clean Windows ships only python/py),
+# then execs it; under Python it is a no-op string.
+# Shebang stays `python` (NOT python3 — python3 is absent on a clean Windows install
+# and exec-127s; only python/py are present). Downstream install ceremonies are
+# told to invoke this CLI directly (see agentic-install-integrity.md § Writer
+# Location), so the shebang must resolve on clean Windows. publish.sh invokes it
+# via its own $PY interpreter array and does not depend on this line.
+# coordinator/bin/install-sentinel-write
+#
+# (Doc is a comment block, not a docstring: `from __future__ import annotations`
+# below must be the first statement, and the only string literal permitted before
+# it is the module docstring. The trampoline line below (just above `from
+# __future__`) IS that single leading string — so a second string literal here
+# would push the future-import past the first-string rule and raise SyntaxError.
+# argparse carries its own --help description, so nothing reads __doc__ here.)
+#
+# Separable sentinel-writer for the agentic install integrity primitive.
+# Writes <path>/version.txt containing one line of 40-hex git SHA + LF.
+#
+# Paired with coordinator/bin/check-install-divergence.py (reader). See
+# docs/wiki/agentic-install-integrity.md for the format spec and
+# docs/wiki/cross-repo-handshake-doctrine.md § Carve-out for the
+# doctrinal justification of the bare-SHA format.
+#
+# Usage:
+#   install-sentinel-write --path <target-dir> [--source <git-root>] [--sha <40-hex>]
+#
+# Semantics:
+#   - With --sha: validate matches ^[0-9a-f]{40}$ and write to <target>/version.txt.
+#   - Without --sha: git -C <source> rev-parse HEAD (default --source .), validate, write.
+#   - Idempotent: always overwrites; never reads-then-writes.
+#   - File contents: ONE line of 40-hex SHA + trailing LF. UTF-8.
+#
+# Exit codes:
+#   0  success
+#   1  validation failure (non-hex --sha, malformed git HEAD), bad path, or git error
+
+# Trampoline line (see comment block at top). Bash resolves+execs the interpreter
+# (python3||python||py); Python sees a no-op string. The leading sh token MUST be a
+# command (exec) — a `var=...` assignment here is mis-parsed as a command name, so
+# fail-loud-on-no-interpreter can't be inlined without breaking the polyglot. It is
+# the sole string literal before `from __future__`, so it occupies
+# the module-docstring slot the future-import rule reserves — nothing reads __doc__.
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _resolve_sha(source: Path, sha_arg: str | None) -> str:
+    if sha_arg is not None:
+        if not _SHA_RE.fullmatch(sha_arg):
+            print(f"ERROR: --sha is not 40-hex: {sha_arg!r}", file=sys.stderr)
+            sys.exit(1)
+        return sha_arg
+
+    if not source.is_dir():
+        print(f"ERROR: --source path does not exist or is not a directory: {source}", file=sys.stderr)
+        sys.exit(1)
+
+    result = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"ERROR: git rev-parse HEAD failed (exit {result.returncode}) in {source}\n"
+            f"stderr: {result.stderr.strip()}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    sha = result.stdout.strip()
+    if not _SHA_RE.fullmatch(sha):
+        print(f"ERROR: git HEAD did not produce a 40-hex SHA: {sha!r}", file=sys.stderr)
+        sys.exit(1)
+    return sha
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Write a 40-hex source-HEAD SHA into <path>/version.txt.",
+    )
+    parser.add_argument("--path", required=True, help="Target directory; version.txt is written at <path>/version.txt.")
+    parser.add_argument("--source", default=".", help="Git repo root to read HEAD from (default: cwd).")
+    parser.add_argument("--sha", default=None, help="Explicit 40-hex SHA; bypasses git rev-parse.")
+    args = parser.parse_args(argv)
+
+    target = Path(args.path)
+    if not target.is_dir():
+        print(f"ERROR: --path does not exist or is not a directory: {target}", file=sys.stderr)
+        return 1
+
+    sha = _resolve_sha(Path(args.source), args.sha)
+
+    sentinel = target / "version.txt"
+    sentinel.write_text(sha + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main())

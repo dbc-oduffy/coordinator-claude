@@ -89,7 +89,21 @@ classify_error() {
     echo "ref-lock"
   elif grep -qE "(non-fast-forward|rejected.*fetch first|tip of your current branch is behind|stale info)" "$f"; then
     echo "non-fast-forward"
-  elif grep -qE "(Could not resolve host|Connection (refused|timed out|reset)|TLS handshake|SSL_connect|Temporary failure|Network is unreachable|kex_exchange_identification|Broken pipe|early EOF)" "$f"; then
+  elif grep -qE "(fatal error in commit_refs|HTTP 5[0-9][0-9]|send-pack: unexpected disconnect|unexpected disconnect while reading sideband)" "$f"; then
+    # GitHub server-side transient failures. Distinct from `network` (client-side
+    # connectivity) because the request reached GitHub and GitHub itself faltered:
+    # `fatal error in commit_refs`, HTTP 5xx via smart-http (matches both bare and
+    # `RPC failed; HTTP 5xx` forms), mid-stream sideband disconnects. Empirically
+    # self-resolving — the 2026-05-27 cluster (7 of these, logged as `unknown`) all
+    # eventually pushed once GitHub recovered. Retryable like `network`, but with a
+    # seconds-scale backoff (ref-lock's sub-second jitter is far too short for a
+    # server recovering from a 502). NOTE: matched AFTER non-fast-forward so a
+    # rejection that also closes the connection can't be misread as transient.
+    # `remote end hung up unexpectedly` is intentionally in `network` below, not
+    # here — it is ambiguous (server EOF vs client partition), and the real 502
+    # case is already caught by the sideband patterns above.
+    echo "gh-transient"
+  elif grep -qE "(Could not resolve host|Connection (refused|timed out|reset)|TLS handshake|SSL_connect|Temporary failure|Network is unreachable|kex_exchange_identification|Broken pipe|early EOF|remote end hung up unexpectedly)" "$f"; then
     echo "network"
   elif grep -qE "(Permission denied|Authentication failed|Host key verification|publickey|could not read from remote|access denied)" "$f"; then
     echo "auth"
@@ -142,11 +156,22 @@ else
   route_label="direct push"
 fi
 
-# Retry policy (2026-05-17): ref-lock contention and transient network errors retry
-# with jittered backoff (sub-second). Non-FF, auth, and unknown classes fail loud
-# without retry — non-FF in particular means a concurrent push already landed work
-# we don't have, so silent retry would mask the divergence. See:
-# docs/wiki/auto-push-diagnostics.md (if added) and the push-failures.log format.
+# Retry policy (2026-05-17, extended 2026-05-27): three retryable classes, each with
+# a backoff matched to its recovery timescale:
+#   - ref-lock      — local push-ref contention; resolves in milliseconds → sub-second jitter
+#   - network       — client-side connectivity blip; sub-second jitter (a retry that
+#                     fast either reconnects or fails again cheaply)
+#   - gh-transient  — GitHub server-side 5xx / commit_refs / sideband disconnect;
+#                     the server needs SECONDS to recover, so back off 2s, 4s.
+# Non-FF, auth, and unknown classes fail loud without retry — non-FF in particular
+# means a concurrent push already landed work we don't have, so silent retry would
+# mask the divergence (and auto-rebasing a dirty shared tree in a post-commit hook is
+# both unsafe and usually blocked). gh-push-protection / gh-size-limit / gh-lfs-quota
+# are deliberately NOT retryable: secrets, oversized files, and quota don't self-heal.
+# See the push-failures.log format below for the recorded forensic fields.
+#
+# Test seam: COORDINATOR_AUTO_PUSH_NO_SLEEP=1 skips the backoff sleeps so the test
+# suite doesn't pay the seconds-scale gh-transient wait. Unset in all real use.
 STDERR_TMP="$REPO_ROOT/.git/.push-stderr.$$"
 trap 'rm -f "$STDERR_TMP"' EXIT
 
@@ -157,11 +182,22 @@ while (( attempt <= max_attempts )); do
     exit 0
   fi
   err_class=$(classify_error "$STDERR_TMP")
-  if (( attempt < max_attempts )) && [[ "$err_class" == "ref-lock" || "$err_class" == "network" ]]; then
-    # Jittered backoff: 200-700ms base + 100ms per attempt. Keeps total retry
-    # budget under ~2s so the post-commit hook stays snappy.
-    sleep_ms=$(( (RANDOM % 500) + 200 + (attempt * 100) ))
-    sleep "0.$(printf '%03d' "$sleep_ms")"
+  if (( attempt < max_attempts )) && [[ "$err_class" == "ref-lock" || "$err_class" == "network" || "$err_class" == "gh-transient" ]]; then
+    if [[ -n "${COORDINATOR_AUTO_PUSH_NO_SLEEP:-}" ]]; then
+      : # test seam — skip backoff
+    elif [[ "$err_class" == "gh-transient" ]]; then
+      # Server-side recovery is seconds-scale: 2s, then 4s (+0-500ms jitter to
+      # de-sync concurrent hooks). Worst-case added latency on a sustained outage
+      # is ~6s per commit — self-evidently an outage, and the normal (success on
+      # attempt 1) path is unaffected.
+      sleep "$(( attempt * 2 )).$(printf '%03d' $(( RANDOM % 500 )))"
+    else
+      # ref-lock / network: jittered sub-second backoff (200-700ms + 100ms/attempt).
+      # The value below is the fractional part of one second (0.NNN s = NNN ms),
+      # not a raw millisecond count passed to sleep. Keeps retry budget under ~2s.
+      backoff_frac_ms=$(( (RANDOM % 500) + 200 + (attempt * 100) ))
+      sleep "0.$(printf '%03d' "$backoff_frac_ms")"
+    fi
     attempt=$((attempt + 1))
     continue
   fi

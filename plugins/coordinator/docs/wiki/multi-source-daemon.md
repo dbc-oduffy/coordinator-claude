@@ -199,7 +199,7 @@ The file is named `<cc_pid>.json`, where `cc_pid` is the PID of the Claude Code 
 
 ### Janitor sweep
 
-`bin/sessions-janitor.sh` and `bin/sessions-janitor.ps1` sweep marker files whose mtime is older than one hour. The sweep is also accessible programmatically via `core.session_marker.sweep_markers(max_age_seconds=3600)`. The daemon may invoke the sweep opportunistically on boot to avoid stale-marker accumulation.
+`project-rag:bin/sessions-janitor.sh` and `project-rag:bin/sessions-janitor.ps1` sweep marker files whose mtime is older than one hour. The sweep is also accessible programmatically via `core.session_marker.sweep_markers(max_age_seconds=3600)`. The daemon may invoke the sweep opportunistically on boot to avoid stale-marker accumulation.
 
 Markers older than five minutes are ignored by `CwdResolverMiddleware._resolve_from_marker` as a boot-fresh heuristic (stale markers from previous sessions should not accidentally bind a new session's resolution).
 
@@ -443,7 +443,7 @@ These are deliberate exclusions, not deferred improvements. Do not reintroduce t
 | Command | Purpose |
 |---|---|
 | `/project-rag:index` | Full or incremental reindex; auto-registers the source on completion (C2) |
-| `bin/sessions-janitor.sh` / `.ps1` | Manual sweep of stale by-PID markers |
+| `project-rag:bin/sessions-janitor.sh` / `.ps1` | Manual sweep of stale by-PID markers |
 | `project_whoami()` MCP tool | Inspect caller's resolved source + full registry |
 | `project_list_sources()` MCP tool | Enumerate all registered sources |
 

@@ -49,7 +49,12 @@ The changelog block records:
 Validation: validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
 ```
 
-Both fields are auto-filled from ceremony exit codes; neither is LLM-authored prose. On non-UE repos, the Step 1 UBT preamble is a no-op (script absent), so `validate=` reflects only the `run-all-checks.py` result. The `plugin-suite=` field is present even on non-UE repos (reflects Step 5 node test exit code). A value of `N/A` is acceptable when the step was explicitly skipped with PM authorization.
+Both fields are auto-filled from ceremony exit codes; neither is LLM-authored prose. On non-UE repos, the Step 1 UBT preamble is a no-op (script absent), so `validate=` reflects the exit code of the resolved command — the three-step resolver checks `$COORDINATOR_FAST_TEST_CMD` (env var), then `fast_test_cmd:` in `coordinator.local.md`, then skips with notice if neither is configured. The `plugin-suite=` field is present even on non-UE repos (reflects Step 5 node test exit code).
+
+`validate=` enum values:
+- `validate=<exit-code>` — the resolved command ran; value is its exit code (e.g. `validate=0`).
+- `validate=skipped` — the resolver found no command configured: `$COORDINATOR_FAST_TEST_CMD` was unset and `coordinator.local.md` had no `fast_test_cmd:` key. No test ran. Remediation: set `fast_test_cmd:` in `coordinator.local.md` or export `$COORDINATOR_FAST_TEST_CMD`.
+- `validate=N/A` — the step was explicitly skipped with PM authorization. Different cause from `skipped`: an authorized skip is a deliberate product call; a `skipped` result is a missing configuration that should be remediated.
 
 ---
 
@@ -57,7 +62,7 @@ Both fields are auto-filled from ceremony exit codes; neither is LLM-authored pr
 
 PM-invoked, release-grade. Reads the week-changelog as the canonical record — does NOT reconstruct from `git log`. Heavy steps absent from daily live here: `/update-docs`, ShellCheck, improvement-queue triage, skill-description advisory, scc, version bump, merge.
 
-Staleness signal: `bin/check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA).
+Staleness signal: `check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA).
 
 Improvement-queue triage: daily emits depth nudge only (≥5 → notice); weekly triggers action (apply, dispatch executors, delete resolved entries; commit subject names them).
 

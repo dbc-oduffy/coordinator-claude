@@ -14,6 +14,20 @@ Canonical reference for the percolation setup procedure — registering a publis
 - `/percolate` Branch 0 — fires on first run against an unconfigured target; skips silently on subsequent runs.
 - `/setup` percolation phase — fires when the repo is detected as a percolation source with no registered targets.
 
+## Fresh-install path
+
+Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already existed (the Claude-Prime-clone case). It now arrives via the coordinator-claude install path on any consumer machine — operator-local files do too:
+
+- `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:setup` Phase 3 (ongoing maintenance, via `install-substrate.sh`) install `publish.sh`, `publish_sync.py`, and `publish-targets.example.sh` into `~/.claude/setup/`.
+- Operator then registers targets (see Step 1a/1b/1c below — machine-local is preferred, `publish-targets.sh` is legacy).
+- Operator authors `~/.claude/setup/.percolate-identity` from `.percolate-identity.example` with their own identity tokens.
+- If org-slug rewrites are needed, operator copies `~/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-identity.sh.example` to `depersonalize-identity.sh` and edits it.
+
+Spec backlinks:
+- `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` — `source_is_live` propagation model.
+- `docs/wiki/coordinator-installer-shape.md § 2` — operator-local vs publish-target distinction (basis for non-circular framing).
+- `docs/wiki/post-sync-hook-doctrine.md` — touched-file-list stdin contract for post-rsync hooks.
+
 **Scaffold guards (prior-art entry 2026-05-08 — `**/` regression):**
 - This wiki's header comment discloses the supported pattern subset: `**/` is NOT supported in `.percolate-ignore`. Directory patterns are already recursive without it.
 - Before writing `.percolate-ignore`, walk the matcher against a fixture set (Step 3d) to verify patterns resolve as expected. Do not skip the pre-write verification pass.
@@ -144,13 +158,15 @@ Either way, stop after this step and tell the PM to add a target entry before re
 
 ## Step 2 — Walk PM Through Registering a Target
 
-**If `$ARGUMENTS` names a target** (e.g. `/percolate coordinator-claude`): check whether that target name already appears in `publish-targets.sh`. If it does, skip to Step 3 — no need to re-register.
+**If `$ARGUMENTS` names a target** (e.g. `/percolate coordinator-claude`): check whether that target name already appears in either the machine-local registry (`machine-local get publish.targets`) or the legacy `publish-targets.sh`. If found in either, skip to Step 3 — no need to re-register.
 
 **If no argument provided, or the named target is not yet registered:** walk the PM through the four fields.
 
+Default registration target is **`~/.claude/machine-local/` (canonical)** per Step 1c. The legacy `publish-targets.sh` path is reachable via `--legacy` only.
+
 Ask (one question, all four fields in a single prompt):
 
-> I'll add a new target entry to `setup/publish-targets.sh`. I need four values:
+> I'll add a new target entry to the machine-local registry (`~/.claude/machine-local/`). I need four values:
 >
 > 1. **Target name** — a short slug (e.g. `coordinator-claude`, `my-plugin`). Used as the argument to `/percolate`.
 > 2. **Sync mode** — `mirror` (rsync the full source tree) or `manifest` (explicit list via `publish-manifest.txt`). Most plugin publishes use `mirror`.
@@ -164,19 +180,25 @@ Wait for PM input. On `cancel`, exit 0 with "Setup cancelled."
 Once values are collected, show the proposed entry and ask for confirmation:
 
 ```
-Proposed entry:
-  TARGETS+=("coordinator-claude|mirror|~/.claude/plugins/coordinator-claude/|~/code/coordinator-claude")
+Proposed entry (machine-local registry):
+  publish.targets.coordinator-claude = "mirror|~/.claude/plugins/coordinator-claude/|~/code/coordinator-claude"
 
-Add this to setup/publish-targets.sh? [y/N]
+Add this to ~/.claude/machine-local/registry.local.toml? [y/N]
 ```
 
-On confirmation, append to `setup/publish-targets.sh`:
+On confirmation, write via the registry CLI:
+
+```bash
+machine-local set "publish.targets.<name>" "<mode>|<source>|<dest>"
+```
+
+Report: _"Target `<name>` registered in machine-local registry."_
+
+**`--legacy` flag** — appends to `setup/publish-targets.sh` instead (per Step 1c). Use only when the operator explicitly requests the legacy path (e.g. migrating an existing fleet):
 
 ```bash
 TARGETS+=("<name>|<mode>|<source>|<dest>")
 ```
-
-Report: _"Target `<name>` registered."_
 
 ---
 
@@ -248,6 +270,8 @@ If `.percolate-ignore` already exists, ALSO show:
 **Scaffold guard — pre-write matcher walk:** Before writing, verify each pattern resolves correctly against the inventory from Step 3a. For each non-trivial pattern (directory suffix `/`, extension glob `*.ext`), confirm at least one inventory entry would match. Patterns that match nothing are not errors (prophylactic exclusions are valid), but patterns that were intended to match something but don't (e.g., wrong path depth) must be corrected before writing.
 
 **Pattern subset reminder:** `**/` is NOT supported. Multi-depth matches need explicit listing. Directory patterns (trailing `/`) are already recursive — they match the directory at any depth in the source tree.
+
+**Coordinate-system reminder (mirror mode, multi-plugin source roots):** in `publish_sync.py::sync_mirror`, patterns are matched against the **SOURCE_DIR-relative (plugin-qualified) path** — e.g. `coordinator/bin/tests/`, `data/` — NOT the sub-plugin-relative path. Author patterns with the sub-plugin name prefix when the source root contains multiple plugins (`coordinator/`, `data/`, `web-dev/`…). A pattern at the wrong root (`bin/tests/` when you meant `coordinator/bin/tests/`, or vice-versa) is a **silent no-op** — the exclusion never fires and the files leak. The 2026-05-30 leak of operator-identity + runtime-state files onto the public OSS repo was exactly this class. The `test-percolate-ignore-plugin-qualified.sh` regression test now fails loud on a dead pattern; the Step 3d pre-write matcher walk is the author-time guard.
 
 Compose the file with comment-grouped sections so future readers (and the next re-run at Branch 0 / `/setup`) can see the reasoning:
 
@@ -372,5 +396,11 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 ---
 
 ## Known Hazards
+
+**`/percolate` dry-run file-count is inflated by the depersonalization-delta — not a signal of real changes.** A dry-run may report 200+ "UPDATE" files when the real run syncs only 2-3 genuinely-changed files and re-depersonalizes the rest (the dest is already depersonalized; the source is not, so every file reads as "changed" in a naive diff). Judge percolate scope by `git status` in the dest repo after the real run, not the dry-run UPDATE count. The content-leakage scan result (0 hits) is the real safety signal.
+
+*Note on depersonalize scope:* the depersonalize hook strips identity tokens (Dónal/oduffy/paths) but does NOT convert reviewer-persona display names (Patrik/Sid/Camelia/Palí/Fru/Zolí) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
+
+*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
 
 **One-way mirror percolate silently reverts direct edits in publish repo** (2026-05-16 self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.

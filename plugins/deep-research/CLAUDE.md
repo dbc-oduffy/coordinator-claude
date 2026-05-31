@@ -20,12 +20,12 @@ Without this, `/deep-research` will fail.
 
 ## Commands
 
-- `/research --mode=web <topic>` — Pipeline A: internet research
-- `/research --mode=repo <path> [--compare <project-path>] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, repomap, atlas)
-- `/research --mode=structured <spec-path> [subject-key]` — Pipeline C: structured research
+- `/deep-research:research --mode=web <topic>` — Pipeline A: internet research
+- `/deep-research:research --mode=repo <path> [--compare <project-path>] [--survey] [--deeper] [--deepest]` — Pipeline B: repo assessment (+ optional comparison, survey, repomap, atlas)
+- `/deep-research:research --mode=structured <spec-path> [subject-key]` — Pipeline C: structured research
 - `/notebooklm-research <topic>` — Pipeline D: media research via NotebookLM (NotebookLM MCP server required)
 
-**Former slash-commands** (`/web`, `/repo`, `/structured`) removed in Phase C skill-budget consolidation 2026-05-06; pipeline driver files moved to `pipelines/web-driver.md`, `pipelines/repo-driver.md`, `pipelines/structured-driver.md`.
+**Former slash-commands** (`/web`, `/repo`, `/structured`) removed in Phase C skill-budget consolidation 2026-05-06; pipeline driver files moved to `pipelines/web-driver.md`, `pipelines/repo-driver.md`, `pipelines/structured-driver.md`. In v1.3.0 the three remaining mode-named commands collapsed into the single `--mode`-routed entry point (`/deep-research:research`).
 
 ## How It Works
 
@@ -72,4 +72,39 @@ All three pipelines follow the same Agent Teams pattern:
 - Synthesizer uses output-first ordering (skeleton → reconcile → validate → overwrite), resolves CONTESTED fields, writes annotations separately
 - EM validates via hard file-existence gate before archival
 - Team protocol: `pipelines/structured-team-protocol.md`
-- Invoked via `/research --mode=structured <spec-path> <subject>`
+- Invoked via `/deep-research:research --mode=structured <spec-path> <subject>`
+
+## Post-Synthesis: Coverage Auditor
+
+After every synthesis — across all four pipelines — the EM dispatches the **coverage auditor** (`agents/coverage-auditor.md`) as a **non-teammate Agent**. This convention is always-on: no size floor, no opt-out. The synthesizer cannot grade its own homework; the auditor is the fresh-eyes corrective.
+
+The auditor answers: *"Did the synthesis carry the research?"* It emits a `-coverage-audit.md` sidecar. It never writes the synthesis output path. Canonical pattern: `coordinator/docs/wiki/independent-coverage-auditor-pattern.md`.
+
+**Two coverage artifacts, two questions** — a hard reader contract across all pipelines:
+- `gap-report.md` — answers "did we research enough?" (input coverage; drives the web deepening gate; synthesizer-owned)
+- `-coverage-audit.md` — answers "did the synthesis carry the research?" (output coverage; reader-facing completeness; auditor-owned)
+
+These are distinct artifacts with distinct owners. The auditor does not replace or modify `gap-report.md`.
+
+### Depth→relay mapping
+
+In addition to the always-on coverage auditor, deep-tier pipelines run a **fidelity relay**: idle specialists are woken (via `SendMessage`) to verify their own content was faithfully represented in the synthesis. The relay runs as an internal synthesizer phase before TeamDelete — never as a Team-2 step.
+
+| Pipeline | Coverage Auditor | Fidelity Relay | Relay trigger |
+|---|---|---|---|
+| A (web) | Always-on | Yes — Team-1 internal sweep phase, before Step 6 TeamDelete | Gap-report / deepening-threshold signal |
+| B (repo) | Always-on | Yes — Team-1 internal sweep phase | `--deepest` flag only |
+| C (structured) | Reduced (drop-annotation check against `synthesis-annotations.md`) | OOS — no prose synthesis to distort; CONTESTED pre-empts | N/A |
+| D (notebooklm) | Always-on (documented divergence — see below) | OOS — no depth tier; structurally cannot gate | N/A |
+
+### Pipeline D boundaries (documented divergence)
+
+D diverges from the unified auditor in two ways, both architectural:
+
+1. **MCP-extended auditor.** On-disk `{letter}-claims.json` are a lossy extraction of the actual notebook content. The D auditor additionally carries notebooklm MCP tools (`notebook_query` at minimum) with a graduated bootstrap (exact names → keyword fallback → graceful-skip-if-unavailable); if MCP tools are absent, the auditor proceeds on `claims.json`-only and notes the degradation explicitly in the sidecar.
+
+2. **Cleanup-deferred ordering.** The D auditor must run before notebook deletion. When `--cleanup` is in effect, notebook deletion at Step 6 is deferred until after the D auditor completes and its sidecar is written. Sequence: run auditor → delete notebooks.
+
+3. **Relay is OOS for D** until D gains a depth concept. This is an architectural boundary (D has no `--deeper`/`--deepest` flags), not an appetite call. Revisit only if D adds depth flags.
+
+See `agents/coverage-auditor.md` for the full auditor spec (input universe, sidecar format, D-specific MCP bootstrap). See `coordinator/docs/wiki/independent-coverage-auditor-pattern.md` for the canonical pattern with both named instantiations (deep-research coverage-auditor and coordinator comprehensiveness-auditor-DRAFT).

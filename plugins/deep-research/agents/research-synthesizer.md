@@ -161,7 +161,13 @@ Write to BOTH `{advisory-path}` AND `{scratch-dir}/advisory.md`:
 {Documentation quality, active communities, source staleness, emerging/declining ecosystems.}
 
 ## Confidence and Quality Notes
-{Meta-observations about answer confidence, thin areas, source coverage gaps.}
+{Meta-observations about answer confidence. **Do NOT enumerate thin areas or source
+coverage gaps here** — that content is coverage-auditor feedstock, not advisory prose.
+The independent coverage-auditor's Completeness Map supersedes the scattered free-prose
+"thin areas" enumeration that belonged here. Inline `[UNFILLED GAP]` markers in the
+synthesis prose remain reader-facing and are not removed; the auditor references them.
+If you have confidence-level observations unrelated to coverage completeness, include
+them here; otherwise omit this section.}
 ```
 
 Every section is optional — omit sections with nothing to say. Include at least one section, or skip the file entirely.
@@ -174,6 +180,59 @@ Every section is optional — omit sections with nothing to say. Include at leas
 - **Recommendations must be specific and actionable** — not "consider using X" but "use X for Y because Z."
 - **Go beyond spec when judgment warrants it.** The EM and research strategist scoped this study. The specialists executed it. You have the unique vantage of seeing the complete picture. If something important was missed — an adjacent area, an unconsidered angle, a reframing — investigate it. This is your mandate.
 - **Open questions are as valuable as answers** — knowing what we don't know prevents false confidence.
+
+## Fidelity Relay (deep tiers only)
+
+**This phase fires only on deep-tier runs**: repo `--deepest` flag, OR web runs where the
+Phase 1 gap-report crossed the deepening threshold (i.e., `deepening_recommended: true` and
+gap-specialist Team 2 was warranted). Shallow runs (`--shallow` or gap-report `coverage_score`
+above threshold with `deepening_recommended: false`) skip this phase entirely.
+
+**Relay locus:** This is a Team-1 internal phase — it runs **before** you mark your task
+complete and **before** the EM triggers TeamDelete (Step 6). Specialists are alive-but-idle
+(`team-protocol.md:138`); the team is not yet torn down. No extra teammate slots are consumed.
+You will NOT delegate this to a Team-2 agent — Team-2 gap-specialists are fresh agents who did
+not author the original content being verified.
+
+> **Do not mark the task complete until the fidelity-relay phase has been integrated.**
+
+### Relay sequence
+
+For each specialist who contributed findings to the synthesis:
+
+1. **Wake the specialist** via `SendMessage` with this prompt:
+
+   ```
+   FIDELITY_RELAY: [TOPIC_LETTER]
+   Please verify that YOUR contributed findings are faithfully represented in the
+   synthesis draft at {output-path}. Check ONLY for misrepresentation, flattening,
+   or distortion of your existing findings — NOT for missing content you wish were added.
+   Reply with FIDELITY_CORRECTION or FIDELITY_OK (see your Fidelity Relay section).
+   You have 2 minutes to respond.
+   ```
+
+2. **Collect responses** within a **per-specialist bounded timeout** mirroring the 2-minute
+   CHALLENGE timeout at `team-protocol.md:140`.
+
+3. **On non-response:** proceed without that specialist's confirmation. Note the non-response
+   explicitly in the synthesis (e.g., `[RELAY: {TOPIC_LETTER} specialist did not respond
+   within timeout — relay unconfirmed for this topic]`). **Never hang the pipeline waiting
+   for a non-responding specialist.**
+
+4. **Bloat-guard (structural discriminator):** A valid fidelity correction must reference
+   an **existing synthesis sentence** and assert it misrepresents the source. A correction
+   that only asks to ADD a sentence is out of scope by construction — the relay is scoped to
+   misrepresentation, not coverage inflation. Reject add-content requests under your existing
+   preserve-don't-inflate mandate; do not integrate them.
+
+5. **Integrate valid corrections** — update the synthesis in place, preserving all other
+   content. Do not rewrite sections that received no correction.
+
+6. **Second synthesis pass** — after integrating all valid corrections, re-read the synthesis
+   for coherence. Correct only prose that was directly touched by relay integrations.
+
+7. Only after completing steps 1–6: proceed to the Completion section and mark your task
+   complete.
 
 ## Merge Mode (Deepening — v2.2)
 

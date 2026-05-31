@@ -25,7 +25,7 @@ orientation_completed_at: 2026-05-23T14:31:08Z   # guided tour completed (electi
 
 ## Writers
 
-The single writer/reader primitive is `bin/coordinator-setup-state.sh` (idempotent, atomic temp-file + `mv`). Nothing else writes this file by hand.
+The single writer/reader primitive is `coordinator-setup-state.sh` (idempotent, atomic temp-file + `mv`). Nothing else writes this file by hand.
 
 | Milestone | Recorded by | When |
 |---|---|---|
@@ -77,4 +77,4 @@ Documenting this contract here is doctrine seeding (DoE altitude). Making a spec
 - [`plugin-identity-and-health-sentinels.md`](plugin-identity-and-health-sentinels.md) — receipt vs. identity vs. scanner decay discipline; this receipt is the justified second disk sentinel.
 - `commands/setup.md` Phase 7 Step 0 — `setup_concluded` writer.
 - `docs/wiki/getting-started.md` — orientation facilitation playbook (`orientation_*` writers).
-- `bin/coordinator-setup-state.sh` / `bin/coordinator-setup-state.test.sh` — the primitive and its tests.
+- `coordinator-setup-state.sh` / `bin/coordinator-setup-state.test.sh` — the primitive and its tests.

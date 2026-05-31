@@ -23,6 +23,21 @@ _Condition: a plan / design doc exists; no reviewer has been invoked yet on this
 
 Both checks fire independently. A plan can be non-trivial AND cite C++/UE APIs — in that case both workers run.
 
+**Delta-scope on re-runs.** The Pre-Dispatch Verification rule "Re-run mechanical pre-flights after material plan amendments" (coordinator CLAUDE.md § Pre-Dispatch Verification) is a re-run trigger, NOT a re-run-everything trigger. When re-running
+A.1 checks on an *amended* plan (not a first pass), scope each checker to the delta:
+- **prior-art-checker** — re-run only if the amendment changed a claim, added a new
+  subsystem, or introduced a new external reference. A pure wording/typo amendment does
+  not re-trigger it.
+- **docs-checker** — re-run only over the *newly cited or changed* external APIs, not
+  the full citation set already verified in the prior pass.
+- **plan-coverage-checker** — re-run when the oracle or slate table changed (rows
+  added/removed/edited). A prior sidecar exists; the checker renames it (Phase 0) and the
+  EM diffs the new sidecar against it to see what the amendment moved.
+
+Name the delta in the re-dispatch brief ("amendment touched §X and the slate table;
+scope your check to those"). A full re-run is correct only when the amendment was
+structural enough that the prior pass's coverage no longer holds.
+
 **Check 1 — Triviality (prior-art-checker)**
 
 - _Plan covers non-trivial work?_ (design docs, RFCs, architectural plans; anything beyond a single-file fix)
@@ -43,7 +58,7 @@ _See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumptio
 
 **Check 2b — Acceptance-criteria shape (offer, not block)** _(runs independently; offer-shaped)_
 
-<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.5 — review-skill offer -->
+<!-- spec-backlink: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.5 — review-skill offer -->
 
 When the reviewed plan's `## Acceptance Criteria` section is in **old prose-checkbox form** (lines like `- [ ] prose description`) rather than the bindable-table form (`ID | Criterion | Test | Binding-Class | Status`), NOTICE this and offer the template — do NOT block.
 
@@ -93,6 +108,7 @@ Match tier to complexity, not importance. Routing every "important" plan to a st
 | Situation | Correct tier |
 |---|---|
 | Single-domain plan (new feature, doc redesign, refactor) | One Opus-persona reviewer (auto-detects domain from routing table above) |
+| Single-domain refactor where a domain reviewer already covered the load-bearing concerns | One reviewer (the domain persona). Do NOT chain a generalist (the Staff Engineer) backstop by default — empirically the second pass yields P2 framings, not architectural redirects (2026-05-18: the Staff Engineer on a UE-only plan after the Game Dev Reviewer = 3 P2s, 0 redirects). **This default applies ONLY when the domain reviewer's findings demonstrably engaged the architectural layer** (abstraction boundaries, cross-system seams, the load-bearing design choice) — NOT merely that a domain pass ran. A domain pass that returned only surface findings does NOT license skipping the generalist; in that case a generalist backstop is still warranted. Generalist backstop is explicit opt-in: `--reviewers "<domain>,patrik"`. |
 | Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential Opus-persona reviewers: `--reviewers "<domain>,patrik"` |
 | Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
 | "This is important, I want it done right" | One Opus-persona reviewer (auto-detects domain) |
@@ -171,4 +187,4 @@ Walk each finding against the triage table below — it lands in exactly one row
 
 After Branch B completes for a multi-reviewer review and Reviewer 1 is integrated, return to **A.2** to dispatch Reviewer 2. This skill is re-entrant — each pass walks one direction.
 
-When all reviewer integration is complete and the plan is ready for execution, the EM owns the **dispatch-gate graph** before the first executor dispatch: enumerate touched files per task, mark file-overlap / output-consumption / contract-change gates (and only those — narrative causality is not a gate), size per-executor scope to ~15-25 min, and author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5. Taxonomy: `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy and § Peer-Scope Prohibition in Parallel-Wave Prompts.
+When all reviewer integration is complete and the plan is ready for execution, the EM owns the **dispatch-gate graph** before the first executor dispatch: enumerate touched files per task, mark file-overlap / output-consumption / contract-change gates (and only those — narrative causality is not a gate), size per-executor scope to ~5-10 min (15 min hard ceiling), and author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5. Taxonomy: `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy and § Peer-Scope Prohibition in Parallel-Wave Prompts.

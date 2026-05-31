@@ -164,16 +164,16 @@ All "when RAG present" gates in this command use the same detection mechanism: c
 
 #### Phase 9b: Repomap Regeneration (RAG-gated)
 
-Gate via `bin/check-rag-state.sh`, then invoke `bin/generate-repomap.sh`. Full gating pattern in `docs/wiki/repomap-rag-gating.md § Caller Pattern`.
+Gate via `check-rag-state.sh`, then invoke `generate-repomap.sh`. Full gating pattern in `docs/wiki/repomap-rag-gating.md § Caller Pattern`.
 
 ```bash
-RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
 case "$RAG_STATE" in
   fresh)
     # Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
     ;;
   absent|stale|unknown)
-    bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh"
+    bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh"
     if [ "$RAG_STATE" != "absent" ]; then
       # Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG state: ${RAG_STATE})."
     fi
@@ -183,7 +183,7 @@ esac
 
 #### Phase 10: Refresh Orientation Cache
 
-If `tasks/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `bin/regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
+If `tasks/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
 
 ```bash
 bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs

@@ -57,24 +57,26 @@ If Step 1 yielded a subsystem or directory name rather than individual files, us
 git diff <last-check-commit>..HEAD
 ```
 
-Summarize scope: which files changed, how many insertions/deletions, which systems are affected. This summary drives reviewer routing in Step 3.
+Summarize scope: which files changed, how many insertions/deletions, which systems are affected. This summary drives the Sonnet reviewer's emphasis (vocabulary/what-to-weight) in Step 3 — not reviewer selection (that's always `code-reviewer`).
 
 ---
 
-## Step 3: Route to Reviewer
+## Step 3: Dispatch the Sonnet Reviewer (non-persona)
 
-Select the reviewer based on what changed:
+The nightly health pass dispatches the **Sonnet `code-reviewer`** (`agents/code-reviewer.md`) — **NOT** a named persona. This is recurring Sonnet-tier code review, which by doctrine uses `code-reviewer`, never a persona (personas are Opus-only and reserved for the weekly arch pass, the merge gate, and explicit architectural decisions). Routing a *nightly* health check to an Opus persona is the same daily-cadence miscalibration `/workday-complete` Step 4c was corrected for.
 
-| Dominant change type | Reviewer |
+Domain still matters — but for **vocabulary and emphasis**, not reviewer identity. State the dominant change type in the brief so the Sonnet reviewer knows what to scrutinize:
+
+| Dominant change type | Tell the reviewer to weight… |
 |---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
-| Data / ML / science | the Data Science Reviewer |
-| Mixed, backend, or architecture | the Staff Engineer |
+| Game dev / Unreal Engine | UE idioms, engine-lifecycle/ownership, Blueprint/C++ seams |
+| Frontend / UI | component/token reuse, state flow, accessibility |
+| Data / ML / science | numeric correctness, data contracts, reproducibility |
+| Mixed, backend, or architecture | coupling, error paths, interface seams |
 
-If multiple domains are present, route to the dominant one (most files changed / most critical path).
+If multiple domains are present, weight toward the dominant one (most files changed / most critical path). A finding that genuinely needs persona/Opus judgment is **flagged for the weekly arch pass** (`/workweek-complete` Step 7.5), not escalated to an Opus dispatch here.
 
-Dispatch the selected reviewer with `--problems-only` and `run_in_background: true`. This is a health check — suppress praise and suggestions, return problems only. Process findings when notified of completion.
+Dispatch `code-reviewer` (`model: "sonnet"`) with `--problems-only` and `run_in_background: true`. This is a health check — suppress praise and suggestions, return problems only. Process findings when notified of completion.
 
 ---
 
@@ -107,7 +109,7 @@ For any findings not fixed inline:
 
 2. Add one row per deferred finding:
    - **ID:** `DCH-{date}-{N}` (e.g., `DCH-2026-03-18-1`)
-   - **Source:** `daily-health/{reviewer}/{date}`
+   - **Source:** `daily-health/code-reviewer/{date}`
    - **Status:** `open`
 
 3. Update the header summary counts.
@@ -223,7 +225,7 @@ The post-commit hook pushes automatically.
 
 ## Cost
 
-1 Opus reviewer dispatch (with `--problems-only`) + 1 Opus review-integrator dispatch if findings exist. Approximately 5-10 minutes for a typical day's commits. If no findings, the reviewer dispatch is the only cost.
+1 Sonnet `code-reviewer` dispatch (with `--problems-only`) + 1 Sonnet `review-integrator` dispatch if findings exist. No persona, no Opus at this nightly cadence. Approximately 5-10 minutes for a typical day's commits. If no findings, the reviewer dispatch is the only cost.
 
 ---
 

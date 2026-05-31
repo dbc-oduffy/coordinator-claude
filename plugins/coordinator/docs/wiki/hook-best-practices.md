@@ -17,12 +17,17 @@ When a PreToolUse hook needs to block a tool call, emit JSON to stdout — not a
 
 ```json
 {
-  "permissionDecision": "deny",
-  "permissionDecisionReason": "<human-readable explanation>"
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "<human-readable explanation>"
+  }
 }
 ```
 
-Exit code 2 is silently swallowed by the hook runtime. The tool call proceeds as if the hook never fired, with no error surfaced. JSON deny is the only protocol that actually blocks the call and surfaces the reason in the Claude Code UI.
+The flat `{"permissionDecision":"deny"}` shape (no `hookSpecificOutput` wrapper) is an older API form that silently passes through. Always use the nested `hookSpecificOutput` wrapper — canonical examples: `block-off-daily-branch.sh:262-277` and `block-subagent-archive-write.sh:204-218`.
+
+Exit codes do NOT block-with-a-clean-reason. **exit 1** is non-blocking — the tool call proceeds and stderr goes to the *user terminal* only (advisory; the model never sees it). **exit 2** at PreToolUse *does* block, but the reason is delivered as raw stderr into the model's turn, not surfaced in the Claude Code permission UI (and exit-2 semantics vary by hook event — see § Friction-as-warning for the full PreToolUse-vs-PostToolUse table). JSON deny (stdout + exit 0) is the protocol that blocks the call AND surfaces a structured reason in the Claude Code UI — prefer it for any PreToolUse block. (In-tree witness for exit-2-blocks: `check-claude-md-size.py:6`.)
 
 The `permissionDecisionReason` field is required — hooks that omit it produce a terse "denied" with no context, which is harder to diagnose when an agent hits the block.
 
@@ -44,6 +49,23 @@ Two remediation patterns:
 2. **Sentinel file.** Have the hook write the session_id to a known path (e.g., `.git/coordinator-sessions/current-session-id`) before launching the subprocess; the subprocess reads from disk instead of env.
 
 Pattern 1 is simpler for single-child spawns. Pattern 2 is better when the subprocess is a long-lived daemon that outlives the hook invocation.
+
+## Transcript scrape: never `large-producer | grep -q` under `set -o pipefail`
+
+A hook that scrapes the transcript — `if tail -N "$transcript" | grep -q PAT; then ...` — silently fails OPEN under `set -o pipefail` on any real-sized session. `grep -q` exits 0 on its first match and closes the pipe; `tail` (still writing the multi-MB transcript) takes SIGPIPE and dies with exit 141; `pipefail` then makes 141 the *pipeline's* status. The `if` evaluates FALSE **despite a match**, so the suppression/detection the scrape was supposed to drive never fires. It only manifests past the ~64KB pipe buffer, so small-fixture tests pass while the hook is dead in production (2026-05-30: both nudge hooks' skill-suppression branches were dead on every real-sized transcript — the `/handoff` nudge fired 100% of the time on the Skill-tool case).
+
+**Fix — keep the early-exiting reader out of the pipeline.** Read into a variable, match via here-string:
+
+```bash
+RECENT_TAIL=$(tail -N "$transcript" 2>/dev/null || true)
+if grep -qE PAT <<< "$RECENT_TAIL"; then ...
+```
+
+`tail` now runs standalone in command substitution (its SIGPIPE swallowed by `|| true`), and `grep` reads from the variable — no pipeline, no status to poison the `if`.
+
+**Direction matters.** `grep PAT file | tail -1` is safe: `grep` is the producer and `tail` the consumer that reads to EOF, so `grep` never takes SIGPIPE. The trap is specifically the *early-exiting reader downstream of a large producer* (`grep -q`, `head`, `grep -m1`).
+
+**Test it with a real-sized, deterministic fixture.** The repro is racy: a mid-stream match lets `grep` drain the pipe before `tail` blocks. To make a regression test that reliably fails against the bug, put the match EARLY in the byte stream (line 1) with ≫64KB queued behind it, all inside the `tail -N` window — mirroring how the real incident reproduced (an early match in a 1.4MB transcript). A 3-line fixture proves nothing.
 
 ## PreCompact false alarms: gate on ≥15% transcript size shrink
 
@@ -85,13 +107,23 @@ The two effective shapes:
 
 1. **Hard block + typed env-var override.** Hook emits a JSON deny (`{"permissionDecision":"deny", "permissionDecisionReason":"<four questions>"}`) unless `COORDINATOR_<SCOPE>_PUNT="<plain-English sentence>"` is set. Trivial overrides ("1", "ok", strings under ~12 chars) are rejected by the reason-parser — the cognitive load IS the design point. The EM must articulate *what is being punted* while the deny reason sits in context.
 
-2. **Exit 2 with stderr.** The Claude Code runtime treats exit 2 as "feed stderr into the model's next turn." This is the only non-block channel that actually reaches the model. Useful for nudges that should *inform* without *blocking*.
+2. **Exit 2 with stderr.** The Claude Code runtime treats exit 2 as "feed stderr into the model's next turn." This reaches the model — but **whether it also blocks depends on the hook event:**
+   - **PreToolUse `exit 2` BLOCKS** the tool call (stderr → model). Wrong altitude for a pure warn.
+   - **PostToolUse `exit 2` does NOT block** — the tool already ran, the file is on disk, only the stderr reaches the model. This is the genuine warn-reaches-the-model-**without**-blocking channel.
+
+   So a "warn, never block" hook whose audience is the EM must fire at **PostToolUse** and `exit 2`. Canonical example: `nudge-unauthorized-handoff.sh` (PostToolUse Write on `tasks/handoffs/`|`tasks/spinoffs/`) — see `coordinator-tripwires.md` § `NUDGE-UNAUTHORIZED-HANDOFF`.
 
 Stderr at exit 0 is the failure mode — the message lands in the user terminal but never reaches the model that just made the decision. If the EM is the audience, the EM has to be forced to read it.
 
 The cost isn't keystrokes — it's the moment of friction that surfaces the lazy-punt before it becomes a queue entry. If writing the override sentence feels harder than just fixing the underlying thing, the hook worked.
 
-Pattern generalizes to any "don't reflexively reach for this surface" tripwire: `block-unauthorized-handoff.sh`, `block-off-daily-branch.sh`, `nudge-improvement-queue-write.sh` — all use block-with-override or exit-2-with-stderr; none use stderr-at-exit-0.
+Pattern generalizes to any "don't reflexively reach for this surface" tripwire: `block-off-daily-branch.sh`, `nudge-improvement-queue-write.sh` — all use block-with-override or exit-2-with-stderr; none use stderr-at-exit-0.
+
+### Reliability of the gating signal must match the cost of being wrong
+
+A *block* (PreToolUse deny / `exit 2`) gated on an unreliable signal fails **CLOSED** — it denies authorized work and trains the EM to reflexively reach for the override, defeating the point. The same unreliable signal used to SUPPRESS a *non-blocking nudge* (PostToolUse `exit 2`) fails **OPEN** — at worst the EM reads one extra nudge and proceeds.
+
+When the detection cannot be made reliable, don't harden the signal — lower the consequence of its being wrong (block → nudge). `block-unauthorized-handoff.sh` detected "is an authoring skill active" by scraping the transcript for `<command-name>` tags / `/spinoff` strings; the Skill tool emits no `<command-name>`, and large tool outputs bury the invocation past any grep window. Two patches tried to make the *scrape* window-independent and it still false-blocked a PM-authorized `/spinoff` (2026-05-28). The third rework left the scrape exactly as unreliable as before and instead moved it from gating-a-block to suppressing-a-nudge (`nudge-unauthorized-handoff.sh`). That is the design-as-offers principle applied to hook altitude: the signal didn't get better, the blast radius of its being wrong got cheap.
 
 ## Plugin-owned hooks belong in hooks/hooks.json, not user-scope settings
 

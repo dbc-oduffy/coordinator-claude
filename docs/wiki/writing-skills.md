@@ -1,6 +1,6 @@
 # Writing Skills — TDD Applied to Process Documentation
 
-> Spec backlink: `docs/plans/2026-05-06-skill-budget-structural-cleanup.md` (demote writing-skills → wiki).
+> Spec backlink: `archive/specs/2026-05-06-skill-budget-structural-cleanup.md` (demote writing-skills → wiki; archived to the meta-repo).
 
 Writing skills is Test-Driven Development applied to process documentation. Skills live at
 `${CLAUDE_PLUGIN_ROOT}/skills/{skill-name}/SKILL.md`. Write pressure scenarios with subagents
@@ -153,34 +153,24 @@ don't write fill-in-the-blank templates, don't write contrived examples.
 
 ---
 
-## The Iron Law and the RED-GREEN-REFACTOR Cycle
+## Watch It Fail First — Why Baseline Testing Is Load-Bearing
 
-```
-NO SKILL WITHOUT A FAILING TEST FIRST
-```
+The baseline run (agent attempts the task *without* the skill) is not ceremony — it is how you
+learn what the skill must actually teach. Skip it and you are authoring against imagined failures,
+not observed ones. This applies to edits as much as new skills: an edit you didn't baseline-test is
+an edit whose effect you're guessing at.
 
-Applies to NEW skills AND EDITS. Wrote skill before testing? Delete it, start over. Same for
-edits. No exceptions for "simple additions," "just adding a section," "documentation updates," or
-"I'm confident it's good." Deploying untested skills = deploying untested code.
+The payoff is concrete. A skill written to counter the rationalizations you *watched* an agent
+produce closes the loopholes that actually occur. A skill written against hypothetical failures
+adds bulk without closing anything — and a skill written before any baseline ("I'm confident it's
+good") is a guess wearing the costume of a reference.
 
-**Violating the letter of the rules is violating the spirit of the rules.** This cuts off the
-entire class of "I'm following the spirit" rationalizations.
-
-### Rationalization Table
-
-Skills that enforce discipline need to resist rationalization. Agents are smart and will find
-loopholes under pressure.
-
-| Excuse | Reality |
-|---|---|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests passing immediately prove nothing. |
-| "Tests after achieve same goals" | Tests-after = "what does this do?" Tests-first = "what should this do?" |
-| "I already manually tested it" | Manual testing ≠ tests. Delete it. Start over. |
-| "Keep as reference while writing tests first" | You'll adapt it. That's testing after. Delete means delete. |
-| "I'm following the spirit not the letter" | See Iron Law above. |
-| "Being pragmatic not dogmatic" | Bright lines exist precisely because pressure degrades judgment. |
-| "This case is different because..." | It isn't. |
+> **Doctrine note — this is technique, not coercion.** Earlier versions of this guidance framed
+> baseline testing as an "Iron Law" with a rationalization-rebuttal table aimed at the skill author.
+> That is the mistrust-shape `docs/wiki/eager-agent-calibration.md` rejects. The reframe: baseline
+> testing earns its place because it *works*, not because a rule forbids skipping it. If you're
+> tempted to skip it, the honest cost is named above — you lose the only evidence that tells you
+> what to write.
 
 ### RED: Write Failing Test (Baseline)
 
@@ -201,30 +191,31 @@ incomplete. Revise and re-test.
 
 ### REFACTOR: Close Loopholes
 
-Agent found a new rationalization? Add an explicit counter. Re-test until bulletproof. For each new
-rationalization, add:
+Agent found a new way around the skill? Close the gap — but close it the way our doctrine closes
+gaps, not the way superpowers did. Two shapes, picked by *why* the agent went around it (see
+`docs/wiki/eager-agent-calibration.md` § Offer-Shape vs. Friction-as-Warning):
 
-1. **Explicit negation in rules**
+1. **Misdirection → make the right path the obvious path (offer-shape).** The agent would have
+   complied if compliance were the easy, obvious move. Don't add a rule forbidding the wrong path;
+   make the right path shorter, clearer, or the default. Rewrite the ambiguous step so the correct
+   action is the one that reads cleanest.
 
-   ```markdown
-   # Before
-   Write code before test? Delete it.
+2. **Genuine incentive to do the wrong thing → structural typed-override checkpoint
+   (friction-with-override).** When the agent has a real pull toward the wrong surface (skip the
+   test, ship faster) and you genuinely want that path resisted, the doctrine-endorsed shape is a
+   checkpoint that requires a *typed justification* — not rhetorical pressure. A soft warning gets
+   auto-overridden; an Authority-stacked "YOU MUST / NO EXCEPTIONS" wall is the mistrust-shape we
+   rejected. A typed override leaves an audit trail and forces the caller to name why this case is
+   the exception.
 
-   # After
-   Write code before test? Delete it. Start over.
+3. **Update the description** with the symptoms that precede the failure, so the skill triggers
+   when it's needed: `Use when you wrote code before tests, when tempted to test after, or when
+   manually testing seems faster.`
 
-   **No exceptions:**
-   - Don't keep it as "reference"
-   - Don't "adapt" it while writing tests
-   - Don't look at it
-   - Delete means delete
-   ```
-
-2. **Entry in rationalization table** — add the exact wording the agent used.
-
-3. **Red flag entry** — "Keep as reference" or "I'm following the spirit not the letter."
-
-4. **Updated description** — add symptoms of ABOUT to violate: `Use when you wrote code before tests, when tempted to test after, or when manually testing seems faster.`
+What *not* to do: do not bake a "Rationalization Table" or "Red Flags — STOP" section into the
+skill you author. Capturing the agent's rationalizations (RED phase) is design input *for you*;
+reprinting them as a policing wall in the shipped skill is the enforcement-theater our doctrine
+rejects.
 
 ---
 
@@ -325,29 +316,39 @@ After agent chooses wrong option, ask:
 ```markdown
 your human partner: You read the skill and chose Option C anyway.
 
-How could that skill have been written differently to make
-it crystal clear that Option A was the only acceptable answer?
+Where was the right path harder to take than the wrong one? And if the
+pull toward C was a genuine incentive — not a misread — where should a
+typed-override checkpoint have sat?
 ```
 
 Three possible responses:
 
-1. **"The skill WAS clear, I chose to ignore it"** — not a documentation problem; add stronger
-   foundational principle ("Violating letter is violating spirit").
+1. **"The skill WAS clear, I chose to ignore it"** — not a documentation problem. If the agent has
+   a genuine incentive to ignore it, add a structural typed-override checkpoint
+   (friction-with-override per `eager-agent-calibration.md`), not a rhetorical "violating-the-letter"
+   wall.
 2. **"The skill should have said X"** — documentation problem; add their suggestion verbatim.
 3. **"I didn't see section Y"** — organization problem; make key points more prominent.
 
-### When a Skill is Bulletproof
+### When a Skill Holds Under Pressure
 
-Signs of a bulletproof skill:
-1. Agent chooses correct option under maximum pressure
-2. Agent cites skill sections as justification
-3. Agent acknowledges temptation but follows rule anyway
-4. Meta-testing reveals "skill was clear, I should follow it"
+A skill "holds" in one of two doctrine-shaped ways (see `eager-agent-calibration.md` § Offer-Shape
+vs. Friction-as-Warning) — not by winning an adversarial pressure contest:
 
-Not bulletproof if agent finds new rationalizations, argues the skill is wrong, creates "hybrid
-approaches," or asks permission while arguing strongly for violation.
+1. **Offer-shape success** — the right path was the obvious, easy path, and the agent took it
+   without friction. The skill removed the misdirection rather than fighting the agent.
+2. **Friction-with-override success** — where a genuine incentive to skip existed, the typed-override
+   checkpoint forced the agent to name its justification and left an audit trail. The discipline
+   held *and* the reasoning is on record.
 
-### Example: TDD Skill Bulletproofing
+Either way the signal is the same: under pressure the right action was the one taken (offer-shape),
+or the exception was made explicit and accountable (override), with the skill cited as the reason.
+
+A skill is NOT yet holding if the agent silently routes around it, or the right path stayed harder
+than the wrong one under pressure. What is *not* a defect: an agent that argues the skill is wrong
+may be correct — honest disagreement is signal to evaluate, not a loophole to wall off.
+
+### Example: Hardening a TDD Skill
 
 ```
 Scenario: 200 lines done, forgot TDD, exhausted, dinner plans
@@ -360,81 +361,55 @@ Iteration 2 — Added "Why Order Matters" section:
 
 Iteration 3 — Added "Violating letter is violating spirit":
   Agent chose A (delete it). Cited new principle directly.
-  Meta-test: "Skill was clear, I should follow it." → Bulletproof achieved.
+  Meta-test: "Skill was clear, I should follow it." → skill held under pressure.
 ```
 
-6 RED-GREEN-REFACTOR iterations to bulletproof the real TDD skill. Baseline testing revealed 10+
-unique rationalizations. Each REFACTOR closed specific loopholes.
+6 RED-GREEN-REFACTOR iterations to harden the real TDD skill. Baseline testing revealed 10+ unique
+rationalizations. Each REFACTOR closed specific loopholes.
+
+> **Doctrine note on this historical example.** Iteration 3 above closed the loophole with a
+> rhetorical principle ("Violating letter is violating spirit") — the Authority-pressure shape we
+> have since rejected (see § A Note on Persuasion Research and `eager-agent-calibration.md`). The
+> transferable lesson is the *method* — iterate against observed rationalizations until the skill
+> holds — not that specific fix. Today we'd close the same gap by making the right path the obvious
+> one (offer-shape) or with a typed-override checkpoint where a genuine incentive to skip exists.
 
 ---
 
-## Persuasion Principles for Descriptions and Compliance Prompts
+## A Note on Persuasion Research — and Why We Don't Author By It
 
-LLMs respond to the same persuasion principles as humans. Understanding this psychology helps
-design more effective skills — not to manipulate, but to ensure critical practices are followed
-even under pressure.
+There is real research that rhetorical persuasion raises LLM compliance: Meincke et al. (2025,
+N=28,000) found that stacking Cialdini persuasion principles — Authority ("YOU MUST", "Never"),
+Commitment, Scarcity, Social Proof — more than doubled compliance (33% → 72%, p < .001). LLMs are
+parahuman: trained on human text where Authority language precedes compliance, so the lever is
+real.
 
-**Research foundation:** Meincke et al. (2025) tested 7 persuasion principles with N=28,000 AI
-conversations. Persuasion techniques more than doubled compliance rates (33% → 72%, p < .001).
+**Our doctrine deliberately does not pull that lever.** Stacking Authority and "No exceptions"
+framing to coerce compliance is exactly the mistrust-shape `docs/wiki/eager-agent-calibration.md`
+names as the anti-pattern — it fights the agent's eagerness instead of redirecting it, and it reads
+as adversarial. The coordinator holds its disciplines (TDD, verification-before-completion,
+root-cause debugging) without the enforcement theater; that is why `coordinator:systematic-debugging`
+was rebuilt offer-shape rather than ported with superpowers' "Iron Law."
 
-### The Seven Principles
+What we keep from the research, because it is offer-shape rather than coercion:
 
-**1. Authority** — Deference to expertise, credentials, or official sources.
-- Imperative language: "YOU MUST", "Never", "Always"
-- Non-negotiable framing: "No exceptions"
-- Eliminates decision fatigue and rationalization
-- Best for: discipline-enforcing skills, safety-critical practices
+- **Implementation intentions.** "When X, do Y" is more effective than "generally do Y" — it
+  reduces cognitive load by making the right action automatic at the trigger point. This hands the
+  agent the path; it does not threaten. Use it freely (it is also why skill descriptions name
+  triggering symptoms, not workflow summaries — see Description Discipline above).
+- **Unity / collaborative framing.** "Our codebase", "we're colleagues" — shared-identity language
+  aligns with the First Officer ethos and carries no coercion. Use it.
 
-**2. Commitment** — Consistency with prior actions, statements, or public declarations.
-- Require announcements: "Announce skill usage"
-- Force explicit choices: "Choose A, B, or C"
-- Use tracking: TaskCreate for checklists
-- Best for: ensuring skills are actually followed, multi-step processes
+What we reject:
 
-**3. Scarcity** — Urgency from time limits or limited availability.
-- Time-bound requirements: "Before proceeding"
-- Sequential dependencies: "Immediately after X"
-- Prevents procrastination
-- Best for: immediate verification requirements, preventing "I'll do it later"
+- **Authority-stacking** ("YOU MUST", "Never", "No exceptions", "This is not negotiable") as a
+  compliance device. Where a discipline genuinely must be hard to bypass, use the
+  friction-with-typed-override shape (see REFACTOR above), not a rhetorical wall.
+- **Liking** for compliance — it manufactures sycophancy and conflicts with honest-feedback culture.
+- **Reciprocity** — feels manipulative; not warranted in skills.
 
-**4. Social Proof** — Conformity to what others do or what's considered normal.
-- Universal patterns: "Every time", "Always"
-- Failure modes: "X without Y = failure"
-- Best for: documenting universal practices, warning about common failures
-
-**5. Unity** — Shared identity, "we-ness", in-group belonging.
-- Collaborative language: "our codebase", "we're colleagues"
-- Best for: collaborative workflows, non-hierarchical practices
-
-**6. Reciprocity** — Use sparingly; can feel manipulative. Rarely needed in skills.
-
-**7. Liking** — **Do NOT use for compliance.** Conflicts with honest feedback culture; creates
-sycophancy.
-
-### Principle Combinations by Skill Type
-
-| Skill Type | Use | Avoid |
-|---|---|---|
-| Discipline-enforcing | Authority + Commitment + Social Proof | Liking, Reciprocity |
-| Guidance/technique | Moderate Authority + Unity | Heavy authority |
-| Collaborative | Unity + Commitment | Authority, Liking |
-| Reference | Clarity only | All persuasion |
-
-### Why This Works
-
-**Bright-line rules reduce rationalization.** "YOU MUST" removes decision fatigue. Absolute
-language eliminates "is this an exception?" questions. Explicit anti-rationalization counters close
-specific loopholes.
-
-**Implementation intentions create automatic behavior.** "When X, do Y" is more effective than
-"generally do Y." Reduces cognitive load on compliance.
-
-**LLMs are parahuman.** Trained on human text containing these patterns. Authority language
-precedes compliance in training data. Commitment sequences and social proof patterns are frequently
-modeled.
-
-**Ethical use test:** Would this technique serve the user's genuine interests if they fully
-understood it?
+**The test that survives:** *Would this technique serve the user's genuine interests if they fully
+understood it?* Offer-shape passes it by construction. Authority-pressure rarely does.
 
 ### Research Citations
 
@@ -514,7 +489,7 @@ When the skill ships a script (`scripts/*.py`, `bin/*.sh`):
 
 ## Agent Smoke Loop
 
-> See coordinator/CLAUDE.md § Agents and Subagents for boot-context notes on agent registration.
+> See coordinator/CLAUDE.md § Subagent Dispatch for boot-context notes on agent registration.
 
 Newly-shipped agents are not discoverable by the parent EM until the Claude Code session restarts. This creates a validation gap: you ship a new agent, try to verify it in the same session, and the agent simply doesn't appear — not because it's broken, but because the session hasn't re-indexed the plugin.
 
@@ -553,6 +528,8 @@ allowed-tools:
 **`access-mode: read-only` silently overrides the tools list.** An agent with `Write` in `tools:`
 but `access-mode: read-only` cannot write — the deliverable disappears. Default agents that
 produce file output to `access-mode: read-write`.
+
+**`access-mode` is a capability declaration, not a behavioral promise.** The field answers "can this agent mutate?" (Claude Code platform enforcement), not "will this agent mutate?" (body-level discipline). An agent with `Bash` in its tools list for read-only CLI invocation (e.g. `ls`, `grep`, artifact parsing) correctly declares `read-write` because `Bash` carries mutation capability — even when the body explicitly prohibits `Edit` / `Write`. The body's "Do NOT use Edit or Write" is behavioral self-discipline within the `read-write` capability envelope; it is not a contradiction. Setting `read-only` on such an agent would cause `Bash` to be blocked by the platform, silently breaking any deliverable-write-via-Bash protocol. → `coordinator-tripwires.md` § validate-agent-tools.
 
 **Prompts live in one place.** A driver/skill/command MUST `@`-reference the canonical prompt
 template, never inline its body. Drift between inlined copy and template is a silent correctness
@@ -599,10 +576,11 @@ at that latitude — don't defer to a distant doctrine page.
 - [ ] Run WITH skill — verify agents comply
 
 **REFACTOR — Close Loopholes:**
-- [ ] Identify new rationalizations from testing
-- [ ] Add explicit counters (discipline skills)
-- [ ] Build rationalization table; create red flags list
-- [ ] Re-test until bulletproof
+- [ ] Identify new rationalizations from testing (design input for you, not a section to ship)
+- [ ] Close each gap by shape: misdirection → make the right path obvious (offer-shape); genuine
+      incentive → structural typed-override checkpoint, not Authority-pressure (see
+      `eager-agent-calibration.md`)
+- [ ] Re-test until the skill holds under pressure
 
 **Quality:**
 - [ ] Flowchart only if decision non-obvious

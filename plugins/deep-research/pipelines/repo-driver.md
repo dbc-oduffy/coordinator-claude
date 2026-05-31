@@ -345,24 +345,35 @@ When you receive a notification that the synthesis task is complete:
 2. Verify it has substantive content (not just headers)
 3. If comparison mode: read the gap analysis at `{gap-analysis-path}` and verify
 4. Check for advisory: `test -f {advisory-path}` — if the file exists, read it
-5. Shut down the team: `TeamDelete(team_name: "repo-research-{topic-slug}")` — frees the team slot. The scratch directory persists.
-6. If `--deepest`: proceed to **Step 7.5** before archiving. Otherwise, skip to step 7.
-7. Commit:
+5. **Dispatch the coverage auditor** — always-on for repo. Read the auditor prompt template from `${CLAUDE_PLUGIN_ROOT}/pipelines/coverage-auditor-prompt-template.md`, select the Pipeline B input block, fill in `[SYNTHESIS_PATH]`, `[OUTPUT_PATH_WITHOUT_EXTENSION]`, and `[SCRATCH_DIR]`, then dispatch as a **non-teammate Agent** (same pattern as the survey at Step 2, atlas-sketch at Step 5 Phase B, and atlas-refinement at Step 7.5 — all plain `Agent(...)`, none under `TeamCreate`):
+   ```
+   Agent(
+     model: "sonnet",
+     prompt: <filled coverage-auditor prompt — Pipeline B input block>
+   )
+   ```
+   The auditor reads `{scratch-dir}/*-claims.json` and `*-summary.md`, cross-references against the synthesis, and writes `{output-path minus .md}-coverage-audit.md`. It does not write the synthesis output path. Wait for `DONE: {sidecar-path}` before proceeding.
+
+6. **Fidelity relay — `--deepest` only.** If `--deepest` was set, the synthesizer runs a gated internal fidelity-relay phase **before it marks its task complete** (the team is still alive at that point — TeamDelete has not yet run). This is a Team-1 internal sweep phase: the synthesizer wakes idle specialists via SendMessage, collects corrections scoped strictly to misrepresentation of existing synthesis prose, integrates, and runs a second pass. The relay mechanics live in `agents/research-synthesizer.md` (C5). repo-driver's role is only to state the gate: **the relay runs if and only if `--deepest`**. For `--deeper`-only or default runs, the relay does not fire.
+
+7. Shut down the team: `TeamDelete(team_name: "repo-research-{topic-slug}")` — frees the team slot. The scratch directory persists.
+8. If `--deepest`: proceed to **Step 7.5** before archiving. Otherwise, skip to step 9.
+9. Commit:
    ```bash
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: complete — {topic-slug}"
    ```
-8. Archive paper trail:
-   ```bash
-   mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
-   cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
-   rm -rf {scratch-dir}
-   ```
-9. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup"`
-10. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations.
+10. Archive paper trail:
+    ```bash
+    mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
+    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
+    rm -rf {scratch-dir}
+    ```
+11. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup"`
+12. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations. Mention the coverage-audit sidecar: "Coverage audit written to `{output-path minus .md}-coverage-audit.md` — {present_count} claims present, {absent_count} absent."
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
-**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent (NOT a teammate — team is deleted) to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `pipelines/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 7.
+**Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent (NOT a teammate — team is deleted) to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `pipelines/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
 
 **Template fields, dispatch syntax, copy commands:** see `pipelines/repo-research-internals.md` § Step 7.5.
 

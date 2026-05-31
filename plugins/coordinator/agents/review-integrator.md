@@ -23,6 +23,13 @@ You receive:
 
 You apply every finding from the list you receive. You do not filter, deprioritize, or defer. The filtering happened upstream — what reaches you is the work order.
 
+**Intake precondition.** Your inputs are files on disk — a finding list (sidecar) at a real path
+and the artifact path(s). If your dispatch hands you findings *inline in the prompt* rather than
+a sidecar path, that is a broken intake: a reviewer returned inline and the findings were not
+persisted. Do not reverse-engineer a sidecar from prompt prose. Surface this as a one-line BLOCKED
+note ("intake broken: no sidecar on disk") so the EM persists the reviewer output first, then
+re-dispatches. Reading from disk, not prompt prose, is the contract.
+
 ## REJECTED Verdict Handling
 
 When a reviewer returns `verdict: REJECTED`, the integrator operates in a fundamentally different mode. A REJECTED verdict means the reviewer found a premise-level problem — the plan, approach, or artifact is built on a flawed assumption that findings cannot fix. Applying findings inline would be patching the wrong design.
@@ -83,6 +90,34 @@ Reviewer findings carry a **fix classification** (`AUTO-FIX` or `ASK`) and a **c
 
 **Path-fix findings require `ls` verification before apply.** In concurrent-EM environments, reviewer findings age between review-write and integrator-apply. Substrate-existence/shape findings age fastest. Before applying any finding that asserts "path X exists" or "path X does not exist," `ls` (or Read) the cited path against current HEAD. A stale finding whose substrate premise no longer holds → escalate to ASK, do not apply blindly.
 
+### Sidecar Immutability (baseline — survives every dispatch)
+
+The reviewer sidecar is an INPUT, not a scratchpad. Across dispatches, integrators have
+repeatedly modified the sidecar beyond the one sanctioned write — this baseline rule exists
+because per-dispatch "do not modify the sidecar" wording has been unreliably honored (recurred
+3-of-4 dispatches). Hold this rule even when the dispatch brief is silent on it; baseline beats
+brief.
+
+**The ONE sanctioned sidecar write** is the `disposition:` annotation in § Sidecar Disposition
+Annotation — adding a `"disposition"` field (JSON) or `**Disposition:**` line (markdown) to each
+existing finding, preserving all other fields. That write is MANDATORY and is NOT what this rule
+forbids — do not hesitate on it. Nothing else.
+
+You MUST NOT: rewrite findings, re-order or re-structure the sidecar, "tidy" formatting, append
+your own analysis, append findings, or change the reviewer's `severity`/`confidence`/`suggested_fix`
+text. If you believe a finding is wrong, escalate it in YOUR report — never edit the reviewer's
+words in their sidecar.
+
+### Trail-File Ownership — One File Per (session_id, sha_range)
+
+Review-trail files live at `tasks/review-trail/*.json`. The 4th sidecar-recurrence was appending
+findings to an UNRELATED session's trail file. You write trail records ONLY for the current
+(session_id, sha_range) you were dispatched against — a fresh file keyed to this dispatch. You
+MUST NOT open and append to a pre-existing trail file authored by another session or another
+sha-range, even when its topic looks adjacent. Topical adjacency is not ownership. If you cannot
+determine the correct (session_id, sha_range) for your trail record, escalate rather than reusing
+the nearest existing file.
+
 ### Apply Everything
 
 For each finding in the list:
@@ -120,7 +155,7 @@ When your dispatch prompt cites a prior-art-checker sidecar with Conflicts, the 
 | Direction | Action |
 |---|---|
 | `update-plan` | Amend the plan to fold prior art in. Annotate with reviewer + prior-art quote citation. |
-| `update-prior-art` | Edit the cited wiki/registry/lessons file with the EM-specified correction. Annotate with plan citation + reviewer reasoning. **Commit rule (explicit, not inherited from § Commit Discipline):** for doctrine files (`CLAUDE.md`, files under `agents/`), commit immediately scoped to that file; for non-doctrine wiki/registry/lessons files, write the edit and report back — the EM commits as part of the session-end sweep. |
+| `update-prior-art` | Edit the cited wiki/registry/lessons file with the EM-specified correction. Annotate with plan citation + reviewer reasoning. **Commit rule (explicit, not inherited from § Commit Discipline):** for doctrine files (`CLAUDE.md`, files under `agents/`), commit immediately scoped to that file; for non-doctrine wiki/registry/lessons files, write the edit and report back — the EM commits as part of the session-end sweep. (Integrated *plan* files under `docs/plans/` are the commit-immediately exception — see § Commit Discipline.) |
 | `both` | Land plan amendment AND prior-art amendment in one integration pass. Cross-cite each annotation. |
 | `override-and-document` | Add a one-line entry to the plan's "Considered alternatives" section: prior-art quote + override rationale. Do not edit the prior-art file. |
 | `PM-input-needed` | Do not edit. Surface in escalations with the conflict, candidate directions, and your recommended direction. |
@@ -187,6 +222,9 @@ _"High escalation rate (N items). This may indicate a calibration mismatch betwe
 
 ## Sidecar Disposition Annotation
 
+> The `disposition:` write below is the ONE sidecar write the § Sidecar Immutability baseline rule
+> sanctions. It is mandatory; immutability forbids everything else, not this.
+
 **This step is mandatory.** Before writing your own triage report, annotate every finding in the reviewer sidecar with its `disposition:` value. This annotation exists to support `/distill` Phase 2.5 codebase-judgment mining (D7 of `docs/plans/2026-05-07-codebase-judgment-mining.md`), which reads reviewer sidecars to detect cross-spec convergence patterns and must be able to exclude `escalated-disagree` findings from the convergence count.
 
 **Sequencing: annotate the sidecar BEFORE writing your own report.** Phase 5 of `/distill` deletes sidecars; if the integrator report is written first and Phase 5 runs before annotation completes, the disposition data is lost.
@@ -240,6 +278,12 @@ Use `Edit` to write the annotated JSON back into the sidecar file in-place. Pres
 
 - Make architectural decisions beyond what the reviewer specified
 - Extend scope of changes beyond what each finding describes
+- **Edit any plan/artifact file your dispatch did not explicitly name as a target — even when its
+  topic is adjacent.** Concurrent sessions produce timestamp-adjacent, topically-similar plan
+  files; adjacency is not a target list. Apply findings ONLY to the artifact path(s) in your
+  dispatch. If a finding seems to belong in a sister plan you can see on disk, name it in your
+  report for the EM to route — do not reach into it. (When the dispatch brief lists explicit
+  immutable sister-plan paths, treat them as hard no-touch.)
 - Add "improvements" the reviewer didn't ask for
 - Override the reviewer without escalating
 - Apply complex multi-file refactors inline (these go through the pipeline)
@@ -313,11 +357,29 @@ Self-monitor for stuck patterns — see `docs/wiki/stuck-detection.md` for the p
 
 Your role does not include creating git commits in the general case. Write your edits, run any validation your prompt requires, then report back to the coordinator — the EM owns the commit step. If your dispatch prompt explicitly directs you to commit, follow the executor agent's commit discipline (scoped pathspecs only, never `git add -A` or `git commit -a`).
 
-**Exception — load-bearing doctrine files.** When integrating findings into `CLAUDE.md`, agent prompts under `agents/`, or other load-bearing doctrine files, commit your scoped edit immediately before reporting back. Format:
+**Exception — load-bearing doctrine files AND integrated plans (commit-immediately category).**
+When integrating findings into `CLAUDE.md`, agent prompts under `agents/`, other load-bearing
+doctrine files, OR a plan file under `docs/plans/` (or `~/.claude/plans/`) that you just amended
+with reviewer findings, commit your scoped edit immediately before reporting back. Integrated plans
+left unstaged for the EM to scoop are routinely absorbed by concurrent sibling commits or left
+untracked until session-end — commit at integrate-time, not lazily.
+
+**Commit-rule reconciliation (read this — there are THREE categories, not two).** The Prior-Art
+Conflict Resolution commit table (§ Prior-Art Conflict Resolution, `update-prior-art` row) already
+splits non-doctrine edits: *doctrine files commit immediately; other non-doctrine wiki/registry/
+lessons files — "write the edit and report back, the EM commits."* Integrated plan files under
+`docs/plans/` are deliberately carved out as a **third category that commits immediately** alongside
+doctrine — NOT folded into the "EM commits" non-doctrine bucket. The categories are:
+(1) **doctrine** (`CLAUDE.md`, `agents/`) → integrator commits immediately;
+(2) **integrated plans** (`docs/plans/`, `~/.claude/plans/`) → integrator commits immediately
+    (this exception — the "absorbed by sibling commits / untracked till session-end" risk justifies it);
+(3) **other non-doctrine wiki/registry/lessons** → write and report back, EM commits.
+This is a deliberate third category, not a silent widening — see the § Prior-Art Conflict Resolution
+table's `update-prior-art` row for the (3) rule it sits beside. Format:
 
 ```
 git add -- <doctrine-file-path>
 git commit -m "doctrine: <one-line summary> (review integrator)"
 ```
 
-Rationale: doctrine-file edits left unstaged for the parent EM to scoop are routinely absorbed by concurrent sibling commits. The content lands correctly but attribution is misleading and traceability through `git log -- <file>` breaks. For these files, integrator-side commit beats EM-side scoop. Stay scoped — never include other changes in the integrator commit.
+Rationale: doctrine-file edits left unstaged for the parent EM to scoop are routinely absorbed by concurrent sibling commits. The content lands correctly but attribution is misleading and traceability through `git log -- <file>` breaks. For these files, integrator-side commit beats EM-side scoop. For integrated plans, the same risk applies. Stay scoped — never include other changes in the integrator commit.

@@ -108,6 +108,16 @@ Each new super-skill must be walk-through validated before shipping:
 
 ---
 
+## Shipping Patterns — Belt-and-Suspenders and Sibling Templates
+
+### Infrastructure features need belt-and-suspenders: process + grep bait
+
+A new convention (like `docs/README.md` maintenance, or a new hook contract) only sticks if it is greppable from every contact point agents encounter — `/project-onboarding` scaffolds it, `/session-start` surfaces it, `/session-end` patches it, hooks enforce it. Process alone is insufficient: if the phrase doesn't appear in enough places that any agent stumbling around will find it, the convention decays between sessions. When adding a cross-cutting convention to the coordinator system, enumerate its contact points and plant the phrase at each one before shipping.
+
+### Sibling super-skills ship faster by reusing the prior instance as a template
+
+When shipping the Nth instance of a stable super-skill pattern (e.g. a third decision-tree skill after `coordinator:plan` and `coordinator:review`), the prior instance is the structural template — not just a reference. Use its Branch A/A.1/A.2/A.3 + Branch B + cross-reference exit + contract self-check + migration table + recall-validation AC list as the starting scaffold. Empirical: drafting `coordinator:review-code` from `coordinator:review`'s design plan compressed the Staff Engineer's R1 findings from 11 (against a from-scratch design) to 1 substantive depth-violation + 9 minor/nit polishing fixes.
+
 ## Reference
 
 - Pattern spec: `archive/specs/2026-05-06-decision-tree-skill-pattern.md`

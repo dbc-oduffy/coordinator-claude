@@ -6,11 +6,32 @@ argument-hint: "[--check-only] [--non-interactive]"
 
 # Coordinator Setup
 
-Environment and project setup for the coordinator plugin. Checks prerequisites, verifies configuration, and initializes what's missing. Safe to re-run — skips anything already configured.
+<!-- spec-backlink: docs/plans/2026-05-19-coordinator-installer-redesign-implementation.md -->
 
-If `$ARGUMENTS` contains `--check-only`, report status without making changes.
+Environment and project setup for the coordinator plugin. This is a **guided install** — you participate in the shape decisions; the agent moves fast on mechanism. Safe to re-run — skips anything already configured.
 
-If `$ARGUMENTS` contains `--non-interactive`, skip all `AskUserQuestion` calls, applying per-site fallback behavior documented in the **D4 Non-Interactive Contract** below.
+## Execution dial and structural fork
+
+**Execution dial:** The default mode is **agent-led** — the agent drives all mechanical steps, prompting only where a genuine decision is needed. Pass `--non-interactive` to suppress all `AskUserQuestion` calls (useful in scripted or CI contexts); see the **D4 Non-Interactive Contract** below for per-site fallback behaviour.
+
+**Structural fork — Track A / Track B:** Before any phase, detect which track applies:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/lib/detect-existing-claude-home.sh"
+# Emits: track=A  (fresh install — ~/.claude is empty or absent)
+#     or track=B  (existing setup — ~/.claude already has content)
+```
+
+- **Track A (fresh install):** Proceed through all phases below. Every step runs from zero — no merge, no cherry-pick, no selective adoption.
+- **Track B (existing setup):** Surface a minimal-honest message at the top of the status report:
+
+  > **Existing `~/.claude` detected.** This guided install sets up the coordinator from zero. If you have an existing setup you want to keep, the merge is yours to do — this command does not cherry-pick or partially adopt. Re-running `/setup` is safe; it skips anything already present. To see environment state without changes, run `/setup --check-only`.
+
+  Then continue through all phases as normal (idempotency guards mean no existing content is overwritten). Do NOT offer a merge engine or selective-adoption UI.
+
+## Check-only mode
+
+If `$ARGUMENTS` contains `--check-only`: report environment state without making any changes. Every phase runs its read-only checks and emits status rows, then stops before any mutation. Combine with `--non-interactive` freely — both flags are orthogonal.
 
 ## D4 Non-Interactive Contract
 
@@ -36,6 +57,16 @@ git rev-parse --show-toplevel 2>/dev/null
 
 - If not a git repo: warn that branch management, commits, and handoffs require git. Setup continues.
 - If a git repo: note the repo root path.
+
+### 1a.1. Git-config hardening (concurrent-EM lock safety)
+
+Harden **this repo's** git config with `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process — the detached child is the contributor to orphaned `.git/index.lock` files under concurrent-EM on Git-for-Windows (root-cause in `docs/wiki/concurrent-em-hazards.md` § H21). Skip under `--check-only` (report the current value instead).
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/coordinator-configure-git"
+```
+
+Idempotent. Scoped per-repo by design — the breadth comes from `/project-onboarding` § 3f.5 (new repos) and every coordinator session boot (`session-init.sh` asserts it in whatever repo a session opens), so every coordinator-managed repo self-hardens without touching the user's unrelated repos. The helper also accepts `--global` if an operator deliberately wants the machine-wide default, but `/setup` does not set it globally (avoids changing auto-gc behavior in non-coordinator repos).
 
 ### 1b. Agent Teams env var
 
@@ -69,7 +100,7 @@ command -v scc 2>/dev/null || command -v "$HOME/bin/scc" 2>/dev/null || echo "no
 command -v jq 2>/dev/null || echo "not_found"
 ```
 
-- If found: ready. Required for `bin/orphan-branch-sweep.sh --format json` (load-bearing in `/workday-start` Step 1.10 Addon Health).
+- If found: ready. Required for `orphan-branch-sweep.sh --format json` (load-bearing in `/workday-start` Step 1.10 Addon Health).
 - If not found: **required for JSON output** (strongly recommended). Without `jq`, `orphan-branch-sweep.sh` auto-falls-back to `--format text`, so `/workday-start` still classifies severities — but any downstream consumer that JSON-parses the sweep output will fail silently on the text fallback. Install from https://jqlang.org/download/.
 
 ### 1d. Deep research plugin
@@ -82,12 +113,19 @@ ls ~/.claude/plugins/cache/*/deep-research/*/commands/web.md 2>/dev/null || \
 echo "not_found"
 ```
 
-- If found: ready. Note which pipelines are available.
-- If not found: optional. The deep-research plugin adds multi-agent research pipelines (internet, repo, structured). Available from the plugin marketplace or https://github.com/dbc-oduffy/deep-research-claude.
-
-**If deep-research IS found,** also check:
+**If found:** ready. Note which pipelines are available. Also check:
 - Agent Teams env var (already checked above — if missing, flag it as **required** here, not just recommended)
 - NotebookLM sub-plugin: check for `notebooklm/.mcp.json` in the deep-research plugin directory. If present, note that Pipeline D (media research) requires the `notebooklm-mcp-cli` package and Google authentication (`nlm login`).
+
+**If not found:** the deep-research plugin is **default-on** — offer to install from `https://github.com/dbc-oduffy/deep-research-claude` into `~/.claude/plugins/deep-research/`. Do NOT offer the UE/holodeck/game-dev stack or project-rag alongside it.
+
+<!-- D4 annotation: skip-with-note — install offer is elective; --non-interactive skips and notes status. -->
+
+Under `--non-interactive`: skip; emit `deep_research_plugin: not_found (install offer suppressed — non-interactive)`. Under `--check-only`: emit `deep_research_plugin: not_found (would offer install)`.
+
+Under interactive, offer Y/n (default Y). On Y: clone/install; if clone fails, report and continue. On n: skip, note manual install later.
+
+Deep-research presence/absence is an **explicit row** in the Phase 7 status table regardless of outcome.
 
 ### 1f. Global CLAUDE.md integration
 
@@ -155,22 +193,12 @@ Where `${OPERATOR_NAME}` is the value read from the existing file (Step 1) or ca
 The rendered `CLAUDE.local.md` includes a "Your working repos" section. Three-tier discovery (stop at first non-empty):
 
 ```bash
-WORKING_REPOS=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/lib/discover-working-repos.sh")
+WORKING_REPOS=$(bash "${CLAUDE_PLUGIN_ROOT}/lib/discover-working-repos.sh")
 ```
 
 Helper runs Tier A (`~/.claude/projects/` activity record, `X--Foo` → `X:\Foo`) then Tier B (`~/dev`, `~/Projects`, `/x`, etc.). Filters meta-repo, `AppData/Local/Temp`, bare drive roots. Returns up to 20 (A) or 30 (B) candidates.
 
-**Tier C — Ask the operator** (if helper returned empty).
-
-<!-- D4 annotation: default-with-warning — empty list is documented neutral default. -->
-
-Under `--non-interactive`: skip prompt, set `WORKING_REPOS` to placeholder (*"No working repos discovered at install time. Edit this section to list your projects."*), status: `working_repos: defaulted to empty (non-interactive)`.
-
-Under interactive: ask once via `AskUserQuestion`:
-
-> The coordinator setup couldn't find existing code projects on this machine. In which folder do you usually keep code work? (e.g. `~/dev`, `~/Projects`, `C:\code`) — leave blank if you don't have one yet.
-
-If operator names an existing folder, re-probe Tier B inside it. If still empty, record the named folder with a "no repos yet" note.
+**Tier C — Ask the operator** (if helper returned empty). <!-- D4: default-with-warning — empty list is documented neutral default. --> Under `--non-interactive`: skip; set `WORKING_REPOS` to placeholder (*"No working repos discovered at install time. Edit this section to list your projects."*); status `working_repos: defaulted to empty (non-interactive)`. Under interactive: ask for a code folder (e.g. `~/dev`, `C:\code`) via `AskUserQuestion`; re-probe Tier B inside it; if still empty, record the named folder with a "no repos yet" note.
 
 **Build `WORKING_REPOS` block.** Markdown list: `` - `<path>` — <one-line from README> ``. Tier A annotates top 3 `(active recently)`. Persist at `~/.claude/working-repos.yaml` (atomic mv; schema: version/discovered_at/discovery_tier/repos[path+source]). Status: `working_repos: ready (N from tier {A|B|C})`. Under `--check-only`, run Tiers A+B read-only, skip YAML write and Tier C prompt.
 
@@ -206,10 +234,10 @@ Skip mutations under `--check-only`. Under `--non-interactive`, run all mechanic
 All mechanical work (directory creation, tracked-file install, bin/ resolver install, Windows PATH integration, Python-resolution health check) is encapsulated in `coordinator/lib/install-substrate.sh`:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/coordinator/lib/install-substrate.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/lib/install-substrate.sh"
 ```
 
-Helper fails-loud on missing source-of-truth directories (hard precondition — `bin/machine-local` is shelled out by project-rag, holodeck, deep-research); honors `CLAUDE_HOME` (`docs/wiki/machine-local-registry.md § 4a`); preserves operator-customized files with one-line notices; skips Windows checks on non-Windows; honors `COORDINATOR_NON_INTERACTIVE=1`. Seven bin/ artifacts installed (3 `machine-local`, 3 `claude-home`, 1 `python3.cmd` shim) from `coordinator/templates/bin/` and `coordinator/lib/claude-home/`. The `.cmd` shims prevent "Select an app" pickers on extensionless scripts — harmless on Linux/macOS (`coordinator/docs/wiki/windows-cmd-shims.md`). Orphan AppX stub deletion requires `[y/N]` consent.
+Helper: fails-loud on missing source-of-truth dirs (hard precondition — `machine-local` is shelled out by project-rag, holodeck, deep-research); honors `CLAUDE_HOME` (`docs/wiki/machine-local-registry.md § 4a`) and `COORDINATOR_NON_INTERACTIVE=1`; preserves operator-customized files with one-line notices; skips Windows checks on non-Windows. Installs 7 bin/ artifacts (3 `machine-local`, 3 `claude-home`, 1 `python3.cmd` shim) — `.cmd` shims prevent "Select an app" pickers on extensionless scripts (`docs/wiki/windows-cmd-shims.md`). Orphan AppX stub deletion requires `[y/N]` consent.
 
 ### Step 2 — Never overwrite live registry files
 
@@ -219,29 +247,9 @@ If `~/.claude/machine-local/registry.toml` or `~/.claude/machine-local/registry.
 
 <!-- D4 annotation (seed prompt): skip-with-note — seed is elective; --non-interactive skips it and notes that the operator should copy .example → real by hand. -->
 
-**Skip entirely** if either `~/.claude/machine-local/registry.toml` or `registry.local.toml` already exists (idempotency).
+Full interactive script (prompt text, On Y write procedure, `machine-local set` invocations, On N): `docs/wiki/setup-reference-detail.md` § Phase 3 Step 3.
 
-Under `--non-interactive`: skip; emit status row `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`.
-
-Under interactive, ask once via `AskUserQuestion`:
-
-> Would you like to seed the registry with the four most common `repos.*` keys (coordinator, project-rag, project-rag-ue-addon, claude-unreal-holodeck)? Key declarations go to `registry.toml` (shared, tracked); per-machine path values to `registry.local.toml` (gitignored). Single-machine operators may put everything in `registry.toml`. [Y/n]
-
-**On Y:** Ask for each key's path value inline (blank = skip). Then write via script:
-
-1. Write `registry.toml` with key declarations (empty-string values + `schema = 1`) using a plain atomic write — these are shared declarations, not machine-specific.
-2. For each non-blank path value, write to `registry.local.toml` via `machine-local set`:
-
-```bash
-machine-local set repos.coordinator_claude     "${PATH_VALUE}"
-machine-local set repos.project_rag            "${PATH_VALUE}"
-machine-local set repos.project_rag_ue_addon   "${PATH_VALUE}"
-machine-local set repos.claude_unreal_holodeck "${PATH_VALUE}"
-```
-
-**Do NOT write paths to `registry.local.toml` by hand-editing or heredoc.** `machine-local set` is atomic, idempotent, and sets the example for every future script that needs to populate the registry.
-
-**On N:** leave both absent.
+**Skip entirely** if either registry file already exists (idempotency). Under `--non-interactive`: skip; emit `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`. Under interactive: offer Y/n to seed the four standard `repos.*` keys; write declarations to `registry.toml` and path values to `registry.local.toml` via `machine-local set` (never by hand-edit). **On N:** leave both absent.
 
 **Test surface** (expected; do not actually run setup): Fresh install → directory, all tracked files, all 7 bin/ artifacts present; seed prompt fires. Re-run → no overwrites, no prompts. `--non-interactive` → substrate laid, no seed prompt, no registry files. Operator-modified file → preserved with notice. **See:** `docs/wiki/machine-local-registry.md`, `coordinator/lib/install-substrate.sh`, `coordinator/lib/claude-home/README.md`, `docs/wiki/coordinator-doctor.md`.
 
@@ -249,14 +257,14 @@ machine-local set repos.claude_unreal_holodeck "${PATH_VALUE}"
 
 <!-- spec-backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 / AC-7 -->
 
-Coordinator's live install IS the canonical source — `~/.claude/` itself. No inward propagation step is needed; edits flow outward via `publish.sh`. Register this in `registry.local.toml::plugin.mirrors` so `bin/check-plugin-drift.sh` surfaces it as `n/a-by-design`.
+Coordinator's live install IS the canonical source — `~/.claude/` itself. No inward propagation step is needed; edits flow outward via `publish.sh`. Register this in `registry.local.toml::plugin.mirrors` so `check-plugin-drift.sh` surfaces it as `n/a-by-design`.
 
 Run under `--non-interactive`. Pass `--check-only` when `$ARGUMENTS` contains it.
 
 ```bash
 _mirror_flag=""
 [[ "${ARGUMENTS:-}" == *"--check-only"* ]] && _mirror_flag="--check-only"
-bash "${CLAUDE_PLUGIN_ROOT}/coordinator/lib/register-coordinator-mirror.sh" $_mirror_flag
+bash "${CLAUDE_PLUGIN_ROOT}/lib/register-coordinator-mirror.sh" $_mirror_flag
 ```
 
 The helper is idempotent and atomic (Python `os.replace` on a .tmp.<pid> file) — safe under concurrent `/coordinator:setup` invocations. Spec: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 / AC-7`.
@@ -281,7 +289,7 @@ python3 -c "import coordinator_whoami" 2>/dev/null
 - **Import fails, otherwise:** run editable install:
 
 ```bash
-python3 -m pip install -e "${CLAUDE_PLUGIN_ROOT}/coordinator/whoami/"
+python3 -m pip install -e "${CLAUDE_PLUGIN_ROOT}/whoami/"
 ```
 
 On exit 0: `coordinator_whoami: ready`. On non-zero: `coordinator_whoami: failed` (log pip stderr tail separately; do NOT halt the chain — this isn't a hard precondition like Step 1). Add row to Phase 7 table. Post-install probe P-5 in `docs/wiki/coordinator-doctor.md`.
@@ -299,7 +307,7 @@ Resolve the coordinator install root the same way other Phase 3 steps do — via
 
 ```bash
 _scaffold_root="${CLAUDE_HOME:-$HOME/.claude}"
-_scaffold_script="${CLAUDE_PLUGIN_ROOT}/coordinator/bin/scaffold-canonical-structure.sh"
+_scaffold_script="${CLAUDE_PLUGIN_ROOT}/bin/scaffold-canonical-structure.sh"
 ```
 
 Skip mutations under `--check-only` (emit status row `canonical_structure: would scaffold`).
@@ -316,6 +324,21 @@ Add a `Canonical structure` row to the Phase 7 status table.
 
 ---
 
+### Step 8 — Write fan-out large-wave threshold (idempotent)
+
+<!-- spec-backlink: docs/plans/2026-05-30-organic-ramp-concurrency-doctrine.md § C6 -->
+
+Write the cores-scaled soft ramp-reminder threshold (`3 × logical CPU count`, floored at 1) that `fan-out-dispatch.sh` reads before launching a large wave — a **speed-taper advisory, not a cap**. Never clobbers a manual override — idempotency guard uses `machine-local keys` (registry layers only), not `machine-local has`. Logic lives in `bin/capture-fan-out-threshold.sh` (covered by `bin/capture-fan-out-threshold.test.sh`):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/capture-fan-out-threshold.sh"           # normal run
+bash "${CLAUDE_PLUGIN_ROOT}/bin/capture-fan-out-threshold.sh" --check-only  # check-only: emits would write (N)
+```
+
+Add a `Fan-out threshold` row to the Phase 7 status table from the script's output (`written (N)` / `pre-existing` / `would write (N)`).
+
+---
+
 ## Phase 4 — Meta-repo doctrine
 
 ### `~/.claude` git tracking
@@ -324,11 +347,7 @@ Check whether `~/.claude` is a git repo (`git -C ~/.claude rev-parse --show-topl
 
 - **Repo:** ready. If no remote, suggest adding one for machine-loss recovery. Also check that per-machine state files are gitignored: `grep -qE '^/?coordinator-setup-state\.yaml' ~/.claude/.gitignore 2>/dev/null`. If `gap` (and not `--check-only`), offer to append the `# --- Coordinator per-machine state ---` block from `templates/dotgitignore.tmpl` (do not auto-edit). Status row: `claude_gitignore: covered` / `gap (offered)` / `gap (declined)`.
 
-- **Not a repo, not `--check-only`:** offer to initialize.
-
-  <!-- D4: default-with-warning — defaults to Skip under --non-interactive. Status: `claude_git_tracking: skipped (non-interactive default)`. -->
-
-  Under `--non-interactive`: skip, status `claude_git_tracking: skipped (non-interactive default)`. Under interactive: ask to initialize. **Initialize (Recommended)** — `git init ~/.claude`, lay down starter `.gitignore` if absent, commit `chore: initialize Claude Central` baseline. **Skip** — re-ask next run. Do NOT push to a remote.
+- **Not a repo, not `--check-only`:** offer to initialize. <!-- D4: default-with-warning — defaults to Skip under --non-interactive. Status: `claude_git_tracking: skipped (non-interactive default)`. --> Under `--non-interactive`: skip. Under interactive: **Initialize (Recommended)** — `git init ~/.claude`, lay down starter `.gitignore` if absent, commit `chore: initialize Claude Central` baseline; or **Skip** (re-asks next run). Do NOT push to a remote.
 
 - **Not a repo, `--check-only`:** report `not_a_repo`.
 
@@ -373,8 +392,31 @@ Write `coordinator.local.md`:
 ---
 project_type: {type}
 project_subtypes: [{subtype1}, {subtype2}]   # omit field when blank
+fast_test_cmd: "<your-project-fast-test-command>"  # optional; omit when not applicable
 ---
 ```
+
+**`fast_test_cmd` (optional).** Command run by `/workday-complete` Step 1 and `/workweek-complete` Step 2 via `cs_resolve_fast_test_cmd` (sourced from `lib/coordinator-resolve-validation-cmd.sh`). Resolution order: `COORDINATOR_FAST_TEST_CMD` env var → this key → skip-with-notice. When absent: `Validation: skipped`. Any shell-valid form: `npm run test:fast`, `cargo test --lib`, `python scripts/run-tests.py --tier fast`, etc.
+
+### Currency stamp (idempotent)
+
+<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
+<!-- D4: default-with-warning — stamp is written silently; skip-with-note under --check-only. -->
+
+Record which `COORDINATOR_SCHEMA_VERSION` the current repo's coordinator scaffolding was set up against.
+This enables the drift probe (doctor P-13, Wave-2) to detect when scaffolding has fallen behind the live plugin.
+
+Under `--check-only`: read the stamp if present and report `currency_stamp: current (vN)` / `currency_stamp: drift (vN->vM)` / `currency_stamp: unstamped(legacy)` / `currency_stamp: would write`. No mutation.
+
+Otherwise (idempotent write):
+
+```bash
+PLUGIN_ROOT="${CLAUDE_HOME}/plugins/coordinator-claude/coordinator"
+source "${PLUGIN_ROOT}/lib/coordinator-currency.sh"
+coordinator_currency_write "$(pwd)" "${PLUGIN_ROOT}"
+```
+
+Add a `Currency stamp` row to the Phase 7 status table (`written (vN)` / `current (vN)` / `failed — <reason>`).
 
 ---
 
@@ -390,7 +432,7 @@ Under interactive:
 
 > The coordinator includes named reviewer personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering). Customize their names? **Keep defaults** / **Customize**
 
-If customize: no `rename-personas.sh` helper currently ships — hand-edit persona names across agent files and prompts/skills referencing them. Canonical persona-to-role vocabulary in `NAME_TO_ROLE` table at `plugins/coordinator/bin/depersonalize-for-publish.sh` (exclude that file from search-replace to avoid self-corruption). One-time cosmetic choice; automation queued.
+If customize: no `rename-personas.sh` helper currently ships — hand-edit persona names across agent files and prompts/skills referencing them. Canonical persona-to-role vocabulary in `NAME_TO_ROLE` table at `plugins/coordinator/bin/publish-time-transform.sh` (exclude that file from search-replace to avoid self-corruption). One-time cosmetic choice; automation queued.
 
 ---
 
@@ -413,63 +455,19 @@ Under `--check-only`, report state only. Add a `Percolation` row to the Phase 7 
 <!-- spec-backlink: docs/wiki/coordinator-setup-state-receipt.md -->
 <!-- D4: default-with-warning — no prompt site; fires mechanically under --non-interactive same as interactive. -->
 
-Reaching Phase 7 means the environment is bootstrapped. Record the enduring, per-machine
-`setup_concluded` milestone so sibling (branch/leaf) repos can confirm coordinator is ready
-before chaining their own setup/orientation. The helper is idempotent — first occurrence
-wins, never overwritten on re-run.
+Record the enduring `setup_concluded` milestone so sibling repos can confirm coordinator is ready before chaining their own setup/orientation. Idempotent — first occurrence wins.
 
 Skip under `--check-only` (emit status row `setup_state_receipt: would record`).
 
 Otherwise:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/coordinator-setup-state.sh" record setup_concluded
+bash "${CLAUDE_PLUGIN_ROOT}/bin/coordinator-setup-state.sh" record setup_concluded
 ```
 
 Add a `Setup-state receipt` row to the status table (`recorded` / `pre-existing` / `would record`).
 
-Present a summary table:
-
-```
-## Coordinator Setup
-
-| Check                       | Status |
-|-----------------------------|--------|
-| Git repository              | ... |
-| Agent Teams env var         | ... |
-| Code stats (scc)            | ... (optional) |
-| Deep research plugin        | ... (optional) |
-| NotebookLM (Pipeline D)     | ... (optional) |
-| Global CLAUDE.md import     | ... |
-| Operator identity           | ... (`ready` / `would write` / `failed (...)`) |
-| Working repos               | ... (`ready (N from tier A\|B\|C)` / `defaulted to empty`) |
-| Meta-repo CLAUDE.local.md   | ... |
-| Machine-local directory     | ... (`ready` / `created` / `FATAL`) |
-| Machine-local tracked files | ... (`ready (4/4)` / `partial (N/4: <missing>)` / `customized (<file> preserved)` / `FATAL`) |
-| bin/ resolvers              | ... (`ready (7/7)` / `partial (N/7: <missing>)` / `FATAL`) |
-| Windows PATH + Python shims | ... (n/a non-Windows / `ready` / `PATH-added, restart shells` / `WARNING: <stub\|alias\|no-python>`) |
-| Registry seed               | ... (`seeded (Y)` / `declined (N)` / `skipped (non-interactive)` / `pre-existing`) |
-| Coordinator plugin.mirrors  | ... (`ready` / `would write` / `skipped (--check-only)`) |
-| Canonical structure         | ... (`ready` / `would scaffold` / `failed`) |
-| Setup-state receipt         | ... (`recorded` / `pre-existing` / `would record`) |
-| `~/.claude` git tracking    | ... |
-| coordinator.local.md        | ... |
-| Percolation                 | ... (n/a if not a percolation source) |
-| Non-interactive contract    | ... (`not_invoked` / `applied (skipped: N, defaulted: M, failed: 0)`) |
-| Render template helper      | ... (`ready` / `missing`) |
-| Project scaffolding         | Run `/project-onboarding` — it owns lazy directory creation, lessons file, and tracker |
-
-### Available commands
-
-- `/session-start` — Orient session, load context, choose work
-- `/session-end` — Wrap up, capture lessons
-- `/handoff` — Save state for next session
-- `/review` (plans) / `/review-code` (diffs) — review skills with inline routing; shared phases in `docs/wiki/reviewer-pipeline.md`
-- `/update-docs` — Refresh project documentation, maintain docs/README.md index
-- `/distill` — Extract knowledge from session artifacts into wiki guides
-- `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
-- `/percolate` — Publish to a registered target; first-run setup walks `docs/wiki/percolate-setup.md` automatically
-```
+Present a summary table with one row per check above. Full status-row value-sets and available-commands list: `docs/wiki/setup-reference-detail.md` § Phase 7.
 
 ### Plugin-bundled doctrine wikis
 
@@ -479,14 +477,29 @@ After install, the plugin ships doctrine as wiki guides at `<plugin-install-path
 
 ### Optional next step — guided onboarding
 
-Skip under `--check-only`. After the status table, surface a single offer-shaped line:
-
-> Want a guided tour of how to actually work with this — orient, tailor it to your taste, and a real test drive? Just say **"walk me through the coordinator."**
-
-If the operator accepts, record the `orientation_started` milestone then read `docs/wiki/getting-started.md` (plugin-relative) and facilitate the three movements (Orient → Make it yours → Test drive) as a conversation calibrated to their background. The guide's `## For the EM facilitating this` section is your playbook (carries the matching `orientation_completed` record). All customizations land in the operator's live, git-tracked `~/.claude` — never a separate clone of the source repo. If declined, point them at `/session-start` and stand down.
+Skip under `--check-only`. After the status table, offer: *"Want a guided tour? Just say **'walk me through the coordinator.'**"* If accepted, record `orientation_started` then read `docs/wiki/getting-started.md` (plugin-relative) and facilitate the three movements (Orient → Make it yours → Test drive). The guide's `## For the EM facilitating this` section is your playbook; it records `orientation_completed`. All customizations land in `~/.claude` — never a source-repo clone. If declined, point to `/session-start`.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/coordinator-setup-state.sh" record orientation_started
+bash "${CLAUDE_PLUGIN_ROOT}/bin/coordinator-setup-state.sh" record orientation_started
 ```
 
 End with: _"`/setup` is environment-only. Run `/project-onboarding` to scaffold a new project (CLAUDE.md, tracker, sessions directory, lessons file). Then run `/session-start` to begin work — or say "walk me through the coordinator" for a guided tour first."_ If `--check-only`, show the table but note what *would* be created/configured without the flag.
+
+**Refinement target close.** Include this line verbatim in every next-steps block (not under `--check-only`):
+
+> Your `~/.claude` is the surface you evolve — git-track it and back it up; never edit the coordinator clone.
+
+### Optional next step — bootstrap repo scaffolding
+
+<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 4 / AC8 -->
+<!-- D4 annotation: skip-with-note — elective offer; suppressed under --non-interactive and --check-only. -->
+
+**Suppressed under `--non-interactive` or `--check-only`.** Status row: `bootstrap_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/bootstrap-repos` invocation, no offer text.
+
+Under interactive (after the status table has been shown), read `~/.claude/working-repos.yaml` to get the discovered repo count (N). If N > 0, offer:
+
+> Discovered **N** working repo(s) in `working-repos.yaml`. Want to bootstrap coordinator scaffolding into them? Run `/bootstrap-repos` — Express mode applies to all, Custom mode lets you pick per-repo. 0% destructive; every change is git-revertible.
+
+If the operator accepts, instruct them to run `/bootstrap-repos` (do NOT inline the scaffolding here — `/setup` is environment-only; `/bootstrap-repos` owns per-project scaffolding). If declined or N = 0, skip silently.
+
+Status row: `bootstrap_offer: offered (N repos)` (after offer shown) / `suppressed (--non-interactive|--check-only)` / `skipped (0 repos discovered)`.

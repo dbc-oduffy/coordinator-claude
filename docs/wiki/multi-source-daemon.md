@@ -157,7 +157,7 @@ finally:
     _PROJECT_CONTEXT_VAR.reset(token)
 ```
 
-## 5. Boot-race contract (the Staff Engineer Finding 2)
+## 5. Boot-race contract (Patrik Finding 2)
 
 **This section documents a hard architectural contract. Do not relax the retry bound without an architectural review.**
 
@@ -199,7 +199,7 @@ The file is named `<cc_pid>.json`, where `cc_pid` is the PID of the Claude Code 
 
 ### Janitor sweep
 
-`bin/sessions-janitor.sh` and `bin/sessions-janitor.ps1` sweep marker files whose mtime is older than one hour. The sweep is also accessible programmatically via `core.session_marker.sweep_markers(max_age_seconds=3600)`. The daemon may invoke the sweep opportunistically on boot to avoid stale-marker accumulation.
+`project-rag:bin/sessions-janitor.sh` and `project-rag:bin/sessions-janitor.ps1` sweep marker files whose mtime is older than one hour. The sweep is also accessible programmatically via `core.session_marker.sweep_markers(max_age_seconds=3600)`. The daemon may invoke the sweep opportunistically on boot to avoid stale-marker accumulation.
 
 Markers older than five minutes are ignored by `CwdResolverMiddleware._resolve_from_marker` as a boot-fresh heuristic (stale markers from previous sessions should not accidentally bind a new session's resolution).
 
@@ -443,7 +443,7 @@ These are deliberate exclusions, not deferred improvements. Do not reintroduce t
 | Command | Purpose |
 |---|---|
 | `/project-rag:index` | Full or incremental reindex; auto-registers the source on completion (C2) |
-| `bin/sessions-janitor.sh` / `.ps1` | Manual sweep of stale by-PID markers |
+| `project-rag:bin/sessions-janitor.sh` / `.ps1` | Manual sweep of stale by-PID markers |
 | `project_whoami()` MCP tool | Inspect caller's resolved source + full registry |
 | `project_list_sources()` MCP tool | Enumerate all registered sources |
 
@@ -499,7 +499,7 @@ Exits non-zero on unrecoverable failure with catalog-sourced error line on stder
 
 - **Primary plan:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.md`
 - **OQ-4 closure (hookspec alignment):** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.hookspec-alignment-proposal.md`
-- **the Staff Engineer review:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.patrik-review.md`
+- **Patrik review:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.patrik-review.md`
 - **Cross-repo memo (ue-addon side, D-5):** `X:/project-rag-ue-addon/docs/plans/2026-05-13-ue-authority-shift-coordination-memo.md § D-5`
 - **Superseded predecessor:** `docs/plans/2026-05-16-cross-repo-mcp-registration-shape.md`
 - **MCP shared-server migration (HTTP topology):** `docs/wiki/mcp-shared-server-migration.md`

@@ -238,13 +238,18 @@ def test_nvidia_gpu_present_validates(whoami_schema: dict) -> None:
     sample = {
         "schema_version": 1,
         "captured_at": "2026-05-19T12:00:00+00:00",
-        "os": {"name": "Windows", "version": "10.0.22631", "shell": "powershell"},
-        "arch": {"machine": "AMD64", "apple_silicon": False},
+        "os": {"name": "Windows", "version": "10.0.22631", "shell": "powershell", "is_windows": True},
+        "arch": {"machine": "AMD64", "apple_silicon": False, "logical_cores": 32, "physical_cores": 16},
         "gpu": {
             "present": True,
             "vendor": "nvidia",
             "vram_free_mib": 22000,
             "cuda_driver": "13.0",
+            "vram_total_mib": 16303,
+            "device_count": 1,
+            "name": "NVIDIA GeForce RTX 5070 Ti",
+            "compute_capability": "12.0",
+            "driver_model": "WDDM",
         },
         "python": {
             "invoking_version": "3.12.0",

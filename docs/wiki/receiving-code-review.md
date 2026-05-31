@@ -3,9 +3,9 @@ title: Receiving code review
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator/CLAUDE.md
-  - plugins/coordinator/snippets/reviewer-calibration.md
-  - plugins/coordinator/agents/review-integrator.md
+  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator-claude/coordinator/snippets/reviewer-calibration.md
+  - plugins/coordinator-claude/coordinator/agents/review-integrator.md
   - docs/wiki/docs-checker-pre-review.md
   - docs/wiki/prior-art-checker.md
 ---
@@ -67,7 +67,7 @@ RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceed
 
 ## Source-Specific Handling
 
-### From Review Agents (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer)
+### From Review Agents (Patrik, Zolí, Sid, Palí, Fru, Camelia)
 
 This is where coordinators most often fail. You dispatched an Opus-level agent to review your work. **Use everything they give you.**
 

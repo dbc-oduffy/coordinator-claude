@@ -1,8 +1,9 @@
 # Scoped Safety Commits
 
 **System:** coordinator
-**Last Updated:** 2026-05-13 (SC-DR-008 doctrine inversion)
+**Last Updated:** 2026-05-27 (shared-registration-file staging hazard)
 **Related plans:** `~/.claude/docs/plans/2026-05-13-safe-commit-demote-to-sweep.md` (current); `archive/specs/2026-04-27-scoped-safety-commits.md` (original)
+**Sibling:** [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) — the symptom-indexed hazard catalog this page's enforcement machinery defends against. Read it for the *why*; this page for the *how*.
 
 ---
 
@@ -434,6 +435,14 @@ git fsck --lost-found                       # last-resort dangling-blob recovery
 
 Identify the sibling commit; if it absorbed your files, those files are now in `HEAD` under the wrong subject — verify with `git show --stat <foreign-sha>`. Resolution: cherry-pick or amend the foreign commit's message (PM call), or revert+redo. Do NOT blindly retry `git add && git commit` — repeats the race.
 
+### Stage Bug-Sweep Fix Edits the Moment Each Lands
+
+*Source: claude-unreal-holodeck, 2026-05-28.*
+
+Unstaged edits are indistinguishable from unowned dirt on a shared branch. A sibling EM's authorized blanket-sweep ceremony (`coordinator-safe-commit --blanket` from `/update-docs`, `/workday-complete`, etc.) will absorb any unstaged changes it encounters under the ceremony's commit subject — not yours. This is the symmetric counterpart of the bare-commit-absorbs-sibling-staged-work hazard (§ `git commit` without trailing `-- <pathspec>` above).
+
+**Rule.** Stage each bug-sweep fix edit immediately after landing it: `git add -- <edited-paths>`. Do not let fixes accumulate unstaged across tool calls on a shared branch. A staged fix is claimed; an unstaged fix is contestable.
+
 ### Post-commit `git show --stat` verification on shared branches
 
 Path-filtered `git status` lies under concurrent EMs — the filter hides foreign files the index actually carries. **After every commit on a shared branch**, run `git show --stat HEAD` and confirm the file list matches your intent. The unfiltered `git diff --cached --name-only` is the pre-commit equivalent. Subject says one workstream, diff contains another is the failure mode this catches — it's invisible without the post-commit audit.
@@ -457,6 +466,30 @@ Pair this with the post-executor verify rule: `git diff --stat` + `git log --one
 ### Large unstaged diff in shared files = active peer session
 
 Discovering >100 LOC of unstaged changes in a shared plugin/skill/doctrine file you didn't edit means another EM is actively working in this tree. Do NOT fix-forward their broken intermediate state, do NOT `git stash` (you'll bury their work and they won't find it), do NOT `git checkout -- <path>` (destroys their work). Surface to PM ("active peer detected on `<path>` — pausing edits on this surface"). Acceptable: edit unrelated files, run read-only tooling, write to your own tasks scratch. Resume the shared surface after the peer commits or hands off.
+
+### `git stash pop` after a no-op push applies a STALE unrelated stash
+
+If you run `git stash push` and git reports "No local changes to save" (a no-op), the stash stack is unchanged. A subsequent `git stash pop` will apply whatever the most-recent stash entry is — which may be an unrelated stash from a prior workstream, silently polluting your working tree. **Never pop blind.** Alternatives: (a) check `git stash list` before any pop; (b) use `git checkout <commit>^ -- <path>` to isolate a committed change cleanly instead of stash-and-pop; (c) name stashes with `git stash push -m "<description>"` so the content is identifiable before popping.
+
+*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+
+### EM hand-editing a file a dispatched agent is concurrently editing — the two-writer race on one file
+
+The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharing a working tree). There is a second two-writer shape that is NOT EM-vs-EM: the **EM and one of its own dispatched agents (review-integrator, executor) both editing the same file at the same time.** When the EM dispatches a review-integrator to fold findings into a plan/spec and then *also* hand-adds rows to that same file mid-flight, the two write streams race — and a commit fired between the two writes can capture both, silently producing duplicates (e.g. two AC rows with the same ID).
+
+*Incident.* The EM hand-added AC rows to a plan while a dispatched integrator was adding the same rows; a mid-flight commit captured both write streams and landed duplicate AC IDs. It self-healed only by luck (the duplicate was visually obvious on the next read); the failure shape is silent.
+
+**Rule.** When an integrator or executor owns a file for the duration of its dispatch, the EM **holds that file** — does not hand-edit it until the agent returns. Fold the EM's intended additions into the dispatch brief instead, or wait for the return and add them then. This is the same "active peer detected on `<path>` — pause edits on this surface" discipline as the EM-vs-EM § Large unstaged diff rule above, applied to the EM-vs-own-agent case: a file under active agent authorship is a contested surface even though the other writer is a subagent, not a sibling EM.
+
+**Verify before committing any file an agent touched concurrently.** Run a uniqueness grep (duplicate IDs, duplicate rows, duplicate frontmatter keys) on the file before staging it. A self-dispatched agent's edits and the EM's edits both landing in one commit is the signature; the uniqueness grep is the cheap catch the luck-dependent visual read should not be relied on to replace.
+
+*Source: sibling-repo `tasks/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
+
+### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
+
+Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
+
+*Source: self `tasks/lessons.md` (central-promoted 2026-05-29).*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -597,3 +630,25 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 ## SC-DR-010 — Path-Scoped `git add` Does Not Scope Hunks Within a File
 
 *2026-05-24, project-rag-ue-addon.* `git add -- path/to/file.py` stages the ENTIRE file, not just the hunks your executor edited. If another concurrent session also edited that file, its hunks ride your commit. The scoped-commit discipline protects against cross-file contamination but does NOT protect against cross-hunk contamination within a shared file. When a file you edited is also in another session's declared scope, use `git add -p -- path/to/file.py` (interactive hunk selection) to stage only the hunks from your changes. Treat `Edit` + path-scoped `git add` on a contested file as blanket-staging by another name — it includes every modification on disk at commit time, not just yours. (Source: 2026-05-24 project-rag-ue-addon)
+
+## SC-DR-011 — Shared Registration/Index File: Absorbed Edits Can Ship an Untracked-Import HEAD
+
+*2026-05-26, project-rag-ue-addon.* Committing a shared registration file (a hookimpl list, plugin registry, module index, `__init__.py`) with `git add -- <path>` is the SC-DR-010 hunk-contamination hazard with a second-order failure: the absorbed sibling edits frequently introduce `import` statements whose target modules are still `??` untracked. The resulting commit ships a HEAD that imports modules absent from git — a latent broken-clean-install, invisible on the author's disk and (if the loader graceful-fails on `ImportError`) a silent non-registration on a clean checkout.
+
+Incident: tc-34 commit `526ba4705` was the first to land four chunker-spec registrations because `git add -- __init__.py` swept in three concurrent sessions' (tc-35/tc-5/tc-6) uncommitted edits; all four target modules were untracked, so HEAD imported four nonexistent-in-git modules.
+
+**Rule — before committing any shared registration/index/`__init__` file under concurrent EMs:**
+1. `git diff --cached --name-only` to see the FULL absorbed set (the SC-DR-010 / H1 baseline — never skip it on a shared file).
+2. For every new `import` / `from … import` the commit introduces, confirm the target module is `git ls-files`-tracked. An import of an untracked sibling module is a HEAD-break, not a harmless extra.
+
+Fix-forward when you find absorbed registrations: commit the referenced impls+tests too (if complete and green on disk) — turn the latent break into a real landing, don't revert the registration. This is the *committing-EM-as-victim-of-absorption* direction; the inverse (a sibling's session-end absorbing YOUR edit) is covered in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) H4. (Source: 2026-05-26 project-rag-ue-addon tc-34; catalogued as H5 in concurrent-em-hazards.md.)
+
+## SC-DR-012 — A Pre-Commit "No Stray Staged" Check That Prints But Doesn't Halt Is Theater
+
+*2026-05-24, claude-unreal-holodeck.*
+
+**A pre-commit "no stray staged" check that prints but doesn't halt is theater.** Under concurrent EMs, the check must unstage or abort on detection — echoing the offending path then committing anyway (the `grep … || echo` shape) re-attributes a sibling's work.
+
+*Incident.* A broad `git add tasks/ docs/` swept a concurrent EM's plan and a 29K-line `diff.patch` into a distill commit. The grep flagged the offending paths; the commit ran regardless; fix-forward `git rm --cached` recovered — but the commit had already landed on the shared branch.
+
+**Rule:** gate the commit on the check's exit (non-zero → abort), or stage by explicit file list only — a directory-scoped `git add` is never safe on a shared branch. A check that only prints is identical to no check for the commit that follows it. Extends the Why-This-Exists § concurrent-EM hazard catalog (see [`concurrent-em-hazards.md`](./concurrent-em-hazards.md)).

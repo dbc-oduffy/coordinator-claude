@@ -72,28 +72,47 @@ optional:
   # Phase 2 will set chain_terminal: false for mid-chain entries and aggregate
   # the chain at the terminal entry. No schema bump required.
 
-  loe: object
-  # Phase 2 populates. Phase 1 leaves null/absent.
-  # Native YAML nested-object shape with fields:
-  #   agent_dispatches: number
-  #   opus_dispatches: number
-  #   em_tokens: number | null
-  #   tshirt: "XS"|"S"|"M"|"L"|"XL"
-  # Validator caveat: bin/lib/schema.js currently emits a warning when this field
-  # is encountered because nested-object types are validator-side TBD. The schema
-  # spec is authoritative; the warning is non-fatal. Code-reviewer F4/F10 follow-up:
-  # extend the validator to handle nested-object fields.
+  loe:
+    type: object
+    fields:
+      agent_dispatches:
+        type: number-or-null
+      opus_dispatches:
+        type: number-or-null
+      em_tokens:
+        type: number-or-null
+      tshirt:
+        type: enum
+        values: [XS, S, M, L, XL]
+  # Phase 1 entries may omit loe entirely or emit it with null sub-fields;
+  # both are valid. Phase 2 populates numeric values. Nested-object validation
+  # landed 2026-05-28 (BS-2026-05-19-004 forward-safety extension): each
+  # sub-field is now type-checked. All numeric sub-fields are number-or-null
+  # so legacy Phase-1 entries (`agent_dispatches: null`, etc.) pass and Phase 2
+  # consumers can distinguish "genuine zero" from "not captured".
 
-  chain_loe: object
+  chain_loe:
+    type: object
+    fields:
+      sessions:
+        type: number-or-null
+      agent_dispatches:
+        type: number-or-null
+      opus_dispatches:
+        type: number-or-null
+      em_tokens:
+        type: number-or-null
+      tshirt:
+        type: enum
+        values: [XS, S, M, L, XL]
   # Set by /session-end on chain-terminal entries (chain_terminal: true) when the
   # session was opened via /pickup. Populated by bin/aggregate-chain-loe.sh from
   # the predecessor handoff chain's Session Ledger blocks.
-  # Native YAML nested-object shape with fields:
-  #   sessions: number               # count of distinct sessions in the chain
-  #   agent_dispatches: number       # SUM across the chain (deduped by session_id)
-  #   opus_dispatches: number        # SUM across the chain
-  #   em_tokens: number | null       # SUM across the chain (null if any contributor is null)
-  #   tshirt: "XS"|"S"|"M"|"L"|"XL"  # recomputed from summed numbers via same threshold table
+  #   sessions:         count of distinct sessions in the chain
+  #   agent_dispatches: SUM across the chain (deduped by session_id)
+  #   opus_dispatches:  SUM across the chain
+  #   em_tokens:        SUM across the chain (null if any contributor is null)
+  #   tshirt:           recomputed from summed numbers via same threshold table
   # /workweek-complete Step 8.5 surfaces XL-or-above chain_loe.tshirt entries.
 
   chain_sessions_with_ledger: string

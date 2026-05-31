@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # publish.sh — Sync (a.k.a. percolate / push-to-publish-repo) plugin files from canonical source to downstream release repos
 #
 # Source directories are per-target, configured in the machine-local registry
@@ -17,6 +17,18 @@
 # Requires: publish-targets.sh (copy from publish-targets.example.sh)
 
 set -euo pipefail
+
+# bash 4.0+ guard — this script uses associative arrays (declare -A). macOS ships
+# bash 3.2 as /bin/bash, which lacks them, so publishing from a Mac under system
+# bash would crash mid-run with "declare: -A: invalid option". Fail fast instead.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: publish.sh requires bash 4.0 or later (it uses associative arrays)." >&2
+  echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and re-run with it:" >&2
+  echo "      brew install bash" >&2
+  echo '      "$(brew --prefix)/bin/bash" ~/.claude/setup/publish.sh' >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -315,6 +327,24 @@ files_differ() {
   [[ ! -f "$2" ]] && return 0
   [[ "$1" -nt "$2" ]] && return 0
   return 1
+}
+
+# ---------------------------------------------------------------------------
+# bytes_differ — true (0) iff $1 and $2 differ byte-for-byte.
+# ---------------------------------------------------------------------------
+# Used ONLY to decide whether an overwrite warning fires — NOT as a sync gate
+# (that stays mtime-based via files_differ for the perf reason in the 2026-05-20
+# incident note above). Called only on the already-selected sync subset (the
+# handful of mtime-newer files), so the per-file cmp fork is bounded — it does
+# NOT re-introduce the whole-mirror diff-q storm.
+#
+# Rationale (PM 2026-05-28): a publish that overwrites a destination whose bytes
+# diverge from the incoming file is exactly the silent-clobber the 2026-05-20
+# ban exists to prevent. mtime-newer alone does not prove content changed (a
+# touch bumps mtime with identical bytes). Warn loudly on real content
+# replacement so the operator sees what they are about to overwrite.
+bytes_differ() {
+  ! cmp -s "$1" "$2"
 }
 
 # ---------------------------------------------------------------------------
@@ -622,11 +652,21 @@ sync_manifest() {
       fi
     fi
 
+    # Byte-divergence warning (PM 2026-05-28): warn iff an existing destination
+    # is about to be overwritten with DIFFERENT bytes. MUST be computed before
+    # the cp (after cp, src==dst). Identical-bytes-but-newer-mtime overwrites are
+    # silent (no digression to flag).
+    local content_replace=false
+    if [[ -f "$dst_file" ]] && bytes_differ "$src_file" "$dst_file"; then
+      content_replace=true
+    fi
     if $DRY_RUN; then
-      if [[ -f "$dst_file" ]]; then
-        echo "  UPDATE: $dst_path"
-      else
+      if [[ ! -f "$dst_file" ]]; then
         echo "  NEW:    $dst_path"
+      elif $content_replace; then
+        warn "REPLACE (content differs) — would overwrite: $dst_path"
+      else
+        echo "  UPDATE: $dst_path"
       fi
     else
       # Review: the Staff Engineer — check existence before cp; after cp the file always exists so NEW is never reached
@@ -636,6 +676,8 @@ sync_manifest() {
       AUDIT_FILES+=("$dst_file")
       if $is_new; then
         echo "  NEW:    $dst_path"
+      elif $content_replace; then
+        warn "REPLACE (content differs) — overwrote: $dst_path"
       else
         echo "  UPDATE: $dst_path"
       fi
@@ -750,6 +792,23 @@ for target_entry in "${TARGETS[@]}"; do
   # setup/percolate-hooks/<target>/post-rsync/10-depersonalize.sh.
   echo ""
   run_hooks "post-rsync" "$name" "$path"
+
+  # Phase 3.5: write publish-side install-provenance sentinel.
+  # version.txt = source meta-repo HEAD at publish time. Useful for OSS-clone
+  # consumers (source_is_live-by-git-pull case). Install-side sentinel
+  # semantics (downstream copy_install scripts writing their own version.txt
+  # at install time) is canonical per live-install-drift-audit.md § copy_install
+  # Mode — that path is NOT covered by this hook; see
+  # docs/wiki/agentic-install-integrity.md § Writer location. Skipped on
+  # dry-run; non-fatal on failure (publish succeeded, sentinel is advisory).
+  if ! $DRY_RUN; then
+    sentinel_writer="${COORDINATOR_BIN:-$SCRIPT_DIR/../plugins/coordinator/bin}/install-sentinel-write"
+    if [[ ! -f "$sentinel_writer" ]]; then
+      warn "install-sentinel-write not found at $sentinel_writer — version.txt will not be written; set COORDINATOR_BIN if your meta-repo layout differs"
+    elif ! "${PY[@]}" "$sentinel_writer" --path "$path" --source "$SOURCE_DIR"; then
+      warn "install-sentinel-write failed for $name — publish succeeded but version.txt absent"
+    fi
+  fi
 
   # Phase 4: Personal data audit
   if [[ ${#AUDIT_FILES[@]} -gt 0 ]]; then

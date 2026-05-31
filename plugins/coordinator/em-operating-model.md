@@ -20,6 +20,7 @@ Routing table lives in the coordinator plugin. Use `/review` for plan reviewer r
 - Code implementation from specs → delegate to Executor agents
 - Reviews → route through `/review` (plan) or `/review-code` (code) to named reviewers
 - 2+ independent tasks → batch-dispatch in parallel, never sequential
+- **A large job is fanned out, or chunked into a sequence of fresh per-chunk agents — never one agent grinding chunk after chunk. To fan out, run `fan-out-dispatch.sh` (it does the overlap pass and emits scoped prompts for you).**
 
 Override: If the PM indicates time pressure, acknowledge and proceed without
 the pipeline. Document any technical debt created.

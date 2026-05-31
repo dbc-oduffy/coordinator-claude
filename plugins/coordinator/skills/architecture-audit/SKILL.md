@@ -88,6 +88,8 @@ For each system, count the `nature: roadmap` entries touching it in the last 30 
 
 Select the highest-scoring system. Report: _"Rotation target: [system] (score: N). Rationale: [top signals including roadmap activity if non-zero]."_
 
+**Open-P1 weight decays for recently-audited systems.** The open-P1 signal (+3 each) inflates the score of systems just audited — those are exactly the systems where P1s were recently surfaced and are most likely already tracked for action. Apply a decay: halve the open-P1 contribution for any system audited within the last 7 days, and zero it for any system audited within the last 3 days. This prevents the formula from re-selecting a freshly-audited system in the next rotation slot simply because the audit created new P1 items. *2026-05-28, project-rag + self.*
+
 Note: These weights are initial estimates — adjust after 4 weeks based on whether rotation targets match intuition.
 
 ---
@@ -111,6 +113,24 @@ Check for `docs/architecture/systems/{target-system}.md`.
 
 ---
 
+## Step 2.75: Emit Ground-Truth File-Enumeration Artifact
+
+**Before dispatching any analysis layer, commit a ground-truth file enumeration for the target system.** This prevents Haiku/Sonnet layers from working against stale or hallucinated file lists, and gives the Opus reviewer a stable reference to adjudicate "files exist / don't exist" claims.
+
+```bash
+# Emit and commit the ground-truth listing
+find <system-dirs> -type f | sort > tasks/scratch/weekly-architecture-audit/{run-id}/ground-truth-files.txt
+wc -l tasks/scratch/weekly-architecture-audit/{run-id}/ground-truth-files.txt
+git add tasks/scratch/weekly-architecture-audit/{run-id}/ground-truth-files.txt
+git commit -m "arch-audit: pin ground-truth file list for [system] before analysis"
+```
+
+Pass the path to this file in every analysis-agent prompt. When the Opus reviewer declares an inventory "fabricated" or "non-existent", it must diff the claim against `ground-truth-files.txt` before issuing the verdict. This gate was motivated by a 2026-05-28 audit where a flaky-harness enumeration briefly led the Opus judge to mis-declare inventories as fabricated.
+
+*2026-05-28, self (`skills/architecture-audit/SKILL.md:Step3`).*
+
+---
+
 ## Step 3: Dispatch System Review (Size-Gated)
 
 Check the system's **live file count** at dispatch time. Do not use the atlas file count — systems may have grown since discovery.
@@ -124,7 +144,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
    - Other / architecture → the Staff Engineer
 2. Dispatch the domain reviewer with full system scope — all files in the system. Include the atlas page as context (per Step 2.5).
 3. Reviewer grades the system and adds/updates the grade on the atlas page.
-4. Backstop is mandatory: the Staff Engineer for domain reviewers (the Game Dev Reviewer/the Front-End Reviewer/the Data Science Reviewer), the Director of Engineering (in backstop mode — `agents/eng-director.md`) for the Staff Engineer. Run backstop after applying domain reviewer findings.
+4. **Multi-reviewer is angle-motivated, not a mandatory backstop.** Dispatch a second (or third) reviewer ONLY when the system needs a distinct lens the first reviewer doesn't carry — e.g. `project-rag` reviewed by the Staff Engineer (architecture) AND the Data Science Reviewer (ML/retrieval) because both angles are load-bearing; a UE subsystem reviewed by the Game Dev Reviewer AND the Staff Engineer when gameplay + cross-system boundaries are both in scope. EM picks the angles based on what the system actually is. "Push back on lack of ambition" is ordinary EM remit (First Officer Doctrine § Staff Engineer Leverage) — it does not motivate a formal second reviewer on every audit.
 
 ### Systems >10 files — Haiku→Sonnet Pre-Digestion
 
@@ -144,7 +164,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 5. Reviewer grades the system and adds/updates the grade on the atlas page.
 
-6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: the Staff Engineer (Opus) for domain reviewers; the Director of Engineering (in backstop mode, Opus) for the Staff Engineer.
+6. **Multi-reviewer is angle-motivated, not a mandatory backstop** (see Step 3 §≤10-files row 4). When a second angle is warranted, the additional reviewer reads the summarized Sonnet analysis, not raw files.
 
 ---
 
@@ -213,7 +233,7 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 ## Architecture Audit Complete
 
 **System:** [name]
-**Reviewer:** [name] at High effort (backstop: [name])
+**Reviewer(s):** [name] at High effort [+ second-angle reviewer: [name] — angle: [reason], or "none — single angle sufficed"]
 **Previous grade:** [X] | **New grade:** [Y]
 **Findings:** N total — [X → immediate executor (trivial+non-structural), Y → spinoff candidate(s) surfaced to PM, Z → escalated to /plan]
 **Spinoff candidates surfaced:** [list of `Candidate spinoff: <slug>` prompts, or "none"]
@@ -236,9 +256,9 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 
 ## Cost
 
-**Small systems (≤10 files):** 1-2 Opus dispatches (reviewer + backstop). No review-integrator pass — the audit edits nothing; findings route through the EM disposition ladder (immediate executor / spinoff candidate / plan) after the audit returns.
+**Small systems (≤10 files):** 1 Opus dispatch (domain reviewer); +1 only when a second angle is load-bearing (Step 3 row 4). No review-integrator pass — the audit edits nothing; findings route through the EM disposition ladder (immediate executor / spinoff candidate / plan) after the audit returns.
 
-**Large systems (>10 files):** Haiku inventory agents (parallel, one per 8-12 file sub-chunk) + Sonnet analysis agents (parallel, one per sub-chunk) + 1-2 Opus dispatches (domain reviewer + backstop). Haiku and Sonnet costs are low; the Opus reviewer still dominates the total. Disposition of findings (immediate executor / spinoff candidate / plan) happens after the audit returns — the audit itself edits nothing.
+**Large systems (>10 files):** Haiku inventory agents (parallel, one per 8-12 file sub-chunk) + Sonnet analysis agents (parallel, one per sub-chunk) + 1 Opus domain reviewer (+1 angle-motivated reviewer only when warranted). Haiku and Sonnet costs are low; the Opus reviewer still dominates the total. Disposition of findings (immediate executor / spinoff candidate / plan) happens after the audit returns — the audit itself edits nothing.
 
 ---
 

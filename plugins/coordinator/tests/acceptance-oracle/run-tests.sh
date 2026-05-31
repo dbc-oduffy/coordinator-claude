@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Exercise bin/check-acceptance-oracle.sh against the synthetic fixture and assert expected verdicts.
-# Spec: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md § Task 2
+# Spec: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md § Task 2
 #
 # Run from the ~/.claude repo root:
 #   bash plugins/coordinator/tests/acceptance-oracle/run-tests.sh

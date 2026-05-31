@@ -396,32 +396,56 @@ SEEN_SESSION_IDS=()
 
 HANDOFFS_WITH_LEDGER=0
 
+# ---------------------------------------------------------------------------
+# Helper: extract a single named field from a parse_session_ledgers record line.
+# Record format (emitted by awk flush_record):
+#   session_id=<val> agent_dispatches=<N> opus_dispatches=<N> em_tokens=<val> commits=<val> created=<val>
+# Values may contain spaces (e.g. commits="sha1, sha2") so word-splitting on the
+# record is brittle. This helper finds "key=..." and strips at the next known-key
+# boundary, preserving internal spaces. BS-2026-05-19-006 fix.
+# ---------------------------------------------------------------------------
+
+_extract_loe_field() {
+  local rec="$1" k="$2"
+  # Strip the prefix up to (and including) "k="
+  local after="${rec#*"${k}="}"
+  # If the key was not present, after == rec (no substitution occurred)
+  [[ "$after" == "$rec" ]] && { echo ""; return 0; }
+  # Trim at next known-key boundary: remove everything from first " knownkey=" onward
+  # Invariant: values must not contain a space followed by another known field-name=substring.
+  # All six known field values (short SHAs, integers, ISO dates, session IDs, comma-joined commits)
+  # satisfy this. Review: code-reviewer — documents the implicit assumption for future field additions.
+  echo "$after" | sed -E 's/ (session_id|agent_dispatches|opus_dispatches|em_tokens|commits|created)=.*$//'
+}
+
 for hpath in "${CHAIN_ORDER[@]}"; do
   # Parse all Session Ledger blocks from this handoff
   local_ledger_count=0
 
   while IFS= read -r record; do
     [[ -z "$record" ]] && continue
-    local_ledger_count=$(( local_ledger_count + 1 ))
+    # bash arithmetic exits 1 when result is 0; || true guards against that benign case
+    # Review: code-reviewer — distinguishes intent from the pattern-match guards below
+    local_ledger_count=$(( local_ledger_count + 1 )) || true
 
-    # Parse each key=value pair in the record
+    # Parse each named field from the record without word-splitting.
+    # BS-2026-05-19-006: for kv in $record was brittle to spaces in values.
     local_sid=""
     local_ad=0
     local_od=0
     local_tok=""
     local_commits=""
 
-    for kv in $record; do
-      key="${kv%%=*}"
-      val="${kv#*=}"
-      case "$key" in
-        session_id)       local_sid="$val" ;;
-        agent_dispatches) local_ad="$val" ;;
-        opus_dispatches)  local_od="$val" ;;
-        em_tokens)        [[ "$val" != "null" && -n "$val" ]] && local_tok="$val" ;;
-        commits)          local_commits="$val" ;;
-      esac
-    done
+    local_sid="$(_extract_loe_field "$record" "session_id")"
+    local_ad="$(_extract_loe_field  "$record" "agent_dispatches")"
+    local_od="$(_extract_loe_field  "$record" "opus_dispatches")"
+    _tok_raw="$(_extract_loe_field  "$record" "em_tokens")"
+    [[ "$_tok_raw" != "null" && -n "$_tok_raw" ]] && local_tok="$_tok_raw"
+    local_commits="$(_extract_loe_field "$record" "commits")"
+
+    # Sanitize numeric fields — default to 0 if non-numeric
+    [[ "$local_ad" =~ ^[0-9]+$ ]] || local_ad=0
+    [[ "$local_od" =~ ^[0-9]+$ ]] || local_od=0
 
     # Deduplication: skip if this session_id was already seen
     if [[ -n "$local_sid" ]]; then
@@ -448,7 +472,9 @@ for hpath in "${CHAIN_ORDER[@]}"; do
       if [[ -z "$TOTAL_TOK" ]]; then
         TOTAL_TOK="$clean_tok"
       else
-        TOTAL_TOK=$(( TOTAL_TOK + clean_tok ))
+        [[ "$TOTAL_TOK" =~ ^[0-9]+$ ]] || TOTAL_TOK=0
+        [[ "$clean_tok"  =~ ^[0-9]+$ ]] || clean_tok=0
+        TOTAL_TOK=$(( TOTAL_TOK + clean_tok )) || true
       fi
     fi
 
@@ -468,7 +494,7 @@ for hpath in "${CHAIN_ORDER[@]}"; do
 
   done < <(parse_session_ledgers "$hpath")
 
-  [[ "$local_ledger_count" -gt 0 ]] && HANDOFFS_WITH_LEDGER=$(( HANDOFFS_WITH_LEDGER + 1 ))
+  [[ "$local_ledger_count" -gt 0 ]] && HANDOFFS_WITH_LEDGER=$(( HANDOFFS_WITH_LEDGER + 1 )) || true
 done
 
 CHAIN_SESSIONS_WITH_LEDGER="${HANDOFFS_WITH_LEDGER} of ${CHAIN_TOTAL}"
@@ -498,11 +524,12 @@ if [[ "${#CHAIN_ORDER[@]}" -ge 1 ]]; then
     first_epoch=$(date -d "$first_date" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$first_date" +%s 2>/dev/null || echo "")
     last_epoch=$(date -d "$last_date" +%s 2>/dev/null || date -j -f "%Y-%m-%d" "$last_date" +%s 2>/dev/null || echo "")
 
-    if [[ -n "$first_epoch" && -n "$last_epoch" ]]; then
-      diff_secs=$(( last_epoch - first_epoch ))
+    if [[ -n "$first_epoch" && -n "$last_epoch" ]] &&
+       [[ "$first_epoch" =~ ^-?[0-9]+$ ]] && [[ "$last_epoch" =~ ^-?[0-9]+$ ]]; then
+      diff_secs=$(( last_epoch - first_epoch )) || true
       # Allow negative (last < first) to be reported as 0 (same-day chain)
       [[ $diff_secs -lt 0 ]] && diff_secs=0
-      CHAIN_SPAN_DAYS=$(( diff_secs / 86400 ))
+      [[ "$diff_secs" =~ ^[0-9]+$ ]] && CHAIN_SPAN_DAYS=$(( diff_secs / 86400 )) || true
     fi
   fi
 fi

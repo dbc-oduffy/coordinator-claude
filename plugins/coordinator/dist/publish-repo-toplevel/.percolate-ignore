@@ -24,6 +24,6 @@ README-meta.md
 
 # Publish-repo's CLAUDE.md is the depersonalized OSS-facing variant of our doctrine.
 # Today it's authored in the publish repo; back-percolating it is a separate decision
-# (would require running depersonalize-for-publish.sh against ~/.claude/CLAUDE.md and
+# (would require running publish-time-transform.sh against ~/.claude/CLAUDE.md and
 # placing the output here). Deferred — protect for now.
 CLAUDE.md

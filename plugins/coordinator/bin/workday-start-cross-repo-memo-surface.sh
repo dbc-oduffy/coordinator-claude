@@ -61,7 +61,8 @@ if [[ ! -d "$INBOX_DIR" ]]; then
 fi
 
 # Collect qualifying memos via Python YAML parsing.
-# Each line: "<created>|<from>|<title>|<status>"
+# Each line: "<band_rank>|<created>|<from>|<title>|<kind>"
+# band_rank: 0 = urgent (ask/consult, including absent-kind default), 1 = quiet (fyi)
 memo_lines=()
 
 for f in "$INBOX_DIR"/*.md; do
@@ -114,7 +115,21 @@ if created and created <= "2026-05-21":
 if status != "open":
     sys.exit(0)
 
-print(f"{created}|{sender}|{title}|{status}")
+# Parse kind — default to "ask" when absent (safe default: surfaces with urgency,
+# never silently downgrades an unlabeled memo to quiet fyi).
+# Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § Pinned interface
+kind = str(fm.get("kind", "ask")).strip() or "ask"
+
+# band_rank: 0 = urgent (ask / consult), 1 = quiet (fyi).
+# Sort key composed as "<band_rank>|<created>" so ask/consult sort before fyi,
+# and within each band memos are ordered by created date ascending.
+band_rank = "1" if kind == "fyi" else "0"
+
+# Review: code-reviewer F4 — sanitize pipe characters in title before emitting the
+# |-delimited line; a literal | in a title would corrupt IFS='|' read splits in bash,
+# breaking the kind field. Replace with en-dash so titles can never inject extra fields.
+title = title.replace("|", "–")
+print(f"{band_rank}|{created}|{sender}|{title}|{kind}")
 PYEOF
   )
   [[ -n "$result" ]] && memo_lines+=("$result")
@@ -122,13 +137,14 @@ done
 
 [[ ${#memo_lines[@]} -eq 0 ]] && exit 0
 
-# Sort by created date ascending.
+# Sort by (band_rank, created) ascending — urgent band (ask/consult) before quiet (fyi),
+# within each band by created date ascending.
 IFS=$'\n' sorted=($(printf '%s\n' "${memo_lines[@]}" | sort))
 unset IFS
 
 output_lines=()
 for line in "${sorted[@]}"; do
-  IFS='|' read -r created sender title status <<< "$line"
+  IFS='|' read -r band_rank created sender title kind <<< "$line"
 
   # Compute age in days from created date.
   # code-review F15: pass created as a positional arg (sys.argv[1]) to avoid
@@ -156,7 +172,16 @@ except Exception:
     stale_flag=" [STALE — awaiting your action]"
   fi
 
-  output_lines+=("- ${created} from ${sender}: ${title} (${age_days} days old)${stale_flag}")
+  # Quiet marker for fyi memos — consistent style with [STALE] flag.
+  # Urgent band (ask/consult) gets no marker; the band position conveys urgency.
+  # Review: code-reviewer F9 — kind is whitespace-stripped by the Python emitter (.strip());
+  # no bash-side strip needed here before the string comparison.
+  kind_flag=""
+  if [[ "$kind" == "fyi" ]]; then
+    kind_flag=" [fyi]"
+  fi
+
+  output_lines+=("- ${created} from ${sender}: ${title} (${age_days} days old)${stale_flag}${kind_flag}")
 done
 
 total=${#output_lines[@]}

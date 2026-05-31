@@ -224,6 +224,47 @@ emit_branch_line() {
     fi
 }
 
+# -------- Auto-push health (omit when synced) --------
+# Surfaces the "auto-push isn't keeping up" signal that otherwise dies silently in
+# .git/push-failures.log. The live signal is unpushed commits on a work/* branch:
+# the post-commit hook should have pushed them. Annotate with the last failure class
+# so the EM knows whether to reconcile (non-FF — branch diverged) or just retry
+# (gh-transient/network). Emits nothing when the branch is synced — the common case.
+emit_auto_push_health() {
+    local branch upstream unpushed
+    branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    case "$branch" in work/*) ;; *) return 0 ;; esac
+    upstream="origin/$branch"
+    git -C "$REPO_ROOT" rev-parse --verify "$upstream" >/dev/null 2>&1 || return 0
+    unpushed="$(git -C "$REPO_ROOT" rev-list --count "$upstream..HEAD" 2>/dev/null || echo 0)"
+    [[ "$unpushed" =~ ^[0-9]+$ ]] || unpushed=0
+    [[ "$unpushed" -eq 0 ]] && return 0   # synced — auto-push keeping up
+
+    # Last failure class for this branch, from the failures log (if any).
+    local logf="$REPO_ROOT/.git/push-failures.log" lastclass="" action=""
+    if [[ -s "$logf" ]]; then
+        # `|| true`: grep exits 1 when no logged failure matches THIS branch; under
+        # `set -o pipefail` that non-zero would propagate out of the $() and abort
+        # the function — and with it the whole cache write. `sed -En` (ERE): BSD/macOS
+        # sed does not support the `\|` BRE alternation GNU-ism, so the OSS-user path
+        # needs ERE for the class to be extracted at all.
+        lastclass="$(grep -F "on $branch (" "$logf" 2>/dev/null | tail -1 \
+            | sed -En 's/.*\((direct push|powershell ssh push)\/([a-z-]+) after.*/\2/p' || true)"
+    fi
+    case "$lastclass" in
+        non-fast-forward)   action="branch diverged — reconcile (/workday-start Step 0.4.5) then push" ;;
+        gh-transient|network) action="transient — retry: git push" ;;
+        auth)               action="auth failure — check credentials, then push" ;;
+        gh-push-protection) action="secret blocked — scrub, then push" ;;
+        gh-size-limit|gh-lfs-quota) action="see .git/push-failures.log; resolve, then push" ;;
+        *)                  action="run: git push origin $branch (see .git/push-failures.log)" ;;
+    esac
+    local cls_label=""
+    [[ -n "$lastclass" ]] && cls_label=" last failure: ${lastclass};"
+    printf -- '- ⚠ %s unpushed commit(s) on `%s` — auto-push lagging;%s %s' \
+        "$unpushed" "$branch" "$cls_label" "$action"
+}
+
 # -------- Pinboard preservation (mid-session only) --------
 # Ceremony writers clear pinboard. Mid-session writers preserve existing unless --pinboard given.
 PINBOARD_FINAL=""
@@ -290,6 +331,12 @@ EOF
     fi
 
     printf '\n## Branch\n%s\n' "$(emit_branch_line)"
+
+    local push_health
+    push_health="$(emit_auto_push_health)"
+    if [[ -n "$push_health" ]]; then
+        printf '\n## Auto-push health\n%s\n' "$push_health"
+    fi
 
     if [[ -n "$PINBOARD_FINAL" ]]; then
         printf '\n## Pinboard\n- %s\n' "$PINBOARD_FINAL"

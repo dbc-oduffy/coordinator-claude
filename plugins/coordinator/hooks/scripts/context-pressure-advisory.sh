@@ -121,20 +121,44 @@ touch "$THROTTLE_SENTINEL"
 # ~60% of context window (e.g. 600K on a 1M window). Earlier research had it
 # at ~83.5% on a 200K window; treat 60% as the new global trigger until we
 # observe per-model divergence. Override via CONTEXT_*_THRESHOLD env vars.
-# We can't know exact token count — file size in bytes is a rough proxy.
-# Using ~5 bytes/token (conservative: real ratio is 5-8 depending on content).
+# We can't know exact token count — file size in bytes is a ROUGH proxy.
+# Read-heavy EM sessions (markdown/substrate/JSON) run 6-8 bytes/token; prose ~4-5.
+# 7 is mid-band, biased to the read-heavy case this hook front-loads on.
+# Recalibrated 2026-05-27 (queue 2026-05-26): prior value 5 over-counted tokens
+# on read-heavy transcripts and fired HIGH at a real ~55% byte-of-window with
+# runway left. CRITICAL_PCT is HELD at 50 (ratio-only recalibration, PM decision
+# 2026-05-27): the BPT 5→7 change shifts the trip ~40% later in bytes, addressing
+# the premature-firing report without stacking a percentage-gate raise.
 
 if [[ -z "$TRANSCRIPT_PATH" || ! -f "$TRANSCRIPT_PATH" ]]; then
   exit 0  # fail-open: no transcript to measure
 fi
 
-# --- Model detection (first 20 lines only — O(1) regardless of transcript size) ---
-MODEL_ID=""
-if command -v jq &>/dev/null; then
-  MODEL_ID=$(head -n 20 "$TRANSCRIPT_PATH" | jq -r 'select(.model != null) | .model' 2>/dev/null | head -1 || true)
-fi
+# --- Model detection — robust, format- and preamble-agnostic ---
+# Two prior bugs (fixed here, 2026-05-26): (1) the jq path read top-level
+# `.model`, but Claude Code nests it at `.message.model`, so it never matched;
+# (2) the sed fallback was capped at `head -n 20`, but preamble-heavy sessions
+# (pickup handoffs, attachments, queue-ops, system reminders) push the first
+# assistant line — the first one carrying a model ID — well past line 20. The
+# net effect was MODEL_ID="" on exactly the read-heavy sessions an EM front-loads
+# context on, defaulting CONTEXT_WINDOW to 200K and firing a false CRITICAL at
+# ~500KB (~11% of a real 1M Opus window). Grep the first literal
+# `"model":"claude-..."` instead: -m1 stops at the first matching LINE (cost
+# bounded by the first model-bearing line, not transcript size), the `claude-`
+# anchor disambiguates from any other "model" key in tool output, and it is
+# agnostic to JSON nesting. The `[^"]*` character class (no embedded quote) is
+# load-bearing twice: it terminates the ID at the closing quote, AND it
+# guarantees MODEL_ID can never contain a `"` that would break the unquoted JSON
+# heredocs below — do not widen it without re-checking those heredocs. The
+# trailing `head -1` defends against a minified line carrying multiple matches.
+MODEL_ID=$(grep -m1 -oE '"model"[[:space:]]*:[[:space:]]*"claude-[^"]*"' "$TRANSCRIPT_PATH" 2>/dev/null \
+  | grep -oE 'claude-[^"]*' | head -1 || true)
+# Detection-failure diagnostic (stderr only — never touches the JSON stdout the
+# hook consumer parses). Surfaces the silent case Finding 7 flagged: an
+# undetected model assumes the 1M default below, which on a genuinely-200K setup
+# means warnings fire too late (or never). Rare given the robust detection above.
 if [[ -z "$MODEL_ID" ]]; then
-  MODEL_ID=$(head -n 20 "$TRANSCRIPT_PATH" | sed -n 's/.*"model"\s*:\s*"\([^"]*\)".*/\1/p' | head -1 || true)
+  echo "context-pressure-advisory: model detection failed; assuming 1M-token window (pin via COORDINATOR_DEFAULT_CONTEXT_WINDOW for 200K setups)" >&2
 fi
 
 # --- Context window size by model (tokens) ---
@@ -144,12 +168,13 @@ fi
 case "$MODEL_ID" in
   # Explicit 1M-context variants — must match before the bare family arms below.
   # Anthropic encodes 1M-context variants with a "[1m]" suffix (e.g.
-  # "claude-opus-4-7[1m]"); some ID shapes use "-1m" or a bare "1m" token.
+  # "claude-opus-4-7[1m]"); some ID shapes use a "-1m" infix.
   # Matching here prevents a 1M-context Sonnet from falling into the *sonnet*
   # arm and producing false-positive handoff nudges at ~200K bytes.
+  # NB: no bare `*1m*` arm — it would false-match a date/version token (e.g.
+  # a hypothetical "claude-sonnet-4-10m") and assign a 200K model the 1M window.
   *\[1m\]*)       CONTEXT_WINDOW=1000000 ;;  # Explicit "[1m]" suffix
   *-1m*)          CONTEXT_WINDOW=1000000 ;;  # "-1m" infix variant
-  *1m*)           CONTEXT_WINDOW=1000000 ;;  # Bare "1m" token
   # Explicit 200K overrides for Opus variants known to ship without the 1M window
   # (add specific model IDs here as they appear).
   # Generic family fallbacks — any Opus is presumed 1M, any Sonnet/Haiku 200K,
@@ -158,7 +183,14 @@ case "$MODEL_ID" in
   *opus*)         CONTEXT_WINDOW=1000000 ;;  # Opus family default: 1M
   *sonnet*)       CONTEXT_WINDOW=200000  ;;  # Sonnet family default: 200K
   *haiku*)        CONTEXT_WINDOW=200000  ;;  # Haiku family default: 200K
-  *)              CONTEXT_WINDOW=200000  ;;  # Unknown model — conservative default
+  # Unknown model OR detection failure (empty MODEL_ID): with robust detection
+  # above this arm is now rarely reached, but it is also the error-recovery path
+  # (grep failure / transcript race), so do not delete it as "only for unknown
+  # models". Default to Opus/1M — Opus is the EM's primary system, and a too-large window
+  # only delays warnings (it never fires a false CRITICAL), which is the safer
+  # failure direction than the prior 200K default's premature-handoff churn.
+  # Sonnet-only setups can pin the conservative window via the override.
+  *)              CONTEXT_WINDOW=${COORDINATOR_DEFAULT_CONTEXT_WINDOW:-1000000} ;;
 esac
 
 # --- Threshold percentages ---
@@ -167,11 +199,19 @@ esac
 # to execute (several tool calls). ADVISORY at 40% is the "start wrapping up"
 # signal. Previous values (57/50) fired too late and sessions hit compaction
 # before the handoff could complete.
+# CRITICAL_PCT HELD at 50 (PM decision 2026-05-27, ratio-only): the BYTES_PER_TOKEN 5→7
+# change alone shifts the trip ~40% later in bytes, addressing the premature-firing report
+# without stacking a percentage-gate raise that would erode compaction headroom on
+# prose-light sessions. ~10% headroom below the ~60% observed compaction point is preserved.
 ADVISORY_PCT=40
 CRITICAL_PCT=50
 
 # --- Convert to file size thresholds (bytes) ---
-BYTES_PER_TOKEN=5
+# Read-heavy EM sessions (markdown/substrate/JSON) run 6-8 bytes/token; prose ~4-5.
+# 5 (prior value) over-counted tokens on read-heavy transcripts and fired HIGH at a
+# real ~55% byte-of-window with runway left (queue 2026-05-26). 7 is mid-band, biased
+# to the read-heavy case this hook front-loads on. Still a ROUGH proxy — see message text.
+BYTES_PER_TOKEN=7
 ADVISORY_BYTES=$(( CONTEXT_WINDOW * ADVISORY_PCT * BYTES_PER_TOKEN / 100 ))
 CRITICAL_BYTES=$(( CONTEXT_WINDOW * CRITICAL_PCT * BYTES_PER_TOKEN / 100 ))
 
@@ -223,11 +263,11 @@ if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
 JSONEOF
   else
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Compaction fires at ~60% of context window — you are at the halfway point. Run /handoff NOW; the handoff itself consumes context and you need headroom to complete it. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count, so treat it as a soft signal. Auto-compaction is observed near ~60%. If this estimate looks right for the work you've done, consider running /handoff soon — the handoff itself consumes context, so leave headroom. If you front-loaded large reads (the estimate runs hot on read-heavy sessions), you likely have more runway than this suggests. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
 JSONEOF
   fi
   exit 0
@@ -239,11 +279,11 @@ if [[ "$FILE_SIZE" -ge "$ADVISORY_BYTES" && ! -f "$ADVISORY_SENTINEL" ]]; then
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Context usage is getting heavy. Autonomous run active — continuing per PM instruction. Ensure flight recorder (TaskList) is current so work survives compaction. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Autonomous run: checkpoint state to disk at the next natural boundary so the run is resumable. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
 JSONEOF
   else
     cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}, ~${EST_PCT}% est.): Context usage is getting heavy. Consider completing the current task unit, then running /handoff. This is informational — no action required yet. (Transcript: ${FILE_SIZE} bytes, model context: ${CONTEXT_WINDOW} tokens)"}}
+{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Consider completing the current task unit, then running /handoff. This is informational — no action required yet, and the estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
 JSONEOF
   fi
   exit 0

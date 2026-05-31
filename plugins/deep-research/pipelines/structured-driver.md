@@ -259,29 +259,70 @@ When you receive a notification that the synthesis task is complete:
    - If validation **fails**: keep team alive, send a correction message to the synthesizer via `SendMessage` listing the specific fields that failed, and wait for a revised output
    - If validation **passes**: proceed to step 3
 
-3. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it
+3. **Coverage auditor dispatch (always-on, non-teammate Agent):**
 
-4. Update the manifest:
+   > **Fidelity relay is OOS for Pipeline C.** The relay's job is catching post-hoc prose
+   > distortion of a specialist finding whose author is now idle. Structured synthesis has no
+   > prose to distort — the output is schema-conforming YAML/JSON (`structured-synthesizer.md:59`).
+   > Additionally, verifiers already challenge each other's field values adversarially pre-synthesis
+   > (CONTESTED resolution is mandatory, `structured-team-protocol.md:44-49`). The relay would
+   > solve a problem that structurally cannot occur. Per OD-1 (Resolved Decisions,
+   > `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md § OD-1 RESOLVED`).
+
+   The reduced coverage auditor for Pipeline C verifies that every verifier finding either
+   maps to a schema field in the structured output OR was explicitly dropped with an annotation
+   in `synthesis-annotations.md`. Findings absent from both constitute silent coverage loss.
+
+   Read the prompt template from:
+   `${CLAUDE_PLUGIN_ROOT}/pipelines/coverage-auditor-prompt-template.md`
+
+   Select the **Pipeline C — Structured Research (reduced auditor)** input block. Fill in:
+   - `[SYNTHESIS_PATH]` — `{output-path}`
+   - `[OUTPUT_PATH_WITHOUT_EXTENSION]` — `{output-path}` minus `.md`
+   - `[SCRATCH_DIR]` — `{scratch-dir}`
+   - `[OUTPUT_DIR]` — directory containing `synthesis-annotations.md` (same as `{scratch-dir}`)
+
+   Dispatch as a **plain Agent — NOT a teammate** (preserves the 7-slot ceiling):
+
+   ```
+   Agent(
+     prompt: <filled coverage-auditor prompt with structured input block>,
+     model: "sonnet",
+     subagent_type: "deep-research:coverage-auditor"
+   )
+   ```
+
+   Wait for the auditor to complete and return `DONE: {sidecar-path}`.
+   The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
+
+   If the auditor reports `absent` findings (verifier findings with no field mapping and no drop
+   annotation), read the sidecar and include an `absent_findings` summary in the PM-facing report
+   at step 10. Do not re-open the team or re-request synthesis changes — the auditor is a
+   completeness pointer, not a correction trigger.
+
+4. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it
+
+5. Update the manifest:
    - Set subject status to `complete`
    - Record `manifest_version: 2`
 
-5. Commit:
+6. Commit:
    ```bash
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: structured complete — {subject-slug}"
    ```
 
-6. Archive paper trail:
+7. Archive paper trail:
    ```bash
    mkdir -p docs/research/archive/YYYY-MM-DD-{subject-slug}
    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{subject-slug}/
    rm -rf {scratch-dir}
    ```
 
-7. Shut down the team: `TeamDelete(team_name: "structured-{subject-slug}")`
+8. Shut down the team: `TeamDelete(team_name: "structured-{subject-slug}")`
 
-8. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: structured archive + cleanup"`
+9. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: structured archive + cleanup"`
 
-9. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)."
+10. Present summary of schema changes (CONFIRMED / UPDATED / NEW / REFUTED / CONTESTED-resolved counts) to PM for review. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory (archived with paper trail at `docs/research/archive/YYYY-MM-DD-{subject-slug}/advisory.md`)." If the coverage auditor reported absent findings, include a brief summary: "The coverage auditor found {N} verifier findings with no field mapping and no drop annotation — see `{output-path minus .md}-coverage-audit.md`."
 
 ## Error Handling
 

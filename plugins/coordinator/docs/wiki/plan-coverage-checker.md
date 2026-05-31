@@ -72,7 +72,7 @@ For the complete token list, stage-1 heading regex, and stage-2 classification r
 
 Extracts all in-repo path citations and `file:line` / `file:symbol` references from the plan body, then verifies each against the current disk state using `ls`, `Read`, and `Grep`.
 
-**Line-drift tolerance is mandatory:** same file, same symbol, line number shifted = FALSE-POSITIVE. The agent only emits a finding when the symbol/identifier is absent from the file, or the file itself is missing. This tolerates the legitimate line drift produced by concurrent-EM workstream branches.
+**Line-drift tolerance is mandatory:** same file, same symbol, line number shifted = FALSE-POSITIVE. The agent only emits a finding when the symbol/identifier is absent from the file, or the file itself is missing. This tolerates the legitimate line drift produced by concurrent-EM workstream branches. The tolerance window is **±50 lines** (widened from ±10 in the initial implementation) — neighbor sections inserted between plan-write and check-time can push a cited symbol further than ±10 lines without invalidating the citation, so the narrow window produced false substrate-drift findings on sound plans. **Anchor-heading citations are drift-immune:** when a plan cites by `§ Heading` or a distinctive heading line rather than a bare line number, the agent matches on the heading's presence on disk and ignores the line number entirely — prefer anchor-heading citations in plans for this reason.
 
 Scope boundary: Lens 3 checks in-repo paths and symbols only. External API signatures are docs-checker's job.
 
@@ -147,7 +147,7 @@ Operational hook: during `/workweek-complete`, as part of the weekly retrospecti
 
 ## Distribution
 
-The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `bin/verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
+The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
 
 - `agents/staff-eng.md` (the Staff Engineer)
 - `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)

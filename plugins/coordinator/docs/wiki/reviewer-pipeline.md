@@ -549,3 +549,22 @@ HARD RULE applies exactly when: (a) artifact is a frozen diff at a merge boundar
 reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses
 combined output. Plan/stub/doc review remains sequential. The exception sentence names all
 three conditions to prevent scope creep.
+
+## Why Each Layer Is Load-Bearing — Pre-flights and Persona Are Not Substitutes
+
+**Pre-flight workers (coverage-checker, prior-art-checker, docs-checker) and the Staff Engineer plan review catch different defect classes; both pay off even when the plan looks ready.** Empirical evidence from a high-confidence, the Director of Engineering-grounded plan (v12):
+
+- **Plan-coverage-checker** caught one BLOCKING drift (cited helper symbol `_get_graph_db_conn()` did not exist) + 2 appetite hedges.
+- **Prior-art-checker** caught a bump-rule wiki contradiction (additive-defaulted fields don't mandate a bump per Z-AMEND-1 carve-out 2 — the plan said "mechanically bumps").
+- **Docs-checker** auto-fixed 4 line-number/symbol drifts.
+- **the Staff Engineer** (post-pre-flights) added 1 major + 5 minor findings, including the closure-capture-footgun module-level-helper refactor and the `check-shipped-on-main.sh` verifiable predicate replacing honor-system sequencing.
+
+Every layer was load-bearing on a plan that had already passed EM confidence + external review. Skipping any one would have shipped a defect. The layers are non-overlapping — each catches a class the others don't scan for. (2026-05-18, project-rag v12 plan.) [universal]
+
+## the Staff Engineer / the Game Dev Reviewer / enricher role differentiation — each catches a different defect class
+
+**The architectural review chain — the Staff Engineer catches structure, the Game Dev Reviewer catches existing-codebase patterns, enricher catches callsite reality — is not interchangeable. All three are needed for cross-module refactors.**
+**Why:** A plan that survives the Staff Engineer's architectural review can still hide (a) duplication of an existing project pattern the Staff Engineer can't see from the diff (the Game Dev Reviewer territory), and (b) callsite-level multi-tenancy bugs that look correct in spec but break adjacent functionality (enricher territory). In one case, a CRITICAL spec bug (multi-tenancy) and a design-duplication smell (existing registry pattern) both survived two the Staff Engineer passes.
+**How to apply:** for architecturally-loaded stubs with real stakes, run the full chain — the Staff Engineer → integrator → the Game Dev Reviewer → integrator → enricher → integrator → the Staff Engineer. Each layer targets a qualitatively different class of defect; skipping any layer leaves that class uncovered.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L117, central-promoted 2026-05-28).*

@@ -190,6 +190,8 @@ Composes with §10 (mock at the helper boundary, not the stdlib boundary) and §
 
 ## 22. Leakage Tests and Coverage-Floor Goldens Are Complementary Lenses
 
+**Leakage can pass vacuously when the upstream detector emits nothing.** An engulfing ERROR node drops the scope entirely, leaving nothing to overlap with the forbidden span — so 15/15 leakage tests pass green while goldens silently encode 0-reflection across the same regions. The vacuous-pass mechanism: zero scopes → zero overlaps → zero leakage → green. The golden catches it by asserting the producer actually populates the contract.
+
 Either lens alone is a false signal for overlay/refiner correctness:
 
 - **Leakage-only:** an ERROR-overlap leakage test can pass vacuously when the upstream detector returns no scopes in the affected region — zero emissions, zero leakage, green. No detector, no problem — but the coverage gap is invisible.
@@ -233,6 +235,8 @@ Corollary: `xfail(strict=True)` is safer — it becomes `xpass` (unexpected pass
 **Rule:** before accepting "pre-existing failure" as a reason to defer or suppress, grep `git log --oneline -- <test-file>` and `git log --oneline -S '<gate-symbol>'` for gate-introduction commits within the suspect window. If a new gate landed adjacent to the failure's first appearance, the failure was *created by* the gate addition, not inherited. Fix the gate alignment, do not defer the failure.
 
 ## 27. Source-Level Tripwires Beat Empirical Timing Probes for Async Regression Nets
+
+**`inspect.getsource()` substring assertions are the robust shape for "use this idiom at this call site."** Async timing probes fail when upstream `await` yield points let a sentinel fire before the blocking call starts — making the test pass under both broken and fixed code. The source-level tripwire is mechanical and deterministic: assert that `asyncio.to_thread(self._spawn_and_poll)` appears in the source AND that `= self._spawn_and_poll()` does not. If the call shape regresses, the grep fails immediately without any timing dependency.
 
 Async timing tests have too many yield-point escape hatches. A test that "blocks the event loop for >N ms" can be defeated by adding a single `await asyncio.sleep(0)` in the middle of a sync block, or by the test environment's clock resolution being too coarse to catch the regression.
 
@@ -346,6 +350,153 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 
 **Empirical anchor.** *2026-05-20, project-rag no-positive-assertion audit* (consumer-side artifact: `/x/project-rag/docs/wiki/no-positive-assertion-audit-2026-05-20.md`). AST scout flagged 236 candidates across 106 test files in `project-rag/tests/`. After filter pass (helpers-that-assert-internally, contract-no-op-by-design) and triage under the strict standard, 9 real positive-signal gaps surfaced. Two of the proposed fixes had factually-wrong premises (audit conflated dedup-correctness with None-handling-graceful; audit thought regex matched when it didn't) — the executor's verify-before-edit pass caught both, illustrating that even a careful audit benefits from a literal "run the regex / check the hash" pre-flight before declaring positive-assertion shape.
 
+## 32. Observed vs. Inferred in Evidence Prose
+
+**Tree-sitter ERROR-byte coverage is meaningless without locus context.** Report as `(percentage, where-relative-to-consumer-query)`, never as a bare percentage. An ERROR-byte rate that sounds fatal (e.g. 24.7% on a UPROPERTY macro fixture) can be irrelevant when the errors are confined to macro argument lists while top-level structural boundaries — the only thing the consumer queries — survive intact. Bare-percentage reporting inverts signal: high-sounding numbers trigger false alarm; low-sounding numbers grant false confidence. Always pair the rate with "do these ERRORs intersect the consumer's actual query surface?"
+
+**Distinguish observed-outcome from inferred-mechanism in evidence prose — be explicit about which claims are observed (exit code, stderr, RSS) vs. inferred (kernel primitive, root cause).**
+
+A test verdict may be correct while the evidence file's prose explanation of *why* misframes the mechanism. The AC verdict doesn't change, but the next reader can't tell observation from inference and may act on the inferred part when it's wrong. Frame as: *observed: X. inferred: Y because Z.* When only one half is available, name the missing half explicitly.
+
+**Rule:** evidence-file prose must separate the observed signal (what an instrument measured) from the inferred mechanism (why you believe that happened). When the inference is uncertain, say so. A confident-sounding mechanism with no observed anchor is a wishful-thinking trap.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L147, central-promoted 2026-05-28).*
+
+## 53. Hung-Run Failure Counts — Never Quote From an Incomplete Session
+
+*Source: project-rag L10. 2026-05-28. [universal]*
+
+**A failure count from a hung test run is the visible tip, not the total.** pytest writes junit only at `pytest_sessionfinish`; a single mid-run hang (e.g. `pytest-timeout`'s thread method can't unwind a C-blocked thread) wedges the session and kills every result after the wedge point. Quoting that count as "N failures" and acting on it produces false fixes and a false-green claim.
+
+**Concrete failure.** A predecessor handoff said "~6 residual fast-tier failures." A hang-isolating batched runner found ~430 failures + 8 hang batches across ~7700 tests — the predecessor's run had hung at 24% and never reached the other 76%.
+
+**Rule.** Before quoting a fast-tier failure count: confirm the run reached session end (junit file exists AND short summary line printed). When it didn't, get the inventory via batched runs — one batch = one pytest subprocess with an OS-level timeout; per-batch junit survives even when the batch hangs. Treat any "N failures so far" from a hung run as ≥N, not =N, in handoffs and decisions. Composes with §44 (bound every run; never run a known-hang surface to verify).
+
+## 54. Class-Level Pytest Markers Over-Include When Methods Don't Share Substrate Need
+
+*Source: project-rag L31, 2026-05-28/29. [universal]*
+
+A `pytestmark = pytest.mark.slow` (or any marker) applied at the class level applies to every method in the class. When class methods don't share the substrate that earns the marker — some methods are fast/unit, others genuinely hit subprocess/network/heavy-load — the blanket marker either excludes fast methods from default runs (marker is `not slow`), or fails to protect slow methods from default inclusion. The marker granularity must match the substrate granularity.
+
+**Rule.** Before applying a class-level marker, ask: do ALL methods in this class share the same substrate need? If outlier methods exist — one method hits a real subprocess, the other is a pure-unit assertion — promote the outliers out of the class or use per-method markers. A class-level marker is correct only when the substrate need is genuinely class-wide (e.g. every method calls the same heavy fixture). Composes with §30 (slow-marking discipline) and §34 (never slow-mark a guard test).
+
+## 55. Fossilized Count Assertions Hide Drift
+
+*Source: claude-unreal-holodeck L11 + holodeck L15, 2026-05-28/29. [universal]*
+
+An assertion of the form `assert len(results) == 37` (or `expected: 37` in a golden) hardcodes a count that was accurate when the test was written but has no mechanism to stay accurate as the system evolves. When the count drifts, the test fails — but worse, when the system contracts (fewer results than expected), the test might not even be exercised meaningfully. The literal encodes an author's snapshot, not a semantic invariant.
+
+**Rule.** Replace literal `expected N` count assertions with self-consistency invariants that read the system's own source of truth: `assert len(results) == len(list(registry.all()))`, or `assert all(r in known_set for r in results)`, or `assert set(results) == expected_set` where `expected_set` is derived dynamically from the registry, not hardcoded. Retain a floor assertion (`assert len(results) >= 1`) to prevent vacuous-pass over empty sets (§40). A hardcoded count is a snapshot; a self-consistency check is a contract.
+
+## 56. Source-Migrate Without Test-Migrate Leaves Import Wall
+
+*Source: claude-unreal-holodeck L17 + holodeck L17, 2026-05-28/29. [universal]*
+
+When a source module is migrated (moved, renamed, restructured) without co-migrating its test suite, the tests accumulate `ImportError` failures that mask real test results. The collected-count delta is the falsification: if migrating the source caused `pytest --collect-only` to go from N to M<N collected tests, M–N tests are invisibly broken at import time, not because the code regressed but because the test's imports lag the source.
+
+**Rule.** Co-migrate the regression net in the same commit as the source migration. Verify with `pytest --collect-only` before and after — a count drop signals import failures, not test removals. Never declare "module migrated" when the test's collected count dropped relative to the pre-migration baseline. Composes with §43 (collection errors mask large failing-test populations). See also `cleanup-sweep-hazards.md` §21 (producer-rename sweep bucket 1).
+
+## 66. Enumerate ALL Mock-Patch Shapes Before Moving a Symbol Whose Consumers Move
+
+*Source: project-rag L8, 2026-05-30.*
+
+When a module-extraction refactor moves a symbol AND its consumers, every test that patches that symbol points at a target string that just became stale — and a stale `mock.patch` target fails **silent-green**: the patch resolves a path that still imports cleanly, so it never raises, but it monkeypatches the *old* binding while production now calls through the *new* one. The test passes while testing nothing.
+
+**Rule.** Before a module-extraction or symbol-move refactor, grep the test tree for **all three patch shapes** over the moving symbol, not just `patch("mod.sym")`:
+
+- `patch("mod.sym")` / `patch("mod.Cls.method")` — string-target patches (most common, most brittle to moves).
+- `patch.object(alias, "sym")` — object-target patches via an imported alias (the alias binding may now point at the wrong module).
+- `mod.sym = fake` / `monkeypatch.setattr(mod, "sym", ...)` — direct attribute resets.
+
+Update every site to the symbol's new home, then run the suite. A stale patch does not announce itself — the chain-end review (full-suite run + a spot-check that the patched call actually intercepts the production path, §20/§21) is the net that catches the silent-green. Composes with §10 (patch the helper boundary, not the stdlib boundary) and §56 (co-migrate the regression net). See also `cleanup-sweep-hazards.md` §21.
+
+## 57. Drift-Guard Test Must Read Source-of-Truth, Not Re-Type the Value
+
+*Source: project-rag-ue-addon L20, 2026-05-29.*
+
+A test written to guard against drift in a constant or configuration value (`assert TIMEOUT == 30`) re-types the value the guard is supposed to track. When the source-of-truth changes and the constant is updated, the test must be updated separately — and if it isn't, the guard stays green while the constant drifts. Worse: a test that asserts a literal can be "made green" by changing the literal in the test, defeating the guard.
+
+**Rule.** A drift-guard test must READ the artifact it guards: `assert TIMEOUT == parse_config("timeout_seconds")`, or `assert SCHEMA_VERSION == read_version_file()`, or `assert FIELD_LIST == introspect_schema().column_names`. The test must fail if and only if the source-of-truth and the derived constant diverge — not if someone edits the test's own expected value. The source-of-truth artifact is the single point of truth; the test reads it.
+
+## 58. `bash -n` Failure Does NOT Prove a Shipped Script Is Broken
+
+*Source: project-rag L27 + L57 (2026-05-28/29). [universal]*
+
+`bash -n <script>` parses for syntax errors but does NOT execute. Bash parses top-to-bottom; an early-exit code path means a syntax error in a later function body may never be reached at runtime. `bash -n` failure on a script does NOT prove the script is broken in practice — the error line may be in a branch that the script's actual code paths never enter.
+
+Conversely, `bash -n`-clean does NOT prove the script runs correctly — it only proves it parses. A script can pass `bash -n` and fail at runtime due to unset variables, missing dependencies, or logic errors that only surface on execution.
+
+**Rule.** Confirm real-vs-artifact by exercising the actual code path, not by running `bash -n`. When `bash -n` fires on a multi-function script, check whether the error line is reachable from any real invocation — if the function is dead code or only called in a branch that short-circuits before the error line, `bash -n` is a false alarm. For a newly-edited script, prove a region clean by confirming the error line shifts by exactly `delta_lines` between HEAD and the worktree version (line-number drift is the `bash -n` signal for "edit is in this region").
+
+## 59. Paired NDCG Delta Is Valid on Stale Index When Both Arms Share the Index State
+
+*Source: project-rag L35 (2026-05-29).*
+
+An internally-controlled paired NDCG delta (A/B measurement where both arms use the same index state) is valid even on a stale index — the stale-index degradation affects both arms equally, so the delta measures only the change being evaluated. Gate cross-repo replies on index freshness only when absolute thresholds are load-bearing (e.g. "retrieval quality meets ≥0.6 NDCG"), not for paired deltas that measure relative improvement.
+
+**Rule.** Distinguish paired deltas (both arms see the same substrate → index freshness is irrelevant to the delta) from absolute measurements (one arm vs. a fixed threshold → freshness matters). A reviewer who blocks a paired-delta result on "stale index" is confusing relative and absolute measurement contexts. When the goal is "does change X improve retrieval?" both arms should use the same stale index — refreshing the index before one arm invalidates the pairing.
+
+## 60. Hand-Traced Refactor-Equivalence Is a Hypothesis — Run the Regression Suite
+
+*Source: project-rag (refactor-equivalence-oracle), 2026-05-29.*
+
+When refactoring for equivalence ("this is the same logic, just restructured"), the claim is an assertion — not an observation. Partial-input cases, null/empty guards, boundary conditions, and error paths are exactly where "equivalent" code paths diverge. A hand-trace of the happy path does not cover the full contract.
+
+**Rule.** Before asserting equivalence to the PM, run the regression suite that pins the old behavior. If no suite exists, build a set of snapshot assertions first (the behavioral baseline), then land the refactor. "Equivalent by inspection" with no test evidence is a hypothesis the PM cannot verify and a claim that will be disproved by the next edge-case bug report. Composes with §5 (land regression-net tests before the refactor) and §41 (a test that passes because of the bug).
+
+## 61. A Behavior-Change Regression Net Must Be Observed Red Before It Goes Green
+
+*Source: project-rag L153, 2026-05-30. [universal]*
+
+A test added alongside a behavior change that is only ever observed *passing* proves nothing about the change — it may be green because the change works, or green because the assertion never targeted the changed path. The proof the net is load-bearing is watching it **fail on the pre-change tree, then pass on the post-change tree** (red→green).
+
+**Rule.** When landing a behavior change with its regression net, run the new test against the tree *without* the change (stash the change, or check out the parent) and confirm it goes **red for the right reason**, then apply the change and confirm green. A net never seen red is a hypothesis, not evidence — it can be vacuously passing (§31), targeting the wrong wire path (§1), or already-green-without-the-fix. Composes with §41 (a test that passes because of the bug), §47 (stash-recompile-rerun for attribution), and §60 (hand-traced equivalence is a hypothesis — run the suite).
+
+## 62. Guard the Destructive Primitive on a Shared Singleton, Not the One Offending Test
+
+*Source: project-rag L92, 2026-05-29. [universal]*
+
+When a test suite shares a process-level singleton (a host daemon, a global connection pool, a module-level cache, a long-lived editor session), a single test that calls the singleton's **destructive primitive** (`shutdown()`, `reset()`, `kill()`, `close()`) tears it down for every sibling test that runs after it. The symptom reads as "the shared host died mid-run" or "sibling tests fail nondeterministically by collection order"; the cause is one test killing the thing everyone shares. Silencing or reordering the offending test is whack-a-mole — the next test that calls the same primitive re-opens the wound.
+
+**Rule.** Guard the destructive primitive itself, not the test that happens to call it. Gate the teardown on an explicit opt-in signal so it only fires in the test that genuinely owns lifecycle — e.g. read `os.environ.get("PYTEST_CURRENT_TEST")` and refuse the destructive path unless the calling test is the designated lifecycle owner, or require an explicit `force=True` / dedicated fixture. The primitive becomes self-defending: any sibling that calls it incidentally is a no-op rather than a sibling-kill. Composes with §14 (cumulative-sweep validation — sibling-kill only surfaces under the full collection) and §34 (don't slow-mark the guard that protects shared state).
+
+## 63. Test Scratch Substrate Must Mirror Prod Layout AND Caller Mode
+
+*Source: claude-central L10, 2026-05-30.*
+
+A flat scratch repo (`mktemp -d` with files at top level) does not exercise a code path that only triggers on a **nested** directory layout — a nested-path gate bug stays green because the fixture never produces the nesting the gate is written to catch. Symmetrically, a fixture that drives the production code through a different *caller mode* than prod uses (direct function call where prod shells out, or vice versa) exercises a different wire path than the one that ships.
+
+**Rule.** A test scratch fixture must reproduce **both** the production substrate's directory/layout shape (nesting depth, subdir structure, sibling files) **and** the production caller's invocation mode (subprocess vs. in-process, CLI args vs. kwargs, cwd-relative vs. absolute). A flat fixture for a nested-path consumer, or an in-process call for a subprocess-spawning consumer, is a vacuous-pass shape: green proves the easy layout works, not the one prod hits. Composes with §9 (anchor path inputs outside cwd), §51 (run against the REAL shared artifact), and §63's sibling in `python-subprocess-patterns.md` (conftest spawn-flag monkeypatch doesn't reach production child-spawn sites).
+
+## 64. Source-Location-Assertion Tests Are a Distinct Regression Class From Deleted-Path Failures
+
+*Source: project-rag L92, 2026-05-29.*
+
+A runtime parity gate ("both arms behave identically", "the refactored call returns the same value") does **not** cover tests that assert on *source location* — `inspect.getsource()` substring checks, `fn.__module__` assertions, `spec_from_file_location` path checks, golden file-path manifests (§27). A symbol that moves modules can pass every runtime-parity test while every source-location-assertion test over it goes red — and that red looks identical to a deleted-path `ImportError` even though the symbol still exists and works.
+
+**Rule.** When a refactor moves symbols across files/modules, classify the resulting test failures into two buckets before triaging: **deleted-path failures** (the symbol/path genuinely no longer exists — fix the import or the path) versus **move-regressions** (the symbol still exists and behaves correctly, but a source-location assertion now points at the old home — update the assertion's expected location). Conflating them wastes a triage cycle treating a correct move as a regression. The runtime parity gate is silent on this class by construction; add a source-location sweep (`inspect.getsource` / `__module__` / loader-path assertions) to the migration checklist. Composes with §27 (source-level tripwires), §56 (source-migrate without test-migrate leaves an import wall), and `cleanup-sweep-hazards.md` §21.
+
+## 65. Frozen A/B Env Levers in an Adopted Daemon — Zero Variance Is the False-Null Tell
+
+*Source: project-rag L159, 2026-05-30.*
+
+An A/B experiment that toggles behavior via an environment variable assumes the lever is **re-read per run**. When the code under test is adopted into a long-lived daemon that reads the env once at boot and caches it, both "arms" of the experiment run the *same* frozen configuration — the daemon never re-reads the toggle. The measurement then reports a clean null result ("A and B are identical, no effect") that is actually a false null: the experiment never varied anything.
+
+**Rule.** Before trusting a null/no-effect A/B result, confirm the lever actually varied across the two arms — **zero variance between arms is a false-null tell, not evidence of no effect.** For env-lever experiments against daemonized code, verify the daemon re-reads the env per run (or restart it between arms), and assert non-zero variance on the lever's observed value as a precondition of trusting the delta. Composes with §12 (regression gates on degenerate baselines), §59 (paired deltas vs. absolute thresholds), and §40 (assert the scan's own width before asserting over its contents).
+
+## 67. Module-Identity Pollution Is Not Value-Cache Pollution — Autouse Resets Cannot Fix Identity
+
+*Source: cross-repo learn-lessons, 2026-05-30. [universal]*
+
+A test that passes in isolation but fails in the full suite (§14) has two structurally distinct root causes that demand different fixes, and conflating them sends the fix in the wrong direction:
+
+- **Value-cache pollution** — a module-level singleton, cache, or `ContextVar` holds a *value* from an earlier test. Fix: an autouse reset fixture that re-zeroes the value before each test.
+- **Module-identity split** — the *same* module is imported under two different names (bare `audit` vs. `project_rag_mcp.audit`), so Python builds two distinct module objects, each with its *own* `ContextVar` / singleton / cache. A write through one name is invisible through the other. This is not a stale value — it is two objects that should be one.
+
+**An autouse value-reset cannot fix a module-identity split.** Resetting the value on object A does nothing to object B, and `sys.modules.setdefault("alias", real_module)` inside a fixture is a **no-op if the bare module was already imported earlier in suite order** — by fixture time both module objects already exist and consumers have already bound to whichever they imported first. The dual binding is fixed at import time, not run time.
+
+**Rule.** When a full-suite-only failure traces to a shared singleton/`ContextVar`/cache, first discriminate **identity vs. value**: check whether the symbol is reachable under two import paths (`import x` and `import pkg.x`, a bare-module alias, a `sys.path` shim that exposes the same file twice). If identities differ (`id(module_a) != id(module_b)`, or two distinct objects answer the same attribute), the fix is to **collapse the dual-import seam before any test imports it** — at conftest-import time or via `sitecustomize` / a canonical alias in the package `__init__`, not via a per-test fixture. Only once identity is single does an autouse value-reset become the correct tool for the residual value-pollution. Composes with §14 (cumulative-sweep validation surfaces both classes) and §10 (patch the helper boundary — a dual-import seam is the same "two bindings, one should exist" footgun one layer up).
+
 ## Skill Reference
 
 `docs/wiki/test-driven-development.md` should cite items 1, 2, 3, 5, 8, 9, 10, and 11 in its preflight checklist when the planned change crosses a contract or refactors >3 files of similar shape.
@@ -357,15 +508,21 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 
 ## 32. Autouse HOME-Isolation Fixtures Break Subprocess Tests
 
-*2026-05-24, project-rag.* A pytest autouse fixture like `_isolate_project_rag_home` that redirects `HOME` (or its Windows equivalent) in the test process will be inherited by any subprocess spawned via `subprocess.run` / `Popen` — and if that subprocess calls `os.environ.copy()`, it picks up the hijacked directory. The test appears to pass (the in-process path is correct) while the subprocess silently uses a wrong root. Defense: add a `@pytest.mark.real_home` escape-hatch marker and skip the fixture for tests whose subject path explicitly spans a subprocess boundary. (Source: 2026-05-24 project-rag)
+*2026-05-24, project-rag.* A pytest autouse fixture like `_isolate_project_rag_home` that redirects `HOME` (or its Windows equivalent) in the test process will be inherited by any subprocess spawned via `subprocess.run` / `Popen` — and if that subprocess calls `os.environ.copy()`, it picks up the hijacked directory. The test appears to pass (the in-process path is correct) while the subprocess silently uses a wrong root. Defense: add a `@pytest.mark.real_home` escape-hatch marker and skip the fixture for tests whose subject path explicitly spans a subprocess boundary. (Source: 2026-05-24 project-rag) → module-import-time capture corollary and the `monkeypatch.setattr` fix pattern: [`test-environment-discipline.md`](./test-environment-discipline.md) §4.
 
 ## 33. Fixture-Substitution Masking Production Drift
 
 *2026-05-24, project-rag.* When a test fixture substitutes a real implementation for a stub "at test time" to make the test green, the on-disk artifact under test IS the stub — not the real impl. The test is green because the fixture swaps in the thing the stub was supposed to be; production uses the stub and is broken. Fix: the on-disk artifact must BE the real implementation; the fixture must not substitute it. If substitution is genuinely needed (e.g. costly external), the test contract must degrade gracefully without asserting on the real code path. (Source: 2026-05-24 project-rag)
 
+**Prefer a real-data subset over a synthetic minimal fixture for at least one test case per chunker.** Synthetic fixtures pass by construction — they exercise the code path the author intended, not the shapes production data actually produces (encoding edge cases, oversized rows, schema-drifted historical data). Keep synthetics for boundary cases (empty, oversized); use real-data subsets where the file format is stable. (Source: project-rag-ue-addon L39)
+
+**A fixture's defaults must be self-consistent across its own fields, not faithful to an illustrative memo example.** A contract memo's example can pair fields in a combination that never occurs in real data; copying it verbatim as a fixture default embeds the inconsistency. Assert internal consistency at authoring time: `path ↔ mount_root ↔ mount_class` must agree; if the memo example is a didactic sketch, don't inherit its contrived combinations. Sibling to the cross-repo-contract-is-hypothesis rule (`cross-repo-communication.md`). (Source: project-rag-ue-addon L51)
+
 ## 34. Never Mark a Guard or Contract Test `@pytest.mark.slow`
 
 *2026-05-24, project-rag.* A guard test, tripwire test, or contract test marked `pytest.mark.slow` is deselected from the default `-m "not slow"` run. The guard is invisible to CI while the bug it guards against ships. Rule: guard tests, tripwire tests, and cross-contract tests are NEVER marked `slow` regardless of actual runtime. If runtime genuinely must be gated, extract the slow work to a helper and keep the guard assertion in an un-marked test that drives the entrypoint at minimal cost. (Source: 2026-05-24 project-rag)
+
+**Verify the gate is actually SELECTED under the default config — green-when-force-selected is not green-when-shipped.** *(2026-05-29, claude-unreal-holodeck.)* An acceptance-gate test that passes only under `-m ''` (force-select everything) but carries a default-deselected marker is a **vacuous gate**: it never runs in the path CI and `/validate` actually take, so it can never go red on a real regression. When landing a new gate/acceptance test, confirm it appears in the *default* collection — `pytest --collect-only` (no `-m` override) must list it — not merely that it passes when explicitly selected. A gate green only under `-m ''` is the same failure as a `slow`-marked guard: present in the tree, absent from the verdict.
 
 ## 35. Mechanical AST-Walk Guards for "Every X Must Call Y" Contracts
 
@@ -382,3 +539,170 @@ test('script syntax is valid', { skip: process.env.FAST === '1' ? 'FAST mode' : 
 ## 38. Multi-Test Failure Cluster May Be Stale-Bytecode Flake
 
 *2026-05-24, project-rag-ue-addon.* When several unrelated tests fail together — especially after a file rename, module move, or branch switch — suspect stale `.pyc` files in `__pycache__` before triaging each failure individually. The bytecode mismatch causes import errors that look like real failures. Defense: `find . -type d -name __pycache__ | xargs rm -rf && find . -name "*.pyc" -delete` before re-running in isolation. If the failures disappear after the cache clear, the root cause was bytecode flake, not a regression. (Source: 2026-05-24 project-rag-ue-addon)
+
+The runtime mechanics of stale-bytecode flake — plus the concurrent-shared-tree variant where a transient mid-edit file state produces a *fake* assertion failure on a constant HEAD already defines correctly — live in `docs/wiki/test-environment-discipline.md` §6. Cross-link, don't duplicate.
+
+## 39. Graceful-Skip on a Missing Fixture Is a Hollow Pass — Make the Load-Bearing Assertion Unskippable
+
+*Recurs: L67, L69 (project-rag), holodeck-L897, holodeck-L195. Consolidated 2026-05-27; holodeck-L195 folded in via central-promotion 2026-05-28.*
+
+A test that `pytest.skip()`s — or silently early-returns — when its core fixture isn't loadable reports **green while proving nothing**. The skip converts a behavioral gate into a no-op that still reads as Success. Worse than red: red is signal, green-via-skip is anti-signal — a future reader greps the name, sees green, and trusts coverage that never ran.
+
+**Concrete failures.**
+- *holodeck-L897:* an MFC cross-band exporter test "passed" by skipping when an engine `UMaterialFunction` (`CheapContrast`) wasn't loadable in the bare test project — the `cross_band_reference` assertion (AC5) never ran. Swapping to an in-memory engine-transient `UMaterialFunction` made the assertion always execute and **immediately surfaced a latent test bug** (wrong JSON key `type` vs `class`) the skip had hidden.
+- *L67 (hollow-pass probes):* assertions left unreachable by a wire-shape bug are dead infrastructure — the probe reports green because the assertion line is never hit.
+
+**Rule.** A load-bearing assertion must be deterministic and unskippable. If the real fixture is genuinely unavailable (heavy engine asset, external service), **synthesize an in-memory/transient stand-in that drives the same code path** rather than skipping. "Green" must mean *the assertion that matters ran and passed* — never *nothing errored*.
+
+**Positive-control corollary (L67).** A regression test for a forbidden condition must include a positive control that exercises the forbidden condition and confirms the test would have caught it. A guard with no positive control can be silently unreachable (wire-shape bug, wrong mock boundary) and still report green. Compose with §31 (assert positively) and §20/§21 (wire-up integration for swappable sinks).
+
+**Live-substrate integration surfaces drift that mocks reproduce (L48, project-rag-ue-addon).** Unit-test mocks encode the substrate's shape *as the author believed it was* — they reproduce the believed contract, so they pass even when the real substrate has drifted. At least one test must run against the live substrate (real DB, real index, real sibling-repo artifact) to catch drift the mock can't see. When the live substrate is genuinely unreachable, *skip-with-a-named-reason* (substrate-reachability-skip) rather than fall back to the mock and report green — a mock-fallback green is a hollow pass per §39. The skip is honest signal ("not verified here"); the silent mock-fallback is anti-signal.
+
+## 40. Wide-Surface Tripwire Tests Must Assert Their Own Scan Width
+
+*Source: L69 (project-rag). 2026-05-27.*
+
+A tripwire that scans a wide surface — "no test in `tests/` references `Path.cwd()`", "every handler file is free of `UCableComponent`", "all N sibling registries expose flag X" — silently becomes a no-op if its capture set shrinks to zero. A glob that stops matching, a directory rename, or a collection-shape drift makes `for item in captured: assert ...` pass **vacuously over an empty set**.
+
+**Rule.** Any test that asserts a property *over a captured set* must first assert the **set is the expected size**:
+
+```python
+captured = scan_all_handlers()
+assert len(captured) >= EXPECTED_MIN, f"scan captured {len(captured)}, expected ≥{EXPECTED_MIN} — glob drifted"
+for item in captured:
+    assert not forbidden(item)
+```
+
+Without the width assertion, capture-shape drift makes the tripwire silently no-op while reading green. This is the wide-surface variant of §31's vacuous-pass standard and §39's positive control.
+
+## 41. A Test That Passes Because of the Bug Will Fail When the Bug Is Fixed — That Failure Is Signal
+
+*Source: L179, L120 (consumer-side seam bugs). 2026-05-27.*
+
+A test written against buggy behavior locks the bug in as the contract. When the bug is fixed, the test goes red — and the reflex to `xfail`/revert/"adjust the assertion to match" re-buries the fix. The red is the fix succeeding, not a regression.
+
+**Rule.** When a test fails immediately after a fix lands, **read the cited code and the test's original intent before reverting or `xfail`-ing**. Ask: "did this test pass *because of* the condition I just fixed?" If yes, the test was encoding the bug — rewrite the assertion to the correct contract, don't suppress the failure. Migration seams are the recurring locus: a shipped migration leaves consumer-side bugs at the seam (runtime ContextVar shape, symbol-port shape) that the old test silently tolerated.
+
+Composes with §8 (contract change → grep all assertions over the contract) and §26 ("pre-existing failure" framing is provisional when a recent gate could have created it).
+
+## 42. Guard-Exemption / Suppression Fixtures Must Reproduce the Suppressed Condition
+
+*Source: L334, L262. 2026-05-27.*
+
+A test that verifies "the guard does NOT halt when exemption X is wired" passes **whether or not the exemption is actually wired** — unless the fixture also reproduces the *condition the guard fires on*. With no triggering condition present, the no-halt assertion is vacuously true: the guard had nothing to halt on, exemption or not.
+
+**Rule.** An exemption/suppression test must (1) reproduce the condition that *would* trip the guard, then (2) assert the exemption suppresses the halt. Pair it with a sibling negative test: same condition, no exemption, guard *does* halt. Only the pair proves the exemption is load-bearing.
+
+**Drive the entrypoint, run on a dirty tree (L262).** A guard fronting loader code must be exercised by *driving the entrypoint* (subprocess or direct call), not by a syntactic rename-tripwire grep — those can be pre-existing-red from unrelated drift and give false attribution. Run guard tests on the dirty tree before the fix to confirm they're green-for-the-right-reason.
+
+## 43. Collection Errors + Slow-Marking Mask Large Failing-Test Populations — Validate With the FULL Run
+
+*Recurs: L314, holodeck-L885. Consolidated 2026-05-27.*
+
+Two independent masks compound: (a) pytest **stops at a module's collection error** before running any test underneath it — a test that can't collect reports zero signal, strictly worse than red; (b) `addopts = -m 'not slow'` **deselects an entire tier by default**. Together they let a rotting suite look healthy in routine runs.
+
+**Concrete failure (holodeck-L885):** the doctor suite reported "1 known collection error." Fixing the retired-path import that blocked collection uncovered 10 latent assertion failures frozen in pre-W6 vocabulary; the default `-m 'not slow'` had been hiding the bulk of the rest — **34 real failures total, all masked.**
+
+**Rule.** Before declaring a suite healthy: (1) **fix collection errors first** — they hide everything beneath them; (2) validate with the **full run including slow/integration** (`pytest -m '' ` or the explicit superset), not the default-filtered run. The default-filtered green is a debugging convenience; the full-run green is the verdict. Composes with §14 (cumulative-sweep validation) and §34 (never slow-mark a guard — a guard buried under `-m 'not slow'` ships invisibly).
+
+## 44. Bound Every Test Run; Never Run a Surface Containing a Known-Hang to "Verify"
+
+*Recurs: L320, projectrag-L2149, ragaddon-L6. Consolidated 2026-05-27. [universal]*
+
+Broad "verify everything" runs maximize the chance of including a slow or hanging test, and quiet output (`-q`, `| tail`, buffered pipes) gives zero progress signal until the end — a buffered run with no output is **not evidence of progress**, it is indistinguishable from a hang.
+
+**Concrete failures.**
+- *projectrag-L2149:* re-ran the full slow install suite to verify a workstream; that surface includes a known-outstanding hang (`cli-session-restart`), and with buffered `-q` + no timeout it ran blind for ~30 min.
+- *ragaddon-L6:* verifying one merge test, spawned six overlapping pytest/diagnostic shells with `| tail` (buffers until exit → looked empty = "hung"), chained blocked sleeps, scheduled redundant wakeups — degrading the terminal so the PM couldn't run anything either. This is the self-monitor-for-loops antipattern in test clothing.
+
+**Rule.**
+1. **Scope the run to files under change**; deselect/avoid known-hang tests explicitly.
+2. **Hard wall-clock bound on every run** — Bash `timeout`, `pytest-timeout`. No exceptions.
+3. `| tail` and pipes buffer until process exit — **empty output ≠ hung**. Don't react to silence.
+4. **One launch, then wait** for the harness completion notification. Do not fire parallel runs, sleep-poll, or re-launch on a slow/backgrounded test.
+5. **Two failed clean attempts = stop and reassess**, don't escalate parallelism. If in-session execution is unreliable, offer the PM `! <cmd>` or hand off with the test written-but-flagged-unverified.
+
+## 45. Shared-Fixture Defaults Must Be Self-Consistent, Not Memo-Faithful
+
+*Recurs: L340, ragaddon-L433. Consolidated 2026-05-27. [universal]*
+
+A contract memo's *illustrative* example payload can pair fields in a combination that never occurs in real data — the author meant it as a sketch, not a literal constraint. Copying that example verbatim as a shared-fixture **default** embeds the inconsistency, and assertions over the fixture then record states that can't exist.
+
+**Concrete failure (ragaddon-L433):** a seam memo example paired `class_identity=/Script/Engine.MaterialFunction` with `mount_class=engine_plugin` (a contrived illustration). Copied as the fixture default, it produced a `/Game/`-path-under-`engine_plugin` mismatch, making a "canonical round-trips to engine" assertion record a path that can't occur in real data.
+
+**Rule.** A shared-fixture default must agree **across its own fields** (e.g. `path ↔ mount_root ↔ mount_class`). The memo example is illustrative; the fixture is a contract — different correctness bars. Validate internal consistency of fixture defaults at authoring time; don't inherit a memo's didactic inconsistencies. Sibling to the cross-repo-contract-is-hypothesis rule (`cross-repo-communication.md`).
+
+## 46. Build-Config Is a Coverage Axis — "X/X Pass" Doesn't Prove the AC When the Matrix Omits Gate Variants
+
+*Source: L718, claude-unreal-holodeck (god-fn-refactor PR2-B). 2026-05-27. [universal]*
+
+A green "37/37 tests pass" proves nothing about an AC when the test matrix only exercises one value of a gating build flag. The PR2-B refactor passed 37/37 with `IKRig=1`; the Staff Engineer caught an `IKRig=0` violation that the matrix never ran — the AC spanned both flag values, the suite covered one.
+
+**Rule.** When code branches on a build-config flag, feature toggle, or compile-time gate, the test matrix must exercise **both sides of every gate the AC spans** — not just the default-on configuration. "All tests pass" is a per-configuration claim; an AC that crosses configurations needs per-configuration evidence. Enumerate gate variants at test-design time and assert the matrix covers each. Composes with §1 (pass-condition must match the actual wire path) — a flag-gated branch is a wire path the default config never touches.
+
+## 47. Failure-Attribution via git-stash + Recompile Beats Mental Attribution
+
+*Source: L722, claude-unreal-holodeck. 2026-05-27.*
+
+When a test fails after a refactor and you can't tell whether the decomposition broke it or it was pre-broken, the empirical 3-step — **stash the change, recompile, re-run** — is cheaper and more reliable than reasoning about it. The stash isolates the change's contribution; if the test still fails on the stashed (pre-change) tree, the failure is pre-existing, not yours. Reach for stash-recompile-rerun before building a mental model of which edit broke which assertion. Composes with §26 ("pre-existing failure" framing is provisional — verify against the gate-introduction commit, not file age).
+
+## 48. Failure-Artifact Output Dirs Must Be Gitignored — `git check-ignore -v` Is the Contract
+
+*Source: L10, project-rag (2026-05-20). 2026-05-27.*
+
+Tests that write reproducer output, failure dumps, or diff artifacts on failure will commit those artifacts if their output dir is tracked — `tasks/` is tracked by default, so a test dumping under `tasks/` leaks artifacts into the repo. Co-locate the reproducer-output dir with the test and gitignore it explicitly. The contract verification is `git check-ignore -v <path>` — a non-zero exit means the path is NOT ignored and the artifact will commit. Add the check to the test's own setup or a guard test, not just a reviewer's memory.
+
+## 49. Broad `except sqlite3.Error: log.debug` Swallows Schema-Drift INSERT Failures Silently
+
+*Source: L5, project-rag (2026-05-20). 2026-05-27.*
+
+A blanket `except sqlite3.Error: log.debug(...)` around a write swallows schema-drift failures (column added to the row but not the table, CHECK-constraint rejection, type mismatch) at DEBUG level where no one sees them — the INSERT silently no-ops and the test passes because nothing raised. This is the §31 vacuous-pass standard in exception-handling clothing: the swallowed error is exactly the signal the test should assert on.
+
+**Rule.** Narrow the except to the specific recoverable error class, or log at `warning`/`error` so drift surfaces. A test exercising a write path must assert the row landed (read-back), not merely that the call didn't raise — `log.debug`-swallowed failures are invisible to "did not raise" assertions. Composes with §31 (assert positively) and §23 (assert exact result-sets, not absence of errors).
+
+## 50. Hermetic Probe-Aggregator Tests Must Stub Native-Lib / `platform.*` Probes
+
+*Source: L443, project-rag-ue-addon. 2026-05-27.*
+
+A test that drives a probe-aggregator (doctor, health-check, capability-scanner) end-to-end will execute every real probe — including ones that call native libraries or `platform.*`. On Python 3.13 / Windows, `platform.system()` (and siblings that reach WMI) can **hang** on a thrashed host, wedging the whole test run with no output. The aggregator test is not hermetic if any sub-probe touches the OS/native layer.
+
+**Rule.** Hermetic probe-aggregator tests must stub the native-lib / `platform.*` / WMI-touching probes at their boundary so the test exercises only aggregation logic, not the host. Always run such tests under a hard `--timeout` (`pytest-timeout`) so a hang produces a **stack dump** identifying the wedged probe rather than a silent stall. Composes with §32 (mock at the helper boundary, not the stdlib), §44 (bound every run; never run a known-hang surface to verify), and §24 (heavy-collaborator boundary mocking).
+
+**When a test "hangs," reach for `pytest --timeout=N` for the stack dump before blaming the environment.** The WMI hang on Python 3.13 / Windows (`_probe_libclang → cdll.LoadLibrary → platform.system() → _wmi_query`) is Windows-wide and not specific to any single addon — if a probe-aggregator test stalls, a timed stack dump is the fastest locus-identifier. (Source: project-rag-ue-addon L61)
+
+## 52. Structural-Guard Allowlists Key on Stable Markers, Never `file:line`
+
+*Source: project-rag-em memo, 2026-05-27 (`cross-repo/archive/2026-05-27-stable-marker-allowlist-guards.md`). Empirical: 7 drifted entries across 5 files in a single project-rag session; ≥3rd occurrence with prior manual triages logged inline in the allowlists.*
+
+A structural guard that maintains exemptions keyed by `"<relpath>:<lineno>"` drifts silently on any shared concurrent-EM branch — an edit in one workstream shifts line numbers in another's files, silently turning an allowlisted call into a false-positive violation. The breakage is invisible until the gate runs, and the gate then mis-attributes it to whoever's session happens to run next. The drift compounds *because* coordinator doctrine puts multiple concurrent EM sessions on one shared daily branch.
+
+**Rule.** Structural-guard allowlists (spawn-site guards, lint exemptions, approved-pattern registries, AST/grep enumerators) MUST key on a **stable marker** — a fully-qualified symbol/function name, or an in-source sentinel comment/decorator the guard greps for in-place — never `file:line`. Line numbers are not identity on a shared branch.
+
+The preferred sentinel-comment shape: `# guard-allow: <rule-id> <rationale>` on the line the guard would otherwise flag, with the guard reading the sentinel in-place. Rationale lives next to the code and travels with it under refactor; concurrent edits cannot drift the keying because the key IS the code-adjacent comment, not a line number. Composes with §5 (regression-net tests land before the refactor that depends on them) — a sentinel-keyed allowlist is itself a small regression net that survives the next refactor for free.
+
+## 51. A New Consumer of a Shared Config Format Must Reuse the Canonical Parser and Run Against the Real Artifact
+
+*Source: holodeck-L7. 2026-05-26.*
+
+**A gate/parser that false-passes is worse than no gate — reuse the canonical sibling parser and run it against the REAL shared artifact before trusting green fixtures.**
+
+*2026-05-26, claude-unreal-holodeck.* A new `bin/check-reverse-drift.sh` passed 41 fixture tests but returned a vacuous "all clean exit 0" against the real machine-local registry — three bugs: unstripped CRLF → installed plugins false `[missing]`; `IFS=$'\t'` whitespace-collapse → empty `propagation_mode` shifted `live_path` into the mode field; mixed-slash Windows `live_path` → `-d` check fails. The coordinator's `check-plugin-drift.sh` had already solved all three (tomllib both-key-shapes, `| tr -d '\r'`, `${path//\\//}`, pipe delimiter).
+
+**Rule.** A new consumer of a shared config format (machine-local registry, BOM, manifest, schema) must: **(a)** reuse the canonical parser verbatim rather than hand-roll a regex/tab variant, and **(b)** run once against the REAL artifact before trusting fixtures — fixtures don't reproduce the format's accumulated variform reality (CRLF, both TOML key-shapes, backslash paths). A vacuous all-clear gate is the worst outcome: it ships confidence with zero coverage. Composes with the round-trip-against-reader rule in `implementation-standards-by-domain.md` § Structured-config write primitives.
+
+## 53. Structural-Grep Guards Need an Integration Counterpart That Actually Invokes the Script
+
+*Source: coordinator. 2026-05-28.*
+
+**A grep that asserts "the restore line is still in the source" proves the source contains a string. It does NOT prove the script works. Pair every structural-grep guard on a non-trivial script with an integration harness that drives the script end-to-end against a synthetic sandbox.**
+
+*2026-05-28, coordinator.* `refresh-plugin-live-install.sh` (996 lines) was guarded by `bin/tests/test-check-plugin-drift-copy-install.sh` Part B (`grep -F 'rm -rf "$LIVE_PATH"'` over the copy_install restore region) and dogfood-proven against `holodeck-control` via the AC-9 manual refresh. Neither test invoked the script end-to-end. The integration counterpart — `bin/tests/test-refresh-plugin-live-install-integration.sh` — was authored as a sandbox that builds synthetic source+live git repos, drives the refresh script against five propagation_mode shapes (default+venv-install, source_is_live, unregistered-plugin error, broken-build-system failure, idempotency-across-re-runs), and asserts each leg's observable effects (HEAD advancement, `.refresh-log` row content, snapshot dir count, venv-install side effects). On first run the harness uncovered a real bug: line 757 used `pathlib.os.sep` which AttributeErrors on Python 3.13 (where the `os` submodule attribute was removed from pathlib), silently making every refresh on 3.13 re-install rather than no-op. The grep guard caught zero of that.
+
+**Rule.** A non-trivial script with multi-leg observable side effects (file writes, git ops, network calls, subprocess invocations) needs an integration harness that:
+- builds synthetic upstream/downstream state in `mktemp -d`,
+- exports a full env-sandbox (`HOME`, `USERPROFILE`, `XDG_*`, `UV_CACHE_DIR`, `LOCALAPPDATA`, `APPDATA`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` — not just `HOME`, because uv/git/etc default many caches under platform-specific dirs outside `$HOME`),
+- drives the script unchanged (no patches, no stubs) under the sandbox,
+- asserts observable effects (exit code + log content + filesystem state), not just stdout strings,
+- runs in <30s so it joins the fast-test set.
+
+The structural-grep guard is the floor; the integration harness is the ceiling. Both ship together — the grep catches when someone deletes the restore line; the harness catches when the script subtly stops working under a new Python or new uv. Sibling pattern: `bin/tests/test-check-plugin-drift-copy-install.sh` (grep) + `bin/tests/test-refresh-plugin-live-install-integration.sh` (integration).

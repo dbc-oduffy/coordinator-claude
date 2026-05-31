@@ -1250,4 +1250,114 @@ describe('validate-frontmatter-schema hook', () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // Regression — BS-2026-05-19-FRONTMATTER-HOOK-COMMENT-FALSE-POSITIVES
+  //
+  // Cross-repo memo from holodeck-em (2026-05-28): plan frontmatter containing
+  // YAML `# comment` annotations on list items (or scalar values) produced
+  // dirty scalars (e.g. "draft  # alpha") that failed enum validation, surfacing
+  // as a "missing required key" warning on otherwise well-formed frontmatter.
+  // The fix strips inline `# ...` comments in parseScalar respecting quoted spans.
+  // -------------------------------------------------------------------------
+  test('Regression — plan with inline # comments on list items + status passes silently', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', 'test-inline-comments.md');
+    const content = [
+      '---',
+      'title: t',
+      'created: 2026-05-28',
+      'author: holodeck-em',
+      'status: draft  # canonical starting state',
+      'target_surfaces:',
+      '  - /foo/path  # surface A',
+      '  - /bar/path  # surface B',
+      '---',
+      '# Plan body',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `well-formed plan with # comments must pass silently; got: ${stdout}`);
+  });
+
+  test('Regression — quoted "#" inside scalar is preserved (not treated as comment)', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', 'test-quoted-hash.md');
+    const content = [
+      '---',
+      'title: "this # is part of the title"',
+      'created: 2026-05-28',
+      'author: holodeck-em',
+      'status: draft',
+      '---',
+      '# body',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `quoted # must not be stripped as a comment; got: ${stdout}`);
+  });
+
+  // Direct unit assertions for stripInlineComment edge cases.
+  test('Unit — stripInlineComment edge cases', () => {
+    const { _stripInlineComment: strip } = require('../../bin/lib/schema.js');
+    assert.equal(strip(''), '', 'empty input');
+    assert.equal(strip('#bare'), '', 'bare # at column 0 → empty');
+    assert.equal(strip('foo#bar'), 'foo#bar', '# inside bareword (no preceding space) preserved');
+    assert.equal(strip('foo  # comment'), 'foo', 'whitespace-preceded # strips');
+    assert.equal(strip('"foo # bar"'), '"foo # bar"', '# inside double-quoted preserved');
+    assert.equal(strip("'foo # bar'"), "'foo # bar'", '# inside single-quoted preserved');
+    assert.equal(strip("'it''s fine' # tail"), "'it''s fine'",
+                 "single-quoted '' escape: # after the closed quote still strips correctly");
+  });
+
+  // Regression — quoted "#" inside an ENUM value is preserved (so the validator
+  // sees the dirty enum value and fails it cleanly, rather than silently passing
+  // a stripped value that happened to match a real enum).
+  test('Regression — quoted "#" inside enum value fails enum (not silently stripped)', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', 'test-enum-quoted-hash.md');
+    const content = [
+      '---',
+      'title: t',
+      'created: 2026-05-28',
+      'author: holodeck-em',
+      'status: "draft # intended"',
+      '---',
+      '# body',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.ok(stdout.length > 0, 'quoted # in enum value must fail enum, not silently pass');
+    const parsed = JSON.parse(stdout);
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(
+      /invalid enum value/.test(parsed.hookSpecificOutput.permissionDecisionReason),
+      `should report enum failure; got: ${parsed.hookSpecificOutput.permissionDecisionReason}`
+    );
+  });
+
+  // Regression — inline list with trailing # comment is parsed as a list, not
+  // a string. Pre-strip in parseYamlLines handles the `[a, b]  # comment` shape
+  // that endsWith(']') would otherwise miss.
+  test('Regression — inline list with trailing # comment parses as list-of-string', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-inline-list-comment.md');
+    const content = [
+      '---',
+      'title: t',
+      'created: 2026-05-28',
+      'branch: work/test/2026-05-28',
+      'status: active',
+      'predecessor: null',
+      'scope: ["foo/**", "bar/**"]  # trailing inline comment',
+      '---',
+      '# body',
+    ].join('\n');
+
+    // Handoff schema has workstream as optional. The point of the test is that
+    // pre-strip lets parseInlineList run (vs. parseScalar returning a string),
+    // so the validator does not fire a "expected a list" violation.
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `inline list with trailing # must parse as a list; got: ${stdout}`);
+  });
+
 });

@@ -6,9 +6,9 @@ spec_backlink: docs/plans/2026-05-09-skill-consolidation-pass.md
 
 # Repomap RAG-Gating Contract
 
-**Purpose:** Define the three-tier behavior contract that governs when `bin/generate-repomap.sh`
+**Purpose:** Define the three-tier behavior contract that governs when `generate-repomap.sh`
 is invoked. Every caller (update-docs, enrich-and-review, project-orientation hook) gates via
-`bin/check-rag-state.sh` before invoking the generator. This wiki is the single source of truth
+`check-rag-state.sh` before invoking the generator. This wiki is the single source of truth
 for the gating doctrine; callers reference it rather than embedding the logic inline.
 
 Spec backlink: `docs/plans/2026-05-09-skill-consolidation-pass.md § T2`
@@ -43,11 +43,11 @@ cheaper than silently omitting orientation data.
 
 Every caller follows this exact sequence. Do not embed variant logic — gate uniformly.
 
-> **Variable convention:** `${CLAUDE_PLUGIN_ROOT}` is the variable Claude Code injects into command and skill bodies; `PLUGIN_ROOT` is internal to individual shell scripts that compute it from their own location. Use `${CLAUDE_PLUGIN_ROOT}/coordinator` in caller bodies.
+> **Variable convention:** `${CLAUDE_PLUGIN_ROOT}` is the variable Claude Code injects into command and skill bodies; `PLUGIN_ROOT` is internal to individual shell scripts that compute it from their own location. Use `${CLAUDE_PLUGIN_ROOT}` (no `/coordinator` segment — `CLAUDE_PLUGIN_ROOT` already resolves to the coordinator root) in caller bodies.
 
 ```bash
 # 1. Detect RAG state
-RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
 
 # 2. Gate on state
 case "$RAG_STATE" in
@@ -56,7 +56,7 @@ case "$RAG_STATE" in
     ;;
   absent|stale|unknown)
     # Generate (stale/unknown → note it as RAG-fallback if RAG_STATE != absent)
-    bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh"
+    bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh"
     if [ "$RAG_STATE" != "absent" ]; then
       echo "Note: Repomap generated as RAG-fallback (RAG state: ${RAG_STATE})."
     fi
@@ -71,10 +71,10 @@ block in a guard that exits 0 on any failure:
 
 ```bash
 (
-  RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+  RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
   case "$RAG_STATE" in
     fresh) ;;
-    *) bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh" 2>/dev/null || true ;;
+    *) bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh" 2>/dev/null || true ;;
   esac
 ) || true
 ```
@@ -83,7 +83,7 @@ block in a guard that exits 0 on any failure:
 
 ## Determining RAG Freshness
 
-`bin/check-rag-state.sh` probes two bash-readable signals in order:
+`check-rag-state.sh` probes two bash-readable signals in order:
 
 1. **`RAG_STATE` env var** — injectable in tests and by the W1 session-init hook.
 2. **`tasks/.rag-state` marker file** — written by `hooks/project-rag-detect.*` (W1 hook)
@@ -114,7 +114,7 @@ The generator script itself does not audit — auditing is an `/update-docs` con
 
 ## RAG-State Detection Sync Note
 
-The detection logic in `bin/check-rag-state.sh` and the marker written by
+The detection logic in `check-rag-state.sh` and the marker written by
 `hooks/project-rag-detect.*` (W1 hook) must stay in sync. If you change the marker
 file path or content format in one, update the other. The marker file path is
 `tasks/.rag-state` relative to the plugin root (or overridden by

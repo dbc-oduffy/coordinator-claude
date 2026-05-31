@@ -18,7 +18,7 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 | Wiki entries (`docs/wiki/*.md`) | **Write/update** | What-and-why summary. Carries provenance frontmatter. |
 | Archived handoffs (`archive/handoffs/*.md`) — added 2026-05-08 | **Extract → delete (opt-out via `--no-delete`)** | Post-`/pickup` paper trail. Contains decision rationale and reusable patterns; once those are distilled into DRs and wiki entries, the source is recoverable from git. See § Handoff distillation below. |
 
-**Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md`. Agent prompt templates in the same directory's `agent-prompts.md`.
+**Reference:** Full pipeline design in `${CLAUDE_PLUGIN_ROOT}/pipelines/artifact-distillation/PIPELINE.md`. Agent prompt templates in `agent-prompts/` (per-phase fragments); thin index at `agent-prompts.md`.
 
 **Out-of-scope actions for all dispatched agents in this pipeline:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply. The EM merges via `/merge-to-main`; distill agents do not.
 
@@ -68,7 +68,8 @@ Full phase definitions, dispatch instructions, scratch path conventions, and fai
 ```
 Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N, QG)
   → [Clustering] → Phase 2 (Sonnet ×M, parallel) → Phase 2.5 (Sonnet ×K, parallel)
-  → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus, if needed]
+  → Phase 2.7-QG (Haiku ×M, parallel by cluster — coverage gate)
+  → Phase 3a (Sonnet ×C, parallel by cluster) → [cross-cluster-check] → [Esc: Opus + fidelity-check (Sonnet), if needed]
   → Phase 3b (Sonnet, single) → Phase 3c (Coordinator, mechanical) → Phase 3d (Sonnet, single)
   → Phase 4 (PM gate) → Phase 5 (Coordinator, apply + trim/archive + delete scaffolding)
 ```
@@ -79,14 +80,15 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 1** | Haiku (parallel) | Scan each batch — extract knowledge nuggets (`[DECISION]`, `[KNOWLEDGE]`, `[EPHEMERAL]`, `[AMBIGUOUS]`) |
 | **Phase 1.5** | Haiku (parallel) | Quality gate — verify Phase 1 coverage, template compliance, and path spot-checks |
 | **Clustering** | Coordinator or Haiku | Regroup nuggets from input-batch ordering to output-topic ordering |
-| **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records |
+| **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records; emits `dispositions:` YAML frontmatter covering all assigned nugget IDs (schema: `agent-prompts/phase-2.md`) |
 | **Phase 2.5** | Sonnet (parallel) | Mine reviewer sidecars for cross-spec convergence patterns; emit promotion proposals to scratch (`tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`). Full contract: `PIPELINE.md § Phase 2.5`. |
-| **Phase 3a** | Sonnet (parallel by cluster) | Contradiction detection — one agent per topic cluster; coordinator cross-cluster check post-3a; Opus escalation if unresolvable contradictions found |
-| **Phase 3b** | Sonnet (single) | Decision-record dedup — collect all Phase 2 DRs, produce deduplicated canonical set + duplicate-mapping table |
-| **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write index table directly; no subagent |
-| **Phase 3d** | Sonnet (single) | Deletion manifest — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` |
+| **Phase 2.7-QG** | Haiku (parallel by cluster) | Coverage gate — set-diff of `dispositions:` nugget IDs vs. assigned nugget IDs; PASS continues pipeline; FAIL triggers Phase 2 re-run (retry cap: 2 per cluster) |
+| **Phase 3a** | Sonnet (parallel by cluster) | Contradiction detection — one agent per topic cluster; coordinator cross-cluster check post-3a; Opus escalation if unresolvable contradictions found, followed by Sonnet fidelity-check verifying all source nugget IDs cited |
+| **Phase 3b** | Sonnet (single) | Decision-record dedup — collect all Phase 2 DRs, produce deduplicated canonical set + `dr_dedup:` YAML manifest (schema: `agent-prompts/phase-3b.md`) |
+| **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write `directory_entries:` YAML manifest + prose preview; no subagent |
+| **Phase 3d** | Sonnet (single) | Deletion manifest — every source artifact with disposition `DELETE`, `SKIP`, or `PRESERVE`; output is a `deletions:` YAML block (schema: `agent-prompts/phase-3d.md`); prose table is derived PM-readable view |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest + DIRECTORY_GUIDE.md preview, wait for explicit approval |
-| **Phase 5** | Coordinator | Apply wiki writes, trim + archive canonical specs (including rationale extraction), delete scaffolding, update distillation log, run link-heal pass |
+| **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); trim + archive canonical specs (including rationale extraction); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
 <!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
 **If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3d and presents the summary.
@@ -104,7 +106,7 @@ Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` §
 Distill enumerates archived handoffs via:
 
 ```bash
-bin/query-records --type handoff-archived --format paths
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff-archived --format paths
 ```
 
 NOT a raw `find archive/handoffs/ -name '*.md'`. Using `query-records` preserves frontmatter validation (each handoff is checked against `schemas/handoff-archived.yaml`) and provenance metadata (workstream, predecessor, deployment_state). Same enumeration discipline as `--type plan` for `docs/plans/`.
@@ -220,6 +222,9 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 - Out-of-Scope
 - Risks (if normative — i.e., describes a constraint the implementation must respect)
 
+**`SHIPPED: X (was: Y)` annotation note (supports plan D6):** When a `/session-end` reconciliation pass has corrected an ALLOWLIST section in place, lines carrying the `SHIPPED: X (was: Y)` annotation will appear. Phase 1 extracts these as a `[DECISION]` nugget whose decision is the **shipped shape `X`**; the `(was: Y)` half is inline supersession provenance, not a competing live decision. The loop closes by construction: because the corrected line's decision text is already the shipped shape, what crystallizes into the wiki is `X` — never the forecast `Y`. (Note: Phase 1's standalone `[SUPERSEDED]` nugget class is triggered by a *later artifact reversing an earlier one* — it is NOT auto-derived from the inline `(was:)` syntax of a single corrected line; do not rely on that tagging. The optional `superseded_by:` field on a `[DECISION]` nugget is the closest existing hook if a Haiku extractor chooses to record the supersession explicitly.) No new phase or special instruction is required.
+<!-- Review: deviation-reconciliation plan D6, refined per session-end code-reviewer Finding 7 — corrected line crystallizes shipped shape X; (was: Y) is inline supersession provenance. Phase 1 [SUPERSEDED] class = cross-artifact reversal, not inline-(was:) parsing. Spec: archive/specs/2026-05-26-session-end-deviation-reconciliation-gate.md § D6 -->
+
 **DENYLIST sections — strip after re-homing + rationale extraction:**
 - "Reviewer Plan"
 - "the Staff Engineer Round N Findings"
@@ -228,12 +233,17 @@ Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffoldin
 - "Docs-Checker Pass"
 - "Open Questions (resolved)"
 - "Scope-Expansion Side-Channel" / "Heavy-Investment Pass" wrappers
+- `## Deviations` — drop fate: `[EPHEMERAL]`. **Exception: re-homing step is skipped for this section only** (see bounded clause under Re-homing step below).
+<!-- Review: deviation-reconciliation plan Chunk 2 — ## Deviations is audit-only, intentionally non-crystallized; the crystallized equivalent lives in the corrected ALLOWLIST sections' SHIPPED: X (was: Y) annotations; defined in docs/wiki/plan-deviation-reconciliation.md -->
 
 **MIDDLE — keep + flag for EM eyeball in dry-run:** any section heading not matching either list above. Do not auto-strip; surface in dry-run for EM decision.
 
 **Re-homing step (mandatory before any DENYLIST section is stripped):**
 
 For every DENYLIST section, scan it for content introducing a constraint, AC, or decision that does not appear in any ALLOWLIST section. Each such item must be re-homed into the appropriate ALLOWLIST section (typically Acceptance Criteria or Decisions Made) before the wrapper is stripped. Re-homing produces a diff in the trim preview that the EM reviews at Phase 4. Do not strip before the EM has approved the re-homing diff.
+
+**Bounded re-homing exemption — `## Deviations` only:** The re-homing scan is skipped ONLY for sections whose heading EXACTLY matches `## Deviations` (the audit-only, intentionally non-crystallized section defined in `docs/wiki/plan-deviation-reconciliation.md`). The crystallized equivalent of every deviation already lives in the corrected ALLOWLIST sections' `SHIPPED: X (was: Y)` annotations — re-homing would produce duplicate provenance. ALL OTHER DENYLIST sections retain the unconditional re-homing scan above. This is a single-heading exemption, not a general "audit-style sections skip re-homing" policy; future section types do not fall through it. The wiki (`plan-deviation-reconciliation.md`) defines exactly one heading — `## Deviations` — with no variants; the exemption does NOT auto-follow the wiki, so if heading variants are ever added there, this clause must be updated in lockstep.
+<!-- Review: deviation-reconciliation plan Chunk 2 AC4 — first exception to the unconditional re-homing rule; pinned to exact heading match only. Forward-maintenance note added per session-end code-reviewer Finding 1. -->
 
 **Decision Rationale extraction (required, not optional — per the Data Science Reviewer F3):**
 
@@ -334,6 +344,9 @@ An AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in 
 
 This prevents the muscle-memory bypass where every distill halts on review noise and operators default to `--allow-drop`. The halt fires only on genuine content loss.
 
+**`## Deviations` section exemption (heading-classifier, not token-pattern):** AC-shaped token lines (`deviation`, `reason`, `commit` column headers; any `MUST`/`SHALL`/`Decision:` text inside the table) that appear inside a `## Deviations` section do NOT trigger a halt. The exemption is anchored on the section-heading classifier — once the heading `## Deviations` is detected, all lines within that section are excluded from the set-diff scan. Rationale: the `deviation` annotation has a kept equivalent in the corrected ALLOWLIST section's `SHIPPED: X (was: Y)` annotation; the `reason` and `commit` columns are intentionally non-crystallized audit provenance and are exempt from the halt scan by heading classifier. This prevents spurious halts when `/distill` drops the ephemeral audit table.
+<!-- Review: deviation-reconciliation plan Chunk 2 AC5 — heading-classifier exemption prevents spurious halt on intentionally dropped ## Deviations table; equivalent crystallized content is in ALLOWLIST SHIPPED annotations -->
+
 **False-halt mode:** Word-order-permuted equivalent lines will register as differing and trigger a halt. When this happens, the EM eyeballs the diff, confirms semantic equivalence, and proceeds with `--allow-drop` on that specific run. This is acceptable because the EM still sees the diff — the bypass becomes an inspection, not a rubber-stamp.
 <!-- Review: the Staff Engineer R3 — F2: set-diff normalization is weaker than the plan's 'semantically-equivalent line' intent; word-order permutations register as different and trigger spurious halts -->
 
@@ -351,7 +364,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - After real `/distill`: canonical spec at `archive/specs/`, stubs gone, wiki has provenance frontmatter, distillation-log appended.
 - `git show <last_verbose_sha>:<original path>` retrieves verbose original.
 - Post-distill `rg -F '<old-spec-path>'` returns zero hits across the entire repo.
-- **Negative AC (silent-loss guard):** dry-run emits a content-drop diff. Halt-condition is set-diff, not raw match: an AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in the drop-list halts dry-run only if no semantically-equivalent line exists in the re-homed additions OR in surviving ALLOWLIST sections. Cheap implementation: normalize whitespace + lowercase the token-bearing lines, set-diff drop-tokens vs kept-tokens, halt on non-empty difference. This prevents the muscle-memory bypass where every distill halts and operators default to `--allow-drop`. Word-order-permuted equivalent lines may trigger false halts; use `--allow-drop` after EM eyeballs the diff and confirms no semantic loss (see set-diff section).
+- **Negative AC (silent-loss guard):** dry-run emits a content-drop diff. Halt-condition is set-diff, not raw match: an AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in the drop-list halts dry-run only if no semantically-equivalent line exists in the re-homed additions OR in surviving ALLOWLIST sections. Cheap implementation: normalize whitespace + lowercase the token-bearing lines, set-diff drop-tokens vs kept-tokens, halt on non-empty difference. This prevents the muscle-memory bypass where every distill halts and operators default to `--allow-drop`. Word-order-permuted equivalent lines may trigger false halts; use `--allow-drop` after EM eyeballs the diff and confirms no semantic loss (see set-diff section). **`## Deviations` exemption:** AC-shaped token lines inside a `## Deviations` section are excluded from the set-diff scan by section-heading classifier — the `deviation` annotation has a kept equivalent in the corrected ALLOWLIST section's `SHIPPED: X (was: Y)` annotation; the `reason` and `commit` columns are intentionally non-crystallized audit, exempt from the halt scan.
 - **Validation prerequisite:** rubric is dry-run tested against `docs/plans/2026-04-29-port-patterns-implementation.md` (verbose, real-world) before declaring distill production-ready.
 - Distillation log `tasks/distillation-log.md` row count is monotonically non-decreasing; strictly increases on any run that deletes scaffolding or archives a spec; schema header preserved verbatim; reason fields are domain-prose (≥8 words; ≥1 CONTEXT.md term when CONTEXT.md exists).
 - Wiki provenance frontmatter includes `archived_spec`, `original_path`, `last_verbose_sha`, `distilled`.
@@ -364,6 +377,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - **`judgment_provenance:` frontmatter on promoted entries:** every new `docs/wiki/codebase-judgment/<topic>.md` carries a `judgment_provenance:` frontmatter block (NOT `provenance:` — that key is taken by Phase 5b's archived-spec schema). Schema includes `kind`, `convergence_count`, `source_findings` (sidecar path + plan + reviewer + finding ID + SHA), `promoted`, `last_refreshed`. Full schema: `PIPELINE.md § Phase 2.5 — Frontmatter schema`.
 - **Negative AC — `escalated-disagree` findings excluded:** a reviewer-sidecar finding annotated `disposition: escalated-disagree` by the review-integrator does NOT count toward convergence. Phase 2.5 reads the `disposition:` field written inline into the sidecar (per review-integrator amendment) before Phase 5 deletes it. Validated via fixture where one of three matching findings carries `disposition: escalated-disagree`; convergence count must be 2, no promotion.
 - **Prior-art-checker dogfood:** dispatching prior-art-checker on a synthetic plan whose claim-shape matches a seeded judgment entry must produce a sidecar containing a Compatible-but-relevant or Conflict bucket entry referencing the `docs/wiki/codebase-judgment/` file by path. This is the end-to-end behaviour test confirming cached Opus-tier judgment surfaces to future plan authors.
+- **AC11 — schema_version: 1 on every manifest:** every `dispositions:` (Phase 2), `dr_dedup:` (Phase 3b), `directory_entries:` (Phase 3c), `deletions:` (Phase 3d), and Phase 2.7-QG verdict file carries `schema_version: 1` as its first key. Consumers must fail-loud on unknown forward versions, per DR-5 in `docs/plans/2026-05-28-distill-structured-manifests.md`.
 
 ---
 

@@ -33,11 +33,11 @@ Treat the three as one workflow seen from different time horizons (in-session �
 
 | Mode | Trigger | Authority | Output |
 |---|---|---|---|
-| **project-local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `tasks/lessons.md`, append-only wiki edits |
-| **cross-project** | PM-invoked from `~/.claude` central root | PM gate on every apply (even auto-apply class) | Routing manifest grouped by destination repo + change_kind |
-| **recheck** | `tasks/lesson-triage-recheck-*.md` marker via `/workday-start` | Auto-extends cadence if delta ≤5 new universals; otherwise dispatches cross-project | Updated marker or cross-project dispatch |
+| **local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `tasks/lessons.md`, append-only wiki edits |
+| **central** | PM-invoked from `~/.claude` central root | PM gate on every apply (even auto-apply class) | Routing manifest grouped by destination repo + change_kind |
+| **recheck** | `tasks/lesson-triage-recheck-*.md` marker via `/workday-start` | Auto-extends cadence if delta ≤5 new universals; otherwise dispatches central | Updated marker or central dispatch |
 
-**Default mode detection:** `/lesson-triage` without args inspects cwd. Running from `~/.claude` central → default cross-project; else default project-local.
+**Default mode detection:** `/learn-lessons` without `--mode` arg inspects cwd. Running from `~/.claude` central → default `central`; else default `local`. (Skill renamed from `lesson-triage` to `learn-lessons` 2026-05-06; modes renamed from `project-local`/`cross-project` to `local`/`central` for alignment with the `--mode=` flag.)
 
 ## Improvement Queue Discipline
 
@@ -73,7 +73,23 @@ From the 2026-05-07 queue cleanup session (drove 131 → 91 entries via 1 sessio
 
 Queue cleanup at entry level 91 residual was ~6:1 prose-doctrine to engineering work ratio.
 
+## Deterministic Extraction Discipline
+
+**Extraction is never a model call.** `bin/extract-lessons.py` is the canonical extraction surface for the central run. It applies a three-check grounding gate before emitting any lesson record:
+
+1. **Source-line check:** the lesson text exists at the cited source line
+2. **ID check:** the emitted `id` field matches the extracted entry's identifier  
+3. **Title-overlap check:** extracted title has ≥25 character overlap with the source heading
+
+The model handles only bounded routing judgment (after extraction); the grounding gate catches LLM fakery at the routing layer. Free-form classifiers that emit their own `L<n>` line numbers (rather than echoing the extractor's `id` field) drift from the file's true lines and cannot drive a line-number prune — feed classifiers the `extracted.yaml` records and require them to echo the extractor `id` field.
+
+**F6 colon-suffix filter stays "drop all."** The `**Rule:** prose continues` body-emphasis pattern is widespread in the project corpus — lesson titles end with `.`, `?`, or a plain word; never with `:`. Tightening the filter to "alone-on-line" regressed extraction from 149 to 619 records. This corpus-aligned convention is documented in the `extract-lessons.py` docstring as load-bearing; do not weaken the colon filter without re-running the extraction regression check.
+
+**Generalized pattern:** Identify the determinism seam and don't run a model on the deterministic side. Any agent-enumerates-N-items-from-structured-source task should: script extracts → model routes → grounding gate catches LLM fakery at routing layer.
+
 ## Per-lesson routing schema
+
+**Classification workers must echo the extractor's deterministic IDs, never emit their own line numbers.** A free-form classifier's `L<n>` drifts from the file's true lines (off-by-one in blank-separated regions, aligned in dense regions) and cannot drive a line-number prune. Feed classifiers the `extracted.yaml` records and require them to echo the extractor `id` field; prune by content-match against the extractor body, never by a worker-emitted line number. Source: 2026-05-27 central run (two Sonnet classifiers reported their own `L<n>`; recovered by content-matching via scipy optimal assignment). [universal]
 
 Each candidate lesson is shaped into a YAML record:
 
@@ -90,11 +106,16 @@ destinations:
     priority: HIGH | MEDIUM | LOW
     depends_on: <other id|null>
 open_questions: [...]
+doe_escalation: false                  # workers set true on a wiki-* record when they
+                                       # believe DoE should reconsider CLAUDE.md placement
+escalation_reason: ""                   # one-line; only meaningful if doe_escalation: true
 ```
 
 ## Change-kind taxonomy (closed enum, 12 kinds)
 
-`doctrine-edit`, `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer`, `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
+`doctrine-edit` (**DoE-only**), `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `wiki-new`, `wiki-append`, `memory-pointer` (**DoE-only**), `project-structural`, `retag-local`, `strip-local` (gated on central commit SHA), `discard`.
+
+**DoE-only annotation.** Workers (Haiku scouts, Sonnet consolidators, EMs running the skill outside Claude Central with DoE authority) MUST NOT emit `doctrine-edit` or `memory-pointer`. Records arriving with either kind are downgraded to `wiki-*` + `doe_escalation: true` before PM surfacing. CLAUDE.md edits are authored only by the DoE as a separate downstream plan after reviewing escalation-flagged records. See `skills/learn-lessons/SKILL.md` § Routing Bias for the full gate.
 
 ## Mode-conditional authorization
 
@@ -102,11 +123,11 @@ open_questions: [...]
 
 **project-local SURFACES (no auto-apply):** doctrine-edit, wiki-new, agent-prompt-edit, hook-edit, script-edit, project-structural outside same repo.
 
-**cross-project PM-gates EVERY apply** — even auto-apply class. PM authorization is the load-bearing surface; the synthesis is the authorization document, not an execution kickoff.
+**central mode PM-gates EVERY apply** — even auto-apply class. PM authorization is the load-bearing surface; the synthesis is the authorization document, not an execution kickoff.
 
-## Cross-project six-phase pipeline
+## Central-mode six-phase pipeline
 
-- **Phase 0 — Configuration:** read `lesson_triage:` block in `~/.claude/coordinator.local.md` (roots, exclude, glob, recheck_cadence_days). Never hardcode `X:/`.
+- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/tasks/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
 - **Phase 1 — Discovery:** glob configured roots, count tagged universals.
 - **Phase 2 — Fan-out scouts:** one per repo, parallel `general-purpose` Sonnet, two-pass extraction (tagged + untagged candidates), themes section, DONE protocol.
 - **Phase 3 — Synthesis:** EM directly produces the four-section A/B/C/D structure (see below).
@@ -168,7 +189,7 @@ A 144-entry triage in 2026-05-05 produced this empirical distribution:
 
 When the synthesis produces multi-file changes (the "promote universals into N files" surface), the canonical shape is:
 
-1. **Reviewer (the Staff Engineer) BEFORE dispatch, not after first executor returns.** the Staff Engineer's pre-dispatch pass detects cluster-disjointness (last-writer-wins risk between parallel executors). 16 findings on a 35-finding plan, 6 of which were P0/P1 cluster disjointness, is a typical hit rate. See [DR-009](#dr-009).
+1. **Reviewer (Patrik) BEFORE dispatch, not after first executor returns.** Patrik's pre-dispatch pass detects cluster-disjointness (last-writer-wins risk between parallel executors). 16 findings on a 35-finding plan, 6 of which were P0/P1 cluster disjointness, is a typical hit rate. See [DR-009](#dr-009).
 2. **Pre-create shared parent dirs** rather than letting one executor own a directory two executors will write to. Race avoidance > serialization.
 3. **Cross-cluster findings register** identifies which findings intentionally land in 2+ files. Don't treat as duplicates during deduplication passes.
 4. **Executors return canonical-phrase JSON for deterministic post-execution grep.** EM verifies via `grep -F` against the exact phrase list. Don't trust free-text summaries.
@@ -177,7 +198,7 @@ When the synthesis produces multi-file changes (the "promote universals into N f
 
 ### Promotion patterns observed
 
-- **In-place to CLAUDE.md** is acceptable even when it grows the file (293→396 lines = 35% growth). CLAUDE.md is the surface agents read; wiki guides are second-class for invariants. The `lessons-trim` pattern can prune later.
+- **In-place to CLAUDE.md** was historically observed (293→396 lines = 35% growth in May 2026). **SUPERSEDED 2026-05-20 by the char-budget gate** in `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight — projected size > 40K is hard-refused, 38K–40K requires a demote target, and the DoE-only gate on `doctrine-edit` filters most CLAUDE.md proposals to wiki-* before they reach this surface. Wiki guides are first-class via the `prior-art-checker` mechanism; CLAUDE.md is reserved for cross-cutting tripwires.
 - **Three commits per integration round, not one bundled.** When R2 produces auto-fixes + W1 polish + architecture refactor, three commits make the audit trail per category greppable.
 - **Phase 11d frontmatter-drift sweep reports only, never auto-fixes.** Schema violations frequently encode an intentional decision; auto-fix would silently corrupt those. Carve out: tradeoff-free fixes on records the EM authored *this same session*.
 
@@ -253,11 +274,11 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Decision:** Frontmatter drift sweep is a visibility tool. Schema violations frequently encode intentional decisions (record predates schema, deprecation in flight). Carve-out: tradeoff-free fixes on records the EM authored *this same session*.
 **Source:** `archive/handoffs/2026-05-01_193000_pickup01.md`
 
-### DR-009 — the Staff Engineer review BEFORE dispatch on multi-file sweeps
+### DR-009 — Patrik review BEFORE dispatch on multi-file sweeps
 
 **Status:** accepted
 **Context:** 35-finding sweep across 7 executors hit 16 review findings (6 P0/P1) at the cluster-disjointness layer. Without pre-dispatch review, parallel executors would have stomped each other's edits.
-**Decision:** Run the Staff Engineer review pre-dispatch when sweep targets >5 files in parallel; pre-create shared parent dirs.
+**Decision:** Run Patrik review pre-dispatch when sweep targets >5 files in parallel; pre-create shared parent dirs.
 **Source:** `archive/handoffs/2026-04-27_164304_sweep-resume.md`
 
 ### DR-010 — Stand down on concurrent peer absorption
@@ -266,12 +287,49 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Decision:** When a peer EM is detected absorbing the same mandate during a sweep, stand down rather than push on. Cost of merge conflict > cost of stopping. Promote the lesson; hand off.
 **Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
 
-### DR-011 — Promotion in-place to CLAUDE.md is acceptable
+### DR-011 — Promotion in-place to CLAUDE.md is acceptable [SUPERSEDED 2026-05-20]
 
-**Status:** accepted
+**Status:** superseded
 **Context:** 7 cluster groups all targeted CLAUDE.md; one big executor produced +103 lines (35% file growth).
-**Decision:** Accept growth in CLAUDE.md when every line is a unique lesson. The file is the surface agents read; wiki guides are second-class. `lessons-trim` can prune later.
+**Decision (historical):** Accept growth in CLAUDE.md when every line is a unique lesson. The file is the surface agents read; wiki guides are second-class. `lessons-trim` can prune later.
 **Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
+**Superseded by:** `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) + § Routing Bias DoE-only adjudication on `doctrine-edit`/`memory-pointer`. The blanket acceptance no longer applies — most CLAUDE.md proposals filter to wiki-* via the DoE gate; survivors must clear both the four-check justification gate AND the char-budget gate.
+
+### Neutralise reverted lessons in-place, do not delete
+
+**When a lesson in `tasks/lessons.md` turns out to have an inverted rule (postmortem-revealed or PM-overridden), neutralise the entry in-place — do not delete it.**
+**Why:** Deletion loses the "why" of the inversion and invites future re-derivation of the same wrong rule. Greppable in-file history shows both the original and the corrected version.
+**How to apply:** replace the lesson body with a `Neutralised YYYY-MM-DD — superseded by entry at <location>` note that preserves the original text in audit-trail framing. Append the corrected lesson at EOF. This composes with the delete-on-resolution rule for queue entries (queue entries are discarded once resolved; lesson entries carry a correction note that stays visible).
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L131, central-promoted 2026-05-28).*
+
+### Local vs. Central Concurrent Run — Strip Only the Pre-Window Subset
+
+**`/learn-lessons` local mode on a `lessons.md` a central run is concurrently processing is a concurrent-edit hazard — reconcile delta-vs-full scope before stripping.**
+
+Local mode extracts the full file (no `--since`) and counts every uncovered universal; central extracts only the delta since its last run. A local "N universals pending" figure is inflated — most are already-promoted-but-never-stripped pre-window entries (e.g. local reported 73, central's authoritative delta was 1 new universal).
+
+**How to apply:** when a `~/.claude/tasks/learn-lessons-<today>/` central run is active on the same file, strip only the pre-window subset (entries before the last-central-run date) and leave the delta window and universals to central. Verify `lessons.md` is byte-identical before any line-keyed edit. Source: 2026-05-27 project-rag. [universal]
+
+### Retag Safety — Target the Header Line, Not the Block
+
+**Retagging a lesson by string-replacing `[universal]` corrupts prior retag-history comments — replace on the `## **...**` header line specifically.**
+
+`extract-lessons.py`'s `tag_universal` matches the tag anywhere in the block, including provenance comments like `<!-- Retag proposed ...: [universal] → [python] -->`. A naive global replace hits the comment text, not the actual header tag (which may already carry the target tag from a prior run).
+
+**How to apply:** (1) replace the tag on the header line specifically, not globally in the block; (2) before re-applying a router's retag proposal, confirm the entry wasn't already retagged in a prior run — a retag whose header already carries the target tag is a no-op, not a re-edit. Stale proposals are common on multi-run cadences. Source: 2026-05-27 project-rag. [universal]
+
+### After Age-Sweep: Retained-Count ≠ Universals-Count Signals Untagged Entries
+
+*Source: project-rag tasks/lessons.md:60, 2026-05-29. [universal]*
+
+After a local-mode age-sweep prunes expired entries, if the retained entry count does not equal the `[universal]`-tagged entry count, the delta is untagged entries that may carry universal-shape substance. Before writing a central-promotion memo, cross-check: count entries, count `[universal]` tags, and audit the gap. An entry shaped like a universal pattern but lacking the `[universal]` tag will be missed by the central-run's Phase 1 discovery step and silently accumulates without promotion. Tag first, then promote.
+
+### `[universal]` Tag Is NOT a Stop-Sign for Local-Mode Wiki Folds
+
+*Source: holodeck tasks/lessons.md:9, 2026-05-29. [universal]*
+
+A `[universal]`-tagged lesson is a promotion candidate for the central queue — it is NOT a block on local-mode wiki folding. **Substance and proposed-target are independent of the tag.** If a `[universal]` lesson has a clear proposed-target wiki and the substance belongs there, fold it locally in the same `/update-docs` pass. The tag means "this should also propagate centrally"; it does not mean "wait for central mode before touching the destination wiki." Delaying a local fold until the next central run leaves the wiki stale for sessions running between cadences.
 
 ### DR-012 — Three commits per integration round, not one bundled
 

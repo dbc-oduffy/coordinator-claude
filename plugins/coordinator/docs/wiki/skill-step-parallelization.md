@@ -66,6 +66,16 @@ grep -rl '## Execution Shape' plugins/coordinator/skills/
 
 Same canonical answer at any point in time, no maintenance.
 
+## Discoverability — this convention governs EM skill-execution, not subagent dispatch
+
+*2026-05-21, claude-central.* The pointer to this convention in `coordinator/CLAUDE.md` landed under § Subagent Dispatch, but the convention governs **EM skill-execution behavior** — how the EM walks the numbered steps of a skill it is running itself — not how it dispatches subagents. The mis-filing is a discoverability hazard: an EM scanning for "how do I run this skill's steps efficiently" won't look under a subagent-dispatch heading. The convention's natural home is a § Core Principles or a dedicated § Skill Execution surface. (The CLAUDE.md re-home is gated on the 39900-byte hard limit's next trim window; this note records the intent so the re-home lands when the window opens.)
+
+## Target-Selection-Discipline — Mine Empirical Usage Frequency Before Choosing Refactor Targets
+
+*2026-05-21, claude-central.* When selecting which surfaces to refactor, parallelize, or extract, a-priori target selection ("these look like the hot ones") systematically mis-ranks. Mine the empirical usage frequency first: dispatch a `git log` + archive-count scout per candidate, and **rank by frequency × per-fire savings**, not by intuition about which surface "feels" central. A surface that fires rarely but is expensive per-fire can outrank a frequently-touched but cheap one — and the product is invisible without the count.
+
+**Procedure:** (1) enumerate candidate surfaces; (2) per candidate, count invocations across `git log` history and archived sessions (the count is the *frequency* term); (3) estimate per-fire savings of the refactor (the *magnitude* term); (4) rank by the product; (5) refactor top-ranked first. This is the target-selection analog of the per-executor budget axis — the same "measure before you cut" discipline applied to *which* surface rather than *how big* the chunk. Composes with `agent-dispatch-economics.md` § Cluster Execution: once the ranking picks the novel item, the cluster pattern handles the surgical follow-ups.
+
 ## Spec backlink
 
 Empirical survey + decision: `tasks/skill-step-survey/` (commands.md, skills-a.md, skills-b.md, usage-frequency.md). Spinoff: `tasks/handoffs/2026-05-20_231841_skill-step-gates-vs-todo-list.md`.

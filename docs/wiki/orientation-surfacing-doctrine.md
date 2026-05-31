@@ -98,4 +98,4 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 
 - → `docs/wiki/tiered-context-loading.md` (boot-time orientation budget and tier discipline)
 - → `coordinator/CLAUDE.md` § Session Orientation (the `/session-start` is PM-invoked rule and quick-orient boot)
-- → `docs/wiki/handoff-lineage.md` (handoff frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`)
+- → `coordinator/CLAUDE.md` § Handoff Lineage (handoff frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`)

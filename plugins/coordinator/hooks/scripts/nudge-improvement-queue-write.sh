@@ -71,19 +71,24 @@ if command -v jq &>/dev/null; then
   OLD_STRING=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty' 2>/dev/null || true)
 elif command -v python &>/dev/null || command -v python3 &>/dev/null; then
   PY=$(command -v python || command -v python3)
-  read -r FILE_PATH TRANSCRIPT_PATH TOOL_NAME < <(printf '%s' "$INPUT" | "$PY" -c '
+  # Field-per-line (NOT space-joined) — file_path/transcript_path can contain
+  # spaces (e.g. a Windows path under "C:\Users\First Last\"), which the old
+  # `read -r A B C` form split across the wrong vars and silently mis-routed.
+  # Mirrors the fix already in nudge-unauthorized-handoff.sh (the Staff Engineer P1,
+  # 2026-05-29). Paths never contain newlines, so line-delimited is safe; each
+  # field is read with its own `IFS= read -r`, and an empty field is an empty
+  # line (no `_` sentinel needed).
+  PARSED=$(printf '%s' "$INPUT" | "$PY" -c '
 import json, sys
 try:
   d = json.loads(sys.stdin.read())
-  sys.stdout.write((d.get("tool_input", {}).get("file_path", "") or "_") + " " +
-                   (d.get("transcript_path", "") or "_") + " " +
-                   (d.get("tool_name", "") or "_") + "\n")
+  ti = d.get("tool_input", {}) or {}
+  for v in (ti.get("file_path", ""), d.get("transcript_path", ""), d.get("tool_name", "")):
+    sys.stdout.write((v or "") + "\n")
 except Exception:
-  sys.stdout.write("_ _ _\n")
+  sys.stdout.write("\n\n\n")
 ' | tr -d '\r')
-  [[ "$FILE_PATH" == "_" ]] && FILE_PATH=""
-  [[ "$TRANSCRIPT_PATH" == "_" ]] && TRANSCRIPT_PATH=""
-  [[ "$TOOL_NAME" == "_" ]] && TOOL_NAME=""
+  { IFS= read -r FILE_PATH; IFS= read -r TRANSCRIPT_PATH; IFS= read -r TOOL_NAME; } <<< "$PARSED"
   # Strip CR consistently with the three-field block above — Windows text-mode
   # converts \n to \r\n even on sys.stdout.write. Per lessons.md (2026-05-17).
   NEW_STRING=$(printf '%s' "$INPUT" | "$PY" -c '
@@ -127,7 +132,7 @@ FILE_PATH_NORM="${FILE_PATH//\\//}"
 
 # Only fire on improvement-queue files (central + per-project both end in this).
 case "$FILE_PATH_NORM" in
-  *improvement-queue.md|*coordinator-improvement-queue.md)
+  *improvement-queue.md)
     ;;
   *)
     exit 0
@@ -153,8 +158,19 @@ fi
 # Skip when an authoring skill that owns queue maintenance is active. These
 # surfaces have already passed the "should this be queued?" gate as part of
 # their procedure.
+#
+# Read the tail into a variable and match via here-string — NOT `tail | grep -q`.
+# Under `set -o pipefail`, `grep -q` matches early and closes the pipe, `tail`
+# dies with SIGPIPE (141), and pipefail propagates 141 as the pipeline status, so
+# the `if` evaluates FALSE *despite a match* and the nudge fires anyway. On a
+# multi-MB transcript that false-negative breaks this suppression branch 100% of
+# the time (same defect found in nudge-unauthorized-handoff.sh, 2026-05-30). The
+# here-string runs `tail` standalone in command substitution (its SIGPIPE/exit
+# swallowed by `|| true`) and feeds `grep` from the variable, so `tail`'s status
+# can never reach the `if`.
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
-  if tail -500 "$TRANSCRIPT_PATH" 2>/dev/null | grep -qE '(^|[^a-z])/(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)([^a-z]|$)|coordinator:(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)|<command-name>(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)</command-name>'; then
+  RECENT_TAIL=$(tail -500 "$TRANSCRIPT_PATH" 2>/dev/null || true)
+  if grep -qE '(^|[^a-z])/(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)([^a-z]|$)|coordinator:(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)|<command-name>(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)</command-name>' <<< "$RECENT_TAIL"; then
     exit 0
   fi
 fi
@@ -222,8 +238,16 @@ File: $FILE_PATH_NORM$TRIVIAL_HINT
 EOF
 )
 
-REASON_JSON=$(printf '%s' "$REASON" | python -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null \
-  || printf '"%s"' "$(printf '%s' "$REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
-
-printf '{"decision":"block","reason":%s}\n' "$REASON_JSON" >&2
-exit 1
+# Form A deny: JSON to STDOUT + exit 0. This is a "block to nudge" — the
+# COORDINATOR_QUEUE_PUNT override (above) is the escape hatch. The prior
+# Form B (exit 1 + stderr) was silently swallowed, so neither the block nor
+# the override had any effect. See docs/wiki/hook-best-practices.md
+# § "PreToolUse deny: JSON output, not exit 2" and § "Friction-as-warning".
+if command -v jq &>/dev/null; then
+  jq -nc --arg reason "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
+else
+  REASON_JSON=$(printf '%s' "$REASON" | python -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null \
+    || printf '"%s"' "$(printf '%s' "$REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$REASON_JSON"
+fi
+exit 0

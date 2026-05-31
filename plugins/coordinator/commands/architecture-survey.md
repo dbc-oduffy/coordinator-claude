@@ -99,6 +99,30 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
      ```
    - Changed files → `mode: refresh`. No changes → `mode: stable` (carry forward, skip Phases 1-2)
    - Apply sub-chunking to churned systems
+   - **Emergence detection (chunk K) — heavy-churn partial-bootstrap guard:** Before generating the run ID, run a tree-wide "what's NOT in any system" pass. The key is to compute both lists at **file-path granularity** — comparing changed file paths against catalogued *directory prefixes* is a category error (a file path never equals a directory line), so it is the catalogued *files* that must be differenced, not the directories.
+     ```bash
+     # 1. All files changed across the tree since the oldest system's Last-mapped date:
+     git log --since="<oldest-last-mapped-date>" --name-only --pretty=format: \
+       | sed '/^$/d' | LC_ALL=C sort -u > churned-all.txt
+     # 2. The subset of those files that fall under a catalogued system directory.
+     #    Scope the SAME diff to the union of all catalogued system dirs from systems-index.md
+     #    (<system-dirs> is the space-separated list of every system's mapped directories):
+     git log --since="<oldest-last-mapped-date>" --name-only --pretty=format: -- <system-dirs> \
+       | sed '/^$/d' | LC_ALL=C sort -u > catalogued.txt
+     # 3. Emergent = changed-but-uncatalogued, at file granularity (no sort/collation footgun):
+     grep -vxF -f catalogued.txt churned-all.txt > emergent.txt
+     ```
+     `emergent.txt` is the **emergent set** — changed files that belong to no existing system. Both files are pulled from the *same* `git log` diff (one tree-wide, one scoped to `-- <system-dirs>`), so they are at identical file-path granularity; `grep -vxF` does a literal full-line difference with no sort/collation precondition. (If you prefer `comm -23` instead of `grep -vxF`, both inputs MUST be `LC_ALL=C sort`'d on the same collation or comm silently emits garbage — `grep -vxF` sidesteps that and is the drafted default.)
+
+     **Pre-filter emergent.txt against source dirs before chunk-K.** On doc-heavy repos, `tasks/`, `docs/`, `archive/`, and similar meta-directories contribute large volumes of churn that is not architectural. Before applying the chunk-K threshold test, filter `emergent.txt` to retain only files under catalogued **source directories** (e.g. `src/`, `Source/`, `lib/`, `plugin/`, `Content/` for UE repos) — exclude pure-documentation and archival directories. `tasks/`/`docs/`/`archive/` churn is not "uncatalogued architecture"; including it inflates the emergent set and triggers false chunk-K passes on every `/distill` or lesson-learn run. *2026-05-28, claude-unreal-holodeck.*
+
+     **Cross-check emergent candidates against HEAD before declaring drift.** `git log --name-only` lists both additions AND deletions. A file that appears in `churned-all.txt` but was deleted at HEAD is not uncatalogued architecture — it is a deletion record. After computing `emergent.txt`, filter out any path that does not exist at HEAD: `git ls-files -- $(cat emergent.txt) > head-present.txt` and work from `head-present.txt` in the chunk-K decision and dispatch. Declaring a deleted file "emergent" triggers a spurious Haiku inventory of a non-existent surface. *2026-05-28, claude-unreal-holodeck.*
+
+     Fire the chunk-K pass when **either** condition holds:
+     - `emergent.txt` is non-empty (there exist changed files outside every catalogued system), **OR**
+     - total churned files (`wc -l < churned-all.txt`) exceed 50% of the current catalogued file count (`wc -l < catalogued.txt`) — a refresh on a tree this churned is a partial bootstrap, not a delta. **Note the time windows:** the numerator (churn) is measured since the *oldest* system's Last-mapped date, while the denominator (catalogued file count) is the *current* catalogued total — so this threshold measures accumulated churn across the whole mapping-age spread, not churn since the last full audit. See the OPEN QUESTION in § Integration escalations; if the EM elects the "since last full audit" semantics, replace `<oldest-last-mapped-date>` with the `Last full audit` clock from `tasks/health-ledger.md`.
+
+     When fired, add a synthetic **chunk K** ("emergent / uncatalogued") to the Phase 1 fan-out: sub-chunk it like a first-run system (8–12 files per Haiku) and **dispatch it with the first-run Phase 1 (full-inventory) Haiku template from agent-prompts.md, NOT the Phase 1R delta template** — emergent files have no prior atlas entry to delta against, so the 1R delta template would mis-handle them. The Opus synthesizer in Phase 3 then assigns these files to existing systems or proposes new system boundaries. Do NOT silently drop the emergent set — emergent files left uninventoried are the partial-bootstrap failure this guard exists to prevent.
    - **Generate run ID** and create scratch directory
    - **Output:** Chunk table (system, mode: refresh/stable, changed files)
 

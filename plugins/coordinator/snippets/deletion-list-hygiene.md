@@ -1,29 +1,22 @@
 # Deletion-List Hygiene
 
-When converting a deletion manifest (markdown table) into a list of paths to feed `git rm`, **anchor on column position**, not on substring-grep of the manifest body. Loose grep sweeps paths the scout *referenced* (cross-references, "see also" mentions, prose citations) into the deletion list.
-
-## Failure mode
-
-Phase 3 produces a manifest like:
-
-```
-| Source path | Disposition | Reason |
-|---|---|---|
-| tasks/foo/notes-2026-04-29.md | DISTILLED → DELETE | folded into docs/wiki/foo.md |
-| tasks/bar/raw.md | EPHEMERAL → DELETE | scratch; see also tasks/foo/notes-2026-04-29.md |
-```
-
-A naive `grep '\.md' manifest.md` over the manifest body will match `tasks/foo/notes-2026-04-29.md` **twice** — once in the source-path column, once in the reason column where it appears as a backreference. That extra match silently expands the deletion list with referenced (but not approved-for-deletion) paths.
+Phase 3d emits a structured YAML manifest (`schema_version: 1`, `deletions:` key). Consume the YAML directly — do NOT parse the prose Markdown table (if present) and do NOT use column-extraction tools like `awk -F'|'` to extract paths from it. The prose table is a derived PM-readable view; the YAML is the source of truth.
 
 ## Required procedure
 
-1. **Column extraction only.** Use `awk -F'|' 'NR>2 {gsub(/^ *| *$/,"",$2); print $2}' manifest.md` to pull the source-path column; equivalent column extractor in any tool is fine.
-2. **Per-row validation.** Each extracted cell must parse as a single relative path (no spaces, no commas, no bracket syntax, ends in `.md`). Any cell that fails parse → abort and report the row to the EM.
-3. **Fail closed on count mismatch.** Manifest row count (excluding header + separator) must equal extracted-path count. Mismatch = abort.
+1. **Read the YAML manifest** from the Phase 3d scratch file. The manifest begins with `schema_version: 1` and contains a `deletions:` list.
+2. **Filter by disposition.** Extract entries where `disposition: DELETE`. Entries with `disposition: SKIP` or `disposition: PRESERVE` are not candidates for deletion.
+3. **Per-row validation.** Each `artifact_path` value must parse as a single relative path (no spaces, no commas, no bracket syntax). Any entry that fails parse → abort and report the row to the EM.
+4. **Fail closed on count mismatch.** Count of `DELETE` entries from YAML must equal the count of paths you intend to pass to `git rm`. Mismatch = abort.
 
-## Why this lives in distillation specifically
+## Why YAML, not column extraction
 
-The artifact-distillation pipeline routinely produces manifests where source paths cross-reference each other in the Reason column (e.g., "consolidated into the same wiki guide as `<other-source>`"). Other deletion contexts (commit-time `git status` audit, sweep scripts) operate on filesystem state, not on a manifest body, and aren't subject to this failure mode.
+<!-- Review: the Staff Engineer R1 Finding 8 — updated past tense to present tense; canonical plan citation added. -->
+The old pattern — `awk -F'|'` on the prose Markdown table — was the approved-safe pattern under the previous prose-manifest contract. It is superseded by the YAML contract introduced in Chunk 3 of `docs/plans/2026-05-28-distill-structured-manifests.md`.
+
+The prose failure mode that drove the original awk guidance still applies to the prose table (if retained): a `grep '\.md'` over the manifest body matches paths in both the `artifact_path` column AND paths cross-referenced in the `reason` text, silently expanding the deletion list. YAML consumption eliminates this failure mode structurally — each field is typed and separately addressable; the `artifact_path` field is never confused with `reason` text.
+
+<!-- negative-spec: do NOT use awk -F'|' or grep-based column extraction on the Phase 3d prose table to build deletion lists. The prose table is a derived view; only the YAML deletions: list is authoritative. -->
 
 ## See also
 

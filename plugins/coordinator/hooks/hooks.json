@@ -7,14 +7,20 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.sh",
+            "timeout": 5,
+            "async": false
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect-wrapper.sh",
             "timeout": 5,
             "async": false
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-model-is-opus.sh",
-            "timeout": 3,
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-dropped-tracked-files.sh",
+            "timeout": 5,
             "async": false
           }
         ]
@@ -121,6 +127,46 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-destructive-git-orphan.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-destructive-rm.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/offer-git-c-over-cd.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-probe-spray.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "WebSearch|WebFetch",
         "hooks": [
           {
@@ -156,7 +202,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -166,11 +212,21 @@
         ]
       },
       {
-        "matcher": "Write",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-unauthorized-handoff.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-archive-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-tracker-edit.sh",
             "timeout": 5
           }
         ]
@@ -193,6 +249,17 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-touched-files.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unauthorized-handoff.sh",
             "timeout": 5,
             "async": false
           }

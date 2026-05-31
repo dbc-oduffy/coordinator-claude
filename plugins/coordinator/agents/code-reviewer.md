@@ -109,10 +109,13 @@ Lens questions:
 - **Scope completeness** — does the diff implement everything the spec said it would? Enumerate spec deliverables; mark each ✅ delivered / ⚠ partial / ✗ missing / ➕ out-of-spec, with file:line evidence for each judgment. Out-of-spec additions are findings too — surface them, the EM decides whether they're legitimate scope creep or drift.
 - **Spec adherence on shape** — where the spec specified shape (file paths, function names, data model, API surface, sequencing), does the diff match? Drift is a finding; the EM judges whether the drift is justified.
 - **Spec assumptions vs. disk reality** — if the spec asserts a file path, symbol, schema field, or constant exists, verify on disk. Spec-substrate drift is a finding even when the diff itself is internally consistent.
+- **Path-resolution on extracted helpers** — if the diff extracts slash-command bodies into helper scripts (`commands/lib/**.sh`, `lib/**.sh`, or any sourced shell helper) OR introduces `${CLAUDE_PLUGIN_ROOT}` / plugin-root path interpolation: (a) confirm the diff (or its work-in-progress notes) ran `bash -n` over every touched `*.sh` — invented or undeclared variable names and unbalanced quoting survive a clean diff read but fail `bash -n`; (b) verify that every `${CLAUDE_PLUGIN_ROOT}`-relative path resolves against the **actual marketplace install layout**, not the dev-tree layout — a path that works in-repo can break once the plugin is installed under `~/.claude/plugins/<marketplace>/<plugin>/`. Missing `bash -n` evidence on a multi-helper extraction is **P2**; a path-prefix that resolves in dev-tree but not install-layout is **P1** (it ships broken to every installer other than the author). Empirical: 2026-05-21 slash-command-helper-extraction wave. See `docs/wiki/slash-command-helper-extraction-discipline.md`.
 - **Test coverage of spec acceptance criteria** — TDD covers behavior the author thought to test. Re-read the spec's acceptance criteria and ask: is each one actually exercised by a test in the diff, or did the test suite drift to test what was easy rather than what was specified?
 - **Deferred items** — if the spec carries a deferred / OOS / "later" list, are those genuinely architectural deferrals (per coordinator doctrine § Implementation Standards OOS rule) or appetite-based hedges? Hedge-shaped deferrals are findings.
 
 Spec completion findings carry the same severity scale (P0/P1/P2/nit). A spec deliverable marked missing without explicit architectural justification is at least P2; a silently-dropped acceptance criterion that the diff claims to satisfy is P1.
+
+**"Strictly safer" spec-deviation must be checked on every correctness axis (P1 if asymmetric).** When the diff diverges from the spec on the grounds that the new shape is "strictly safer," verify the claim across *all* axes — a change that protects a hypothetical failure mode while regressing current behavior is not strictly safer, it is a tradeoff (regression-vs-current beats protection-of-hypothetical). Flag the divergence as a finding so the EM can route the spec-deviation re-decision to the design author rather than letting the executor's local judgment stand; a rejected design becomes reopen-able once a blocking gate clears. (Source: 2026-05-29 project-rag executor-divergence incident.)
 
 If no spec is provided in the dispatch brief, skip this section entirely — do not search for one on disk and do not infer one from commit messages. The EM is responsible for naming the spec when it exists.
 
@@ -127,6 +130,49 @@ Install-surface paths: `machine-local/`, `install*`/`setup*` scripts, `INSTALL.m
    - *Code / install-surface* — must route via `cross-repo-memo` CLI (one dirty file written into `<receiver>/cross-repo/`) **with PM-relay to the affected EM** (file alone doesn't reach them); sibling EM lands. Direct writes without PM-authorization in commit: **P1**. Memo written: **P2** if ANY of the following structural conditions are missing: (a) `status: open` frontmatter field present on the receiver-side file, OR (b) PM-relay evidence in commit message ("handed PM the path" / "PM relayed" / similar) OR same-session cross-repo brief naming the relay step. Absence of evidence on (b) is not evidence of absence — flag P2 for EM disposition rather than asserting. Pre-2026-05-22 memos are grandfathered; PM-relay evidence still applies.
 
 References: `docs/wiki/install-surface-completeness.md` (universal rule); `cross-repo-communication.md § Doctrine seeding vs. code/install-surface change` (two-altitude). Diff-time backstop to prior-art-checker's plan-time gate. Silent when no install-surface paths touched.
+
+## Path-injection security lens (always-on)
+
+If the diff adds or edits a CLI tool / script that interpolates an **agent-supplied or
+user-supplied string** (slug, name, id, path fragment) into a filesystem path, surface a
+finding unless the string is validated at parse-time:
+
+1. **Slug validation at parse_args (P1 if missing).** A slug that reaches
+   `os.path.join` / `Path(...) /` / shell path interpolation must be validated where it
+   is parsed — `../foo` (traversal) and `foo/bar` (nested-dir creation) both survive
+   `os.path.join` and create arbitrary directories outside the intended root. The
+   validation belongs at `parse_args` / argument-ingestion time (reject early), not at
+   the join site (too late — the value has already propagated). Acceptable shapes: an
+   allowlist regex (`^[a-z0-9][a-z0-9-]*$` or similar), or an explicit reject of any
+   string containing `/`, `\`, `..`, or a leading `.`. Detect-then-silently-sanitize is
+   a footgun — reject loudly (cf. coordinator § Implementation Standards:
+   detect-then-fail-loud on ambiguity).
+2. **Post-join containment check is not a substitute.** Resolving the joined path and
+   checking it stays under the root is a second layer, not the primary control — the
+   primary control is parse-time slug validation. Flag P2 if only the post-join check
+   exists with no parse-time guard.
+
+Empirical: 2026-05-21 CLI-tooling wave (`cross-repo-memo` slug class). Silent when the
+diff adds no agent/user-supplied-string → path interpolation.
+
+## Agent-visible message lens (always-on)
+
+If the diff edits a string an agent or user reads at runtime (verdict text, error message,
+status line, prompt fragment), surface a finding unless the diff located the **emitting
+layer** before editing:
+
+1. **Verdict/message must be edited at its actual emit site (P1 if wrong layer).** A
+   message emitted by a decorator/wrapper (or formatted by an envelope/middleware layer)
+   is not changed by editing the wrapped function body — the edit reads correct in the diff
+   but the wrapped output is untouched at runtime. Confirm the diff edits the layer that
+   actually emits the string (decorator vs body), not a layer the value passes through.
+2. **A wire-path test through the emitting layer is required (P2 if missing).** A unit test
+   that asserts the new string against the body in isolation passes while the decorated/
+   wrapped runtime output still carries the old text. The regression net must exercise the
+   full wire path (call through the decorator/envelope) so a wrong-layer edit fails red.
+
+Empirical: 2026-05-30 project-rag verdict-decorator incident. Silent when the diff edits no
+agent/user-visible runtime string.
 
 ## Scope boundaries
 

@@ -1,17 +1,19 @@
 ---
 name: bug-blitz
-description: Autonomously grind tasks/bug-backlog.md — verify each item still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization.
+description: Autonomously grind tasks/bug-backlog.md AND the full test suite — run all tests every run, chase failing tests as first-class fix items, verify each backlog entry still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization. Runs even when the backlog is empty.
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--dry-run | --max=N]"
 ---
 
-# Bug Blitz — Aggressively Tackle the Bug Backlog
+# Bug Blitz — Aggressively Tackle the Bug Backlog and the Test Suite
 
-Verify-then-grind through `tasks/bug-backlog.md`. Re-check each item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
+Verify-then-grind through **two work sources every run**: (1) `tasks/bug-backlog.md`, and (2) **the full test suite** — the configured test command is run on every invocation, and each genuinely-failing test becomes a first-class fix item that flows through the same triage → wave → fix → verify machinery as a backlog bug. Re-check each backlog item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
 
-**Operates exclusively on `tasks/bug-backlog.md`.** Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries are NOT pre-spec'd executor stubs, so triage is the spec-creation step.
+**A green test suite is part of the definition of done.** The run does not complete on a thin "fixed 2 bugs" note while tests are red. Failing tests are chased to root cause and fixed (or, when oversized, surfaced as spinoffs) exactly like backlog bugs.
 
-**Announce at start:** "Running `/bug-blitz` — verifying backlog, then aggressive autonomous parallel waves through every fixable item. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written."
+**Runs even when the backlog is empty.** An empty or missing `tasks/bug-backlog.md` is no longer a halt condition — the test-suite leg still runs. The run only short-circuits to a green no-op when the backlog is empty AND the full suite passes clean. (Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries and test failures are NOT pre-spec'd executor stubs, so triage is the spec-creation step.)
+
+**Announce at start:** "Running `/bug-blitz` — running the full test suite, then aggressive autonomous parallel waves through every fixable backlog item AND every failing test. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written. The run ends with a green-suite gate."
 
 ## Default Stance — Dispatch, Don't Defer
 
@@ -67,9 +69,9 @@ Only candidates that survive all three checks go onto the PM-authorization list 
 
 | Trigger | Mode |
 |---------|------|
-| No arguments | Full grind: every fix-able item, no stops |
-| `--dry-run` | Phases 0-2 only — produce a plan, do not dispatch executors |
-| `--max=N` | Cap fixed items at N this run; remainder stays in backlog |
+| No arguments | Full grind: full test suite + every fix-able item, no stops |
+| `--dry-run` | Phases 0-2 only — run the suite baseline (Phase 0.7, informational) and produce a plan; do not dispatch executors and do not run the Phase 4 gate. **Not zero-cost:** `--dry-run` still EXECUTES the test suite (the baseline is real, not simulated — it pays the suite-run wall-clock to show you the real `TF-*` set in the plan); it suppresses only executor dispatch and the Phase 4 gate. |
+| `--max=N` | Cap fixed items at N this run; remainder stays in backlog. `TF-*` items are P0/P1, so they sort ahead of all P2 backlog items; within a severity tier they interleave with backlog items by ID (`TF-*` sorts after `BS-*` lexically). A small `--max` therefore prioritises a red suite over the P2 backlog — not necessarily over equal-severity backlog bugs. |
 | `--dry-run --max=N` | Phases 0-2 only, plan capped at N items — produces a capped plan without dispatching executors |
 
 ## Out-of-scope actions (autonomous-run prohibition)
@@ -78,17 +80,46 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 
 ## Phase 0: Preflight (~1 min, EM)
 
-1. **Verify backlog exists.** `tasks/bug-backlog.md` must exist. If absent, halt and recommend `/bug-sweep` to populate it. Bug-blitz operates on existing backlog only.
+1. **Check backlog presence — do NOT halt on absence.** Note whether `tasks/bug-backlog.md` exists and how many open items it carries. An absent or empty backlog is **not** a halt condition: the test-suite leg (Phase 0.7) runs regardless and supplies its own work items. Record `backlog_present: true|false` and the open count for the Phase 2 plan. (Contrast with the prior behaviour, which halted here and recommended `/bug-sweep` — that gate is removed because a clean backlog with a red suite is exactly the state this skill must still act on.)
 2. **Generate run ID.** Format: `YYYY-MM-DD-HHhMM`. Scratch dir: `tasks/scratch/bug-blitz/{run-id}/`.
 3. **Active workstream branch check.** Confirm `git branch --show-current` is an allowed workstream branch: `work/{machine}/{date-or-span}` (span names like `work/striker/2026-05-06to07` are accepted; both uppercase and lowercase machine segments are accepted). If not an allowed branch (e.g. on `feature/X` or bare topic branch), halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on an active workstream branch. **Note: `/bug-blitz` is fail-closed-only (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the active workstream branch under any circumstance.
 4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
-5. **Read backlog header** to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
+5. **Read backlog header** (skip if backlog absent) to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
+
+## Phase 0.7: Full Test-Suite Baseline (EM + test-evidence-parser, ~3 min)
+
+Run the project's configured test suite up front. Every genuinely-failing test becomes a synthetic work item that joins the backlog items at Phase 0.5 and rides the same triage → wave → fix → verify machinery. **This phase runs on every invocation, including `--dry-run` (the baseline is informational there) and including an empty backlog.**
+
+1. **Resolve the test command via the single-owner resolver lib — do NOT inline a guess.** Bug-blitz wants the FULL suite (it chases every failing test), so it calls `cs_resolve_full_test_cmd` — the full-tier sibling of the `cs_resolve_fast_test_cmd` that `/validate` runs. Both live in the same lib, so bug-blitz cannot drift to a hand-rolled test surface:
+   ```bash
+   _LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-resolve-validation-cmd.sh"
+   source "$_LIB"
+   TEST_CMD=$(cs_resolve_full_test_cmd 2>/tmp/blitz-resolve-diag.$$); RESOLVER_EXIT=$?
+   ```
+   Branch on the exit code — it tells you the coverage tier so the plan/report can label it honestly:
+   - **Exit 0 — full suite resolved** (`full_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FULL_TEST_CMD`). `suite_state: full`. This is the intended path.
+   - **Exit 3 — fast-tier fallback.** No `full_test_cmd` is configured, so the resolver fell back to the fast tier. `suite_state: fast-fallback`. Run it (coverage is real, just narrower), and **report the coverage honestly** — the announce, plan, and final report say "fast tier (no full_test_cmd configured)" plus the remediation (`set full_test_cmd: in coordinator.local.md`). Do NOT call a fast-fallback run "the entire test suite."
+   - **Exit 2 — unconfigured.** Neither tier is configured for this repo. `suite_state: unconfigured`. Emit the diagnostic, continue (the backlog leg still runs), name the remediation in the report. Do **not** fabricate a `npm test` / `pytest` guess; an unconfigured suite is a reported gap, not an invented command.
+2. **Run the suite through `test-evidence-parser`.** Dispatch `coordinator:test-evidence-parser` (`run_in_background: true`) with the resolved `TEST_CMD`. It runs the command, captures stdout/stderr, and classifies each failure: `real` / `flake` / `env` / `timeout` / `known-skip`. On-disk deliverable: `tasks/scratch/bug-blitz/{run-id}/suite-baseline.md` (table of every failure with classification + the failing test's file:line and assertion excerpt). Inline the disk-first verification preamble (below) verbatim.
+3. **Convert `real` failures into synthetic items.** For each `real` failure, mint a work item with ID `TF-{run-id}-{n}`. **The parser does NOT emit a crash-shape class** — its rubric is exactly `real` / `flake` / `env` / `timeout` / `known-skip` (see `agents/test-evidence-parser.md`). So crash-vs-assertion severity is an **EM-side post-classification on the parser's evidence excerpt**, not a column read:
+   - Grep the failure's evidence excerpt for crash signals — `SIGSEGV` / `segfault` / `panic` / `abort` / `core dumped` / `unhandled exception` / `fatal` → **P0**.
+   - Otherwise (assertion failure / wrong-result / broken-flow) → **P1**.
+   The item's citation is the failing test's file:line plus the assertion excerpt **when the parser supplies file:line** (its `Evidence excerpt` column carries file:line only WHERE AVAILABLE). **When file:line is absent** (common for crash-shape and some runners), flag the item `locus-underdetermined`: Phase 1 triage derives the locus from the test name + assertion excerpt by reading the test file, and the Phase 3 executor's pattern-presence gate is relaxed from "confirm the bug pattern at the cited line" to "reproduce the failure, then fix to green." Never mint a TF item whose absent citation will make the executor BLOCK. Its "recommended fix" field is left for Phase 1 triage to derive from the cited code (a test failure does not pre-name its own fix). Write the synthetic items to `tasks/scratch/bug-blitz/{run-id}/test-failures.md` in the same row schema as the backlog so Phase 0.5 and Phase 1 treat them uniformly.
+   - **`flake` / `env` / `timeout` are NOT dispatched as fixes** — they are noted in the final report under a "Suite noise" line with the parser's evidence. A reproducible `flake` across two runs is itself a P1 bug (file it to the backlog via the report), but bug-blitz does not chase it in-wave on a single observation. **`known-skip` is ignored.**
+4. **Locus discrimination — failing test ≠ buggy test.** A `real` failure can mean the *code under test* is wrong (fix the code) OR the *test* is wrong (a stale assertion against intended new behaviour). This is the same fix-locus discrimination the bug rules demand: Phase 1 triage reads the cited test AND the code it exercises before classifying, and the executor's P0/P1 verification gate (Phase 3) applies. **Never "fix" a red test by weakening its assertion to green without evidence the assertion was wrong** — that is the cardinal failure mode of automated test-chasing and is treated as a `BLOCKED: assertion-weakening-without-evidence` report, not a fix.
+
+**Disk-first verification preamble (inline verbatim into the test-evidence-parser dispatch):**
+> Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+
+**Empty-backlog-and-green-suite short-circuit.** If the backlog is absent/empty AND the suite resolves, runs, and is fully green (zero `real` failures), there is no work: skip Phases 0.5–3, write no commit, and emit this one-line all-clear report — *"Bug-blitz {run-id}: backlog empty/absent, suite green — no work this run."* (Distinct from the Phase 4 step 3 no-op, which covers a *non-empty* backlog where nothing was fixable and points to `/bug-sweep` or `/plan`.) An all-clear is a useful signal, not a failed run.
 
 ## Phase 0.5: Severity Split (EM, ~1 min)
 
-Per § Severity-Tier Dispatch Rules above, split the backlog by severity before dispatching Phase 1 chunks. Output: three lists (P2, P1, P0) routed to different downstream shapes.
+Per § Severity-Tier Dispatch Rules above, split the combined work set — backlog items **plus the `TF-{run-id}-*` synthetic test-failure items from Phase 0.7** — by severity before dispatching Phase 1 chunks. Output: three lists (P2, P1, P0) routed to different downstream shapes. Test-failure items arrive already severity-tagged (P0 for crash-shape, P1 for assertion-shape) and slot directly into the P0/P1 lists — they do not get re-tagged, but they DO get Phase 1 triage (a failing test still needs its fix-locus derived from the cited code).
 
-1. **Tag any untagged items inline.** P2 default unless the entry's shape is `crash` / `data-loss` / `security` / `silent-corruption` (→ P0) or `wrong-behavior` / `breaking-flow` (→ P1).
+**Invariant — TF items NEVER skip Phase 1, regardless of severity.** Unlike a P2 backlog item (which carries a pre-declared footprint from its citation and may skip Phase 1), a test failure carries NO pre-declared footprint — the fix-locus is triage-derived, never citation-given. The file-disjoint wave-builder (Step 2.3) groups by footprint and has nothing to group on until triage derives it. A `TF-*` item reaching Step 2.3 without a Phase-1 footprint is a routing bug. (This is why TF items are minted P0/P1 only — there is no P2 TF path.)
+
+1. **Tag any untagged items inline.** P2 default unless the entry's shape is `crash` / `data-loss` / `security` / `silent-corruption` (→ P0) or `wrong-behavior` / `breaking-flow` (→ P1). `TF-*` items are pre-tagged by Phase 0.7 — leave them.
 2. **Route by tier:**
    - **P2 items skip Phase 1 entirely** — go directly to Phase 3 dispatch with footprint declared from the backlog citation.
    - **P1 items → Phase 1, chunks of ~20**, verify-only Haiku (still-open / already-fixed / file-removed).
@@ -118,6 +149,8 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 
 **Pre-classification eligibility — verify status freshness, not just FIXED tagging.** An entry tagged FIXED months ago may have a fresh IN-PROGRESS continuation underneath; check `git log -- <cited-path>` since the FIXED tag's date before pruning. "Already-fixed ghost" prunes can collateral-damage in-progress work.
 
+**Long-stale backlog — ghost-prune dominates fix-value; trust the header SHA over the per-entry OPEN field.** When Phase 0 step 5 shows `last_sweep_commit` many commits behind HEAD, the dominant value of this run is *pruning ghost entries* (items the backlog still marks OPEN but that are provably fixed or whose cited file is gone on HEAD), not net-new fixes — expect a high `already-fixed` / `file-removed` rate and treat the prune as the deliverable, not a thin run. When a per-entry `OPEN` status field disagrees with the backlog header's SHA attribution (the header is the freshest cross-cutting truth; per-entry status fields drift because they are hand-maintained per item), **trust the header SHA over the OPEN field** — re-verify against HEAD per the cited-file read, and close ghosts as `already-fixed` (commit SHA cited) or `file-removed` (`ls` confirms absence). A per-entry `OPEN` field is not evidence the bug is live; it is a stale assertion the verify step exists to overturn. **Stale per-entry status drifts in both directions** — a stale FIXED tag can hide live in-progress work (paragraph above), and a stale OPEN field can be a ghost (here); the resolution is the same in both cases — the per-entry status field is hypothesis, the HEAD re-verification is ground truth, and the SHA is a verification-triggering prior, never an auto-close. (see `docs/wiki/cleanup-sweep-hazards.md` § 19 — "entries that no longer reproduce get deleted"; sibling: `CLAUDE.md` § Verifying Handoff Premises — "broken-today claims need HEAD verification before action".)
+
 **Per-item verification + size classification.** Each agent, for each item:
 
 1. **Verify still-applies:**
@@ -136,8 +169,8 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 ```markdown
 | ID | Verdict | Size | Footprint | Notes |
 |----|---------|------|-----------|-------|
-| BS-2026-05-06-007 | still-open | small | bin/find-polluter.sh | Add `command -v npm` pre-flight + `set -o pipefail` |
-| BS-2026-05-06-001 | still-open | big | bin/coordinator-safe-commit, tests/... | Frontmatter parser refactor + new CRLF tests |
+| BS-2026-05-06-007 | still-open | small | find-polluter.sh | Add `command -v npm` pre-flight + `set -o pipefail` |
+| BS-2026-05-06-001 | still-open | big | coordinator-safe-commit, tests/... | Frontmatter parser refactor + new CRLF tests |
 | BS-2026-05-06-018 | already-fixed | — | — | Fixed in commit abc1234 |
 ```
 
@@ -235,16 +268,17 @@ Output one block, then proceed to Phase 3 immediately. Do not wait for response.
 ```
 ## Bug Blitz — Plan
 
-Backlog at start: N items
+Backlog at start: N items (or "backlog empty/absent")
+Suite baseline: <suite_state> — <P> real failures (flake/env/timeout: <Q>) → TF-{run-id}-* items
 Verified open: V (already-fixed: A, file-removed: R)
 Auto-spun-off (big): S → tasks/handoffs/...
-Queued for fix: F across W waves
+Queued for fix: F across W waves (backlog: Fb, test-failures: Ft)
 
 Wave 1 (parallel, file-disjoint): [item IDs]
 Wave 2 (parallel, file-disjoint): [item IDs]
 ...
 
-Tail: backlog updated with commit SHAs + spinoff paths. No /update-docs invoked.
+Tail: backlog updated with commit SHAs + spinoff paths; full suite re-run at Phase 4 gate. No /update-docs invoked.
 ```
 
 If `--dry-run`, stop here.
@@ -259,7 +293,8 @@ For each wave:
    - **Disk-first verification preamble (verbatim):**
      > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
    - The full backlog entry (severity, file:line, description, recommended fix)
-   - **P0/P1 verification gate (verbatim):** *"Before writing any fix: read the cited file:line and confirm the bug pattern is present in the current code. If the pattern is absent or has materially changed, STOP and report `BLOCKED: pattern-not-as-described` with what you actually found. Do not 'fix anyway' based on the description."*
+   - **P0/P1 verification gate (verbatim):** *"Before writing any fix: read the cited file:line and confirm the bug pattern is present in the current code. If the pattern is absent or has materially changed, STOP and report `BLOCKED: pattern-not-as-described` with what you actually found. Do not 'fix anyway' based on the description."* **(For `TF-*` items flagged `locus-underdetermined`, the gate is relaxed: reproduce the failing test first, confirm it fails, then fix — there is no cited line to anchor on.)**
+   - **Assertion-weakening prohibition (verbatim — REQUIRED for every `TF-*` test-failure item):** *"This item is a failing test. You MUST NOT make the test pass by weakening, deleting, loosening, or skipping its assertion (or marking it xfail/skip) UNLESS you have concrete evidence the assertion itself is wrong — i.e. it encodes a stale expectation against intended new behaviour. Fixing the code under test is the default. If you believe the test is genuinely wrong, STOP and report `BLOCKED: assertion-weakening-without-evidence` with the evidence (the commit/spec that changed the intended behaviour), rather than editing the assertion. Greening a test by deleting its check is the cardinal failure mode this skill exists to prevent."*
    - **Footprint constraint:** *"You MUST NOT modify any file outside this footprint: [list]. If you discover you need to, STOP and report `BLOCKED: footprint-overflow`."*
    - **Edit-and-report constraint (executors do NOT commit):**
      > After your edit: (1) re-read the cited code and confirm the bug pattern is gone; (2) run any local tests under the same directory as the modified file — if tests fail, revert your edit (`git checkout -- <paths>` is fine here because executors leave the working tree unstaged and the EM has no concurrent unstaged work for this item) and report `BLOCKED: regression`. **Do NOT stage and do NOT commit. Leave changes unstaged in the working tree** — the EM stages and commits each item serially at the wave gate. Helper invocation (`coordinator-safe-commit`) is forbidden in executor scope: empirically (smoke 2026-05-06-22h42) it produced concurrent-commit absorption and scope sweep.
@@ -292,9 +327,19 @@ For each wave:
 
 **Single-item waves execute the same way** — overhead of background dispatch is small and consistent shape simplifies recovery. The EM-serial commit pattern is unchanged for single-item waves (one commit by EM).
 
-## Phase 4: Update Backlog + Report
+## Phase 4: Green-Suite Gate + Update Backlog + Report
 
 After all waves complete:
+
+0. **Green-suite gate — re-run the full suite (mandatory, every run that dispatched any fix).** Re-resolve and re-run the Phase 0.7 test command through `test-evidence-parser` against HEAD (post-fix tree). Deliverable: `tasks/scratch/bug-blitz/{run-id}/suite-final.md`. Compare against the Phase 0.7 baseline:
+   - **All `real` failures cleared → gate PASS.** Record the green result for the report.
+   - **A baseline failure persists** → the TF item's fix did not take. It was committed at the wave gate only if its verifier returned PASS, so a persistent failure means the verifier and the suite disagree — re-read the cited test and code, and either (a) dispatch one more corrective wave this run, or (b) if oversized, `git revert` the non-working fix commit and surface the TF item as a spinoff. Do NOT report the run green with a known-red suite. (This is a *pre-existing* failure that stayed red — reverting the attempted fix returns the suite to its baseline state, which is acceptable; the unfixed test was already red when the run started.)
+   - **A NEW failure appeared that was green at baseline → regression introduced by this run's fixes.** This is the highest-priority signal, and its terminal state is **mandatory revert, not surface-and-leave**. Identify the introducing commit (`git log` since baseline over the failing test's exercised paths). Attempt a correction in one more wave; if that wave does not restore green, **`git revert <introducing-sha>`** (NOT `git reset` — the commit is already pushed by the auto-push hook, and the shared-branch doctrine forbids history rewrites on a pushed branch), then re-run the gate to confirm green-restored. Name the reverted regression explicitly in the final report. A bug-blitz must NEVER end with the suite redder than it found it on a self-inflicted regression — reverting the regression is non-negotiable; "stop chasing the original TF item and spin it off" is the acceptable part, "leave the regression on the branch" is not.
+   - **Suite `unconfigured`** (Phase 0.7 resolver exit 2): the gate is a no-op; the final report carries the `unconfigured` remediation note. The backlog leg still completes normally.
+
+   **Loop bound — one corrective wave, then a forced terminal state (never an open loop):**
+   - *Pre-existing failure still red after one corrective wave:* stop chasing in-wave, leave the (reverted-to-baseline) state, surface the residual red test to the PM as a spinoff candidate. The suite is no worse than at baseline.
+   - *Self-inflicted regression still red after one corrective wave:* `git revert` the introducing commit (above), confirm the gate goes green, then surface the original TF item as a spinoff. The suite returns to baseline-or-better. Either way the run does not loop a second corrective wave.
 
 1. **Final backlog update — prune-with-paper-trail.** The fixes themselves are the paper trail (each PASS item committed individually in Phase 3 with the item ID in the commit subject); Phase 4 removes the now-redundant backlog rows so the backlog doesn't bloat. Phase 4:
    - Updates the header: `last_run: bug-blitz-{run-id}`, `last_run_commit: <new-HEAD>`, current open counts.
@@ -323,7 +368,7 @@ After all waves complete:
 
 **Run:** {run-id} | **Backlog at start:** N | **Backlog at end:** M
 
-**Resolved this run:** F items
+**Resolved this run:** F items (backlog: Fb, failing tests fixed: Ft)
 - [list with item ID + commit SHA]
 
 **Spun off (need plan):** S items
@@ -335,7 +380,9 @@ After all waves complete:
 **Re-attempted (still blocked):** R items
 - [list with item ID + reason]
 
-**Test status:** [pass/fail counts from final test run]
+**Suite gate:** [baseline: P real failures → final: green | still-red: <IDs> | regression-introduced: <IDs> | unconfigured (remediation: set fast_test_cmd: in coordinator.local.md)]
+
+**Suite noise (not chased):** [flake/env/timeout counts from baseline, with parser evidence; a reproducible flake filed to backlog is named here]
 ```
 
 ## Post-Ship Cleanup
@@ -346,7 +393,12 @@ After canonical outputs are committed, delete the working-notes scratch director
 
 | Situation | Action |
 |-----------|--------|
-| `tasks/bug-backlog.md` missing | Halt Phase 0; recommend `/bug-sweep` first |
+| `tasks/bug-backlog.md` missing/empty | Do NOT halt — run the test-suite leg (Phase 0.7); only short-circuit to green no-op if the suite is also clean. Recommend `/bug-sweep` in the report if the suite was green and the backlog absent. |
+| Test command unconfigured (resolver exit 2) | Continue on the backlog leg; report the `unconfigured` remediation (`full_test_cmd:` in `coordinator.local.md`, or `fast_test_cmd:` for fast-tier coverage). Do NOT fabricate a test command. |
+| No `full_test_cmd` configured (resolver exit 3) | Run the fast-tier fallback; report coverage honestly as `fast-fallback` with the `set full_test_cmd:` remediation. Do NOT label a fast-fallback run "the entire test suite." |
+| `test-evidence-parser` returns text-only (no file) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure EM runs the suite directly and persists the classification. |
+| Suite gate (Phase 4 step 0) still red after one corrective wave | Stop chasing in-wave; leave committed-up-to-last-green; surface residual red tests to PM in the report. Do NOT report green. |
+| Fix would weaken a test's assertion to pass | `BLOCKED: assertion-weakening-without-evidence` — never green a test by deleting its check; reclassify (code-bug vs stale-test) with evidence or spin off. |
 | Off active workstream branch (not `work/{machine}/{date-or-span}`) | Halt Phase 0 |
 | Phase 1 chunk Haiku returns text-only (no file written) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure, EM persists agent's inline output |
 | Executor reports `BLOCKED: pattern-not-as-described` | Update backlog with revised description; do NOT fix anyway |
@@ -370,13 +422,14 @@ In all cases: commit completed waves, update backlog with current state, write a
 - **`/mise-en-place`** — for pre-spec'd executor stubs (reviewed-and-sealed plan items). Bug-blitz handles the un-spec'd backlog case where triage is the spec-creation step.
 - **`/spinoff`** — convention used by Phase 2.1 to fork big items into pickup-ready handoffs.
 - **`/debt-triage`** — separate skill for `tasks/debt-backlog.md` (technical debt, not bugs). Different file, conversational prioritization.
-- **`/learn-lessons`** — if blitz reveals recurring patterns (e.g., 3 different items all flag the same hook bug), capture the meta-lesson.
+- **`/validate`** — shares the single-owner resolver lib (`coordinator/lib/coordinator-resolve-validation-cmd.sh`). `/validate` resolves the **fast** tier (`cs_resolve_fast_test_cmd`) and runs it once, reporting an enum. Bug-blitz resolves the **full** tier (`cs_resolve_full_test_cmd`, which falls back to fast with a caveat when no `full_test_cmd` is set), runs it, *chases the failures*, and re-runs as a green-suite gate. Neither inlines its own resolution — the tiers are siblings in one lib so they can't diverge.
+- **`/learn-lessons`** — if blitz reveals recurring patterns (e.g., 3 different items all flag the same hook bug, or the same test flakes every run), capture the meta-lesson.
 
 ## Surface Integration
 
 `/bug-blitz` is wired into the discovery surfaces (smoke run 2026-05-06-22h42 follow-up):
 
-- **`/session-start`** — "work the backlog" framing advocates `/bug-blitz` when `tasks/bug-backlog.md` exists with ≥10 open P1+P2 items.
+- **`/session-start`** — "work the backlog" framing advocates `/bug-blitz` when `tasks/bug-backlog.md` exists with ≥10 open P1+P2 items, OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
 - **`/workday-start`** — Step 1.55 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
 - **`/workweek-complete` Step 4** — bug-backlog depth check joins the improvement-queue triage gate; ≥10 open proposes a blitz, otherwise summarised.
 - **Coordinator README** — listed adjacent to `/bug-sweep` in the commands table, failure-modes section, and skills section.

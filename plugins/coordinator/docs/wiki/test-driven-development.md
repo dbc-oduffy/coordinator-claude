@@ -20,7 +20,7 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 ## Two loops: inner red-green, outer acceptance oracle
 
-> Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md`. Sibling doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop).
+> Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md`. Sibling doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop).
 
 Test-driven development at this project runs at two altitudes:
 
@@ -218,6 +218,12 @@ Can't check all boxes? You skipped TDD. Start over.
 | Test too complicated | Design too complicated. Simplify interface. |
 | Must mock everything | Code too coupled. Use dependency injection. |
 | Test setup huge | Extract helpers. Still complex? Simplify design. |
+
+## Test-Plan Execution as Bug-Finding Tool
+
+**Test-plan execution surfaces bugs faster than the eventual tests do.** The act of asking "what real behavior does this assert?" against a real shell/script forces blind spots into view — bugs surface during test-writing (as executor blockers) rather than when CI runs green tests post-ship. Across a 9-workstream install-script test plan, 6 production bugs were surfaced during test-writing, not via the eventual green tests.
+
+Conclusion: a test plan IS a bug-finding tool from the moment drafting begins, not just a specification for what tests to write later. (Source: project-rag L47) → `test-design-discipline.md` §44 (bound every run), §36 (60-second reproducer before re-firing).
 
 ## Test-Plan Drafting as Bug Discovery
 

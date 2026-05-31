@@ -23,7 +23,10 @@
 # Input schema (PreToolUse for Write/Edit/NotebookEdit):
 #   { "tool_name": "Write|Edit|NotebookEdit", "tool_input": { "file_path": "..." }, ... }
 #
-# Deny mechanism: exit non-zero with JSON {"decision":"block","reason":"..."} on stderr.
+# Deny mechanism (Form A): emit JSON {"hookSpecificOutput":{...,"permissionDecision":
+# "deny",...}} to STDOUT and exit 0. PreToolUse hooks that exit non-zero with JSON on
+# stderr (Form B) are silently swallowed — the tool call proceeds. See
+# docs/wiki/hook-best-practices.md § "PreToolUse deny: JSON output, not exit 2".
 
 set -uo pipefail
 
@@ -89,7 +92,21 @@ fi
 # Bundled copy exists — this write would re-introduce the dual-tree trap. BLOCK.
 REASON="Write-direction trap: ${WIKI_FILENAME} already exists as a plugin-doctrine wiki at ${BUNDLED_PATH}. Writes must go to the bundled path, not the dev-side path (${FILE_PATH_EXPANDED}). Override: set COORDINATOR_OVERRIDE_WIKI_MIRROR=1 only if this is intentionally a separate project-level wiki."
 
-REASON_ESCAPED="${REASON//\"/\\\"}"
-printf '{"decision":"block","reason":"%s"}\n' "$REASON_ESCAPED" >&2
+if command -v jq &>/dev/null; then
+  jq -nc --arg reason "$REASON" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $reason
+    }
+  }'
+else
+  esc="${REASON//\\/\\\\}"
+  esc="${esc//\"/\\\"}"
+  esc="${esc//$'\n'/\\n}"
+  esc="${esc//$'\t'/\\t}"
+  esc="${esc//$'\r'/}"   # strip bare CR — invalid inside a JSON string (Windows path interp)
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+fi
 
-exit 1
+exit 0

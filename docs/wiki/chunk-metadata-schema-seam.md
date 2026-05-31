@@ -76,7 +76,7 @@ cross-repo PR that introduces the seam must land host changes (seam + empty
 `_HOST_SOURCE_TYPE_EXTRAS`) and addon changes (15 source_type specs via hookimpl)
 atomically. There is no transitional state where host holds UE rows even temporarily.
 
-## Anti-patterns (from the Staff Engineer consult, abridged)
+## Anti-patterns (from Patrik consult, abridged)
 
 These seven anti-patterns shaped the γ-prime design. The full analysis is in
 `tasks/w2a-1i-revised/patrik-pluggy-seam-design-2026-05-16.md §5`.
@@ -194,7 +194,7 @@ and is not a host gate for this plan.
 ## References
 
 - Plan: `docs/plans/2026-05-16-host-pluggy-chunk-metadata-schema-seam.md`
-- the Staff Engineer consult: `tasks/w2a-1i-revised/patrik-pluggy-seam-design-2026-05-16.md`
+- Patrik consult: `tasks/w2a-1i-revised/patrik-pluggy-seam-design-2026-05-16.md`
 - v6 precedent: `core/addon_hookspecs.py:543-577` (`register_schema_tables`, `register_schema_edge_types`)
 - Addon protocol v7 bump notes: `docs/wiki/addon-protocol.md` (v7 section)
 - Polarity rule: `CLAUDE.md § Ambition`

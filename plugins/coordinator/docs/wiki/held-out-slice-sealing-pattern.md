@@ -96,6 +96,8 @@ that author or shape-mine. Not in a referenced file. Not in a
 "see `eval/sealed-ids.txt`" pointer. **Inlined.** Executors that need to
 evaluate get the unseal authority for that one wave only.
 
+**Quarantine-pattern dispatches need section-scoped read mechanics, not just "skip" instructions.** Telling an agent "read file X but skip sections matching Y" does not prevent a single `Read` call that loads the whole file — the seal is then structurally broken even if the deliverable doesn't cite Y. Fix: pre-compute line ranges per allowed section in the dispatch brief, forbid `Read` without `offset` + `limit ≤ N` on the quarantined file, require a post-write scan for forbidden tokens. Generalizes to any held-out evaluation, secrets-in-config sealing, or contaminated-source quarantine. (Source: project-rag-ue-addon L23)
+
 ## When to Use This Pattern
 
 - Eval-driven artifact library where authoring and evaluation share an

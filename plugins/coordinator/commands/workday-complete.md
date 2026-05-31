@@ -30,20 +30,68 @@ If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` 
 - **Exit 1 (one or more resolved to blocked):** halt and report. Fix the C++ compile error, then run `/workday-complete` again. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM explicitly authorises bypassing the gate.
 - **Script absent:** skip silently. Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/session-end` Step 2.9.
 
+Source the fast-test resolver lib and invoke `/validate`'s resolver to discover the configured command for this repo:
+
 ```bash
-python .github/scripts/run-all-checks.py
+_LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-resolve-validation-cmd.sh"
+_RESOLVE_TMP=$(mktemp)
+trap 'rm -f "$_RESOLVE_TMP"' EXIT
+
+if [[ -f "$_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$_LIB"
+  CMD=$(cs_resolve_fast_test_cmd 2>"$_RESOLVE_TMP")
+  RC_RESOLVE=$?
+else
+  echo "WARN: resolver lib not found at $_LIB — skipping fast-test gate" >&2
+  RC_RESOLVE=2
+  CMD=""
+fi
+
+if [[ $RC_RESOLVE -eq 0 ]]; then
+  # bash -c (child-shell sandbox) — does NOT prevent the configured command from
+  # running arbitrary code (the trust model permits that by design), but isolates
+  # the child process from this shell's variable namespace, preventing
+  # assignment-injection clobber of RC_VALIDATE / $? / other caller state.
+  bash -c "$CMD"
+  RC_VALIDATE=$?
+  # RC_VALIDATE populates Validation: in the changelog block (Step 9).
+elif [[ $RC_RESOLVE -eq 2 ]]; then
+  RC_VALIDATE="skipped"
+  [[ -s "$_RESOLVE_TMP" ]] && cat "$_RESOLVE_TMP" >&2
+fi
 ```
 
-Capture the exit code — it populates `Validation:` in the changelog block.
+`$RC_VALIDATE` populates `Validation:` in the changelog block (Step 9). A value of `skipped` means no fast-test command was configured — see the resolver's stderr output for remediation steps.
 
-- **Build failure:** stop and fix.
-- **Non-build failure:** fix what's quick, flag the rest, proceed.
+- **Build failure (`RC_VALIDATE` non-zero, build error in output):** stop and fix.
+- **Non-build failure (`RC_VALIDATE` non-zero, test failures only):** fix what's quick, flag the rest, proceed.
+- **`skipped`:** no fast-test configured for this repo. Set `fast_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FAST_TEST_CMD` to enable.
 
 ---
 
 ## Step 2: RAG Staleness Nudge (informational)
 
 If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. Surface in the final summary only if verdict is `stale` or `very-stale`. Skip silently otherwise.
+
+---
+
+## Step 2.5: Pre-terminate dirty-tree gate
+
+**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before Branch Consolidation (Step 3) — the merge/rebase will fail opaquely on an unrecognized dirty tree — run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path:
+
+- **(a) This session authored it** → it belongs in this terminator's scoped commit (handled by the existing scope/commit step).
+- **(b) A known concurrent session owns it** → leave it alone (existing rule). "Known" means you can name the workstream/session — a sibling `scope:` block, an active handoff, or a session claim under `.git/coordinator-sessions/` accounts for it. The machine-checkable form of "a session claim accounts for it" is a handoff-frontmatter `consumed_by:` field naming another session's id (sourced from `.git/coordinator-sessions/.current-session-id` per `schemas/handoff.yaml`) — grep for that to tie the prose signal to a field an executor can actually check.
+- **(c) Unattributable** — a dirty file you did NOT author AND cannot tie to a named concurrent owner (the classic case: an abandoned partial revert or orphaned edit from a crashed session). **Do NOT silently leave these — they wedge the next session opener.** Fail loud and pick exactly one disposition, in this order of preference:
+  1. **Commit** with provenance if the change is coherent and you can attribute it: `git add -- <path> && git commit -m "chore: adopt orphaned WT change <path> — unattributed at workday-complete"`.
+  2. **Stash-with-provenance** if it is incoherent or risky to commit: `git stash push -u -m "orphaned-WT <YYYY-MM-DD> workday-complete: <path> — left by unknown session" -- <path>`. Name the stash so the next session can find and adjudicate it (per CLAUDE.md "Probe edits in `git stash push -u` / `pop`").
+  3. **Explicit "leave it owned by X"** only when you can now name the owner — record a one-line note (in the handoff body / session summary) stating which session/workstream owns it, converting it from case (c) to case (b).
+
+The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write crash, per CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash them blind.
+
+**Cross-reference:** Step 3 sub-step 3 already halts on non-trivial merge conflicts (line 72) — the dirty-tree gate is the *upstream* catch that prevents an unattributable dirty tree from reaching that merge at all.
+
+**Note — this dirty-tree gate is replicated across all three session terminators (session-end, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (session-end commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
 
 ---
 
@@ -116,7 +164,7 @@ summary noting "no work today" and skip Steps 4b–4e.
 
 ```bash
 mkdir -p tasks/daily-review-scratch
-bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/standup.sh" > tasks/daily-review-scratch/inventory.md
+bash "${CLAUDE_PLUGIN_ROOT}/bin/standup.sh" > tasks/daily-review-scratch/inventory.md
 ```
 
 The script emits: baseline SHA/timestamp, commit inventory, file-change summary by directory,
@@ -126,7 +174,7 @@ Also query today's completion entries and write to scratch for analyst use:
 
 ```bash
 TODAY=$(date +%Y-%m-%d)
-query-completions --where "created=$TODAY" --format json \
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created=$TODAY" --format json \
   > tasks/daily-review-scratch/completions-today.json
 ```
 
@@ -149,34 +197,37 @@ Summary of what the analyst does:
 
 Wait for the analyst to complete before Step 4c.
 
-### Step 4c: Reviewer Dispatch
+### Step 4c: Strategic Observer Dispatch (Sonnet, non-persona)
 
-Route to a reviewer based on the dominant domain of today's work. Full routing table:
-`docs/wiki/daily-summary-procedure.md` § Routing Table.
+Dispatch an **unnamed Sonnet worker** (`general-purpose`, `model: "sonnet"`) — **NOT** a named
+persona. Personas (the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer / the Front-End Reviewer) are Opus-only and reserved for the **weekly**
+arch pass (`/workweek-complete` Step 7.5), the merge gate, and explicit architectural decisions.
+Routing the daily review to a persona puts Opus persona-judgment on a *daily* ceremony — the
+miscalibration this step exists to avoid. (Same move as Sonnet-tier code review going to the
+non-persona `code-reviewer`: recurring lightweight passes do not get persona judgment.)
 
-Quick reference:
+**The daily worker is an observer, not a judge.** Its job is to leave a **paper trail for
+future-the Staff Engineer** — surface alignment notes, debt candidates, and architectural-risk *flags*. It
+renders **no final architectural verdict**; it flags candidates for weekly adjudication. The weekly
+Opus the Staff Engineer arch pass (Step 7.5) consumes the week's accumulated trail and judges.
 
-| Dominant change type | Reviewer |
-|---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
-| Data / ML / science | the Data Science Reviewer |
-| Mixed, backend, or architecture | the Staff Engineer |
+It appends a `## Strategic Review (Sonnet daily observer)` section to the daily summary and writes
+any flagged items as `tasks/debt-backlog.md` rows (DSR-{date}-{N} format), tagging architectural
+flags `for-weekly-arch-review` so the Staff Engineer's Step 7.5 can find them.
 
-Dispatch the selected reviewer as a **Sonnet** agent.
-
-Full prompt template: `docs/wiki/daily-summary-procedure.md` § Sonnet Reviewer Prompt Template.
-The reviewer appends a `## Strategic Review` section to the daily summary and optionally adds
-rows to `tasks/debt-backlog.md` (DSR-{date}-{N} format — see wiki for schema).
+Full prompt template: `docs/wiki/daily-summary-procedure.md` § Daily Strategic Observer Prompt Template.
 
 ### Step 4d: Health Ledger Update
 
 After the reviewer completes:
 1. Read `tasks/health-ledger.md`. If missing, create from schema in
    `docs/wiki/daily-summary-procedure.md` § Health Ledger Entry Schema.
-2. Update `Last daily check` to today's date.
-3. Update grades for any system flagged by the reviewer; add new rows (grade `?`) for systems
-   touched by commits that have no row yet.
+2. Add new rows (grade `?`, unaudited) for any system touched by today's commits that has no row yet.
+3. Do **NOT** touch the two audit clocks (`Last full audit`, `Last targeted audit`) or any system's
+   grade. Those clocks are written only by `/architecture-survey` (full) and `/architecture-audit`
+   (targeted) — the ledger header warns against conflating them, and the daily wrap is neither. The
+   daily Sonnet observer is an *observer*: it flags candidates as `tasks/debt-backlog.md` DSR rows, it
+   does not assign grades. Grade changes come from audits, not from the daily wrap.
 
 ### Step 4e: No Commit Here
 
@@ -206,7 +257,7 @@ than re-deriving contribution summaries from raw entries.
 
 ```bash
 TODAY=$(date +%Y-%m-%d)
-query-completions --where "created=$TODAY" --format json > /tmp/completions-cluster-$TODAY.json
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created=$TODAY" --format json > /tmp/completions-cluster-$TODAY.json
 ```
 
 Parse the JSON output. Group entries by their `chain:` field value. Entries with no `chain:` field
@@ -220,8 +271,11 @@ For each `chain:` group with **≥ 2 entries**:
    `archive/completions/2026-05-19/chunk-1a.md` sorts before `archive/completions/2026-05-19/chunk-1b.md`).
 
 2. **Idempotency check** — read the lead entry's frontmatter. If `narrative:` is already present
-   AND the `body:` field of no entry in the chain has changed since `narrative:` was written,
+   AND the body text below the closing `---` frontmatter delimiter of every entry in the chain
+   is identical to what it was when `narrative:` was written (read the current body and compare
+   it byte-for-byte to the body captured at narrative-write time — if identical, skip),
    **skip this chain** (no-op).
+   <!-- Review: code-reviewer — tightened from "compare by hash or direct content comparison" to specify the comparison operands clearly: current body text vs. body at narrative-write time -->
 
 3. **Dispatch a Sonnet `general-purpose` worker** (≤2KB output) with this prompt (inline — no
    subagent skill expansion):
@@ -253,10 +307,11 @@ Skip — no narrative synthesis needed. The entry's own `title:` and `body:` are
 ### Step 4.5d: Idempotency Guarantee
 
 Re-running Step 4.5 on the same day:
-- Chains where every entry's `narrative:` / `narrative_in:` is already set AND no `body:`
-  has changed → **all skipped** (zero writes, zero dispatches).
-- Chains where a `body:` changed since the last run → narrative re-synthesized (worker
-  dispatched, lead entry overwritten).
+- Chains where every entry's `narrative:` / `narrative_in:` is already set AND the file
+  content below the closing `---` frontmatter delimiter of every entry is unchanged →
+  **all skipped** (zero writes, zero dispatches).
+- Chains where the content below the closing `---` of any entry has changed since the last
+  run → narrative re-synthesized (worker dispatched, lead entry overwritten).
 
 ### Step 4.5e: No Commit Here
 
@@ -323,7 +378,7 @@ daily summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` an
 from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5
 exit codes — it is not LLM-authored prose.
 
-**`Reviewed:` field** — read all `tasks/review-trail/*.json` files whose filename begins with today's date (`YYYY-MM-DD-*`). For each record, emit one line:
+**`Reviewed:` field** — read all records returned by `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `tasks/review-trail/` and `archive/review-trail/**` — catches records archived by a prior `/workweek-complete`). For each record, emit one line:
 ```
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 ```

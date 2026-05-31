@@ -201,6 +201,60 @@ Scout 2 (chunks C, D) ─┘                                          │
 
 **Composes with `--compare`:** `--deepest --compare` produces assessment + comparison + atlas. The atlas draws from assessment data only; comparison artifacts are independent.
 
+## Fidelity Relay Protocol
+
+> **Upstream doctrine:** `coordinator/CLAUDE.md § Agent Teams — blockedBy Is a Gate, Not a Trigger`; `agent-teams-patterns.md`.
+
+**When this fires:** Repo runs only — gated to `--deepest` flag. `--deeper` and non-flag runs skip this phase entirely.
+
+**Relay locus: Team 1, before the EM's TeamDelete step.** This is an internal synthesizer phase that runs after Phase 3 framing is complete but **before the synthesizer marks its task complete** and **before the EM triggers TeamDelete**. Specialists are alive-but-idle at this point (see Convergence Protocol § Early convergence note above) — they have completed their tasks but the team has not been torn down. No extra teammate slots are consumed. The relay fits cleanly within the 7-teammate ceiling.
+
+**Relay sequence (synthesizer responsibility — see `agents/research-synthesizer.md § Fidelity Relay`):**
+
+1. For each specialist, send a `FIDELITY_RELAY` message (wake-up mechanism — same wake-via-SendMessage pattern as specialist→synthesizer DONE at :75 above):
+   ```
+   FIDELITY_RELAY: [CHUNK_LETTER]
+   Please verify that YOUR contributed findings are faithfully represented in the
+   synthesis draft at {output-path}. Check ONLY for misrepresentation, flattening,
+   or distortion of your existing findings — NOT for missing content you wish were added.
+   Reply with FIDELITY_CORRECTION or FIDELITY_OK (see your Fidelity Relay section).
+   You have 2 minutes to respond.
+   ```
+
+2. **Per-specialist bounded timeout:** mirror the 2-minute CHALLENGE timeout from Convergence Protocol above. Specialists who converge early remain alive-but-idle but re-poll responsiveness after task-complete is not guaranteed.
+
+3. **On non-response:** proceed without that specialist's confirmation. The synthesizer notes the non-response explicitly in the synthesis (`[RELAY: {CHUNK_LETTER} specialist did not respond within timeout — relay unconfirmed for this chunk]`). **Never hang the pipeline waiting for a non-responding specialist.**
+
+4. **Bloat-guard (structural discriminator):** A valid fidelity correction must reference an **existing synthesis sentence** and assert it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. Reject add-content requests under the synthesizer's existing preserve-don't-inflate mandate.
+
+5. Integrate valid corrections, then do a second pass for coherence on touched prose only.
+
+6. Only after completing steps 1–5: synthesizer marks its task complete.
+
+**Author-scoped check (for specialists):** When you receive `FIDELITY_RELAY`:
+- Check ONLY: is YOUR finding faithfully represented, or was it flattened/distorted/over-stated?
+- Do NOT request additions of content you wish were included — that is out of scope by construction.
+- Reply `FIDELITY_CORRECTION: [CHUNK_LETTER]` with the existing synthesis sentence and the misrepresentation, OR `FIDELITY_OK: [CHUNK_LETTER]`.
+- You have 2 minutes. If you cannot respond in time, the synthesizer proceeds without your confirmation.
+
+## Coverage-Auditor Lifecycle
+
+The coverage auditor is a **non-teammate Agent** dispatched by the EM **after the synthesis is complete** (at the "On Completion Notification" step in `pipelines/repo-driver.md`), before archive/TeamDelete. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework (the "author confidence is the failure mode" principle from `plan-coverage-checker.md`).
+
+**What it does:** Cross-references specialist `*-claims.json` and `*-summary.md` records against the synthesis. Emits one sidecar: `{output-path minus .md}-coverage-audit.md`. Never writes the synthesis output path.
+
+**Two coverage artifacts, two questions — explicit reader contract:**
+- `gap-report.md` (where applicable) — "Did we research enough?" (input coverage, synthesizer-owned)
+- `-coverage-audit.md` — "Did the synthesis carry the research?" (output coverage, reader-facing completeness, auditor-owned)
+
+**Auditor lifecycle notes:**
+- Dispatched as a plain `Agent(...)` call, not under the team — preserves the 7-teammate ceiling (precedent: Atlas Sketch and Atlas Refinement in `--deepest` mode are also non-teammate subagents for the same reason).
+- Input universe: specialist claim records only (`*-claims.json`, `*-summary.md`). `[SWEEP ADDITION]` content is excluded from the denominator (no upstream claim record; including it causes false-absent noise).
+- Coverage classification is binary: **present-with-pointer** or **absent**. "Under-represented" is a judgment beyond a Sonnet cross-reference pass.
+- `[UNFILLED GAP]` inline markers in the synthesis remain in synthesis prose (reader-facing); the auditor's Completeness Map consolidates and references them — it does not delete them.
+
+See `agents/coverage-auditor.md` for the full agent spec.
+
 ## Comparison Mode
 
 When `--compare <project-path>` is provided:

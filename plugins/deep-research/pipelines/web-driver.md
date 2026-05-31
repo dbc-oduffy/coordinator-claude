@@ -179,9 +179,47 @@ When you receive a notification that the sweep task is complete:
    ```bash
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: Team 1 complete — {topic-slug}"
    ```
-6. Shut down Team 1: `TeamDelete(team_name: "research-{topic-slug}")`
+6. **Dispatch the coverage auditor** (always-on for web — see § Coverage Auditor Dispatch below).
+7. Shut down Team 1: `TeamDelete(team_name: "research-{topic-slug}")`
 
 **Proceed to Step 6.5** (do NOT archive yet — deepening may add to the scratch directory).
+
+### Coverage Auditor Dispatch
+
+> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
+> § C4-web, § Resolved Decisions OD-2, § AC1, AC7, AC12
+
+The coverage auditor is **always-on for web**. Dispatch it after reading the synthesis (steps 1–4 above) and **before TeamDelete** — this is the resolved-decision contract (RD-1). The auditor must run before TeamDelete; do not defer it to after shutdown.
+
+**The auditor is a non-teammate `Agent(...)` — NOT a team member under `TeamCreate`.** This preserves the 7-teammate ceiling (1 scout + 5 specialists + 1 sweep = 7; auditor is post-synthesis and outside the team). Precedent: `repo-driver.md` survey (`:65`) and atlas-sketch (`:265`) as non-teammate Agents. Upstream doctrine: `claude-code-platform-gotchas.md:333` and `staff-sessions.md:109`.
+
+Fill the dispatch prompt from the Pipeline A block of `pipelines/coverage-auditor-prompt-template.md`. Required fields:
+
+- `[SYNTHESIS_PATH]` → `{output-path}`
+- `[OUTPUT_PATH_WITHOUT_EXTENSION]` → `{output-path}` minus `.md`
+- `[SCRATCH_DIR]` → `{scratch-dir}`
+- Pipeline input block: **Pipeline A — Web Research**
+
+```
+Agent(
+  subagent_type: "deep-research:coverage-auditor",
+  prompt: <filled coverage-auditor-prompt-template.md — Pipeline A block>
+)
+```
+
+Await the `DONE: {sidecar-path}` reply before proceeding to TeamDelete. The sidecar is written to `{output-path minus .md}-coverage-audit.md`.
+
+**Present the coverage-audit sidecar to the PM in Step 7** alongside the synthesis (see § Step 7 update below).
+
+### Fidelity Relay — Locus and Gating (web)
+
+> **Spec backlink:** § Resolved Decision OD-2 — relay locus is Team 1, not Team 2.
+
+The fidelity relay (when applicable per the applicability matrix) is a **Team-1 internal sweep phase that runs BEFORE this step's TeamDelete**. Its mechanics live in `agents/research-synthesizer.md` (C5). This driver states the gating contract so executors cannot mis-wire it:
+
+- **Locus is always Team 1**, before Step 6 TeamDelete. The original specialists (the authors whose content the relay protects) are alive-but-idle in Team 1 at this point. By the time Team 2 runs (Step 6.6), they are gone — Team 2 is fresh gap-specialists, not original authors.
+- **The relay is decoupled from the Step 6.5 deepening gate.** The gap-report signal may share the relay's gating threshold condition, but gating that signal ≠ routing relay execution into Team 2. The relay executes in Team 1 regardless of whether deepening follows.
+- **Do NOT wire the relay into Team 2 (Step 6.6).** A Team-2 relay would wake agents that no longer exist. The Step 6.5 / 6.6 blocks are deepening-only; relay execution must complete before reaching them.
 
 ## Step 6.5 — Deepening Decision Gate
 
@@ -227,6 +265,7 @@ When the Team 2 sweep completes:
    - If deepening occurred: "Research complete (2 passes). Team 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); Team 2 filled {N}. See synthesis at `{output-path}`."
    - If no deepening: "Research complete (single pass). Coverage score: {coverage_score}/5. See synthesis at `{output-path}`."
    - If advisory exists: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
+   - Always include: "Coverage audit: `{output-path minus .md}-coverage-audit.md` — {present_count} specialist claims present, {absent_count} absent. {If absent_count > 0: 'See the Completeness Map in the sidecar for gaps and deeper-reading pointers.'}"
 
 ## Error Handling
 

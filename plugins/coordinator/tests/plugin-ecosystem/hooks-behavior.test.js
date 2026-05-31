@@ -725,3 +725,77 @@ describe('reviewer-calibration sentinel sync (informational — may fail before 
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// block-subagent-archive-write.sh — daily-summary carve-out + scope discrimination
+// ---------------------------------------------------------------------------
+
+describe('block-subagent-archive-write.sh', () => {
+  const ARCHIVE_HOOK = path.join(
+    COORDINATOR_DIR, 'hooks', 'scripts', 'block-subagent-archive-write.sh'
+  );
+  // Valid agent_id per the hook's format guard: lowercase hex, 12+ chars.
+  const AID = 'abf1293aa3405b695';
+
+  /** Run the hook with a hook-input JSON on stdin. Returns { status, stdout }. */
+  function runHook(inputObj, env = {}) {
+    const r = spawnSync('bash', [ARCHIVE_HOOK], {
+      input: JSON.stringify(inputObj),
+      encoding: 'utf-8',
+      timeout: 10000,
+      env: { ...process.env, ...env },
+    });
+    return { status: r.status, stdout: r.stdout || '' };
+  }
+  const isDeny = (out) => out.includes('"permissionDecision":"deny"');
+
+  it('ALLOWS a subagent writing the dated daily-summary file (the Step 4b/4c sanctioned path)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Write', agent_id: AID,
+      tool_input: { file_path: 'archive/daily-summaries/2026-05-27.md' } });
+    assert.equal(r.status, 0);
+    assert.ok(!isDeny(r.stdout), 'dated daily-summary write must NOT be denied');
+  });
+
+  it('ALLOWS the same path with backslash separators (Windows normalization)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Edit', agent_id: AID,
+      tool_input: { file_path: 'archive\\daily-summaries\\2026-05-27.md' } });
+    assert.ok(!isDeny(r.stdout), 'backslash daily-summary path must normalize and allow');
+  });
+
+  it('ALLOWS an ABSOLUTE daily-summary path (proves (^|/) anchor is load-bearing, not ^)', { skip: !bashAvailable }, () => {
+    // Hook file_path inputs are frequently absolute; ^archive/ would wrongly DENY these.
+    const r = runHook({ tool_name: 'Write', agent_id: AID,
+      tool_input: { file_path: 'C:\\Users\\dev\\.claude\\archive\\daily-summaries\\2026-05-27.md' } });
+    assert.ok(!isDeny(r.stdout), 'absolute-path daily-summary write must be allowed');
+  });
+
+  it('ALLOWS a MultiEdit to the dated daily-summary file (MultiEdit carries tool_input.file_path)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'MultiEdit', agent_id: AID,
+      tool_input: { file_path: 'archive/daily-summaries/2026-05-27.md' } });
+    assert.ok(!isDeny(r.stdout), 'MultiEdit daily-summary write must be allowed by the carve-out');
+  });
+
+  it('DENIES a subagent writing a NON-dated file under daily-summaries/ (tight scope)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Write', agent_id: AID,
+      tool_input: { file_path: 'archive/daily-summaries/notes.md' } });
+    assert.ok(isDeny(r.stdout), 'non-dated daily-summaries file must still be denied');
+  });
+
+  it('DENIES a subagent writing elsewhere under archive/', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Write', agent_id: AID,
+      tool_input: { file_path: 'archive/handoffs/something.md' } });
+    assert.ok(isDeny(r.stdout), 'unsanctioned archive/ write must be denied');
+  });
+
+  it('ALLOWS the existing per-entry completion fallback (regression)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Write', agent_id: AID,
+      tool_input: { file_path: 'archive/completed/2026-05/2026-05-27-foo-abc123.md' } });
+    assert.ok(!isDeny(r.stdout), 'per-entry completion fallback must remain allowed');
+  });
+
+  it('ALLOWS a top-level EM write to the daily summary (no agent_id)', { skip: !bashAvailable }, () => {
+    const r = runHook({ tool_name: 'Write',
+      tool_input: { file_path: 'archive/daily-summaries/2026-05-27.md' } });
+    assert.ok(!isDeny(r.stdout), 'top-level EM write (no agent_id) is always allowed');
+  });
+});

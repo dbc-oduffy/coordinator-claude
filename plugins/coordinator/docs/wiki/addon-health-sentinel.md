@@ -66,21 +66,23 @@ Discovery via glob (`~/.claude/plugins/*/data/doctor-last-run.json`) is opt-in b
 
 ## Scanner
 
-`bin/scan-addon-health.sh` is the single reader. Two modes:
+`scan-addon-health.sh` is the single reader. Two modes:
 
 | Mode | Caller | Surfaces |
 |------|--------|----------|
 | `--red-only` | `/session-start` | RED verdicts only (signal-not-noise) |
-| `--red-and-stale` (default) | `/workday-start` | RED, AMBER, stale (>24h), malformed, unknown verdict (triage posture) |
+| `--red-and-stale` (default) | `/workday-start` | RED, AMBER, stale (>24h), malformed, unknown verdict (triage posture); also: plugins that declare a doctor but have never written a sentinel (absent-sentinel pass); SessionStart hook scripts referenced in `hooks.json` but absent on disk (hook-script existence pass — 2026-05-27) |
 | `--check-sentinel-presence` | `/session-start` (alongside `--red-only`) | Bootstrap notice: emits one line when plugins are installed but NO sentinel exists anywhere (fires at most once per install life); silent once any sentinel is written |
 
 Exit code is always 0 — advisory, never gating. Empty output ⇒ no surfaceable findings.
+
+The `--red-and-stale` mode now runs three passes: (1) main sentinel-verdict loop, (2) absent-sentinel detection for plugins with declared doctor commands, (3) SessionStart hook-script existence probe. All passes emit the `[health] <plugin>: <message>` contract. Pass 3 catches the silent-skip failure mode: Claude Code no-ops a missing hook command without error. Authoring guide for hook authors: `docs/wiki/plugin-session-start-hooks.md`.
 
 ## Related: drift detection for plugin live installs
 
 If your plugin's live install is a **separate git checkout** (e.g. `~/.claude/plugins/<plugin>/` is a clone of the plugin's source repo rather than the source repo itself), you should also register it for drift detection. The addon-health sentinel surfaces "doctor ran and said RED"; the drift probe surfaces "live checkout is N commits behind source" — orthogonal failure modes.
 
-Registration shape: add `[plugin.mirrors.<plugin>]` to `~/.claude/machine-local/registry.local.toml`. Schema documented in `machine-local-registry.md § plugin.mirrors`. Runtime self-doc: `bash bin/check-plugin-drift.sh --help` enumerates the probe's six drift legs (git-state, venv-pin, venv-pyproject, venv-mapping, venv-shim, working-tree).
+Registration shape: add `[plugin.mirrors.<plugin>]` to `~/.claude/machine-local/registry.local.toml`. Schema documented in `machine-local-registry.md § plugin.mirrors`. Runtime self-doc: `bash check-plugin-drift.sh --help` enumerates the probe's six drift legs (git-state, venv-pin, venv-pyproject, venv-mapping, venv-shim, working-tree).
 
 Both signals converge under `### Addon Health` in `/workday-start` Step 1.10 — operators see one section, not two.
 

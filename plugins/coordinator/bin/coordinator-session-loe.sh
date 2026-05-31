@@ -160,8 +160,10 @@ if [[ "$INCLUDE_CHILDREN" == true ]]; then
       # Only count if this child dispatched agents itself (is an EM session)
       [[ ! -f "${child_dir}/dispatched-agents.txt" ]] && continue
       read -r c_ad c_od <<< "$(count_session "$child_em_sid")"
-      AGENT_DISPATCHES=$(( AGENT_DISPATCHES + c_ad ))
-      OPUS_DISPATCHES=$(( OPUS_DISPATCHES + c_od ))
+      [[ "$c_ad" =~ ^[0-9]+$ ]] || c_ad=0
+      [[ "$c_od" =~ ^[0-9]+$ ]] || c_od=0
+      AGENT_DISPATCHES=$(( AGENT_DISPATCHES + c_ad )) || true
+      OPUS_DISPATCHES=$(( OPUS_DISPATCHES + c_od ))  || true
     done < <(find "$AGENTS_DIR" -name "em-session-id.txt" -print0 2>/dev/null)
   fi
 fi
@@ -174,8 +176,10 @@ fi
 # ---------------------------------------------------------------------------
 
 EM_TOKENS_RAW=""
-if [[ -n "${CLAUDE_SESSION_INPUT_TOKENS:-}" && -n "${CLAUDE_SESSION_OUTPUT_TOKENS:-}" ]]; then
-  EM_TOKENS_RAW=$(( CLAUDE_SESSION_INPUT_TOKENS + CLAUDE_SESSION_OUTPUT_TOKENS ))
+if [[ -n "${CLAUDE_SESSION_INPUT_TOKENS:-}" && -n "${CLAUDE_SESSION_OUTPUT_TOKENS:-}" ]] &&
+   [[ "${CLAUDE_SESSION_INPUT_TOKENS}" =~ ^[0-9]+$ ]] &&
+   [[ "${CLAUDE_SESSION_OUTPUT_TOKENS}" =~ ^[0-9]+$ ]]; then
+  EM_TOKENS_RAW=$(( CLAUDE_SESSION_INPUT_TOKENS + CLAUDE_SESSION_OUTPUT_TOKENS )) || true
 fi
 # Validate it's a non-negative integer
 if [[ -n "$EM_TOKENS_RAW" ]] && [[ ! "$EM_TOKENS_RAW" =~ ^[0-9]+$ ]]; then

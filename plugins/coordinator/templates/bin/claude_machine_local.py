@@ -24,6 +24,14 @@ import os
 import subprocess
 from pathlib import Path
 
+# Windows-only: suppress the console window that console-subsystem child
+# processes flash when this process has no console to inherit (e.g. spawned by
+# an MCP server or a GUI Claude Code host). POSIX: empty dict — CREATE_NO_WINDOW
+# is a Windows-only attribute, so the ternary short-circuits before touching it.
+_NO_CONSOLE_WINDOW = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+)
+
 
 def _reader_invocation() -> list[str]:
     """Discover the right invocation for bin/machine-local on this OS."""
@@ -63,6 +71,7 @@ class _Namespace:
             result = subprocess.run(
                 invocation + ["get", key],
                 capture_output=True, text=True, check=False,
+                **_NO_CONSOLE_WINDOW,
             )
         except FileNotFoundError:
             raise RuntimeError(

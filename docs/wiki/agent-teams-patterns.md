@@ -3,8 +3,8 @@ title: Agent Teams patterns
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator/docs/wiki/staff-sessions.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/dispatching-parallel-agents.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/staff-sessions.md
 ---
 
 # Agent Teams Patterns
@@ -42,6 +42,12 @@ The remediation when a pipeline appears stalled: check whether any teammate is i
 When two machines simultaneously attempt `/pickup` on the same handoff, the fail-loud signal is `consumed_by:` populated in the handoff's frontmatter after `git fetch`. Do not redispatch over partial work — `SendMessage` the existing agent to resume from transcript. Redispatch over partial work produces two agents writing to the same output paths, which silently corrupts the deliverable.
 
 → coordinator/CLAUDE.md § Handoff Lineage — Single Predecessor, No Adjacency-Inference for the concurrent-pickup contract.
+
+## MCP Tool Names May Differ Between Parent and Teammate Sessions
+
+Deferred tool names in Agent Teams teammates can vary from what the parent session sees. A tool that appears as `mcp__notebooklm__*` in the parent may arrive as `mcp__plugin_notebooklm_notebooklm__*` (or another prefix variant) inside a teammate's session. Hardcoding a single name pattern in the teammate prompt produces silent "tool not found" failures.
+
+**Rule:** always use graduated ToolSearch in teammate prompts — `select:<exact-name>` first, then keyword `+prefix` fallback, then graceful failure with a diagnostic message. Never embed a naked `mcp__*` name as a constant in a teammate brief without a fallback resolution step.
 
 ## Synthesizer position: blocked by all specialists, reads from disk
 

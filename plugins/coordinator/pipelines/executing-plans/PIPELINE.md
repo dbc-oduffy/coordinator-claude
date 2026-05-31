@@ -33,12 +33,12 @@ Do NOT pause between tasks to ask "should I proceed?" or "ready for feedback?" �
 
 **Brief status updates** are fine at natural milestones (e.g., "Phase 2 complete, moving to Phase 3") but these are informational, not permission requests.
 
-### Step 3: Complete Development
+### Step 3: Finalize and Report
 
 After all tasks complete and verified:
-- Announce: "I'm using the coordinator:finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use coordinator:finishing-a-development-branch
-- Follow that skill to verify tests, present options, execute choice
+- Commit any uncommitted work (scoped, explicit-path; EM-remit quick-save).
+- Report what landed and the branch it's committed on.
+- **Offer the natural next step — do not auto-invoke it:** `/session-end` caps the workstream (lessons, docs, session-end review). Branch disposition (merge / PR / keep) is a **separate, PM-invoked** decision reaching the keyword-gated `/merge-to-main` — execute-plan does **not** chain into `coordinator:finishing-a-development-branch`.
 
 ## When to Stop and Reassess
 
@@ -76,4 +76,7 @@ After all tasks complete and verified:
 
 **Required workflow skills:**
 - **coordinator:plan** - Creates the plan this skill executes
-- **coordinator:finishing-a-development-branch** - Complete development after all tasks
+
+**Offered (not chained) after all tasks:**
+- **coordinator:session-end** - Natural next step; caps the workstream (lessons, docs, review)
+- Branch disposition (merge / PR / keep) is a separate, PM-invoked decision — execute-plan does not chain into **coordinator:finishing-a-development-branch**

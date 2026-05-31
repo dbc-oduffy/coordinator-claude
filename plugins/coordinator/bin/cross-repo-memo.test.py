@@ -6,6 +6,7 @@ Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-sca
 Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
 Extended by: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § Chunk B
 Extended by: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § Chunk H
+Extended by: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C2
 
 Purpose: Verify single-delivery-copy behaviour of the dispatcher:
   - Test 1: receiver-repo delivery writes ONE dirty file to receiver's cross-repo/inbox/
@@ -1270,6 +1271,263 @@ def test_canonical_receivers_not_rejected_by_publish_target_check() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests 27-30 — summary field (Chunk 4: producer template updates)
+#
+# Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 4
+#
+# Key assertions:
+#   - Test 27: summary is emitted in frontmatter when --summary is provided
+#   - Test 28: summary is derived from first body line when --summary is omitted
+#   - Test 29: a >120-char --summary is truncated to ≤120 chars at compose time
+#   - Test 30: a >120-char body-derived summary is also truncated to ≤120 chars
+# ---------------------------------------------------------------------------
+
+def test_summary_emitted_when_provided() -> None:
+    """Test 27: --summary is written to the summary: frontmatter field."""
+    name = "Test 27 — summary: field emitted when --summary is provided"
+    mod = _load_dispatcher_module()
+
+    body = "This is the memo body.\n"
+    explicit_summary = "Explicit one-line tl;dr for this memo"
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-topic",
+        body=body,
+        summary=explicit_summary,
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")  # wrap so parser sees ---...---
+    if fm.get("summary") != explicit_summary:
+        fail_test(name, f"summary should be {explicit_summary!r}, got: {fm.get('summary')!r}")
+        return
+    pass_test(name)
+
+
+def test_summary_derived_from_body_when_omitted() -> None:
+    """Test 28: when --summary is omitted, summary is derived from the first non-empty body line."""
+    name = "Test 28 — summary: derived from first body line when --summary omitted"
+    mod = _load_dispatcher_module()
+
+    body = "\nFirst real line of the body.\n\nSecond line.\n"
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-topic",
+        body=body,
+        summary=None,
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    expected = "First real line of the body."
+    if fm.get("summary") != expected:
+        fail_test(name, f"summary should be {expected!r} (derived), got: {fm.get('summary')!r}")
+        return
+    pass_test(name)
+
+
+def test_summary_truncated_when_over_120_chars() -> None:
+    """Test 29: a >120-char explicit --summary is truncated to ≤120 chars at compose time."""
+    name = "Test 29 — summary truncated to ≤120 chars when explicit --summary > 120"
+    mod = _load_dispatcher_module()
+
+    # 130 chars — well over the cap.
+    long_summary = "A" * 130
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-topic",
+        body="Body.\n",
+        summary=long_summary,
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    got_summary = fm.get("summary", "")
+    if len(got_summary) > mod._SUMMARY_MAX_CHARS:
+        fail_test(
+            name,
+            f"summary length {len(got_summary)} exceeds _SUMMARY_MAX_CHARS "
+            f"({mod._SUMMARY_MAX_CHARS}); summary: {got_summary!r}",
+        )
+        return
+    # Confirm it was actually truncated (not the original value).
+    if got_summary == long_summary:
+        fail_test(name, "summary was not truncated — still equals the original long value")
+        return
+    pass_test(name)
+
+
+def test_body_derived_summary_truncated_when_over_120_chars() -> None:
+    """Test 30: a body first-line that is >120 chars is also truncated to ≤120 when derived."""
+    name = "Test 30 — body-derived summary truncated to ≤120 chars when first line > 120"
+    mod = _load_dispatcher_module()
+
+    # First body line is 150 chars.
+    long_first_line = "B" * 150
+    body = long_first_line + "\nSecond line.\n"
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-topic",
+        body=body,
+        summary=None,
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    got_summary = fm.get("summary", "")
+    if len(got_summary) > mod._SUMMARY_MAX_CHARS:
+        fail_test(
+            name,
+            f"body-derived summary length {len(got_summary)} exceeds _SUMMARY_MAX_CHARS "
+            f"({mod._SUMMARY_MAX_CHARS}); summary: {got_summary!r}",
+        )
+        return
+    if got_summary == long_first_line:
+        fail_test(name, "body-derived summary was not truncated — still equals the original long first line")
+        return
+    pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Tests 31-35 (C2) — --kind flag: enum round-trip, absent-is-no-line, invalid rejected
+#
+# Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C2
+#
+# Key assertions:
+#   - Each of ask/consult/fyi round-trips into `kind: <value>` in composed frontmatter.
+#   - Omitting --kind produces NO `kind:` line at all (absence is meaningful).
+#   - An invalid --kind value is rejected by argparse (exit 2, choices validation).
+# ---------------------------------------------------------------------------
+
+def test_kind_ask_round_trips() -> None:
+    """Test 31 (C2): --kind ask emits kind: ask in frontmatter."""
+    name = "Test 31 (C2) — --kind ask round-trips into kind: ask in frontmatter"
+    mod = _load_dispatcher_module()
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-kind",
+        body="Body.\n",
+        kind="ask",
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    if fm.get("kind") != "ask":
+        fail_test(name, f"kind should be 'ask', got: {fm.get('kind')!r}. frontmatter:\n{fm_text}")
+        return
+    pass_test(name)
+
+
+def test_kind_consult_round_trips() -> None:
+    """Test 32 (C2): --kind consult emits kind: consult in frontmatter."""
+    name = "Test 32 (C2) — --kind consult round-trips into kind: consult in frontmatter"
+    mod = _load_dispatcher_module()
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-kind",
+        body="Body.\n",
+        kind="consult",
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    if fm.get("kind") != "consult":
+        fail_test(name, f"kind should be 'consult', got: {fm.get('kind')!r}. frontmatter:\n{fm_text}")
+        return
+    pass_test(name)
+
+
+def test_kind_fyi_round_trips() -> None:
+    """Test 33 (C2): --kind fyi emits kind: fyi in frontmatter."""
+    name = "Test 33 (C2) — --kind fyi round-trips into kind: fyi in frontmatter"
+    mod = _load_dispatcher_module()
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-kind",
+        body="Body.\n",
+        kind="fyi",
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    if fm.get("kind") != "fyi":
+        fail_test(name, f"kind should be 'fyi', got: {fm.get('kind')!r}. frontmatter:\n{fm_text}")
+        return
+    pass_test(name)
+
+
+def test_kind_omitted_produces_no_kind_line() -> None:
+    """Test 34 (C2): omitting kind=None emits NO kind: line — absence is meaningful.
+
+    The reader applies an 'ask' default for unlabelled memos. The CLI must NOT
+    stamp a default — absence must be preserved so back-compat memos are treated
+    as ask without being retroactively rewritten.
+    """
+    name = "Test 34 (C2) — omitting --kind produces NO kind: line in frontmatter"
+    mod = _load_dispatcher_module()
+
+    fm_text = mod._compose_frontmatter(
+        title="Test Memo",
+        to="project-rag-em",
+        topic="test-kind",
+        body="Body.\n",
+        kind=None,
+    )
+    fm = _parse_frontmatter(fm_text + "\n# no body\n")
+    if "kind" in fm:
+        fail_test(
+            name,
+            f"kind: line should NOT be emitted when kind=None; got kind={fm['kind']!r}. "
+            f"frontmatter:\n{fm_text}",
+        )
+        return
+    # Also verify the raw text contains no `kind:` at all.
+    if "\nkind:" in fm_text:
+        fail_test(
+            name,
+            f"Raw frontmatter text contains 'kind:' line despite kind=None:\n{fm_text}",
+        )
+        return
+    pass_test(name)
+
+
+def test_kind_invalid_value_rejected() -> None:
+    """Test 35 (C2): an invalid --kind value (e.g. 'ack') is rejected by argparse → exit 2.
+
+    argparse choices=["ask","consult","fyi"] enforces the enum at parse time.
+    'ack' is explicitly not a valid kind (it is receipt-state, not sender-declared shape).
+    """
+    name = "Test 35 (C2) — invalid --kind value is rejected by argparse (exit 2)"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = {**os.environ, "CLAUDE_HOME": tmpdir}
+        result = _run_dispatcher(
+            [
+                "--to", "project-rag-em",
+                "--topic", "test-kind",
+                "--title", "Test",
+                "--kind", "ack",  # 'ack' is NOT a valid kind — receipt-state only
+            ],
+            env=env,
+            stdin_text="Body.\n",
+        )
+        if result.returncode != 2:
+            fail_test(
+                name,
+                f"expected exit code 2 (argparse choices rejection); got {result.returncode}. "
+                f"stderr: {result.stderr!r}",
+            )
+            return
+        # argparse emits an error mentioning the invalid choice.
+        if "invalid choice" not in result.stderr.lower() and "choose from" not in result.stderr.lower():
+            fail_test(
+                name,
+                f"argparse error message about invalid choice not found in stderr: {result.stderr!r}",
+            )
+            return
+        pass_test(name)
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -1309,6 +1567,17 @@ def main() -> int:
         test_publish_target_override_bypasses_check,
         test_publish_target_case_whitespace_normalization,
         test_canonical_receivers_not_rejected_by_publish_target_check,
+        # Tests 27-30 — summary field (Chunk 4)
+        test_summary_emitted_when_provided,
+        test_summary_derived_from_body_when_omitted,
+        test_summary_truncated_when_over_120_chars,
+        test_body_derived_summary_truncated_when_over_120_chars,
+        # Tests 31-35 (C2) — --kind flag
+        test_kind_ask_round_trips,
+        test_kind_consult_round_trips,
+        test_kind_fyi_round_trips,
+        test_kind_omitted_produces_no_kind_line,
+        test_kind_invalid_value_rejected,
     ]
 
     for test_fn in tests:

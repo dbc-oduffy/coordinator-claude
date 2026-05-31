@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# depersonalize-for-publish.sh — scan or rewrite files to normalize meta-repo
+# publish-time-transform.sh — scan or rewrite files to normalize meta-repo
 # content for publish: strip persona display names, rewrite dev-tree plugin
 # paths to publish-tree form, substitute identity vocabulary.
 #
@@ -77,8 +77,8 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: depersonalize-for-publish.sh --check PATH
-       depersonalize-for-publish.sh --fix [--keep-bak] PATH
+Usage: publish-time-transform.sh --check PATH
+       publish-time-transform.sh --fix [--keep-bak] PATH
 
   --check     Scan PATH (file or dir); print file:line:hit; exit 1 if any persona
               names, identity strings, or dev-tree plugin paths found. Default mode
@@ -218,10 +218,10 @@ for k in "${ORDERED_KEYS[@]}"; do
   fi
 done
 if [[ "$self_corrupted" == "true" ]]; then
-  echo "depersonalize-for-publish: FATAL — ORDERED_KEYS look already-substituted." >&2
+  echo "publish-time-transform: FATAL — ORDERED_KEYS look already-substituted." >&2
   echo "  This script's substitution map has been corrupted by a past depersonalize run." >&2
   echo "  Restore from the meta-repo source:" >&2
-  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-for-publish.sh \\" >&2
+  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/publish-time-transform.sh \\" >&2
   echo "       \$(realpath \"\$0\")" >&2
   # Review: code-reviewer — exit 2 is usage error; self-corruption is a state/environment fault.
   exit 3
@@ -290,11 +290,11 @@ for src in "${PATH_REWRITE_SOURCES[@]}"; do
   fi
 done
 if [[ "$path_map_corrupted" == "true" ]]; then
-  echo "depersonalize-for-publish: FATAL — PATH_REWRITE_SOURCES look already-substituted." >&2
+  echo "publish-time-transform: FATAL — PATH_REWRITE_SOURCES look already-substituted." >&2
   echo "  The path-rewrite seed no longer contains 'coordinator-claude' in any source pattern." >&2
   echo "  This script's path-rewrite map has been corrupted by a past depersonalize run." >&2
   echo "  Restore from the meta-repo source:" >&2
-  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-for-publish.sh \\" >&2
+  echo "    cp \$HOME/.claude/plugins/coordinator-claude/coordinator/bin/publish-time-transform.sh \\" >&2
   echo "       \$(realpath \"\$0\")" >&2
   # Review: code-reviewer — exit 2 is usage error; self-corruption is a state/environment fault.
   exit 3
@@ -320,7 +320,7 @@ EXCLUDED_PREFIXES=(
 # entries themselves and breaks both tools. Discovered the hard way during
 # 2026-05-09 publish-sanitization dogfood (bulk-fix on /x/coordinator-claude
 # corrupted the publish-repo's check-persona-names.py PERSONA_NAMES list).
-EXCLUDED_BASENAMES=( "depersonalize-for-publish.sh" "check-persona-names.py" )
+EXCLUDED_BASENAMES=( "publish-time-transform.sh" "check-persona-names.py" )
 
 is_excluded() {
   local rel="$1"
@@ -378,7 +378,7 @@ if [[ -d "$TARGET" && -d "$TARGET/plugins" ]]; then
     fi
   done < <(find "$TARGET/plugins" -mindepth 1 -maxdepth 1 -type d -print0)
   if (( new_plugin_count == 0 )); then
-    echo "depersonalize-for-publish: WARNING — $TARGET/plugins/ exists but no plugins beyond the static floor were discovered; only the 5 floor mappings will be applied." >&2
+    echo "publish-time-transform: WARNING — $TARGET/plugins/ exists but no plugins beyond the static floor were discovered; only the 5 floor mappings will be applied." >&2
   fi
 fi
 
@@ -449,7 +449,7 @@ if [[ "$MODE" == "check" ]]; then
 
   if (( hits > 0 )); then
     echo ""
-    echo "depersonalize-for-publish: $hits file(s) carry persona names, identity strings, or dev-tree plugin paths."
+    echo "publish-time-transform: $hits file(s) carry persona names, identity strings, or dev-tree plugin paths."
     echo "  Run with --fix to rewrite, or hand-edit using the vocabulary table:"
     for name in "${ORDERED_KEYS[@]}"; do
       printf "    %-40s → %s\n" "$name" "${NAME_TO_ROLE[$name]}"
@@ -461,7 +461,7 @@ if [[ "$MODE" == "check" ]]; then
     exit 1
   fi
 
-  echo "depersonalize-for-publish: clean (${#FILES[@]} file(s) scanned)."
+  echo "publish-time-transform: clean (${#FILES[@]} file(s) scanned)."
   exit 0
 fi
 
@@ -545,13 +545,13 @@ if [[ "$KEEP_BAK" == "false" ]]; then
 fi
 
 if (( fixed == 0 && path_fixed_count == 0 )); then
-  echo "depersonalize-for-publish: no files needed rewriting."
+  echo "publish-time-transform: no files needed rewriting."
 elif (( fixed == 0 )); then
   echo ""
-  echo "depersonalize-for-publish: path rewrites applied to $path_fixed_count file(s); no persona/identity substitutions needed."
+  echo "publish-time-transform: path rewrites applied to $path_fixed_count file(s); no persona/identity substitutions needed."
 else
   echo ""
-  echo "depersonalize-for-publish: rewrote $fixed file(s) (persona/identity). Review diffs:"
+  echo "publish-time-transform: rewrote $fixed file(s) (persona/identity). Review diffs:"
   if [[ "$KEEP_BAK" == "true" ]]; then
     echo "  for f in ${TARGET}/**/*.bak; do diff \"\$f\" \"\${f%.bak}\"; done"
   else

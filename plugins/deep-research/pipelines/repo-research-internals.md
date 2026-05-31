@@ -90,6 +90,74 @@ After scouts complete, before specialists are spawned:
 5. **Mark task completed:** `TaskUpdate(taskId: "{atlas-sketch-id}", status: "completed")`.
 6. **If verification fails:** proceed without atlas sketch. Specialists operate in `--deeper` mode (repomap only). Atlas refinement still runs post-synthesis. Note to PM.
 
+## Fidelity Relay Protocol (`--deepest` runs only)
+
+> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C7, § Resolved Decisions OD-2, § Per-pipeline applicability matrix
+> Upstream doctrine: `coordinator/CLAUDE.md § Agent Teams — blockedBy Is a Gate, Not a Trigger`; `docs/wiki/agent-teams-patterns.md:38-44`
+
+The fidelity relay is a **Team-1 internal phase** that fires inside the sweep agent (see `agents/research-synthesizer.md § Fidelity Relay`) — it is NOT a post-TeamDelete activity. This section documents the EM-side preconditions and the relay's placement in the command sequence.
+
+### Gating condition (repo-specific)
+
+The relay fires on `--deepest` runs only. The `--deepest` flag (`repo-driver.md:22-23`) implies `--deeper` + `--survey` — the three-phase deep pipeline with atlas sketch, repomap, and full specialist context. `--deeper` alone does NOT trigger the relay. Plain `repo` and `--survey` mode skip the relay.
+
+The relay runs **before** the synthesizer marks its task complete and **before** the EM triggers TeamDelete at Step 7.
+
+### Relay locus — Team 1, pre-Step-7
+
+**The relay always executes inside the Team-1 synthesizer, not as a separate post-synthesis dispatch.** Specialists are alive-but-idle in Team 1 when the synthesizer finishes (`team-protocol.md:138`); the team is not yet torn down. This is the correct execution window: the authors whose content the relay protects are still reachable. Atlas refinement (Step 7.5) runs after TeamDelete and is unrelated to the relay.
+
+### Relay sequence (synthesizer-internal; summarized for EM debuggability)
+
+1. Synthesizer wakes each Team-1 specialist via `SendMessage` with a `FIDELITY_RELAY` prompt scoped to misrepresentation only — "did the synthesis flatten, distort, or misrepresent YOUR finding?"
+2. **Per-specialist bounded timeout:** 2 minutes (mirrors the `team-protocol.md:140` CHALLENGE timeout). Specialists are alive per `team-protocol.md:138`.
+3. **Non-response fallback:** if a specialist does not reply within 2 minutes, the synthesizer proceeds without their confirmation and annotates the synthesis: `[RELAY: {TOPIC_LETTER} specialist did not respond within timeout — relay unconfirmed for this topic]`. The pipeline never hangs on a non-responding specialist.
+4. **Bloat-guard (structural discriminator):** a valid fidelity correction must reference an existing synthesis sentence and assert it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. The synthesizer rejects add-content requests.
+5. Synthesizer integrates valid corrections and performs a second coherence pass on touched sections.
+6. Only after steps 1–5 does the synthesizer mark its task complete.
+
+### EM-side error handling
+
+If the synthesizer reports `RELAY_STALLED` (no specialist responses after timeout across all specialists), the relay proceeds with all-non-response annotations. This is not a pipeline failure — the assessment stands; relay coverage was unconfirmed. Atlas refinement (Step 7.5) is unaffected.
+
+## Coverage-Auditor Lifecycle (repo pipeline)
+
+> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C1–C2, § Resolved Decisions RD-1, RD-3, RD-4, AC1–AC3
+> Agent definition: `agents/coverage-auditor.md`
+
+The coverage auditor is a **non-teammate Agent dispatched by the EM** after the synthesis is complete and the synthesizer has marked its task done. It is dispatched at the driver's "On Completion Notification" step — **after** synthesis is written, **before** archive/TeamDelete.
+
+### Placement in the repo command
+
+After the EM receives the synthesizer's `DONE` message (Step 7 of `commands/research.md` — repo mode), and before calling `TeamDelete`:
+
+1. **Dispatch the auditor** as a plain `Agent(...)` (NOT under `TeamCreate`/team_name):
+   - `subagent_type: "deep-research:coverage-auditor"`
+   - Model: sonnet
+   - Tool grant: Read, Grep, Glob (base grant — no write tools on synthesis output path)
+   - Provide: synthesis output path (and `ASSESSMENT.md` + `GAP-ANALYSIS.md` paths in `--compare` mode), scratch directory path, pipeline identifier `"B"`
+2. **Wait for auditor `DONE: {sidecar-path}` reply.**
+3. **Proceed to TeamDelete** (Step 7 TeamDelete). The auditor is already done; the team can be torn down.
+
+In `--compare` mode, the auditor receives both the assessment and gap-analysis output paths and audits each synthesis artifact separately.
+
+### What the auditor does
+
+The auditor reads `{scratch-dir}/*-claims.json` and `*-summary.md` specialist claim records and the synthesis. It cross-references each claim (binary: `present-with-pointer` / `absent`) and produces a sidecar at `{output-path minus .md}-coverage-audit.md` with two structured sections:
+
+- **Coverage Pointers** — claim-by-claim presence table. Input universe is specialist claim records (`*-claims.json`, `*-summary.md`); `[SWEEP ADDITION]` content is explicitly excluded from the denominator (no upstream claim record exists).
+- **Completeness Map** — topics distilled out of the synthesis, with source pointers so a reader can self-serve the full architectural picture without reading every specialist output. Also consolidates any `[UNFILLED GAP]` inline markers from the synthesis.
+
+The `gap-report.md` answers "did we research enough?" (input coverage, synthesizer-owned). The coverage-audit sidecar answers "did the synthesis carry the research?" (output coverage, reader-facing completeness). **These are two separate artifacts with two separate questions — do not conflate them.**
+
+The auditor never edits the synthesis. It emits the sidecar only.
+
+### Invariants
+
+- 7-teammate ceiling is unaffected — auditor is a non-teammate subagent (same pattern as the atlas-sketch dispatch at Step 5 `repo-research-internals.md § Phase B` and atlas-refinement at Step 7.5).
+- Auditor is always-on — fires on plain `--mode=repo`, `--deeper`, and `--deepest` alike. No skip condition.
+- The synthesizer's `[UNFILLED GAP]` inline markers remain in synthesis prose (reader-facing). The auditor's Completeness Map supersedes the synthesizer's free-prose "thin areas" meta-observations paragraph and consolidates/references the inline markers — it does not delete them.
+
 ## Error Handling Matrix
 
 | Failure | Action |

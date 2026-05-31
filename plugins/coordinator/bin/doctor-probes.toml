@@ -1,0 +1,229 @@
+# doctor-probes.toml — declarative probe manifest for the coordinator doctor.
+#
+# SSOT for every probe fired by bin/coordinator-doctor-sentinel.sh. The
+# coordinator-doctor.md §3 probe-catalog table and the sentinel's probe-firing
+# set are derived from / validated against this file (VALIDATE-not-GENERATE at
+# rest — see test_doctor_manifest_is_ssot, Chunk 3).
+#
+# Spec backlink: docs/plans/2026-05-27-doctor-shape-doe-alignment.md § Chunk 2.
+# Doctrine: docs/wiki/doctor-probe-design.md § Single-Entry-Point Consolidation
+# Must Stay Addressable. This manifest is the coordinator doctor's instance of
+# the proven project-rag "scalpel-not-hammer" shape (cheap-probe reference impl).
+#
+# CARGO-CULT GUARD (read before adding resource machinery): the coordinator
+# doctor's probes are ALL cheap or standard — file reads, CLI smoke, one
+# live-whoami subprocess. NONE is `heavy`. The `weight` field exists here for
+# SHAPE PARITY with the host manifest and to drive the triage invariant, NOT
+# because any probe is expensive. Do NOT add a peak-RSS / spawn-count
+# regression-net to this doctor — there is no resource problem to bound. The
+# addressability machinery (clusters, triage, selection grammar) is the point.
+#
+# Field definitions (host field names adopted verbatim for cross-repo parity;
+# severity_if_fail + remediation are coordinator-local additive fields the host
+# manifest does not carry):
+#   id              — Verbatim probe id ("P-1".."P-12", "P-6s"); join key to
+#                     coordinator-doctor.md §3 and to the sentinel's probe blocks.
+#   cluster         — Symptom group (coordinator-domain): machine-local |
+#                     whoami | structure | resolver | ue-overrides
+#   weight          — Resource cost (NOT latency):
+#                       cheap    = file reads / bash test, no subprocess spawn
+#                       standard = subprocess spawn (python -c, CLI), no model/VRAM
+#                       heavy    = spawns server / loads torch / touches VRAM
+#                                  (the coordinator doctor has NONE — see guard above)
+#   interactivity   — Always "silent" here: the sentinel is non-interactive by
+#                     design (coordinator-doctor.md "no slash skill"). Field kept
+#                     for cross-repo schema parity. Orthogonal to weight.
+#   fix             — Always "none": the coordinator doctor has no `--fix`
+#                     remediation catalog. Field kept for parity.
+#   symptom_keywords — Free-text tags the triage/`--symptom` path matches.
+#   triage          — true iff in the cheap first-pass run on bare invocation.
+#                     INVARIANT: triage=true ⟹ weight ∈ {cheap, standard}.
+#   severity_if_fail — {error, degraded} — coordinator-local; drives RED/AMBER
+#                     verdict synthesis in the sentinel.
+#   remediation     — coordinator-local; one-line operator next-step.
+#
+# NOT IN THIS MANIFEST — P-7a is EM-native (mcp-registration check via
+# /workday-start Step 1.10.5 reading the deferred-tools registry); the sentinel
+# does NOT fire it (no shell probe body exists; bin/probe-mcp-registration.sh is
+# planned-not-implemented). coordinator-doctor.md documents P-7a as
+# documented-but-not-fired. The manifest is the FIRED-probe set only; the
+# manifest↔sentinel bijection (test_doctor_probes_manifest_schema) operates on
+# fired probes, and --probe/--cluster MUST NOT select a non-fired entry.
+
+# ---------------------------------------------------------------------------
+# Cluster: machine-local — the ~/.claude/machine-local/ registry substrate
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-1"
+cluster = "machine-local"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["machine-local absent", "substrate not bootstrapped", "setup Phase 3"]
+triage = true
+severity_if_fail = "error"
+remediation = "Run /coordinator:setup Phase 3"
+
+[[probe]]
+id = "P-2"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["registry.toml unparseable", "schema mismatch", "tomllib", "TOML broken"]
+triage = false
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:setup Phase 3; check for manual edits that broke TOML structure"
+
+[[probe]]
+id = "P-3"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["no repos keys", "registry.local.toml empty", "repos.* unpopulated"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run machine-local set repos.<name> <path> for each sibling repo"
+
+[[probe]]
+id = "P-4"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["machine-local CLI not found", "bin not on PATH", "CLI failed", "machine-local key not found"]
+triage = true
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:setup Phase 3; verify ~/.claude/bin/ on PATH"
+
+# ---------------------------------------------------------------------------
+# Cluster: whoami — coordinator_whoami package + mcpServers config
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-5"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["coordinator_whoami import error", "ImportError", "package not installed", "whoami not importable"]
+triage = true
+severity_if_fail = "error"
+remediation = "pip install -e plugins/coordinator-claude/coordinator/whoami/ or re-run /coordinator:setup Phase 3 Step 6"
+
+[[probe]]
+id = "P-6"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["project_rag whoami invalid", "contract_version", "envelope invalid", "plugin-binding health"]
+triage = false
+severity_if_fail = "error"
+remediation = "Check P-5 first; inspect registry keys the probe requires; see cross-plugin-whoami-contract.md"
+
+[[probe]]
+id = "P-6s"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["session whoami invalid", "not oriented", "coordinator-session", "orientation health"]
+triage = false
+severity_if_fail = "error"
+remediation = "Check P-5 first; verify coordinator_whoami.session subpackage present; re-run Phase 3 Step 6"
+
+[[probe]]
+id = "P-7"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["mcpServers absent", "claude.json empty", "config missing", "mcpServers entry"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Re-run plugin install to write the mcpServers entry; verify ~/.claude.json is writable"
+
+# ---------------------------------------------------------------------------
+# Cluster: resolver — bin/ path resolvers (claude-home)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-10"
+cluster = "resolver"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["claude-home not found", "resolver drift", "plugins did not resolve", "claude-home"]
+triage = true
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:setup Phase 3; verify ~/.claude/bin/ on PATH and claude-home + _claude_home.py present"
+
+# ---------------------------------------------------------------------------
+# Cluster: structure — sentinel presence, template drift, canonical scaffold
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-8"
+cluster = "structure"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["no sentinels", "cold start", "doctor never run", "doctor-last-run absent"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run each installed plugin's doctor once to bootstrap the sentinel"
+
+[[probe]]
+id = "P-11"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["templates drift", "publish.sh customized", "setup sync", "template out of date"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run verify-templates-setup-sync.sh (no flags) to inspect; --fix to copy live → template"
+
+[[probe]]
+id = "P-12"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["canonical structure incomplete", "cross-repo dir missing", "scaffold", "README missing"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run scaffold-canonical-structure.sh --root ~/.claude to restore; or re-run /coordinator:setup Phase 3 Step 7"
+
+# ---------------------------------------------------------------------------
+# Cluster: currency — onboarding currency drift (per-repo schema-version stamp)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-13"
+cluster = "currency"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["onboarding drift", "schema version stale", "coordinator-currency", "currency stamp", "unstamped legacy", "onboarding currency"]
+triage = true
+severity_if_fail = "degraded"
+remediation = "Re-run /project-onboarding to stamp this repo with the current coordinator schema version"
+
+# ---------------------------------------------------------------------------
+# Cluster: ue-overrides — UE override path verifier (OPTIONAL — silent skip if absent)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-9"
+cluster = "ue-overrides"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["ue override drift", "verify-ue-overrides", "claude_unreal_holodeck"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Follow the verify-ue-overrides.sh remediation hint (typically set repos.claude_unreal_holodeck)"

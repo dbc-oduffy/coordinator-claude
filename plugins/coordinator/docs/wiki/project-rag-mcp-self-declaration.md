@@ -126,13 +126,13 @@ The project-RAG preamble for agent/skill dispatch lives at `coordinator/snippets
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
 <!-- END project-rag-preamble -->
 ```
-Sync: `bin/verify-preamble-sync.sh --check/--fix`. Wired into `/workday-start` Step 1.7. Inline targets: enricher dispatch prompts, executor dispatch prompts, review-integrator dispatch prompts, scout dispatch templates in brainstorming/writing-plans/systematic-debugging skills.
+Sync: `verify-preamble-sync.sh --check/--fix`. Wired into `/workday-start` Step 1.7. Inline targets: enricher dispatch prompts, executor dispatch prompts, review-integrator dispatch prompts, scout dispatch templates in brainstorming/writing-plans/systematic-debugging skills.
 
 **Project detection:** the preamble uses generic any-project detection (not holodeck-specific). Holodeck deduplication uses positive context detection (`.holodeck/` dir or `Saved/HolodeckProjectRag/` path-up search), not hook-ordering sentinel — order-independent. False positives produce silent banners; false negatives are graceful (no banner, no behavior change).
 
 ## Configuration surfaces — configure via verbs, not hand-edits
 
-project-rag's live checkout is refresh-managed (`bin/refresh-plugin-live-install.sh` periodically runs `git checkout <track_ref>`). Hand-editing the source tree has no lasting effect AND gets silently reverted on next propagation. Configure through the provided verbs:
+project-rag's live checkout is refresh-managed (`refresh-plugin-live-install.sh` periodically runs `git checkout <track_ref>`). Hand-editing the source tree has no lasting effect AND gets silently reverted on next propagation. Configure through the provided verbs:
 
 | Surface | Controls | Correct verb | Anti-pattern |
 |---|---|---|---|

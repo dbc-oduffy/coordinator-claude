@@ -37,21 +37,24 @@ def compose_envelope() -> dict[str, Any]:
     binding_kind = "bound" if bound_root else "unbound"
     binding_target = str(bound_root) if bound_root else None
 
-    # project-rag's own host-introspection payload (everything from compose() EXCEPT
-    # the addon contributions — those lift to first-class extras keys per R3).
+    # project-rag's own host-introspection payload — project-rag-SPECIFIC fields only.
+    #
+    # C6 (2026-05-27, whoami-session-spine-refactor): the 8 generic machine/repo probes
+    # (os/arch/gpu/python/uv/claude/coordinator/project) were REMOVED from this adopter's
+    # emitted envelope. They are generic substrate and now live exclusively under
+    # extras.coordinator_session (the coordinator_whoami.session adopter — orientation's
+    # spine). The probe functions still live in coordinator_whoami.host_probes (shared);
+    # this adopter simply no longer re-emits them under its own name.
+    #
+    # Gated unblock: project-rag's installer Phase 0.6 migrated its machine-state read to
+    # `python -m coordinator_whoami.session` (project-rag commit 81b49417), so removing the
+    # generic fields here no longer breaks the installer's live read. /project-rag:doctor
+    # remains on .project_rag (plugin-binding health) — it does not read the generic fields.
     project_rag_extras = {
         "envelope_version": WHOAMI_SCHEMA_VERSION,
         "captured_at": raw.get("captured_at"),
-        "os": raw.get("os"),
-        "arch": raw.get("arch"),
-        "gpu": raw.get("gpu"),
-        "python": raw.get("python"),
-        "uv": raw.get("uv"),
-        "claude": raw.get("claude"),
-        "coordinator": raw.get("coordinator"),
-        "project": raw.get("project"),
         "project_rag_state": raw.get("project_rag_state"),
-        # NEW native probes (R2 system improvement; landed in Task 2):
+        # project-rag-specific native probes (R2 system improvement):
         "source": raw.get("source"),
         "engine_version": raw.get("engine_version"),
         "project_kind": raw.get("project_kind"),

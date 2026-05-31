@@ -223,4 +223,68 @@ if [[ "$MODE" == "--red-and-stale" ]]; then
   done
 fi
 
+# Third pass: SessionStart hook-script existence probe (--red-and-stale only).
+# Catches the silent-skip failure mode: a plugin's hooks.json declares a
+# SessionStart command pointing at a script that isn't on disk. Claude Code
+# silently no-ops the missing command — no error surfaces — so a broken hook
+# install is invisible until the operator notices the behavior never fires.
+# Authoring guidance: docs/wiki/plugin-session-start-hooks.md
+if [[ "$MODE" == "--red-and-stale" ]]; then
+  shopt -s nullglob 2>/dev/null || true
+  # Match BOTH the flat layout (<plugin>/hooks/hooks.json) and the project-rag-shape
+  # nested layout (<plugin>/plugin/hooks/hooks.json) that the second pass's maxdepth-4
+  # find already accommodates. Globbing only the flat shape would silently skip a
+  # nested-layout plugin — reintroducing the silent-skip class one level up.
+  # (Review: the Staff Engineer Finding 6 — nested-layout glob gap. project-rag is the precedent.)
+  for hooks_json in "$PLUGINS_ROOT"/*/hooks/hooks.json "$PLUGINS_ROOT"/*/plugin/hooks/hooks.json; do
+    [[ -f "$hooks_json" ]] || continue
+    # Derive plugin name from the segment before the (optional) 'plugin/' and 'hooks/'.
+    rest="${hooks_json#$PLUGINS_ROOT/}"
+    plugin="${rest%%/*}"
+    plugin_dir="${hooks_json%/hooks/hooks.json}"
+
+    # Emit, one per line, each SessionStart command's referenced script path
+    # (relative to CLAUDE_PLUGIN_ROOT). Parse JSON with python (jq not portable
+    # on Windows). Read via stdin to dodge MSYS path-translation quirks.
+    missing=$(cat "$hooks_json" 2>/dev/null | "$PY" -c "
+import json, sys, re, pathlib
+plugin_root = pathlib.Path(sys.argv[1])
+try:
+    cfg = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+hooks = cfg.get('hooks', {}).get('SessionStart', []) or []
+seen = []
+for group in hooks:
+    for h in group.get('hooks', []):
+        cmd = h.get('command', '')
+        # Pull the script path token: the first \${CLAUDE_PLUGIN_ROOT}/... arg.
+        # Capture must START with '/' and exclude whitespace, quotes, and shell
+        # punctuation (; & | > <) so trailing tokens on shapes the probe author
+        # didn't write (e.g. '...x.sh;' or '...x.sh\"' or '&&'-chained) are not
+        # folded into the path -> no false-positive 'missing script' health line.
+        # (Review: the Staff Engineer Finding 3 -- (\S+) over-matched trailing shell punctuation.)
+        # Single-quote injected via string concatenation of a quoted apostrophe:
+        # a literal apostrophe cannot live inside this Python raw string, it terminates the string.
+        m = re.search(r'\\\${CLAUDE_PLUGIN_ROOT}(/[^\s;\"' + \"'\" + r'&|<>]+)', cmd)
+        if not m:
+            continue
+        rel = m.group(1).lstrip('/')
+        if rel in seen:
+            continue
+        seen.append(rel)
+        target = plugin_root / rel
+        if not target.exists():
+            print(rel)
+" "$plugin_dir" 2>/dev/null) || true
+
+    if [[ -n "$missing" ]]; then
+      while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        echo "[health] ${plugin}: SessionStart hook references missing script '${rel}' (declared in hooks/hooks.json, not on disk — Claude Code silently skips it). Re-run the plugin's installer or /coordinator:setup."
+      done <<< "$missing"
+    fi
+  done
+fi
+
 exit 0

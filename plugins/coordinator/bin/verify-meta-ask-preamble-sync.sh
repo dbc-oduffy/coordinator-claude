@@ -25,6 +25,15 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 2
 fi
 
+# Node resolver guard (mirrors verify-calibration-sync.sh) — this script shells out
+# to node for sentinel-blocks-cli.js below; a bare `node` fails opaquely when node is
+# absent or PATH-shadowed. Fail loud with an NODE_BIN override hook.
+NODE_BIN="${NODE_BIN:-node}"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+    echo "ERROR: node not found (set NODE_BIN to override)" >&2
+    exit 2
+fi
+
 # Self-claim: source coordinator session lib for touch tracking.
 # Best-effort — no-op if lib absent or no active session.
 _CS_LIB="$(cd "$(dirname "$0")/.." && pwd)/lib/coordinator-session.sh"
@@ -71,14 +80,19 @@ MODE="${1:-verify}"
 # (the entire trimmed line equals the sentinel). This excludes prose references
 # where the sentinel is embedded in backtick spans or other inline text.
 find_consumers() {
-    local results=""
     local candidates
     candidates="$(grep -rlF "$BEGIN_SENTINEL" "$PLUGIN_ROOT" 2>/dev/null || true)"
     [ -z "$candidates" ] && return 0
 
     while IFS= read -r f; do
+        # A file is a consumer only if the trimmed sentinel is its own line AND that line is
+        # NOT inside a ``` fenced code block (a fenced occurrence is a documentation example
+        # of the convention, not a live consumer block). in_fence tracking mirrors
+        # verify-preamble-sync.sh — keep the two in sync.
         if awk -v s="$BEGIN_SENTINEL" '
-            { stripped = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", stripped); if (index(stripped, s) && stripped == s) { found=1; exit } }
+            { stripped = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", stripped) }
+            stripped ~ /^```/ { in_fence = !in_fence; next }
+            !in_fence && index(stripped, s) && stripped == s { found=1; exit }
             END { exit !found }
         ' "$f" 2>/dev/null; then
             printf '%s\n' "$f"
@@ -89,7 +103,7 @@ find_consumers() {
 CONSUMERS="$(find_consumers)"
 
 if [ -z "$CONSUMERS" ]; then
-    echo "no consumers detected — nothing to verify (Chunk 2 will add the inclusion in agents/executor.md)"
+    echo "no consumers detected — nothing to verify"
     exit 0
 fi
 
@@ -102,10 +116,14 @@ fi
 # --- extract sentinel block content from a file ---
 extract_block() {
     local file="$1"
-    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
 }
 
-# Read snippet body: skip the first line (comment header) and any following blank line.
+# Read snippet body: NR>2 skips the snippet header (one comment line + one blank line below it).
+# Assumption: snippet file structure is line 1 = comment header, line 2 = blank, line 3+ = body.
+# Failure mode: if a snippet ever gains an extra leading blank line after its header, source-side
+# (this sed strip) and consumer-side (sentinel-blocks-cli raw extract) will diverge → false MISMATCH.
+# Long-term fix: extract-snippet-body mode in bin/lib/sentinel-blocks-cli.js. See BS-2026-05-20-013.
 SNIPPET_BODY="$(awk 'NR>2' "$SNIPPET_FILE")"
 
 # Normalize: strip trailing whitespace, collapse trailing blank lines.

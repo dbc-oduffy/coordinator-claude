@@ -69,6 +69,12 @@ if __name__ == "__main__":
 - Daemon-style background processes that expose introspection endpoints — the endpoint code reads `_STATE` via canonical import; the boot path populates `_STATE` via `__main__`.
 - Test harnesses that import the production entry-point module to read its globals while the production process is also running.
 
+## Bare-namespace top-level packages collide across sibling repos
+
+*2026-05-19, project-rag + project-rag-ue-addon.* A related `sys.modules` collision arises when two sibling repos each ship a **bare-namespace top-level package** with the same generic name — `scripts/`, `utils/`, `lib/`, `tests/` — and both get imported into one process (e.g. an addon imported into a host, or a shared test runner that loads both trees). Python keys `sys.modules` on the import name, not the on-disk path, so `import scripts.foo` from repo A and `import scripts.bar` from repo B both register under the single `scripts` package entry. Whichever repo imports first wins the namespace; the second repo's `scripts.*` submodules either shadow or fail to resolve, depending on import order — a non-deterministic, order-dependent failure.
+
+**Defensive eviction is a workaround, not a fix.** Popping the colliding entry out of `sys.modules` before the second import (or manipulating `sys.path` ordering) papers over the symptom but leaves the latent collision for the next caller and the next import order. The structural fix is a **bilateral rename**: give each repo's top-level package a repo-unique name (`projectrag_scripts/`, `addon_scripts/`) so the namespaces never share a key. Generic bare-namespace package names are the root cause; only renaming removes it.
+
 ## Cross-references
 
 - [`writing-plans.md`](./writing-plans.md) § Substrate-Verification — add this hazard check to the plan-time substrate audit for any plan that ships mutable module-level state.

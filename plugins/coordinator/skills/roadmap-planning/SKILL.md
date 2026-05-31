@@ -92,15 +92,11 @@ mcp__project-rag__project_semantic_search(query="UClass", source="unreal", limit
 ```
 A non-empty response with engine-corpus hits proves liveness. Anything else (404, "no addon registered for source=unreal", empty result) is the block signal.
 
-**Goal:** stubs in Phase 2 cite primary research and a PM-approved architectural overview, not EM hand-waving. The empirical motivator is the project-rag retrospective (ESC-4, ESC-5) — thin Phase 1 → Phase 2 transition let stubs encode contested architecture as fait accompli. Phase 1.5 forces the contested decisions into the open *before* they get cast as 20+ stubs.
-
-**Why this phase exists:** a stub is a load-bearing artifact — it will be picked up by a context-less EM and turned into code. If the architecture it asserts is wrong, the picking-up EM either ships the wrong thing or burns a session re-deriving the right shape. The cost asymmetry — Phase 1.5 is one extra reviewer + one extra PM round; getting it wrong is N stubs × executor sessions of wrong code — makes the gate strictly load-shedding, not ceremony.
-
-Phase 1.5 is **mandatory** by construction — never skipped per-roadmap. The judgment call ("do we really need primary research this time?") is exactly the failure mode the empirical retrospective surfaced; the doctrine removes the judgment call.
+**Goal:** stubs in Phase 2 cite primary research and a PM-approved architectural overview, not EM hand-waving. The empirical motivator is the project-rag retrospective (ESC-4, ESC-5) — thin Phase 1 → Phase 2 transition let stubs encode contested architecture as fait accompli. Phase 1.5 forces contested decisions into the open *before* they get cast as 20+ stubs. A stub is a load-bearing artifact picked up by a context-less EM; wrong architecture means shipping the wrong thing or burning a session re-deriving the right shape. Phase 1.5 is **mandatory** by construction — never skipped; the judgment call ("do we really need primary research this time?") is the failure mode the retrospective surfaced.
 
 ### Step 1.5.0 — Research-depth assessment (EM judgment, PM-authorized)
 
-Before dispatching the default parallel Sonnet scouts in Step 1.5.1, the EM assesses whether the roadmap's ambition exceeds solo-scout depth. **Solo scouts are 5–10 minute web searches per topic — they surface known patterns and primary sources, but they are not state-of-the-art surveys.** When the roadmap aims at "best in class", "cutting edge", "novel architecture", or "matches/exceeds <named-frontier-system>", Opus cannot substitute from model memory alone (knowledge cutoff is one signal; non-existence-of-public-state-of-the-art is the deeper one — the techniques may not be in training data at all).
+Before dispatching the default parallel Sonnet scouts in Step 1.5.1, the EM assesses whether the roadmap's ambition exceeds solo-scout depth. **Solo scouts are 5–10 minute web searches per topic — not state-of-the-art surveys.** When the roadmap aims at "best in class", "cutting edge", "novel architecture", or "matches/exceeds <named-frontier-system>", model memory alone is insufficient (knowledge cutoff + non-existence-of-public-state-of-the-art — the techniques may not be in training data at all).
 
 **EM-side escalation criteria — if ANY hit, surface a deep-research recommendation to the PM:**
 
@@ -115,11 +111,7 @@ Before dispatching the default parallel Sonnet scouts in Step 1.5.1, the EM asse
 
 `/research` is PM-gated (per the skill description — "PM-GATED: ask first; never from subagent"). EM never auto-invokes it; the recommendation is the gate. PM may authorize (a) full deep-research replacing solo scouts, (b) deep-research on a subset + solo scouts on the rest, or (c) decline and stay with solo scouts.
 
-**When authorized:** dispatch `/research` per its skill contract, with output landing under `tasks/roadmap/<run-id>/research-corpus/deep-research/<topic-slug>/`. The OVERVIEW.md citations in Step 1.5.2 then point at the deep-research artifacts (claims.json + summary.md + executive-summary.md) instead of (or in addition to) the solo-scout files. Update the Phase 1.5 exit gate's "research-corpus exists" check to accept either shape.
-
-**When declined or not triggered:** proceed to Step 1.5.1 with solo Sonnet scouts as the default.
-
-This step exists because the empirical motivator (project-rag retrospective) was a roadmap whose ambition genuinely outran model memory; the doctrinal fix is not "always deep-research" (too expensive for routine roadmaps) but "force the EM to surface the call so the PM can authorize the right depth."
+**When authorized:** dispatch `/research` per its skill contract; output lands under `tasks/roadmap/<run-id>/research-corpus/deep-research/<topic-slug>/`. OVERVIEW.md citations in Step 1.5.2 point at the deep-research artifacts (claims.json + summary.md + executive-summary.md) instead of (or in addition to) solo-scout files. Update the Phase 1.5 exit gate's "research-corpus exists" check to accept either shape. **When declined or not triggered:** proceed to Step 1.5.1 with solo Sonnet scouts. This step forces the EM to surface the depth call so the PM authorizes it — the doctrinal fix is not "always deep-research" (too expensive for routine roadmaps).
 
 ### Step 1.5.1 — Research corpus (parallel Sonnet scouts)
 
@@ -250,7 +242,7 @@ scope:
 ---
 ```
 
-`authoring_session` is path-shaped (`tasks/roadmap/<run-id>/`) so `/pickup` and future tooling can deterministically `Read` the origin context without prose-parsing. The wiki schema (`docs/wiki/spinoff-handoffs.md`) describes the field as a one-line description — for roadmap stubs we narrow that to a directory path. If the broader spinoff convention shifts to path-shaped audit trails, the wiki will be amended; until then, this is a roadmap-specific narrowing.
+`authoring_session` is path-shaped (`tasks/roadmap/<run-id>/`) so `/pickup` can deterministically `Read` origin context. The wiki schema describes this field as a one-line description; for roadmap stubs we narrow it to a directory path (roadmap-specific narrowing; wiki amends if the convention broadens).
 
 **Two schema fields NOT in the template** — they're populated by lifecycle events, not by `roadmap-planning`:
 
@@ -306,12 +298,20 @@ NOT a hand-maintained table. The query callout regenerates on every `/update-doc
 `blocks` and `blocked_by` arrays in each stub's frontmatter ARE the graph. To visualize:
 
 ```bash
-bin/query-records --type handoff --where "kind=spinoff-roadmap AND roadmap_id=<run-id>" --format json | <graphviz-script>
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff --where "kind=spinoff-roadmap AND roadmap_id=<run-id>" --format json | <graphviz-script>
 ```
 
 Wave order auto-derives from topological sort over `blocked_by`. If you find yourself hand-maintaining a wave-order table, stop — you've recreated the brief's failure mode (siblings, not subsets).
 
 **`sort=sprint` reminder:** `query-records.js` sorts by frontmatter field name; `sprint` is a roadmap-stub frontmatter field, so the callout's `sort=sprint` IS valid syntactically. But the dogfood-2026-05-08 run could not confirm sprint-sort actually executed (the test corpus had no multi-sprint variation). On the next multi-sprint roadmap run, verify sort ordering against expected sprint sequence; if it sorts by `created` instead, file an improvement-queue entry.
+
+**Pre-derive the design graph BEFORE any fan-out (hard gate).** The wave order is a *derived* artifact — topologically sorted over `blocked_by` — not an assumption the dispatching EM makes by reading sprint numbers. Before Phase 3 dispatch fans out any wave, run the derivation and verify it:
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff --where "roadmap_id=<run-id>" --format json
+```
+
+Confirm: (1) every stub's `blocks`/`blocked_by` edges reference tc-ids that exist in this `roadmap_id`; (2) the graph is acyclic (a cycle means the topology cannot produce a wave order — fix the edges before dispatch); (3) every wave-N stub set is file-disjoint per its `scope:` blocks (the file-overlap gate per coordinator CLAUDE.md § Pre-Dispatch Verification — overlap is the one unconditional serial gate). A fan-out dispatched against an unverified or cyclic graph is the "siblings, not subsets" failure the skill exists to prevent, now in execution form: executors collide on shared files or block on edges that were never real. The derivation is cheap (one query + a cycle check); skipping it costs an aborted wave.
 
 ### Step 2.5 — `pm-gates.md` enumeration (brief recommendation E)
 
@@ -327,7 +327,7 @@ Phase 2 forces explicit enumeration of every product-coupled question. Write `ta
 
 **Detection rule for "product-coupled":** during Phase 2 stub authoring, scan each stub's `gate_dependency:` text for any of: explicit `PM `-prefixed strings, named-stakeholder references, `decision needed` / `approval needed` / `policy` / `scope` / `user-facing` tokens. Each hit becomes a row in `pm-gates.md`. Author can add rows manually for product-coupled questions whose `gate_dependency:` text doesn't trip the detector.
 
-**Manual audit at Phase 2 close (cross-file; `bin/lint-frontmatter.js` cannot do cross-file validation):** for every stub with `gate_dependency:` starting `PM `, confirm an entry exists in `pm-gates.md` (`tc_id` column). For every row in `pm-gates.md` with `resolved? = pending`, confirm at least one stub references it via `gate_dependency:` text. Mismatch blocks Phase 3 entry. Automation candidate post-dogfood: a `bin/audit-roadmap.sh <run-id>` script that runs all Phase 2 cross-file checks.
+**Manual audit at Phase 2 close (cross-file; `bin/lint-frontmatter.js` cannot do cross-file validation):** for every stub with `gate_dependency:` starting `PM `, confirm an entry exists in `pm-gates.md` (`tc_id` column). For every row in `pm-gates.md` with `resolved? = pending`, confirm at least one stub references it via `gate_dependency:` text. Mismatch blocks Phase 3 entry. Automation candidate post-dogfood: a `audit-roadmap.sh <run-id>` script that runs all Phase 2 cross-file checks.
 
 ### Step 2.6 — Stub-coverage audit (brief recommendation G)
 
@@ -358,7 +358,7 @@ Prevents the brief's "siblings, not subsets" failure mode — stubs cannot exist
 
 <!-- Review: the Staff Engineer — parallel review stretches the merge-gate carve-out which explicitly excludes plan/stub/doc review; sequential is the correct doctrine-compliant shape here (P1-3) -->
 
-**Sequential, not parallel.** The merge-gate parallel-code-review carve-out explicitly excludes plan/stub/doc review (per coordinator CLAUDE.md tripwires § Parallel-review merge-gate carve-out). A roadmap stub set is plan/stub/doc-shaped; running reviewers in parallel would either stretch the doctrine or require a separate doctrine amendment with PM sign-off. Neither is worth the once-per-roadmap latency saved.
+**Sequential, not parallel** (merge-gate parallel carve-out explicitly excludes plan/stub/doc review — a roadmap stub set is plan/stub/doc-shaped).
 
 Sequence:
 1. Dispatch the Staff Engineer with the full `tasks/roadmap/<run-id>/` directory + all stubs. Brief: schema/architecture/sequencing review of the stub set; flag P0 conflicts, missing AC surface, scope errors, sequencing bugs in the constraint graph. Read-only.
@@ -366,7 +366,7 @@ Sequence:
 3. Dispatch the Data Science Reviewer with the same directory. Brief: domain coherence + data shapes; flag clusters whose stubs would compose poorly, premise gaps, edge cases the stub set silently elides. Read-only.
 4. Integrate the Data Science Reviewer's findings via `coordinator:review-integrator`.
 
-The latency cost (two sequential dispatches instead of one parallel pair) is acceptable because (a) this fires once per roadmap, not once per stub; (b) the Data Science Reviewer's review benefits from seeing the Staff Engineer's integrated changes (cross-pollination is the point of the sequential rule); (c) any "doctrine stretch" is paid downstream by every future plan-shaped review that wants to cite this skill as precedent.
+The latency cost is acceptable: fires once per roadmap, the Data Science Reviewer benefits from the Staff Engineer's integrated changes, and the sequential rule holds across all plan-shaped review.
 
 ### Phase 2 entry gate (NEW — gates on Phase 1.5)
 
@@ -389,6 +389,7 @@ Before Phase 3:
 - [ ] Every stub has a `## Soft seams` section (may be empty with `- None identified`, must be present per Step 2.2).
 - [ ] `kind: spinoff-roadmap` validator clean across all stubs.
 - [ ] the Staff Engineer+the Data Science Reviewer review integrated.
+- [ ] Design graph derived and verified: `blocks`/`blocked_by` edges all resolve, graph is acyclic, every wave-N set is file-disjoint by `scope:`. (Pre-fan-out gate per Step 2.4.)
 
 ---
 
@@ -428,9 +429,7 @@ Would have caught ESC-5 (G1 went structurally hollow when synthetic-baseline acc
 
 ### Step 3.3 — End-of-run review
 
-After all sprints complete, dispatch ONE Sonnet review across the whole roadmap output. NOT per-wave Opus. Per the brief's empirical finding: end-of-run Sonnet beat per-wave Opus on cost and didn't lose meaningful signal.
-
-Brief: "Cross-cutting review of <run-id> roadmap execution. Flag any drift from stubs, missing acceptance criteria, deferred items that should have been fixed in-session." Integrate via `coordinator:review-integrator`. Surface escalations (ESC-N format) to PM.
+After all sprints complete, dispatch ONE Sonnet review across the whole roadmap output. NOT per-wave Opus (empirical finding: end-of-run Sonnet beat per-wave Opus on cost without meaningful signal loss). Brief: "Cross-cutting review of <run-id> roadmap execution. Flag any drift from stubs, missing acceptance criteria, deferred items that should have been fixed in-session." Integrate via `coordinator:review-integrator`. Surface escalations (ESC-N format) to PM.
 
 ---
 
@@ -449,13 +448,11 @@ By the end of a roadmap-planning run:
 - `tasks/roadmap/<run-id>/pm-gates.md` — Phase 2 PM-gate enumeration
 - `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` × N — Phase 2 stubs (one per KEEP / MERGE-target cluster)
 
-Stubs live alongside ad-hoc spinoffs and continuation handoffs; the `roadmap_id:` field clusters them. `/session-start`, `/workday-start`, `/pickup` all light up automatically — no second-class artifact.
+Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` clusters them. `/session-start`, `/workday-start`, `/pickup` light up automatically — no second-class artifact.
 
 ---
 
-## Contact-points checklist (per the new-skill scaffolding rule)
-
-Per `~/.claude/tasks/coordinator-improvement-queue.md` 2026-05-06 entry on autonomous-skill scaffolding:
+## Contact-points checklist
 
 - **`/handoff` and `/spinoff` durability rules apply with extra force to roadmap stubs.** `gate_dependency:` MUST be subsystem-named (e.g., `consumer_runner retry telemetry policy`), never file-pathed (e.g., `tasks/handoffs/2026-05-08_foo.md ships`). Step 3.2's gate-meaningfulness audit reads this text from git history via `git show HEAD:<file>`; a file-pathed dependency goes stale on archive-to-`archive/handoffs/` and breaks the audit prompt by displaying a dangling reference. The picking-up EM editing a roadmap stub's frontmatter must respect this; a v1 lint extension catches `gate_dependency:` text containing path-fragments (e.g., `tasks/`, `archive/`, `*.md`) and warns.
 

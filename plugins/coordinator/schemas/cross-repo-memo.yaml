@@ -67,3 +67,14 @@ optional:
   decision_note: string
   # Optional note set by receiver at actioning time (free-text rationale or decision summary)
   actioned_note: string
+  # Sender-declared shape of the memo (optional; absent = reader applies 'ask' default).
+  # Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § Pinned interface
+  # Negative-spec: 'ack' is NOT a kind — acknowledgement is receipt-state, not sender-declared.
+  # Enum members: ask | consult | fyi. Validated via cross-field rule in schema.js (not YAML
+  # enum type) so the grandfather cutoff and ack-specific hint are enforced consistently.
+  kind: string
+  # One-line memo summary (≤120 chars). Length enforced via cross-field rule in schema.js
+  # for post-cutoff memos (created >= 2026-05-22 — the same grandfather boundary as the
+  # rest of the cross-repo-memo ruleset).
+  # Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+  summary: string

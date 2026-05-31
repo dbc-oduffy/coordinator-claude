@@ -1,4 +1,4 @@
-<!-- canonical source for prior-art-check-consumption — edit here, then run bin/verify-prior-art-sync.sh --fix -->
+<!-- canonical source for prior-art-check-consumption — edit here, then run verify-prior-art-sync.sh --fix -->
 
 ## Prior-Art Check Integration
 

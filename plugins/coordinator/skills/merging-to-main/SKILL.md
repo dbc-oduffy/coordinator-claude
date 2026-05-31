@@ -20,14 +20,14 @@ Merge a work or feature branch to main via PR with CI gating. Creates the PR, wa
 
 #### Step 0a: Acceptance-Oracle Gate (AUTHORITATIVE)
 
-<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — authoritative gate seam topology -->
+<!-- spec-backlink: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — authoritative gate seam topology -->
 
 Before any test-suite or PR work, run the acceptance-oracle gate for the branch's plan.
 
 **Plan-path discovery (try in order):**
 1. Frontmatter `plan:` field on the branch's most-recent plan document.
 2. Explicit `--plan <path>` flag in `$ARGUMENTS`.
-3. If neither yields a path → **skip-with-offer**: _"No plan path found — acceptance oracle can be validated manually with `bash bin/check-acceptance-oracle.sh <plan-path>` if a plan exists for this branch."_ Continue to Step 0b.
+3. If neither yields a path → **skip-with-offer**: _"No plan path found — acceptance oracle can be validated manually with `bash check-acceptance-oracle.sh <plan-path>` if a plan exists for this branch."_ Continue to Step 0b.
 
 **If `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` is set:**
 Skip the gate entirely. Log: _"Acceptance-oracle gate bypassed via COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 — exceptional use only."_ Continue to Step 0b.
@@ -35,7 +35,7 @@ Skip the gate entirely. Log: _"Acceptance-oracle gate bypassed via COORDINATOR_O
 **If plan path resolved AND the plan contains a bindable `## Acceptance Criteria` table** (columns: `ID | Criterion | Test | Binding-Class | Status`):
 
 ```bash
-bash bin/check-acceptance-oracle.sh <plan-path>
+bash check-acceptance-oracle.sh <plan-path>
 ```
 
 - **Exit 0 (all gate-bound rows green or cited-resolved):** Log the verdict and continue to Step 0b. _"Acceptance oracle: all gate-bound tests pass."_
@@ -265,6 +265,7 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
 | **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
+| **Reverse-drift gate** | `bin/check-reverse-drift.sh` is executable in cwd | Run it. On non-zero exit (a `copy_install` live install hand-edited since last install — the case forward-SHA `check-plugin-drift.sh` is blind to), halt with the script's remediation: run `holodeck_recover --step reverse-drift` to back-propagate live→source, or override with `COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`. No script present → passes silently. Mirrors `/workweek-complete` Step 4g. |
 
 If `project_type` is not `game-dev` or `project_subtypes` does not contain `unreal`, skip this step entirely.
 

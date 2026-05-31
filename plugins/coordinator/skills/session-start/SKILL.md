@@ -30,6 +30,16 @@ Secure any uncommitted work before touching branches:
 
 **Do not ask permission.** Non-negotiable safety measure.
 
+### EM environment check
+
+Before load-bearing work, confirm the EM is on the right model and effort:
+
+- **Effort** — you cannot observe this yourself (it shows only in the CLI startup banner, never in your system prompt). Run the safety script and relay any banner it prints; silent output means clean (`medium` effort), so say nothing:
+  ```bash
+  bash ~/.claude/plugins/coordinator/bin/check-em-environment.sh
+  ```
+- **Model** — your system prompt names your model. If it is not Opus, WARN the PM (`⚠ MODEL DRIFT — not Opus; toggle via /model`) and recommend switching before proceeding. (The script also reads the transcript model as a backstop.)
+
 ### Setup-state self-heal (silent)
 
 On `source_is_live` machines, coordinator-claude's install IS the source — the operator is the author and never runs `/coordinator:setup`, so the receipt at `~/.claude/coordinator-setup-state.yaml` (the cross-repo chaining gate read by sibling-repo setups) never gets written by the normal path. Self-heal by recording `setup_concluded` implicitly when the registry confirms `source_is_live`. Idempotent (first-write-wins), silent on every call, emits no orientation prompt.
@@ -50,7 +60,7 @@ Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 
 
 If any line is emitted (i.e. at least one `<repo>/.claude/worktrees/agent-*` exists), surface a one-liner:
 
-> _"{N} agent-isolation worktree(s) on disk — Claude Code auto-creates these for `Agent` dispatches and they persist locked until session deletion. Run `/workday-start` to sweep + salvage, or `bin/agent-worktree-sweep.sh --reap` to act now."_
+> _"{N} agent-isolation worktree(s) on disk — Claude Code auto-creates these for `Agent` dispatches and they persist locked until session deletion. Run `/workday-start` to sweep + salvage, or `agent-worktree-sweep.sh --reap` to act now."_
 
 If no output, skip silently — the common case.
 
@@ -156,24 +166,27 @@ python3 -c "import coordinator_whoami"
   `whoami: not installed (run /coordinator:setup to install the introspection package)`
   Skip Step 2.
 
-**Step 2 — read the live envelope (import succeeded):**
+**Step 2 — read the live session envelope (import succeeded):**
 
 ```bash
-python3 -m coordinator_whoami.project_rag 2>/dev/null
+python3 -m coordinator_whoami.session 2>/dev/null
 ```
 
-Parse the JSON output and inspect `binding.kind` and `binding.target`.
+Parse the JSON output and inspect `binding.kind` and `status.state`.
 
 - **`binding.kind == "unbound"`:** Emit:
-  `whoami: unbound (run /project-onboarding or /project-rag:setup to bind this project)`
+  `whoami: unbound (not in a coordinator-onboarded repo)`
 
 - **`binding.kind == "bound"`:** Emit:
-  `whoami: bound → <binding.target>`
+  `whoami: bound → <binding.target> (<status.state>)`
+  where `status.state` is `healthy`, `degraded`, or `error` — the freshness/reconcile gradient lives on `status.state`, not on `binding.kind`.
 
 - **CLI exits non-zero, or the output is not parseable JSON:** Emit:
-  `whoami: degraded (CLI failed; see coordinator-doctor.md probe P-6)`
+  `whoami: degraded (CLI failed; see coordinator-doctor.md probe P-6s)`
 
-Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6.
+Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6s (the session probe; P-6 remains the project-rag plugin-binding probe — distinct).
+
+Note: the session adopter is the **orientation spine** — daemon-independent, computed from git+fs. Plugin-specific binding (e.g. project-rag source registration) is surfaced separately and optionally; plugin whoamis are optional ribs, never the orientation spine.
 
 Note: session-start does NOT surface bound-but-cwd-mismatch — that is `/project-onboarding`'s job. Session-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
 
@@ -184,7 +197,7 @@ Run two `bin/query-records` calls — sub-second by construction, no file walks.
 **Primary: actionable-now handoffs.**
 
 ```bash
-bin/query-records --type handoff \
+"${HOME}/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=ready_to_fire AND status=active" \
   --sort "-created" --format markdown-list
 ```
@@ -196,11 +209,11 @@ Report: _"Found {N} actionable handoffs (deployment_state=ready_to_fire). Run `/
 Two queries — first counts everything `awaiting_gate`, second lists the stale subset:
 
 ```bash
-bin/query-records --type handoff \
+"${HOME}/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
   --sort "-created" --format markdown-list
 
-bin/query-records --type handoff \
+"${HOME}/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
   --older-than 6d --format markdown-list
 ```
@@ -213,9 +226,11 @@ Reporting rules:
 
 Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated handoffs that the PM needed visibility on for cross-workstream planning. Six days is roughly one working week — long enough that a gate that hasn't cleared is worth a glance, short enough to catch drift before it ossifies.
 
+**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `tasks/handoff-tracker.md` (written by `/session-end` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `node plugins/coordinator/bin/render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
+
 **Stale advisory / call-note markdowns are not pendency.** Files in `tasks/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
 
-**Acceptance-oracle notice (one-liner, when applicable):** When surfacing actionable handoffs or active workstreams, check whether the relevant plan is oracle-bearing (carries a bindable `## Acceptance Criteria` table). If so, append a single line to the handoff entry: "Plan carries an acceptance oracle — run `bash bin/check-acceptance-oracle.sh <path>` for current status." This is informational; do not make it a gate or a hard stop.
+**Acceptance-oracle notice (one-liner, when applicable):** When surfacing actionable handoffs or active workstreams, check whether the relevant plan is oracle-bearing (carries a bindable `## Acceptance Criteria` table). If so, append a single line to the handoff entry: "Plan carries an acceptance oracle — run `bash check-acceptance-oracle.sh <path>` for current status." This is informational; do not make it a gate or a hard stop.
 
 **Do NOT load, summarize, or act on any handoff.** This applies even if there's only one. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
 
@@ -276,7 +291,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 **Stale advisory markdowns ≠ pendency.** Before treating any `tasks/advisory/*.md`, `tasks/call-notes/*.md`, or similarly-named orientation note as a live work item: `git log --oneline -- <path>` to check authoring and last-touch dates. A markdown that hasn't been touched in >14 days is hypothesis until re-verified against current HEAD — it may describe a state already resolved by subsequent commits.
 
-- **Last session-end review (informational):** if `tasks/review-trail/` has any records, surface the most recent one (`ls -t tasks/review-trail/*.json | head -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
+- **Last session-end review (informational):** if any review-trail records exist (live or archived), surface the most recent one (`list-review-trail-records.sh | tail -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
 
 ### Documentation index
 
@@ -285,6 +300,8 @@ Check if `docs/README.md` exists. If it does, note briefly: _"Documentation inde
 If `docs/README.md` does not exist but `docs/guides/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
 
 If neither exists, skip silently — the project hasn't adopted the wiki system yet.
+
+**Fan-out tooling available:** `fan-out-dispatch.sh` (overlap pass + scoped prompt compiler); follow the fan-out methodology to dispatch the compiled wave and hold the EM-serial commit (not a skill — there is no `/fan-out` command). Use instead of hand-authoring parallel executor prompts. → `docs/wiki/dispatching-parallel-agents.md` § Executing a Fan-Out Wave.
 
 ### Delegation context (game-dev projects)
 
@@ -349,7 +366,47 @@ Choose work and load task-specific context.
 >
 > If the handoff lists multiple next steps, execute them in order unless the PM redirects.
 
-**If NO handoff was loaded** (PM hasn't directed you to one yet, or no handoffs exist), present options appropriate to the project:
+**If NO handoff was loaded** (PM hasn't directed you to one yet, or no handoffs exist), check for the fresh-install sentinel before presenting the generic menu:
+
+### Fresh-install orientation branch (fallback)
+
+**Predicate — fire this branch ONLY when ALL three conditions hold:**
+
+1. No handoff is loaded (already established above).
+2. The fresh-install sentinel `~/.claude/.coordinator-fresh-install` exists on disk.
+3. (Implicit: the sentinel has not already been consumed — consuming it is the first act of this branch.)
+
+```bash
+test -f "$HOME/.claude/.coordinator-fresh-install" && echo "fresh-install" || echo "normal"
+```
+
+**If the sentinel exists — fresh-install orientation:**
+
+Before doing anything else, consume (delete) the sentinel so this branch does NOT re-fire on subsequent no-handoff sessions:
+
+```bash
+rm -f "$HOME/.claude/.coordinator-fresh-install"
+```
+
+Then orient the operator toward their `~/.claude` meta-repo as the primary surface to evolve:
+
+> **Welcome — coordinator is installed.** Your `~/.claude` directory is a git-tracked repo that is your live coordinator install. It's the surface you evolve — adding project context, capturing lessons, writing your CLAUDE.md — not the upstream `coordinator-claude` source.
+>
+> The primary path from here is to `/pickup` the continue-onboarding handoff that the installer left in `tasks/handoffs/` — it walks you through co-writing your CLAUDE.md and running your first `/session-start` on a real project. If no handoff is visible above, you can start fresh:
+>
+> **Suggested first steps:**
+> 1. **Co-write your `~/.claude/CLAUDE.md`** — personalize your EM persona, coding conventions, and any project-level extensions with the EM's help (just ask).
+> 2. **`/project-onboarding` in your first project repo** — sets up tracking, CLAUDE.md, and the post-commit hook.
+> 3. **`/workday-start`** — run once per day to orient, sweep, and load the day's context.
+>
+> _This orientation fires once. The sentinel `~/.claude/.coordinator-fresh-install` has been cleared — subsequent no-handoff sessions will show the standard work menu instead._
+
+**Sentinel lifecycle summary (for documentation clarity):**
+- **Created by:** install Layer 0 (chunk C1 of the install plan) at `~/.claude/.coordinator-fresh-install`.
+- **Consumed by:** this branch on first activation — deleted before the orientation message is shown.
+- **Post-consumption:** absent, so this branch is permanently skipped on all subsequent no-handoff sessions. The second clean session sees the standard work menu below — not this orientation. This is the testable guarantee: if `~/.claude/.coordinator-fresh-install` is absent, this branch does not fire regardless of handoff state.
+
+**If the sentinel does NOT exist**, fall through to the standard work menu:
 
 **What should this agent work on?**
 

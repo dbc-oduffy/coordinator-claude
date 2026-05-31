@@ -31,9 +31,22 @@ set -euo pipefail
 # clearly with install guidance.
 if (( BASH_VERSINFO[0] < 4 )); then
   echo "ERROR: this script requires bash 4.0 or later (associative arrays)." >&2
-  echo "  Detected: bash ${BASH_VERSION}" >&2
-  echo "  macOS users: install a newer bash via 'brew install bash' and re-run with" >&2
-  echo "  /opt/homebrew/bin/bash $(basename "$0") ..." >&2
+  echo "  Detected: bash ${BASH_VERSION:-unknown}" >&2
+  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and re-run with it:" >&2
+  echo "      brew install bash" >&2
+  echo "      \"\$(brew --prefix)/bin/bash\" $(basename "$0") ..." >&2
+  exit 1
+fi
+
+# perl preflight — every substitution path below shells out to perl (frontmatter-safe
+# replace, slug derivation, collision audit). Apple removed bundled perl from default
+# macOS installs in 12.3 (Monterey), so a clean Mac hits `command not found` deep in
+# the run otherwise. Fail fast with install guidance.
+if ! command -v perl >/dev/null 2>&1; then
+  echo "ERROR: name-personas.sh requires 'perl' (used for frontmatter-safe substitution)." >&2
+  echo "  perl was removed from default macOS installs in 12.3 (Monterey)." >&2
+  echo "  Install it:  brew install perl  (macOS)  |  sudo apt install perl  (Debian/Ubuntu)" >&2
+  echo "               winget install StrawberryPerl.StrawberryPerl  (Windows, outside Git Bash)" >&2
   exit 1
 fi
 

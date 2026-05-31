@@ -65,7 +65,7 @@ Before writing anything, run this binary gate. The PRIMARY question is whether t
 - Auto-compaction is imminent or in progress and would lose load-bearing context before the next action can land.
 - A Claude Code restart or MCP-bridge restart is unavoidable mid-workstream.
 - A hard blocker (PM input, external system, after-hours wait) is preventing the next action *right now* — not a future step.
-- The PM has explicitly invoked `/handoff` and named the workstream.
+- The PM has explicitly invoked `/handoff` and named the workstream. **Literal trigger only** — "you can hand that off," "let's pass this to the next session," or "another session will finish it" are intent-descriptions, not invocations. The authorizing act is the PM typing `/handoff` (or the skill name) for *this* workstream, OR one of the first three context-pressure conditions above firing involuntarily. Do not promote an intent-shaped remark into a voluntary handoff — that is precisely the deferral-disguised-as-handoff the NO-tests below exist to catch.
 
 If none of these hold, STOP. Take the next action in this session instead. "Plan reviewed," "looks like a good pause point," "feels tidy here" are not triggers — they are the trap.
 
@@ -114,6 +114,16 @@ Write the file with this structure:
 
 ```markdown
 ---
+title: "<one-line title>"           # REQUIRED. Concise workstream name.
+created: <YYYY-MM-DD>               # REQUIRED. Date this handoff was authored.
+branch: <branch-name>               # REQUIRED. Active branch (git symbolic-ref HEAD).
+status: active                      # REQUIRED. Enum: active | consumed | superseded.
+predecessor: <filename-or-null>     # REQUIRED. Predecessor handoff filename, or null.
+                                    # null = no predecessor (fresh workstream).
+category: <roadmap|infra|bug|docs|research|refactor>
+                                    # category ∈ {roadmap|infra|bug|docs|research|refactor};
+                                    # summary ≤120 chars, one-line tl;dr
+summary: "<one-line tl;dr>"        # ≤120 chars. Required on handoffs created ≥ 2026-05-29.
 workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
 scope:                              # git pathspec syntax — files this workstream owns
   - path/to/file.md
@@ -271,6 +281,24 @@ These four rules apply specifically to `## Recommended Next Steps` and `## In-Pr
 
 > **Negative-spec — no consumed markers written here.** Moving the predecessor to `archive/handoffs/` is a file move, not a marker operation. The `<!-- consumed: YYYY-MM-DD -->` marker is `/pickup`'s exclusive responsibility (`coordinator/commands/pickup.md:130`). This step never writes that marker — to any file, in any circumstance.
 
+**Park-with-links on supersession (superseded workstream, not a continuation).** When a workstream is *superseded* rather than continued — a newer plan, spinoff, or roadmap stub now owns the work the old handoff described, and the old handoff should NOT be picked up — do not leave it sitting `active`/`ready_to_fire` in `tasks/handoffs/`. A superseded handoff left in the active queue strands the next session on a dead workstream. Park it with three links, all in one commit:
+
+1. **Relocate out of the active queue — relocation is the load-bearing guard.** `git mv tasks/handoffs/<superseded-file> archive/handoffs/<superseded-file>`. Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
+2. **Bidirectional canonical link (schema-free body prose).** In the superseded handoff body, add a one-line `**Superseded by:** <successor-path-or-roadmap-stub-id>`. In the successor (handoff, plan, or stub body), add `**Supersedes:** <superseded-handoff-path>`. The pair makes the provenance trail navigable from either end. This body-prose link pair — NOT any frontmatter field — is the canonical supersession-provenance mechanism for handoffs.
+3. **README / index provenance.** If the repo carries a handoff index or `docs/README.md` row referencing the superseded workstream, repoint it at the successor (per CLAUDE.md "Stale doc references: repoint when covered").
+
+This is distinct from chain-archival (above): chain-archival moves the *explicit predecessor of a continuation*; park-with-links handles a *superseded* workstream that has no continuation in this session but whose ownership moved elsewhere. Supersession is a PM-or-roadmap event, not an EM unilateral call on adjacent handoffs — do not park another session's handoff as "superseded" without the explicit successor link (per CLAUDE.md "Don't archive other handoffs as 'superseded' unilaterally").
+
+#### Step 1.5: Refresh Handoff Tracker
+
+After chain-archival above, regenerate `tasks/handoff-tracker.md` so the durable tracker reflects the current queue state before the commit lands.
+
+```bash
+node plugins/coordinator/bin/render-handoff-tracker.js
+```
+
+If the script is absent or exits non-zero, skip silently. The generated file is staged with the handoff's scoped commit at Step 3 — no separate commit.
+
 #### Step 2: Capture Lessons
 
 Follow `/session-end` Step 1 (Capture Lessons) — same intake filter, same format requirements, same merge-over-add rules. Skip if compaction is imminent — the handoff file is the priority.
@@ -331,9 +359,24 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 
 **Staging discipline:** any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`.
 
+#### Step 2.95: Pre-terminate dirty-tree gate
+
+**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before the handoff commit, run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path:
+
+- **(a) This session authored it** → it belongs in this terminator's scoped commit (handled by the existing scope/commit step).
+- **(b) A known concurrent session owns it** → leave it alone (existing rule). "Known" means you can name the workstream/session — a sibling `scope:` block, an active handoff, or a session claim under `.git/coordinator-sessions/` accounts for it. The machine-checkable form of "a session claim accounts for it" is a handoff-frontmatter `consumed_by:` field naming another session's id (sourced from `.git/coordinator-sessions/.current-session-id` per `schemas/handoff.yaml`) — grep for that to tie the prose signal to a field an executor can actually check.
+- **(c) Unattributable** — a dirty file you did NOT author AND cannot tie to a named concurrent owner (the classic case: an abandoned partial revert or orphaned edit from a crashed session). **Do NOT silently leave these — they wedge the next session opener.** Fail loud and pick exactly one disposition, in this order of preference:
+  1. **Commit** with provenance if the change is coherent and you can attribute it: `git add -- <path> && git commit -m "chore: adopt orphaned WT change <path> — unattributed at handoff"`.
+  2. **Stash-with-provenance** if it is incoherent or risky to commit: `git stash push -u -m "orphaned-WT <YYYY-MM-DD> handoff: <path> — left by unknown session" -- <path>`. Name the stash so the next session can find and adjudicate it (per CLAUDE.md "Probe edits in `git stash push -u` / `pop`").
+  3. **Explicit "leave it owned by X"** only when you can now name the owner — record a one-line note (in the handoff body / session summary) stating which session/workstream owns it, converting it from case (c) to case (b).
+
+The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write crash, per CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash them blind.
+
+**Note — this dirty-tree gate is replicated across all three session terminators (session-end, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (session-end commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
+
 #### Step 3: Commit + Verify Remote
 
-**Pre-flight: verify shipped claims.** For each commit referenced in this handoff's `## What Was Accomplished` as completed/shipped, run `bin/check-shipped-on-main.sh <sha>`. If any commit is NOT on `origin/main`:
+**Pre-flight: verify shipped claims.** For each commit referenced in this handoff's `## What Was Accomplished` as completed/shipped, run `check-shipped-on-main.sh <sha>`. If any commit is NOT on `origin/main`:
 
 1. Append a `## Not Yet On Main` section to the handoff body listing each unmerged commit with `{sha} — {subject}`.
 2. Replace any "shipped" / "landed" / "in production" wording in `## What Was Accomplished` with "complete on branch, not yet merged."
@@ -341,7 +384,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 
 **Now** that the handoff is written, commit everything and verify remote sync.
 
-**Workstream scope is declared in the handoff `scope:` block** (written above this step). With concurrent EMs active on the same branch, `git add -A` would sweep up another session's staged/modified files and silently re-attribute them — the `scope:` block is the workstream-anchored authority on which paths belong to this commit. If `git status` shows unfamiliar unstaged files you didn't touch, leave them alone — they belong to a concurrent session.
+**Workstream scope is declared in the handoff `scope:` block** (written above this step). With concurrent EMs active on the same branch, `git add -A` would sweep up another session's staged/modified files and silently re-attribute them — the `scope:` block is the workstream-anchored authority on which paths belong to this commit. If `git status` shows unfamiliar unstaged files you didn't touch, leave them alone — but first run the Step 2.95 dirty-tree gate; "leave alone" is correct ONLY for case (b) named-owner files.
 
 1. Commit using explicit-path plain git — read the `scope:` block from the handoff frontmatter and stage only those paths (lessons.md:43, lessons.md:207, SC-DR-008; no fallback to staging-all):
    ```bash

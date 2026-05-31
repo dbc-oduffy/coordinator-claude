@@ -1,0 +1,4 @@
+# Test detritus — never ship in the OSS-only skill payload.
+**/__pycache__/
+**/.pytest_cache/
+*.pyc

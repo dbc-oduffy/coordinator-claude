@@ -15,7 +15,9 @@
 #      (override: COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET=1)
 #   8. Plan/handoff frontmatter mutation — commit subject must name the
 #      mutation (warn-only; hard block when COORDINATOR_FRONTMATTER_STRICT=1)
-# Review: integrator — stale header (Checks 1-3 only); updated to enumerate all 8
+#   9. Schema version bump tripwire — canonical-structure.yaml change without
+#      coordinator-schema-version bump (warn-only; delegates to
+#      bin/check-schema-version-bump.sh)
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
@@ -274,10 +276,10 @@ if [[ -n "$CLAUDEMD_HARD_VIOLATION" && "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET:-
   WARNINGS="${WARNINGS}\nCLAUDEMD-BUDGET (override):${CLAUDEMD_HARD_VIOLATION}"
 fi
 
-# Print warnings (non-blocking) and always allow commit
-if [[ -n "$WARNINGS" ]]; then
-  echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
-fi
+# NOTE: warn-only output is flushed ONCE at the end of the script (see the final
+# flush before `exit 0`), so checks that accumulate into WARNINGS *after* this
+# point (Check 8 frontmatter, Check 9 schema-bump) are surfaced too. Each
+# early-exit hard/strict block below prints WARNINGS itself before emitting deny.
 
 # Strict-mode block (Phase 5 — gated on COORDINATOR_SCOPE_STRICT=1).
 #
@@ -288,6 +290,10 @@ fi
 # purpose-built to surface the message verbatim to the EM Claude session.
 # See coordinator/docs/preooluse-deny-contract.md for verification details.
 if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; then
+  # Early-exit path: print accumulated warnings before allowing/denying.
+  if [[ -n "$WARNINGS" ]]; then
+    echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+  fi
   # If the override env var is set, log and allow:
   if [[ "${COORDINATOR_OVERRIDE_SCOPE:-0}" == "1" ]]; then
     echo "$(date -Iseconds) | $SESSION_ID | OVERRIDE | $SCOPE_FOREIGN_FILES" >> ".git/coordinator-sessions/$SESSION_ID/overrides.log" 2>/dev/null || true
@@ -394,6 +400,10 @@ if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
 
     # Strict-mode block (gated on COORDINATOR_FRONTMATTER_STRICT=1).
     if [[ "${COORDINATOR_FRONTMATTER_STRICT:-0}" == "1" && "${COORDINATOR_OVERRIDE_FRONTMATTER:-0}" != "1" ]]; then
+      # Early-exit path: print accumulated warnings before emitting deny.
+      if [[ -n "$WARNINGS" ]]; then
+        echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+      fi
       REASON="BLOCKED: commit modifies load-bearing frontmatter without subject-line audit trail.\n\nFiles:${FRONTMATTER_MUTATIONS}\n\nFix: amend commit subject to name the changed key (e.g., 'handoff: flip deployment_state to ready_to_fire') or a lifecycle verb.\n\nOverride: COORDINATOR_OVERRIDE_FRONTMATTER=1 (logged)."
       if command -v jq &>/dev/null; then
         jq -nc --arg reason "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
@@ -413,6 +423,42 @@ if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
       WARNINGS="${WARNINGS}\nFRONTMATTER-MUTATION (override):${FRONTMATTER_MUTATIONS}"
     fi
   fi
+fi
+
+# --- Check 9: Schema version bump tripwire ---
+# canonical-structure.yaml must not change without a corresponding bump to
+# coordinator-schema-version. Delegates to bin/check-schema-version-bump.sh
+# (warn-only — does not block unrelated commits).
+#
+# Rationale: a structural schema change without a version bump causes consumer
+# repos' currency stamps to silently remain "current" even though they were
+# onboarded against a different schema — exactly the class of silent drift that
+# the currency system was built to detect.
+#
+# Doctrine: lib/coordinator-currency.sh § coordinator_currency_probe;
+# docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1.
+
+BUMP_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-schema-version-bump.sh"
+if [[ ! -f "$BUMP_CHECK_SCRIPT" ]]; then
+  BUMP_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-schema-version-bump.sh"
+fi
+
+if [[ -f "$BUMP_CHECK_SCRIPT" ]]; then
+  BUMP_OUT="$(bash "$BUMP_CHECK_SCRIPT" --staged 2>/dev/null)"
+  BUMP_EXIT=$?
+  if [[ $BUMP_EXIT -eq 1 ]]; then
+    WARNINGS="${WARNINGS}\nSCHEMA-BUMP-TRIPWIRE:\n${BUMP_OUT}"
+  fi
+  # BUMP_EXIT 2 = script error (not a git repo, etc.) — silently skip
+fi
+
+# --- Single warn-only flush ---
+# Every warn-only check (1-9) appends to WARNINGS above. This is the single sink
+# that surfaces them; the early-exit hard/strict blocks each printed WARNINGS
+# themselves before denying. Flushing here (not before Checks 8/9) is what fixes
+# the previously-dropped frontmatter + schema-bump warnings.
+if [[ -n "$WARNINGS" ]]; then
+  echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
 fi
 
 exit 0

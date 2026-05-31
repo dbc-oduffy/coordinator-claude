@@ -6,8 +6,8 @@ calibrated_against: Claude Opus 4.7 (1M context)
 type: doctrine
 related:
   - archive/specs/2026-05-03-docs-checker-default-pre-flight.md
-  - plugins/coordinator/agents/docs-checker.md
-  - plugins/coordinator/snippets/docs-checker-consumption.md
+  - plugins/coordinator-claude/coordinator/agents/docs-checker.md
+  - plugins/coordinator-claude/coordinator/snippets/docs-checker-consumption.md
 ---
 
 # docs-checker Pre-Review Doctrine
@@ -109,16 +109,24 @@ docs-checker auto-fixes are NOT integrator-gated. The integrator runs after the 
 
 The integrator continues to handle Opus reviewer findings as today. The docs-checker changelog is part of the permanent review record.
 
+## docs-checker verifies the API claim, not fix-locus liveness
+
+**A green docs-checker pre-flight verifies the API *claim* is accurate — it does NOT verify that the fix-locus still has the assumed shape in current source.**
+**Why:** A green docs-checker verified "torch.cuda.mem_get_info inflates free VRAM on WDDM" (true) while the plan's highest-leverage chunk (C5) was built to route the VRAM gate through pynvml. A source-reading domain reviewer found the mem_get_info→pynvml migration had already shipped — no live call site existed. C5 collapsed to its one genuinely-missing piece.
+**How to apply:** after docs-checker passes, dispatch a domain reviewer or run a targeted grep (`grep -rn 'mem_get_info'`) to confirm the fix-locus still holds the symbol the plan proposes to replace. docs-checker answers "is the API claim true?"; only a source read answers "is the proposed locus still the current state?".
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L199, central-promoted 2026-05-28).*
+
 ## Distribution
 
-The reviewer-side consumption block is synced via `bin/verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
+The reviewer-side consumption block is synced via `verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
-- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
-- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
-- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
+- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
+- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (Zolí)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 
@@ -135,6 +143,16 @@ docs-checker dispatch briefs MUST instruct the agent to **enumerate every extern
 ## Version-pinned edges
 
 When the API claim is bound to a specific engine/library version (UE 5.7.4, Python 3.12.x, torch 2.6.0+cu126), reading the engine's source at that pin beats project-RAG and docs-checker — RAG corpora drift, docs-checker queries are upstream-current. Cite the engine source path + line and the pin.
+
+## Scope Limit — Green docs-checker Verifies the API Claim, Not That the Fix Isn't Already Shipped
+
+**A green docs-checker pre-flight verifies the API *claim*, not that the fix isn't *already shipped* — only a source-reading domain reviewer catches a stale fix-locus.**
+
+docs-checker (and prior-art) answer "is this API claim true?" — they do not answer "is the proposed fix-locus still the current state of the code?" A plan can cite a real bug whose fix already landed; the API-behavior pre-flight goes green either way.
+
+*2026-05-27, claude-unreal-holodeck.* docs-checker VERIFIED "torch.cuda.mem_get_info inflates free-VRAM on WDDM" (true, logged bug BS-2026-05-05) and the plan's highest-leverage chunk (C5) was built to "route the VRAM gate through pynvml." Sid read the call sites and found the mem_get_info→pynvml migration had ALREADY shipped (stub G1/BS-W3) — no live mem_get_info call site existed. C5 collapsed to its one genuinely-missing piece (a WDDM sysmem warning). This is the planning-time face of "audit symptom correct, locus may be stale" (coordinator CLAUDE.md § Pre-Dispatch).
+
+**How to apply:** for any plan chunk that proposes to CHANGE existing code at a cited locus (vs. add new code), the domain reviewer (or a Tier-3 grep) must confirm the locus still has the shape the plan assumes — a green docs-checker is necessary but not sufficient. Cheapest catch: `grep` the symbol the chunk proposes to replace; if it only appears in comments/docstrings, the migration already happened.
 
 ## Recalibration
 

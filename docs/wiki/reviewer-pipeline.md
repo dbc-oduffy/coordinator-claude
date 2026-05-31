@@ -20,7 +20,7 @@ This wiki is the single authoritative source for the phases that run identically
 
 > **Status: DRAFT.** PM has approved the concept; the implementation has not landed yet. The design below is the spec for a follow-up session to pick up and wire — standard `/plan` + reviewer chain applies. Not staff-session-gated; this is a normal new-skill scaffold, not an architectural decision.
 
-**Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. The Staff Engineer reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + the Staff Engineer review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
+**Problem this targets.** docs-checker and prior-art-checker both work on what IS in the plan. Patrik reasons from the plan's claims forward. None of them is structurally well-positioned to ask *what's missing* — the plan didn't write about X, so no reviewer's grep over the plan body surfaces X. The empirical failure shape: plans pass docs-check + prior-art + Patrik review with no findings, then the executor returns BLOCKED on a substrate gap that any senior engineer would have flagged at draft time ("you didn't say anything about the rollback path", "this plan doesn't address the consumer migration"). The gap is a missing-coverage problem, not a wrong-claim problem.
 
 **Why a Sonnet mechanical auditor, not an Opus reviewer:** The work is enumerative — walk a checklist of canonical coverage areas (rollback, migration, observability, security boundary, error paths, test surface, concurrency, performance, accessibility, docs/changelog impact), grep the plan body for evidence of each area being addressed, emit a sidecar listing which areas are silent. This is mechanical pattern-matching, not architectural judgment; Sonnet at low temperature is the right altitude. Opus reviewers can then use the gap-list as input rather than re-deriving it.
 
@@ -51,7 +51,7 @@ The auditor runs BEFORE docs-checker and prior-art-checker because gap findings 
 
 1. **False-positive Silent on N/A areas.** A trivial single-file fix doesn't need a Rollback section. The auditor must NOT block trivial work; tune the area-trigger column to fire only when the plan's scope mode (prototype / production-patch / feature / architecture / spike — see writing-plans.md) justifies the check.
 2. **Coverage checklist becomes ceremony.** If every plan ships with an empty Observability section just to clear the gate, the section is decorative. Calibrate the trigger so the area only surfaces on genuine scope; null-result audit at 4-week cadence to retire areas that never fire on real plans.
-3. **Auditor competes with the Staff Engineer.** If the auditor surfaces gaps that the Staff Engineer would have surfaced anyway, it's pure overhead. Calibrate by tracking which gaps the Staff Engineer flags that the auditor DIDN'T pre-surface — those are the ones the auditor needs to learn; ones the Staff Engineer never flags are the ones the auditor over-surfaces.
+3. **Auditor competes with Patrik.** If the auditor surfaces gaps that Patrik would have surfaced anyway, it's pure overhead. Calibrate by tracking which gaps Patrik flags that the auditor DIDN'T pre-surface — those are the ones the auditor needs to learn; ones Patrik never flags are the ones the auditor over-surfaces.
 
 **Open design questions (PM input pending):**
 
@@ -316,10 +316,10 @@ After each reviewer completes (and Phase 3.5 runs):
 
 ## Phase 4: Backstop Handling
 
-This phase applies when the primary reviewer (the Staff Engineer or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when the Director of Engineering was the standalone primary reviewer — in that case, his findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
+This phase applies when the primary reviewer (Patrik or a domain reviewer) has run and the chain calls for a backstop pass. It does NOT apply when Zolí was the standalone primary reviewer — in that case, his findings flow through the normal integrator path (Phase 3.7) and Phase 4 is a no-op.
 
-When effort level is High AND a primary reviewer (not standalone the Director of Engineering) ran:
-1. Verify that the reviewer invoked their backstop partner (the Director of Engineering for the Staff Engineer; the Staff Engineer for domain reviewers; the UX Reviewer for the Front-End Reviewer; the Staff Engineer for the UX Reviewer)
+When effort level is High AND a primary reviewer (not standalone Zolí) ran:
+1. Verify that the reviewer invoked their backstop partner (Zolí for Patrik; Patrik for domain reviewers; Fru for Palí; Patrik for Fru)
 2. If the backstop was not invoked, prompt the reviewer to do so OR dispatch the backstop directly with `mode: "backstop"`
 3. If the backstop disagreed: both perspectives are surfaced to Coordinator/PM per the routing.md reconciliation protocol
 
@@ -327,7 +327,7 @@ When effort level is Medium:
 - Backstop invocation is at the reviewer's (or EM's) discretion
 - No verification needed
 
-**When the Director of Engineering ran as standalone primary, skip Phase 4 entirely.** the Director of Engineering standalone is a peer-to-the Staff Engineer review with cross-team authority — there is no further backstop above the DoE chair. The terminal backstop in the system is the Director of Engineering himself; nothing wraps him.
+**When Zolí ran as standalone primary, skip Phase 4 entirely.** Zolí standalone is a peer-to-Patrik review with cross-team authority — there is no further backstop above the DoE chair. The terminal backstop in the system is Zolí himself; nothing wraps him.
 
 ---
 
@@ -364,32 +364,32 @@ For major surface additions where the spec author was substrate-blind (no on-dis
 2. **docs-checker pre-flight** (Phase 2.7). External-API claim verification, AUTO-FIX inline.
 3a. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
 3b. **plan-coverage-checker pre-flight** (Phase 2.7d). Oracle-vs-slate completeness, hedge detection, in-repo substrate drift. Skill-internal trigger — runs unconditionally on plans with oracle tables. Runs in parallel with layer 3a (prior-art-checker).
-4. **the Staff Engineer Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
-5. **Domain reviewer (the Game Dev Reviewer for game-dev / the Data Science Reviewer for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
+4. **Patrik Pass 0 premise review** (W3). Plan-level premise validity; `clean | needs-justification | refuted`.
+5. **Domain reviewer (Sid for game-dev / Camelia for data / etc.) + enricher callsite read** (Phase 3). Existing-codebase pattern check + on-disk callsite reality.
 
 <!-- Review: code-reviewer — plan-coverage-checker (Phase 2.7d) was absent from the five-layer topology list; added as 3b parallel to prior-art-checker, matching the (2.7b ∥ 2.7d) runtime shape documented in Phase 2.7d. -->
 
 Use the full five-layer recipe when the plan introduces a new cross-cutting abstraction, new doctrine surface, or the spec author flagged substrate-blind framing. Skip layers only with explicit rationale recorded in the dispatch trail. Specialist-worker lenses (test-evidence-parser, security-audit-worker, dep-cve-auditor, doc-link-checker) ride alongside layer 5 as routine, not opt-in — they catch what generalist Opus reviewer lenses miss.
 
-### Architectural review chain — the Staff Engineer, the Game Dev Reviewer, enricher catch different bugs
+### Architectural review chain — Patrik, Sid, enricher catch different bugs
 
 Within the layer-5 envelope, the three roles divide the work:
 
-- **the Staff Engineer catches structural problems.** Plan coherence, missing seams, architectural inversions, premise refutation.
-- **the Game Dev Reviewer (or domain-equivalent) catches existing-codebase-pattern violations.** "We don't do it that way here" — patterns the plan invented when the codebase already had a convention.
+- **Patrik catches structural problems.** Plan coherence, missing seams, architectural inversions, premise refutation.
+- **Sid (or domain-equivalent) catches existing-codebase-pattern violations.** "We don't do it that way here" — patterns the plan invented when the codebase already had a convention.
 - **The enricher catches callsite reality.** What the code actually does at the consumer end — function envelopes, reachability, guard conditions the plan paraphrased.
 
 All three are needed on architecturally-loaded stubs. Dropping any one of them produces a known failure class.
 
 ### Sequential two-reviewer on architecturally-loaded stubs
 
-For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist the Staff Engineer + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
+For plan stubs that are architecturally-loaded but not full-spec scope, the minimum viable shape is **sequential two-reviewer (generalist Patrik + domain reviewer)** plus the layer-2/2.7b pre-flights. Single-pass review on this surface has a documented miss rate — the second lens routinely surfaces issues the first missed at lower cost than fixing the bug in execution. Sequential, not parallel: integrate Reviewer 1's findings before dispatching Reviewer 2 (the merge-gate parallel carve-out in CLAUDE.md does not apply to plan/stub review).
 
 ### Two-pipeline review on shared artifacts: per-stub + per-cohort + docs-check
 
 When a cohort of stubs is enriched in parallel from a shared spec, **two pipelines on the same artifacts** beats picking one lens:
 
-- **Per-stub depth:** the Staff Engineer (or domain reviewer) on each stub independently. Catches local correctness, premise validity, structural soundness.
+- **Per-stub depth:** Patrik (or domain reviewer) on each stub independently. Catches local correctness, premise validity, structural soundness.
 - **Per-cohort coherence:** one reviewer across the whole cohort. Catches contradictions between stubs, shared-API gaps, sibling-surface drift, cross-stub seam violations.
 - **docs-check pre-flight:** every external-API claim verified across the cohort, once.
 
@@ -405,9 +405,100 @@ The integrator does not auto-apply import-fallback findings — they always land
 
 ---
 
+## Parallel Code Review Gate (merge boundary only)
+
+The `coordinator:parallel-code-review` skill is the merge-gate ceremony, wired into
+`/merging-to-main` Step 1.54. It is **NOT** a mid-implementation review tool and must
+refuse invocation from any context other than merge. The parallel exception to the
+sequential-dispatch HARD RULE lives here — frozen diff at merge boundary means no
+integration occurs between reviewers, so parallel-blind + synthesizer is the correct shape.
+
+### Dispatch graph (as of 2026-05-23)
+
+**Step A (sequential):** Snapshot diff to `tasks/review-findings/<timestamp>/diff.patch`.
+Run Step 7 prelude (external to skill body) to compute seam-first chunks and write
+`tasks/review-trail/.weekly-reviewer-scopes.json`.
+
+**Step B (parallel — single Agent batch):**
+- N × `code-reviewer-weekly` (Sonnet variant, Write-capable for findings files only):
+  one instance per seam-first chunk of narrowed scope. Seam-first chunking is a **hard
+  constraint** — non-negotiable. Each cross_segment_seam file plus the union of hunks
+  touching it forms an atomic nucleus assigned whole to ONE chunk; only non-seam
+  co-touching files may spill if nucleus exceeds size target.
+- `security-audit-worker` (Sonnet): semgrep/bandit/gitleaks, full week diff always.
+- `dep-cve-auditor` (Sonnet): language CVE feed, full week diff always.
+- `test-evidence-parser` (Sonnet): runs test suite, classifies failures, full week diff always.
+
+The three mechanical workers ALWAYS run on the full week diff. They are never scoped down
+by the trail — session-end reviews do not invoke them, so "trail-covered" ≠ "mechanically
+covered."
+
+**Step C (sequential — after all workers return):**
+Synthesizer (Sonnet) reads N chunk-reviewer files + 3 specialist files from disk. Per the
+no-rewrite contract: every finding appears verbatim (quote or omit, never paraphrase).
+Output JSON:
+```json
+{
+  "verdict": "BLOCKED|WARN|OK",
+  "convergent_findings": [],
+  "per_reviewer_findings": {"chunk-1": "...", "chunk-2": "...", "security": "...", "deps": "...", "tests": "..."},
+  "arch_tier_candidates": [],
+  "requires_em_resolution": []
+}
+```
+`arch_tier_candidates` collects verbatim `escalate_to_architecture` flags from chunk-reviewers.
+Convergence fires across chunk-reviewer × specialist (different lens domains) or when ≥2
+chunks independently flag the same seam file.
+
+**Step D (gate):**
+- `BLOCKED` → halts merge.
+- `WARN` → proceeds with warning in PR body.
+- `OK` → proceeds silently. Subvariant: `OK (patrik trail-covered, mechanical clean)` when
+  chunk-reviewer scope was empty and mechanical workers found nothing.
+
+PR body line: `**Code-review gate:** [BLOCKED | WARN | OK] — convergent: N — code-review: <chunk-count> — security: <count> — deps: <count> — tests: <pass/fail/flake>`
+
+**Step 7.5 (post-gate, sequential):** Patrik Layer-2 architecture-altitude pass. Input:
+(i) week's changelog digest, (ii) synthesizer's `arch_tier_candidates`, (iii) synthesizer's
+`convergent_findings`, (iv) seam-file set. Output: tech-debt / refactor-consolidate / YAGNI
+recommendations, packaged as spinoff candidates. Patrik Layer-2 NEVER blocks merge — it
+surfaces to PM as recommendations only.
+
+### Skip rules
+
+| Condition | Action |
+|---|---|
+| Diff <10 lines OR touches only `tasks/`, `tmp/`, `archive/`, `docs/wiki/` | Skip entirely |
+| Doc-only diff | Skip chunk-reviewers; run mechanical workers |
+| Plan/spec-only diff | Run chunk-reviewers; skip mechanical workers |
+| Force flag | Run all regardless |
+
+### agent/code-reviewer-weekly.md — thin variant
+
+The base `code-reviewer.md` is read-only. The weekly variant authorizes exactly one Write
+target: the assigned findings path (`$FINDINGS_DIR/chunk-<k>.md`). The base read-only
+contract is intentionally preserved — adding Write to the base would grant Write to
+session-end dispatches (explicitly out-of-scope). Any extension of the weekly variant's
+Write surface requires EM explicit scope-check on return via `git status`.
+
+### Cost envelope (per merge gate invocation)
+
+| Worker | Token range |
+|---|---|
+| docs-checker (conditional, Sonnet) | 5–15K |
+| N × code-reviewer-weekly (Sonnet, per chunk) | ~5–30K each |
+| security-audit-worker (Sonnet) | 10–30K |
+| dep-cve-auditor (Sonnet) | 10–25K |
+| test-evidence-parser (Sonnet) | 5–30K |
+| synthesizer (Sonnet, in/out) | 15–40K / 3–8K |
+
+Total: ~75–200K tokens. Expected frequency: 1–3× per active day. This is the justified
+cost — multi-lens mechanical sweep at merge is the gate that session-end reviews and
+plan-time reviews do not substitute for.
+
 ## Reviewer Elevation Past Charter
 
-*2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking the Director of Engineering not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking the Staff Engineer with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
+*2026-05-17, project-rag.* The PM may elevate a reviewer past their default charter for a specific dispatch — e.g. invoking Zolí not as ambition-backstop (his default) but as standalone DoE for an architectural call; invoking Patrik with cross-repo authority he doesn't carry by default. Elevation must be **verbatim in the brief** — the reviewer's default charter is what they pattern-match against without explicit elevation, and pattern-match will silently win over implicit elevation.
 
 **Required form:**
 
@@ -415,7 +506,7 @@ The integrator does not auto-apply import-fallback findings — they always land
 
 Without the verbatim elevation, the reviewer falls back to default charter — even if the dispatching EM verbally framed the dispatch as elevated. The brief is the contract; chat context is not.
 
-**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier the Director of Engineering, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
+**Authorization gate.** Elevation past charter is **PM-only**. The EM may surface elevation candidates (*"this artifact would benefit from DoE-tier Zolí, not ambition-backstop"*) but must wait for PM authorization before dispatching the elevated brief. EM-initiated elevation creates a doctrine hole where any EM can promote any reviewer to any charter ad hoc.
 
 **Companion:** `prior-art-checker.md § Prior-art mutability` — for one specific elevated authority (DoE-override of prior-art-checker findings).
 
@@ -431,3 +522,49 @@ Three explicit behaviors:
 3. Nitpicks are NOT auto-applied to the artifact
 
 The filter criterion is `severity != "nitpick"` — not prose-based filtering. Applied in Phase 3.5 step 5.
+
+## Reviewer Altitude Rules
+
+These rules are cross-cutting tripwires that apply regardless of which pipeline phase you are in.
+
+**1. Personas are Opus-only.** Patrik, Sid, Camelia, Palí, Fru, Zolí carry `model: opus` in
+their agent frontmatter. Dispatching a persona at Sonnet altitude (via `model: "sonnet"` override)
+is a **doctrine violation** — persona prompt complexity is calibrated for Opus judgment;
+Sonnet yields a "Sonnet-flavored Patrik" without the payoff. → `agents/code-reviewer.md`.
+
+**2. Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** The dedicated agent
+at `agents/code-reviewer.md` is the correct tool for session-end review, handoff review, mid-session
+quick review, and all code-output review contexts. Read-only tool surface (no Edit/Write);
+OK/WARN/BLOCKED verdict enum where BLOCKED is advisory (EM retains shipping authority).
+
+**3. Plan review altitude is binary: named Opus persona OR skip.** There is no Sonnet plan
+reviewer. `code-reviewer` is the diff reviewer, scoped to weak tests / dead code / naming /
+correctness on a frozen diff — not architectural judgment on a plan body. If a plan is worth
+reviewing, dispatch the appropriate Opus persona; if it's not worth that ceremony, skip review
+and let `code-reviewer` catch issues on the diff at `/session-end`. Triage happens at
+plan-time (plan-or-just-do-it), not at review-time (review-or-downgrade).
+
+**4. Parallel dispatch exception is merge-gate-only.** The carve-out from the sequential-dispatch
+HARD RULE applies exactly when: (a) artifact is a frozen diff at a merge boundary, (b) all
+reviewers are orthogonal lenses, (c) a synthesizer with strict no-rewrite contract assesses
+combined output. Plan/stub/doc review remains sequential. The exception sentence names all
+three conditions to prevent scope creep.
+
+## Why Each Layer Is Load-Bearing — Pre-flights and Persona Are Not Substitutes
+
+**Pre-flight workers (coverage-checker, prior-art-checker, docs-checker) and Patrik plan review catch different defect classes; both pay off even when the plan looks ready.** Empirical evidence from a high-confidence, Zolí-grounded plan (v12):
+
+- **Plan-coverage-checker** caught one BLOCKING drift (cited helper symbol `_get_graph_db_conn()` did not exist) + 2 appetite hedges.
+- **Prior-art-checker** caught a bump-rule wiki contradiction (additive-defaulted fields don't mandate a bump per Z-AMEND-1 carve-out 2 — the plan said "mechanically bumps").
+- **Docs-checker** auto-fixed 4 line-number/symbol drifts.
+- **Patrik** (post-pre-flights) added 1 major + 5 minor findings, including the closure-capture-footgun module-level-helper refactor and the `check-shipped-on-main.sh` verifiable predicate replacing honor-system sequencing.
+
+Every layer was load-bearing on a plan that had already passed EM confidence + external review. Skipping any one would have shipped a defect. The layers are non-overlapping — each catches a class the others don't scan for. (2026-05-18, project-rag v12 plan.) [universal]
+
+## Patrik / Sid / enricher role differentiation — each catches a different defect class
+
+**The architectural review chain — Patrik catches structure, Sid catches existing-codebase patterns, enricher catches callsite reality — is not interchangeable. All three are needed for cross-module refactors.**
+**Why:** A plan that survives Patrik's architectural review can still hide (a) duplication of an existing project pattern Patrik can't see from the diff (Sid territory), and (b) callsite-level multi-tenancy bugs that look correct in spec but break adjacent functionality (enricher territory). In one case, a CRITICAL spec bug (multi-tenancy) and a design-duplication smell (existing registry pattern) both survived two Patrik passes.
+**How to apply:** for architecturally-loaded stubs with real stakes, run the full chain — Patrik → integrator → Sid → integrator → enricher → integrator → Patrik. Each layer targets a qualitatively different class of defect; skipping any layer leaves that class uncovered.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L117, central-promoted 2026-05-28).*

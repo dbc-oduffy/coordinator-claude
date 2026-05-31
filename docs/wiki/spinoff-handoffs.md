@@ -187,6 +187,21 @@ Example: `- roadmap-run-abc/tc-4 — shares the `bin/lint-frontmatter.js` cross-
 
 Explicit `- None identified at authoring time.` is preferred over an absent section. Absence triggers Phase 2 exit-gate failure. An empty section is structurally correct and signals deliberate authoring-time triage, not accidental omission.
 
+## Gate-dependency authoring discipline — calendarable observable or it's backlog
+
+`awaiting_gate` on an **event-gate that isn't on the calendar** ("next time we do X," "when we eventually touch Y," "once someone revisits Z") is backlog disguised as a spinoff. The `deployment_state: awaiting_gate` state is reserved for work that is genuinely sequenced behind a *forthcoming, observable* event — not work parked behind a vague future intention.
+
+**At handoff/spinoff-write time, `gate_dependency:` MUST name a calendarable observable** — something a recheck can mechanically test for:
+
+- a **PR URL** (gate clears when it merges),
+- a **flag name** (gate clears when the flag flips / ships),
+- a **stub path** (gate clears when that stub is consumed/shipped),
+- a dated milestone or a named artifact whose existence is checkable.
+
+If the gate is an **indefinite event-gate** with no calendarable observable, it does NOT belong as `awaiting_gate` — **demote it to backlog** (improvement-queue entry or operational-doc fold-in) rather than parking it in the handoff/spinoff queue where the aging-reconcile machinery (§ Awaiting_gate aging) will repeatedly re-check a gate that can never mechanically clear. The aging machinery can catch gate-text drift on a *real* gate; it cannot rescue a gate that was never observable in the first place. The distinction is: a real gate has a witness you can name now; backlog has only an intention.
+
+This pairs with the § Awaiting_gate aging recheck: authoring discipline (name a calendarable observable) prevents the un-clearable-gate from entering the queue; aging discipline catches the gate whose text drifted after entry. Both fire on `gate_dependency:`; the authoring check is the upstream floor.
+
 ## Awaiting_gate aging
 
 > Consumed by: `skills/pickup/SKILL.md` Step 3.4d aging-reconcile clause.
@@ -238,6 +253,39 @@ Multi-session time-box. Wave-N+1 stubs gate on all-of-wave-N completing; `/hando
 `kind: recovery` handoffs are scoped by **incident**, not by size of the recovered work. When a session crashes or is killed mid-flight, write one recovery handoff per surviving workstream — regardless of whether the recovered slice is "trivial" or "big." Judging "this is too small for a handoff" silently overrides the directive that recovery handoffs exist to make crash-loss boundaries discoverable; the cost of an extra small handoff is a few minutes, the cost of a missed one is the successor session re-discovering the crash boundary by stepping on it.
 
 Commit-granularity is incident-scoped, not workstream-scoped: if two concurrent workstreams both crashed, that's two recovery handoffs (separate `predecessor:` pointers to each crashed handoff's SHA), not one merged "we crashed" handoff. Each successor picking up either workstream needs its own framing of what was in flight, what got committed pre-crash, and what didn't.
+
+## query-records handoff-archived type
+
+`bin/query-records` supports a `handoff-archived` type (distinct from `handoff`) that maps to `archive/handoffs/*.md`. Same schema applies, or relaxed-schema sibling `schemas/handoff-archived.yaml` where `deployment_state:` is not required. Use `--older-than Nd` (inverse of `--since Nd`) to enumerate archived handoffs older than N days. Note: `--where "created<14d"` uses non-ISO comparand and returns garbage — use `--older-than 14d` instead. Used by `/distill` for archive enumeration.
+
+## /distill delete safety guards for archived handoffs
+
+Three conditions must ALL be met before `/distill` may delete an archived handoff:
+
+1. `shipped_in:` frontmatter key is populated (git history is the permanent paper trail; without this, the archive entry is not auditable).
+2. At least one extraction artifact (DR in `docs/decisions/` or wiki entry in `docs/wiki/`) was written referencing the source via the `archived_handoff:` provenance frontmatter key — a **top-level** key, NOT a sub-key under `provenance:` (which is a different schema: list-of-objects with `path` + `last_verbose_sha`). OR the handoff is empirically content-free.
+3. Active-reference check: ripgrep `archive/handoffs/<basename>.md` across `docs/`, `tasks/`, `archive/specs/`, and plugin sources. Any live reference blocks deletion.
+
+If `shipped_in:` is absent, surface to PM with "missing-paper-trail" diagnosis; do not delete.
+
+## Roadmap-planning pipeline — STUB-INDEX query callout constraint
+
+The STUB-INDEX uses a `bin/query-records` query callout, not a hand-maintained table:
+
+```markdown
+<!-- query-callout:start type=handoff where="roadmap_id=<id>" sort="sprint,wave" -->
+<!-- query-callout:end -->
+```
+
+**Single-clause-only constraint:** `bin/refresh-queries.js` token-splits the BEGIN marker on `\s+`, so multi-condition `where=kind=spinoff-roadmap AND roadmap_id=<id>` gets tokenized into three tokens — only the first contributes, others are silently dropped. Multi-condition `where=` only works from the CLI, not inside query callouts. Workaround: use `where=roadmap_id=<id>` (single clause — the cross-field validator guarantees `roadmap_id` implies `kind: spinoff-roadmap`).
+
+Wave order is derived from topological sort over `blocked_by`. Visualize: `bin/query-records --type handoff --where "kind=spinoff-roadmap AND roadmap_id=<id>" --format graph-dot | dot -Tsvg`.
+
+## pm-gates.md — PM gate document
+
+The roadmap-planning skill writes `pm-gates.md` listing each product-coupled question, the sprint it gates, and the disposition format. Schema: `| sprint | tc_id | gate question | disposition format | resolved? |`
+
+Validator rule: any stub with `gate_dependency:` text that starts "PM " OR contains "decision needed" / "approval needed" / "policy" / "scope" / "user-facing" MUST have a corresponding row in `pm-gates.md`. A gated stub with no matching pm-gates row blocks Phase 3 entry.
 
 ## See also
 

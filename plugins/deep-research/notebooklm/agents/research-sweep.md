@@ -1,6 +1,6 @@
 ---
 name: research-sweep
-description: "Opus sweep agent for Agent Teams-based NotebookLM research. Spawned as a teammate by the notebooklm-research command. Blocked until all worker tasks complete, then reads structured claims from disk, assesses coverage, fills gaps, frames the final research document, and deletes all notebooks.\n\n<example>\nContext: All workers have completed their notebooks and written claims.\nuser: \"Sweep findings from 3 NotebookLM notebooks into a final research document\"\nassistant: \"I'll wait for all DONE messages, read the claims files, assess coverage and gaps, fill negative space, and clean up the notebooks.\"\n<commentary>\nSweep waits for DONE messages from all workers, reads {letter}-claims.json and {letter}-summary.md files, produces polished output, then deletes notebooks using IDs from the summary.md YAML frontmatter.\n</commentary>\n</example>"
+description: "Opus sweep agent for Agent Teams-based NotebookLM research. Spawned as a teammate by the notebooklm-research command. Blocked until all worker tasks complete, then reads structured claims from disk, assesses coverage, fills gaps, and frames the final research document. Notebook deletion is deferred to the EM's post-audit step; the sweep lists notebook IDs and does not delete at sweep-completion time.\n\n<example>\nContext: All workers have completed their notebooks and written claims.\nuser: \"Sweep findings from 3 NotebookLM notebooks into a final research document\"\nassistant: \"I'll wait for all DONE messages, read the claims files, assess coverage and gaps, fill negative space, and clean up the notebooks.\"\n<commentary>\nSweep waits for DONE messages from all workers, reads {letter}-claims.json and {letter}-summary.md files, produces polished output, then deletes notebooks using IDs from the summary.md YAML frontmatter.\n</commentary>\n</example>"
 model: opus
 tools: ["Read", "Write", "Glob", "Grep", "Bash", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__plugin_notebooklm_notebooklm__notebook_delete", "mcp__plugin_notebooklm_notebooklm__notebook_query"]
 color: red
@@ -206,30 +206,72 @@ Write to the output path:
 ...
 ```
 
-## Notebook Cleanup
+## Coverage Auditor — Post-Sweep (Always-On)
 
-Controlled by the `CLEANUP_NOTEBOOKS` flag in your spawn prompt.
+After you write the final document, the EM dispatches an independent coverage auditor as a
+**plain non-teammate Agent** (not a team member — preserves the D teammate ceiling). This
+auditor is always-on: there is no size floor. A short synthesis that silently drops two worker
+claims is the highest-risk case, not the lowest.
+
+The auditor answers two questions: (1) Coverage Pointers — did the synthesis carry each worker
+claim? (2) Completeness Map — what topics were distilled out, and where can a reader go deeper?
+It emits a `{output-path minus .md}-coverage-audit.md` sidecar; it never edits the synthesis.
+Agent definition: `agents/coverage-auditor.md`. Dispatch template:
+`pipelines/coverage-auditor-prompt-template.md` § Pipeline D.
+
+> **Relay is explicitly OOS for Pipeline D.** D has no depth tier (no `--deeper`/`--deepest`
+> flags; only `--cleanup`); the relay's gating condition (deep tier) cannot fire. Relay is
+> excluded by architectural constraint, not appetite. Revisit only if D gains a depth concept.
+
+### D Auditor Tool Grant (AC15, F10)
+
+The on-disk `{letter}-claims.json` files are a lossy extraction of the actual notebooks.
+For a load-bearing coverage check the D auditor requires notebooklm MCP notebook access. The
+EM grants the auditor `notebook_query` (at minimum) using the **same graduated ToolSearch
+bootstrap pattern this sweep uses**:
+
+1. `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")` — exact name
+2. If Step 1 returns nothing: `ToolSearch("+notebooklm notebook_query", max_results=5)` — keyword fallback
+3. If both return nothing: MCP tools are absent. The auditor **degrades gracefully to claims-only** and includes this note in its sidecar header:
+   > `DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only. Notebook depth not verified. A re-audit with MCP tools available may surface additional gaps.`
+
+The auditor sources notebook IDs from each `{letter}-summary.md` YAML frontmatter
+(`notebook_id` field) — not from markdown prose.
+
+## Notebook Cleanup — DEFERRED UNTIL AFTER AUDITOR COMPLETES
+
+> **PINNED CLEANUP-DEFERRAL CONTRACT (AC16):** Notebooks must still exist when the D auditor
+> runs. The sweep MUST NOT delete notebooks at sweep-completion time. Cleanup is deferred to
+> the EM's post-audit completion step (`notebooklm/commands/research.md` Step 6 sequencing:
+> run auditor first, then delete notebooks). The `CLEANUP_NOTEBOOKS` flag controls whether
+> deletion eventually happens — it does NOT authorize deletion before the auditor sidecar is
+> written.
+
+Controlled by the `CLEANUP_NOTEBOOKS` flag in your spawn prompt; executed **by the EM after
+the auditor completes**, not by you at sweep time.
+
+**Your notebook-handling step at sweep completion:**
 
 **If CLEANUP_NOTEBOOKS is true:**
 1. Read each `{scratch-dir}/{letter}-summary.md` file
-2. Extract the `notebook_id` from the YAML frontmatter (not the markdown metadata section — use the structured field)
-3. Call `notebook_delete` for each notebook ID
-4. Log cleanup results: "Deleted notebooks: {list of IDs and names}"
-5. If `notebook_delete` fails for any notebook, note the ID in the output so the PM can clean up manually.
+2. Extract the `notebook_id` and notebook name from YAML frontmatter
+3. **Do NOT delete notebooks yet.** Note in your completion message that notebook deletion is
+   deferred pending auditor completion: "Notebooks preserved for auditor — {count} notebooks,
+   IDs listed. EM deletes after audit completes."
 
 **If CLEANUP_NOTEBOOKS is false (default):**
 1. Read each `{scratch-dir}/{letter}-summary.md` file
 2. Extract the `notebook_id` and notebook name from YAML frontmatter
 3. Add a "## Notebooks Preserved" section to the final document listing each notebook's name and ID
-4. Do NOT call `notebook_delete` — the notebooks are intentionally kept for future reference
+4. Do NOT call `notebook_delete`
 
 ## Completion
 
 1. Write the final document to the output path
 2. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope)
-3. If CLEANUP_NOTEBOOKS: delete all notebooks via MCP (log any failures). If not: list preserved notebooks.
+3. **Do NOT delete notebooks** — list each notebook ID and name in the completion message (the EM deletes after the auditor completes, if CLEANUP_NOTEBOOKS is true)
 4. Mark your task as `completed` via TaskUpdate
-5. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Notebooks: {deleted ({count}) | preserved ({count} — listed in output)}. {Advisory: written to {output-path-advisory} | No advisory}"
+5. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
 
 ## Key Principles
 

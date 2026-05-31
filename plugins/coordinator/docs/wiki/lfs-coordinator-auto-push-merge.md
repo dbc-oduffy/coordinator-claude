@@ -6,7 +6,7 @@ applies_to: any consumer repo running both git-lfs and coordinator-auto-push
 source: project-rag-ue-addon/docs/wiki/lfs-gitattributes-discipline.md § "LFS + coordinator-auto-push Post-Commit Hook Merge [UNIVERSAL]"
 note: plugin-bundled UNIVERSAL companion; project-local source is canonical for project context
 xref:
-  - bin/coordinator-auto-push
+  - coordinator-auto-push
 ---
 
 # LFS + coordinator-auto-push Post-Commit Hook Merge
@@ -68,7 +68,7 @@ README, so first-time consumers re-derive it under time pressure.
 
 ## Optional Follow-Up — Installer Amendment
 
-Separate plan, not part of this wiki: amend `bin/coordinator-auto-push`
+Separate plan, not part of this wiki: amend `coordinator-auto-push`
 installer to detect an existing LFS hook (or vice versa) and emit the
 merged form directly, eliminating the manual step. Until that lands, the
 manual dance above is the contract.

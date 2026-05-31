@@ -29,7 +29,7 @@ If `tasks/week-changelog/HEADER.md` does not exist, create it with the seed temp
 
      On /workweek-complete, the full directory (daily files + old HEADER) is
      archived to archive/week-changelogs/<week-start>/ before HEADER is rewritten.
-     bin/check-weekly-staleness.sh reads this file to compute the staleness signal.
+     check-weekly-staleness.sh reads this file to compute the staleness signal.
 -->
 
 **Week starting:** (run /workweek-start to initialise)
@@ -38,6 +38,16 @@ If `tasks/week-changelog/HEADER.md` does not exist, create it with the seed temp
 **Priorities (from /workweek-start):**
 - [ ] (run /workweek-start to set priorities)
 ```
+
+## Step 0.5: EM Environment Check
+
+Before load-bearing work, confirm the EM is on the right model and effort:
+
+- **Effort** — you cannot observe this yourself (it shows only in the CLI startup banner, never in your system prompt). Run the safety script and relay any banner it prints; silent output means clean (`medium` effort), so say nothing:
+  ```bash
+  bash ~/.claude/plugins/coordinator/bin/check-em-environment.sh
+  ```
+- **Model** — your system prompt names your model. If it is not Opus, WARN the PM (`⚠ MODEL DRIFT — not Opus; toggle via /model`) and recommend switching before proceeding. (The script also reads the transcript model as a backstop.)
 
 Step 5 will populate `Week starting:` and `Last /workweek-start:` with today's date and write the priorities the PM sets. `Prior week released:` stays as the placeholder until the first `/workweek-complete` runs.
 
@@ -76,7 +86,7 @@ Scan for aging artefacts that may need pruning or deferral:
 
 1. **Stale handoffs:** query, don't grep:
    ```bash
-   bin/query-records --type handoff --where "status=active" --older-than 7d --format markdown-list
+   "$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff --where "status=active" --older-than 7d --format markdown-list
    ```
    Lists ready_to_fire and awaiting_gate handoffs older than 7 days.
 2. **Draft plans without recent commits:** `docs/plans/*.md` with `status: draft` (grep frontmatter or body) and no commits to their referenced paths in >14 days.
