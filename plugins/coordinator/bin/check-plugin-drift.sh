@@ -240,7 +240,7 @@ _check_plugin() {
     # addon's own git repo); venv-state runs on live_path/.venv (the HOST plugin's venv
     # that holds the editable install). live_path IS the host plugin's (frequently dirty)
     # dev tree — allowing the unconditional working-tree cleanliness leg at L475-481 to
-    # run would false-positive [drift] working-tree on every dev invocation (the Staff Engineer P1-3).
+    # run would false-positive [drift] working-tree on every dev invocation (Patrik P1-3).
     # Spec backlink: docs/plans/2026-05-30-editable-sibling-venv-propagation-mode.md §Chunk 2
     if [[ "$prop_mode" == "editable_sibling_venv" ]]; then
         local esv_live_path="${live_path//\\//}"
@@ -301,6 +301,14 @@ _check_plugin() {
             fi
         fi
 
+        # Review: code-reviewer F5 — when site-packages discovery fails on a non-Windows
+        # venv (no python*/site-packages dir found), legs 2c/2a would silently skip even
+        # though the venv directory exists and is broken. Surface as drift instead.
+        if [[ -z "$esv_site_packages" ]] && [[ -d "$esv_venv_dir" ]]; then
+            echo "[drift] $plugin_name (editable_sibling_venv): venv-state: site-packages dir not found under $esv_venv_dir"
+            esv_drift=1
+        fi
+
         # Leg 2a (venv-pin): check editable pin resolves to source_path, NOT live_path.
         # argv[1]=live_path (venv host, for dist-info glob), argv[2]=dist_name,
         # argv[3]=site_packages, argv[4]=expected_pin_root (source_path in this mode).
@@ -346,7 +354,12 @@ except Exception as e:
 PYEOF
 )" || true
             case "$esv_direct_url_result" in
-                OK|NO_VENV|NO_DIST_INFO) : ;;
+                OK|NO_VENV) : ;;
+                # Review: code-reviewer F3 — NO_DIST_INFO means the addon is not installed
+                # in the host venv at all; that IS drift, not a silent-OK state.
+                NO_DIST_INFO)
+                    echo "[drift] venv-pin: $plugin_name (editable_sibling_venv) not installed in host venv — run refresh-plugin-live-install.sh"
+                    esv_drift=1 ;;
                 NO_DIRECT_URL)
                     echo "[drift] venv-pin: $plugin_name (editable_sibling_venv) direct_url.json not found -- re-run refresh-plugin-live-install.sh"
                     esv_drift=1 ;;
@@ -356,6 +369,8 @@ PYEOF
                 WRONG_PATH:*)
                     echo "[drift] venv-pin: $plugin_name (editable_sibling_venv) editable pin points to wrong checkout: ${esv_direct_url_result#WRONG_PATH:}"
                     esv_drift=1 ;;
+                # Review: code-reviewer F4 — wildcard catches PARSE_ERROR:<msg> and ERROR:<msg>
+                # from Python (json parse failure, unexpected exception); both are drift signals.
                 *)
                     echo "[drift] venv-pin: $plugin_name (editable_sibling_venv) check error: $esv_direct_url_result"
                     esv_drift=1 ;;
@@ -372,6 +387,8 @@ import sys, hashlib, pathlib
 print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
 HASHEOF
 )" || esv_current_hash=""
+            # Review: code-reviewer F7 — Set by refresh-plugin-live-install.sh post-flight call
+            # to compare against a freshly-computed hash rather than the stale log entry.
             local esv_baseline_hash="${CURRENT_PYPROJECT_HASH_OVERRIDE:-}"
             if [[ -z "$esv_baseline_hash" ]] && [[ -f "$REFRESH_LOG" ]]; then
                 esv_baseline_hash="$(grep " ${plugin_name} " "$REFRESH_LOG" 2>/dev/null | grep "pyproject_hash=" | tail -1 | sed 's/.*pyproject_hash=\([a-f0-9]*\).*/\1/' | tr -d '\r')" || esv_baseline_hash=""
