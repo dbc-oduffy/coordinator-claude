@@ -101,12 +101,17 @@ for pair in "${kv_pairs[@]}"; do
     fi
     # Escape sed replacement string: & \ newline (POSIX BRE safe)
     escaped_value="$(printf '%s\n' "$value" | sed 's|[&\\]|\\&|g; s|$|\\|; $s|\\$||')"
-    # Apply substitution via temp file to preserve trailing newlines
+    # Apply substitution via temp file to preserve trailing newlines.
+    # Write through a second tempfile rather than `sed -i`: BSD/macOS sed
+    # requires a backup-suffix argument immediately after -i, so `sed -i SCRIPT`
+    # consumes the script as the suffix and misreads the file path as the
+    # script. GNU sed tolerates a bare -i, which is why this only bit on Mac.
     tmp_sed="$(mktemp)"
+    tmp_out="$(mktemp)"
     printf '%s' "$rendered" > "$tmp_sed"
-    sed -i "s|{{${key}}}|${escaped_value}|g" "$tmp_sed"
-    IFS= read -r -d '' rendered < "$tmp_sed" || true
-    rm -f "$tmp_sed"
+    sed "s|{{${key}}}|${escaped_value}|g" "$tmp_sed" > "$tmp_out"
+    IFS= read -r -d '' rendered < "$tmp_out" || true
+    rm -f "$tmp_sed" "$tmp_out"
 done
 
 # ---------------------------------------------------------------------------
