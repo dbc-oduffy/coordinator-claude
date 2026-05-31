@@ -74,7 +74,7 @@ Under the D-4 curated-only-by-default chroma build:
 - The uncategorized chunker case (`categories=[]`) is unaffected — see § Empty list —
   uncategorized below for the include/exclude/no-flag semantics.
 
-Cross-link: see [`cross-repo-acceptance-coupling.md`](cross-repo-acceptance-coupling.md)
+Cross-link: see [`cross-repo-acceptance-coupling.md`](../../../../project-rag/docs/wiki/cross-repo-acceptance-coupling.md)
 § The pattern for the AC7 example, which is the canonical holodeck-side acceptance criterion
 gated on D-4 curated chroma landing.
 
@@ -145,6 +145,16 @@ unchanged.
 
 Categories are advisory metadata. The enforcement mechanism is code review
 and documentation, not a runtime allowlist.
+
+## Per-Content-Family Chunk Sizing
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+When corpus families have very different size distributions (e.g. short CVar entries vs. multi-page UDN guides vs. dense C++ header blocks), a single global worst-case chunk cap wastes embedding budget on families where smaller chunks would produce sharper retrieval, and over-splits families where larger chunks carry coherent semantics.
+
+**Rule.** Size chunks per content family, not globally. Each chunker registered under a category (`substrate`, `curated`, `reference`, `qa`) should declare its own `chunk_size` / `overlap` tuned to the typical token density of its corpus family. The global cap remains as a hard ceiling; per-family sizing is the floor that operates below it.
+
+This is especially important when adding a new category: establish the per-family sizing baseline before wiring the chunker into the curated-only chroma build, or the global cap silently governs and retrieval quality degrades on dense families.
 
 ## Cross-repo parity and the silent-degrade contract
 

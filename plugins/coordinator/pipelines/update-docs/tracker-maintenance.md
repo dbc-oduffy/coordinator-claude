@@ -64,9 +64,9 @@ Rules for the archived description:
 
 **To check whether an item has already been archived** (Step 2 read path), use:
 ```bash
-query-completions --where "chain=<workstream-slug>"
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "chain=<workstream-slug>"
 # or, for a date window:
-query-completions --since <YYYY-MM-DD>
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --since <YYYY-MM-DD>
 ```
 Do not read the flat monthly monolith as a check target — that pattern is removed.
 

@@ -22,6 +22,12 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 2
 fi
 
+NODE_BIN="${NODE_BIN:-node}"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+    echo "ERROR: node not found (set NODE_BIN to override)" >&2
+    exit 2
+fi
+
 # Self-claim: source coordinator session lib for touch tracking.
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
 # Best-effort — no-op if lib absent or no active session.
@@ -63,22 +69,57 @@ if [ ! -f "$SNIPPET_FILE" ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# machine-local resolver (mirrors bin/verify-ue-overrides.sh § resolve_key)
+# ---------------------------------------------------------------------------
+# Used to resolve the holodeck sibling-repo path from the per-machine registry
+# rather than hardcoding /x/claude-unreal-holodeck. Env var HOLODECK_REPO_ROOT
+# still takes precedence (env > registry > skip) for ad-hoc overrides.
+ML_BIN=""
+if command -v machine-local >/dev/null 2>&1; then
+    ML_BIN="machine-local"
+elif [[ -x "$HOME/.claude/bin/machine-local" ]]; then
+    ML_BIN="$HOME/.claude/bin/machine-local"
+elif [[ -x "$SCRIPT_DIR/machine-local" ]]; then
+    ML_BIN="$SCRIPT_DIR/machine-local"
+fi
+
+# Resolve a machine-local key; print empty string on miss (caller decides whether
+# to fail or skip). Unlike verify-ue-overrides.sh's resolve_key (which is fail-loud),
+# this variant is skip-friendly: the holodeck sibling repo is an optional consumer,
+# and a missing key should let the script continue with the other consumers.
+resolve_key_or_empty() {
+    local key="$1"
+    [[ -z "$ML_BIN" ]] && return 0
+    "$ML_BIN" get "$key" 2>/dev/null || true
+}
+
 MODE="${1:-verify}"
 
 # --- hardcoded consumer list ---
 # These are the live reviewer prompt files that carry the calibration sentinel.
 # PLUGIN_ROOT resolves to the coordinator plugin dir (e.g. ~/.claude/plugins/coordinator-claude/coordinator).
 # Sibling plugins are one level up: $PLUGIN_ROOT/../game-dev, $PLUGIN_ROOT/../data-science, etc.
-# The holodeck coordinator copy is listed for completeness; if the file does not exist it is skipped.
+# The holodeck coordinator and game-dev copies are resolved via machine-local registry; if the key
+# is unset they are skipped.
 HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/agents/staff-eng.md"
     "$PLUGIN_ROOT/agents/vp-product.md"
-    "$PLUGIN_ROOT/../../claude-unreal-holodeck/coordinator/agents/staff-eng.md"
     "$PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md"
-    "$PLUGIN_ROOT/../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"
     "$PLUGIN_ROOT/../web-dev/agents/senior-front-end.md"
     "$PLUGIN_ROOT/../data-science/agents/staff-data-sci.md"
 )
+
+# Resolve holodeck sibling repo: env var override wins, otherwise machine-local
+# registry key repos.claude_unreal_holodeck, otherwise skip the consumers.
+# Spec backlink: docs/wiki/machine-local-registry.md § Registered keys
+_HOLODECK_ROOT="${HOLODECK_REPO_ROOT:-$(resolve_key_or_empty "repos.claude_unreal_holodeck")}"
+if [[ -n "$_HOLODECK_ROOT" ]]; then
+    HARDCODED_CONSUMERS+=("$_HOLODECK_ROOT/coordinator/agents/staff-eng.md")
+    HARDCODED_CONSUMERS+=("$_HOLODECK_ROOT/game-dev/agents/staff-game-dev.md")
+else
+    echo "NOTE-repos.claude_unreal_holodeck: key unset and HOLODECK_REPO_ROOT empty — skipping holodeck sibling consumers" >&2
+fi
 
 # --- find consumers ---
 # A consumer is a file where the BEGIN sentinel appears as a standalone line.
@@ -121,7 +162,7 @@ fi
 # Review: patrik R2 finding 0 — factor shared extraction primitive; replace inlined awk.
 extract_block() {
     local file="$1"
-    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
 }
 
 # Read snippet body: skip the first line (comment header) and any following blank line.

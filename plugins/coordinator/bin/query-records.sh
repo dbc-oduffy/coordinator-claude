@@ -8,4 +8,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-node "$SCRIPT_DIR/query-records.js" "$@"
+# There is no nodew.exe equivalent; shell-level suppression is impossible here.
+# Console-flash suppression for this invocation is machine-belt territory
+# (ConPTY/ConHost delegation, Chunk 5 of the flash-elimination plan).
+# See: lib/spawn-hidden.sh § "Node on Windows".
+node "$SCRIPT_DIR/query-records.js" "$@" # verify-no-console-flash: allow

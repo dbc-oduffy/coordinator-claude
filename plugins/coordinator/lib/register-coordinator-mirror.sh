@@ -22,7 +22,19 @@ _check_only="${1:-}"
 _reg="$(claude-home machine-local)/registry.local.toml"
 _coordinator_live="$(claude-home plugins)/coordinator-claude/coordinator"
 
-python3 - "$_reg" "$_coordinator_live" "$_check_only" <<'PYEOF'
+# Resolve a Python interpreter. This runs during /coordinator:setup Phase 3,
+# before the Python resolver is on PATH, so check the three names directly —
+# stock Windows (python.org) ships py.exe/python.exe but NOT python3.exe.
+_py=""
+for _cand in python3 python py; do
+    if command -v "$_cand" >/dev/null 2>&1; then _py="$_cand"; break; fi
+done
+if [[ -z "$_py" ]]; then
+    echo "register-coordinator-mirror.sh: no python interpreter (python3/python/py) on PATH." >&2
+    exit 1
+fi
+
+"$_py" - "$_reg" "$_coordinator_live" "$_check_only" <<'PYEOF'
 import os, sys
 from pathlib import Path
 

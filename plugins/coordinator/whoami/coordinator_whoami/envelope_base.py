@@ -17,6 +17,7 @@ def build_envelope(
     status: dict,
     plugin_extras: dict,
     addon_extras: dict | None = None,
+    source_kind: str | None = None,
 ) -> dict[str, Any]:
     """Assemble a contract-conformant envelope.
 
@@ -29,6 +30,11 @@ def build_envelope(
     Collision rule: addon namespace colliding with extras_key triggers log+skip, never silent
     overwrite. Addon-vs-addon collision is resolved at the addon adapter layer, not here
     (the Director of Engineering F-Minor 3 2026-05-19; see Task 5 hard-constraint).
+
+    source_kind: when provided, emits "source_kind": source_kind in the returned envelope dict.
+    When None (default), the key is OMITTED entirely — absence means live per contract convention
+    (cross-plugin-whoami-contract.md:144-152). Explicit "live" is self-documenting for adopters
+    whose purpose is daemon-independent liveness (C1/C2 refactor, the Director of Engineering F4).
     """
     extras = {extras_key: plugin_extras}
     if addon_extras:
@@ -40,7 +46,7 @@ def build_envelope(
                 )
                 continue
             extras[ns] = payload
-    return {
+    envelope: dict[str, Any] = {
         "contract_version": 1,
         "plugin_name": plugin_name,
         "plugin_version": plugin_version,
@@ -48,3 +54,6 @@ def build_envelope(
         "status": status,
         "extras": extras,
     }
+    if source_kind is not None:
+        envelope["source_kind"] = source_kind
+    return envelope

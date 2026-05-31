@@ -71,7 +71,101 @@ If the hook rewrites even one byte of a file it didn't receive via this sync, th
 
 Post-sync checks that only **read** the destination — grep audits, schema validators, link-checkers, checksum verifiers — may scan the full destination tree. They produce no mutations, so destination-tree scope does not corrupt state. The touched-list constraint is a mutation guard, not a query guard.
 
+## Injection Hooks — Exception to the Touched-List Rule
+
+Not all post-rsync hooks operate on synced-content files. Three classes exist, with different
+rules:
+
+### (a) Per-file synced-content rewriters (the default class)
+
+Hooks that mutate files the mirror sync transferred MUST operate only on the rsync-touched list
+(stdin). The Leak and Discipline sections above describe this class fully. Examples:
+depersonalisation scripts, link-rewriters, license-stampers, tag-injectors.
+
+**Touched-list constraint: REQUIRED.**
+
+<!-- Review: code-reviewer — 10-transform.sh is a full-tree MUTATOR (rewrites every .md/.sh
+in the destination), NOT a read-only checker. It has been moved out of class (b) into its
+own sub-case (a') below. Class (b) must remain "inspect only, no mutations." -->
+
+### (a') Full-tree idempotent mutators
+
+A special sub-case of class (a): hooks that mutate the ENTIRE destination tree, not just the
+rsync-touched subset. This is safe ONLY when the mutation is a **pure function of file content**
+— i.e., the same input always produces the same output, regardless of which delivery batch
+triggered the run.
+
+The canonical example is `coordinator-claude/post-rsync/10-transform.sh`: the depersonalise
+sweep rewrites every `.md` and `.sh` file in the destination, because persona-name leakage
+from previous rounds accumulates in files not touched by the current delta. Touching only the
+current delta's files would let old leakage accumulate indefinitely (observed 2026-05-17:
+check-persona-names CI failed on eng-director.md, dep-cve-auditor.md etc. that had not been
+touched since their leakage was introduced). `10-transform.sh` is therefore a full-tree
+mutating hook, and its correctness depends on that scope.
+
+The operative safety property: **idempotent full-tree mutation is safe when the mutation is a
+pure function of file content, not of delivery-batch state.** A hook that keys its mutation
+decisions on delivery-batch state (e.g., timestamps, rsync run count, or env vars that change
+between runs) does NOT qualify for this class.
+
+**Touched-list constraint: inapplicable for this class (scope is full-tree by design).**
+
+### (b) Read-only checkers
+
+Hooks that only **inspect** the destination — grep audits, schema validators, link-checkers —
+may scan the full destination tree. No mutation, no corruption vector. The touched-list
+constraint is a mutation guard, not a query guard. **Class (b) contains NO mutating hooks.**
+
+**Touched-list constraint: exempt (no mutations).**
+
+### (c) New-file / new-dir injectors with no source-synced-content analog
+
+Some hooks inject files or directories into the destination that have NO corresponding path
+in the mirror's source tree. The `/coordinator-update` OSS-only skill is the canonical
+example: it lives under `coordinator/dist/oss-only-skills/` (excluded from the mirror by
+`.percolate-ignore`) and is injected into `coordinator/skills/coordinator-update/` by the
+`20-inject-oss-only-skills.sh` post-rsync hook.
+
+For this class, the touched-list stdin contract is **inapplicable** — there is no synced path
+to scope to. The rsync-touched list will never contain `coordinator/skills/coordinator-update/`
+because the mirror never synced it. Idempotency for this class does NOT come from "operate
+only on what rsync touched." It comes from the inject being a **pure function of the `dist/`
+source state**: `mkdir -p + cp -r` produces the same destination regardless of prior dest
+state. Running the inject hook N times produces the same result as running it once.
+
+The hook still receives the rsync-touched list on stdin (publish.sh always pipes it for
+post-rsync hooks) — the hook MUST drain it (`cat >/dev/null`) to avoid pipe-buffer deadlock,
+even though it ignores the content.
+
+**Touched-list constraint: inapplicable. Idempotency via `dist/`-source purity.**
+
+**Survival mechanism:** the mirror sync's delete-pass runs BEFORE the hook. Because the
+inject source has no mirror analog (excluded by `.percolate-ignore`), the delete-pass removes
+any previously-injected files on each publish. Running the inject hook post-delete-pass is
+therefore unconditional and self-healing: every publish restores what the delete pass removed.
+
+#### Generalisation from the version.txt carve-out
+
+`agentic-install-integrity.md` §3 (deferred extensions) notes that the C3 sentinel-write hook
+in `setup/publish.sh` is a "root-level new-file mutation" distinct from per-file synced-content
+rewrites, and that the touched-list constraint does not apply to it. This section generalises
+that carve-out from the specific `version.txt` case (a single root-level file) to the broader
+class: **any new-file or new-directory injection where the injected content has no
+source-synced-content analog** is exempt from the touched-list constraint for the same reason.
+The operative distinction is not "root-level" vs. "nested" — it is "content the mirror synced"
+vs. "content the mirror never touched."
+
+Cross-references:
+- `docs/wiki/agentic-install-integrity.md` §3 — the version.txt carve-out this section generalises
+- `setup/percolate-hooks/coordinator-claude/post-rsync/20-inject-oss-only-skills.sh` — canonical
+  injection hook implementing the class (c) pattern
+- `plugins/coordinator-claude/.percolate-ignore` — `coordinator/dist/oss-only-skills/` exclusion
+  that makes the inject the sole delivery path (prevents double-ship)
+- `docs/plans/2026-05-30-oss-coordinator-update-skill.md` § Chunk 4 — the reviewed plan that
+  introduced this pattern
+
 ## Cross-References
 
 - `docs/wiki/percolate-setup.md` — percolation pipeline where hook scoping first mattered
 - `docs/wiki/plugin-extraction-and-distribution.md` — publish pipeline that drives `publish.sh` / rsync invocations
+- `docs/wiki/agentic-install-integrity.md` — classifier, sentinel, and three deferred extensions including §3 (the new-file mutation carve-out this section generalises)

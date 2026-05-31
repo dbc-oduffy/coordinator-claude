@@ -62,9 +62,9 @@ A drift verifier — wired into `/workday-complete` Step 1 as a non-blocking che
 
 The reference verifier and bootstrap helper are not shipped with this plugin (they're wired to the source author's local layout). Consumers who want this behavior implement their own thin script: a JSON read of `enabledPlugins` per dir, comparing against the four UE plugin keys above, plus the `game-dev@coordinator-claude` opt-in for game-dev sessions.
 
-## Lean-Session Routing — the Game Dev Reviewer Unavailability
+## Lean-Session Routing — Sid Unavailability
 
-The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `game-dev` plugin. In a lean session, the Game Dev Reviewer is not available. The Staff Engineer's routing note in `coordinator/agents/staff-eng.md` provides conditional guidance: if a UE-context session is available, recommend the Game Dev Reviewer; otherwise surface to PM with a request to relaunch in a UE-context dir.
+Sid (`game-dev:staff-game-dev`) is gated to UE-context sessions alongside the `game-dev` plugin. In a lean session, Sid is not available. Patrik's routing note in `coordinator/agents/staff-eng.md` provides conditional guidance: if a UE-context session is available, recommend Sid; otherwise surface to PM with a request to relaunch in a UE-context dir.
 
 ## Files Involved
 
@@ -75,8 +75,9 @@ The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context session
 | `~/.claude/bin/claude-ue-bootstrap.sh` | _(reference helper, not shipped)_ — one-shot script to write/merge the per-project override |
 | `~/.claude/bin/verify-ue-overrides.sh` | _(reference helper, not shipped)_ — drift verifier for UE-context dirs |
 | `coordinator/hooks/scripts/ue-knowledge-distrust.sh` | SessionStart hook — auto-bootstraps on `.uproject` detection |
+| `coordinator/bin/probe-cwd-project-rag-relevance.sh` | Session-start probe — emits gift-shape project-RAG importance signal for any project-RAG-bound cwd; UE enrichment layer added when UE detected. Generic cross-stack (UE, TS, Python, meta-repo). `ue-knowledge-distrust.sh` is NOT renamed or extended — it retains its UE-knowledge-gap warning job. |
 | `coordinator/commands/workday-complete.md` | _(no longer auto-invoked)_ — manual diagnostic; run via `~/.claude/bin/verify-ue-overrides.sh` when you suspect peer-repo drift |
-| `coordinator/agents/staff-eng.md` | Carries lean-session routing note for the Game Dev Reviewer |
+| `coordinator/agents/staff-eng.md` | Carries lean-session routing note for Sid |
 
 ## verify-ue-overrides.sh — Manual Diagnostic Only
 

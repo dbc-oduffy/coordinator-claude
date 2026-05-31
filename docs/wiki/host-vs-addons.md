@@ -19,7 +19,7 @@ relates_to:
 
 The canonical separation between project-rag's content-agnostic host and domain-specific addons.
 
-> **Companion — triad role doctrine (PM framing).** The *why* behind the host/addon/holodeck split — mechanics-vs-knowledge as the load-bearing repo-carving axis, engine-wide-vs-project-specific as a distribution-mode axis inside the addon's output pipeline, and the two-clause seam-legitimacy test — lives in the addon repo at [`../../../project-rag-ue-addon/docs/wiki/triad-roles-doctrine.md`](../../../project-rag-ue-addon/docs/wiki/triad-roles-doctrine.md). Ratified by the project-rag EM 2026-05-18. This wiki captures the host-side mechanics; the triad doctrine captures the cross-repo conceptual model.
+> **Companion — triad role doctrine (PM framing).** The *why* behind the host/addon/holodeck split — mechanics-vs-knowledge as the load-bearing repo-carving axis, engine-wide-vs-project-specific as a distribution-mode axis inside the addon's output pipeline, and the two-clause seam-legitimacy test — lives in the addon repo at `triad-roles-doctrine.md` (project-rag-ue-addon). Ratified by the project-rag EM 2026-05-18. This wiki captures the host-side mechanics; the triad doctrine captures the cross-repo conceptual model.
 
 ## Polarity
 
@@ -76,7 +76,7 @@ No addon name, path, or capability is hard-coded in host source.
 
 The host boots and serves queries with zero addons installed. Addon-gated tools return
 `extraction_skipped`; health probes emit `DEGRADED` with an actionable install hint.
-Full doctrine: [thin-wrapper-graceful-fail.md](thin-wrapper-graceful-fail.md) §Three implementation rules.
+Full doctrine: [thin-wrapper-graceful-fail.md](../../../../../plugins/project-rag/docs/wiki/thin-wrapper-graceful-fail.md) §Three implementation rules.
 
 ## Protocol version
 
@@ -162,7 +162,7 @@ Spec backlink: docs/plans/2026-05-18-host-side-install-surface-from-addon-relay.
 - [host-addon-separation-of-concerns.md](host-addon-separation-of-concerns.md) — umbrella design principle for protocol-surface shape decisions; five tactics (opaque-resource resolvers, closed surfaces, additive evolution, addon-declared failure modes); decision rule for new seams; prior-art-checker guidance.
 - [addon-protocol.md](addon-protocol.md) — formal versioned contract, hookspec table, façade types
 - [addon-receiver-scaffold.md](addon-receiver-scaffold.md) — Wave-2a doctrine and project-type gate philosophy
-- [standalone-vs-ue-augmented.md](standalone-vs-ue-augmented.md) — legacy capability matrix; status `deprecated` (was `transitional` through 2026-05-18). Runtime self-declaration via `FastMCP(instructions=...)` + `project_rag_instructions()` + per-tool `ToolAnnotations` is now the authoritative routing surface; this wiki and `corpus-class-taxonomy.md` are the doctrine anchors. The capability-matrix wiki remains for historical reference only and is not consulted by the runtime.
-- [thin-wrapper-graceful-fail.md](thin-wrapper-graceful-fail.md) — three implementation rules for addon seam probe sites
-- [project-type-domains.md](project-type-domains.md) — domain-gate split by detected language
-- [h3-4x2-baseline-freeze-matrix.md](h3-4x2-baseline-freeze-matrix.md) — canonical (corpus × query-shape) baseline-freeze matrix; addon authors registering a new corpus should extend the matrix's per-row cell-history with their corpus's NDCG/MRR/Recall cells per ship
+- [standalone-vs-ue-augmented.md](../../../../../plugins/project-rag/docs/wiki/standalone-vs-ue-augmented.md) — legacy capability matrix; status `deprecated` (was `transitional` through 2026-05-18). Runtime self-declaration via `FastMCP(instructions=...)` + `project_rag_instructions()` + per-tool `ToolAnnotations` is now the authoritative routing surface; this wiki and `corpus-class-taxonomy.md` are the doctrine anchors. The capability-matrix wiki remains for historical reference only and is not consulted by the runtime.
+- [thin-wrapper-graceful-fail.md](../../../../../plugins/project-rag/docs/wiki/thin-wrapper-graceful-fail.md) — three implementation rules for addon seam probe sites
+- [project-type-domains.md](../../../../../plugins/project-rag/docs/wiki/project-type-domains.md) — domain-gate split by detected language
+- [h3-4x2-baseline-freeze-matrix.md](../../../../../plugins/project-rag/docs/wiki/h3-4x2-baseline-freeze-matrix.md) — canonical (corpus × query-shape) baseline-freeze matrix; addon authors registering a new corpus should extend the matrix's per-row cell-history with their corpus's NDCG/MRR/Recall cells per ship

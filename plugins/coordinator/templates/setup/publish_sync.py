@@ -82,7 +82,12 @@ def load_ignore(path: Path | None) -> IgnoreMatcher:
 # Skip rules common to both modes
 # ---------------------------------------------------------------------------
 def _archived_or_orphan(rel_path: str) -> bool:
-    """Defense-in-depth filters that match bash logic verbatim."""
+    """Defense-in-depth filters that match bash logic verbatim.
+
+    rel_path is sub-plugin-relative (the plugin_name prefix is NOT included) —
+    do NOT apply the .percolate-ignore plugin-qualification here; these markers
+    (`_archived/`, `.orphaned_at`) are structural and plugin-agnostic.
+    """
     if rel_path == "_archived" or rel_path.startswith("_archived/") or "/_archived/" in rel_path:
         return True
     if rel_path.rsplit("/", 1)[-1] == ".orphaned_at":
@@ -145,7 +150,11 @@ def sync_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bo
             rel_path = src_file.relative_to(src_plugin).as_posix()
             if _archived_or_orphan(rel_path):
                 continue
-            if ignore.matches(rel_path):
+            # .percolate-ignore patterns are SOURCE_DIR-relative (plugin-qualified):
+            # the file is authored as `coordinator/bin/tests/`, `data/`, etc. rel_path
+            # here is sub-plugin-relative, so qualify with plugin_name before matching —
+            # otherwise every plugin-prefixed pattern silently no-ops and leaks. (2026-05-30)
+            if ignore.matches(f"{plugin_name}/{rel_path}"):
                 continue
             dst_file = dst_plugin / rel_path
             if not _needs_copy(src_file, dst_file):
@@ -165,7 +174,10 @@ def sync_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bo
                 rel_path = dst_file.relative_to(dst_plugin).as_posix()
                 if _archived_or_orphan(rel_path):
                     continue
-                if ignore.matches(rel_path):
+                # Plugin-qualify before matching — see the Phase-1 copy-loop
+                # comment above. Keeps ignored files untouched on the destination
+                # (neither copied nor deleted).
+                if ignore.matches(f"{plugin_name}/{rel_path}"):
                     continue
                 if (src_plugin / rel_path).is_file():
                     continue
@@ -183,19 +195,21 @@ def sync_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bo
         removed += per_plugin_removed
 
     # Orphan plugin dirs (present in dst, absent in src) — preserve dotfiles.
+    # Distinct local name (orphan_name) so the outer loop's plugin_name is never
+    # shadowed if this block is ever moved inside it.
     if dst_dir.is_dir():
         for dst_plugin in sorted(p for p in dst_dir.iterdir() if p.is_dir()):
-            plugin_name = dst_plugin.name
-            if plugin_name.startswith("."):
+            orphan_name = dst_plugin.name
+            if orphan_name.startswith("."):
                 continue
-            if (src_dir / plugin_name).is_dir():
+            if (src_dir / orphan_name).is_dir():
                 continue
             file_count = sum(1 for _ in _walk_files(dst_plugin))
             if dry_run:
-                print(f"    REMOVE DIR: {plugin_name}/ ({file_count} file(s), not in source)")
+                print(f"    REMOVE DIR: {orphan_name}/ ({file_count} file(s), not in source)")
             else:
                 shutil.rmtree(dst_plugin)
-                print(f"    REMOVE DIR: {plugin_name}/ ({file_count} file(s), not in source)")
+                print(f"    REMOVE DIR: {orphan_name}/ ({file_count} file(s), not in source)")
             removed += file_count
 
     return synced, removed

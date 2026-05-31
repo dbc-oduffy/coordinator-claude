@@ -43,6 +43,18 @@ These rules fire at plan-write time, alongside the parent wiki's premise-pass di
 
 ---
 
+## Smoke-Test Executor Deliverables Under Edge-Case Inputs Before EM Commit
+
+**An executor returning green tests only certifies the authored test cases — not uncovered input shapes.**
+
+When an executor reports N/N tests green, those tests cover what was written, not what can happen. A real bug can sit in an uncovered input shape (e.g., a `--date-prefix` filter with zero matches erroring on a missing tempfile despite all N happy-path cases passing). EM-commit time is the last cheap moment to exercise a deliverable.
+
+**How to apply:** after an executor returns, run 1-2 real-world invocations with edge-case inputs (zero-match queries, missing optional args, empty datasets) before committing. Take 60 seconds; a bug found here costs a follow-up queue entry if deferred. Treat as a closing gate at EM-commit time, not a reviewer's job.
+
+*Source: 2026-05-28 sweep; `--date-prefix` filter errored on zero-match despite 7/7 green.*
+
+---
+
 ## Related
 
 - [`pre-dispatch-verification.md`](pre-dispatch-verification.md) — parent doctrine

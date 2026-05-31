@@ -47,10 +47,10 @@ The gate has two distinct structural axes. **Orthogonal lenses** are independent
 **Scope partitions (runtime, not in this static table):** the N `chunk-<k>` reviewers within the code-semantics lens. They are built seam-first (see Snapshot → Chunking) and asserted disjoint-by-file-scope at dispatch time via the chunk-manifest, NOT here.
 
 **Orthogonality vs. partition — two assertions:**
-- `bin/verify-parallel-review-lens-orthogonality.sh` (no args, static, `/update-docs` Phase 11) asserts no two **lens domains** collide in the table above and each named agent file exists. The code-semantics lens appears ONCE here (as a class), so it does not self-collide.
-- `bin/verify-parallel-review-lens-orthogonality.sh --chunk-manifest $FINDINGS_DIR/chunk-manifest.tsv` (runtime, pre-dispatch) asserts the N chunk **partitions are disjoint by file-scope** — no file appears in two chunks.
+- `verify-parallel-review-lens-orthogonality.sh` (no args, static, `/update-docs` Phase 11) asserts no two **lens domains** collide in the table above and each named agent file exists. The code-semantics lens appears ONCE here (as a class), so it does not self-collide.
+- `verify-parallel-review-lens-orthogonality.sh --chunk-manifest $FINDINGS_DIR/chunk-manifest.tsv` (runtime, pre-dispatch) asserts the N chunk **partitions are disjoint by file-scope** — no file appears in two chunks.
 
-**Adding a 5th orthogonal lens requires editing this table AND `bin/verify-parallel-review-lens-orthogonality.sh`.** Agent files are NOT the source of truth for the manifest — this skill owns it. See plan `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md` Phase 3.5 and `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Strand 1c.
+**Adding a 5th orthogonal lens requires editing this table AND `verify-parallel-review-lens-orthogonality.sh`.** Agent files are NOT the source of truth for the manifest — this skill owns it. See plan `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md` Phase 3.5 and `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Strand 1c.
 
 ---
 
@@ -235,7 +235,7 @@ The parallel-review carve-out in `coordinator/CLAUDE.md` § Review Sequencing ha
 | Carve-out condition | Enforcement mechanism |
 |---|---|
 | (a) Frozen diff at merge boundary | Snapshot section above: `git diff origin/main...HEAD > diff.patch`; `head.sha` records HEAD at snapshot time; synthesizer checks for head drift. |
-| (b) All reviewers are orthogonal lenses | Two assertions: the orthogonal **lens domains** (3 specialists + code-semantics-as-a-class) carry no collision — verified by `bin/verify-parallel-review-lens-orthogonality.sh` (no args) in `/update-docs` Phase 11; the N code-semantics **chunk partitions** are disjoint by file-scope — verified by the same script with `--chunk-manifest` at pre-dispatch time. Chunks share the code-semantics lens by design (they partition, not orthogonalize); convergence is only meaningful across distinct lens domains. |
+| (b) All reviewers are orthogonal lenses | Two assertions: the orthogonal **lens domains** (3 specialists + code-semantics-as-a-class) carry no collision — verified by `verify-parallel-review-lens-orthogonality.sh` (no args) in `/update-docs` Phase 11; the N code-semantics **chunk partitions** are disjoint by file-scope — verified by the same script with `--chunk-manifest` at pre-dispatch time. Chunks share the code-semantics lens by design (they partition, not orthogonalize); convergence is only meaningful across distinct lens domains. |
 | (c) No-rewrite synthesizer | Output schema in `agents/parallel-review-synthesizer.md` with `evidence_quote` verbatim fields; `verdict_rationale` is the only synthesizer-authored prose (one sentence). |
 
 This mapping makes the doctrine bullet auditable from the skill — per plan `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md` Phase 4A (the Staff Engineer R1 F10).

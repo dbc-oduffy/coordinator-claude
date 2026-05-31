@@ -125,7 +125,7 @@ overwrite other operators' configuration on their machines.
 ## 3. Render-template primitive
 
 `/coordinator:setup` and `/project-onboarding` both render templates. The shared helper
-is `bin/render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
+is `render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
 multiple skills consume it).
 
 A test suite lives at `bin/tests/test-render-template.sh`. Run as:
@@ -286,7 +286,7 @@ The Central meta-repo and the OSS publish-target are deliberately asymmetric. Ex
 | `setup/install.sh` | Absent | Present (1271 lines; OSS entry point) |
 | `setup/publish.sh` | Present | Absent (Central meta-repo sync tool) |
 | `setup/publish-targets.sh` | Present (machine-local, gitignored) | Absent |
-| `bin/machine-local`, `bin/_machine_local.py` | Present | Absent |
+| `machine-local`, `bin/_machine_local.py` | Present | Absent |
 | `whoami/tests/` (18 test files) | Present | Absent (expected for OSS) |
 | `commands/doctor.md` | **Absent in both** | **Absent in both** (deliberate gap — no dedicated coordinator doctor entry point) |
 

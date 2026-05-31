@@ -35,7 +35,7 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 **Why it works.** The executor is eager and willing — it just needs the goal stated. Once the meta-ask is in context, an executor that would otherwise type `"X:/project-rag/foo"` instead reaches for `repos.project_rag / "foo"`. The preamble is calibration prose, not a checklist; it shapes the executor's model of what "done" means before the first tool call.
 
-**Sync verifier.** `bin/verify-meta-ask-preamble-sync.sh --check` confirms the block in `executor.md` matches the canonical snippet byte-for-byte. Registered in `docs/wiki/coordinator-tripwires.md`.
+**Sync verifier.** `verify-meta-ask-preamble-sync.sh --check` confirms the block in `executor.md` matches the canonical snippet byte-for-byte. Registered in `docs/wiki/coordinator-tripwires.md`.
 
 ### Surface 2 — Ergonomic Substrate (`claude_machine_local` Python + shell helpers)
 
@@ -49,7 +49,7 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 **Calibration test.** The right-way form must read cleaner than the hardcoded literal — this is a qualitative design heuristic for future ergonomic-substrate decisions, not a numeric ratio. If adding a helper makes the right way measurably harder to read or type than the wrong way, the helper has failed the calibration test regardless of its semantic correctness. (This is the spirit of the dropped AC6 from the plan, folded here per the Staff Engineer's recommendation.)
 
-**Template mirrors.** All three helpers are mirrored in `coordinator/templates/bin/` so `setup/publish.sh` ships them to consumer projects. `bin/verify-templates-bin-sync.sh` enforces byte-identity between `~/.claude/bin/` and the template counterparts.
+**Template mirrors.** All three helpers are mirrored in `coordinator/templates/bin/` so `setup/publish.sh` ships them to consumer projects. `verify-templates-bin-sync.sh` enforces byte-identity between `~/.claude/bin/` and the template counterparts.
 
 **Foundation.** This surface wraps `~/.claude/bin/_machine_local.py` (implemented in `docs/plans/2026-05-19-machine-local-registry.md`). It does not extend the registry schema or reader — it is a thin attribute-access wrapper.
 
@@ -73,7 +73,7 @@ This doctrine complements but is **distinct from** the just-landed Engagement Mo
 
 ## Known Limits — Calibration vs. Enforcement
 
-**Dogfood result (2026-05-20).** AC10(a) PASS — the preamble is transmitted correctly to every executor dispatch via `bin/verify-meta-ask-preamble-sync.sh`. AC10(b) FAIL on both test runs — the executor still hardcoded `X:/project-rag/CLAUDE.md` literals despite the preamble being present.
+**Dogfood result (2026-05-20).** AC10(a) PASS — the preamble is transmitted correctly to every executor dispatch via `verify-meta-ask-preamble-sync.sh`. AC10(b) FAIL on both test runs — the executor still hardcoded `X:/project-rag/CLAUDE.md` literals despite the preamble being present.
 
 Two hypotheses explain the failure, and both point at the same architectural conclusion:
 

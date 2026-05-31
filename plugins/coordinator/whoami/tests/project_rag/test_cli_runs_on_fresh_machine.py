@@ -450,7 +450,8 @@ def test_gpu_probe_with_nvidia_smi(
     mock.side_effect = None  # clear FileNotFoundError default
     mock_result = MagicMock()
     mock_result.returncode = 0
-    mock_result.stdout = "22000, 535.129.03\n"
+    # New 7-field query order: count, name, memory.total, memory.free, driver_version, compute_cap, driver_model
+    mock_result.stdout = "1, NVIDIA Test GPU, 24000, 22000, 535.129.03, 8.6, WDDM\n"
     mock.return_value = mock_result
 
     from coordinator_whoami.project_rag.cli import _probe_gpu
@@ -465,6 +466,9 @@ def test_gpu_probe_with_nvidia_smi(
     )
     assert result["vram_free_mib"] == 22000, (
         f"_probe_gpu() must parse vram_free_mib=22000, got {result['vram_free_mib']!r}"
+    )
+    assert result["vram_total_mib"] == 24000, (
+        f"_probe_gpu() must parse vram_total_mib=24000, got {result['vram_total_mib']!r}"
     )
     assert result["cuda_driver"] == "535.129.03", (
         f"_probe_gpu() must parse cuda_driver='535.129.03', got {result['cuda_driver']!r}"

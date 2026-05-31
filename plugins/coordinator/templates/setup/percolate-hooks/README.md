@@ -46,12 +46,14 @@ Skeleton:
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${DEST_ROOT:?DEST_ROOT must be set by publish.sh}"
+# publish.sh passes the target directory as $1 — NOT as a DEST_ROOT env var.
+# (Finding #8: the env-var pattern was incorrect; $1 is the publish.sh contract.)
+target_dir="$1"
 
 while IFS= read -r path; do
-    # Operate ONLY on "$DEST_ROOT/$path".
-    # Do NOT walk "$DEST_ROOT" independently.
-    target="$DEST_ROOT/$path"
+    # Operate ONLY on "$target_dir/$path".
+    # Do NOT walk "$target_dir" independently.
+    target="$target_dir/$path"
     [ -f "$target" ] || continue
     mutate "$target"
 done
@@ -83,7 +85,10 @@ No stdin contract; treat the destination as fully assembled.
 
 These subdirectories are the PM's hooks for their own targets. Patterns are reusable; specifics (org slugs, allowlist contents, target names) are not.
 
-- **`coordinator-claude/post-rsync/10-depersonalize.sh`** — rewrites private GitHub org slugs to public ones via `coordinator/bin/depersonalize-for-publish.sh`. The org-slug pairs themselves are operator-specific (see `coordinator/bin/depersonalize-identity.sh` and `~/.claude/setup/.percolate-identity`); the pattern (run a depersonalizer over the touched-file list) is reusable.
+<!-- Review: code-reviewer — filename was stale (10-depersonalize.sh); on-disk name is
+10-transform.sh. Parenthetical updated: it is a full-tree transform, not a touched-list-scoped
+depersonalizer (see post-sync-hook-doctrine.md § class (a') for the safety rationale). -->
+- **`coordinator-claude/post-rsync/10-transform.sh`** — rewrites every `.md` and `.sh` file in the destination to strip private GitHub org slugs and other persona-specific tokens (full-tree idempotent transform via `coordinator/bin/publish-time-transform.sh`). The org-slug pairs themselves are operator-specific (see `coordinator/bin/depersonalize-identity.sh` and `~/.claude/setup/.percolate-identity`); the pattern (full-tree content-pure transform) is reusable.
 - **`coordinator-claude-toplevel-wiki/pre-rsync/10-backup-allowlist.sh`** + **`post-rsync/10-restore-allowlist.sh`** — backs up a destination-resident allowlist file before sync (rsync would otherwise delete it under `--delete`), restores after. Pattern applies to any target that has destination-side state the source repo doesn't own.
 - **`coordinator-claude-toplevel-wiki/post-rsync/30-verify-toplevel-wiki.sh`** — target-specific structural validator. Read-only; permitted to walk the destination tree.
 - **`deep-research-claude/post-rsync/10-depersonalize.sh`** — same depersonalize pattern, different target.

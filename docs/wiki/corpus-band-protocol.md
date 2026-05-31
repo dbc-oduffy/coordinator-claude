@@ -181,7 +181,7 @@ not a path derivation. This contract is **type-enforced** by the callable shape:
 the host never sees a directory, only a `Path`. The "host-MUST-NOT-derive-
 siblings" rule being type-enforced (rather than doc-enforced) is deliberate —
 doc-enforced contracts decay under refactor; type-enforced ones don't. See
-[codebase-judgment/typed-surface-over-text-pattern.md](codebase-judgment/typed-surface-over-text-pattern.md)
+[codebase-judgment/typed-surface-over-text-pattern.md](../../../../../plugins/project-rag/docs/wiki/codebase-judgment/typed-surface-over-text-pattern.md)
 for the convergent judgment grounding this design choice.
 
 #### Invocation discipline (host-side)
@@ -301,6 +301,6 @@ The full palette is greppable in `core/source_registry.py:_VALID_ENVELOPE_VERDIC
   history; Z-AMEND-1 boundary analysis; hookspec table.
 - [host-vs-addons.md](host-vs-addons.md) — host/addon polarity; what lives in
   the host vs. what lives in addons.
-- [engine-rag-runtime-contract.md](engine-rag-runtime-contract.md) — runtime
+- [engine-rag-runtime-contract.md](../../../../../plugins/project-rag/docs/wiki/engine-rag-runtime-contract.md) — runtime
   contract for engine RAG; CorpusBand version lifecycle; AD-5 default-blend
   mechanics.

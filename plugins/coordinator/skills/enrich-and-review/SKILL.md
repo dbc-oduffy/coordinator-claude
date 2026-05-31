@@ -70,12 +70,12 @@ This ensures that if the session crashes mid-enrichment, the tracker shows "in p
 
 ### Phase 3: Dispatch Enrichers
 
-**Optional: Task-scoped repo map.** Before dispatching enrichers, consider whether the stub's file scope is clear enough to benefit from a focused map. If so, gate via `bin/check-rag-state.sh` and generate via `bin/generate-repomap.sh`. Full gating doctrine: `docs/wiki/repomap-rag-gating.md`.
+**Optional: Task-scoped repo map.** Before dispatching enrichers, consider whether the stub's file scope is clear enough to benefit from a focused map. If so, gate via `check-rag-state.sh` and generate via `generate-repomap.sh`. Full gating doctrine: `docs/wiki/repomap-rag-gating.md`.
 
 ```bash
-RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
+RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
 if [ "$RAG_STATE" != "fresh" ]; then
-  bash "${CLAUDE_PLUGIN_ROOT}/coordinator/bin/generate-repomap.sh" \
+  bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh" \
     --project-root <project> --task "<stub summary>" --focus-files "<key files from stub>"
 fi
 ```

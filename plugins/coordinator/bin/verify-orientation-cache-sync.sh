@@ -51,6 +51,7 @@ ALLOWED_HEADINGS=(
     "Active workstreams"
     "Rechecks due ≤7 days"
     "Branch"
+    "Auto-push health"
     "Pinboard"
 )
 
@@ -135,6 +136,22 @@ if [[ -n "$PINBOARD_LINES" ]]; then
         fi
     done <<< "$PINBOARD_LINES"
     [[ "$PB_COUNT" -gt 1 ]] && VIOLATIONS+=("Pinboard section has $PB_COUNT lines (max 1 — one-slot only)")
+fi
+
+# --- Auto-push health lines ---
+# Catches runaway multi-line output or gross format corruption; mirrors the
+# per-section shape checks above. Loose by design (not a linter): ≤1 line, and if
+# present it must be the `- ⚠ <N> unpushed commit(s) ...` bullet the routine emits.
+APH_LINES=$(awk '/^## Auto-push health$/{in_s=1; next} /^## /{in_s=0} in_s && /^- /{print}' "$CACHE_FILE")
+APH_COUNT=0
+if [[ -n "$APH_LINES" ]]; then
+    while IFS= read -r line; do
+        APH_COUNT=$((APH_COUNT+1))
+        if ! [[ "$line" =~ ^-\ ⚠\ [0-9]+\ unpushed\ commit ]]; then
+            VIOLATIONS+=("Auto-push health line fails shape '- ⚠ <N> unpushed commit(s) ...': '$line'")
+        fi
+    done <<< "$APH_LINES"
+    [[ "$APH_COUNT" -gt 1 ]] && VIOLATIONS+=("Auto-push health section has $APH_COUNT lines (max 1)")
 fi
 
 # --- Trust caveats lines ---

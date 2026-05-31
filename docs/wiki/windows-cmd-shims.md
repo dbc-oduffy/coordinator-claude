@@ -89,6 +89,36 @@ The shim is the universal structural fix; per-repo code that names `python3` or 
 - Python callers: invoke `[bash, str(reader)]` rather than `[str(reader)]` for extensionless bash scripts. **For `.cmd`/`.exe`/`.bat`/`.com` targets, use bare invocation (natively executable). For everything else (extensionless, `.sh`, `.ps1`), prepend `bash`.** This whitelist-natively-executable inversion is fail-closed vs. the fail-open `suffix == ""` check.
 - PowerShell callers: invoke `& bash $script` rather than `& $script` for extensionless bash scripts.
 
+## PowerShell Python Inline Invocation — Use `-c`, Not Bare `-`
+
+**`& $py - @"…"@` passes the here-string as an argv and makes Python read its program from STDIN — use `-c @"…"@` instead.**
+
+### Symptom
+
+An installer's `& $PythonAbs - @"<script>"@` runs as a silent no-op non-interactively. Interactively (when stdout is redirected but stdin is a tty), it triggers an infinite Python 3.13 `_pyrepl` loop — pegged CPU and 2.5 GB of stderr — because Python waits for STDIN program text and `getheightwidth` has no console to query.
+
+### Why
+
+PowerShell `& $py - @"…"@` passes the here-string as an *argument* (argv[1]), not as STDIN. Python's `-` flag means "read program from STDIN"; combined with an argv, Python reads stdin (blocking or looping) and ignores the here-string entirely.
+
+### Fix
+
+| Goal | Correct form |
+|---|---|
+| Pass script inline as a string argument | `& $py -c @"<script>"@` |
+| Feed script via STDIN | `@"<script>"@ \| & $py -` |
+| The bare `& $py - @"…"@` form | **Always wrong — never use** |
+
+`-c @"…"@` treats the here-string as the program text (positional arg to `-c`). `-` with pipe feeds via STDIN as intended. The bare `- <here-string>` form combines both flags in an ambiguous way that always resolves to STDIN-read.
+
+### Greppable signature
+
+```
+& $.*python.* - @"
+```
+
+Any PowerShell script matching this pattern should be audited.
+
 ## Why we can't have integration tests for picker-fire
 
 The picker is a GUI dialog. There is no programmatic signal that an assertion can read (no stderr, no exit code, no log entry). The closest we can do is assert at `/setup` time that the orphan-stub and Store-alias-on-PATH configurations are absent after the health check runs — that's an acceptance test on the health check, not on the runtime scripts. Document this expectation rather than chase a test we can't write.

@@ -50,7 +50,7 @@ fi
 # Light-touch reminder + capability catalog for all project repos
 cat <<'EOF'
 ## Quick Orient (always, before first tool call)
-Before responding to the user's opening message, silently read `tasks/orientation_cache.md` and `tasks/lessons.md` if they exist and aren't already in context. Don't announce it. If the user's message is vague/strategic/implies continuation, invoke `/session-start` for the full ceremony. If it's a specific actionable request, quick orient and go.
+Before responding to the user's opening message, silently read `tasks/orientation_cache.md` if it exists and isn't already in context. Don't announce it. Do NOT read `tasks/lessons.md` at boot — it's a capture queue processed by `/learn-lessons`, not a must-see memo (load-bearing lessons live in `docs/wiki/` and are surfaced on demand by the prior-art-checker). If the user's message is vague/strategic/implies continuation, invoke `/session-start` for the full ceremony (which deliberately surveys lessons — PM-invoked, not EM-judged). If it's a specific actionable request, quick orient and go.
 
 ## Coordinator Infrastructure
 Available for complex work:

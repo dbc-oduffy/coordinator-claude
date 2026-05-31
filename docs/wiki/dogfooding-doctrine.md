@@ -151,6 +151,24 @@ The three lenses find progressively different defect classes. A clean plan-revie
 
 ---
 
+## 10. Dogfood Timing for Runbook / Command-Surface Edits — Pre-Review, Not Just Post-Review
+
+§9 establishes dogfood as a review-floor that runs before declaring done. For one class of artifact — **runbook / command-surface `.md` edits** (install/doctor runbooks, CLI-invocation docs, anything an agent executes by walking a command graph) — the dogfood pass is most valuable *before* the named-reviewer dispatch, not after.
+
+Review lenses cover *what the artifact says*; dogfood covers *what happens when an agent walks the artifact's command graph in a real environment*. The 2026-05-23 leaf-trigger workstream made the distinction concrete: Zolí (DoE-altitude), code-reviewer (Sonnet, post-integration), plan-coverage, and prior-art pre-flights ALL approved. A dogfood pass then caught two operational bugs no lens surfaced: (i) the runbook probed a `--help` surface that didn't exist (the host ships a direct python script, intentionally not a console-script); (ii) a `python3` literal that fails on Windows Git-Bash where only `python` is on PATH. Both are invisible to a reviewer reading partition / gate-matrix correctness; they only surface when an agent executes the command graph in a real shell.
+
+**Rule:** for runbook `.md` edits to install/doctor command surfaces, slot a dogfood pass BETWEEN Wave 1 (drafting) and named-reviewer dispatch. Cheap shape: spawn a Sonnet agent with the runbook, have it execute the read-paths (chain-presence reads, CLI probes, env-var resolution) against the local environment and report exit codes + stderr — no full live-install needed. This catches the "the runbook says X but X doesn't work on this OS" class before the named reviewer's time is spent on architecture. Review caught the architecture bug; dogfood caught the operational bugs — complementary, not substitutional.
+
+---
+
+## 11. Dogfood the Template Surface, Not the Inner Script
+
+**Dogfood the command/invocation TEMPLATE, not just the underlying script — the wiring between them is exactly where the template-only bug hides.**
+
+A `--narrow` dogfood that ran `probe_triage.py` with a literal path passed cleanly — but the `doctor.md` template used an undefined `${REPO_ROOT}` variable; only the parallel code-review caught the broken keystone path. The inner script worked; the template that users actually invoke was broken.
+
+**How to apply:** dogfood the actual invocation surface (the command, skill, or template a user or agent triggers), not the inner script in isolation. "The script works when I call it directly" is not evidence the wired invocation surface works. Source: 2026-05-27 project-rag. [universal]
+
 ## Cross-References
 
 - **`/dogfood` skill** — `coordinator/skills/dogfood/SKILL.md` — the full operational procedure: three-tier gate (narrow/broad/shakedown), pre-flight gates (idempotency, machine-parseable progress, framing audit, coverage matrix), loop mechanics, switch-gears protocol, convergence criteria, commit doctrine, flight recorder directory structure.

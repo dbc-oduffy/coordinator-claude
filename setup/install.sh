@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-claude installer
 #
 # Copies plugins to ~/.claude and registers them in Claude Code's JSON config files.
@@ -14,6 +14,31 @@ set -euo pipefail
 # Set restrictive umask before any JSON writes so user config files don't
 # inherit world-readable perms (issue #16).
 umask 077
+
+# ---------------------------------------------------------------------------
+# bash 4.0+ guard
+# ---------------------------------------------------------------------------
+# Plugin selection uses an associative array (declare -A SELECTED). macOS ships
+# bash 3.2 (2007, frozen on GPLv2) as /bin/bash, which has indexed arrays but
+# NOT associative arrays — so `bash setup/install.sh` there dies at the first
+# `declare -A` with a cryptic "declare: -A: invalid option" and no context. Fail
+# fast with actionable remediation instead. Mirrors the guard in name-personas.sh.
+# Linux, WSL, and Git Bash for Windows all ship bash 4+ already.
+# (BASH_VERSINFO and (( )) arithmetic exist since bash 2.x, so the guard itself
+# runs fine on 3.2 — it executes well before the first declare -A.)
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: the coordinator-claude installer requires bash 4.0 or later." >&2
+  echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+  echo "" >&2
+  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and re-run with it:" >&2
+  echo "      brew install bash" >&2
+  echo '      "$(brew --prefix)/bin/bash" setup/install.sh' >&2
+  echo "" >&2
+  echo "  (Pass the same flags you used here after the script path. Linux, WSL, and" >&2
+  echo "   Git Bash for Windows ship bash 4+ — if you hit this there, upgrade bash via" >&2
+  echo "   your package manager.)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -222,11 +247,31 @@ fi
 # Compare two dotted version strings. Returns 0 if $1 >= $2, else 1.
 version_ge() {
   local a="$1" b="$2"
-  # Use sort -V if available; fall back to a simple per-component comparison.
-  if printf '%s\n%s\n' "$b" "$a" | sort -V -C 2>/dev/null; then
-    return 0
+  # Prefer `sort -V` (GNU coreutils). BSD/macOS `sort` has no -V even under a
+  # Homebrew bash, so probe support once and fall back to a dotted-component
+  # numeric compare — otherwise every comparison silently returned "below floor".
+  if printf '%s\n' 1 2 | sort -V >/dev/null 2>&1; then
+    if printf '%s\n%s\n' "$b" "$a" | sort -V -C 2>/dev/null; then
+      return 0
+    fi
+    return 1
   fi
-  return 1
+  # Fallback: compare up to three dotted numeric components (strip any
+  # non-numeric suffix like -beta; treat missing components as 0).
+  # IFS=. read -ra splits on dots WITHOUT pathname expansion — an unquoted
+  # `local -a av=($a)` would glob-expand if a version string ever contained * or ?.
+  local i an bn
+  local -a av bv
+  IFS=. read -ra av <<< "$a"
+  IFS=. read -ra bv <<< "$b"
+  for i in 0 1 2; do
+    an="${av[i]:-0}"; bn="${bv[i]:-0}"
+    an="${an%%[!0-9]*}"; bn="${bn%%[!0-9]*}"
+    an="${an:-0}"; bn="${bn:-0}"
+    if (( 10#$an > 10#$bn )); then return 0; fi
+    if (( 10#$an < 10#$bn )); then return 1; fi
+  done
+  return 0
 }
 
 check_prerequisites() {
@@ -881,12 +926,13 @@ PYEOF
 #   customize publish.sh) that mirroring the loop is cheaper than refactoring
 #   install-substrate.sh to expose a partial-invocation surface.
 #
-# Dual-source-of-truth concern: the file list (publish.sh, publish_sync.py,
+# Single source of truth: the file list (publish.sh, publish_sync.py,
 # publish-targets.example.sh, .percolate-identity.example, and the
-# percolate-hooks/README.md doctrine file) plus the chmod-on-publish.sh rule
-# are duplicated here and in install-substrate.sh. If that list grows, both
-# call sites need updating. Acceptable for now — list has been stable since
-# percolation mechanism shipped; refactor to a shared lib only if it churns.
+# percolate-hooks/README.md doctrine file) plus the exec-flag rule are now
+# declared in coordinator/lib/setup-templates-manifest.sh, sourced below.
+# Both this function and install-substrate.sh read from that manifest — the
+# dual-source-of-truth concern that prompted the "refactor only if it churns"
+# deferral has been resolved. Spec: archive/specs/2026-05-27-cqcs-cluster7-lib-consolidation.md
 deliver_setup_templates() {
   local setup_src="$PLUGINS_TARGET/coordinator/templates/setup"
   local setup_dest="$CLAUDE_DIR/setup"
@@ -900,9 +946,29 @@ deliver_setup_templates() {
     return 0
   fi
 
+  # File list is the single source of truth in the plugin's lib/ manifest.
+  # HARD-FAIL on a missing manifest — do NOT silent-skip. The manifest ships
+  # inside the same plugin tree copy_plugins() just laid down, so its absence
+  # means a corrupt/incomplete plugin copy (CRLF mangling that breaks the source,
+  # a publish.sh lib/ glob miss, or a stale plugin tree) — that is fatal, not a
+  # benign older-plugin case. A silent `return 0` here would deliver ZERO setup/
+  # files and exit success on the OSS clean-install path, re-introducing the exact
+  # install-surface failure this plan exists to prevent. This matches File B's
+  # posture (install-substrate.sh hard-fails on the same missing dependency) — the
+  # two consumers MUST share one failure posture, not opposite ones.
+  local manifest="$PLUGINS_TARGET/coordinator/lib/setup-templates-manifest.sh"
+  if [[ ! -f "$manifest" ]]; then
+    echo "  ERROR: setup-templates-manifest.sh not found at $manifest" >&2
+    echo "  ERROR: ~/.claude/setup/ percolation mechanism will NOT be installed." >&2
+    echo "  ERROR: This indicates a corrupt or incomplete coordinator plugin copy." >&2
+    echo "  ERROR: Reinstall the coordinator plugin and re-run the installer." >&2
+    exit 1
+  fi
+  source "$manifest"
+
   mkdir -p "$setup_dest"
   echo "Delivering ~/.claude/setup/ percolation scripts..."
-  for f in publish.sh publish_sync.py publish-targets.example.sh .percolate-identity.example; do
+  for f in "${SETUP_TEMPLATE_FILES[@]}"; do
     local src_file="$setup_src/$f"
     local dest_file="$setup_dest/$f"
     if [[ ! -f "$src_file" ]]; then
@@ -917,26 +983,29 @@ deliver_setup_templates() {
     fi
   done
 
-  # percolate-hooks/ doctrine README — subdirectory destination.
+  # percolate-hooks/ doctrine README — subdirectory destination — also manifest-driven.
   # Only the generic README ships; per-target hook subdirs
   # (~/.claude/setup/percolate-hooks/<target>/) are operator-authored.
-  mkdir -p "$setup_dest/percolate-hooks"
-  local hooks_src="$setup_src/percolate-hooks/README.md"
-  local hooks_dest="$setup_dest/percolate-hooks/README.md"
-  if [[ -f "$hooks_src" ]]; then
-    if [[ -f "$hooks_dest" ]]; then
-      echo "  KEEP: setup/percolate-hooks/README.md (operator-preserved)"
+  for hf in "${SETUP_TEMPLATE_HOOK_FILES[@]}"; do
+    mkdir -p "$setup_dest/$(dirname "$hf")"
+    local hooks_src="$setup_src/$hf"
+    local hooks_dest="$setup_dest/$hf"
+    if [[ -f "$hooks_src" ]]; then
+      if [[ -f "$hooks_dest" ]]; then
+        echo "  KEEP: setup/$hf (operator-preserved)"
+      else
+        cp "$hooks_src" "$hooks_dest"
+        echo "  OK:   setup/$hf"
+      fi
     else
-      cp "$hooks_src" "$hooks_dest"
-      echo "  OK:   setup/percolate-hooks/README.md"
+      echo "  WARN: template missing — $hooks_src (skipping)"
     fi
-  else
-    echo "  WARN: template missing — $hooks_src (skipping)"
-  fi
+  done
 
-  # publish.sh must be executable; chmod is a no-op on Windows filesystems
-  # but harmless. The other files are not directly executed.
-  chmod +x "$setup_dest/publish.sh" 2>/dev/null || true
+  # Mark manifest-declared exec files executable (chmod no-op on Windows FS).
+  for ef in "${SETUP_TEMPLATE_EXEC_FILES[@]}"; do
+    chmod +x "$setup_dest/$ef" 2>/dev/null || true
+  done
   echo ""
 }
 
@@ -1163,6 +1232,39 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# Install-side version sentinel
+# ---------------------------------------------------------------------------
+#
+# Plants $CLAUDE_DIR/plugins/coordinator-claude/version.txt (40-hex SHA, LF)
+# immediately after copy_plugins so the /coordinator-update skill's divergence
+# classifier has a baseline anchor for the SHA this install was installed from.
+#
+# Resolution: $PLUGINS_TARGET/coordinator/bin/install-sentinel-write is
+# delivered as part of the coordinator plugin tree copy_plugins() just laid
+# down. Invoke it via $PYTHON (resolved in check_prerequisites).
+#
+# Posture: WARN-don't-FAIL — a missing writer binary means the install
+# succeeded; the sentinel is only the update skill's baseline anchor (advisory).
+# Never exit non-zero on sentinel failure.
+write_install_sentinel() {
+  local writer="$PLUGINS_TARGET/coordinator/bin/install-sentinel-write"
+  if [[ ! -f "$writer" ]]; then
+    echo "WARNING: install-sentinel-write not found at $writer — version.txt NOT written."
+    echo "         The coordinator install succeeded; re-run the installer to plant the"
+    echo "         update baseline, or run /coordinator-update for the first time without it."
+    return 0
+  fi
+  if "$PYTHON" "$writer" --path "$PLUGINS_TARGET" --source "$REPO_ROOT"; then
+    echo "  OK: version.txt (update baseline) written at $PLUGINS_TARGET/version.txt"
+  else
+    echo "WARNING: install-sentinel-write exited non-zero — version.txt may be incomplete."
+    echo "         The coordinator install succeeded; /coordinator-update will degrade"
+    echo "         to baseline-free two-way mode on first run."
+  fi
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
@@ -1290,7 +1392,24 @@ print_summary() {
   fi
   echo ""
 
+  # Update baseline sentinel note.
+  local sentinel="$PLUGINS_TARGET/version.txt"
+  if [[ -f "$sentinel" ]]; then
+    echo "Update baseline: version.txt written at $sentinel"
+    echo "  Run /coordinator-update to check for upstream changes later."
+  else
+    echo "Update baseline: version.txt NOT written (writer missing — re-run installer to plant it)."
+  fi
+  echo ""
+
   echo "Next step: restart Claude Code, then run /session-start to verify plugins loaded."
+  echo ""
+
+  echo "Hit a rough edge getting this working? Patch it — then send the fix back."
+  echo "A script-only install was whack-a-mole across machines, so we lean on agents"
+  echo "and on you: open a PR, file an issue, or paste a rough note. Don't polish it —"
+  echo "what you changed and why is worth more to us than clean code. Details:"
+  echo "  https://github.com/dbc-oduffy/coordinator-claude/blob/main/CONTRIBUTING.md"
   echo ""
 }
 
@@ -1337,6 +1456,7 @@ main() {
 
   copy_plugins
   deliver_setup_templates
+  write_install_sentinel
 
   echo "Registering JSON config files..."
   register_marketplace

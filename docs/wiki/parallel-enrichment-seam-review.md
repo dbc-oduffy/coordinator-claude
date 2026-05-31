@@ -47,6 +47,12 @@ Any fan-out pattern where N subagents write to different sections of the same ar
 
 It does NOT apply when subagents write to entirely separate files with no inter-file narrative dependency.
 
+## Pin the Schema as a Hard Contract in Every Brief, Not an Example
+
+*2026-05-20, self.* Parallel fan-out scouts (especially Haiku) drift YAML/structured-output schemas silently when the brief shows the schema as an *example* rather than stating it as a *contract*. Each scout reads the example, infers "something roughly like this," and emits a near-but-not-identical shape — different key casing, an extra wrapper level, a list where a peer emitted a scalar. The seam reviewer then catches N divergent schemas instead of one, and the assembly step has to normalize them post-hoc.
+
+**Rule:** when fanning out N scouts that all emit a structured artifact (YAML frontmatter, JSON record, a fixed-field table), the brief must state the schema as a **hard contract** — exact key names, types, nesting, and required-vs-optional — not "here's an example of the output." An example invites interpolation; a contract forbids it. Pair with the precision floor from `dispatching-parallel-agents.md` § Brief Shape Determines Finding Shape: the precision of the schema spec is the floor on the uniformity of the emitted shapes. This is the schema-uniformity analog of the seam-review rule below — pinning the contract up front reduces the seam violations the reviewer has to catch after.
+
 ## Implementation
 
 1. Fan out N enrichers over N chunks (parallel).

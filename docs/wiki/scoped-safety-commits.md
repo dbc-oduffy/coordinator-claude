@@ -1,8 +1,9 @@
 # Scoped Safety Commits
 
 **System:** coordinator
-**Last Updated:** 2026-05-13 (SC-DR-008 doctrine inversion)
+**Last Updated:** 2026-05-27 (shared-registration-file staging hazard)
 **Related plans:** `~/.claude/docs/plans/2026-05-13-safe-commit-demote-to-sweep.md` (current); `archive/specs/2026-04-27-scoped-safety-commits.md` (original)
+**Sibling:** [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) — the symptom-indexed hazard catalog this page's enforcement machinery defends against. Read it for the *why*; this page for the *how*.
 
 ---
 
@@ -24,7 +25,7 @@ Prior framing from the PM (now expanded by SC-DR-008 — the original rule named
 > "**Default for scoped commits in this repo: plain `git add <paths> && git commit -m '...' -- <paths>`.** The trailing `-- <paths>` scopes the commit to those paths only, regardless of index state. **Use coordinator-safe-commit only for the two explicit ceremonies it's designed for:** `/session-start` and `/workday-complete`."
 > — `projects/X--claude-unreal-holodeck/memory/feedback_safe_commit_unreliable.md` (PM, 2026-05-04)
 
-Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
+Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
 
 - `lessons.md:207` (2026-05-06) — parallel-executor concurrent-commit absorption (`/bug-blitz` wave 1 bundled 4-of-6 commits into one, swept 46 unrelated files).
 - `lessons.md:43` (2026-05-08) — `--scope-from` fallback widened the race window; concurrent session swept a 14-file index.
@@ -72,7 +73,7 @@ At commit time, the helper includes any currently dirty file whose mtime is afte
 Replaces `git add -A && git commit -m "..."` patterns. Located at:
 
 ```
-~/.claude/plugins/coordinator/bin/coordinator-safe-commit
+~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit
 ```
 
 **Scope computation:**
@@ -143,9 +144,9 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 **Reaper.** `cs_reap_agents` runs alongside `cs_reap_stale`: any `.agents/<agentId>/` whose `touched.txt` mtime is older than 24h is archived to `${base}/.archive/.agents-<aid>-<date>`. Bounds index growth.
 
-**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (the Staff Engineer v2 F1).
+**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (Patrik v2 F1).
 
-**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (the Staff Engineer F9 — replaces the fuzzy "one verification session" wording).
+**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (Patrik F9 — replaces the fuzzy "one verification session" wording).
 
 ### 8. `--expected-branch` Gate (Issue B — shipped 2026-05-06)
 
@@ -161,7 +162,7 @@ The helper aborts before staging on mismatch, prints reflog entries for both cur
 
 > Resolution: 'git checkout $EXPECTED_BRANCH' or correct dispatch prompt.
 
-**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (the Staff Engineer F3 carried forward).
+**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (Patrik F3 carried forward).
 
 ### 9. Issue C — `--scope-from` is Exhaustive
 
@@ -197,7 +198,7 @@ The trailing `-- <paths>` scopes the commit to those paths regardless of index s
 
 ```bash
 CLAUDE_INVOKING_COMMAND=session-start \
-  ~/.claude/plugins/coordinator/bin/coordinator-safe-commit \
+  ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \
   --blanket "chore: session-start sweep — pre-orientation capture"
 ```
 
@@ -269,9 +270,9 @@ The Bash-PreToolUse scope guard starts in warn-only mode. Every warning is logge
 | `scope-soak-enable` | Writes the soak-clock sentinel (records when warn-only mode began) |
 | `scope-warning-resolve` | Updates warn-log resolutions (mark a warn as FP or TP after EM decides) |
 
-All three at: `~/.claude/plugins/coordinator/bin/`
+All three at: `~/.claude/plugins/coordinator-claude/coordinator/bin/`
 
-**Pre-flip verification:** Before setting `COORDINATOR_SCOPE_STRICT=1`, empirically confirm the Claude Code PreToolUse deny contract — that a non-zero exit code from the hook is recognized as a deny and surfaces a usable message to the EM. See `~/.claude/plugins/coordinator/docs/pretooluse-deny-contract.md`. Do not flip strict mode without this verification.
+**Pre-flip verification:** Before setting `COORDINATOR_SCOPE_STRICT=1`, empirically confirm the Claude Code PreToolUse deny contract — that a non-zero exit code from the hook is recognized as a deny and surfaces a usable message to the EM. See `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md`. Do not flip strict mode without this verification.
 
 **Strict mode activation:**
 ```bash
@@ -326,7 +327,7 @@ the `--include-orphans` flag is not yet available — it lacks the overlap gate 
 
 Your session hasn't touched any files via tracked tools, and mtime fallback found nothing after subtraction. Check:
 - Does `.git/coordinator-sessions/<id>/touched.txt` exist? If not, the session directory wasn't initialized — the hook may not have fired yet (first session with no tracked edits).
-- Is `CLAUDE_SESSION_ID` resolving correctly? Look at `.git/coordinator-sessions/.current-session-id` or `echo $CLAUDE_SESSION_ID`.
+- Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source) — it should match a `.git/coordinator-sessions/<id>/` dir. The `.current-session-id` sentinel is last-writer-wins and only a fallback for old Claude Code; if it flips between reads, two sessions are live and you should trust the env var.
 - Did you only make Bash-driven edits? Those fall to mtime — they'll appear if another session doesn't claim them.
 
 **"I'm on a different branch than my session started on"**
@@ -351,6 +352,24 @@ This is the canonical fallback (see `feedback_git_commit_explicit_path.md`). Exp
 `COORDINATOR_OVERRIDE_SCOPE=1` is the wrong tool here: it disables scope-checking entirely (and would happily commit other sessions' files). The override is for genuine emergencies; explicit-path is for misidentification.
 
 After committing, if you can identify the root cause (e.g. the session sentinel pointing to a dead session), fix it so the helper works on the next commit.
+
+**"Resolvers always fall through to the `.current-session-id` sentinel even when running inside Claude Code"** (fixed 2026-05-23)
+
+Root cause: The four resolvers (`coordinator-safe-commit`, `coordinator-write-review-trail.sh`, `coordinator-session-loe.sh`, `cs_claim_handoff`) checked `CLAUDE_SESSION_ID` — a variable no platform version actually exports. The correct variable is `CLAUDE_CODE_SESSION_ID`, which Claude Code 2.1.150+ injects into every tool subprocess. With the wrong name checked, resolution always fell through to the last-writer-wins `.current-session-id` sentinel, making multi-session contention invisible to the fast-path.
+
+Fix: `CLAUDE_CODE_SESSION_ID` inserted as the first resolution source above the sentinel in all four resolvers (commit `031909d8`). Test suites require `env -u CLAUDE_CODE_SESSION_ID` to cover fallback paths because the test runner itself runs inside a Claude Code session.
+
+If you are on an old coordinator version and the sentinel is racing: verify with `echo $CLAUDE_CODE_SESSION_ID` from a Bash tool call — if it prints a value, the resolver should pick it up. If the resolver still falls through, the fix is not yet installed; run `/coordinator:setup` to update.
+
+**Performance note — `cs_live_session_ids` 170× speedup (2026-05-23)**
+
+If session-start or commit feels slow (~30s), the likely cause is the old `cs_live_session_ids` implementation: it called `_cs_read_meta_field` (sed/jq subprocesses) and `_cs_iso_to_epoch` (date/python subprocess) per session directory — ~600ms/dir on Windows Git Bash, ~29s total with 250+ accumulated dead dirs.
+
+The rewrite: one Python invocation globs every `meta.json`, parses all in-process via stdlib `json` + `datetime.fromisoformat`, and emits TSV. The bash layer applies the elapsed filter and `kill -0`. Startup cost paid once. Expected timing: 28.9s → 0.17s.
+
+Accumulated dead session dirs compound this. `cs_reap_stale` and `cs_reap_agents` are wired into `session-init.sh` with a 12h `.last-reap` marker gate — they clean automatically on each boot without taxing it. If you accumulated dirs before this was wired, the first `/session-start` after the fix performs a one-time sweep.
+
+CRLF gotcha on Windows: Python text-mode stdout writes `\r\n`; bash `read` strips `\n` only, leaving `\r` in the last TSV column. This breaks arithmetic. The rewrite strips CRLF from the last column explicitly.
 
 **"I need to bypass for an emergency"**
 
@@ -416,6 +435,14 @@ git fsck --lost-found                       # last-resort dangling-blob recovery
 
 Identify the sibling commit; if it absorbed your files, those files are now in `HEAD` under the wrong subject — verify with `git show --stat <foreign-sha>`. Resolution: cherry-pick or amend the foreign commit's message (PM call), or revert+redo. Do NOT blindly retry `git add && git commit` — repeats the race.
 
+### Stage Bug-Sweep Fix Edits the Moment Each Lands
+
+*Source: claude-unreal-holodeck, 2026-05-28.*
+
+Unstaged edits are indistinguishable from unowned dirt on a shared branch. A sibling EM's authorized blanket-sweep ceremony (`coordinator-safe-commit --blanket` from `/update-docs`, `/workday-complete`, etc.) will absorb any unstaged changes it encounters under the ceremony's commit subject — not yours. This is the symmetric counterpart of the bare-commit-absorbs-sibling-staged-work hazard (§ `git commit` without trailing `-- <pathspec>` above).
+
+**Rule.** Stage each bug-sweep fix edit immediately after landing it: `git add -- <edited-paths>`. Do not let fixes accumulate unstaged across tool calls on a shared branch. A staged fix is claimed; an unstaged fix is contestable.
+
 ### Post-commit `git show --stat` verification on shared branches
 
 Path-filtered `git status` lies under concurrent EMs — the filter hides foreign files the index actually carries. **After every commit on a shared branch**, run `git show --stat HEAD` and confirm the file list matches your intent. The unfiltered `git diff --cached --name-only` is the pre-commit equivalent. Subject says one workstream, diff contains another is the failure mode this catches — it's invisible without the post-commit audit.
@@ -439,6 +466,30 @@ Pair this with the post-executor verify rule: `git diff --stat` + `git log --one
 ### Large unstaged diff in shared files = active peer session
 
 Discovering >100 LOC of unstaged changes in a shared plugin/skill/doctrine file you didn't edit means another EM is actively working in this tree. Do NOT fix-forward their broken intermediate state, do NOT `git stash` (you'll bury their work and they won't find it), do NOT `git checkout -- <path>` (destroys their work). Surface to PM ("active peer detected on `<path>` — pausing edits on this surface"). Acceptable: edit unrelated files, run read-only tooling, write to your own tasks scratch. Resume the shared surface after the peer commits or hands off.
+
+### `git stash pop` after a no-op push applies a STALE unrelated stash
+
+If you run `git stash push` and git reports "No local changes to save" (a no-op), the stash stack is unchanged. A subsequent `git stash pop` will apply whatever the most-recent stash entry is — which may be an unrelated stash from a prior workstream, silently polluting your working tree. **Never pop blind.** Alternatives: (a) check `git stash list` before any pop; (b) use `git checkout <commit>^ -- <path>` to isolate a committed change cleanly instead of stash-and-pop; (c) name stashes with `git stash push -m "<description>"` so the content is identifiable before popping.
+
+*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+
+### EM hand-editing a file a dispatched agent is concurrently editing — the two-writer race on one file
+
+The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharing a working tree). There is a second two-writer shape that is NOT EM-vs-EM: the **EM and one of its own dispatched agents (review-integrator, executor) both editing the same file at the same time.** When the EM dispatches a review-integrator to fold findings into a plan/spec and then *also* hand-adds rows to that same file mid-flight, the two write streams race — and a commit fired between the two writes can capture both, silently producing duplicates (e.g. two AC rows with the same ID).
+
+*Incident.* The EM hand-added AC rows to a plan while a dispatched integrator was adding the same rows; a mid-flight commit captured both write streams and landed duplicate AC IDs. It self-healed only by luck (the duplicate was visually obvious on the next read); the failure shape is silent.
+
+**Rule.** When an integrator or executor owns a file for the duration of its dispatch, the EM **holds that file** — does not hand-edit it until the agent returns. Fold the EM's intended additions into the dispatch brief instead, or wait for the return and add them then. This is the same "active peer detected on `<path>` — pause edits on this surface" discipline as the EM-vs-EM § Large unstaged diff rule above, applied to the EM-vs-own-agent case: a file under active agent authorship is a contested surface even though the other writer is a subagent, not a sibling EM.
+
+**Verify before committing any file an agent touched concurrently.** Run a uniqueness grep (duplicate IDs, duplicate rows, duplicate frontmatter keys) on the file before staging it. A self-dispatched agent's edits and the EM's edits both landing in one commit is the signature; the uniqueness grep is the cheap catch the luck-dependent visual read should not be relied on to replace.
+
+*Source: sibling-repo `tasks/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
+
+### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
+
+Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
+
+*Source: self `tasks/lessons.md` (central-promoted 2026-05-29).*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -476,13 +527,13 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 | Artifact | Path |
 |----------|------|
 | Plan | `~/.claude/plans/scoped-safety-commits.md` |
-| the Staff Engineer review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
+| Patrik review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
 | Ceremony audit | `~/.claude/plans/audit-ceremony-commit-prescriptions.md` |
 | Agent audit | `~/.claude/plans/audit-agent-commit-prescriptions.md` |
-| Deny-contract doc | `~/.claude/plugins/coordinator/docs/pretooluse-deny-contract.md` |
-| Touch-tracker hook | `~/.claude/plugins/coordinator/hooks/scripts/track-touched-files.sh` |
-| Commit helper | `~/.claude/plugins/coordinator/bin/coordinator-safe-commit` |
-| Session lib | `~/.claude/plugins/coordinator/lib/coordinator-session.sh` |
+| Deny-contract doc | `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md` |
+| Touch-tracker hook | `~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/track-touched-files.sh` |
+| Commit helper | `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit` |
+| Session lib | `~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh` |
 | Sibling: branch discipline | [`daily-branch-discipline.md`](./daily-branch-discipline.md) — enforces commit *location* (branch); this page enforces commit *content* (files). Both hooks share the PreToolUse Bash matcher. |
 
 ---
@@ -495,7 +546,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — the Staff Engineer P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Alternatives considered:* Bash-write heuristic regex (rejected — Patrik P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 
@@ -533,17 +584,17 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* Add `--expected-branch <name>` as a hard gate inside `coordinator-safe-commit`. Helper aborts before staging on mismatch.
 
-*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (the Staff Engineer F3).
+*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (Patrik F3).
 
 **SC-DR-007 — Doctrine strike requires 5 burn-in cycles**
 
 *Problem:* When can the troubleshooting note about "helper misidentified your session" be removed from the wiki?
 
-*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (the Staff Engineer F9). Replaces the original fuzzy "one verification session" wording.
+*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (Patrik F9). Replaces the original fuzzy "one verification session" wording.
 
 **SC-DR-008 — Default/fallback inversion: plain git is the default, helper is for sweep ceremonies + executor branch-gate (2026-05-13)**
 
-*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
+*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
 
 - 2026-05-04 — session-detection inversion: helper attributed Session A's explicitly-staged files to a concurrent session B and absorbed two of B's orphan files into A's commit (`feedback_safe_commit_unreliable.md`).
 - 2026-05-06 — parallel-executor concurrent-commit absorption (`lessons.md:207`, commits `54ca925`, `945bb4d`): 4 of 6 simultaneous `coordinator-safe-commit` calls bundled into one commit; 46 unrelated dirty files from concurrent workstreams swept under one bug-fix message.
@@ -565,3 +616,39 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 - Silent-no-op fix in helper: HEAD-unchanged sentinel + `if ! git commit ...; then echo FAIL; exit 2; fi` wrapper on all commit-attempting paths (`do_scoped`, `do_scope_from`, `do_override`, `do_blanket`, orphan-claim subpaths).
 - pytest harness for hooks + helper (coord-improvement-queue line 272).
 - Session-detection substrate rebuild — would be required only if the helper is ever re-promoted to default; demote avoids the need.
+
+**SC-DR-009 — Session-id resolution: `CLAUDE_CODE_SESSION_ID` not `CLAUDE_SESSION_ID` (2026-05-23)**
+
+*Problem:* Four resolvers checked `CLAUDE_SESSION_ID`, which no Claude Code version exports. The platform's actual variable is `CLAUDE_CODE_SESSION_ID` (available since Claude Code 2.1.150 for tool subprocesses). Resolution always fell through to the `.current-session-id` sentinel — a last-writer-wins file that races under concurrent sessions.
+
+*Decision:* Insert `CLAUDE_CODE_SESSION_ID` as the highest-priority resolution source in all four resolvers. The sentinel remains as Priority-2 fallback for pre-2.1.150 deployments.
+
+*Alternatives considered:* Removing the sentinel entirely (rejected — backward compatibility with old Claude Code). Making env-var mandatory and failing loud if absent (rejected — breaks pre-2.1.150 installs).
+
+*Test discipline:* Test suites covering fallback paths must `env -u CLAUDE_CODE_SESSION_ID` to suppress the injected session ID — otherwise the test runner's own session short-circuits the fallback paths under test.
+
+## SC-DR-010 — Path-Scoped `git add` Does Not Scope Hunks Within a File
+
+*2026-05-24, project-rag-ue-addon.* `git add -- path/to/file.py` stages the ENTIRE file, not just the hunks your executor edited. If another concurrent session also edited that file, its hunks ride your commit. The scoped-commit discipline protects against cross-file contamination but does NOT protect against cross-hunk contamination within a shared file. When a file you edited is also in another session's declared scope, use `git add -p -- path/to/file.py` (interactive hunk selection) to stage only the hunks from your changes. Treat `Edit` + path-scoped `git add` on a contested file as blanket-staging by another name — it includes every modification on disk at commit time, not just yours. (Source: 2026-05-24 project-rag-ue-addon)
+
+## SC-DR-011 — Shared Registration/Index File: Absorbed Edits Can Ship an Untracked-Import HEAD
+
+*2026-05-26, project-rag-ue-addon.* Committing a shared registration file (a hookimpl list, plugin registry, module index, `__init__.py`) with `git add -- <path>` is the SC-DR-010 hunk-contamination hazard with a second-order failure: the absorbed sibling edits frequently introduce `import` statements whose target modules are still `??` untracked. The resulting commit ships a HEAD that imports modules absent from git — a latent broken-clean-install, invisible on the author's disk and (if the loader graceful-fails on `ImportError`) a silent non-registration on a clean checkout.
+
+Incident: tc-34 commit `526ba4705` was the first to land four chunker-spec registrations because `git add -- __init__.py` swept in three concurrent sessions' (tc-35/tc-5/tc-6) uncommitted edits; all four target modules were untracked, so HEAD imported four nonexistent-in-git modules.
+
+**Rule — before committing any shared registration/index/`__init__` file under concurrent EMs:**
+1. `git diff --cached --name-only` to see the FULL absorbed set (the SC-DR-010 / H1 baseline — never skip it on a shared file).
+2. For every new `import` / `from … import` the commit introduces, confirm the target module is `git ls-files`-tracked. An import of an untracked sibling module is a HEAD-break, not a harmless extra.
+
+Fix-forward when you find absorbed registrations: commit the referenced impls+tests too (if complete and green on disk) — turn the latent break into a real landing, don't revert the registration. This is the *committing-EM-as-victim-of-absorption* direction; the inverse (a sibling's session-end absorbing YOUR edit) is covered in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) H4. (Source: 2026-05-26 project-rag-ue-addon tc-34; catalogued as H5 in concurrent-em-hazards.md.)
+
+## SC-DR-012 — A Pre-Commit "No Stray Staged" Check That Prints But Doesn't Halt Is Theater
+
+*2026-05-24, claude-unreal-holodeck.*
+
+**A pre-commit "no stray staged" check that prints but doesn't halt is theater.** Under concurrent EMs, the check must unstage or abort on detection — echoing the offending path then committing anyway (the `grep … || echo` shape) re-attributes a sibling's work.
+
+*Incident.* A broad `git add tasks/ docs/` swept a concurrent EM's plan and a 29K-line `diff.patch` into a distill commit. The grep flagged the offending paths; the commit ran regardless; fix-forward `git rm --cached` recovered — but the commit had already landed on the shared branch.
+
+**Rule:** gate the commit on the check's exit (non-zero → abort), or stage by explicit file list only — a directory-scoped `git add` is never safe on a shared branch. A check that only prints is identical to no check for the commit that follows it. Extends the Why-This-Exists § concurrent-EM hazard catalog (see [`concurrent-em-hazards.md`](./concurrent-em-hazards.md)).

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # resolve-python.sh — portable Python resolver for coordinator skills/hooks.
 #
 # Sets two variables in the caller's scope:
@@ -31,6 +31,18 @@ PYTHON_ARGS=()
 # (Claude Code GUI / bash without tty) has none. pythonw.exe is identical
 # bytecode + /SUBSYSTEM:WINDOWS; piped stdio is inherited normally so
 # command-substitution and heredoc input still work.
+#
+# WARNING — stdin safety caveat (docs/plans/2026-05-29-windows-console-flash-elimination.md § Prior art):
+# The pythonw / pyw path is SAFE ONLY for spawns where the caller controls
+# stdin (e.g. heredoc, /dev/null, args-only).  Do NOT use this resolver to
+# resolve a binary for children whose stdin is a live harness pipe (e.g.
+# PreToolUse hooks where Claude Code pipes tool-call JSON on stdin).
+# With SUBSYSTEM:WINDOWS, the child may receive a null/invalid stdin handle
+# from a console-less parent; a bare except: around sys.stdin reads will
+# catch the resulting ValueError/EOFError and silently exit 0 — disabling
+# whatever gate the script implements.  Use lib/spawn-hidden.sh with
+# --stdin-mode=pipe for those sites (which passes through transparently,
+# preserving the live handle, and relies on the machine-belt for suppression).
 case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*|Windows*)
     if command -v pythonw3 &>/dev/null; then

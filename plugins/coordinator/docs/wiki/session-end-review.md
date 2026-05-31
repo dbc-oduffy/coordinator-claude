@@ -96,6 +96,10 @@ A reviewer verdict of `OK` with N "below blocking threshold" observations is not
 
 **Verdict semantics under this rule.** The marker trail's `verdict` field records what the reviewer found on the *pre-fix* diff (`ok` / `warn` / `blocked`), not what shipped. The verdict is a downstream load-shedding signal; the trail is not a fix-completion log. A pre-fix `verdict=ok` with three observations all folded in is the expected shape, not a contradiction.
 
+## Reviewer option-sets are bounded by the brief — the EM may synthesize a third shape
+
+A reviewer's enumerated options (do A, or do B) are bounded by the reviewer's brief and framing — they are not an exhaustive map of the decision space. When neither named option is right, the EM may synthesize a third shape the reviewer didn't surface; doing so is *application* of the review, not contradiction of it. The reviewer's value was exposing the tension, not pre-enumerating every resolution. (This is the inverse of rote ratification — the EM neither rubber-stamps option A nor treats the A/B menu as closed.) Pairs with `coordinator/CLAUDE.md` § Reviewer findings — apply, don't ratify. Source: 2026-05-20 claude-unreal-holodeck.
+
 ## Marker trail mechanics
 
 Every completed session-end review writes a small JSON record to disk. The trail is the machine-readable substrate that lets downstream ceremonies compute coverage without re-reviewing already-reviewed work.
@@ -135,7 +139,7 @@ Historical JSON records written before 2026-05-18 retain `reviewer: "sonnet"` as
 
 The `code-reviewer` value refers specifically to a dispatch of `agents/code-reviewer.md` (Sonnet-locked, read-only). Do NOT substitute a generic Sonnet dispatch and label it `code-reviewer` — the agent file is the contract.
 
-**Daily roll-up:** `/workday-complete` Step 9 reads today's `tasks/review-trail/*.json` and emits one `**Reviewed:**` line per record into the day's changelog block:
+**Daily roll-up:** `/workday-complete` Step 9 reads today's review records via `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `tasks/review-trail/` and `archive/review-trail/**` — covers the morning-after-weekly-reset edge case) and emits one `**Reviewed:**` line per record into the day's changelog block:
 
 ```
 **Reviewed:** sha_range=abc..def reviewer=sonnet verdict=ok diff_loc=247
@@ -161,6 +165,7 @@ This field is optional; handoffs without it are valid (field is only present whe
 
 ```
 1. Glob tasks/review-trail/*.json for the week's date range.
+   (intentional: Step 7 runs before Step 13 archival in same invocation — live dir is complete at this point)
 2. Compute union of reviewed sha_ranges → reviewed_set.
 3. weekly_diff_shas = git log origin/main..HEAD --format=%H
 4. unreviewed_set = weekly_diff_shas - reviewed_set
@@ -254,11 +259,39 @@ Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and 
 
 **How this maps to the current doctrine:** when partitioning a chain diff into slices, assign one slice specifically to boundary/seam/taxonomy/enum surfaces when present — this is the highest-value partition, not the one to merge into a larger bucket. The defect class is cross-segment by nature; a slice that spans the chain's full vocabulary-change surface ensures at least one `code-reviewer` instance sees the relabel end-to-end. If `code-reviewer` flags a boundary/seam/taxonomy shift, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
 
+## Director-altitude review unbundles conflated concerns — and can dissolve a held decision
+
+*2026-05-18, project-rag.* A Director-altitude tiebreaker pass (the Director of Engineering lens — invoked to break a deadlock between two reviewers or to adjudicate a contested architectural call) does more than pick a winner: it frequently **unbundles concerns the prior reviewers had conflated**, and the act of unbundling can dissolve the held decision entirely rather than ratifying either side. Two reviewers arguing "approach A vs approach B" may both be answering the wrong question — the Director lens reframes, splits the bundled concern into its independent axes, and the original A-vs-B framing evaporates because each axis resolves differently.
+
+**Implication for review sequencing:** a Director-altitude reframe is not a failure of the lower-tier reviewers — it is the lens working as intended. Do not treat a dissolved decision as wasted review; the reframe is the value. But do treat it as a signal that the artifact's framing (the plan's problem statement, the stub's decomposition) was carrying a conflation the EM should fix at the source, not just in this one review. Capture the reframe in `tasks/lessons.md` and re-examine whether the same conflation recurs elsewhere in the workstream. This is the architectural-finding disposition path (§ No named-reviewer escalation from code review): the reframe belongs in the planning stream.
+
 ## Review-findings folder ownership is by scope header, not timestamp
 
 `tasks/review-findings/YYYYMMDDTHHMMSSZ/` folder names encode *when* a review was dispatched, not *which workstream* owns it. A pickup session that crashed after dispatching a parallel review (but before committing the integrator fixes) leaves a folder that looks like the current workstream's pending review — but may hold a mix of real artifacts (the Staff Engineer.md, security.md at full size) and placeholder stubs (tests.md = "hello") from a different session/chain.
 
 **Rule:** at pickup, before treating any `review-findings/` folder as in-progress work for the current branch, grep the folder's inner `artifact scope:` header and compare its named HEAD SHA against `git rev-parse HEAD`. A mismatch means the review belongs to a different session — don't integrate its findings into the current diff.
+
+## Review-Trail Coverage Audits Must Glob the Archive — Live-Dir Absence Is Not Review Absence
+
+<!-- anchor: Archive-Aware Glob -->
+
+**Review-trail coverage audits must read `archive/review-trail/**`, not just the live dir — `/workweek-complete` archives records weekly, so live-dir absence is not review absence.**
+
+`tasks/review-trail/` only ever holds the current week; any coverage check reading only it systematically under-counts review for anything older. The **review oracle** is git range-membership — `git merge-base --is-ancestor C B && ! ...C A` — over BOTH live (`tasks/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records.
+
+*2026-05-27, claude-unreal-holodeck.* A plan-delivery audit's central alarm ("only 4 review-trail records, all this week → most shipped work unreviewed") was an archival artifact — the missing 05-24 record was in `archive/review-trail/2026-05-21/` (moved there by weekly-reset commit `db151655e`), and its `session_id` matched the shipped plan's completion-entry filename suffix. Both audited `implemented` plans were DELIVERED+REVIEWED; zero PARTIAL.
+
+When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the DoE as a coordinator-universal skill/doctrine candidate via cross-repo memo (`~/.claude/cross-repo/inbox/2026-05-27-plan-delivery-audit-shape.md`).
+
+**Canonical helper:** `list-review-trail-records.sh` — emits the union of live (`tasks/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records, NUL-separated, sorted by basename. Absent dirs do not error. All review-trail consumers should route through this helper rather than separate glob calls. See also `docs/wiki/plan-delivery-audit.md` for the full three-oracle audit skill.
+
+## Constant/Identity Bump Is a Multi-Writer Change
+
+*Source: project-rag, 2026-05-28.*
+
+A "one-line" pin or identity bump (version constant, schema revision, protocol constant) is structurally a multi-writer change: the constant is likely vendored in more than one location, and mocks or test fixtures encode its value as a literal. Treating it as a single-file trivial edit produces a commit that appears clean while sibling vendored copies and mocks silently remain at the old value.
+
+**Rule.** Never waive the row-3 review floor on a constant/identity bump on the grounds that it is "just one line." Before committing: grep every vendored copy and mock of the constant, run the touched test surface, and confirm all N copies are updated in the same commit. The bump is complete only when `git grep <old_value>` returns zero hits in non-test-data files.
 
 ## Cross-references
 

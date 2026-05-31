@@ -3,7 +3,7 @@ title: Test-driven development
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator/CLAUDE.md
+  - plugins/coordinator-claude/coordinator/CLAUDE.md
   - docs/wiki/test-design-discipline.md
   - docs/wiki/verification-before-completion.md
 ---
@@ -16,7 +16,18 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 **Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
 
-**Violating the letter of the rules is violating the spirit of the rules.**
+**The substance matters more than the ritual.** Watching the test fail, writing the minimal code to pass — those are what produce the design pressure. A test that "happens to be first" but wasn't watched fail isn't doing TDD's work.
+
+## Two loops: inner red-green, outer acceptance oracle
+
+> Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md`. Sibling doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop).
+
+Test-driven development at this project runs at two altitudes:
+
+- **Inner loop (this wiki, rest of the document):** per-function red-green-refactor. The executor writes the failing test, watches it fail, writes minimal code to pass, refactors. Production code follows a failing test.
+- **Outer loop — the acceptance oracle:** the plan declares its acceptance criteria as a bindable table; each criterion is either `gate-bound` to a named executable test (typed-prefix: `pytest:`, `node:`, `cargo:`, `grep:`, `cited:`) or marked `reviewer-judgment` for tone/shape qualities. A deterministic *green-gate* at the merge boundary refuses the done-verdict if any gate-bound acceptance test is red or missing. Full doctrine in `writing-plans.md` § Acceptance Oracle (outer-loop).
+
+The two loops are **structurally coupled**: the outer-loop gate is the teeth that licenses the inner-loop carrot. Any inner-loop discipline lost to sunk-cost rationalization (a skipped test, a weakened assertion) goes RED at the authoritative merge-gate before "done" can be declared. That structural backstop is what lets the inner-loop framing be offer-shaped rather than imperative — the gate catches the failure mode the imperative would have guarded against. **"Post-review" in the outer loop means after the *plan* review, not the *code* review** — the acceptance test is still authored before its implementation; test-first at both altitudes.
 
 ## When to Use
 
@@ -24,15 +35,21 @@ Write the test first. Watch it fail. Write minimal code to pass.
 
 **Exceptions (ask the PM):** throwaway prototypes, generated code, configuration files.
 
-Thinking "skip TDD just this once"? Stop. That's rationalization.
+If "skip TDD just this once" is the line in your head, that's a signal worth listening to — it's the sunk-cost or shortcut instinct making its case. The TDD path is usually faster than debugging from the testing-after artifact later; let the test lead and the design pressure stays where it pays off.
 
 ## The Iron Law
 
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
+> The shorthand stays "Iron Law" because the substance is iron-clad — production code follows a failing test. The framing below leads with the better path rather than an imperative; outer-loop acceptance-gate backstop (see § Two loops) is what licenses the carrot tone.
 
-Wrote code before the test? Delete it. Start over. No exceptions: don't keep it as "reference," don't "adapt" it while writing tests, don't look at it. Implement fresh from tests.
+**Production code follows a failing test.** That's the practice. Watching the test fail first is what proves it tests the right thing — and writing the test first against an empty implementation is what gives you the *design pressure* (the test as the first consumer of the API) that's the actual point of TDD.
+
+**Sunk-cost is the real moment of choice — and the warning is preserved by design.** If you've already written code before the test, you have a genuine incentive to keep it: hours feel spent, the shape looks plausible, the reference is right there. That's exactly the moment when re-deriving from a test is the cleanest path:
+
+- Code adapted from a pre-written reference is testing-after wearing testing-first's coat. The reference primes you toward the implementation you already wrote, not the design the test would have asked for.
+- Re-derivation usually takes less time than expected — the hours stayed in your head; the typing is the small part.
+- The design pressure (the test as the first consumer) is what you came here for. You only get it against an empty implementation.
+
+The cleanest path is: close the reference, write the failing test against nothing, watch it fail, write minimal code to pass. The structural backstop for any inner-loop discipline lost here is the outer-loop acceptance-gate — sunk-cost-driven shortcuts go RED at the merge boundary before "done" can be declared (`docs/wiki/writing-plans.md` § Acceptance Oracle).
 
 ## Red-Green-Refactor
 
@@ -141,17 +158,22 @@ Next failing test for the next feature.
 | "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
 | "I'll test after" | Tests passing immediately prove nothing. |
 | "Already manually tested" | Ad-hoc ≠ systematic. No record, can't re-run. |
-| "Deleting X hours is wasteful" | Sunk cost. Keeping unverified code is technical debt. |
-| "Keep as reference, write tests first" | You'll adapt it. That's testing-after. Delete means delete. |
+| "Deleting X hours is wasteful" | The hours stayed in your head — re-derivation usually takes less than expected, and the design pressure you'd lose is what you came here for. |
+| "Keep as reference, write tests first" | When the reference is open, you'll adapt it; the design loop you wanted runs against an empty implementation, not a finished one. Closing the reference is the cleanest path. |
 | "Test hard = design unclear" | Listen to the test. Hard to test = hard to use. |
 | "TDD will slow me down" | TDD is faster than debugging. |
 | "Existing code has no tests" | You're improving it. Add tests now. |
 
-## Red Flags — STOP and Start Over
+## Signals to re-derive from the test
 
-Code before test. Test after implementation. Test passes immediately. Can't explain why test failed. Tests added "later." Rationalizing "just this once." "Keep as reference" or "adapt existing code." "Already spent X hours, deleting is wasteful." "TDD is dogmatic, I'm being pragmatic." "This is different because..."
+These are the moments where TDD's value is highest — when something is tempting you toward testing-after. None of them are failures of character; they're predictable instincts the design exists to absorb:
 
-All of these mean: delete the code, start over with TDD.
+- Code before test, or tests added "later"
+- Test passes immediately on first run (no failing-test phase)
+- Can't explain why a test failed
+- Rationalizations: "just this once," "keep as reference," "adapt existing code," "already spent X hours," "TDD is dogmatic — I'm being pragmatic," "this is different because..."
+
+When one of these fires, the cleanest path is to re-derive from the test: write the failing test against an empty implementation, watch it fail, write minimal code to pass. The re-derivation is usually less work than debugging from the testing-after artifact later, and it puts the design pressure back where it earns its keep. The outer-loop acceptance gate is the structural backstop if any of this slips (§ Two loops).
 
 ## Example: Bug Fix
 
@@ -197,6 +219,12 @@ Can't check all boxes? You skipped TDD. Start over.
 | Must mock everything | Code too coupled. Use dependency injection. |
 | Test setup huge | Extract helpers. Still complex? Simplify design. |
 
+## Test-Plan Execution as Bug-Finding Tool
+
+**Test-plan execution surfaces bugs faster than the eventual tests do.** The act of asking "what real behavior does this assert?" against a real shell/script forces blind spots into view — bugs surface during test-writing (as executor blockers) rather than when CI runs green tests post-ship. Across a 9-workstream install-script test plan, 6 production bugs were surfaced during test-writing, not via the eventual green tests.
+
+Conclusion: a test plan IS a bug-finding tool from the moment drafting begins, not just a specification for what tests to write later. (Source: project-rag L47) → `test-design-discipline.md` §44 (bound every run), §36 (60-second reproducer before re-firing).
+
 ## Test-Plan Drafting as Bug Discovery
 
 Drafting the test plan often surfaces bugs faster than the tests themselves do. The act of enumerating *what should be tested* forces a walk of the actual surface: the producer's outputs, the consumer's expected shapes, the edge cases the code claims to handle. Each enumerated case is a hypothesis the plan author must reconcile against real code — and that reconciliation step is where latent bugs surface.
@@ -209,14 +237,15 @@ Drafting the test plan often surfaces bugs faster than the tests themselves do. 
 
 Bug found? Write failing test reproducing it. Follow TDD cycle. Test proves fix and prevents regression. Never fix bugs without a test.
 
-## Final Rule (TDD)
+## The TDD signature
+
+The clean signature of TDD work: every production change has a test that failed first, the failure was watched, the minimal code passed it. When the inner loop runs cleanly, the outer-loop acceptance-gate stays green naturally — the two altitudes are designed to compose.
 
 ```
 Production code → test exists and failed first
-Otherwise → not TDD
 ```
 
-No exceptions without the PM's permission.
+Throwaway prototypes and generated-code exceptions are scoped in § When to Use; they carry no stigma when the PM agrees they fit the exception shape.
 
 ---
 

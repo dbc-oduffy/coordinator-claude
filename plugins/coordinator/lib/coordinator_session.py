@@ -26,6 +26,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Windows-only: suppress the console window that console-subsystem child
+# processes (bash, cygpath, ...) flash when this process has no console to
+# inherit (e.g. spawned by an MCP server or a GUI Claude Code host). POSIX:
+# empty dict — CREATE_NO_WINDOW is Windows-only, so the ternary short-circuits.
+_NO_CONSOLE_WINDOW = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+)
+
 # Resolve Bash lib path: adjacent to this file inside lib/.
 _LIB_PATH: Optional[str] = None
 
@@ -56,6 +64,7 @@ def _bash_oneliner(script: str, env: Optional[dict] = None) -> subprocess.Comple
         text=True,
         env=merged,
         timeout=10,
+        **_NO_CONSOLE_WINDOW,
     )
 
 
@@ -201,6 +210,7 @@ def _to_shell_path(p: str) -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            **_NO_CONSOLE_WINDOW,
         )
         if result.returncode == 0 and result.stdout.strip():
             escaped = result.stdout.strip()

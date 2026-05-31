@@ -127,6 +127,14 @@ All of these mean: STOP. Return to Phase 1.
 
 "Is that not happening?" / "Will it show us...?" / "Stop guessing" / "Ultrathink this" / "We're stuck?" — when you see these, return to Phase 1.
 
+## Diagnose before mitigating — do not write architectural plans for unknown root causes
+
+**Do not author an implementation plan for a failure class whose root cause is still unknown. Sequence evidence collection before design.**
+**Why:** A plan drafted against a wrong premise (e.g., "VRAM saturation") becomes debt the moment real evidence lands. One session produced ~290 lines of "host-level VRAM guardrail" plan before a kernel-level event named a non-GPU Python process consuming 217 GB virtual — the plan was discarded unbuilt rather than retrofitted on wrong premises.
+**How to apply:** run WMI / log / kernel-event diagnostics first → identify the actual offender → THEN design the fix. Premature mitigation plans mislead future readers and waste reviewer cycles on a plan the facts already contradict.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L135, central-promoted 2026-05-28).*
+
 ## Common Rationalizations
 
 | Excuse | Reality |
@@ -202,6 +210,12 @@ When a test fails, read the test *and* the handler/producer/fixture it exercises
 
 Subprocess exit codes (and the structured-report fields they correspond to: `returncode`, `success: false`, non-zero `status`) are the cheapest ground-truth signal in the system. When a wrapper script reports success but the wrapped tool exited non-zero, the wrapper is lying — fix the wrapper, don't dismiss the exit code. Conversely, an exit-zero from a tool that should have failed is a contract bug worth its own investigation. Don't normalise exit codes away in reporting layers.
 
+### Large unsigned exit codes may be signed –1, not a native crash
+
+A subprocess that exits with code `4294967295` (0xFFFFFFFF) is reporting a signed –1 reinterpreted as an unsigned 32-bit value — not an SEH exception or native crash. Before concluding that a large unsigned exit code signals an unhandled structured exception, grep the subprocess's stdout/stderr logs for the real error: a Python traceback, a structured error message, or a logged exception will name the actual failure class. The OS surface (`returncode = 4294967295`) is accurate; the *interpretation* (crash vs. deliberate non-zero exit) requires the logs. Concrete example: UE Commandlet processes return `Commandlet->Main()` exit –1 as their error path; project-rag's F-NEW-5 was misclassified as an SEH crash for two release cycles before a debug-capture run surfaced a `TypeError` traceback at the Python layer.
+
+*Source: DroneSim `tasks/lessons.md` (L8, central-promoted 2026-05-29).*
+
 ### No live diagnostic tracers that harm the host
 
 Diagnostic instrumentation that mutates host state — flushing caches, restarting services, taking exclusive locks, writing to shared logs, holding the GIL — is not a diagnostic. It's a second incident. Read-only probes only (`get_*`, `inspect`, stat captures, structured logs). If you need a host-modifying probe, gate it behind explicit PM approval and treat it as a planned mutation, not a debug step. The classic failure mode: a tracer that "just dumps the state" pauses the game thread for 30s and the symptom you were chasing turns out to be the tracer.
@@ -275,7 +289,7 @@ Analyze stack traces by looking for test file names, finding the line number tri
 
 #### Finding Which Test Causes Pollution
 
-If something appears during tests but you don't know which test, use the bisection script `bin/find-polluter.sh`:
+If something appears during tests but you don't know which test, use the bisection script `find-polluter.sh`:
 
 ```bash
 ~/.claude/plugins/coordinator/bin/find-polluter.sh '.git' 'src/**/*.test.ts'
@@ -466,6 +480,32 @@ Requirements: (1) first wait for the triggering condition, (2) base the timeout 
 ## Real-World Impact
 
 Systematic approaches typically resolve issues in a single pass; guess-and-check approaches frequently require multiple sessions and introduce regressions. From a 2025-10-03 debugging session: a 5-level backward trace identified the root cause; a getter-validation fix at source closed the trigger; defense-in-depth added 4 validation layers; 1847 tests passed with zero pollution. From the same arc: 15 flaky tests across 3 files migrated to condition-based waiting — pass rate 60% → 100%, execution 40% faster, no race conditions.
+
+## Clean-Environment Prerequisite for Performance Diagnoses
+
+**A performance diagnosis taken while zombie processes or competing daemons contend is contaminated — profile under a clean process environment before trusting the premise.**
+
+Concrete failure: two handoffs reported full-suite collection at 1230s (20.5 min) and prescribed a collection refactor; profiling found collection was actually ~4s — the 1230s was contention from 5 abandoned `pytest tests/` processes + a `tool_dogfood` test spawning the project-rag daemon (43 GB commit-leak). The real fixes were unrelated to the diagnosed cause (retry-storm fast-fail, IPv4, marker-deselecting heavy substrate tests).
+
+Rule: `ps`/process-list + a clean re-run BEFORE trusting any perf number in a handoff. A newly-runnable test tier surfaces pre-existing failures the prior avoidance was hiding — expect and triage them, don't assume they're your regression. (Source: project-rag-ue-addon L57)
+
+## Schema Migration and Dedup Patterns
+
+**Mixed-separator dedup is FK-aware, not a single REPLACE.**
+
+Two tables affected by the same root-cause bug need two different migrations: a no-collision column is a simple REPLACE; a TEXT PRIMARY KEY column is a collision-aware dedup-then-update because the key compresses rows that differ only in separator. Safe order: (1) inspect FK relationships, (2) DELETE loser rows from collision groups first, (3) UPDATE keepers to normalized form — never UPDATE before DELETE. (Source: holodeck L13)
+
+**When normalizing one path column, inventory ALL path-typed columns across ALL tables before declaring done.**
+
+Patching one column without auditing siblings leaves live consumer join paths silently broken — the AC table can pass clean because it uses LIKE predicates that don't care about separators. Before closing any separator/normalization patch, run `SELECT name FROM sqlite_master WHERE type='table'` and for each table run `PRAGMA table_info(t)` to identify every TEXT column with path semantics; apply the same normalization in the same commit. (Source: holodeck L53)
+
+## Audit Your Own Fix for the Bug Class You Just Fixed
+
+**When fixing a cwd-relative or path-resolution bug, the fix's own path references are the first thing to check.** The failure mode of a fix reintroducing the bug it fixes is a recurring AI-authoring pattern — a replacement script that calls `bin/helper.sh` (cwd-relative) to eliminate a different cwd-relative call reproduces the identical silent no-op. Grep your replacement for the same relative-path shape you are removing; use authoritative absolute paths or `$(dirname "$0")`-anchored resolution in the fix itself.
+
+**How to apply:** before submitting any path-resolution fix for review, run `grep -nE '(^\./|^bin/|^scripts/)' <new-file>` (or equivalent) to enumerate relative path references in the replacement. Each hit is a candidate for the same bug. This self-audit is fastest and cheapest before a reviewer catches it.
+
+*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
 
 ## Reference
 

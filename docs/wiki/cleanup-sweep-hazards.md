@@ -77,9 +77,9 @@ Edit-tool success return value is NOT proof the change landed — concurrent wri
 
 Any bulk find/replace tool that defines its own substitution vocabulary in-file (or in a sibling script) will rewrite *itself* unless its scan path explicitly excludes those vocabulary-carrying files. The tool's identifier strings, replacement templates, and pattern tables become substitution targets — the first run corrupts the table, the second run runs against the corrupted table, and recovery requires `git checkout` against the tool source.
 
-**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `depersonalize-for-publish.sh --fix` over `/x/coordinator-claude`. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
+**Concrete failure:** 2026-05-09 publish-sanitization dogfood ran `publish-time-transform.sh --fix` over `/x/coordinator-claude`. The publish-repo's `check-persona-names.py` mirrors the same `PERSONA_NAMES` vocabulary; the bulk-fix rewrote the literal table entries inside that checker, breaking persona detection on the publish side. Recovery via `git checkout` was clean, but the failure mode is silent — exit code 0, files rewritten, only a content audit catches it.
 
-**Defense:** every bulk-substitution tool carries an `EXCLUDED_BASENAMES` (or equivalent) guard listing its own filename AND any sibling file that mirrors its vocabulary. See `bin/depersonalize-for-publish.sh` `EXCLUDED_BASENAMES` + basename-pattern guards for the canonical shape. The guard runs ahead of subtree-prefix exclusion (a file under `bin/` shouldn't be skipped wholesale, only the vocabulary-bearing ones).
+**Defense:** every bulk-substitution tool carries an `EXCLUDED_BASENAMES` (or equivalent) guard listing its own filename AND any sibling file that mirrors its vocabulary. See `publish-time-transform.sh` `EXCLUDED_BASENAMES` + basename-pattern guards for the canonical shape. The guard runs ahead of subtree-prefix exclusion (a file under `bin/` shouldn't be skipped wholesale, only the vocabulary-bearing ones).
 
 ## 9. Narrow Dependent Surfaces When User-Facing Surface Narrows
 
@@ -143,6 +143,8 @@ When a scout produces a recommendation table — `| path | reason | action |` �
 1. Parse table columns by markdown column index or convert to JSON/YAML before consumption — never regex-extract from the rendered prose.
 2. Fail closed: the deletion sweep refuses to act on any path not in a fully-parsed `path` column.
 3. Wiki-guide protection: any deletion sweep that reads from a scout report MUST hard-exclude `docs/wiki/`, `CLAUDE.md`, `archive/`, and `tasks/lessons.md` regardless of column origin — these are never legitimate sweep targets and the protection is cheap insurance against parser bugs.
+
+**Scout delete-candidate lists need EM-side grep before `rm` fires (L754, claude-unreal-holodeck).** A scout's delete-candidate list is a *recommendation*, not an authorization. Before the `rm` executes, the EM must grep each candidate for live consumer surfaces (imports, `#include`, doc citations, agent-prompt embeddings) across the repo and named siblings — the scout's "unused" verdict is scoped to what it grepped, and it routinely misses cross-file or cross-repo consumers. This is the same hazard family as §11 (grep imports before celebrating an excision); applied to scout-driven sweeps, the grep is the EM's gate, not the scout's.
 
 ## 16. Auto-Discovery Globs Sweep In Stale Backups (Reprise + Hardening)
 
@@ -225,6 +227,153 @@ Composes with §11 (consumer rewrite — grep imports before celebrating) and §
 
 **Rule:** when documenting a convention that has a script-shaped enforcer, name the auto-run mechanism in the same edit. If no such mechanism exists, file the gap as an improvement-queue entry rather than declaring the convention shipped.
 
+## 24. Sequential Same-Path Bugs Signal a Pair-Shaped-Refactor Completion Gap
+
+*2026-05-23, claude-unreal-holodeck.* When a smoke surfaces several sequential bugs along the same code path, suspect ONE refactor's incomplete propagation rather than N independent bugs. Refactors often touch one half of a pair — `.sh`/`.ps1`, producer/consumer, frontend/backend, schema/reader — and the other half slips. A five-bug cascade unblocked one-at-a-time turned out to be two completion gaps: three bugs from a `.ps1` refactor that never propagated to the `.sh` counterpart, plus three from a corpus-layout rollout left behind in downstream readers.
+
+**Rule:** when fixing the first sibling-drift bug, immediately grep the parent refactor's git log + spec backlinks for what else should have moved together; diff the paired surfaces (`.sh` vs `.ps1`, producer vs consumer) for the same file-pair. Treat the cascade as a single workstream's completion-gap, not as independent bugs — fixing them one-by-one as they surface wastes the cascade's shared root.
+
+## 25. Rename Audits Must Drive Entrypoints, Not Just Pattern-Match Strings
+
+*2026-05-24, project-rag.* When auditing a rename for completeness, a string-pattern grep of the OLD name can miss usages hidden inside dynamic-loader calls — e.g. `os.path.join(_plugin_root, "scripts")` passed to `spec_from_file_location`. The old directory name lives inside a variable or join expression, not as a bare literal, so the grep fires clean while the loader still resolves the OLD path at runtime. Two compound rules apply:
+
+1. **Grep dynamic-loader call sites** (`importlib.util.spec_from_file_location`, `importlib.import_module`, `__import__`, `exec(open(...))`, Node `require()`, etc.) separately from bare string-literal greps. These call sites accept constructed paths that don't contain the old name as a literal.
+2. **Drive the entrypoint, not the module.** A unit test that imports the module directly cannot catch an incorrect path in the loader call. The test must call the CLI / entrypoint / plugin-load surface so the loader actually runs. If the loader resolves a wrong path, a module-direct test will still green because it bypasses the loader entirely.
+
+(Source: 2026-05-24 project-rag)
+
+**Worked example — a doctrinally-complete rename audit still shipped a broken loader call (L130, project-rag, 2026-05-27).** A dir-rename audit can satisfy every grep-the-imports checklist item and still ship a broken `spec_from_file_location` call-site, because no test exercised the console-script entrypoint — `cli.py:2517` shipped broken to **v0.7.0**. Module-direct tests are *zero* coverage of the loader path. The audit being "complete" is not the bar; an entrypoint test that drives the console-script loader is. This converges with the addon-side dir-rename lesson (L129) — same rule, two repos, one shipped-broken-to-release data point.
+
+## 26. Impact-Radius Scouts Must Enumerate WRITE-Direction Patterns
+
+*2026-05-24, project-rag-ue-addon.* An impact-radius scout grepping for usages of a symbol, env var, or path typically finds READ-direction patterns (`import X`, `$X`, `os.environ["X"]`) but silently misses WRITE-direction patterns: `export X=`, `env[X] = ...`, subprocess env injection (`{"X": ...}`), or config-file writes that set X. A rename or deletion that only audits read-direction leaves a writer that now sets the wrong name, producing a value nobody reads. Defense: for any scan that declares "all usages found," explicitly enumerate write-direction patterns as a second grep pass and include their count in the finding. (Source: 2026-05-24 project-rag-ue-addon)
+
+## 27. Bug-Class Sweeps Close the Whole CLASS, Not the Construct That Surfaced
+
+A bug almost never affects only the one construct that happened to surface. A portability gap, an embedding gotcha, an unsafe-spawn pattern — each is a *class* with multiple member constructs, and a fix scoped to the single surfaced member is whack-a-mole. The next member regresses the moment a sweep touches it.
+
+**Concrete failure (PS5.1↔PS7 portability, 2026-05-24 project-rag):** Bug 2 fixed PS5.1 3-arg `Join-Path` across `*.ps1` with a static-lint guard. Days later Chunk B surfaced a PS5.1 parse error from `?.Source` (null-conditional — a *different* PS7-only construct the guard never covered), which a sweep then found in two more scripts (`??`, ternary too). The PS5.1-vs-PS7 incompatibility is one class: `{ 3-arg Join-Path, ?., ?[, ??, ??=, ternary }`. A guard scoped to one member is theater.
+
+**Rule:** when fixing a portability / version-gap / pattern bug (PS5.1↔PS7, Python 3.x version drift, C++ standard drift, unsafe-spawn, console-subsystem), **enumerate the construct class** and sweep all of it in one pass; write the guard test against the *class enum*, not the surfaced member (`test_no_ps7_only_operators.py` covering the whole operator set, beside `test_no_three_arg_join_path.py`). The class-wide sweep is cheap relative to N repeat incidents.
+
+Composes with §13/§21 (rename blast-radius across surface shapes) — same family: the fix's scope is the *class of locations/constructs*, not the one instance you can see.
+
+## 28. Enumerated-Site-List Lint Gives False Confidence — Prefer Class-Catching Structural/AST Lint
+
+A regression test that enumerates a fixed list of known bug sites passes green forever while *new* files introducing the same bug class regress silently. The list-based test can only prove that the listed files still reference the helper; it is structurally blind to a brand-new file that reintroduces the bug.
+
+**Concrete failure (console-popup suppression, 2026-05-26 project-rag):** the F-21 suppression test enumerated a fixed list of "production hot-path" spawn sites. Popups returned anyway — new spawn sites (`paths.py`, `core/probes.py`, doctor probes, dogfood runner) were added to the codebase but never to the list. The test stayed green throughout.
+
+**Rule:** when guarding a bug *class* (not a single site), write a lint that **walks all production source and pattern-matches the bug signature**, with an explicit, documented allowlist for true exceptions. Catch the *literal*, not just the call site, so assigned-then-spawned forms are covered too — e.g. for unsafe-spawn, flag any `list`/`tuple` literal whose first element is `sys.executable` (must be `pythonw_executable()`), which catches `cmd = [...]; run(cmd)` as well as inline `run([sys.executable, ...])`. An AST visitor is the strongest form; a structural `grep` over all source with an allowlist is the cheap form. Either beats an enumerated site list.
+
+Pairs with `pre-dispatch-verification-extras.md` ("if a coverage test exists that enumerates affected sites, run it FIRST as the audit table") — that rule consumes such a class-catching lint; this rule says to *build* one rather than a hand-maintained list.
+
+## 29. Heredoc-Python Embedding Has TWO Independent Silent-Fail Classes — Guard Both Together
+
+Shell that embeds Python via heredoc has two orthogonal silent-fail modes, and a sweep that checks one misses the other:
+
+1. **Shell-as-program body** — `python -c "..."` (a shell command) wrapped as the *body* of `python - <<'PYEOF'` (which expects Python program text). The outer Python parses the shell as program → `SyntaxError` every run.
+2. **Bare-name-in-quoted-heredoc** — a bash variable (`PLUGIN_ROOT`) used as a bare Python identifier inside a single-quoted `<<'PYEOF'` heredoc. Bash never expands inside a quoted heredoc → Python `NameError`.
+
+**Concrete failure (2026-05-24 project-rag, weekly gate):** six doctor probes were inert at runtime — three in class (a), three in class (b). Both were masked by `# noqa` and probe wrappers that exit 0 in the non-fix path, so a 91-file `CLAUDE_PLUGIN_ROOT` sweep landed clean and the probes silently did nothing for ~2 weeks.
+
+**Rule:** when reviewing or sweeping shell-embedded Python, check BOTH: (a) the heredoc *body* is Python program text, not a shell command; (b) bash variables inside are either an unquoted heredoc or explicitly passed via env — `<<'PYEOF'` (quoted) + a bare uppercase identifier is *always* a bug. Greppable class-wide guard:
+
+```bash
+# Class (a): shell command wrapped as heredoc Python body
+grep -nE "python -.{0,5}<<'[A-Z_]+'" plugin/**/*.sh
+# Class (b): bare uppercase identifiers in a quoted heredoc body
+#   (scan body for uppercase names that aren't os/sys/pathlib)
+```
+
+The quote-state of the heredoc tag and the contents of the heredoc body are independent failure modes — one guard per class, run together.
+
+## 30. .gitignore Patterns Encode a Naming SHAPE — Shape Drift Silently Un-Ignores
+
+A build-artifact `.gitignore` pattern encodes a directory *naming shape*. When that shape drifts — a rename, a new suffix, a per-band split — the pattern silently stops matching and previously-ignored artifacts (often multi-GB) become committable. The un-ignore is invisible until a `--blanket` commit stages them and (if you're lucky) an oversize-blob guard catches it at push.
+
+**Concrete failure (2026-05-24 project-rag-ue-addon):** the 2026-05-20 per-band split renamed `…engine-vector-store/` → `…engine-vector-store-<band>/`, but `.gitignore` matched only the bare form. 5.5 GB of chroma blobs went untracked-and-not-ignored; a Phase-0 `coordinator-safe-commit --blanket` staged them, and only the oversize-blob pre-commit guard stopped the push.
+
+**Rule:** build-workspace ignore rules need a **suffix-general glob** (`…-vector-store-*/`, not `…-vector-store/`) AND a `git check-ignore`-based regression test that **includes a deliberately-unknown future suffix** — so a future rename fails *red at test time* rather than silently at push time. The oversize-blob guard is the backstop; the `.gitignore` is the intended line and must be tested like one. Canonical shape: `tests/test_gitignore_workspace_coverage.py`.
+
+This is the §27 bug-class principle applied to ignore rules: the *class* is "every name the artifact dir might ever take," and the guard is a glob over the class plus a test that probes an unseen member.
+
+## 31. Stub-Dedup Canonical Is Git Commit Provenance, Not Filename Timestamp
+
+*Source: L366, project-rag-ue-addon. 2026-05-27.*
+
+When deduplicating stub/draft files, the canonical version is decided by **git commit provenance** (which one carries the authoritative history), not by filename timestamp or mtime — the newer-named file is frequently a divergent draft, not the successor. And the loser is not always pure waste: it can carry draft-only content the canonical never absorbed.
+
+**Rule.** Decide canonical by `git log --follow` provenance, then archive divergent duplicates with `git mv` to `archive/` (a suffix-preserving move) rather than `git rm` — the move preserves draft-only content for later salvage, where `rm` discards it. Composes with §14 (audit duplication by reading bodies, not metadata): the body-read tells you *whether* they diverge; the git-provenance read tells you *which* is canonical.
+
+## 32. Verbatim Code-Extraction / Dedup Must Stay Behavior-Preserving — Pre-Existing Bugs Go to Backlog, Not the Same Commit
+
+*Source: L421, project-rag-ue-addon. 2026-05-27.*
+
+A code-extraction or dedup refactor (lift a function to a shared helper, collapse two near-identical blocks into one) must move the code **verbatim** — behavior-preserving, byte-for-byte where possible. If the moved code contains a pre-existing bug, the temptation is to "fix it while I'm here." Don't: fixing it in the same commit conflates a behavior-changing edit with a structural move, so a bisect or revert can't separate them and the reviewer can't verify the move was clean.
+
+**Rule.** Extraction/dedup commits change *structure only*. A pre-existing bug found in moved code → file a backlog entry, land the move clean, fix in a separate commit. The regression-net (snapshot/byte-stability test per §5 of `test-design-discipline.md`) verifies the move preserved behavior; a same-commit "fix" defeats that net. Composes with §5 (defend invariants with snapshot tests) — the snapshot only proves a clean move if the move didn't also change behavior.
+
+## 33. Excision Missed-the-Consumer-Rewrite — Grep Imports Before Celebrating
+
+*2026-05-27, project-rag-ue-addon Phase 2 convergent finding.*
+
+**When a donor module is excised cleanly from one repo, consumer files that still import it remain broken until a clean checkout tries to run the producer.** The split appears complete (donor is gone, schemas align, tests are green on the donor side) — then a consumer script fails at import time with no signal crossing the repo boundary.
+
+**Rule:** before declaring any excision complete, grep `from <excised>.` and `import <excised>` across the consumer repo. This is the same hazard family as §11 (grep imports before celebrating) but applies at module-excision granularity, not function granularity. Convergent finding from two independent reviewers raises confidence. (project-rag-ue-addon shipped 6 broken `mcp_server.{structural,path_norm,host_resilience}` imports across 3 producer scripts.)
+
+## 34. Directory-Rename Variable-Indirection Sweep
+
+*2026-05-27, project-rag-ue-addon (code-reviewer F10).*
+
+**Directory-rename sweeps must grep variable-assignment indirections, not just path literals.** A `scripts/` → `project_rag_ue_addon_scripts/` rename left `SCRIPTS_DIR="$ADDON_ROOT/scripts"` in `build_engine_structural_index.sh`, silently breaking the from-source rebuild — every `$SCRIPTS_DIR/...` invocation 404'd, and `--check` masked it by passing pre-flight.
+
+**Rule:** rename sweeps must grep three pattern shapes independently:
+1. Direct literals: `oldname/` in path strings
+2. Variable assignments: `<VAR>=.*<oldname>` — catches the indirect case
+3. Module paths: `-m <oldpkg>.` — catches Python module references
+
+A sweep that only covers direct literals ships with broken variable-indirected consumers. [universal]
+
+## 35. Source-Migrate Without Test-Migrate Leaves Import-Error Wall
+
+*Source: claude-unreal-holodeck L17, 2026-05-28. [universal]*
+
+Migrating a source module without co-migrating its test suite produces `ImportError` failures at pytest collection time that mask all real test results. The collected-count delta is the falsification: a drop in `pytest --collect-only` count relative to the pre-migration baseline means tests are invisibly broken at import time — not because code regressed, but because the test's imports lag the source.
+
+**Rule.** Co-migrate the regression net in the same commit as the source migration. Run `pytest --collect-only` before and after — a count drop signals import failures. See also: `test-design-discipline.md` §56.
+
+## 36. `git stash pop` After a No-op Push Applies a Stale Unrelated Stash
+
+*Source: project-rag, 2026-05-28. [universal]*
+
+`git stash push` followed by a push that saves nothing ("No local changes to save") leaves the stash list unchanged — the prior stash entry (from a different context) is the one that gets popped. The pop silently applies unrelated working-tree changes, corrupting the worktree before the next commit.
+
+**Rule.** Never pop blind after a no-op push. To isolate a committed change from HEAD for targeted inspection, use `git checkout <commit>^ -- <path>` directly rather than the stash round-trip. Confirm with `git stash list` before any `git stash pop` to verify what you're about to apply.
+
+## 37. Auditing Pivoted/Abandoned Work — Scan STATE Artifacts, Not Just Code+Spec
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+When a workstream pivots or is abandoned mid-flight, the code and spec artifacts are the obvious targets for cleanup. But the highest-risk residue lives in **STATE artifacts**: sentinel files, status JSON blobs, partial migration records, half-updated registry entries, and in-progress handoff bodies that reference the abandoned approach. These state artifacts can mislead future sessions into treating abandoned-work state as current operational state.
+
+**Rule.** When auditing a pivoted or abandoned workstream for residue, explicitly scan:
+1. `tasks/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
+2. `machine-local/` registry entries, sentinel files (`*-sentinel.json`, `addon-health-*`), and status JSONs written by the abandoned path.
+3. Any migration helper or partial-apply record that reflects an abandoned schema/path shape.
+
+Code+spec cleanup without state cleanup leaves a sentinel that future sessions read as "install succeeded" for a path that was never completed. Compose with §22 (shipped-status check is not enough) — a state artifact from an abandoned workstream is the same hazard applied to non-code residue.
+
+## 38. Re-Derive Each Parent's Terminal `status:` From Disk Before a Cleanup Deletion Set — Don't Trust the Classifier Manifest
+
+*Source: cross-repo learn-lessons, 2026-05-30. [universal]*
+
+A distill / cleanup dry-run that classifies plan-scaffolding for deletion emits a manifest labelling each parent plan as `archived` / `shipped` / `draft` / `executing`. That manifest is a **classifier inference**, not the ground-truth frontmatter — and it drifts: a parent plan in `draft` or `executing` state can be mislabelled "archived" by the classifier, and trusting the label deletes scaffolding that three in-flight plans still depend on.
+
+**Concrete failure averted (2026-05-30):** a distill dry-run classifier labelled draft/executing parents as "archived." Acting on the manifest would have deleted live scaffolding for 3 in-flight plans. A pre-commit `grep '^status:'` audit over every parent re-derived the real status from disk and caught it — 7 files were `git checkout`-restored before the commit landed.
+
+**Rule.** Before deleting any plan-scaffolding deletion set, **re-derive each parent's live `status:` from the file on disk** (`grep '^status:' <parent-plan>`), not from the classifier's manifest column. **HOLD** any parent whose disk status is non-terminal (`draft` / `executing` / `reviewed`) — only `archived` / `shipped` / `consumed` / `superseded` clears a parent's scaffolding for deletion. Pair this with the active-reference guard (§1 / §22): terminal-status AND zero active-reference grep hits is the conjoint bar; either alone is insufficient. The audit is a pre-commit gate, not a post-hoc link-heal that happens to catch the dangling reference. Composes with §15 (scout delete-candidate lists need EM-side grep before `rm`) and §37 (state artifacts from abandoned work mislead — frontmatter `status:` is itself a state artifact that the classifier can misread).
+
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria.

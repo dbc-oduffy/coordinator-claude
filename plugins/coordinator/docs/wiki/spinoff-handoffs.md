@@ -187,6 +187,21 @@ Example: `- roadmap-run-abc/tc-4 — shares the `bin/lint-frontmatter.js` cross-
 
 Explicit `- None identified at authoring time.` is preferred over an absent section. Absence triggers Phase 2 exit-gate failure. An empty section is structurally correct and signals deliberate authoring-time triage, not accidental omission.
 
+## Gate-dependency authoring discipline — calendarable observable or it's backlog
+
+`awaiting_gate` on an **event-gate that isn't on the calendar** ("next time we do X," "when we eventually touch Y," "once someone revisits Z") is backlog disguised as a spinoff. The `deployment_state: awaiting_gate` state is reserved for work that is genuinely sequenced behind a *forthcoming, observable* event — not work parked behind a vague future intention.
+
+**At handoff/spinoff-write time, `gate_dependency:` MUST name a calendarable observable** — something a recheck can mechanically test for:
+
+- a **PR URL** (gate clears when it merges),
+- a **flag name** (gate clears when the flag flips / ships),
+- a **stub path** (gate clears when that stub is consumed/shipped),
+- a dated milestone or a named artifact whose existence is checkable.
+
+If the gate is an **indefinite event-gate** with no calendarable observable, it does NOT belong as `awaiting_gate` — **demote it to backlog** (improvement-queue entry or operational-doc fold-in) rather than parking it in the handoff/spinoff queue where the aging-reconcile machinery (§ Awaiting_gate aging) will repeatedly re-check a gate that can never mechanically clear. The aging machinery can catch gate-text drift on a *real* gate; it cannot rescue a gate that was never observable in the first place. The distinction is: a real gate has a witness you can name now; backlog has only an intention.
+
+This pairs with the § Awaiting_gate aging recheck: authoring discipline (name a calendarable observable) prevents the un-clearable-gate from entering the queue; aging discipline catches the gate whose text drifted after entry. Both fire on `gate_dependency:`; the authoring check is the upstream floor.
+
 ## Awaiting_gate aging
 
 > Consumed by: `skills/pickup/SKILL.md` Step 3.4d aging-reconcile clause.

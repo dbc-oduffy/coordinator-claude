@@ -1,5 +1,5 @@
 # depersonalize-identity.sh — per-operator identity-rewrite pairs for
-# depersonalize-for-publish.sh.
+# publish-time-transform.sh.
 #
 # Copy this file to `depersonalize-identity.sh` (no `.example` suffix) in the
 # same directory and edit with your own values. The sibling script will source

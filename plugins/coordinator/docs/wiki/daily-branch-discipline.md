@@ -31,7 +31,7 @@ Beyond the postmortem's checkout-stash-checkback anti-pattern, two adjacent fail
 - **Empty branches with dangling stashes.** Creating a sibling branch and parking WIP via `git stash` produces a stash labelled with that branch. Even after `git branch -d` cleans the branch, `refs/stash` is a separate ref namespace — the stash survives every consolidation and accumulates across weeks.
 - **Branches that "look shipped" but aren't.** A branch whose PR was merged still accrues commits if the source branch isn't deleted; those post-merge commits are not on `origin/main` despite the branch's "merged" status.
 
-Both modes are caught by `bin/orphan-branch-sweep.sh` with three severity tiers:
+Both modes are caught by `orphan-branch-sweep.sh` with three severity tiers:
 
 - **CRITICAL** — merged PR exists AND `commits_after_pr_merge > 0`. The branch claims "shipped" but carries unshipped work.
 - **WARNING** — no PR exists AND `ahead > 0` AND (branch-name date is ≥2 days old OR `age_h > 36`). Calibrated against the parallel-machine workflow so a sibling machine's same-day daily isn't flagged.
@@ -39,7 +39,7 @@ Both modes are caught by `bin/orphan-branch-sweep.sh` with three severity tiers:
 
 Flags: `--format json|text`, `--severity-min ok|warning|critical`, `--include-remote`, `--max-age-days N` (default 30).
 
-The companion `bin/sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per the Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
+The companion `sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per the Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
 
 ### `/workday-start` Step 0 — Branch Reconciliation Decision (A/B/C)
 
@@ -85,6 +85,8 @@ git checkout -b feature/X && git stash push -u && git checkout -
 
 This is what produces empty branches and orphan stashes by construction. The hook denies step 1.
 
+**Stash on a shared bus is owner-ambiguous.** `refs/stash` is a single global ref per repo, NOT scoped per session — on the shared daily branch, `stash@{0}` may belong to a sibling EM. Always push WITH a message (`git stash push -u -m "<subject>"`) and NEVER `git stash pop` without `git stash list` confirming `stash@{0}` is yours (branch + subject match). A `git stash push -- <path>` that prints *"No local changes to save"* is a no-op (a sibling may have already committed your edit) — a subsequent bare `pop` then pops the sibling's stash. Full stash hazard catalog (stale-stash diff-before-pop, wrong-owner pop, recovery): [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) §§ H6–H7.
+
 ## Override
 
 `COORDINATOR_OVERRIDE_BRANCH=1` — bypasses the PreToolUse hook for one Bash call. Logged to:
@@ -123,7 +125,7 @@ Mapped to the postmortem patterns:
 **Defense-in-depth layers** (all now in place):
 1. Creation-time hook rejection (cs_is_canonical_branch)
 2. Runtime canonicalization in coordinator-auto-push (case-agnostic push)
-3. Migration helper: `bin/migrate-branch-canonical-case.sh` (idempotent: rename local + remote)
+3. Migration helper: `migrate-branch-canonical-case.sh` (idempotent: rename local + remote)
 4. Doctrine: CLAUDE.md § Concurrent-EM Git Operations bullet 1 span-aware framing
 
 **Contact points requiring sync:**
@@ -178,7 +180,7 @@ This failure mode is not hookable at the PreToolUse layer (the script runs at Se
 
 ## "Shipped" definition — branch tip ≠ origin/main
 
-`bin/check-shipped-on-main.sh <commit>` is the authoritative gate. Branch-tip is not shipping. PR-merged-from-this-branch is shipping IFF no further commits landed on the source branch after the merge. Run it before any handoff/doc/lessons/memory update asserts shipping. Edit-A wording in CLAUDE.md § Verification Before Done is the doctrine surface; this script is the enforcement.
+`check-shipped-on-main.sh <commit>` is the authoritative gate. Branch-tip is not shipping. PR-merged-from-this-branch is shipping IFF no further commits landed on the source branch after the merge. Run it before any handoff/doc/lessons/memory update asserts shipping. Edit-A wording in CLAUDE.md § Verification Before Done is the doctrine surface; this script is the enforcement.
 
 ## R-3 Sonnet-dispatch prohibition (verbatim)
 
@@ -203,8 +205,43 @@ The active workstream branch is a shared bus across concurrent sessions, so hand
 
 This bites worst on script wrappers and skill-body procedures that paste `origin/HEAD..HEAD` from a how-to that was written against `main`-only workflows.
 
+## Rewording a buried commit on a shared dirty-tree branch — plumbing only
+
+*2026-05-26, project-rag.* To reword a commit that concurrent sessions have buried under later commits (and left uncommitted WIP in the tree), `git rebase` aborts on the dirty tree and `git checkout --detach` reverts tracked files — both risk the sibling's work. **Use pure plumbing, never `rebase`/`checkout`:** plumbing rebuilds the commit chain as objects and swings the branch ref atomically, never touching the working tree or index.
+
+1. Rebuild the target: `git commit-tree <tree> -p <parent> -F msg` — reuse each child's exact `^{tree}` with rewritten parents, preserving author/committer ident+date.
+2. Replay each child reusing its tree.
+3. **GATE on `final^{tree} == old_tip^{tree}`** before moving the ref — proves the rewrite is content-identical.
+4. `git push --force-with-lease=<branch>:<old-origin-sha>` so a racing sibling push aborts safely.
+5. Abort if any commit in range is a merge — single-parent reuse is unsafe.
+
+Cross-referenced as H8 in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md). Default discipline remains: prefer new commits over `--amend` on a shared bus; only reach for plumbing when a subject genuinely must be corrected.
+
+## Peer-session detection on the shared bus
+
+The bus is shared, so a sibling EM may be co-driving — detection is read-side and explicit:
+
+- **Peers are visible via remotes, not `--branches`.** `git branch --branches` is structurally wrong for concurrent-EM detection; enumerate peer machines' active work via `git for-each-ref refs/remotes/origin/work/` (or `git log origin/work/{peer}/*`).
+- **Before authoring an overlapping code fix**, run a `git log --oneline -- <target-paths>` peer check — a sibling may have already landed it; grep sibling plans before reverting apparent "out-of-scope drift" as contamination.
+- Pickup- and plan-time concurrent-work surfacing is catalogued in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) § "Detecting Concurrent Work at Pickup / Plan-Time".
+
+## Session-end chain-diff scoping on long-lived shared branches
+
+**`merge-base origin/main..HEAD` sweeps the ENTIRE shared daily branch, not just the current session's commits.** On a long-lived span branch (`work/<machine>/2026-05-26to27`) that carries multiple sessions' worth of commits, a session-end diff using this range surfaces all prior sessions' work — making the review meaningless (too broad) and the commit subject misleading.
+
+Scope the session-end review to the session's own commits instead:
+
+```bash
+# Commits authored during this session only:
+git log --oneline <session-start-sha>..HEAD
+git diff <session-start-sha>..HEAD
+```
+
+This is especially important for **spinoffs** (`predecessor: none`) — a spinoff operates on the same shared branch but represents a distinct workstream fork. Its chain-diff must not silently include the parent chain's commits. Record `session-start-sha` at `/pickup` time (or session boot) to make the scoping mechanical.
+
 ## See also
 
+- [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) — the symptom-indexed hazard catalog + recovery procedures for the shared-tree failure class. This page owns commit *location*; that page owns the cross-cutting narrative.
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). The two hooks are siblings on the same PreToolUse Bash matcher.
 - [`pretooluse-deny-contract.md`](../pretooluse-deny-contract.md) — JSON deny mechanics.
 - `archive/2026-05-05_branch-sprawl-postmortem.md` (peer repo, private) — original incident.

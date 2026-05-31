@@ -161,6 +161,14 @@ Review lenses cover *what the artifact says*; dogfood covers *what happens when 
 
 ---
 
+## 11. Dogfood the Template Surface, Not the Inner Script
+
+**Dogfood the command/invocation TEMPLATE, not just the underlying script — the wiring between them is exactly where the template-only bug hides.**
+
+A `--narrow` dogfood that ran `probe_triage.py` with a literal path passed cleanly — but the `doctor.md` template used an undefined `${REPO_ROOT}` variable; only the parallel code-review caught the broken keystone path. The inner script worked; the template that users actually invoke was broken.
+
+**How to apply:** dogfood the actual invocation surface (the command, skill, or template a user or agent triggers), not the inner script in isolation. "The script works when I call it directly" is not evidence the wired invocation surface works. Source: 2026-05-27 project-rag. [universal]
+
 ## Cross-References
 
 - **`/dogfood` skill** — `coordinator/skills/dogfood/SKILL.md` — the full operational procedure: three-tier gate (narrow/broad/shakedown), pre-flight gates (idempotency, machine-parseable progress, framing audit, coverage matrix), loop mechanics, switch-gears protocol, convergence criteria, commit doctrine, flight recorder directory structure.

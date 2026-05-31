@@ -24,19 +24,19 @@ single-page index; §3 adds per-hookspec detail.
 
 | Hookspec | Returns | MUST / SHOULD | Notes |
 |---|---|---|---|
-| [`project_rag_register_corpus_provider`](../../core/addon_hookspecs.py) | `list[CorpusBand]` | MUST (for corpus addons) | Parallel-call. Returns band instances for every corpus this addon declares. |
-| [`project_rag_register_doctor_probe`](../../core/addon_hookspecs.py) | `list[FailureCatalogRow]` | MUST (for corpus addons) | v8 NEW. Parallel-call. Addon-contributed failure catalog rows merged at boot. |
-| [`project_rag_register_chunker`](../../core/addon_hookspecs.py) | `list[AddonChunkerSpec]` | MUST (for chunker addons) | Parallel-call. |
-| [`project_rag_register_chunk_metadata_extras`](../../core/addon_hookspecs.py) | `list[AddonChunkMetadataExtrasSpec]` | SHOULD (if custom chunk fields) | v7. Parallel-call. |
-| [`project_rag_register_producer`](../../core/addon_hookspecs.py) | `list[AddonProducerSpec]` | SHOULD (if reindex pipeline) | Parallel-call. |
-| [`project_rag_register_extractor`](../../core/addon_hookspecs.py) | `list[AddonExtractorSpec]` | SHOULD (if schema tables) | Parallel-call. |
-| [`project_rag_register_health_field`](../../core/addon_hookspecs.py) | `list[AddonHealthFieldSpec]` | SHOULD (if addon-specific health) | v5. Parallel-call. |
-| [`project_rag_register_cli_subcommand`](../../core/addon_hookspecs.py) | `list[AddonCliSubcommandSpec]` | OPTIONAL | v6. |
-| [`project_rag_register_watch_pattern`](../../core/addon_hookspecs.py) | `list[AddonWatchPatternSpec]` | OPTIONAL | v6. |
-| [`project_rag_register_extra_macros`](../../core/addon_hookspecs.py) | `list[AddonMacroSkipListSpec]` | OPTIONAL | v6. C++ macro skip-lists. |
-| [`project_rag_register_long_lived_subprocess`](../../core/addon_hookspecs.py) | `list[AddonLongLivedSubprocessSpec]` | OPTIONAL | v2. GPU/CPU sidecar processes. |
-| [`project_rag_register_eval_bank`](../../core/addon_hookspecs.py) | `list[AddonBankSpec]` | OPTIONAL | v5. |
-| [`project_rag_register_eval_probe`](../../core/addon_hookspecs.py) | `list[AddonProbeSpec]` | OPTIONAL | v5. |
+| [`project_rag_register_corpus_provider`](../../../../project-rag/core/addon_hookspecs.py) | `list[CorpusBand]` | MUST (for corpus addons) | Parallel-call. Returns band instances for every corpus this addon declares. |
+| [`project_rag_register_doctor_probe`](../../../../project-rag/core/addon_hookspecs.py) | `list[FailureCatalogRow]` | MUST (for corpus addons) | v8 NEW. Parallel-call. Addon-contributed failure catalog rows merged at boot. |
+| [`project_rag_register_chunker`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonChunkerSpec]` | MUST (for chunker addons) | Parallel-call. |
+| [`project_rag_register_chunk_metadata_extras`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonChunkMetadataExtrasSpec]` | SHOULD (if custom chunk fields) | v7. Parallel-call. |
+| [`project_rag_register_producer`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonProducerSpec]` | SHOULD (if reindex pipeline) | Parallel-call. |
+| [`project_rag_register_extractor`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonExtractorSpec]` | SHOULD (if schema tables) | Parallel-call. |
+| [`project_rag_register_health_field`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonHealthFieldSpec]` | SHOULD (if addon-specific health) | v5. Parallel-call. |
+| [`project_rag_register_cli_subcommand`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonCliSubcommandSpec]` | OPTIONAL | v6. |
+| [`project_rag_register_watch_pattern`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonWatchPatternSpec]` | OPTIONAL | v6. |
+| [`project_rag_register_extra_macros`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonMacroSkipListSpec]` | OPTIONAL | v6. C++ macro skip-lists. |
+| [`project_rag_register_long_lived_subprocess`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonLongLivedSubprocessSpec]` | OPTIONAL | v2. GPU/CPU sidecar processes. |
+| [`project_rag_register_eval_bank`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonBankSpec]` | OPTIONAL | v5. |
+| [`project_rag_register_eval_probe`](../../../../project-rag/core/addon_hookspecs.py) | `list[AddonProbeSpec]` | OPTIONAL | v5. |
 
 Hookspec definitions: `core/addon_hookspecs.py`. Discovery key: `project_rag.addons` entry-point group.
 
@@ -115,7 +115,7 @@ All fields are declared in `core/addon_protocol.py`.
 | `applicable_kinds` | `list[str] \| None` | `None` | yes | `None` = universal. `[]` = likely bug (warn+filter). Strings match `core/project_type.py` kind vocabulary. |
 | `chunk_filter` | `dict[str, Any] \| None` | `None` | yes (v8) | Chroma `where` clause. `None` = whole-corpus query. E.g. `{"provenance_module": "runtime"}`. |
 | `engine_version` | `str \| None` | `None` | yes (v8) | Engine version string. `None` treated as universal-version (auto-include in default blend regardless of caller engine_version). Non-None: only included in default blend when caller's `ProjectContext.engine_version` matches exactly. |
-| `required_env` | `dict[str, str] \| None` | `None` | yes (v8) | Env-var name → expected-present-value. If declared, `project-rag-cli wire` aggregates and persists to `~/.project-rag/wiring.env`. Absent → `addon_unreachable` verdict. |
+| `required_env` | `dict[str, str] \| None` | `None` | yes (v8) | Env-var name → expected-present-value. If declared, `project-rag-cli wire` aggregates and persists to `~/.project-rag/wiring.env` (**transitional layer — deprecated 2026-05-20**; see [`wiring-env-source-of-truth.md`](wiring-env-source-of-truth.md)). Canonical successor: `~/.claude/machine-local/project_rag.toml [env]`, written via `machine-local set` per [`machine-local-registry.md`](machine-local-registry.md) §11. Addon authors SHOULD target machine-local; wiring.env is retained only while daemon boot still reads it. Absent → `addon_unreachable` verdict. |
 | `corpus_sha256` | `str \| None` | `None` | no (inert) | SHA256 of the corpus artifact for provenance. Populated at corpus download time by addon setup scripts. |
 | `corpus_root` | `str \| None` | `None` | yes (v8) | Addon declares the Chroma parent directory. Host opens Chroma at `<corpus_root>/engine-vector-store/<engine_version>/` for engine-kinded bands. Non-engine bands use the data-dir convention (§5). `None` means no corpus mounted (empty / not-yet-downloaded). |
 
@@ -383,11 +383,11 @@ to the UE addon; only the band names, `applicable_kinds` strings, and `contribut
 ## 12. Worked example C — coordinator meta-knowledge corpus (non-engine, universal)
 
 This is the Z-3 worked example. The producer is a follow-on plan (coordinator-plugin-bundled
-addon at `~/.claude/plugins/coordinator/project_rag_addon/`); this example
+addon at `~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/`); this example
 documents the binding shape that the template-addon already demonstrates.
 
 ```python
-# ~/.claude/plugins/coordinator/project_rag_addon/__init__.py
+# ~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/__init__.py
 # (shape only — actual content is a follow-on plan)
 import pluggy
 from core.addon_protocol import CorpusBand

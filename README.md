@@ -18,9 +18,11 @@ This isn't a collection of prompt tricks. It's a **decision architecture**: rout
 - **Not a developer productivity tool.** The target user evaluates engineering work — they don't write it. If you want to be more productive at writing code yourself, you want vanilla Claude Code; this is for managing AI engineering work, not doing it.
 - **Not aimed at the fully non-technical PM** (yet). The current sweet spot is a PM with technical altitude but not technical hands — someone who has architectural judgment, recognizes unwise plan-shape, and can spot when a plan, an architectural choice, or a tradeoff sounds wrong from how the EM describes it, without ever reading a diff. The PM does not review commits, does not perform code review, does not sign off on PRs. That altitude is the load-bearing constraint: code review and PR sign-off are delegated to AI peers and named-persona staff-tier reviewers (see below). Complex codebases require a PM who can tell when something looks wrong from the conversation, not from the patch.
 
+🤖 Agents: start here → [AGENTS.md](AGENTS.md)
+
 ## Quick Start
 
-You don't install this. Your agent does. Open Claude Code in any project and paste:
+You don't install this — your agent does. Open Claude Code in any project and paste:
 
 ```
 Install coordinator-claude. The playbook is at
@@ -37,11 +39,11 @@ Claude clones the repo, runs the installer, validates the result, and tells you 
 
 | coordinator-claude | Claude Code | OS tested | Notes |
 |--------------------|-------------|-----------|-------|
-| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
+| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. **Requires bash 4.0+** — macOS ships bash 3.2 as `/bin/bash`, so Mac users `brew install bash` and run the installer with it (`"$(brew --prefix)/bin/bash" setup/install.sh`); the installer fails fast with this guidance if run under 3.2. Linux/WSL/Git Bash ship bash 4+. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
 
 ## How a Session Works
 
-Most tools hand you a bag of commands and wish you luck. This system has *routines* — things that happen automatically because they should always happen, woven into the session lifecycle so you don't have to remember them.
+Most tools hand you a bag of commands and wish you luck. This system has *routines* — woven into the session lifecycle so you don't have to remember them. Some fire automatically via lifecycle hooks (boot orientation, the context-pressure nudge); the rest are one-keystroke ceremonies the EM runs at the right moment. The distinction matters: *hooks* are what actually fire on their own; the slash commands below are invoked — by you, or by the EM on your behalf.
 
 **Starting up.** When Claude opens a supported project, a `SessionStart` hook fires automatically — loading the current branch, pending handoffs, lessons from past sessions, project vitals, and an orientation cache. No cold start. Claude lands in the middle of the context window where performance is strongest, with forward-looking state already loaded. This is deliberate: research shows LLMs degrade toward the end of their context and, to a lesser extent, at the beginning ([Liu et al. 2023, "Lost in the Middle"](https://arxiv.org/abs/2307.03172)). The orientation hook front-loads context so the working session occupies the optimal window.
 
@@ -59,18 +61,18 @@ Most tools hand you a bag of commands and wish you luck. This system has *routin
 
 ## What You Need to Remember
 
-The EM handles most of this automatically. Your key moves:
+The EM handles most of this on its own. Your key moves:
 
 | Command | When | What It Does |
 |---------|------|-------------|
-| `/session-start` | Beginning of work | Orient Claude to your project (also auto-fires via hooks) |
+| `/session-start` | Beginning of work | Deliberate orientation — triage handoffs, surface staleness, choose work. PM-invoked; *not* auto-fired. (Boot context loads automatically via a separate `SessionStart` hook; this command is the optional deeper orient.) |
 | `/pickup` | Resuming work | Load a handoff artifact and continue where you left off |
 | `/handoff` | Stepping away | Save session state for the next session |
 | `/staff-session` | Big decisions | Multi-perspective planning or review from persona-based contributors |
 | `/mise-en-place` | Heads-down time | Claude burns through the backlog autonomously — no input needed |
 | `/autonomous` | Override | Suppress handoff nudges when you want Claude to push through compaction |
 
-That's it for daily use. Everything else — delegation, review routing, doc maintenance, context pressure management — either happens automatically or is suggested for your use.
+That's it for daily use. Everything else — delegation, review routing, doc maintenance — the EM drives as part of its workflow; context-pressure management is the one piece handled automatically, by a `PostToolUse` hook. You don't have to ask for any of it.
 
 ## Flows
 
@@ -80,7 +82,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
-**Flow 3 — Resume work.** `/session-start` (or auto-fired hook) loads orientation, lessons, and pending handoffs → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
+**Flow 3 — Resume work.** The boot `SessionStart` hook automatically loads orientation, lessons, and pending handoffs into context → optionally run `/session-start` for a deeper triage → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
 **Flow 4 — Autonomous sprint.** `/mise-en-place` gathers ready work, builds a compaction-proof flight recorder, and executes through the backlog without stopping. `/autonomous` suppresses handoff nudges when you want it to push through context pressure.
 
@@ -116,17 +118,16 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | `/workday-complete` | End-of-day wrap-up | Daily housekeeping: validate, consolidate, append week-changelog |
 | `/workweek-start` | Strategic weekly orient | Surface last week's results, set this week's priorities |
 | `/workweek-complete` | Release-grade weekly close | Full validation, version bump, parallel code review, merge to main |
-| `/review-dispatch` | Route an artifact to the right reviewer | Domain expert → generalist, sequential with fix gates |
+| `/review` | Review a plan / design / RFC | Domain expert → generalist, sequential with fix gates |
+| `/review-code` | Review a code change / diff / PR | Same reviewer pipeline, code-shaped artifacts |
 | `/execute-plan` | Execute a PM-approved plan | Direct implementation without re-planning |
 | `/update-docs` | Repo-wide documentation maintenance | 11-phase pipeline that fights doc staleness |
-| `/daily-review` | Strategic daily review | Inventory today's work, get architectural perspective |
 | `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
 | `/bug-blitz` | Autonomous bug-backlog grinder | Wave-based execution with EM-serial commits at each gate |
 | `/dogfood` | Smoke-driven fix-through loop | Binary outcome: converge on a working capability or switch gears |
 | `/learn-lessons` | Triage `tasks/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
 | `/code-health` | Night-shift code health review | Scan today's commits, dispatch reviewer, apply findings |
 | `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
-| `/generate-repomap` | Generate ranked repo map | Context injection for LLM navigation |
 | `/distill` | Extract knowledge from session artifacts | Turn plans and handoffs into evergreen wiki docs |
 
 </details>
@@ -139,7 +140,7 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | **Daily standup** | `/session-start` — what happened, what's blocked, what's next |
 | **Sprint planning** | `/staff-session plan` — persona-based engineers debate approach |
 | **Spec review** | Plan mode with PM sign-off — Claude proposes, you approve |
-| **Code review** | `/review-dispatch` — domain expert first, generalist second, fix gates between |
+| **Code review** | `/review-code` — domain expert first, generalist second, fix gates between |
 | **Tech lead gut-check** | Any reviewer can be dispatched ad-hoc for a quick assessment |
 | **Retrospective** | `/session-end` — capture lessons, update docs |
 | **Heads-down sprint** | `/mise-en-place` — autonomous execution through the backlog |
@@ -208,11 +209,11 @@ coordinator-claude/
 ├── plugins/
 │   ├── coordinator/            # Core orchestration (always enabled)
 │   │   ├── .claude-plugin/plugin.json
-│   │   ├── agents/             # 11 — enricher, executor, docs-checker, reviewers, eng-director, reviewer-routed workers
-│   │   ├── commands/           # 23 workflow commands
+│   │   ├── agents/             # 18 — enricher, executor, docs-checker, reviewers, eng-director, vp-product, reviewer-routed workers
+│   │   ├── commands/           # 12 workflow commands (hook/ceremony auto-runners)
 │   │   ├── hooks/              # context pressure, orientation, commit validation, tier-usage telemetry
 │   │   ├── pipelines/          # staff-session team protocol + prompt templates
-│   │   └── skills/             # 34 skills (planning, review, debugging, TDD, etc.)
+│   │   └── skills/             # 29 skills (planning, review, debugging, TDD, etc.)
 │   ├── deep-research/          # Pipelines A/B/C + 6 research agents
 │   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
 │   ├── web-dev/                # Front-end + UX flow reviewers

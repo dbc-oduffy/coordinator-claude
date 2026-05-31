@@ -20,6 +20,21 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 **Cluster execution = full ceremony on the novel item, direct dispatch on surgical follow-ups** with explicit file-scope partitioning. The first item in a cluster typically introduces the pattern; subsequent items apply it to adjacent files. Running the full enrichment pipeline on the novel item earns the ceremony; running it on the follow-ups doesn't — direct dispatch with the file-scope partitioning declared up front is sufficient. Failure mode: re-running ceremony on follow-ups buries genuinely novel reviews under serial process noise.
 
+## Queue-clear classification — by edit-shape, not ceremony default
+
+*2026-05-18, claude-central.* Clearing a backlog of queued items (improvement-queue entries, lesson folds, small fixes) tempts a uniform ceremony default — "everything goes through plan-and-review." Most queue items don't need it. Classify each item by its **actual edit-shape**, and route the ceremony to the shape:
+
+- **Wiki append / single paragraph of doctrine** → direct edit, no plan, no review. The fold-target is named in the queue entry.
+- **Single-paragraph code change / single-file fix** → direct dispatch or EM-inline per `agent-dispatch-economics.md`.
+- **Multi-file change touching a shared seam** → plan-shaped; the seam is the ceremony trigger.
+- **A genuine design call** (new abstraction, public-surface change) → full plan-pipeline.
+
+The failure mode is applying the heaviest shape uniformly because "queue-clear" feels like a batch operation that wants one process. It isn't — it's N independent items of N different shapes. Classify first, then route per item. This is the queue-clear instance of the calibration axis (§ TL;DR): ceremony tracks the edit-shape of each item, not the framing of the batch.
+
+## Defuse-vs-spinoff — when a "small fix" hides a product/architectural fork
+
+*2026-05-29, project-rag.* A queue/handoff item framed as a "small fix" can conceal a product decision or an architectural fork — the conflicting ground-truth surfaces only once the EM starts coding. **Before dispatching a small-fix into an execution path, check whether the fix presupposes a decision that isn't actually settled.** When two sources of truth disagree about the desired end-state (the bug report wants X, the architecture implies not-X), that is a fork to *defuse* (surface to PM / route through `/shape` or `coordinator:plan`), not a fix to *code*. Never dispatch an executor onto a path whose ground-truth is internally contradictory — the executor will pick one side silently and ship a decision nobody made. Tell: the "fix" requires the executor to decide *which behaviour is correct*, not just *how to implement the agreed behaviour*. This is the calibration axis (§ TL;DR) applied to disguised forks — a product-decision wearing a small-fix costume earns ceremony, not direct dispatch.
+
 ## Vague-vs-concrete framing
 
 **`/brainstorming` is for vague requirements, not well-scoped follow-ups.** When the PM says "build X and the way is clear," skip brainstorm — go straight to plan. When the PM says "we should probably do something about Y" with multiple plausible shapes, brainstorm. The signal is whether the action's *shape* is contested, not whether it's hard. Hard-but-clear → plan. Easy-but-shape-unknown → brainstorm.
@@ -29,6 +44,8 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 ## Pattern-extraction calibration
 
 **Wait for instance #3 before extracting a pattern into a skill.** One-off looks like noise. Two might be coincidence. Three is a pattern. The cost of premature extraction is a skill that codifies the wrong invariant — and once codified, the wrong invariant is harder to correct than the original ad-hoc behavior. Hold instance-#1 and instance-#2 in `tasks/lessons.md` with a `recurring:` count; promote on the third surfacing. (Codified in `coordinator/CLAUDE.md` § Self-Improvement Loop.)
+
+**Inventory existing piggybacks and vendored copies BEFORE applying the rule — they count as instance #2+ in disguise.** *(2026-05-19, claude-central.)* The wait-for-#3 count is wrong if it only counts *clean* instances. A convenience-coupling, a vendored copy, or a piggyback on an unrelated primitive (e.g. one plugin borrowing another's introspection call because no contract existed) is a *disguised* instance of the same need — it is the empirical proof the abstraction is overdue, not a separate one-off. Before reaching for "only one instance, wait," grep for the disguised forms: vendored/copied implementations, piggybacks on adjacent primitives, and inline re-implementations. Counting those in often moves a perceived instance-#1 to instance-#2-or-#3, and mis-applying the wait-rule to a piggyback case delays the abstraction and entrenches the wrong shape. (Connects to the misshapen-instance #2 override shape below — a misshapen piggyback IS the second instance.)
 
 **Exception — low-invariant-risk + high-magnitude (instance-#1 promotion justified).** The wait-for-#3 rule exists to prevent codifying the wrong invariant. That risk is substantially lower when (a) the invariant being codified is mechanical and low-misclassification-risk (the invariant is a structural cross-ref, not a judgment call), AND (b) the motivating incident magnitude is qualitatively distinct from typical near-miss noise — e.g., 36-of-50 items missed in a single artifact versus 1–2 items in a near-miss. When both conditions hold, the wait-for-#3 gate re-instantiates the EM-confidence failure mode the agent exists to prevent: the EM would judge each near-miss as "still not enough evidence," and the structural gap persists until the third incident. Instance-#1 promotion is warranted; override must be documented with explicit rationale at the extraction site. (the Staff Engineer review 2026-05-18, Conflict #15 update-prior-art follow-up.)
 
@@ -147,6 +164,30 @@ Linear-run verification budgets — "we'll spend N sessions of verification acro
 ## Reviewer-dispatch calibration
 
 Reviewer auto-dispatch surfaces accumulate triggers; calibrate against who actually applies the lens. Demote auto-dispatch hooks for reviewers whose lens is PM-owned (e.g., vp-product when PM is Head of Product) to explicit-ask only.
+
+## Tier/Cost Rule Changes Leave Landmines in Pre-Existing Dispatch Sites
+
+*Source: self, 2026-05-27.*
+
+When a tier or cost rule changes — e.g., Opus-only becomes the strict gate for persona dispatches — existing dispatch sites that named the old tier continue to run silently at the wrong tier until manually reconciled. The rule is updated; the call sites lag.
+
+**Rule.** Any tier/cost rule change must be paired with a grep across every dispatch site and a reconciliation pass. Reserve the expensive tier for low-frequency gates; recurring or pipeline passes get the cheaper worker. Failure to sweep leaves a class of dispatch violations that pass silently in all existing invocations. (See: `coordinator/CLAUDE.md` § Roster Doctrine.)
+
+## Handoff-Named Followup Scripts Need an Exists-Check Before Depending On Them
+
+*Source: project-rag-ue-addon, 2026-05-28.*
+
+A handoff that names a followup script ("run `promote-x-to-y.sh` next session") assumes that script was authored in the prior session. Deferred scripts that were planned but never materialized produce a silent gap: the succeeding session treats the script as present, wastes investigation time, or fabricates its absence as an environmental problem.
+
+**Rule.** At pickup, before depending on any script named in the handoff, verify it exists (`ls <path>` or `Glob`). If absent, surface the gap to PM rather than assuming it will materialize. Followup-script promises are not completed work.
+
+## State the Stakes-vs-Ceremony Proportion Before Executing a Picked-Up Spinoff
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+A spinoff handoff names a workstream but rarely names the cost/risk profile of its pickup ceremony. Before executing, the picking-up EM must state — for themselves, not for the PM — the stakes-vs-ceremony proportion: Is this a high-stakes architectural seam that warrants the full enrichment → review → execute pipeline? Or is it a low-stakes doc/config change where direct dispatch is the correct weight?
+
+**Rule.** At pickup of any spinoff, before opening the plan-pipeline, write (or state internally) one sentence: *"This workstream is [stakes level] because [reason]; the appropriate ceremony is [pipeline / direct dispatch / inline]."* Without that sentence, the EM defaults to whatever the handoff's narrative tone implies — which is routinely over-ceremony on small spinoffs and under-ceremony on high-risk ones. Composes with § Queue-clear classification: the spinoff is a queued workstream; classify by edit-shape, then route.
 
 ## Companion doctrine
 

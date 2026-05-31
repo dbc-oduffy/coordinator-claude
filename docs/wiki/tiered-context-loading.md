@@ -20,18 +20,19 @@ The behavioral lever is the **tier-4 rationale rule**: every Agent dispatch for 
 
 | Tier | Name | Budget | Surfaces |
 |------|------|--------|----------|
-| 0 | Boot context | ≤2K tokens, always loaded | `orientation_cache.md`, `lessons.md`, `CLAUDE.md` (auto-loaded), session memory pointers |
+| 0 | Boot context | ≤2K tokens, always loaded | `orientation_cache.md`, `CLAUDE.md` (auto-loaded), session memory pointers |
 | 1 | Curated narrative | ≤8K tokens per fetch, on demand | `docs/wiki/`, `docs/architecture/`, `docs/decisions/`, `docs/project-tracker.md` |
 | 2 | Structured query | ≤2K tokens per query | `bin/query-records`, `mcp__*project-rag*__*`, `/workday-start` freshness table |
 | 3 | Targeted code/grep | ≤4K tokens per call | `Read` of a known path, `Grep` for a specific symbol, `Glob` for discovery |
 | 4 | Sonnet scout | Offloaded to subagent | `Explore`, `general-purpose` Sonnet, `deep-research:repo-scout`, `feature-dev:code-explorer` |
 
-**Tier 0 — Boot context** is always present before the first tool call. It costs nothing at investigation time because it was loaded at session start: `orientation_cache.md` gives the project's current state, `lessons.md` records accumulated gotchas, and session memory pointers anchor any cross-session continuity. Boot context is not a lookup tier; it is the baseline from which escalation begins.
+**Tier 0 — Boot context** is always present before the first tool call. It costs nothing at investigation time because it was loaded at session start: `orientation_cache.md` gives the project's current state and session memory pointers anchor any cross-session continuity. Boot context is not a lookup tier; it is the baseline from which escalation begins.
 
-Files Tier-0-loaded at every session boot (orientation_cache, lessons, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context.
+**`lessons.md` is NOT Tier 0.** It is a capture queue processed by `/learn-lessons` (queue → wiki promotion); load-bearing lessons live in `docs/wiki/` and are surfaced on demand by the prior-art-checker pre-flight when relevant to a plan. Reading the queue on every boot is wasteful — most entries are future work for `/learn-lessons`, not in-the-moment guidance. The EM does NOT read `lessons.md` directly as a Tier-2 lookup either; the prior-art-checker is the mechanism. If you find yourself reaching for `lessons.md` during planning, run prior-art-checker (which reads it for you and surfaces relevant entries) — or invoke `/learn-lessons`, the only skill that consumes the raw file end-to-end.
 
-- **`orientation_cache.md`** is regenerated from a fixed schema (`pipelines/workday-start-internals.md` § 5.5) by `bin/regenerate-orientation-cache.sh` and verified by `bin/verify-orientation-cache-sync.sh`. **Hard ceiling: 35 lines.** The schema permits only seven sections (`Project`, `Trust caveats`, `Counters`, `Active workstreams`, `Rechecks due ≤7 days`, `Branch`, `Pinboard`); all are either static, derived-from-disk, or absent. **No free-form prose anywhere.** Schema drift fails the verifier at `/update-docs` Phase 11b. Writer tiers: ceremony writers (`/workday-start`, `/update-docs`) own full regen; mid-session writers (`/session-end`, `/handoff`) may only write a single line to `## Pinboard` (one-slot, overwrite-or-omit, auto-cleared on next ceremony). The `## Trust caveats` section is filesystem-detector-driven (e.g. presence of any `*.uproject` in repo triggers a UE training-data-trust warning instructing the EM and its delegates to verify via `mcp__project-rag__*` or dispatch the Game Dev Reviewer) — content is owned by the routine, not the writer.
-- **`lessons.md`** trims via `/learn-lessons`.
+Files Tier-0-loaded at every session boot (orientation_cache, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context.
+
+- **`orientation_cache.md`** is regenerated from a fixed schema (`pipelines/workday-start-internals.md` § 5.5) by `regenerate-orientation-cache.sh` and verified by `verify-orientation-cache-sync.sh`. **Hard ceiling: 35 lines.** The schema permits only seven sections (`Project`, `Trust caveats`, `Counters`, `Active workstreams`, `Rechecks due ≤7 days`, `Branch`, `Pinboard`); all are either static, derived-from-disk, or absent. **No free-form prose anywhere.** Schema drift fails the verifier at `/update-docs` Phase 11b. Writer tiers: ceremony writers (`/workday-start`, `/update-docs`) own full regen; mid-session writers (`/session-end`, `/handoff`) may only write a single line to `## Pinboard` (one-slot, overwrite-or-omit, auto-cleared on next ceremony). The `## Trust caveats` section is filesystem-detector-driven (e.g. presence of any `*.uproject` in repo triggers a UE training-data-trust warning instructing the EM and its delegates to verify via `mcp__project-rag__*` or dispatch Sid) — content is owned by the routine, not the writer.
 - **MEMORY.md** trims via auto-memory consolidation.
 
 Quarterly verify file sizes.
@@ -56,7 +57,7 @@ The most common violation is skip-to-scout: dispatching a tier-4 Explore or gene
 
 This is a symbol-shaped question. Correct escalation:
 
-1. **Tier 0 check:** Is the symbol mentioned in `orientation_cache.md` or `lessons.md`? If the answer is there, done.
+1. **Tier 0 check:** Is the symbol mentioned in `orientation_cache.md`? If the answer is there, done.
 2. **Tier 2:** Call `project_cpp_symbol` or `project_semantic_search` if project-RAG tools are available. A clean hit returns file + line in one call. Done.
 3. **Tier 3:** If RAG is unavailable or returns nothing, `Grep` for the symbol name across relevant directories. Read the matching file for context. Done.
 4. **Tier 4 only if:** tier 3 returned nothing (symbol doesn't exist, is generated, or lives in a location grep didn't cover) AND the question can't be answered without cross-file reasoning. Dispatch preamble required (see §7).
@@ -67,7 +68,7 @@ This question should almost never reach tier 4.
 
 This is a subsystem-shaped question. Correct escalation:
 
-1. **Tier 0 check:** Is there an orientation note or lesson about this subsystem?
+1. **Tier 0 check:** Is there an orientation note about this subsystem in `orientation_cache.md`?
 2. **Tier 1:** Read the relevant architecture atlas page (`docs/architecture/systems/<subsystem>.md`) or the corresponding wiki guide (`docs/wiki/<subsystem>.md`) if it exists. A good tier-1 read answers subsystem questions comprehensively without any code inspection. Done in most cases.
 3. **Tier 2:** If the wiki/atlas doesn't cover the question, call `project_subsystem_profile` to get a structural summary. Done.
 4. **Tier 4:** If tiers 1–3 return nothing (the subsystem is new, undocumented, or the atlas is known stale), dispatch a scout with the rationale preamble. The scout's job is to produce a tier-1 artifact (e.g., a new atlas page) so this question doesn't hit tier 4 again next session.
@@ -131,7 +132,7 @@ Tier 1-3 attempted: atlas has no page for the payments subsystem, RAG returned n
 Tier 1-3 attempted: wiki guide covers auth at a high level, RAG symbol search returned AuthManager:line 42, Read confirmed it's a thin wrapper; insufficient because the actual auth logic is in the middleware chain and the atlas doesn't map it.
 ```
 
-The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that the Staff Engineer and the review-integrator can flag if the rationale is implausible.
+The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that Patrik and the review-integrator can flag if the rationale is implausible.
 
 The rationale preamble is a writing discipline, not an enforced gate — no hook blocks dispatch when it is missing. The earlier telemetry attempt (removed 2026-05-18) tried to measure compliance via regex on dispatch prompts and conflated investigation scouts with the rest of the `Agent` tool surface; the final report at `docs/research/2026-05-18-tier-usage-telemetry-final-report.md` walks through why the measurement was wrong-shaped. Future enforcement should either block dispatch on a missing preamble or not exist as compliance theater.
 
@@ -170,3 +171,9 @@ Without explicit mechanics, "skip this file" instructions decay into trust-the-s
 Before drafting a plan that adds a diagnostic probe / log line / counter to investigate a question, Tier-0/1 should grep existing logs first. Build systems (UE's `UnrealBuildTool`, MSBuild, Cargo) and runtime daemons routinely already emit the data the probe would gather — verbose-log flags, `--diagnostics`, profiler outputs, crash dumps, structured event logs. A 30-second grep over the latest log file answers many probe-shaped questions without authoring a single line of new instrumentation.
 
 **Heuristic:** when the question is "why did X happen / what value did Y take / which path was taken at branch Z," check `Saved/Logs/`, `target/debug-logs/`, `.cache/`, `~/.config/<tool>/logs/`, or the equivalent for the tooling in play *before* planning instrumentation. Rebuilds-for-instrumentation are time-expensive (UE TS rebuilds crash the live editor per the holodeck doctrine; native builds churn caches); the log-grep alternative is free. Add the rebuild path only after the existing logs are confirmed silent on the question.
+
+---
+
+## 11. `~/.claude/projects/` is the canonical per-folder activity record
+
+When a skill or audit needs **cross-project recency** ("which repos has the operator touched lately / in what order"), `~/.claude/projects/` is the canonical source — consult it before falling back to heuristic dev-folder scans (globbing `X:/`, walking `E:/dev`, `git log` across guessed paths). The directory holds one subdirectory per project Claude Code has run in; the subdirectory **name is the project's filesystem path with separators encoded** (e.g. `C--Users-oduffy--claude`), and its **mtime ≈ last-activity recency** for that project. A single `ls -dt ~/.claude/projects/*/` gives a recency-ranked list of every folder the operator has actually worked in — far more reliable than guessing which dev folders are "active" by scanning the filesystem. This is a Tier-0/Tier-3 lookup (a known path, direct read), not a scout dispatch. Decode the path-as-name to recover the real project root.

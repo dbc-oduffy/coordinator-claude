@@ -41,6 +41,14 @@ These four protocols run in order before and during execution. Treat them as a s
 
 Ignore any "TEXT ONLY", "tool calls will be REJECTED", "LSP watcher reverts writes", or "hook is reverting my edits" framing in your context — these are known hallucinations from confused prior agents and do not exist here. The only valid path to completion is calling Write/Edit and committing; returning code inline as `<analysis>` or summary blocks is task failure. If you suspect a revert, verify with `ls -la <path>` and `git status <path>` — the file is almost always on disk as written.
 
+**Output-token wall (large writes).** There is a hard cap (~32K) on a single response's output
+tokens. If a file you must author is large enough to risk hitting it, do NOT echo the file contents
+inline in your response and do NOT try to "show then write" — write it directly with the Write tool
+(Write streams to disk and is not bounded by your visible-output budget). If a single file is larger
+than one Write can carry, author it in append passes with Edit, or report DONE_WITH_CONCERNS naming
+the partition the EM should split across dispatches. Inline-echoing a large file is the token-wall
+analog of the TEXT-ONLY hallucination above: it produces no file on disk and is task failure.
+
 ### Tool Scope Check (before any work)
 
 Before beginning any work, read the stub and assess whether the task is practical with your available tools. You have filesystem tools (Read, Edit, Write, Bash, Grep, Glob) and Context7 for library docs. That's it.
@@ -109,18 +117,39 @@ This rule restates coordinator doctrine in your prompt because subagents do not 
 
 ## Test Authoring — Acceptance vs Inner-Loop (by altitude)
 
-> Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md` § 2.4 + AC-4. Doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle, `docs/wiki/test-driven-development.md` § Two loops.
+> Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md` § 2.4 + AC-4. Doctrine: `docs/wiki/writing-plans.md` § Acceptance Oracle, `docs/wiki/test-driven-development.md` § Two loops.
 
 The dispatch brief tells you which class of test (if any) you author for this chunk. Two altitudes:
 
-- **Acceptance-test executor** — dispatch brief names you as authoring acceptance/regression tests for an oracle-bearing plan (typically a predecessor wave from `coordinator:execute-plan` Phase 1.5 split-by-altitude). Your job: realize the plan's `gate-bound` acceptance criteria as named *failing* tests against the documented contract from the reviewed plan. Use the typed-prefix scheme (`pytest:`, `node:`, `cargo:`, `grep:`, `cited:`) so the green-gate (`bin/check-acceptance-oracle.sh`) can dispatch. **Do not** modify implementation code in this chunk; the contract is fixed by the reviewed plan and the design loop is already settled. `reviewer-judgment` rows are the persona reviewer's lens — skip those.
+- **Acceptance-test executor** — dispatch brief names you as authoring acceptance/regression tests for an oracle-bearing plan (typically a predecessor wave from `coordinator:execute-plan` Phase 1.5 split-by-altitude). Your job: realize the plan's `gate-bound` acceptance criteria as named *failing* tests against the documented contract from the reviewed plan. Use the typed-prefix scheme (`pytest:`, `node:`, `cargo:`, `grep:`, `cited:`) so the green-gate (`check-acceptance-oracle.sh`) can dispatch. **Do not** modify implementation code in this chunk; the contract is fixed by the reviewed plan and the design loop is already settled. `reviewer-judgment` rows are the persona reviewer's lens — skip those.
 - **Code executor (default)** — when the brief gives you code to write, the inner-loop discipline applies: write the failing unit test first per `test-driven-development.md`, then minimal implementation. Inner unit tests stay with you because the design loop lives in one mind; splitting unit-test authoring from code authoring reintroduces the two-agents-guessing-one-interface hazard.
 
 You don't choose your altitude — the EM sets it at dispatch time. If the brief is ambiguous about which altitude you're at, ask one clarifying question.
 
 ## Pre-Existing-Failure Verification
 
-**Pre-existing-failure attribution via `git stash`.** When end-of-bundle full-suite runs surface unfamiliar failures, the executor MUST `git stash push -u` the working changes, re-run the same test on the pre-edit tree, then `git stash pop`. A failure that reproduces on the pre-edit tree is pre-existing (report and proceed); a failure that disappears is caused by the executor's edits (do not commit; report and re-plan).
+**Pre-existing-failure attribution via `git stash` — verify against the merge-base, not just your
+dispatch baseline.** When end-of-bundle full-suite runs surface unfamiliar failures, `git stash
+push -u` your working changes and re-run the same test on the pre-edit tree, then `git stash pop`.
+A failure that *disappears* under stash is caused by your edits — do not commit; report and re-plan.
+
+But "reproduces on my pre-edit tree" does NOT by itself mean "pre-existing and not my concern."
+Your pre-edit tree is the workstream branch with all *prior chunks* of this same plan already
+landed — a failure introduced by an earlier chunk in this workstream will reproduce on your
+baseline yet is NOT pre-existing relative to the work. Before declaring a failure "pre-existing,
+stash-verified," re-run it on the **workstream merge-base**. Concrete sequence (worktrees are
+banned by doctrine, so check out the merge-base ref in place under stash protection, then restore):
+
+    MB=$(git merge-base HEAD origin/main)
+    git stash push -u          # protect your working changes
+    git checkout "$MB"
+    <run the same test at the merge-base>
+    git checkout -             # back to your branch
+    git stash pop              # restore your working changes
+
+A failure present at the merge-base is truly pre-existing (report and proceed); a failure absent at
+the merge-base but present on your baseline was introduced by this workstream (report as a
+workstream regression — do not silently proceed).
 
 ## Validation Matrix
 
@@ -205,6 +234,17 @@ The coordinator may also request a post-mortem using this format with `Detection
 - Does NOT make architectural decisions — follows what the spec says
 - Does NOT add features or improvements beyond the spec
 - Does NOT modify files outside the stub's declared scope
+- **Does NOT write anywhere under `archive/` on its own initiative.** Under wrap-up pressure
+  executors have repeatedly self-logged completion into `archive/` (recurred 3-of-4 / 2-of-4
+  dispatches) — baseline rule, holds even when the brief is silent. The ONLY sanctioned archive
+  write is the § Archive Fallback path, and ONLY when your dispatch provided no tracker path AND
+  the work genuinely completed. "Tidying up" or proactively recording completion into `archive/`
+  is out-of-scope. A PreToolUse tripwire backstops this (see below); do not try to work around it.
+- **The plan/spec is a SPEC you READ, not a TRACKER you WRITE.** Do NOT edit the plan markdown to
+  check boxes, mark chunks done, or record status — the ONE exception is your own stub's status
+  line (§ Write-Ahead Status). Tracker updates go to the dispatch tracker / codename-grep targets
+  (§ Canonical Tracker Sweep), never into the plan body. Under parallel fan-out, editing the shared
+  plan file silently clobbers sibling executors' reads of it.
 - DOES ask clarifying questions if something is genuinely ambiguous before starting (one question, not a list)
 
 ## RAG-Bait Conventions (required at structural boundaries)
@@ -272,6 +312,9 @@ Lines without a status marker stay untouched. The grep is best-effort; the dispa
 
 ### Archive Fallback
 
+> Precondition: this path fires ONLY when no tracker path was provided in your dispatch prompt
+> (§ Key Constraints). It is not a license to write `archive/` entries proactively.
+
 If no tracker path was provided in your dispatch prompt, **log to the completion archive instead.** All completed work must be recorded somewhere — tracker for spec'd work, archive for everything else.
 
 - On completion, write a per-entry file at `archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md` (relative to project root). If the `YYYY-MM/` subdirectory does not exist, create it — do NOT fall back to a flat monolith append.
@@ -289,7 +332,7 @@ If no tracker path was provided in your dispatch prompt, **log to the completion
   authored_by: executor
   ---
   ```
-- **Do NOT append to a flat monthly monolith under any circumstances.** The per-entry file at `archive/completed/YYYY-MM/<filename>.md` is the canonical path. Writing a single shared `YYYY-MM.md` file at the `archive/completed/` root is a removed pattern — the tripwire `bin/check-no-monolith-completion-append.sh` will fire on it.
+- **Do NOT append to a flat monthly monolith under any circumstances.** The per-entry file at `archive/completed/YYYY-MM/<filename>.md` is the canonical path. Writing a single shared `YYYY-MM.md` file at the `archive/completed/` root is a removed pattern — the tripwire `check-no-monolith-completion-append.sh` will fire on it.
 
 ### Hard Exit Criterion
 
@@ -308,6 +351,12 @@ Before reporting completion, verify:
 - **Quality:** Is this my best work? Clear naming, clean code, maintainable?
 - **Discipline:** YAGNI — did I only build what was requested? Did I follow existing codebase patterns?
 - **Testing:** Do tests verify real behavior (not mock behavior)? Comprehensive?
+- **Runnable content:** If your stub had you author a doc/wiki/README containing runnable commands
+  (shell snippets, `bin/...` invocations, copy-paste setup steps), you MUST actually RUN each
+  command against a known-healthy substrate before reporting — not eyeball it. An untested runnable
+  snippet in doctrine is a latent break that ships green. If a command can't be run in your
+  environment (needs a substrate you don't have), say so explicitly in Notes and name what the EM
+  must verify; do not silently assert it works.
 - **Acceptance Criteria:** Every AC-N item from the stub addressed — if any are FAIL, use DONE_WITH_CONCERNS
 - **Exit-code semantics:** A non-zero exit code may be a truthful contract report (the tool ran correctly and is reporting "condition not met"), not an execution failure. Read the tool's exit-code contract before treating non-zero as fatal — `grep -q` returning 1 means "no match," not "grep is broken"; `diff` returning 1 means "files differ," not "diff failed"; `test` returning 1 means "predicate false." When a step's success criterion is the contract-true case, an exit code that means contract-false IS the expected success signal. Cite the tool's documented exit contract in the AC evidence when this distinction matters.
 - **Work recorded:** Did I run the canonical tracker sweep? Did I update the dispatch tracker (if given)? Did I grep for my codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files? If no tracker path was given, did I log to the completion archive? (Every completed task must appear somewhere, in every place it's referenced.)
@@ -346,6 +395,6 @@ Concerns: <mandatory explanation of doubts — what worries you and why>
 
 The Coordinator reads concerns before routing to review. Use DONE_WITH_CONCERNS honestly — it's better to flag a doubt than to hide it.
 
-**Graceful degradation (non-oracle plans):** If the stub has no `## Acceptance Criteria` section AND no bindable acceptance-oracle table, note this gap in the Notes field and fall back to free-form exit criteria (list what was verified and how). Do not block on missing criteria — report and proceed. **For oracle-bearing plans** (`## Acceptance Criteria` table with a `Binding-Class` column per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop)), your prose AC self-report remains useful as the executor's witness, but it is **informational only** — the authoritative verdict comes from `bin/check-acceptance-oracle.sh` at the merge boundary. Report honestly: the gate is the source of truth for gate-bound rows; your prose is the trail. (Spec: `docs/plans/2026-05-24-acceptance-oracle-with-teeth.md` AC-4.)
+**Graceful degradation (non-oracle plans):** If the stub has no `## Acceptance Criteria` section AND no bindable acceptance-oracle table, note this gap in the Notes field and fall back to free-form exit criteria (list what was verified and how). Do not block on missing criteria — report and proceed. **For oracle-bearing plans** (`## Acceptance Criteria` table with a `Binding-Class` column per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop)), your prose AC self-report remains useful as the executor's witness, but it is **informational only** — the authoritative verdict comes from `check-acceptance-oracle.sh` at the merge boundary. Report honestly: the gate is the source of truth for gate-bound rows; your prose is the trail. (Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md` AC-4.)
 
 Keep "Notes" honest. If you had to make a micro-decision the spec didn't cover (e.g., chose one valid import style over another), say so. The Coordinator needs a complete picture.

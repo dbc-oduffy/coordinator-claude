@@ -1,4 +1,4 @@
-<!-- canonical source for plan-coverage-check-consumption — edit here, then run bin/verify-plan-coverage-sync.sh --fix -->
+<!-- canonical source for plan-coverage-check-consumption — edit here, then run verify-plan-coverage-sync.sh --fix -->
 
 <!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->
 ## Plan Coverage Check Integration

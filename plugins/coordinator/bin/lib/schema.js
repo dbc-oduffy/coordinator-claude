@@ -91,11 +91,16 @@ function parseYamlLines(lines, start, baseIndent) {
         }
       }
       result[key] = null;
-    } else if (rest.startsWith('[') && rest.endsWith(']')) {
-      // Inline list: [a, b, c]
-      result[key] = parseInlineList(rest);
     } else {
-      result[key] = parseScalar(rest);
+      // Pre-strip a trailing `# comment` so inline-list detection works on
+      // `key: [a, b]  # note`. parseScalar would otherwise also strip; passing
+      // the pre-stripped value avoids a double-strip and centralizes the rule.
+      const stripped = stripInlineComment(rest);
+      if (stripped.startsWith('[') && stripped.endsWith(']')) {
+        result[key] = parseInlineList(stripped);
+      } else {
+        result[key] = parseScalar(stripped);
+      }
     }
     i++;
   }
@@ -125,14 +130,16 @@ function parseList(lines, start, baseIndent) {
 }
 
 function skipPast(lines, start, baseIndent) {
+  // Review: code-reviewer — align trimming with parseList: both now use raw.trimEnd().trimStart()
+  // so indented comments and list items are handled identically in both functions.
   let i = start;
   while (i < lines.length) {
     const raw = lines[i];
-    const trimmed = raw.trimEnd();
+    const trimmed = raw.trimEnd().trimStart();
     if (trimmed === '' || trimmed.startsWith('#')) { i++; continue; }
     const indent = raw.length - raw.trimStart().length;
     if (indent < baseIndent) break;
-    if (trimmed.trimStart().startsWith('- ') || trimmed.trimStart() === '-') {
+    if (trimmed.startsWith('- ') || trimmed === '-') {
       i++;
     } else {
       break;
@@ -147,7 +154,51 @@ function parseInlineList(text) {
   return inner.split(',').map(s => parseScalar(s.trim())).filter(s => s !== null && s !== '');
 }
 
+/**
+ * Strip a YAML-style trailing inline comment from a scalar text.
+ *
+ * YAML semantics: a `#` begins a comment when it is at the start of the
+ * scalar OR preceded by whitespace. A `#` inside a single- or double-quoted
+ * span is a literal `#`, not a comment opener.
+ *
+ * Returns the scalar text with the comment (and the whitespace preceding it)
+ * removed. No-op when no comment is present.
+ *
+ * Limitation: YAML single-quoted scalars escape a literal single-quote as `''`
+ * (two consecutive single-quotes). This helper does not unfold that escape —
+ * `''` flips `inSingle` twice (open then immediately close), so a `#` appearing
+ * later in the same logical single-quoted value may be treated as a comment.
+ * Use double-quoted scalars for values containing `'` in frontmatter.
+ *
+ * Cross-repo memo BS-2026-05-19-FRONTMATTER-HOOK-COMMENT-FALSE-POSITIVES
+ * (2026-05-28 holodeck-em → central-em): unstripped inline comments
+ * produced dirty scalars like "draft  # alpha" that silently failed enum
+ * validation, surfacing as warnings on well-formed frontmatter.
+ */
+function stripInlineComment(text) {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' && !inSingle) inDouble = !inDouble;
+    else if (c === "'" && !inDouble) {
+      // YAML single-quoted escape: `''` is a literal single-quote. Skip both
+      // characters without toggling state so a `#` later in the same span is
+      // still seen as quoted.
+      if (inSingle && text[i + 1] === "'") { i++; continue; }
+      inSingle = !inSingle;
+    }
+    else if (c === '#' && !inSingle && !inDouble) {
+      if (i === 0 || /\s/.test(text[i - 1])) {
+        return text.slice(0, i).trimEnd();
+      }
+    }
+  }
+  return text;
+}
+
 function parseScalar(text) {
+  text = stripInlineComment(text);
   if (text === 'null' || text === '~') return null;
   if (text === 'true') return true;
   if (text === 'false') return false;
@@ -302,6 +353,87 @@ function parseFrontmatter(content) {
  * Returns {ok: true} or {ok: false, errors: [{field, error, hint}]}.
  * Permissive on optional fields; only validates required.
  */
+/**
+ * Validate a single field value against its spec. Returns an array of error
+ * records (empty when the value is well-formed). Recurses into `type: object`
+ * specs that declare a `fields:` sub-spec block.
+ *
+ * Spec shapes accepted:
+ *   - string (legacy):            "string" | "iso-date" | "number" | "bool" | "object"
+ *   - object spec:                { type: "enum", values: [...] }
+ *                                 { type: "string-or-null" }
+ *                                 { type: "number-or-null" }
+ *                                 { type: "list-of-string" }
+ *                                 { type: "object", fields: { sub: spec, ... } }
+ *
+ * Nested-object recursion: when spec.type === 'object' and spec.fields is set,
+ * each declared sub-field is validated against its sub-spec. Sub-field nulls
+ * and missing sub-fields are tolerated by default — sub-fields are
+ * implicitly optional. The error `field` path is dotted (`loe.tshirt`) so
+ * downstream consumers can map back to the source frontmatter.
+ */
+function validateField(field, value, spec) {
+  const errors = [];
+
+  if (typeof spec === 'string') {
+    const typeErr = checkType(field, value, spec);
+    if (typeErr) errors.push(typeErr);
+    return errors;
+  }
+
+  if (!spec || typeof spec !== 'object') return errors;
+
+  const type = spec.type;
+
+  if (type === 'enum') {
+    const allowed = spec.values || [];
+    if (!allowed.includes(String(value))) {
+      errors.push({
+        field,
+        error: `invalid enum value "${value}"`,
+        hint: `Allowed values: ${allowed.join(', ')}`
+      });
+    }
+  } else if (type === 'string-or-null') {
+    if (value !== null && typeof value !== 'string') {
+      errors.push({ field, error: `expected string or null, got ${typeof value}`, hint: `Set to a string or null` });
+    }
+  } else if (type === 'number-or-null') {
+    if (value !== null && typeof value !== 'number') {
+      errors.push({ field, error: `expected number or null, got ${typeof value}`, hint: `Set to a number or null` });
+    }
+  } else if (type === 'list-of-string') {
+    if (!Array.isArray(value)) {
+      errors.push({ field, error: 'expected a list', hint: `Use YAML list syntax, e.g. ["name"]` });
+    } else {
+      const bad = value.filter(v => typeof v !== 'string');
+      if (bad.length > 0) {
+        errors.push({ field, error: 'list contains non-string items', hint: 'All list items must be strings' });
+      }
+    }
+  } else if (type === 'object') {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      errors.push({
+        field,
+        error: `expected object, got ${Array.isArray(value) ? 'array' : (value === null ? 'null' : typeof value)}`,
+        hint: 'Use YAML nested mapping syntax'
+      });
+    } else if (spec.fields) {
+      for (const [subField, subSpec] of Object.entries(spec.fields)) {
+        const subValue = value[subField];
+        if (subValue === undefined || subValue === null) continue; // sub-fields tolerate null/missing
+        errors.push(...validateField(`${field}.${subField}`, subValue, subSpec));
+      }
+    }
+  } else {
+    // Unknown type tag — fall through to checkType (which silently passes unknowns).
+    const typeErr = checkType(field, value, type);
+    if (typeErr) errors.push(typeErr);
+  }
+
+  return errors;
+}
+
 function validateFrontmatter(frontmatter, schema) {
   if (!schema || !schema.required) {
     return { ok: true };
@@ -319,51 +451,15 @@ function validateFrontmatter(frontmatter, schema) {
 
     // For string-or-null fields, explicit null is a valid value — don't treat as missing.
     const isStringOrNull = spec && typeof spec === 'object' && spec.type === 'string-or-null';
-    const isMissing = value === undefined || (value === null && !isStringOrNull);
+    const isNumberOrNull = spec && typeof spec === 'object' && spec.type === 'number-or-null';
+    const isMissing = value === undefined || (value === null && !(isStringOrNull || isNumberOrNull));
 
     if (isMissing) {
       errors.push({ field, error: 'required field missing', hint: `Add "${field}:" to frontmatter` });
       continue;
     }
 
-    if (typeof spec === 'string') {
-      // Simple type check
-      const typeErr = checkType(field, value, spec);
-      if (typeErr) errors.push(typeErr);
-    } else if (spec && typeof spec === 'object') {
-      const type = spec.type;
-      if (type === 'enum') {
-        const allowed = spec.values || [];
-        if (!allowed.includes(String(value))) {
-          errors.push({
-            field,
-            error: `invalid enum value "${value}"`,
-            hint: `Allowed values: ${allowed.join(', ')}`
-          });
-        }
-      } else if (type === 'string-or-null') {
-        if (value !== null && typeof value !== 'string') {
-          errors.push({ field, error: `expected string or null, got ${typeof value}`, hint: `Set to a string or null` });
-        }
-      } else if (type === 'list-of-string') {
-        if (!Array.isArray(value)) {
-          errors.push({ field, error: 'expected a list', hint: `Use YAML list syntax, e.g. ["name"]` });
-        } else {
-          const bad = value.filter(v => typeof v !== 'string');
-          if (bad.length > 0) {
-            errors.push({ field, error: 'list contains non-string items', hint: 'All list items must be strings' });
-          }
-        }
-      } else if (type === 'number') {
-        if (typeof value !== 'number') {
-          errors.push({ field, error: `expected number, got ${typeof value}`, hint: 'Provide a numeric value' });
-        }
-      } else {
-        // Treat as simple type string
-        const typeErr = checkType(field, value, type);
-        if (typeErr) errors.push(typeErr);
-      }
-    }
+    errors.push(...validateField(field, value, spec));
   }
 
   // Optional fields: only validate type/enum/list shape; presence not required.
@@ -373,37 +469,7 @@ function validateFrontmatter(frontmatter, schema) {
       if (!(field in frontmatter)) continue;
       const value = frontmatter[field];
       if (value === null || value === undefined) continue;
-      if (typeof spec === 'string') {
-        const typeErr = checkType(field, value, spec);
-        if (typeErr) errors.push(typeErr);
-      } else if (spec && typeof spec === 'object') {
-        const type = spec.type;
-        if (type === 'enum') {
-          const allowed = spec.values || [];
-          if (!allowed.includes(String(value))) {
-            errors.push({
-              field,
-              error: `invalid enum value "${value}"`,
-              hint: `Allowed values: ${allowed.join(', ')}`
-            });
-          }
-        } else if (type === 'list-of-string') {
-          if (!Array.isArray(value)) {
-            errors.push({ field, error: 'expected a list', hint: `Use YAML list syntax, e.g. ["name"]` });
-          }
-        } else if (type === 'string-or-null') {
-          if (value !== null && typeof value !== 'string') {
-            errors.push({ field, error: `expected string or null, got ${typeof value}`, hint: `Set to a string or null` });
-          }
-        } else if (type === 'number') {
-          if (typeof value !== 'number') {
-            errors.push({ field, error: `expected number, got ${typeof value}`, hint: 'Provide a numeric value' });
-          }
-        } else {
-          const typeErr = checkType(field, value, type);
-          if (typeErr) errors.push(typeErr);
-        }
-      }
+      errors.push(...validateField(field, value, spec));
     }
   }
 
@@ -501,6 +567,65 @@ const CROSS_FIELD_RULES = {
             field: 'cost',
             error: `invalid cost value "${fm.cost}"`,
             hint: `Allowed values: ${allowed.join(', ')}. T0 = trivial (minutes); T1 = small (<1h); T2 = medium (1-4h); T3 = large (multi-day).`
+          };
+        }
+        return null;
+      },
+    },
+    // ---------------------------------------------------------------------------
+    // Grandfather-cutoff presence rules for category and summary (2026-05-29).
+    //
+    // NOTE: Cross-field rules run AFTER the required-field validation loop in
+    // validateFrontmatter (applyCrossFieldRules is called at the very end, after
+    // the required-field loop and optional-field type checks complete). Because
+    // `created` is a REQUIRED field on handoffs, any post-cutoff handoff with a
+    // missing `created` already errors on the required-field check before these
+    // rules are reached. The cutoff self-guards below are therefore defence-in-
+    // depth for belt-and-suspenders correctness, not a substitute for that ordering.
+    //
+    // Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+    // ---------------------------------------------------------------------------
+
+    // (a) category must be present and non-empty on post-cutoff handoffs.
+    {
+      check: (fm) => {
+        // Self-guard: skip for pre-cutoff handoffs (legacy handoffs have no category).
+        if (fm.created && String(fm.created) < '2026-05-29') return null;
+        if (!fm.category || String(fm.category).trim() === '') {
+          return {
+            field: 'category',
+            error: 'required for handoffs created on or after 2026-05-29',
+            hint: 'Set category to one of: roadmap, infra, bug, docs, research, refactor'
+          };
+        }
+        return null;
+      },
+    },
+    // (b) summary must be present and non-empty on post-cutoff handoffs.
+    {
+      check: (fm) => {
+        // Self-guard: skip for pre-cutoff handoffs.
+        if (fm.created && String(fm.created) < '2026-05-29') return null;
+        if (!fm.summary || String(fm.summary).trim() === '') {
+          return {
+            field: 'summary',
+            error: 'required for handoffs created on or after 2026-05-29',
+            hint: 'Add a one-line summary (≤120 chars) describing the session work'
+          };
+        }
+        return null;
+      },
+    },
+    // (c) summary length ≤120 chars when present (post-cutoff self-guard).
+    {
+      check: (fm) => {
+        // Self-guard: skip for pre-cutoff handoffs.
+        if (fm.created && String(fm.created) < '2026-05-29') return null;
+        if (fm.summary && String(fm.summary).length > 120) {
+          return {
+            field: 'summary',
+            error: `summary exceeds 120 characters (got ${String(fm.summary).length})`,
+            hint: 'Keep summary to one concise line of 120 characters or fewer'
           };
         }
         return null;
@@ -608,6 +733,42 @@ const CROSS_FIELD_RULES = {
         return null;
       },
     },
+    // summary length ≤120 chars when present.
+    // The __skip__ grandfather guard above already returns [] for memos with
+    // created < 2026-05-22, so this rule only fires for non-skipped post-cutoff
+    // memos — no additional per-rule cutoff self-guard is needed here.
+    // Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+    {
+      check: (fm) => {
+        if (fm.summary === undefined || fm.summary === null) return null;
+        if (String(fm.summary).length > 120) {
+          return {
+            field: 'summary',
+            error: `summary exceeds 120 characters (got ${String(fm.summary).length})`,
+            hint: 'Keep summary to one concise line of 120 characters or fewer'
+          };
+        }
+        return null;
+      },
+    },
+    // kind enum validation — optional field; absent/undefined/null is VALID (back-compat).
+    // When present, must be one of the pinned enum members: ask | consult | fyi.
+    // 'ack' is NOT a valid kind — acknowledgement is receipt-state, not sender-declared kind.
+    // Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § Pinned interface
+    {
+      check: (fm) => {
+        if (fm.kind === undefined || fm.kind === null) return null;
+        const validKinds = ['ask', 'consult', 'fyi'];
+        if (!validKinds.includes(String(fm.kind))) {
+          return {
+            field: 'kind',
+            error: `invalid enum value "${fm.kind}" for kind`,
+            hint: `kind must be one of: ${validKinds.join(', ')}. Absent is also valid (reader applies 'ask' default). Note: 'ack' is not a kind — acknowledgement is receipt-state.`
+          };
+        }
+        return null;
+      },
+    },
   ],
 };
 
@@ -638,6 +799,11 @@ function checkType(field, value, type) {
   } else if (type === 'number') {
     if (typeof value !== 'number') {
       return { field, error: `expected number, got ${typeof value}`, hint: 'Provide a numeric value' };
+    }
+  } else if (type === 'boolean') {
+    // Review: code-reviewer — boolean fields (e.g. pickup_ready) were silently accepted as any type; now validated
+    if (typeof value !== 'boolean') {
+      return { field, error: `expected boolean, got ${typeof value}`, hint: 'Use bare true or false (no quotes)' };
     }
   }
   return null;
@@ -803,4 +969,5 @@ module.exports = {
   _parseYaml: parseYaml,
   _matchGlob: matchGlob,
   _stripCodeSpansAndLinks: stripCodeSpansAndLinks,
+  _stripInlineComment: stripInlineComment,
 };

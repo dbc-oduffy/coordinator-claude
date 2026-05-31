@@ -223,6 +223,8 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 
 **Partial-completion claims:** before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
 
+**Durable tracker complement.** `tasks/handoff-tracker.md` is the pre-rendered artifact from the last `/session-end` or `/handoff` — a quick reference for the current queue state without re-running the queries above. It is a convenience artifact, not the source of truth (the Step 1 queries above are); use it for a fast glance, then verify actionable items via the live query before acting. When cwd is `~/.claude`, the DoE aggregate across all registered repos is available at `tasks/doe-handoff-tracker.md` (generated via `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos`). The tracker does NOT replace Step 1 — Step 1 reconciles against live git and detects items that shipped since the tracker was last written.
+
 ## Step 5.5 — Orientation Cache Content Derivation
 
 Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
@@ -246,13 +248,14 @@ The routine is the single source-of-truth derivation. This section documents the
 | `## Active workstreams` | Name-only list, one per line, max 10 entries; names only — no progress prose, no parenthetical state | `tasks/project-tracker.md` or equivalent | ceremony |
 | `## Rechecks due ≤7 days` | One line per recheck marker due within 7 days; **omit section entirely if empty** | glob `tasks/*-recheck-due-*.md`, filter by date in filename | ceremony |
 | `## Branch` | 1 line: `<branch> — <ahead>/<behind> vs origin/main`. No narrative. | `git rev-parse` + `git rev-list --count` | ceremony |
+| `## Auto-push health` | exactly 0 or 1 line: `- ⚠ <N> unpushed commit(s) on \`<branch>\` — auto-push lagging;[ last failure: <class>;] <action>`; **omit section entirely when the branch is synced** (the common case). Surfaces the otherwise-silent `.git/push-failures.log` lag so a diverged/unpushed work branch isn't invisible for days. work/* branches only. | `git rev-list --count origin/<branch>..HEAD` (>0 is the trigger) + last matching class from `.git/push-failures.log` | ceremony |
 | `## Pinboard` | exactly 0 or 1 line of `- <ISO-date> <writer-slug>: <one-line note>`; **omit section entirely if empty**. One-slot only — second mid-session write overwrites the first, never appends. | mid-session writers append-or-overwrite; cleared by every ceremony regen | mid-session |
 
 ### Writer tiers
 
 **Ceremony writers** (`/workday-start` Step 5.5, `/update-docs` Phase 10) own full regeneration. Every section is re-derived from source-of-truth. The pinboard is cleared. Out-of-schema sections present in the file are discarded. **This is where bloat dies.**
 
-**Mid-session writers** (`/session-end` Step 2.8, `/handoff` Step 2.9) may ONLY mutate `## Pinboard`, and only by writing exactly one line. No other section. No body edits. Pinboard content rule: write a line only when next session boot MUST see this and it would otherwise be lost (e.g., a transient surface gotcha discovered this session; a critical blocker context for the picker-upper of a handoff). If you find yourself wanting to write more, that's a wiki edit or a handoff body — escalate to PM. The pinboard is automatically cleared at the next ceremony regen.
+**Mid-session writers** (`/session-end` Step 2.8, `/handoff` Step 2.9) invoke the **same full regeneration** as ceremony writers — every derived-from-disk section (Project, Trust caveats, Counters, Active workstreams, Rechecks, Branch, Auto-push health) is re-derived identically. The **only** tier difference is the pinboard: ceremony regen clears it; a mid-session regen preserves the existing slot, or overwrites it when `--pinboard` is supplied. So the pinboard is the one slot a mid-session writer authors content into — exactly one line, never appended. There is no mechanism to hand-author free-form content into any other section (the routine derives them all from disk), which is what keeps mid-session bloat out structurally rather than by convention. Pinboard content rule: write a line only when next session boot MUST see this and it would otherwise be lost (e.g., a transient surface gotcha discovered this session; a critical blocker context for the picker-upper of a handoff). If you find yourself wanting to write more, that's a wiki edit or a handoff body — escalate to PM. The pinboard is automatically cleared at the next ceremony regen.
 
 ### Hard limits (verifier-enforced)
 

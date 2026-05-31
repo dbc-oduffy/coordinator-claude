@@ -26,7 +26,10 @@
 # authoring fixture data, test scaffolding, or one-off correction of legacy
 # files where the AUTO-MIGRATE path is not appropriate).
 #
-# Deny mechanism: exit non-zero with JSON {"decision":"block","reason":"..."} on stderr.
+# Deny mechanism: hookSpecificOutput.permissionDecision → stdout → exit 0
+#   (matches block-subagent-archive-write.sh + block-off-daily-branch.sh; the old
+#    {"decision":"block"}→stderr→exit 1 shape is documented as silently non-blocking
+#    in hook-best-practices.md § PreToolUse deny).
 
 set -uo pipefail
 
@@ -49,6 +52,9 @@ fi
 if command -v jq &>/dev/null; then
   TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
 else
+  # Note: sed pattern matches first occurrence of "tool_name"/"file_path"; relies on Claude Code
+  # delivering these before any string values containing those literal keys.
+  # Review: code-reviewer — documents sed first-occurrence assumption for no-jq fallback path
   TOOL_NAME=$(echo "$INPUT" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 fi
 case "$TOOL_NAME" in
@@ -89,9 +95,23 @@ done
 
 if [[ "$FILE_PATH_NORM" =~ archive/completed/[0-9]{4}-[0-9]{2}\.md$ ]]; then
   REASON="Runtime monolith-write blocked: ${FILE_PATH} matches the legacy archive/completed/YYYY-MM.md shape, which Phase 1 of the completion-log release-loop replaced with per-entry files at archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md. See docs/wiki/completion-log-release-loop.md. If you intended a legacy edit (rare — frozen pre-migration history), the canonical path is archive/completed/legacy/YYYY-MM.md and the override env var COORDINATOR_OVERRIDE_COMPLETION_MONOLITH=1 will permit the write. Otherwise, write a per-entry file under archive/completed/YYYY-MM/ instead."
-  REASON_ESCAPED="${REASON//\"/\\\"}"
-  printf '{"decision":"block","reason":"%s"}\n' "$REASON_ESCAPED" >&2
-  exit 1
+  if command -v jq &>/dev/null; then
+    jq -nc --arg reason "$REASON" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: $reason
+      }
+    }'
+  else
+    esc="${REASON//\\/\\\\}"
+    esc="${esc//\"/\\\"}"
+    esc="${esc//$'\n'/\\n}"
+    # Review: code-reviewer — tab escape was missing from no-jq manual escape pipeline; keeps it complete
+    esc="${esc//$'\t'/\\t}"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  fi
+  exit 0
 fi
 
 exit 0

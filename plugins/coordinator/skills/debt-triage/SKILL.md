@@ -95,7 +95,7 @@ Based on current state:
 Before grouping items, query the completion log for historical `nature: tech-debt` entries to surface which areas have consumed significant effort recently versus which have been avoided:
 
 ```bash
-bin/query-completions.sh --where "nature=tech-debt" --since "90d" --sort "-loe.tshirt" --format markdown-list
+query-completions.sh --where "nature=tech-debt" --since "90d" --sort "-loe.tshirt" --format markdown-list
 ```
 
 Interpret the output with two lenses:

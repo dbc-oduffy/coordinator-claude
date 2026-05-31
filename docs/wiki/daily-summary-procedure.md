@@ -13,19 +13,21 @@ spec_backlink: docs/plans/2026-05-09-skill-consolidation-pass.md
 
 ---
 
-## Routing Table — Reviewer Selection
+## Daily Reviewer — Sonnet Observer, No Persona Routing
 
-Route to a reviewer based on the dominant domain of today's work:
+The daily strategic review is dispatched as an **unnamed Sonnet worker** (`general-purpose`,
+`model: "sonnet"`). There is **no domain→persona routing** at daily cadence — that was the old
+shape and it was wrong. Personas (Sid / Palí / Camelia / Patrik) are Opus-only; routing a *daily*
+ceremony to one puts Opus persona-judgment on the cheapest, most frequent gate we have. The fix
+mirrors Sonnet-tier code review moving off personas onto `code-reviewer`.
 
-| Dominant change type | Reviewer |
-|---|---|
-| Game dev / Unreal Engine | the Game Dev Reviewer |
-| Frontend / UI | the Front-End Reviewer |
-| Data / ML / science | the Data Science Reviewer |
-| Mixed, backend, or architecture | the Staff Engineer |
-
-Dispatch the selected reviewer as a **Sonnet** agent. This is a strategic check, not a deep code
-review — Sonnet is sufficient and appropriate.
+**Role: observer, not judge.** The daily worker leaves a **paper trail for future-Patrik** —
+alignment notes, debt candidates, architectural-risk *flags*. It renders no final architectural
+verdict. The **weekly** Opus Patrik arch pass (`/workweek-complete` Step 7.5) consumes the week's
+accumulated daily trail (the `## Strategic Review (Sonnet daily observer)` sections + DSR rows
+tagged `for-weekly-arch-review`) and adjudicates. Domain still matters only for *vocabulary* — a
+UE-heavy day's observer should speak UE — but the dispatch is one Sonnet worker regardless, never
+a named persona.
 
 ---
 
@@ -100,17 +102,22 @@ Use this verbatim when dispatching the Phase 4b analyst agent
 
 ---
 
-## Sonnet Reviewer Prompt Template
+## Daily Strategic Observer Prompt Template
 
-Dispatch after the analyst completes. Use the routing table above to select the reviewer persona.
-Dispatch as a **Sonnet** agent (`model: "sonnet"`).
+Dispatch after the analyst completes, as an **unnamed Sonnet worker** (`general-purpose`,
+`model: "sonnet"`) — **never a named persona** (see § Daily Reviewer above for why). The worker is
+an **observer leaving a paper trail for future-Patrik**, not a judge. It flags candidates; the
+weekly Opus Patrik arch pass adjudicates.
 
 ---
 
-**Reviewer instructions:**
+**Daily observer instructions:**
 
-Read the work summary and project strategic documents, then provide an architectural perspective.
-**This is NOT a code review.** No inline code fixes.
+You are an unnamed Sonnet strategic observer for the daily wrap. Read the work summary and project
+strategic documents and leave a **paper trail** — alignment notes, debt candidates, and
+architectural-risk *flags* for the weekly Opus arch pass to adjudicate. **Render no final
+architectural verdict** and do **not** claim a persona identity. **This is NOT a code review** — no
+inline code fixes.
 
 1. **Read** `archive/daily-summaries/YYYY-MM-DD.md` (the analyst output).
 
@@ -130,9 +137,9 @@ Read the work summary and project strategic documents, then provide an architect
 4. **Append** findings to the daily summary file as a new section:
 
    ```markdown
-   ## Strategic Review (by {reviewer-name})
+   ## Strategic Review (Sonnet daily observer)
 
-   > Reviewer read: [list which strategic docs were found and read]
+   > Observer read: [list which strategic docs were found and read]
 
    ### Alignment Assessment
    - [Where today's work advances the roadmap]
@@ -140,6 +147,10 @@ Read the work summary and project strategic documents, then provide an architect
 
    ### Technical Debt Identified
    - [Debt item — what, why it matters, suggested future action]
+   - ...
+
+   ### Architectural-Risk Flags (for future-Patrik / weekly arch pass)
+   - [Candidate concern — flagged, NOT adjudicated. State what to look at and why it might matter.]
    - ...
 
    ### Bridging Opportunities
@@ -153,8 +164,10 @@ Read the work summary and project strategic documents, then provide an architect
 5. **Debt backlog entries:** For any finding that warrants tracking, add a row to
    `tasks/debt-backlog.md` (create from template if it doesn't exist):
    - ID: `DSR-{date}-{N}` (Daily Strategic Review prefix)
-   - Source: `workday-complete/step4/{reviewer}/{date}`
+   - Source: `workday-complete/step4/sonnet-observer/{date}`
    - Status: `open`
+   - **Tag any architectural-risk flag `for-weekly-arch-review`** so the weekly Patrik arch pass
+     (`/workweek-complete` Step 7.5) picks it up as accumulated daily signal.
 
 ---
 
@@ -162,19 +175,27 @@ Read the work summary and project strategic documents, then provide an architect
 
 After the reviewer agent completes, update `tasks/health-ledger.md`:
 
-1. If it doesn't exist, create it with this header:
+1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
+   the schema established by the 2026-05-23 weekly-gate/arch-survey restructure; do **not**
+   conflate the clocks):
    ```markdown
    # Health Ledger
 
-   | System | Grade | Last daily check | Last code-health | Notes |
-   |--------|-------|-----------------|-----------------|-------|
+   **Last full audit:** (none — run /architecture-survey)
+   **Last targeted audit:** <date or none>
+   **Next rotation target:** <system>
+
+   | System | Grade | Last Audited | Notes |
+   |--------|-------|-------------|-------|
    ```
 
-2. Update `Last daily check` to today's date.
+2. If a system was touched by today's commits but has no row yet, add it with grade `?` (unaudited).
 
-3. If reviewer findings warrant grade changes for any system, update the relevant rows.
-
-4. If a system was touched by commits but has no row yet, add it with grade `?` (unaudited).
+3. Do **NOT** update grades or the two audit clocks from the daily wrap. `Last full audit` is written
+   only by a PM-invoked `/architecture-survey`; `Last targeted audit` only by `/architecture-audit`.
+   The daily Sonnet observer renders no grades — it flags candidates as `tasks/debt-backlog.md` DSR
+   rows (`for-weekly-arch-review`) for the weekly Patrik arch pass to adjudicate. Grade changes are
+   an audit output, never a daily-wrap side effect.
 
 ---
 

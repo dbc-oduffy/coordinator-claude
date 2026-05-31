@@ -1,4 +1,4 @@
-<!-- canonical source for reviewer-calibration — edit here, then run bin/verify-calibration-sync.sh --fix -->
+<!-- canonical source for reviewer-calibration — edit here, then run verify-calibration-sync.sh --fix -->
 
 ## Confidence Calibration (1–10)
 

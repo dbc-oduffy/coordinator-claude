@@ -1,4 +1,4 @@
-<!-- canonical source for docs-checker-consumption — edit here, then run bin/verify-docs-checker-sync.sh --fix -->
+<!-- canonical source for docs-checker-consumption — edit here, then run verify-docs-checker-sync.sh --fix -->
 
 ## Docs Checker Integration
 

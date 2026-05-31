@@ -146,6 +146,16 @@ unchanged.
 Categories are advisory metadata. The enforcement mechanism is code review
 and documentation, not a runtime allowlist.
 
+## Per-Content-Family Chunk Sizing
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+When corpus families have very different size distributions (e.g. short CVar entries vs. multi-page UDN guides vs. dense C++ header blocks), a single global worst-case chunk cap wastes embedding budget on families where smaller chunks would produce sharper retrieval, and over-splits families where larger chunks carry coherent semantics.
+
+**Rule.** Size chunks per content family, not globally. Each chunker registered under a category (`substrate`, `curated`, `reference`, `qa`) should declare its own `chunk_size` / `overlap` tuned to the typical token density of its corpus family. The global cap remains as a hard ceiling; per-family sizing is the floor that operates below it.
+
+This is especially important when adding a new category: establish the per-family sizing baseline before wiring the chunker into the curated-only chroma build, or the global cap silently governs and retrieval quality degrades on dense families.
+
 ## Cross-repo parity and the silent-degrade contract
 
 Addons MAY ship with categories that the host has not heard of. The filter

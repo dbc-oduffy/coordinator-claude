@@ -32,7 +32,8 @@ optional:
   scope: list-of-string
   # Positive pickup-authorized signal; preserved verbatim from the active schema on
   # archival. Absence triggers a non-blocking warning at /pickup time (not a block).
-  pickup_ready: string
+  # Review: code-reviewer — matches handoff.yaml type (boolean), was incorrectly string here
+  pickup_ready: boolean
   deployment_state:
     type: enum
     values: [awaiting_gate, ready_to_fire, in_flight, shipped, abandoned]

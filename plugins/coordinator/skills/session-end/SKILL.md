@@ -26,20 +26,22 @@ This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus 
 1. **Step 1 → Step 1.2 micro-chain** — classification reads the lesson Step 1 just wrote. Skip both together if no new lesson.
 2. **Step 2.6 internal chain** (Steps 2.6.1 → 2.6.2 → 2.6.3 → 2.6.4 → 2.6.5 → 2.6.5a → 2.6.6 → 2.6.7) — the per-entry archive write is a real chain: AUTO-MIGRATE → chain-slug resolve → Sonnet nature-infer → session-id resolve → LoE block → write entry. Internal to Step 2.6 only.
 3. **Step 2.9** (code review) — integrator-edited files must be staged in Step 3.
-4. **Step 3** (commit + verify remote) — fan-in of ALL preceding file edits (lessons, plan docs, archive entries, orientation cache, action-items, review-integrator outputs); commit consumes the union via explicit-path staging.
-5. **Step 3.5** (archive session claim) — consumes Step 3's pushed commit.
-6. **Step 4** (final summary) — informational.
+4. **Step 2.4 → Step 3 staging edge** — when a governing plan exists, Step 2.4's reconciled plan doc (the corrected `docs/plans/<feature>.md`) must be staged in Step 3 before commit. Step 2.4 is a micro-chain off Step 2 in the todo-list cluster (see below); its output is part of Step 3's fan-in union, identical in shape to the existing Step 2.9-integrator-edits → Step 3 staging edge.
+5. **Step 3** (commit + verify remote) — fan-in of ALL preceding file edits (lessons, plan docs, archive entries, orientation cache, action-items, review-integrator outputs, reconciled plan doc); commit consumes the union via explicit-path staging.
+6. **Step 3.5** (archive session claim) — consumes Step 3's pushed commit.
+7. **Step 4** (final summary) — informational.
 
-**Todo-list (no edges between *peer* todo-list slots — execute in any order, batch parallel where two independently read/write different files):**
+**Todo-list (execute in any order, batch parallel where two independently read/write different files — with the Step 2→2.4 micro-chain exception noted below):**
 
 - **Step 1 (then 1.2) — run as an inseparable pair, one todo-list slot** — lessons capture + classification (`tasks/lessons.md`). The 1→1.2 edge is real; run them sequentially as a unit; the *pair* parallelizes with the other slots.
-- **Step 2** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`, etc.)
+- **Step 2 (then 2.4) — run as a micro-chain, one todo-list slot** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`, etc.), then plan-doc reconciliation. The 2→2.4 edge is real: Step 2.4 reconciles the plan doc Step 2 just updated. Run them sequentially as a unit; the *pair* parallelizes with the other slots. Skip Step 2.4 if no governing plan exists.
 - **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
 - **Step 2.6** — archive uncaptured work (`archive/completed/YYYY-MM/`; internal chain 2.6.1→2.6.7 is real but isolated to this slot)
 - **Step 2.7** — archive predecessor handoff (file move only — independent of all other slots)
 - **Step 2.8** — refresh orientation documents (pinboard + tracker + action-items + docs README)
+- **Step 2.95** — aftermath lens-checkers (big-workstream only; reads session context, writes only the Step 4 summary checklist) — parallel-safe with the 2.x cluster
 
-These six slots touch disjoint surfaces and none consumes another's output. Where two are pure disk operations on different paths, run them in the same response via parallel tool calls. Step 2.9 (review) has a soft preference to land *with* the todo-list cluster so its integrator edits stage with Step 3, but does not consume the 2.x cluster's output.
+These six slots touch disjoint surfaces. The Step 2→2.4 micro-chain is internal to the Step 2 slot (Step 2.4 reconciliation consumes Step 2's plan-doc output); similarly the Step 1→1.2 pair is internal to the Step 1 slot. Among *peer* slots, none consumes another's output. Where two slots are pure disk operations on different paths, run them in the same response via parallel tool calls. Step 2.9 (review) has a soft preference to land *with* the todo-list cluster so its integrator edits stage with Step 3, but does not consume the 2.x cluster's output.
 
 **Step 3 is a fan-in, not a sequence.** It stages the union of all files touched by the cluster — peer step ordering relative to each other is irrelevant; only their position before Step 3 matters.
 
@@ -102,6 +104,40 @@ Find and update relevant plan/task documentation to reflect what was completed:
 3. **Add a review section** (if not already present) summarizing outcomes — what was built, key decisions, anything notable about the result.
 4. **Update other pertinent docs:** If the work affected README files, architecture docs, or other project documentation that should reflect the new state, update those too. Use judgment — only touch docs that are clearly stale as a result of this session's work.
 
+### Step 2.4: Reconcile Plan Doc Against Shipped Reality
+
+> **Spec backlink:** `archive/specs/2026-05-26-session-end-deviation-reconciliation-gate.md` § Goal, D1–D5.
+
+**Governing-plan predicate — fires only when a governing plan/spec exists for this session's work.** When this session implemented work governed by a spec, plan, or stub — `docs/plans/YYYY-MM-DD-<feature>.md`, an RFC, an enriched stub spec, or a handoff body that functions as a live spec — perform the reconciliation below. Negative-spec: if no governing plan exists for this session's work, skip this step entirely. Do NOT invent a plan to reconcile against. No ceremony tax on plan-less sessions: the proportionality is explicit, consistent with `docs/wiki/ceremony-calibration.md` — skip-on-no-plan is the right shape for organic fixes, doc-touch sessions, and ad-hoc work.
+
+#### What to correct in place — ALLOWLIST sections
+
+Plan documents contain sections that `/distill` crystallizes into wiki entries (the ALLOWLIST). When what shipped diverged from the plan's forecast, correct these sections **in the plan doc** before the Step 3 commit so distill synthesizes shipped reality, not the stale forecast:
+
+- **Decisions Made** — if a decision record describes an approach that was modified or superseded during implementation, annotate the changed item: `SHIPPED: <what-shipped> (was: <plan-forecast>)`. For decisions that shipped unchanged, no annotation is needed.
+- **API Contracts / Function Signatures** — if a function signature, interface shape, or protocol contract landed differently from the plan's specification, correct the relevant entry with the same annotation: `SHIPPED: <actual-signature> (was: <planned-signature>)`.
+- **Acceptance Criteria oracle tables** — AC tables (columns: `ID | Criterion | Test | Binding-Class | Status`) are consumed by `check-acceptance-oracle.sh`. **In-place correction of an AC table is scoped to the Status/note columns only** (e.g. `Status → shipped-differently` with a note cell). Free-text mutation of the `Criterion` or `Test` cells would corrupt the structured oracle the parser expects. Substantive "what shipped vs forecast" delta routes to the `## Deviations` table (below) and to the Decisions Made section — NOT a free-text edit of Criterion/Test cells.
+
+The `(was: <plan-forecast>)` half of each annotation maps to distill's existing `[SUPERSEDED]` nugget class — it is recorded as superseded provenance, not crystallized as a live decision. What crystallizes into the wiki is the shipped reality.
+
+#### Append the `## Deviations` audit section
+
+After correcting ALLOWLIST sections, append the following section to the plan doc (or extend it if already present from an earlier partial session):
+
+```markdown
+## Deviations
+
+| deviation | reason | commit |
+|-----------|--------|--------|
+| <brief description of what diverged from the plan> | <why it diverged> | <commit sha or "pending"> |
+```
+
+One row per meaningful deviation. This section is **provenance-only** — it is not crystallized by `/distill` (it is dropped as `[EPHEMERAL]`). The essential deviation fact survives in the corrected ALLOWLIST sections' `(was: …)` annotations; the verbose reasons live here and in git history.
+
+#### Soft-ordering note re Step 2.9
+
+Step 2.9's spec-completion lens (when dispatched) is an **input** to this step's write-back, not a hard predecessor. Step 2.9 may run concurrently with the todo-list cluster; the dependency is soft: Step 2.4 reconciles what the EM already knows from session context. If Step 2.9 later surfaces additional substrate drift or dropped deliverables that weren't caught here, the EM folds those findings into the plan doc before Step 3 stages the union. Distinguish the two write-back types: Step 2.4 performs *forecast→reality* correction write-backs (the reconciliation this step introduces); Step 2.9's review-integrator path performs *defect-fix* write-backs (correcting plan-doc errors the reviewer identifies). Both are complementary and both fan into Step 3's staging union.
+
 ### Step 2.5: Doc-Alignment Insurance
 
 End of session is the last chance to ensure status fields match reality. This catches work that completed but whose status wasn't updated — common after compaction or rapid context shifts.
@@ -134,7 +170,7 @@ git mv archive/completed/YYYY-MM.md archive/completed/legacy/YYYY-MM.md
 Create `archive/completed/legacy/` if it does not exist. The `git mv` is idempotent — subsequent runs find no monolith-at-root and skip silently. If `COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1`, skip the `git mv` (the EM has already handled migration manually).
 
 <!-- TRIPWIRE: NO monolithic append — archive/completed/YYYY-MM.md writes outside legacy/ are forbidden.
-     Static-grep check: bin/check-no-monolith-completion-append.sh (created in Chunk 10).
+     Static-grep check: check-no-monolith-completion-append.sh (created in Chunk 10).
      Registered in docs/wiki/coordinator-tripwires.md.
      Override: COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1 skips git mv (manual migration path). -->
 
@@ -317,6 +353,16 @@ The move folds into the existing session-end commit at Step 3 — no separate co
 
 **Skip entirely if** this session is exiting via `/handoff` — `/handoff` chain-archival owns that path. `/session-end` and `/handoff` are mutually exclusive session-exit paths.
 
+### Step 2.75: Refresh Handoff Tracker
+
+After archiving the predecessor handoff (Step 2.7), regenerate `tasks/handoff-tracker.md` so it reflects the post-archive state before the commit lands. This keeps the durable tracker current at every session exit.
+
+```bash
+node plugins/coordinator/bin/render-handoff-tracker.js
+```
+
+If the script is absent or exits non-zero, skip silently — the tracker is a convenience artifact, not a gate. The generated file (`tasks/handoff-tracker.md`) is staged with the session's existing scoped commit at Step 3 — no separate commit.
+
 ### Step 2.8: Refresh Orientation Documents
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`.
@@ -391,11 +437,11 @@ The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ce
 **Chain-end detection:**
 - Resolve session-id: `$CLAUDE_CODE_SESSION_ID` env var first (platform-injected, unclobberable); `.git/coordinator-sessions/.current-session-id` sentinel fallback only when the env var is empty.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Trail is the only valid code-output coverage signal.** When scanning chain history for prior reviews, read `tasks/review-trail/*.json` records ONLY. A "the Staff Engineer reviewed the plan" note in a predecessor handoff body is plan-level design-intent coverage — it does NOT satisfy the chain-end `code-reviewer` floor. Plan-level the Staff Engineer reviews (`docs/plans/*.review-patrik.md`) are not trail records and count as zero code-output coverage. If no trail record exists covering the chain diff's sha-range, the chain diff is unreviewed regardless of what the handoff narrative says.
+- **Trail is the only valid code-output coverage signal.** When scanning chain history for prior reviews, read records returned by `list-review-trail-records.sh` (live AND archived) — chain history regularly reaches back across the weekly archival boundary, and a live-only glob systematically misses reviews from prior weeks. A "the Staff Engineer reviewed the plan" note in a predecessor handoff body is plan-level design-intent coverage — it does NOT satisfy the chain-end `code-reviewer` floor. Plan-level the Staff Engineer reviews (`docs/plans/*.review-patrik.md`) are not trail records and count as zero code-output coverage. If no trail record exists covering the chain diff's sha-range, the chain diff is unreviewed regardless of what the handoff narrative says.
 
 **Diff scope:**
 - Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
-- Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (where `$LAST_REVIEW_SHA` is the `sha_range` head from the most recent trail record, or session-start SHA if no prior review exists)
+- Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (where `$LAST_REVIEW_SHA` is derived as: take the most recent trail record across both live and archive via `list-review-trail-records.sh | tail -1`, read its `sha_range` head, then apply an ancestry filter — `git merge-base --is-ancestor <sha_range_head> HEAD` must succeed before assigning to `$LAST_REVIEW_SHA`. Iterate from most-recent to oldest until one passes. If no archive-aware record passes the ancestry filter, fall back to session-start SHA. This filter prevents a sibling workstream's trail record on an unrelated branch from producing a wrong diff scope.)
 
 **Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
 
@@ -432,13 +478,42 @@ After integration, the trail's `--verdict` field still records the reviewer's or
   bin/check-ubt-build-fresh.sh --since "$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)" --mode pending
 ```
 
+### Step 2.95: Aftermath Lens-Checkers (big-workstream sessions)
+
+**Fires when this session (or the chain, for chain-end) is a big workstream** — same trigger surface as Step 2.9 rows 3/4/5 (any executor dispatched, OR >50 LOC, OR shared schema/seam touched, OR chain-end with non-trivial chain diff). On row-1/row-2 trivial sessions, skip silently — no ceremony tax on doc-touch or small-fix sessions.
+
+Step 2.9 is the *line-level* code-review lens. The aftermath lenses are the *cross-cutting* lenses a large workstream is most likely to have left loose. Run each as a quick self-check (not a reviewer dispatch unless a lens surfaces something needing depth); each maps to an existing doctrine surface so the check is "did this session honor X," not new judgment:
+
+1. **Install-surface completeness.** Did this session write state outside source code (`machine-local/`, installer scripts, sentinel files, registry entries, env config)? If yes, confirm the clean-install path reproduces it — local green tests are not evidence a fresh machine installs the work. → global CLAUDE.md § Install-surface completeness; `docs/wiki/install-surface-completeness.md`.
+2. **Contact-point / convention drift.** Did this session add a convention, tripwire, hook, or agent-facing surface? Confirm every contact-point was updated in the same workstream (onboarding / session-start / session-end / hook / canonical artifact). → CLAUDE.md § Adding a Convention to the Coordinator System.
+3. **Doc + wiki alignment.** Big changes age `docs/README.md`, `docs/wiki/`, and any Atlas/narrative index. Confirm stale references are repointed (not duplicated). → CLAUDE.md § Documentation and Knowledge System.
+4. **Lessons + queue capture.** Did the session surface a pattern worth promoting? Capture per Step 1/1.2; route universal lessons to the central queue. (Reinforces, does not duplicate, Step 1.)
+5. **Security / secret-exposure lens.** Did the diff touch auth, secrets, external API calls, or new dependencies? If yes, surface to the `security-audit-worker` / `dep-cve-auditor` reviewer-routed workers per CLAUDE.md § Reviewer-Routed Workers (fuller routing protocol: `docs/wiki/reviewer-routed-workers.md`) — do not self-assess novel auth/secret surfaces.
+
+**Output shape:** a short checklist in the Step 4 Final Summary — one line per lens, `clear` / `<one-line finding + disposition>`. Findings that are tradeoff-free corrections fold in this session (per CLAUDE.md § Reviewer findings — apply, don't ratify); real tradeoffs surface to PM. The lenses are an *offer-shaped self-audit*, not a blocking gate — but on a big workstream, "all clear" must be an affirmative statement, not a silent skip.
+
 ### Step 3: Commit + Verify Remote
 
+#### Step 3.0: Pre-terminate dirty-tree gate
+
+**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before the session-end commit, run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path:
+
+- **(a) This session authored it** → it belongs in this terminator's scoped commit (handled by the existing scope/commit step).
+- **(b) A known concurrent session owns it** → leave it alone (existing rule). "Known" means you can name the workstream/session — a sibling `scope:` block, an active handoff, or a session claim under `.git/coordinator-sessions/` accounts for it. The machine-checkable form of "a session claim accounts for it" is a handoff-frontmatter `consumed_by:` field naming another session's id (sourced from `.git/coordinator-sessions/.current-session-id` per `schemas/handoff.yaml`) — grep for that to tie the prose signal to a field an executor can actually check.
+- **(c) Unattributable** — a dirty file you did NOT author AND cannot tie to a named concurrent owner (the classic case: an abandoned partial revert or orphaned edit from a crashed session). **Do NOT silently leave these — they wedge the next session opener.** Fail loud and pick exactly one disposition, in this order of preference:
+  1. **Commit** with provenance if the change is coherent and you can attribute it: `git add -- <path> && git commit -m "chore: adopt orphaned WT change <path> — unattributed at session-end"`.
+  2. **Stash-with-provenance** if it is incoherent or risky to commit: `git stash push -u -m "orphaned-WT <YYYY-MM-DD> session-end: <path> — left by unknown session" -- <path>`. Name the stash so the next session can find and adjudicate it (per CLAUDE.md "Probe edits in `git stash push -u` / `pop`").
+  3. **Explicit "leave it owned by X"** only when you can now name the owner — record a one-line note (in the handoff body / session summary) stating which session/workstream owns it, converting it from case (c) to case (b).
+
+The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write crash, per CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash them blind.
+
+**Note — this dirty-tree gate is replicated across all three session terminators (session-end, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (session-end commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
+
 1. **Stage only paths this session touched — never `git add -A`.** With concurrent EMs active on the same branch, `git add -A` sweeps up another session's staged/modified files and silently re-attributes them. Instead:
-   - Make a mental (or explicit) list of the files you edited during Steps 1/2/2.5/2.6/2.7 (typically a small set: `tasks/lessons.md`, `archive/completed/YYYY-MM/<entry>.md`, `archive/completed/legacy/YYYY-MM.md` if AUTO-MIGRATE ran, `docs/project-tracker.md`, action-items file, `docs/README.md`).
+   - Make a mental (or explicit) list of the files you edited during Steps 1/2/2.4/2.5/2.6/2.7/2.75 (typically a small set: `tasks/lessons.md`, `docs/plans/<feature>.md` if Step 2.4 reconciliation ran, `archive/completed/YYYY-MM/<entry>.md`, `archive/completed/legacy/YYYY-MM.md` if AUTO-MIGRATE ran, `docs/project-tracker.md`, action-items file, `docs/README.md`, `tasks/handoff-tracker.md` if Step 2.75 ran).
    - `git add <path1> <path2> ...` — name each path explicitly.
    - If you also edited files earlier in the session that are still unstaged, stage those by path too — but only ones you know you authored this session.
-   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — they belong to a concurrent session.
+   - If `git status` shows unfamiliar unstaged files you didn't touch, **leave them alone** — but first run the Step 3.0 dirty-tree gate; "leave alone" is correct ONLY for case (b) named-owner files.
 2. Commit with a lightweight message: `"session-end quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
 3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
@@ -464,7 +539,7 @@ Idempotent — already-archived sessions return 0 silently (verified: a session 
 
 If this session executed an oracle-bearing plan (one that went through `coordinator:review` and carries a bindable `## Acceptance Criteria` table with `gate-bound` rows) and any `gate-bound` ACs remain red or unrun, emit an offer-shaped notice before the final summary:
 
-> "You have unresolved acceptance tests in `<plan-path>`: <count> red/unrun gate-bound AC(s). Run `bash bin/check-acceptance-oracle.sh <plan-path>` before merging via `/merging-to-main`."
+> "You have unresolved acceptance tests in `<plan-path>`: <count> red/unrun gate-bound AC(s). Run `bash check-acceptance-oracle.sh <plan-path>` before merging via `/merging-to-main`."
 
 **Never a hard block.** `/session-end` is not a merge surface — teeth live at `coordinator:merging-to-main` Step 0. This is advisory only: design-as-offers, not friction. If no oracle-bearing plan was involved this session, or all gate-bound ACs are green, skip silently.
 

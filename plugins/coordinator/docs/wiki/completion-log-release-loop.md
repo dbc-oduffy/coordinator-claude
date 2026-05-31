@@ -100,7 +100,7 @@ workstream: completion-log-release-loop
 ---
 
 Added `completion` as a new type in `query-records.js` `TYPE_TO_GLOB`, plus a
-thin `bin/query-completions.sh` wrapper. All three plan-specified query shapes
+thin `query-completions.sh` wrapper. All three plan-specified query shapes
 return correct results against the 3-entry fixture.
 ```
 
@@ -111,6 +111,15 @@ return correct results against the 3-entry fixture.
 `bin/query-completions` is a thin wrapper over `bin/query-records --type completion`.
 It globs `archive/completed/*/*.md` — the month-subdir pattern — and excludes
 `archive/completed/legacy/` by glob construction.
+
+> **Citation note (recipes below).** The recipes in this doc are written with the bare
+> `query-completions` / `query-records` name for readability — they are *reference shapes*,
+> not copy-paste-runnable blocks. When you put one of these in a **runnable** ceremony/skill
+> block, cite the full launcher path —
+> `"$HOME/.claude/plugins/coordinator/bin/query-completions.sh"` — because the
+> bare extensionless name does not resolve on PATH (only `.sh`/`.js` ship; `command -v
+> query-completions` is MISSING even with `bin/` on PATH). Silent-empty otherwise. See
+> `docs/wiki/claude-code-platform-gotchas.md` § "Coordinator scripts are on PATH" (label-vs-executable).
 
 **Cluster pass (workday-complete):**
 ```bash
@@ -240,7 +249,7 @@ per-entry file.
 
 **Option B — Manual migration helper (PM-invoked):**
 ```bash
-bin/migrate-completion-log-legacy.sh
+migrate-completion-log-legacy.sh
 ```
 Detects all monoliths at `archive/completed/YYYY-MM.md`, moves them to
 `archive/completed/legacy/` via `git mv`, and prints a summary. Idempotent —
@@ -254,14 +263,14 @@ legacy period — this is correct and expected.
 
 ## Tripwire: no monolithic completion append
 
-A static-grep tripwire (`bin/check-no-monolith-completion-append.sh`, registered in
+A static-grep tripwire (`check-no-monolith-completion-append.sh`, registered in
 `docs/wiki/coordinator-tripwires.md`) fires on any write path to
 `archive/completed/YYYY-MM.md` outside `legacy/`. Contact-points: `/session-end`,
 `/workday-complete`, `/update-docs`, `agents/executor.md`.
 
 **Allowed exceptions** (excluded from grep firing):
 - Paths under `archive/completed/legacy/`
-- `bin/migrate-completion-log-legacy.sh`'s own `git mv` source argument
+- `migrate-completion-log-legacy.sh`'s own `git mv` source argument
 - Docstrings and comments in `docs/wiki/` (instructional path mentions)
 - `COORDINATOR_OVERRIDE_LEGACY_MONOLITH=1` override path in session-end AUTO-MIGRATE block
 
@@ -319,7 +328,7 @@ loe:
   tshirt: <XS|S|M|L|XL>        # derived t-shirt size (see sizing table below)
 ```
 
-**T-shirt sizing heuristic** (implemented in `bin/coordinator-session-loe.sh`):
+**T-shirt sizing heuristic** (implemented in `coordinator-session-loe.sh`):
 
 | Size | Signal |
 |------|--------|
@@ -331,7 +340,7 @@ loe:
 
 The `tshirt` field is the primary consumer signal. Raw counts are forensic.
 
-**How `loe` is populated:** `/session-end` Step 2.6 invokes `bin/coordinator-session-loe.sh` (Phase 2 augmentation, Chunk 3) which reads session telemetry and writes the `loe:` block into the completion entry. The script is idempotent — re-running on an entry that already has `loe:` is a no-op.
+**How `loe` is populated:** `/session-end` Step 2.6 invokes `coordinator-session-loe.sh` (Phase 2 augmentation, Chunk 3) which reads session telemetry and writes the `loe:` block into the completion entry. The script is idempotent — re-running on an entry that already has `loe:` is a no-op.
 
 ---
 
@@ -361,9 +370,9 @@ The `tshirt` field is the primary consumer signal. Raw counts are forensic.
 
 ---
 
-### Chain-terminal aggregation via bin/aggregate-chain-loe.sh
+### Chain-terminal aggregation via aggregate-chain-loe.sh
 
-When a session-end closes a chain (a completion entry with `chain_terminal: true` AND a non-null `chain:`), `coordinator-session-loe.sh` invokes `bin/aggregate-chain-loe.sh` to produce the chain-level LoE summary.
+When a session-end closes a chain (a completion entry with `chain_terminal: true` AND a non-null `chain:`), `coordinator-session-loe.sh` invokes `aggregate-chain-loe.sh` to produce the chain-level LoE summary.
 
 **Chain walk procedure:**
 
@@ -437,7 +446,7 @@ This entry appears in workweek-complete Step 8.5's XL chain-terminal list.
 
 **Example B — Chain-terminal XL aggregated from 6 S+M sessions.**
 
-Six handoffs across two weeks, each individually M or S. The chain-terminal session-end runs `bin/aggregate-chain-loe.sh` and produces:
+Six handoffs across two weeks, each individually M or S. The chain-terminal session-end runs `aggregate-chain-loe.sh` and produces:
 
 ```yaml
 ---
@@ -473,8 +482,8 @@ The `chain_loe.tshirt: XL` is what workweek-complete Step 8.5 surfaces to the PM
 
 - **Handoff schema** — `coordinator/schemas/handoff.yaml` carries a comment block documenting the `## Session Ledger` body convention (not a frontmatter field).
 - **`bin/query-records --type handoff-ledger`** — parse Session Ledger blocks from handoff files; filter by `tshirt`, `opus_dispatches`, etc.
-- **`bin/aggregate-chain-loe.sh`** — chain-walk script invoked at session-end for `chain_terminal: true` entries.
-- **`bin/coordinator-session-loe.sh`** — per-session LoE collector; called by `/session-end` Step 2.6 (Chunk 3 augmentation).
+- **`aggregate-chain-loe.sh`** — chain-walk script invoked at session-end for `chain_terminal: true` entries.
+- **`coordinator-session-loe.sh`** — per-session LoE collector; called by `/session-end` Step 2.6 (Chunk 3 augmentation).
 - **`workweek-complete` Step 8.5** — LoE high-water check; mandatory before Step 9 Release Notes; surfaces XL+ chain-terminal entries to PM.
 
 ---
@@ -603,6 +612,14 @@ would produce an inconsistent query interface across consumer skills. A partial 
 (fixing some skills but not others) is worse than the original inconsistency.
 
 ---
+
+## Version Bumps Communicate User-Noticeable Change — One Bump Per Release
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+A version bump is a user-facing signal: "something you'd notice has changed." When multiple user-visible changes accumulate across sessions before a release, the correct posture is ONE version bump that covers the full delta since the last user-visible release — not a bump per session or per feature. Multiple micro-bumps for a single release window dilute the signal and make changelogs noisy.
+
+**Rule.** Before bumping the version at `/workweek-complete`, query `pending-release` completion entries to enumerate the full delta since the last released version. The bump communicates the user-noticeable surface of ALL those entries together, not just the current session's work. If the delta is entirely infra/tech-debt with no user-visible change, consider whether a version bump is warranted at all — or hold until a user-visible change is included. Composes with the four-stage loop: Stage 4 (`/merge-to-main`) is the natural version-bump gate because it represents the full delta being released, not an intermediate session.
 
 ## track-dispatched-agents.sh dedup fix
 

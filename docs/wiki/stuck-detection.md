@@ -4,7 +4,7 @@ system: stuck-detection
 status: distilled
 distilled_from:
   - archive/specs/2026-03-16-tier1-repomap-stuckdetect.md
-  - plugins/coordinator/skills/stuck-detection/SKILL.md
+  - plugins/coordinator-claude/coordinator/skills/stuck-detection/SKILL.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
@@ -57,7 +57,7 @@ Before beginning work, review any ANTI-REPETITION section in your dispatch promp
 Some Agent Teams teammates enter an idle loop where they stop processing shutdown requests and plain-text messages. `TeamDelete` rejects while they are "active." There is no clean live-kill mechanism — they will eventually time out on their own.
 
 **Before attempting any cleanup of a stuck teammate:**
-1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
+1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
 2. **Archive the deliverable** — if the session's output is a file, verify it exists on disk and is substantive before attempting team teardown.
 3. **Then** attempt shutdown/TeamDelete. If it fails, leave the agent to time out. The work is safe.
 

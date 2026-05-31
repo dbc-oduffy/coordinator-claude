@@ -157,6 +157,60 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - Sweep writes synthesis to: `{output-path}` + `{scratch-dir}/synthesis.md`
 - Sweep writes advisory to: `{advisory-path}` + `{scratch-dir}/advisory.md` (optional — omitted if nothing beyond scope)
 
+## Fidelity Relay Protocol
+
+> **Upstream doctrine:** `coordinator/CLAUDE.md § Agent Teams — blockedBy Is a Gate, Not a Trigger`; `agent-teams-patterns.md`.
+
+**When this fires:** Web runs only — gated to the deep tier (i.e., gap-report signals `deepening_recommended: true` and Team 2 is warranted). Shallow runs (`--shallow` or `coverage_score` above threshold with `deepening_recommended: false`) skip this phase entirely. Structured (Pipeline C) and notebooklm (Pipeline D) are out of scope (structural reasons: no prose synthesis to distort / no depth concept respectively).
+
+**Relay locus: Team 1, before Step 6 TeamDelete.** This is an internal sweep phase that runs after Phase 3 framing is complete but **before the sweep marks its task complete** and **before the EM triggers TeamDelete**. Team 2 gap-specialists (if later spawned) are fresh agents who did not author the original content — they are the wrong execution locus. The original specialists are alive-but-idle (:138 below) when the sweep finishes; no extra teammate slots are consumed.
+
+**Relay sequence (sweep agent responsibility — see `agents/research-synthesizer.md § Fidelity Relay`):**
+
+1. For each specialist, send a `FIDELITY_RELAY` message (wake-up signal — same mechanism as DONE wake at :46 above):
+   ```
+   FIDELITY_RELAY: [TOPIC_LETTER]
+   Please verify that YOUR contributed findings are faithfully represented in the
+   synthesis draft at {output-path}. Check ONLY for misrepresentation, flattening,
+   or distortion of your existing findings — NOT for missing content you wish were added.
+   Reply with FIDELITY_CORRECTION or FIDELITY_OK.
+   You have 2 minutes to respond.
+   ```
+
+2. **Per-specialist bounded timeout:** mirror the 2-minute CHALLENGE timeout at :140 below. Specialists who have converged remain alive-but-idle (:138) but re-poll responsiveness after task-complete is not guaranteed.
+
+3. **On non-response:** proceed without that specialist's confirmation. The sweep notes the non-response explicitly in the synthesis (`[RELAY: {TOPIC_LETTER} specialist did not respond within timeout — relay unconfirmed for this topic]`). **Never hang the pipeline waiting for a non-responding specialist.**
+
+4. **Bloat-guard (structural discriminator):** A valid fidelity correction must reference an **existing synthesis sentence** and assert it misrepresents the source. A correction that only asks to ADD a sentence is out of scope by construction — the relay is scoped to misrepresentation, not coverage inflation. Reject add-content requests under the sweep's existing preserve-don't-inflate mandate.
+
+5. Integrate valid corrections, then do a second pass for coherence on touched prose only.
+
+6. Only after completing steps 1–5: sweep marks its task complete.
+
+**Author-scoped check (for specialists):** When you receive `FIDELITY_RELAY`:
+- Check ONLY: is YOUR finding faithfully represented, or was it flattened/distorted/over-stated?
+- Do NOT request additions of content you wish were included — that is out of scope by construction.
+- Reply `FIDELITY_CORRECTION: [TOPIC_LETTER]` with the existing synthesis sentence and the misrepresentation, OR `FIDELITY_OK: [TOPIC_LETTER]`.
+- You have 2 minutes. If you cannot respond in time, the sweep proceeds without your confirmation.
+
+## Coverage-Auditor Lifecycle
+
+The coverage auditor is a **non-teammate Agent** dispatched by the EM **after the synthesis is complete** (at the "On Completion Notification" step in `pipelines/web-driver.md`), before archive/TeamDelete. It is a fresh-eyes Sonnet cross-reference pass — not the synthesizer grading its own homework (the "author confidence is the failure mode" principle from `plan-coverage-checker.md`).
+
+**What it does:** Cross-references specialist `*-claims.json` records against the synthesis. Emits one sidecar: `{output-path minus .md}-coverage-audit.md`. Never writes the synthesis output path.
+
+**Two coverage artifacts, two questions — explicit reader contract:**
+- `gap-report.md` — "Did we research enough?" (input coverage, drives the deepening gate, synthesizer-owned)
+- `-coverage-audit.md` — "Did the synthesis carry the research?" (output coverage, reader-facing completeness, auditor-owned)
+
+**Auditor lifecycle notes:**
+- Dispatched as a plain `Agent(...)` call, not under the team — preserves the 7-teammate ceiling.
+- Input universe: specialist claim records only (`*-claims.json`). `[SWEEP ADDITION]` content is excluded from the denominator (no upstream claim record; including it causes false-absent noise).
+- Coverage classification is binary: **present-with-pointer** or **absent**. "Under-represented" is a judgment beyond a Sonnet cross-reference pass.
+- `[UNFILLED GAP]` inline markers in the synthesis remain in synthesis prose (reader-facing); the auditor's Completeness Map consolidates and references them — it does not delete them.
+
+See `agents/coverage-auditor.md` for the full agent spec.
+
 ## Deepening Protocol (v2.2)
 
 When Team 1's sweep identifies significant coverage gaps, the EM may dispatch a smaller Team 2 for targeted follow-up. This is the deepening protocol.

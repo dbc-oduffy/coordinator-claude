@@ -48,7 +48,7 @@ optional:
   # /pickup time (not a block). Set by /handoff and /spinoff on every newly-authored
   # handoff so the warning fires only on stale/legacy artifacts. Do NOT remove on
   # consumption — stays as authorial-intent record on consumed handoffs.
-  pickup_ready: string
+  pickup_ready: boolean
   # Lifecycle readiness — universal across all handoff kinds. Drives query-records
   # filtering at /session-start and /workday-start; transitions tracked by /pickup
   # (→ in_flight), /handoff and /session-end (→ shipped or back to ready_to_fire).
@@ -77,6 +77,19 @@ optional:
   # cost: estimation tier — enum string T0|T1|T2|T3 (validator-enforced).
   # T0 = trivial (minutes); T1 = small (<1h); T2 = medium (1-4h); T3 = large (multi-day).
   cost: string
+  # Workstream category — coarse taxonomy for query-records filtering and dashboards.
+  # Presence is enforced post-cutoff (2026-05-29) via cross-field rule in schema.js;
+  # kept optional here so legacy handoffs without category pass required-field validation.
+  # `uncategorized` is the null-object sentinel used by the one-time normalizer backfill
+  # (normalize-handoff-frontmatter.js) for legacy handoffs whose category cannot be inferred;
+  # new handoffs should pick one of the six meaningful values, not uncategorized.
+  # Spec backlink: docs/plans/2026-05-29-handoff-tracker-system.md § Chunk 1 / Chunk 5
+  category:
+    type: enum
+    values: [roadmap, infra, bug, docs, research, refactor, uncategorized]
+  # One-line session summary (≤120 chars). Written by /handoff and /session-end.
+  # Presence and length enforced post-cutoff via cross-field rule in schema.js.
+  summary: string
   # Written by /session-end and /handoff after running coordinator:review-code on the
   # session diff. Format (documented but not type-enforced): "<sha-range> <reviewer> <YYYY-MM-DD>"
   # where reviewer is one of: sonnet | patrik | sonnet+patrik | waived.

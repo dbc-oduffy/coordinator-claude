@@ -1,6 +1,36 @@
 #!/usr/bin/env python
+# ── sh/python polyglot trampoline ──────────────────────────────────────────────
+# The next line is inert Python (a bare string literal) but executable sh/bash.
+# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
+# `bash <script>` reach no longer exec-fails by feeding Python to bash:
+#   cross-repo-memo ...          # direct, via the shebang above — canonical form
+#   python  cross-repo-memo ...  # explicit interpreter
+#   bash    cross-repo-memo ...  # re-execs under python instead of erroring
+# Under sh/bash the line runs `exec python "$0" "$@"`; under Python it is a no-op
+# string expression. Keep `python` (NOT python3 — see the Windows note below).
+''''exec python "$0" "$@" #'''
 """
 cross-repo-memo — dispatch a cross-repo memo to a receiver-EM's working tree.
+
+Shebang note: `python`, NOT `python3` — `python3` is not on PATH on a clean
+Windows install (only `python`/`py` are), so a `python3` shebang exec-127s there.
+This is the documented rule for coordinator CLIs: docs/wiki/bash-on-windows-gotchas.md
+§ Windows exception. The .test.py sibling already uses `python`; do not let this
+drift back to `python3` (it regressed once — see git log). The polyglot exec line
+above must use `python` for the same reason.
+
+Invocation: this is a self-executing CLI on PATH. The canonical form invokes it
+directly (no interpreter prefix, no full $HOME/... path — it's on PATH):
+  cross-repo-memo --to <receiver-em> --topic <slug> --title "<one-line>" --body-file <path>
+The polyglot trampoline above means `bash cross-repo-memo ...` and
+`python cross-repo-memo ...` now work too — they re-exec under python rather than
+erroring, so a habitual `bash` prefix is forgiven, not punished. `--help` lists
+every flag (and `bash cross-repo-memo --help` now prints it instead of a
+traceback). Do NOT route it through `pythonw`/`py` to dodge the Windows console
+flash: pythonw discards stdout, and this CLI prints the receiver path on stdout
+that you must hand the PM. The transient flash is covered machine-wide by the
+ConPTY belt (docs/plans/2026-05-29-windows-console-flash-elimination.md), not by
+per-call interpreter gymnastics.
 
 Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
 Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
@@ -406,6 +436,28 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
+# Maximum summary length — mirrors the ≤120-char rule in bin/lib/schema.js
+# CROSS_FIELD_RULES.cross_repo_memo summary validation. If schema.js bumps the
+# cap, update this constant too. Both sides must stay in sync.
+_SUMMARY_MAX_CHARS = 120
+
+
+def _derive_summary(body: str) -> str:
+    """Derive a summary from the first non-empty line of the memo body.
+
+    Truncates to _SUMMARY_MAX_CHARS with a '…' suffix so the composed memo
+    never violates the schema.js ≤120-char cross-field rule.
+    """
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped:
+            if len(stripped) <= _SUMMARY_MAX_CHARS:
+                return stripped
+            # Truncate preserving full words where possible.
+            return stripped[: _SUMMARY_MAX_CHARS - 1] + "…"
+    return ""
+
+
 def _compose_frontmatter(
     *,
     title: str,
@@ -415,6 +467,8 @@ def _compose_frontmatter(
     self_receipt: bool = False,
     decision: str | None = None,
     supersedes: str | None = None,
+    summary: str | None = None,
+    kind: str | None = None,
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
@@ -428,6 +482,15 @@ def _compose_frontmatter(
 
     'from' is resolved dynamically from the sender's repo (_sender_em_id) — the
     repo the CLI runs in, not a hardcoded identity and not an EM self-identify.
+
+    'summary' is a ≤120-char one-line tl;dr. If not supplied, derived from the
+    first non-empty body line. Truncated at _SUMMARY_MAX_CHARS so the produced
+    memo never violates the schema.js ≤120-char cross-field rule.
+    Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
+
+    'kind' is optional (ask | consult | fyi). When None, NO kind: line is emitted —
+    absence is meaningful (readers apply an 'ask' default for unlabelled memos).
+    Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C2
     """
     # code-review F17: guard against decision=None slipping through when self_receipt=True.
     # _compose_frontmatter would emit 'decision: "None"' (the string "None") if called
@@ -439,6 +502,13 @@ def _compose_frontmatter(
             "_compose_frontmatter: decision is required when self_receipt=True. "
             "Pass a decision value (accepted|declined|partial|superseded)."
         )
+
+    # Resolve and enforce summary length. Derive from body when not provided.
+    resolved_summary = summary if summary is not None else _derive_summary(body)
+    if len(resolved_summary) > _SUMMARY_MAX_CHARS:
+        # Truncate — never emit a summary that would fail the schema.js ≤120 rule.
+        resolved_summary = resolved_summary[: _SUMMARY_MAX_CHARS - 1] + "…"
+
     today = _today()
     # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
     # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
@@ -454,7 +524,10 @@ def _compose_frontmatter(
         f"created: {today}",
         f"status: {status}",
         f"delivery_mode: receiver-repo",
+        f"summary: {_yaml_quote(resolved_summary)}",
     ]
+    if kind is not None:
+        lines.append(f"kind: {_yaml_quote(kind)}")
     if supersedes:
         lines.append(f"supersedes: {_yaml_quote(supersedes)}")
     if self_receipt:
@@ -486,6 +559,8 @@ def _compose_memo(
     self_receipt: bool = False,
     decision: str | None = None,
     supersedes: str | None = None,
+    summary: str | None = None,
+    kind: str | None = None,
 ) -> str:
     """Compose the full memo document (frontmatter + body)."""
     frontmatter = _compose_frontmatter(
@@ -496,6 +571,8 @@ def _compose_memo(
         self_receipt=self_receipt,
         decision=decision,
         supersedes=supersedes,
+        summary=summary,
+        kind=kind,
     )
     return frontmatter + "\n" + body.rstrip("\n") + "\n"
 
@@ -659,6 +736,36 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Path to a prior memo this one supersedes (exercises supersession chain). "
             "Written as `supersedes:` in frontmatter."
+        ),
+    )
+    parser.add_argument(
+        "--summary",
+        metavar="TEXT",
+        default=None,
+        help=(
+            f"One-line tl;dr (≤{_SUMMARY_MAX_CHARS} chars). Written as `summary:` in "
+            "frontmatter. If omitted, derived from the first non-empty body line. "
+            "Truncated to the cap if longer — the CLI never emits a summary that "
+            "would fail the schema.js ≤120-char cross-field rule."
+        ),
+    )
+    parser.add_argument(
+        "--kind",
+        choices=["ask", "consult", "fyi"],
+        default=None,
+        help=(
+            "Sender-declared memo shape. Enum: ask | consult | fyi. "
+            "ask — sender requests the receiver DO something (action request); "
+            "surfaces with urgency, receiver adjudicates-and-owns disposition. "
+            "consult — sender requests the receiver's input/opinion; surfaces with "
+            "urgency, receiver replies-in-place (captures response in actioned_note), "
+            "NO return-memo. "
+            "fyi — informational, no action or response expected; quiet log line, "
+            "receiver acknowledges only. "
+            "When omitted, NO kind: line is written — absence is meaningful: readers "
+            "apply an 'ask' default for unlabelled memos (back-compat safe default). "
+            "NOTE: 'ack' is NOT a valid kind — acknowledgement is receipt-state "
+            "(the receiver flipping status: open → actioned), never a sender-declared kind."
         ),
     )
     return parser
@@ -832,6 +939,8 @@ def main(argv: list[str] | None = None) -> int:
         self_receipt=args.self_receipt,
         decision=args.decision,
         supersedes=args.supersedes,
+        summary=args.summary,
+        kind=args.kind,
     )
     _write_file(receiver_side_path, receiver_content, receiver_path)
 

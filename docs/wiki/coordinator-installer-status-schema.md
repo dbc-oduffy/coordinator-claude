@@ -49,10 +49,11 @@ by the installer redesign (marked **new**):
 | `project_scaffolding` | Project scaffolding | Directive to run `/project-onboarding` — always a fixed prose value, not a computed status |
 | `operator_identity` | Operator identity | **new** — Whether `~/.claude/coordinator-identity.yaml` exists with a parseable `version: 1` + `operator_name` field |
 | `non_interactive_contract` | Non-interactive contract | **new** — Under `--non-interactive`, each prompt site's annotation (`skip-with-note` / `default-with-warning` / `fail-loud`); surfaces which defaults were applied |
-| `render_template_helper` | Render-template helper | **new** — Whether `bin/render-template.sh` is present and executable in the coordinator plugin directory |
+| `render_template_helper` | Render-template helper | **new** — Whether `render-template.sh` is present and executable in the coordinator plugin directory |
 | `persona_customization` | Persona customization | Whether persona names were customized or kept at defaults under this run |
+| `coordinator_whoami` | `coordinator_whoami` package | Whether the `coordinator_whoami` Python package is importable in the active env, and if not, what `/coordinator:setup` Phase 3 Step 6 did about it |
 
-**Total: 15 rows** (11 pre-redesign + 3 new + 1 persona-customization row).
+**Total: 16 rows** (11 pre-redesign + 3 new + 1 persona-customization row + 1 coordinator-whoami row).
 
 <!-- Review: code-reviewer — persona_customization row was emitted by setup.md C3 but missing from this table -->
 

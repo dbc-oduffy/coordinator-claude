@@ -29,10 +29,25 @@ Follow this sequence exactly — the ordering is crash insurance.
 3. **Cross-topic reconciliation** — resolve conflicts between verifiers. CONTESTED fields (from unresolved peer challenges) MUST be resolved: weigh both sides' evidence, prefer higher-confidence + more-recent + primary-source. Document every resolution.
 4. **Self-validate against Phase 2 gate rules** — check against every rule. Validate: required fields present (or null with annotation), enum values match exactly, array minimums met, no prose in structured data.
 5. **Overwrite the output path** with the fully reconciled, validated output.
-6. **Write annotations** to `{scratch-dir}/synthesis-annotations.md` — annotations table, cross-topic reconciliation table, gaps remaining table. These are the paper trail, NOT the deliverable.
+6. **Write annotations** to `{scratch-dir}/synthesis-annotations.md` — annotations table, cross-topic reconciliation table, gaps remaining table. These are the paper trail, NOT the deliverable. **Every verifier finding that did not map to a schema field must have a drop justification recorded here** — `synthesis-annotations.md` is the drop-justification oracle for the downstream coverage auditor (see note below).
 7. **Write advisory** (optional) to `{scratch-dir}/advisory.md` ONLY — if substantive observations beyond scope exist. See Advisory section below.
 8. **Mark task completed** via TaskUpdate
 9. **Send completion message** to EM — confirm output path, change type counts (N CONFIRMED, N UPDATED, N NEW, N REFUTED, N CONTESTED resolved), note advisory status, flag any gate failures or unfilled required fields.
+
+> **Downstream reduced coverage auditor (Pipeline C — awareness note).**
+> After you complete, the EM dispatches an independent, non-teammate coverage-auditor Agent
+> (per `pipelines/coverage-auditor-prompt-template.md` § Pipeline C block). Its sole job is to
+> verify that every verifier finding in `*-findings.md` either (a) mapped to a field in the
+> structured output, or (b) appears in `synthesis-annotations.md` with a drop justification.
+> A finding absent from both is the only `absent` case — the auditor has no prose synthesis to
+> audit fidelity against (schema-locked output, no prose distortion possible), so this reduced
+> check is the entire scope. **Consequence: intentional drops must be annotated in
+> `synthesis-annotations.md` or the auditor will flag them absent.** The annotation step at
+> Step 6 above already requires this; the auditor closes the loop independently.
+> No fidelity relay applies to Pipeline C (CONTESTED mandatory pre-synthesis pre-empts
+> post-hoc prose distortion; relay is out-of-scope per plan OD-1).
+> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
+> § OD-1, § C6, § AC9.
 
 ## Merge Rules
 

@@ -109,7 +109,7 @@ Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no t
 **Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items — especially valuable when joining cold.
 
 ```bash
-bin/query-records --type completion --since "90d" --where "nature=roadmap" \
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type completion --since "90d" --where "nature=roadmap" \
   --sort "-loe.tshirt" --limit 10 --format markdown-list
 ```
 
@@ -186,6 +186,7 @@ Only scaffold files that have **meaningful day-1 content**. A placeholder header
 | `cross-repo/` dir | EAGER (contract-bearing) | Inbound cross-repo memo channel — sibling EMs address this repo's `cross-repo/` by name; must exist before any memo arrives. Scaffolded with `README.md` (real content, not `.gitkeep`) by `scaffold-canonical-structure.sh`. Schema: `cross-repo-memo`. Source of truth: `canonical-structure.yaml`; plan: `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Lazy-vs-eager reconciliation`. |
 | `tasks/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
 | `tasks/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
+| `tasks/handoff-tracker.md` | LAZY (render) | Per-repo handoff tracker. **Never scaffold manually** — lazily created on first render by `bin/render-handoff-tracker.js`. Edit-resistance: two layers (agent hook + editor guard, both wired automatically). → `docs/wiki/handoff-tracker-system.md` § Edit-Resistance |
 | `archive/completed/` dir | LAZY | No completed work until first work item ships |
 | `docs/wiki/` dir | LAZY | Wiki guides come from `/distill` after artifacts accumulate |
 | `docs/plans/` dir | LAZY | Plans come from plan mode; none exist on day 1 |
@@ -196,69 +197,13 @@ LAZY items are NOT created here. Each has a designated "create on first use" own
 
 #### 3a. CLAUDE.md (if missing)
 
-Use `templates/CLAUDE.md.template` via `bin/render-template.sh`. The template contains ONLY literal `{{KEY}}` substitutions — no conditionals. Construct the substitution values before calling the helper:
+Use `templates/CLAUDE.md.template` via `render-template.sh`. Construct three substitution values before calling the helper:
 
-**1. Construct `GLOBAL_EXTENDS_LINE`:**
-- If `~/.claude/CLAUDE.md` exists: set to `Extends global \`~/.claude/CLAUDE.md\`.`
-- If no global CLAUDE.md exists: set to empty string `""`
+1. **`GLOBAL_EXTENDS_LINE`** — `Extends global \`~/.claude/CLAUDE.md\`.` if that file exists; else `""`.
+2. **`PROJECT_TYPE_BLOCK`** — concatenated per-type convention section bodies (one per selected type, blank line between). Full block bodies for `game-dev`, `web-dev`, `data-science`, and multi-type rules: → [`docs/wiki/project-onboarding-claude-md-render.md`](../../docs/wiki/project-onboarding-claude-md-render.md). `general` type: empty string.
+3. **Render helper call + runtime conventions population:** → same wiki § Render Helper Call and § Runtime Conventions Section.
 
-**2. Construct `PROJECT_TYPE_BLOCK`:**
-Concatenate block bodies for each selected type (in selection order); blank line between multiple blocks.
-
-- **`game-dev` block:**
-  ```
-  ## Unreal Engine Conventions
-
-  - **Engine version:** UE5.x (specify)
-  - **Build command:** <!-- e.g., UnrealBuildTool invocation -->
-  - **Cook command:** <!-- platform-specific cook -->
-  - **Blueprint vs C++:** <!-- project policy on when to use each -->
-  - **Naming conventions:** <!-- UE naming standards: A_ for assets, BP_ for blueprints, etc. -->
-  - **Key modules:** <!-- list primary C++ modules -->
-  ```
-
-- **`web-dev` block:**
-  ```
-  ## Web Development
-
-  - **Framework:** <!-- e.g., Next.js, React, Vue, Svelte -->
-  - **Dev server:** <!-- e.g., npm run dev, port -->
-  - **Component conventions:** <!-- file structure, naming, styling approach -->
-  - **State management:** <!-- e.g., Zustand, Redux, signals -->
-  - **CSS approach:** <!-- e.g., Tailwind, CSS Modules, styled-components -->
-  - **Key routes/pages:** <!-- list primary routes -->
-  ```
-
-- **`data-science` block:**
-  ```
-  ## Data Science Conventions
-
-  - **Notebook conventions:** <!-- naming, cell organization, output clearing policy -->
-  - **Data pipelines:** <!-- tools, orchestration, storage locations -->
-  - **Model versioning:** <!-- MLflow, DVC, manual, etc. -->
-  - **Environment management:** <!-- conda, venv, poetry -->
-  - **Key datasets:** <!-- list primary data sources -->
-  ```
-
-- **`general` type:** no block body — `PROJECT_TYPE_BLOCK` is empty string `""`.
-- **Multi-type projects** (e.g., `game-dev` + `data-science`): concatenate both block bodies with a blank line between them.
-
-**3. Call the render helper:**
-
-```bash
-bash "$HOME/.claude/plugins/coordinator/bin/render-template.sh" \
-  "$HOME/.claude/plugins/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
-  -o CLAUDE.md \
-  PROJECT_NAME="<derived-name>" \
-  PROJECT_TYPE="<type>" \
-  SUBTYPES="<comma-separated-list-or-empty>" \
-  GLOBAL_EXTENDS_LINE="<line-or-empty>" \
-  PROJECT_TYPE_BLOCK="<concatenated-blocks-or-empty>"
-```
-
-The helper substitutes all `{{KEY}}` placeholders, exits non-zero if any remain (template/key drift guard). Use absolute `$HOME`-anchored paths — relative paths resolve against the project root, not the plugin directory. Leave `<!-- Fill in -->` comments as-is; they are prompts for the PM.
-
-**Runtime conventions section:** populate the `## Runtime conventions` section bullets from the Phase 1 marker-scan output — one bullet per detected stack line. If the script reported "no known stack markers", replace the placeholder bullets with `- <!-- no runtime markers detected; PM to fill -->`. Do not edit other `<!-- Fill in -->` placeholders.
+Use absolute `$HOME`-anchored paths. Leave `<!-- Fill in -->` comments as-is.
 
 #### 3b. docs/project-tracker.md (if missing)
 
@@ -399,9 +344,56 @@ exit 0
 
 Skip if a custom auto-push hook already exists and the PM has signed off on it.
 
+Then harden this repo's git config against the concurrent-EM orphaned-`index.lock` failure mode (sets `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process that can orphan the index lock on Git-for-Windows — see `docs/wiki/concurrent-em-hazards.md` § H21):
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/coordinator-configure-git"
+```
+
+Idempotent — safe to re-run; a no-op if already hardened.
+
+#### 3f.6. VS Code read-only guard for generated trackers
+
+Mark the generated handoff tracker renders read-only in VS Code (and forks that
+honor `files.readonlyInclude`) so a human does not accidentally hand-edit a file
+the renderer overwrites. This is the editor-side complement to the agent-side
+guard (the `block-tracker-edit.sh` PreToolUse hook, which ships with the plugin
+and needs no per-project setup). Idempotent — merges two globs into
+`.vscode/settings.json` without clobbering existing settings:
+
+```bash
+bash "$HOME/.claude/plugins/coordinator/bin/ensure-vscode-readonly.sh" --root "$(pwd)"
+```
+
+The helper skips loudly if `jq` is absent or `.vscode/settings.json` is JSONC
+(comments/trailing commas) — in that case the report should note the two keys to
+add by hand (`files.readonlyInclude` → `"**/tasks/handoff-tracker.md": true`,
+`"**/tasks/doe-handoff-tracker.md": true`). Offer-shaped, not a hard lock: a user
+can still override per-file via VS Code's "Set Active Editor Writeable".
+
 #### 3g. DIRECTORY.md
 
 Do NOT create this file directly — requires source file analysis handled by `/update-docs` Phase 2. Note in the report that the PM should run `/update-docs`.
+
+### Phase 3g. Currency stamp (ALWAYS — idempotent)
+
+<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
+
+Record which `COORDINATOR_SCHEMA_VERSION` this project was onboarded against. Idempotent —
+safe to re-run; overwrites only when the schema version has been bumped since the last stamp.
+
+Skip for distribution repos (answer (b) from Phase 1). Apply for working repos ((a) and (c)).
+
+Resolve `CLAUDE_PLUGIN_ROOT` as the coordinator plugin root (e.g. `~/.claude/plugins/coordinator-claude/coordinator`):
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/coordinator-currency.sh"
+coordinator_currency_write "$(pwd)" "${CLAUDE_PLUGIN_ROOT}"
+```
+
+If the write succeeds: add `docs/coordinator-currency.yaml` to the **Created** list (or **Already Existed** if idempotent no-op). If it fails with a clear error, add a **Needs Attention** warning — the stamp is non-fatal for onboarding but required for the drift probe.
+
+---
 
 ### Phase 4: REPORT
 
@@ -425,6 +417,7 @@ Present what was done:
 _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
 
 ### Next Steps
+0. **Your `~/.claude` is the surface you evolve** — it is a git-tracked repo that IS your live coordinator install. Customize it (CLAUDE.md, lessons, wiki), commit, and push. Never edit the upstream `coordinator-claude` source clone; changes there are overwritten on the next publish/refresh.
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
 2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
 3. **Run `/session-start`** — verifies everything is wired up correctly

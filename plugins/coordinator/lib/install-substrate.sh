@@ -23,10 +23,18 @@ set -euo pipefail
 
 [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]] || { echo "install-substrate: CLAUDE_PLUGIN_ROOT not set" >&2; exit 1; }
 
-_ml_templates="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/machine-local"
-_ml_bin="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/bin"
-_ch_bin="${CLAUDE_PLUGIN_ROOT}/coordinator/lib/claude-home"
-_setup_src="${CLAUDE_PLUGIN_ROOT}/coordinator/templates/setup"
+_ml_templates="${CLAUDE_PLUGIN_ROOT}/templates/machine-local"
+_ml_bin="${CLAUDE_PLUGIN_ROOT}/templates/bin"
+_ch_bin="${CLAUDE_PLUGIN_ROOT}/lib/claude-home"
+_setup_src="${CLAUDE_PLUGIN_ROOT}/templates/setup"
+
+# --- Single source of truth for the setup/ percolation file list ---
+# F8: pre-source existence check (matches dist/install.sh posture) — under
+# `set -euo pipefail` a missing manifest dies with a raw bash error before the
+# array-emptiness diagnostic below can fire, so check explicitly first.
+_manifest="${CLAUDE_PLUGIN_ROOT}/lib/setup-templates-manifest.sh"
+[[ -f "$_manifest" ]] || { echo "install-substrate: setup-templates-manifest.sh not found at ${_manifest}" >&2; exit 1; }
+source "$_manifest"
 
 # --- Hard precondition: templates must exist ---
 for _required in "$_ml_templates" "$_ml_bin" "$_ch_bin" "$_setup_src"; do
@@ -42,6 +50,7 @@ EOF
         exit 1
     fi
 done
+[[ ${#SETUP_TEMPLATE_FILES[@]} -gt 0 ]] || { echo "install-substrate: SETUP_TEMPLATE_FILES is empty — setup-templates-manifest.sh failed to source or is corrupt" >&2; exit 1; }
 
 # --- Resolve install destination (same precedence as claude-home) ---
 _install_base="${CLAUDE_HOME:-${HOME}}"
@@ -103,20 +112,25 @@ for _f in claude-home _claude_home.py claude-home.cmd; do
 done
 
 # --- Step 3d: percolation mechanism (~/.claude/setup/) ---
+# File list is the single source of truth in lib/setup-templates-manifest.sh.
 SETUP_DEST="${_install_base}/.claude/setup"
 mkdir -p "$SETUP_DEST"
-for _f in publish.sh publish_sync.py publish-targets.example.sh .percolate-identity.example; do
+for _f in "${SETUP_TEMPLATE_FILES[@]}"; do
     _exec=no
-    [[ "$_f" == "publish.sh" ]] && _exec=yes
+    for _e in "${SETUP_TEMPLATE_EXEC_FILES[@]}"; do
+        [[ "$_f" == "$_e" ]] && _exec=yes && break
+    done
     _install_one "$_setup_src/$_f" "$SETUP_DEST/$_f" "$_exec" "machine-local"
 done
 
-# Sub-step: percolate-hooks/ doctrine README (subdirectory destination).
+# percolate-hooks/ doctrine README (subdirectory destination) — also manifest-driven.
 # Only the generic README is shipped; per-target hook subdirectories
 # (~/.claude/setup/percolate-hooks/<target>/) are operator-authored and
 # never templated.
-mkdir -p "$SETUP_DEST/percolate-hooks"
-_install_one "$_setup_src/percolate-hooks/README.md" "$SETUP_DEST/percolate-hooks/README.md" "no" "machine-local"
+for _hf in "${SETUP_TEMPLATE_HOOK_FILES[@]}"; do
+    mkdir -p "$SETUP_DEST/$(dirname "$_hf")"
+    _install_one "$_setup_src/$_hf" "$SETUP_DEST/$_hf" "no" "machine-local"
+done
 
 # --- Step 3b/3c: Windows-only PATH + AppX Python health ---
 # Skip silently on non-Windows.

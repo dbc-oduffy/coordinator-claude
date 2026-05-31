@@ -25,6 +25,16 @@ fi
 
 Non-zero exit (lib not found) → continue; the reaper is hygiene, not a gate.
 
+## Step -0.5: EM Environment Check
+
+Before load-bearing work, confirm the EM is on the right model and effort:
+
+- **Effort** — you cannot observe this yourself (it shows only in the CLI startup banner, never in your system prompt). Run the safety script and relay any banner it prints in the Morning Briefing; silent output means clean (`medium` effort), so say nothing:
+  ```bash
+  bash ~/.claude/plugins/coordinator/bin/check-em-environment.sh
+  ```
+- **Model** — your system prompt names your model. If it is not Opus, WARN the PM (`⚠ MODEL DRIFT — not Opus; toggle via /model`) and recommend switching before proceeding. (The script also reads the transcript model as a backstop.)
+
 ## Step 0: Branch Setup
 
 Ensure work happens on an active workstream branch and reconcile with `origin/main` daily. Active workstream may be canonical (`work/{machine}/{date-or-span}`) **or** a PM-authorized long-lived bus (`migration/...`, `release/...`, `feature/...`). Daily ritual is **reconcile with origin/main**, not rotation.
@@ -87,7 +97,7 @@ When `git merge --no-ff` hits a conflict, abort and produce a **Branch Reconcili
 
 ## Step 0.5: Orphan Branch Sweep
 
-Run `bin/orphan-branch-sweep.sh --format text --severity-min warning`. For each line returned:
+Run `orphan-branch-sweep.sh --format text --severity-min warning`. For each line returned:
 
 - **CRITICAL** entries → surface in the Morning Briefing under a `### Orphan Sweep` section. Include the branch name, the merged PR number, and the count of post-merge commits. Recommend: _"Investigate before opening new work — these commits may be orphaned. Salvage via PR or consolidate into today's branch."_
 - **WARNING** entries → surface as a heads-up in the same section. Recommend: _"Open a PR or consolidate before the branch goes stale."_
@@ -154,7 +164,7 @@ Query-driven, not grep-driven. Two `bin/query-records` calls — sub-second by c
 ### Step 1.1: Actionable-now handoffs
 
 ```bash
-bin/query-records --type handoff \
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=ready_to_fire AND status=active" \
   --sort "-created" --format markdown-list
 ```
@@ -169,20 +179,18 @@ Routing on `kind:` (spinoffs cluster separately):
 Two queries — first lists everything `awaiting_gate`, second flags the stale subset:
 
 ```bash
-bin/query-records --type handoff \
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
   --sort "-created" --format markdown-list
 
-bin/query-records --type handoff \
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type handoff \
   --where "deployment_state=awaiting_gate AND status=active" \
   --older-than 6d --format markdown-list
 ```
 
 - **If any `awaiting_gate` exist:** surface the full list as a "Gated handoffs" subsection (titles + gate_dependency, not bodies). Morning briefing is the right surface for cross-workstream gate awareness — silently filtering them buries actionable triage decisions (clear gate, retarget, pick up early).
-- **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
+- **If any are >6 days old (≈ one working week):** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
 - **If none exist:** skip silently.
-
-Threshold: six days ≈ one working week — uncleared gates deserve a glance before they ossify.
 
 ### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
 
@@ -192,7 +200,7 @@ Per-handoff in `ready_to_fire`: (a) `git log --oneline --since="<handoff-date>" 
 
 Query the completed archive for recent entries:
 ```bash
-query-completions --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json
 ```
 
 **Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists, read the legacy monolith for this reconciliation check only (read-only; no writes to the legacy path).
@@ -203,8 +211,6 @@ For each `ready_to_fire` handoff, check whether the work it describes appears as
 
 _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {G} awaiting_gate (of which {M} >6 days) [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
 
-**Why query, not grep:** `deployment_state` obviates grep-walks; `ready_to_fire` is the primary list, `awaiting_gate` is its own subsection for cross-workstream gate awareness. (2026-05-08, revised 2026-05-15)
-
 ## Step 1.45: Outstanding Cross-Repo Memos
 
 Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surface.sh`. Non-empty → surface verbatim under `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.45`.
@@ -214,18 +220,11 @@ Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surfac
 Surface last quarter's top-10 roadmap completions by size — grounding the day in recent delivery context. Per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern: heading renders regardless of row count.
 
 ```bash
-bin/query-records --type completion --since "90d" --where "nature=roadmap" \
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type completion --since "90d" --where "nature=roadmap" \
   --sort "-loe.tshirt" --limit 10 --format markdown-list
 ```
 
-Render the results under a fixed subsection heading in the Morning Briefing (Step 5), inside the `### Handoffs` block:
-
-```markdown
-#### Recent roadmap (last 90d, top-10 by size)
-<results — one bullet per row, or "(none)" when the query returns zero rows>
-```
-
-The `(none)` case is expected on brand-new or un-migrated repos. `bin/query-completions.sh` with equivalent flags is also accepted.
+Render under `#### Recent roadmap (last 90d, top-10 by size)` inside `### Handoffs` (Step 5). One bullet per row; `(none)` when zero rows (expected on new/un-migrated repos). `query-completions.sh` with equivalent flags is also accepted.
 
 ## Step 1.6: Coordinator-Improvement Queue Check
 
@@ -248,13 +247,29 @@ Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md`, `t
 
 No marker files → skip silently. Do not auto-execute — PM-actioned, not auto-dispatched.
 
+## Step 1.75: Central Learn-Lessons Volume Trigger
+
+Run `central-run-due.sh` (relative to the coordinator plugin root). It counts `[universal]`
+entries accrued across the configured roots since the last **COMPLETE** central run and compares to
+`central_volume_threshold` (config, default 150). This is the *volume* companion to the date-based
+recheck marker (Step 1.7): a fixed cadence under-runs in busy weeks, when the sibling `lessons.md`
+boot-surface floor balloons fastest.
+
+- **Prints a `CENTRAL_RUN_DUE` line** (over threshold): surface in Priority Suggestions —
+  _"Central learn-lessons due (volume): {N} universals accrued since {date}. Consider `/learn-lessons` central."_
+  with the per-repo breakdown.
+- **Stderr-only / nothing on stdout** (below threshold, or no COMPLETE sentinel yet — informational stderr on first run): nothing for Priority Suggestions; skip silently.
+
+Read-only and PM-actioned — never auto-dispatch a central run. On a machine without the sibling roots,
+unreachable roots are skipped silently (the date-based marker in Step 1.7 still covers the cadence floor).
+
 ## Step 1.8: Project-RAG Preamble Drift Check
 
-Run `bin/verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-preamble-sync.sh`).
+Run `verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-preamble-sync.sh`).
 
 - **No consumers found** (exit 0): skip silently.
 - **All consumers OK** (exit 0, all `OK`): skip silently.
-- **Any MISMATCH or MISSING_END** (exit non-zero): surface under **Preamble Drift**: _"project-rag-preamble drift in [N] consumer(s): [list files]. Run `bin/verify-preamble-sync.sh --fix` to repair, then commit all touched files together."_
+- **Any MISMATCH or MISSING_END** (exit non-zero): surface under **Preamble Drift**: _"project-rag-preamble drift in [N] consumer(s): [list files]. Run `verify-preamble-sync.sh --fix` to repair, then commit all touched files together."_
 
 **Do NOT auto-fix** — investigate which consumer drifted and why; a drift may need to be merged back into the canonical snippet rather than overwritten.
 
@@ -286,20 +301,36 @@ fi
 **First**, refresh the coordinator-claude sentinel:
 
 ```bash
-bash ~/.claude/plugins/coordinator/bin/coordinator-doctor-sentinel.sh
+bash ~/.claude/plugins/coordinator/bin/coordinator-doctor-sentinel.sh --full
 ```
 
-Fires P-1..P-10 probes (`docs/wiki/coordinator-doctor.md`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`. Silent on GREEN, brief on AMBER/RED. Always exits 0 — advisory only.
+Fires all probes (`docs/wiki/coordinator-doctor.md`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`. Silent on GREEN, brief on AMBER/RED. Always exits 0 — advisory only. (`--full` is required: bare invocation now defaults to `--triage` which does not write the sentinel.)
 
-Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Run `bin/scan-addon-health.sh --red-and-stale`; on non-empty output, render under `### Addon Health` (between `### Auto-Push Health` and `### Priority Suggestions`); on empty, omit. Schema + EM dispatch flow: `docs/wiki/addon-health-sentinel.md`.
+Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Run `scan-addon-health.sh --red-and-stale`; on non-empty output, render under `### Addon Health` (between `### Auto-Push Health` and `### Priority Suggestions`); on empty, omit. Schema + EM dispatch flow: `docs/wiki/addon-health-sentinel.md`. The scan now also includes a SessionStart hook-script existence pass (2026-05-27): missing hook scripts referenced in `hooks/hooks.json` surface as `[health]` lines here. Authoring guide: `docs/wiki/plugin-session-start-hooks.md`.
 
-Additionally, run `bin/check-plugin-drift.sh` to probe git-state and venv-state drift for registered plugin live installs. On non-empty output (exit 1), append into the same `### Addon Health` section:
+Additionally, run `check-plugin-drift.sh` to probe git-state and venv-state drift for registered plugin live installs. On non-empty output (exit 1), append into the same `### Addon Health` section:
+<!-- [ok-via-git-propagation] lines exit 0 and are intentionally silent here — the state is benign (live content matches source; sentinel will advance on next install). Operators who want to inspect sentinel state run the probe directly. See docs/plans/2026-05-28-forward-drift-probe-content-equivalence.md § Chunk 3. -->
 ```
 Plugin propagation: <summary e.g. "project-rag 22 commits behind, venv ok" or "all clean">
 ```
 No `plugin.mirrors` entries → omit silently. `source_is_live` entries (e.g. coordinator) surface as "n/a-by-design" and are not counted as drift.
 
 Spec backlink: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 1`
+
+## Step 1.10.4: Onboarding Currency Offer (cwd repo)
+
+Run the onboarding currency detector against the cwd repo:
+
+```bash
+bash ~/.claude/plugins/coordinator/lib/detect-onboarding-offer.sh
+```
+
+- **Non-empty output** → append the line verbatim into the `### Addon Health` section (alongside other health findings). The line is offer-shaped — surface it as a PM-facing suggestion, not a warning.
+- **Empty output** → silent (repo is current, not a git repo, distribution repo, or already dismissed).
+
+The detector respects the dismissal sentinel (`<repo>/.git/coordinator-onboarding-dismissed`) — once dismissed it never fires again for that repo. The offer text tells the PM how to dismiss.
+
+Spec backlink: `docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 3`
 
 ## Step 1.10.5: MCP Tool Registration
 
@@ -347,29 +378,11 @@ Advisory only — never blocks.
 
 Check if a bug sweep should be suggested — based on **code churn since last sweep**, not just calendar time:
 
-1. Read `tasks/bug-backlog.md` header for `Last sweep:` date and `Commit at sweep:` hash
-
-   **Expected header format** (written by `/bug-sweep`):
-   `> Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)`
-   Parse `Last sweep:` for date and `Commit at sweep:` for the anchor hash.
-
-2. If no backlog exists: no sweep has ever run. Check codebase substance:
-   ```bash
-   find . \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" \) \
-     | grep -v node_modules | grep -v __pycache__ | wc -l
-   ```
-   If >50 source files: _"No bug sweep has ever run on this codebase ([N] source files). Recommend running bug-sweep."_ If <50, skip silently.
-3. If backlog exists, count commits since the sweep's anchor commit:
-   ```bash
-   git rev-list --count <sweep-commit>..HEAD
-   ```
-4. **Suggest sweep if:**
-   - >50 commits since last sweep AND >7 days since last sweep (significant churn with time floor — prevents nagging during sprint-mode work), OR
-   - >14 days since last sweep AND >20 commits since last sweep (moderate churn + time)
-   - _"Bug sweep last ran [date] ([N] commits ago). Recommend running bug-sweep before new feature work."_
-5. If few commits since last sweep: "Bug sweep is current ([N] commits since last sweep)."
-
-**The trigger is churn, not calendar** — wait the 7-day floor to avoid suggestion fatigue during sprint-mode work.
+1. Read `tasks/bug-backlog.md` header for `Last sweep:` date and `Commit at sweep:` hash. Header format (written by `/bug-sweep`): `> Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)`
+2. If no backlog exists: count source files (`find . \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" \) | grep -v node_modules | grep -v __pycache__ | wc -l`). If >50: _"No bug sweep has ever run ([N] source files). Recommend running bug-sweep."_ If <50, skip silently.
+3. If backlog exists: count commits since anchor (`git rev-list --count <sweep-commit>..HEAD`).
+4. **Suggest sweep if:** >50 commits AND >7 days since last sweep (churn + time floor prevents sprint-mode nagging), OR >14 days AND >20 commits (moderate churn + time). Message: _"Bug sweep last ran [date] ([N] commits ago). Recommend running bug-sweep before new feature work."_
+5. Otherwise: "Bug sweep is current ([N] commits since last sweep)."
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
@@ -391,7 +404,7 @@ When present:
 
 2. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline the rendered output into the Morning Briefing under a new **Project-RAG** line (template below).
 
-**Doctrine — no parsing peer-plugin config from coordinator.** Coordinator's contract with plugin CLIs is `invoke + read exit code + read stdout`. Reaching into `~/.claude.json` is cross-plugin contract leakage that breaks on transport migration (e.g. 2026-05-13 stdio→HTTP). See `docs/wiki/plugin-extraction-and-distribution.md` § Cross-plugin contract.
+**Doctrine — no parsing peer-plugin config from coordinator.** Contract: `invoke + read exit code + read stdout`. Reaching into `~/.claude.json` is cross-plugin leakage that breaks on transport migration. See `docs/wiki/plugin-extraction-and-distribution.md` § Cross-plugin contract.
 
 **Flag-only — never auto-run.** A reindex can race with an open editor. PM invokes manually after `/workday-start` completes.
 
@@ -403,7 +416,7 @@ bash plugins/coordinator/bin/whats-next.sh
 
 Emits: improvement-queue head (top 5), `docs/project-tracker.md` Ready/Executing rows, open handoffs. Use as-is for § Priority Suggestions; do not reconstruct from prose.
 
-**Reconcile active work against completed archive:** `query-completions --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/YYYY-MM.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
+**Reconcile active work against completed archive:** `"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/YYYY-MM.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
 - **Match found** → Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
 - Fuzzy match on names/descriptions — when unsure, flag as "possible match — verify" rather than auto-resolving.
 - Report mismatches under **Alignment Check** in the Morning Briefing.
@@ -435,12 +448,15 @@ _(Omit this section entirely unless Step 0.45's `$SPAN_ASSERT_FAIL` was set. Whe
 ### Tool Availability
 Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint for each missing tool (`winget install BenBoyter.scc` / `winget install koalaman.shellcheck`). When both present: _"Tools: scc + shellcheck available."_ Only nag when missing.
 
+**Fan-out tooling:** `fan-out-dispatch.sh` (compiler — overlap pass + scoped prompts); follow the fan-out methodology (`docs/wiki/dispatching-parallel-agents.md` § Executing a Fan-Out Wave) to dispatch the compiled wave and hold the EM-serial commit (not a skill — no `/fan-out` command). Use for any multi-chunk parallel or serial dispatch instead of hand-authoring executor prompts.
+
 ### Handoffs
 - **Continuation:** [N active, M aging, K likely-consumed]
 - **Spinoffs awaiting pickup:** [list each: filename — title — age — workstream]
   _(Omit this bullet if no spinoffs exist.)_
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
+- **Tracker:** durable snapshot at `tasks/handoff-tracker.md` (refreshed by `/session-end` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). DoE aggregate across all repos: `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos` → `tasks/doe-handoff-tracker.md`.
 
 #### Recent roadmap (last 90d, top-10 by size)
 _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_

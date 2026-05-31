@@ -3,13 +3,13 @@ title: plan-coverage-checker pre-review doctrine
 created: 2026-05-18
 type: doctrine
 related:
-  - plugins/coordinator/agents/plan-coverage-checker.md
-  - plugins/coordinator/snippets/plan-coverage-check-consumption.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
-  - plugins/coordinator/docs/wiki/docs-checker-pre-review.md
-  - plugins/coordinator/docs/wiki/prior-art-checker.md
-  - plugins/coordinator/docs/wiki/external-pattern-checker.md
-  - plugins/coordinator/docs/wiki/ceremony-calibration.md
+  - plugins/coordinator-claude/coordinator/agents/plan-coverage-checker.md
+  - plugins/coordinator-claude/coordinator/snippets/plan-coverage-check-consumption.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/docs-checker-pre-review.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/prior-art-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/external-pattern-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/ceremony-calibration.md
   - tasks/lessons.md
   - docs/plans/2026-05-18-plan-coverage-checker.md
 ---
@@ -50,7 +50,9 @@ Three classification buckets: **MATCHED** (signal confirmed), **AMBIGUOUS** (sig
 
 M:N semantics apply: a slate chunk that consolidates multiple oracle items must enumerate them explicitly. Oracle members not explicitly cited in a consolidating chunk → AMBIGUOUS (not MISSED).
 
-When no oracle table is found, the agent emits `SCOPE-MISMATCH` and stops — this is the correct silent skip for greenfield design plans.
+**Highest-priority oracle — the ratified problem-set (external).** Before the in-plan heuristics, the agent checks the plan frontmatter for a `problem_set:` key. A `problem_set: <path>` pointing at a `status: ratified` file (or `problem_set: inline (§ ...)` validated by a `> Ratified by PM <name> <date>` blockquote) becomes the **primary** oracle, with any in-plan audit table demoted to secondary. This is the only oracle source for feature/PRD-shaped plans, which otherwise carry no audit table. Because the problem-set is authored *before* and *outside* the plan (via `coordinator:shape`), it is a genuine external check — the plan cannot grade its own homework. See `docs/wiki/writing-plans.md § Problem-set as external oracle`.
+
+When no oracle is found — no ratified problem-set AND no in-plan audit table — the agent emits `SCOPE-MISMATCH` and stops. This is the correct silent skip for greenfield design plans. **For `feature` / `architecture` / `spike` plans lacking a ratified problem-set, the agent first writes an advisory nudge line** (*"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."*) into the SCOPE-MISMATCH sidecar — an advisory line, not a verdict change, and silent for `production-patch`/audit plans.
 
 For full matching rubric, bucket definitions, and OOS sub-classification (OOS-ARCHITECTURAL vs. OOS-WEAK), see the agent body: `agents/plan-coverage-checker.md § Phase 2`.
 
@@ -70,7 +72,7 @@ For the complete token list, stage-1 heading regex, and stage-2 classification r
 
 Extracts all in-repo path citations and `file:line` / `file:symbol` references from the plan body, then verifies each against the current disk state using `ls`, `Read`, and `Grep`.
 
-**Line-drift tolerance is mandatory:** same file, same symbol, line number shifted = FALSE-POSITIVE. The agent only emits a finding when the symbol/identifier is absent from the file, or the file itself is missing. This tolerates the legitimate line drift produced by concurrent-EM workstream branches.
+**Line-drift tolerance is mandatory:** same file, same symbol, line number shifted = FALSE-POSITIVE. The agent only emits a finding when the symbol/identifier is absent from the file, or the file itself is missing. This tolerates the legitimate line drift produced by concurrent-EM workstream branches. The tolerance window is **±50 lines** (widened from ±10 in the initial implementation) — neighbor sections inserted between plan-write and check-time can push a cited symbol further than ±10 lines without invalidating the citation, so the narrow window produced false substrate-drift findings on sound plans. **Anchor-heading citations are drift-immune:** when a plan cites by `§ Heading` or a distinctive heading line rather than a bare line number, the agent matches on the heading's presence on disk and ignores the line number entirely — prefer anchor-heading citations in plans for this reason.
 
 Scope boundary: Lens 3 checks in-repo paths and symbols only. External API signatures are docs-checker's job.
 
@@ -82,8 +84,9 @@ For extraction heuristics, verification procedure, and scope boundary, see the a
 
 | Plan shape | plan-coverage-checker? |
 |---|---|
+| Plan has a `problem_set:` frontmatter key → ratified external file (or inline ratified block) | **Run** — the problem-set is the primary oracle (highest priority). |
 | Plan contains an audit/findings/issues table (any size) | **Run.** |
-| Plan is greenfield design with no found-facts oracle | Skip silently — agent emits `SCOPE-MISMATCH`. |
+| Plan is greenfield design with no found-facts oracle | Skip silently — agent emits `SCOPE-MISMATCH` (+ advisory nudge for feature/architecture/spike). |
 | Plan is single-file mechanical fix (no design content) | Skip silently. |
 | Plan is doc redesign / wiki rewrite | Skip silently. |
 
@@ -105,7 +108,7 @@ Five verdicts:
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift. AMBIGUOUS does not gate.
 - **INCOMPLETE** — one or more gating findings. EM folds before reviewer dispatch.
 - **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items MISSED (MISSED count alone, not MISSED+AMBIGUOUS) OR ≥3 substrate-drift findings.
-- **SCOPE-MISMATCH** — no oracle found. No signal; review proceeds normally.
+- **SCOPE-MISMATCH** — no oracle found (no audit table and no ratified problem_set:). Agent writes a sidecar carrying the SCOPE-MISMATCH verdict; for feature/architecture/spike plans lacking a ratified problem-set, the sidecar also carries the advisory nudge. Review proceeds normally — no coverage lens ran. <!-- code-reviewer F1: wiki "Five verdicts" SCOPE-MISMATCH row was inconsistent with agent body; agent writes sidecar on this path, wiki now reflects that -->
 - **DEGRADED** — agent ran with incomplete coverage. No signal; review proceeds as if lens did not run.
 
 Prior sidecars are never deleted. On re-run, the agent renames the existing sidecar to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new one. This preserves the re-run history for feedback-loop analysis.
@@ -114,7 +117,7 @@ Prior sidecars are never deleted. On re-run, the agent renames the existing side
 
 The trigger heuristic is skill-internal, so "when not to run" is encoded in the skip logic rather than EM judgment. The agent silently skips plans without an oracle table. Concretely, this covers:
 
-- **Greenfield design plans** — no audit table, no found-facts list, just a proposed design. The agent emits `SCOPE-MISMATCH` immediately and writes no sidecar.
+- **Greenfield design plans** — no audit table, no found-facts list, just a proposed design. The agent emits `SCOPE-MISMATCH` and writes a sidecar carrying that verdict (and, for `feature` / `architecture` / `spike` plans lacking a ratified problem-set, the advisory problem-set nudge). The verdict still signals "no coverage lens ran"; the sidecar exists so the advisory nudge has a surface to land on.
 - **Single-file mechanical fixes** — a plan that says "edit line 47 of file X to fix Y" has no oracle/slate structure worth parsing. Skip.
 - **Doc redesigns and wiki rewrites** — no fix-slate shape. Skip.
 
@@ -144,14 +147,14 @@ Operational hook: during `/workweek-complete`, as part of the weekly retrospecti
 
 ## Distribution
 
-The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `bin/verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
+The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
 
-- `agents/staff-eng.md` (the Staff Engineer)
-- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
-- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
-- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
-- `agents/eng-director.md` (the Director of Engineering — reviews plans at DoE altitude)
+- `agents/staff-eng.md` (Patrik)
+- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
+- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
+- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
+- `agents/eng-director.md` (Zolí — reviews plans at DoE altitude)
 
-**Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (the UX Reviewer — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
+**Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (Fru — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. The tripwire entry lives in `docs/wiki/coordinator-tripwires.md`.

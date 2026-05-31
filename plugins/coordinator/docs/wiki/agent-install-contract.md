@@ -1,6 +1,6 @@
 # Agent Install Contract
 
-<!-- spec-backlink: archive/specs/2026-05-04-holodeck-umbrella-plugin.md §Single Entry-Point Doctrine -->
+<!-- Single-Entry-Point Doctrine canonical home: docs/wiki/doctor-probe-design.md § Single-Entry-Point Consolidation Must Stay Addressable (+ coordinator/CLAUDE.md § Implementation Standards). Originated in archive/specs/2026-05-04-holodeck-umbrella-plugin.md §Single Entry-Point Doctrine (holodeck-side; not present in this repo) — canonicalized here 2026-05-27. -->
 <!-- spec-backlink: archive/specs/2026-05-08-holodeck-install-chain-deps.md §3.1 -->
 <!-- migration: doc moved here (coordinator-claude) from claude-unreal-holodeck on 2026-05-23 as the ecosystem-wide canonical home. Holodeck's copy becomes a one-line pointer redirect; project-rag-ue-addon and other consumers cite this file rather than mirroring it. -->
 

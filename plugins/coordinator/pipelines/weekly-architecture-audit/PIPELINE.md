@@ -67,7 +67,7 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 2. Dispatch reviewer with full system scope — all files in the system
 3. Include the atlas page as context (if it exists, per Step 2.5)
 4. Reviewer grades the system and adds/updates the grade on the atlas page
-5. High effort means backstop is mandatory (the Staff Engineer for domain reviewers, the Director of Engineering for the Staff Engineer)
+5. **Multi-reviewer is angle-motivated, not a mandatory backstop.** Dispatch a second reviewer ONLY when a distinct lens is load-bearing (e.g. `project-rag` → the Staff Engineer for architecture + the Data Science Reviewer for ML/retrieval). "Push back on lack of ambition" is ordinary EM remit — does not motivate a formal second reviewer on every audit.
 
 **Systems >10 files — Haiku→Sonnet pre-digestion:**
 
@@ -79,9 +79,9 @@ Check the system's **live file count** at dispatch time — do not use the atlas
    **Scratch verification:** Before dispatching Opus reviewer, verify Sonnet scratch files exist. Re-dispatch once on failure.
 4. **Dispatch domain reviewer (Opus)** with **summarized Sonnet findings (read from `tasks/scratch/weekly-architecture-audit/{run-id}/*-phase2-sonnet.md`)** — reviewer brings judgment and cross-cutting insight, not file-reading labor. Do NOT send raw files to the domain reviewer.
 5. Reviewer grades the system and adds/updates the grade on the atlas page
-6. Backstop receives summarized Sonnet analysis findings, not raw files. Backstop is mandatory: the Staff Engineer (Opus) for domain reviewers; the Director of Engineering (Opus) for the Staff Engineer.
+6. **Multi-reviewer is angle-motivated, not a mandatory backstop** (see ≤10-files row 5). When a second angle is warranted, that reviewer reads the summarized Sonnet analysis, not raw files.
 
-**Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to the backstop dispatch.
+**Opus failure recovery:** If the domain reviewer fails to return a valid grade, re-dispatch once. If second failure, record `grade: ?` and `health_status: AUDIT_INCOMPLETE` in the atlas frontmatter. Log the failure in the Step 7 report. Do NOT silently skip the grade update. Apply the same recovery pattern to any angle-motivated second reviewer.
 
 **Note:** Templates for Haiku and Sonnet agents are in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
 
@@ -135,7 +135,7 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 ## Weekly Architecture Audit Complete
 
 **System:** [name]
-**Reviewer:** [name] at High effort (backstop: [name])
+**Reviewer(s):** [name] at High effort [+ second-angle reviewer: [name] — angle: [reason], or "none — single angle sufficed"]
 **Previous grade:** [X] | **New grade:** [Y]
 **Findings:** N total (X applied inline, Y added to debt backlog)
 **Debt backlog:** [N] open items [⚠️ exceeds 20 — recommend /debt-triage]
@@ -162,6 +162,6 @@ If the health ledger or debt backlog becomes stale or corrupted, delete both fil
 
 ## Cost
 
-**Small systems (≤10 files):** 1-2 Opus dispatches (reviewer + backstop) + review-integrator for inline fixes.
+**Small systems (≤10 files):** 1 Opus domain-reviewer dispatch; +1 only when a second angle is load-bearing (Step 3).
 
-**Large systems (>10 files):** Haiku inventory agents (parallel, one per 8-12 file sub-chunk) + Sonnet analysis agents (parallel, one per sub-chunk) + 1-2 Opus dispatches (domain reviewer + backstop). Haiku and Sonnet costs are low; the Opus reviewer still dominates the total. Debt items are separate pipeline runs regardless of system size.
+**Large systems (>10 files):** Haiku inventory agents (parallel, one per 8-12 file sub-chunk) + Sonnet analysis agents (parallel, one per sub-chunk) + 1 Opus domain reviewer (+1 angle-motivated reviewer only when warranted). Haiku and Sonnet costs are low; the Opus reviewer still dominates the total. Debt items are separate pipeline runs regardless of system size.

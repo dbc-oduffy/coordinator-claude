@@ -26,6 +26,8 @@ distilled_run: 2026-05-06-13h00
 
 ## Key Patterns
 
+**Re-verify reviewer premises against artifacts that land AFTER the review.** When a reviewer finding directs a rename/refactor whose feasibility depends on a downstream artifact (schema, contract doc, ecosystem constant), and that artifact lands or changes between review and execution, re-verify the premise against the landed artifact before acting. Example: a finding directed renaming `accept_hallucination_risk` → `accept_corpus_poisoning_risk`; the schema then landed with `additionalProperties: false` pinning the original key. Resolution: honor the finding's intent (clearer naming) in CLI flag values and banner text without forking the schema key. (Source: project-rag-ue-addon L13)
+
 ### W1 — Negative-search rule (writing-plans SKILL)
 
 Identify central nouns/abstractions in the prescription. Run `bin/query-records` + Grep against `tasks/lessons.md` and `docs/wiki/` for those nouns paired with prohibition vocabulary: `do not | never | tear down | deprecated | forbidden | removed | do NOT`.
@@ -91,6 +93,14 @@ The verbatim quote (or PM-confirmed quoted summary) is the audit trail. **No sil
 - **REJECTED trigger is `refuted` alone.** The original draft included "OR architecturally superior alternative", but that required the Staff Engineer to judge alternatives he's explicitly not investigated — contradicting the W3 "naming is high-level only" guardrail.
 - **the Data Science Reviewer / the Front-End Reviewer / the UX Reviewer Pass 0 mirrors deferred.** Hit rate for premise-failure is structurally lower in those domains; revisit only on a measurable miss rate.
 - **Calibration block schema unchanged.** Premise-challenge fields live in reviewer system prompts, not in the synced calibration block — the calibration block stays focused on confidence + AUTO-FIX/ASK routing.
+
+## Unification Theses Must Be Audited on Fail-Open Branches
+
+*Source: project-rag-ue-addon, 2026-05-29. [universal]*
+
+A reviewer or plan that proposes "unify X and Y into a single surface" typically audits the happy path — the main execution branch where both X and Y are called and produce output. The fail-open branches (where X or Y is absent, returns None, raises, or degrades silently) are the cases most likely to diverge under unification and are routinely skipped.
+
+**Rule.** Any unification thesis in a plan or review must be tested against the fail-open branches of both surfaces before the `premise_review` field can be `clean`. Concretely: identify the degraded-mode code path for each surface being unified (e.g. what happens when the probe library is missing, when the schema mismatches, when the daemon is offline) and assert that the unified surface preserves each surface's fail-open contract separately — not just the combined happy-path contract. A `REJECTED` verdict is warranted if the unification thesis has only been verified on the happy path.
 
 ## Reference
 

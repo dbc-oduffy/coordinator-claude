@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Parse the ## Acceptance Criteria oracle table from a plan file and gate on gate-bound rows.
-# Spec: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.1 §2.3 §Task 2
+# Spec: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.1 §2.3 §Task 2
 #
 # Concurrency / idempotency / resume: this script is read-only against the plan and test suite;
 # it has no side-effects, is idempotent, and is safe to run concurrently across sessions.
@@ -38,6 +38,116 @@ if [[ ! -f "$PLAN_PATH" ]]; then
     echo "check-acceptance-oracle.sh: plan file not found: $PLAN_PATH" >&2
     exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Per-repo test-runner resolution
+# ---------------------------------------------------------------------------
+# The pytest/node/cargo handlers run a per-row selector against the repo's test
+# suite. Repos that mandate a test wrapper (venv activation, editable install,
+# marker deselect, console-popup suppression) cannot use the bare language
+# runner — bare `pytest` collects under the ambient interpreter and reports a
+# false red even when the work is green. We resolve a per-repo invoker,
+# defaulting to the bare runner so no repo regresses.
+#
+# Precedence (mirrors lib/coordinator-resolve-validation-cmd.sh):
+#   1. $COORDINATOR_<RUNNER>_CMD env var (one-off / CI override)
+#   2. <runner>_cmd: key in the plan-repo's coordinator.local.md frontmatter
+#   3. default: the bare language runner ("pytest", "node --test", "cargo test")
+#
+# The resolved command receives the per-row "$args" appended, so it MUST accept
+# the language's native test-selector args. This is a SEPARATE key from
+# fast_test_cmd (which is run verbatim with NO appended args) — a fast_test_cmd
+# like `python run-all-checks.py` cannot take a pytest node-id, so conflating the
+# two would be a footgun. A repo whose fast-test is an arg-accepting pytest
+# wrapper may point both keys at the same command.
+
+# Repo root for the plan under test (for coordinator.local.md lookup).
+# PLAN_PATH is already absolute here (realpath applied above when available).
+PLAN_DIR="$(dirname "$PLAN_PATH")"
+REPO_ROOT="$PLAN_DIR"
+if git -C "$PLAN_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
+    REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+fi
+
+# resolve_runner_cmd <frontmatter-key> <env-var-name> <default-cmd>
+# Echo the resolved command string. Frontmatter parse shape matches
+# lib/coordinator-resolve-validation-cmd.sh (awk frontmatter block + grep key).
+resolve_runner_cmd() {
+    local key="$1" env_name="$2" default_cmd="$3"
+    # Defensive: keys are literal [a-z_] identifiers at all call sites. Reject
+    # anything else so $key can never inject regex metacharacters into the
+    # grep/sed patterns below.
+    if [[ ! "$key" =~ ^[a-z_]+$ ]]; then
+        printf '%s' "$default_cmd"
+        return 0
+    fi
+    # Defensive: env_name is a literal COORDINATOR_*_CMD constant at every call
+    # site. Enforce that structurally before the indirect expansion below, so the
+    # safety constraint does not depend solely on call-site discipline.
+    if [[ ! "$env_name" =~ ^COORDINATOR_[A-Z_]+$ ]]; then
+        printf '%s' "$default_cmd"
+        return 0
+    fi
+    # Step 1 — env var. Indirect expansion (name validated above). Safe under
+    # set -u via :-.
+    local env_val="${!env_name:-}"
+    if [[ -n "$env_val" ]]; then
+        echo "[check-acceptance-oracle] ${key}: step=env-var" >&2
+        printf '%s' "$env_val"
+        return 0
+    fi
+    # Step 2 — coordinator.local.md frontmatter key
+    local local_md="$REPO_ROOT/coordinator.local.md"
+    if [[ -f "$local_md" ]]; then
+        local fm val
+        fm=$(awk '/^---$/{n++; if (n==2) exit; next} n==1' "$local_md" 2>/dev/null)
+        val=$(echo "$fm" | grep -m1 "^${key}:" \
+            | sed -E "s/^${key}:[[:space:]]*//" \
+            | tr -d '"' | tr -d "'" \
+            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+        if [[ -n "$val" ]]; then
+            echo "[check-acceptance-oracle] ${key}: step=local-md ($local_md)" >&2
+            printf '%s' "$val"
+            return 0
+        fi
+    fi
+    # Step 3 — default (no diagnostic; the bare-runner default is the common case)
+    printf '%s' "$default_cmd"
+}
+
+# run_typed_test <runner-cmd> <args-string>
+# Word-split both via `read -ra` into arrays; expanded double-quoted as
+# "${arr[@]}" they undergo no further word-splitting or glob/command
+# substitution — unlike the prior unquoted `pytest $args` (which glob-expanded
+# $args). Run with combined stdout+stderr captured. On failure, echo a
+# " — last output: <tail>" suffix to stdout and return the command's exit code.
+# Empty suffix on success.
+run_typed_test() {
+    local runner="$1" arg_str="$2"
+    local -a cmd_arr args_arr
+    read -ra cmd_arr <<< "$runner" || true
+    read -ra args_arr <<< "$arg_str" || true
+    local out_file rc out_tail
+    out_file="$(mktemp)" || return 1
+    # RETURN trap cleans up on every exit path, including a signal-interrupted
+    # run at the interactive /merging-to-main gate (Ctrl-C during a slow suite).
+    trap 'rm -f "$out_file"' RETURN
+    # Combined stdout+stderr: pytest writes failure bodies to stdout and
+    # collection/import errors to stderr — surfacing only one loses the signal.
+    "${cmd_arr[@]}" "${args_arr[@]+"${args_arr[@]}"}" >"$out_file" 2>&1 && rc=0 || rc=$?
+    if (( rc != 0 )); then
+        # Bound the surfaced tail: newlines→spaces, drop non-printable bytes,
+        # collapse runs, cap length. Keeps a runaway test log (or control chars)
+        # from bloating/corrupting the red-message line.
+        out_tail="$(tail -n 3 "$out_file" 2>/dev/null | tr '\n' ' ' | tr -cd '[:print:]' | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' | head -c 200)"
+        [[ -n "$out_tail" ]] && printf ' — last output: %s' "$out_tail"
+    fi
+    return $rc
+}
+
+PYTEST_CMD="$(resolve_runner_cmd pytest_cmd COORDINATOR_PYTEST_CMD 'pytest')"
+NODE_CMD="$(resolve_runner_cmd node_cmd COORDINATOR_NODE_CMD 'node --test')"
+CARGO_CMD="$(resolve_runner_cmd cargo_cmd COORDINATOR_CARGO_CMD 'cargo test')"
 
 # ---------------------------------------------------------------------------
 # Locate the ## Acceptance Criteria section and extract the table
@@ -222,6 +332,13 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             pattern="${rest%%@*}"
             paths_str="${rest#*@}"
 
+            # Trim whitespace from the pattern symmetrically with the path side
+            # (trimmed below at the per-path loop). A row written `grep: pat @path`
+            # otherwise carries leading/trailing spaces into the pattern, silently
+            # breaking line-anchored or exact matches.
+            pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+            pattern="${pattern%"${pattern##*[![:space:]]}"}"
+
             # Split paths on comma
             IFS=',' read -ra paths_arr <<< "$paths_str"
 
@@ -279,34 +396,36 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             ;;
 
         pytest)
-            # pytest:<path>::<nodeid>
+            # pytest:<path>::<nodeid>  — invoker resolved via $PYTEST_CMD (default: pytest)
             args="${row_test#pytest:}"
-            if pytest $args 2>/dev/null; then
+            if err_suffix="$(run_typed_test "$PYTEST_CMD" "$args")"; then
                 (( green++ )) || true
             else
-                red_messages+=("AC-${row_id} (${row_test}) red — pytest exited non-zero")
+                red_messages+=("AC-${row_id} (${row_test}) red — '${PYTEST_CMD}' exited non-zero${err_suffix}")
                 (( red++ )) || true
             fi
             ;;
 
         node)
-            # node:<path> -t <name>
+            # node:<path> -t <name>  — invoker resolved via $NODE_CMD (default: node --test)
             args="${row_test#node:}"
-            if node --test $args 2>/dev/null; then
+            if err_suffix="$(run_typed_test "$NODE_CMD" "$args")"; then
                 (( green++ )) || true
             else
-                red_messages+=("AC-${row_id} (${row_test}) red — node --test exited non-zero")
+                red_messages+=("AC-${row_id} (${row_test}) red — '${NODE_CMD}' exited non-zero${err_suffix}")
                 (( red++ )) || true
             fi
             ;;
 
         cargo)
-            # cargo:<module>::<test>
+            # cargo:<module>::<test>  — invoker resolved via $CARGO_CMD (default: cargo test)
+            # Word-split matches pytest/node; cargo's documented <module>::<test>
+            # form has no spaces, so this is identical to the prior quoted "$args".
             args="${row_test#cargo:}"
-            if cargo test "$args" 2>/dev/null; then
+            if err_suffix="$(run_typed_test "$CARGO_CMD" "$args")"; then
                 (( green++ )) || true
             else
-                red_messages+=("AC-${row_id} (${row_test}) red — cargo test exited non-zero")
+                red_messages+=("AC-${row_id} (${row_test}) red — '${CARGO_CMD}' exited non-zero${err_suffix}")
                 (( red++ )) || true
             fi
             ;;

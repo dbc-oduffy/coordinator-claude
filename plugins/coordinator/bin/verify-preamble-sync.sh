@@ -23,6 +23,15 @@ if [ -z "$PYTHON_BIN" ]; then
     exit 2
 fi
 
+# Node resolver guard (mirrors verify-calibration-sync.sh) — this script shells out
+# to node for sentinel-blocks-cli.js below; a bare `node` fails opaquely when node is
+# absent or PATH-shadowed. Fail loud with an NODE_BIN override hook.
+NODE_BIN="${NODE_BIN:-node}"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+    echo "ERROR: node not found (set NODE_BIN to override)" >&2
+    exit 2
+fi
+
 # Self-claim: source coordinator session lib for touch tracking.
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
 # Best-effort — no-op if lib absent or no active session.
@@ -71,19 +80,22 @@ MODE="${1:-verify}"
 # (the entire trimmed line equals the sentinel). This excludes prose references
 # where the sentinel is embedded in backtick spans or other inline text.
 find_consumers() {
-    local results=""
     # First find candidates that contain the sentinel string at all.
     local candidates
     candidates="$(grep -rlF "$BEGIN_SENTINEL" "$PLUGIN_ROOT" 2>/dev/null || true)"
     [ -z "$candidates" ] && return 0
 
     while IFS= read -r f; do
-        # Check that the file has at least one line where the trimmed content IS the sentinel.
+        # Check that the file has at least one line where the trimmed content IS the sentinel
+        # AND that line is NOT inside a ``` fenced code block (which would make it a documentation
+        # example of the convention, not a live consumer block — see project-rag-mcp-self-declaration.md).
         # Use awk with index() for fixed-string matching (avoids regex metacharacter issues
         # with parentheses and dots in the sentinel string — grep -Eq escaping is unreliable
         # on Windows/Git Bash for strings containing '(' and ')').
         if awk -v s="$BEGIN_SENTINEL" '
-            { stripped = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", stripped); if (index(stripped, s) && stripped == s) { found=1; exit } }
+            { stripped = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", stripped) }
+            stripped ~ /^```/ { in_fence = !in_fence; next }
+            !in_fence && index(stripped, s) && stripped == s { found=1; exit }
             END { exit !found }
         ' "$f" 2>/dev/null; then
             printf '%s\n' "$f"
@@ -110,14 +122,14 @@ fi
 # Review: patrik R2 finding 0 — factor shared extraction primitive; replace inlined awk.
 extract_block() {
     local file="$1"
-    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
 }
 
-# Read snippet body: skip the first line (comment header) and any following blank line.
-# The snippet file structure is:
-#   line 1: <!-- canonical source ... -->
-#   line 2: (blank)
-#   line 3+: preamble text
+# Read snippet body: NR>2 skips the snippet header (one comment line + one blank line below it).
+# The snippet file structure is: line 1 = <!-- canonical source ... -->, line 2 = blank, line 3+ = body.
+# Failure mode: if a snippet ever gains an extra leading blank line after its header, source-side
+# (this sed strip) and consumer-side (sentinel-blocks-cli raw extract) will diverge → false MISMATCH.
+# Long-term fix: extract-snippet-body mode in bin/lib/sentinel-blocks-cli.js. See BS-2026-05-20-013.
 SNIPPET_BODY="$(awk 'NR>2' "$SNIPPET_FILE")"
 
 # Normalize: strip trailing whitespace, collapse trailing blank lines.

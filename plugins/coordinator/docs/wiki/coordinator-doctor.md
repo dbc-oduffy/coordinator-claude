@@ -13,9 +13,9 @@ status: current
 
 **What this wiki is not.** It is not a slash skill — a `/coordinator:doctor` command would be bloat for a non-interactive verification surface. It is not a runtime validator or a programmatic API. It does not duplicate the substrate doctrines: for `machine-local/` resolution order, see [`machine-local-registry.md`](machine-local-registry.md); for the whoami envelope schema, see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md).
 
-**Cadence path — sentinel-writer primitive.** The wiki's "no slash skill" decision stands. To close the gap where coordinator-claude's substrate health was invisible to the daily addon-health sweep, the non-skill primitive `bin/coordinator-doctor-sentinel.sh` fires P-1..P-12 on cadence (from `/workday-start` Step 1.10, ahead of `scan-addon-health.sh`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` in the sentinel schema documented in [`addon-health-sentinel.md`](addon-health-sentinel.md). Operators retain the inline-invocation path of §3 below; the script is the same probes, batched and serialized. See §7 for the script's contract.
+**Cadence path — sentinel-writer primitive.** The wiki's "no slash skill" decision stands. To close the gap where coordinator-claude's substrate health was invisible to the daily addon-health sweep, the non-skill primitive `coordinator-doctor-sentinel.sh` fires P-1..P-12 on cadence (from `/workday-start` Step 1.10, ahead of `scan-addon-health.sh`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` in the sentinel schema documented in [`addon-health-sentinel.md`](addon-health-sentinel.md). Operators retain the inline-invocation path of §3 below; the script is the same probes, batched and serialized. See §7 for the script's contract.
 
-**Adding a probe?** A new probe is a P-N entry in §3 of *this wiki* + a firing wire-up in `bin/coordinator-doctor-sentinel.sh` — there is no `coordinator/commands/doctor.md` to edit (the "no slash skill" decision above). Dispatch briefs for probe-wiring or coordinator-substrate audits should name this wiki path explicitly: an agent told to "check `coordinator/commands/` for a doctor" finds nothing and mis-wires the probe into a downstream project-doctor instead. Project-doctors are runtime consumers that cite P-N back to this authority surface.
+**Adding a probe?** A new probe is a P-N entry in §3 of *this wiki* + a firing wire-up in `coordinator-doctor-sentinel.sh` — there is no `coordinator/commands/doctor.md` to edit (the "no slash skill" decision above). Dispatch briefs for probe-wiring or coordinator-substrate audits should name this wiki path explicitly: an agent told to "check `coordinator/commands/` for a doctor" finds nothing and mis-wires the probe into a downstream project-doctor instead. Project-doctors are runtime consumers that cite P-N back to this authority surface.
 
 ---
 
@@ -27,7 +27,7 @@ status: current
 
 Three readers land here for different reasons:
 
-**(a) Operator with a config failure.** You hit a "machine-local key not found" or "coordinator_whoami import error" and want a one-line answer. Go directly to the probe catalog §3 — run P-1 through P-4 for registry failures, P-5 through P-7 for whoami failures. If probes surface a missing substrate, see §6 (Bootstrap from cold-start).
+**(a) Operator with a config failure.** You hit a "machine-local key not found" or "coordinator_whoami import error" and want a one-line answer. Go directly to the probe catalog §3 — run P-1 through P-4 for registry failures, P-5 through P-7 for whoami failures. For orientation health specifically, P-6s is the probe. If probes surface a missing substrate, see §6 (Bootstrap from cold-start).
 
 **(b) Agent invoked from a downstream doctor.** You are running a holodeck or project-rag doctor and need to verify coordinator substrate as a prerequisite. Read §5 (Citation contract) first — it defines whether you should delegate to this wiki's probe or augment with your own. Do not reinvent the probe; cite P-N and surface the verdict.
 
@@ -37,7 +37,7 @@ Three readers land here for different reasons:
 
 ## Probe Catalog
 
-Each probe has a single-line invocation. All `machine-local` invocations use the `bin/machine-local` CLI from the coordinator install. All `python -m coordinator_whoami.*` invocations assume `coordinator_whoami` is installed in the active Python environment (verified by P-5).
+Each probe has a single-line invocation. All `machine-local` invocations use the `machine-local` CLI from the coordinator install. All `python -m coordinator_whoami.*` invocations assume `coordinator_whoami` is installed in the active Python environment (verified by P-5).
 
 Severity values are from the vocabulary defined in §4.
 
@@ -48,20 +48,71 @@ Severity values are from the vocabulary defined in §4.
 | **P-1** | `~/.claude/machine-local/` directory exists | `test -d ~/.claude/machine-local && echo healthy \|\| echo error` | `healthy` | Directory absent — substrate was never bootstrapped | `error` | Run `/coordinator:setup` Phase 3 (§6) |
 | **P-2** | `registry.toml` parses and declares `schema = 1` | `python3 -c "import tomllib,pathlib; d=tomllib.loads(pathlib.Path('~/.claude/machine-local/registry.toml').expanduser().read_text()); assert d.get('schema')==1"` | Exits 0 | File missing, unparseable TOML, or wrong schema version | `error` | Re-run Phase 3; check for manual edits that broke TOML structure |
 | **P-3** | At least one key under `repos.*` is populated in `registry.local.toml` | `machine-local keys \| grep -q '^repos\.' && echo healthy \|\| echo degraded` | `healthy` — at least one repo path declared | `degraded` — fresh install or operator never seeded machine-specific paths | `degraded` | Run `machine-local set repos.<name> <path>` for each sibling repo (see [`machine-local-registry.md`](machine-local-registry.md) §9 for the `.local.toml` discipline) |
-| **P-4** | `bin/machine-local` CLI shell-out works (smoke test) | `machine-local keys >/dev/null && echo healthy \|\| echo error` | `healthy` — CLI runs and registry is parseable | CLI not on PATH, `bin/` not linked, or registry.toml unparseable — setup incomplete | `error` | Run Phase 3; verify `~/.claude/bin/` is on PATH; verify `~/.claude/machine-local/registry.toml` exists and parses |
+| **P-4** | `machine-local` CLI shell-out works (smoke test) | `machine-local keys >/dev/null && echo healthy \|\| echo error` | `healthy` — CLI runs and registry is parseable | CLI not on PATH, `bin/` not linked, or registry.toml unparseable — setup incomplete | `error` | Run Phase 3; verify `~/.claude/bin/` is on PATH; verify `~/.claude/machine-local/registry.toml` exists and parses |
 | **P-5** | `coordinator_whoami` package is importable | `python3 -c "import coordinator_whoami; print('healthy')"` | `healthy` | ImportError — package not installed or Python env mismatch | `error` | Run `/coordinator:setup` (Phase 3 Step 6) — this is the primary remediation; re-running Phase 3 installs `coordinator_whoami` idempotently. Fallback: `pip install -e ~/.claude/plugins/coordinator/whoami/` |
-| **P-6** | Live `coordinator_whoami.project_rag` returns a v1-conformant envelope | `python3 -m coordinator_whoami.project_rag --human \| head -5` | Output contains `contract_version: 1` | JSON parse error, missing required fields, or non-zero exit | `error` | Check P-5 first; then inspect `~/.claude/machine-local/registry.toml` for missing keys the probe requires; see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §Validation |
+| **P-6** | Live `coordinator_whoami.project_rag` returns a v1-conformant envelope (**plugin-binding-health probe** for project-rag — NOT orientation health; see P-6s) | `python3 -m coordinator_whoami.project_rag --human \| head -5` | Output contains `contract_version: 1` | JSON parse error, missing required fields, or non-zero exit | `error` | Check P-5 first; then inspect `~/.claude/machine-local/registry.toml` for missing keys the probe requires; see [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) §Validation |
+| **P-6s** | Live `coordinator_whoami.session` returns a v1-conformant envelope (**orientation-health probe** — answers "is this session oriented?"; no MCP dependency; always `source_kind: "live"`; `binding.kind` is `bound`/`unbound` only) | `python3 -m coordinator_whoami.session --human \| head -5` | Output contains `contract_version: 1` and `plugin_name: coordinator-session` | JSON parse error, missing required fields, non-zero exit, or `plugin_name` is not `coordinator-session` | `error` | Check P-5 first; then verify `coordinator_whoami.session` subpackage is present (ships with `coordinator_whoami` package); re-run `/coordinator:setup` Phase 3 Step 6 if absent |
 | **P-7** | `~/.claude.json` mcpServers entries for installed plugins are present and well-formed (**configuration-presence probe — not binding health**) | `python3 -c "import json,pathlib; cfg=json.loads(pathlib.Path('~/.claude.json').read_text()); assert 'mcpServers' in cfg and len(cfg['mcpServers'])>0; print('healthy')"` | `healthy` — config entry exists and is parseable JSON | Config entry absent, malformed JSON, or `mcpServers` key missing | `degraded` | Re-run plugin install to write the mcpServers entry; verify `~/.claude.json` is writable. **For live binding state, see P-6** — P-7 confirms the config exists, not that the binding is active. |
 | **P-7a** | `~/.claude.json` mcpServers entries are reachable (reachability-augmentation of P-7 — configuration presence is P-7's job; this probe adds transport-layer checks) | EM-native: read the deferred-tools registry at session-start (`/workday-start` Step 1.10.5) to detect tools that appear in `mcpServers` config but are absent from the live session tool surface. A standalone shell probe (`bin/probe-mcp-registration.sh`) is planned but not yet implemented — the EM-native Step 1.10.5 probe covers this gap. | All servers emit `registered presumed` or tools appear in session surface | Any server appears in config but absent from live tool surface | `degraded` (advisory; never gating) | Check the named server's transport: for stdio servers, verify command exists on PATH; for HTTP servers, verify the server process is running. Run `/workday-start` to trigger Step 1.10.5 visibility. |
 | **P-8** | Sentinel presence: at least one `doctor-last-run.json` exists across installed plugins | `ls ~/.claude/plugins/*/data/doctor-last-run.json 2>/dev/null \| head -1 \| grep -q . && echo healthy \|\| echo degraded` | `healthy` — at least one doctor has been run | `degraded` — no plugin doctor has ever been run on this machine | `degraded` | Run each installed plugin's doctor once to bootstrap the sentinel; see [`addon-health-sentinel.md`](addon-health-sentinel.md) for the sentinel schema |
 | **P-9** | UE override paths resolve against registry-declared roots | `bash ~/.claude/bin/verify-ue-overrides.sh` | Exits 0 with no remediation output | Non-zero exit or remediation message emitted | `degraded` or `error` (per script output) | Follow the remediation hint from the script, which will point to the relevant machine-local key (typically `repos.claude_unreal_holodeck`); re-run after setting the key |
-| **P-10** | `bin/claude-home` path resolver smoke (added 2026-05-21 for resolver-family symmetry with P-4) | `~/.claude/bin/claude-home plugins` | Prints an absolute path to an existing directory | Command missing, prints empty, or path doesn't resolve to a directory | `error` | Re-run `/coordinator:setup` Phase 3; verify `~/.claude/bin/` is on PATH and the `claude-home` script + `_claude_home.py` are present |
+| **P-10** | `claude-home` path resolver smoke (added 2026-05-21 for resolver-family symmetry with P-4) | `~/.claude/bin/claude-home plugins` | Prints an absolute path to an existing directory | Command missing, prints empty, or path doesn't resolve to a directory | `error` | Re-run `/coordinator:setup` Phase 3; verify `~/.claude/bin/` is on PATH and the `claude-home` script + `_claude_home.py` are present |
 | **P-11** | `coordinator/templates/setup/` matches live `~/.claude/setup/` (no drift) | `bash ~/.claude/plugins/coordinator/bin/verify-templates-setup-sync.sh >/dev/null && echo healthy \|\| echo degraded` | `healthy` — templates and live install are byte-identical | `degraded` — operator customized `~/.claude/setup/publish.sh` (or sibling) AND template ships a different version; bugfixes in the template will not reach this operator until manually re-synced | `degraded` | Inspect drift with `bash ~/.claude/plugins/coordinator/bin/verify-templates-setup-sync.sh` (no flags). To accept the operator's local edits as canonical: re-run with `--fix` (copies live → template). To accept the template as canonical: `cp coordinator/templates/setup/<file> ~/.claude/setup/<file>` for each drifted file. |
 | **P-12** | Canonical document structure present — eager dirs from `canonical-structure.yaml` exist at `~/.claude` and their `README.md` files are intact | `bash ~/.claude/plugins/coordinator/bin/scaffold-canonical-structure.sh --root ~/.claude --dry-run \| grep -q "skip (exists)" && echo healthy \|\| echo degraded` | `healthy` — all eager directories and their READMEs are present | `degraded` — one or more eager dirs (e.g. `cross-repo/`) or READMEs are missing; the scaffold has not been run or a directory was manually deleted | `degraded` | Run `bash ~/.claude/plugins/coordinator/bin/scaffold-canonical-structure.sh --root ~/.claude` to restore the canonical structure; or re-run `/coordinator:setup` (Phase 3 Step 7). |
+| **P-13** | Onboarding currency — per-repo `coordinator-currency.yaml` stamp matches current `COORDINATOR_SCHEMA_VERSION`; legacy repos (pre-stamp) surface as honest AMBER rather than silent pass | `bash ~/.claude/plugins/coordinator/bin/probe-onboarding-currency.sh` | `current` — stamp present and matches current schema version | One of: `drift(stale:…)` (stamp present but older than current), `unstamped(legacy)` (repo predates currency feature), `inconclusive(…)` (probe could not run — schema constant missing or stamp unparseable) | `degraded` | For `drift`: re-run `/project-onboarding` to refresh the stamp. For `unstamped(legacy)`: run `/project-onboarding` once to create the stamp. For `inconclusive`: verify `coordinator-schema-version` file is present in the coordinator plugin root (`~/.claude/plugins/coordinator/coordinator-schema-version`). `source_is_live` repos (the coordinator source itself) are expected-unstamped — not a warning. |
 
-**Note on P-7 vs P-6.** P-7 is a *configuration-presence* probe: it verifies that the mcpServers entry exists and is well-formed JSON. It does NOT verify that the MCP server process is running, that the binding resolves, or that tool calls succeed. For binding health — "is this plugin's binding working?" — the answer comes from the live whoami call in P-6. Treating P-7 as a binding-health probe is the consumer-leak shape this wiki exists to close.
+### Probe metadata (generated — manifest SSOT)
+
+The table below is machine-generated from `bin/doctor-probes.toml`. It carries the structured fields the manifest is SSOT for (`cluster`, `weight`, `triage`, `severity_if_fail`). Regenerate with `python3 bin/doctor-catalog-gen.py --write`; validate with `--check`. Do not hand-edit between the markers.
+
+<!-- BEGIN generated-probe-metadata (from bin/doctor-probes.toml — regenerate via bin/doctor-catalog-gen.py; do not hand-edit) -->
+
+| id | cluster | weight | triage | severity_if_fail |
+|---|---|---|---|---|
+| **P-1** | machine-local | cheap | yes | error |
+| **P-2** | machine-local | standard | no | error |
+| **P-3** | machine-local | standard | no | degraded |
+| **P-4** | machine-local | standard | yes | error |
+| **P-5** | whoami | standard | yes | error |
+| **P-6** | whoami | standard | no | error |
+| **P-6s** | whoami | standard | no | error |
+| **P-7** | whoami | standard | no | degraded |
+| **P-10** | resolver | standard | yes | error |
+| **P-8** | structure | cheap | no | degraded |
+| **P-11** | structure | standard | no | degraded |
+| **P-12** | structure | standard | no | degraded |
+| **P-13** | currency | cheap | yes | degraded |
+| **P-9** | ue-overrides | standard | no | degraded |
+
+<!-- END generated-probe-metadata -->
+
+**Note on P-6s vs P-6 vs P-7.** Three distinct probes, three distinct questions:
+
+- **P-6s** (`coordinator_whoami.session`) — *orientation-health probe*: "is this session oriented?" Answers whether the coordinator session is bound to a repo, the git state is clean, and the orientation cache is fresh. No MCP dependency. This is the probe `/session-start` cites.
+- **P-6** (`coordinator_whoami.project_rag`) — *plugin-binding-health probe*: "is project-rag's binding healthy?" Answers whether the project-rag daemon is running and its binding is live. Requires project-rag to be installed and running.
+- **P-7** — *configuration-presence probe*: verifies the mcpServers entry exists and is well-formed JSON. Does NOT verify the MCP server process is running, the binding resolves, or that tool calls succeed.
+
+Orientation health (P-6s) and plugin-binding health (P-6) answer different questions and must not be collapsed. A session can be oriented (P-6s healthy) while project-rag is down (P-6 failing). Treating P-7 as a binding-health probe is the consumer-leak shape this wiki exists to close.
+
+### Operator-wiring contact points — session adopter coverage
+
+The contract wiki (`cross-plugin-whoami-contract.md` § Operator wiring) requires that any new adopter extends the three operator-wiring contact points or documents why not. For the `coordinator_whoami.session` session adopter:
+
+1. **`/coordinator:setup` Phase 3 Step 6 (pip install):** no-op — why not. The `coordinator_whoami.session` subpackage ships inside the same `coordinator_whoami` package the existing step installs. No separate install step is needed; the existing Step 6 covers this adopter automatically.
+
+2. **`/project-onboarding` Next-Steps step 4 (branch on `binding.kind`):** stays on project-rag's binding — why not. `/project-onboarding`'s concern is "is this project registered as a project-rag source" (project-registration). That is a project-rag binding question. The session adopter answers "am I in a coordinator-onboarded repo / oriented" — a different question that does not replace or overlap the project-onboarding branch.
+
+3. **`/session-start` Context Load:** **rewired to the session adopter.** Session orientation now invokes `python3 -m coordinator_whoami.session` (P-6s, above) rather than `python3 -m coordinator_whoami.project_rag`. This is the contact point that moved. MCP-plugin whoamis (project-rag, holodeck-control) may appear as optional sub-lines but are not the spine. → `skills/session-start/SKILL.md`.
 
 **Note on P-7a.** P-7a is the **reachability-augmentation** of P-7, per the THIRD-PATH-CLOSED citation contract defined in §5. P-7 confirms the mcpServers configuration entry is present and well-formed. P-7a confirms the configured server is actually reachable: for stdio servers, that the configured command exists on PATH; for HTTP servers, that the endpoint responds (3s timeout). Neither P-7 nor P-7a proves tool registration is active in a running session — that is `/workday-start` Step 1.10.5's job. Step 1.10.5 is the current implementation of P-7a: it reads the deferred-tools registry from session context and compares it against the `mcpServers` config, writing a sentinel at `~/.claude/plugins/coordinator-claude/data/mcp-registration-last-check.json`. A standalone shell probe (`bin/probe-mcp-registration.sh`) is planned but not yet implemented; `probe-cwd-project-rag-relevance.sh` reads the Step 1.10.5 sentinel to determine MCP health for the current cwd.
+
+### Machine info (informational — not a probe)
+
+`python -m coordinator_whoami.machine [--human]` emits the host machine/toolchain inventory — `os`, `arch`, `gpu`, `python`, `uv` — sourced from the shared `coordinator_whoami.host_probes` module. This is the doctor's "what host am I on?" surface (GPU/Python/OS visibility).
+
+It is **informational, not a probe**: machine-state is inventory, not a *binding*, so there is no pass/fail verdict and no RED/AMBER — there is no "wrong" GPU. It is deliberately a plain JSON dict, **not** a whoami-contract envelope (no `binding`/`status`); forcing machine-state into the envelope shape would be the category error the session/plugin-binding separation exists to avoid.
+
+The sentinel writer embeds this inventory in `doctor-last-run.json` under a `machine` key (additive; gated on P-5 — empty object if `coordinator_whoami` is not importable), so the machine-readable doctor record carries it alongside the probe verdict. For a human one-liner, run the CLI with `--human`.
 
 ### P-11 — Templates/setup drift detection
 
@@ -117,9 +168,9 @@ given P-3 healthy, verify repos.claude_unreal_holodeck resolves to a valid .upro
 
 > *Cross-team directive (holodeck, project-rag, project-rag-ue-addon): any doctor.md surfacing probes against coordinator-owned substrate — machine-local registry, coordinator_whoami, mcpServers classification — MUST use citation shape (a) delegation or (b) augmentation. Reinventing a probe against our substrate is the failure mode this wiki exists to close; ad-hoc invention is out-of-contract.*
 
-**Binding-health probes MUST cite P-6, not P-7.** When a downstream doctor is classifying binding health ("is this plugin's binding working?"), it MUST cite P-6 (live whoami call), not P-7 (config-presence file check) — even when P-7 is sufficient for a pure config-audit purpose. File presence does not equal runtime correctness. This applies whether the doctor delegates (a) or augments (b).
+**Binding-health probes MUST cite P-6, not P-7. Orientation-health probes MUST cite P-6s, not P-6.** When a downstream doctor is classifying plugin-binding health ("is this plugin's binding working?"), it MUST cite P-6 (live plugin whoami call), not P-7 (config-presence file check) — even when P-7 is sufficient for a pure config-audit purpose. File presence does not equal runtime correctness. For session orientation health, the probe is P-6s (`coordinator_whoami.session`) — not P-6 (`coordinator_whoami.project_rag`). These are distinct questions; downstream doctors must use the appropriate probe for each. This applies whether the doctor delegates (a) or augments (b).
 
-> *Cross-team directive (holodeck, project-rag, project-rag-ue-addon): when probing "is this plugin's binding healthy?" the answer comes from live whoami (P-6), not file-read mcpServers classification (P-7). Treating P-7 as a binding-health probe is consumer-leak shape — file presence ≠ runtime correctness.*
+> *Cross-team directive (holodeck, project-rag, project-rag-ue-addon): when probing "is this plugin's binding healthy?" the answer comes from live whoami (P-6), not file-read mcpServers classification (P-7). Treating P-7 as a binding-health probe is consumer-leak shape — file presence ≠ runtime correctness. When probing "is the coordinator session oriented?", cite P-6s, not P-6 — orientation is not a plugin-binding question.*
 
 **Live-call requirement for whoami-dependent probes.** Per [`plugin-identity-and-health-sentinels.md`](plugin-identity-and-health-sentinels.md) (live = MCP truth; persistent = receipt) and the live-not-receipt invariant in [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md), any downstream doctor reusing P-7 or any whoami-dependent probe MUST call the live MCP `*_whoami` tool — never read a persisted snapshot from `~/.claude/<plugin>/install-profile.json` or equivalent. Persisted whoami snapshots are operator-facing receipts, not diagnostic truth; consulting a stale snapshot turns "stale = signal" into "stale = active lie." This requirement applies to both delegation (a) and augmentation (b) citation shapes.
 
@@ -130,7 +181,7 @@ given P-3 healthy, verify repos.claude_unreal_holodeck resolves to a valid .upro
 If P-1, P-2, or P-4 fail because the substrate does not exist yet, the operator has not run Phase 3 of `/coordinator:setup`. Phase 3 lays down:
 
 - `~/.claude/machine-local/` directory
-- `bin/machine-local` CLI shim
+- `machine-local` CLI shim
 - `registry.toml` (tracked baseline with `schema = 1`)
 - `registry.local.toml` (gitignored machine-specific overrides)
 - A README and `.gitignore` for the directory
@@ -143,7 +194,7 @@ For P-5 failures (package not importable), the package ships at `plugins/coordin
 
 ## Sentinel-Writer Primitive
 
-**Script.** `bin/coordinator-doctor-sentinel.sh` (in the coordinator-claude plugin tree). Fires P-1..P-12 in batch, classifies each result, and writes a sentinel at `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` for [`scan-addon-health.sh`](addon-health-sentinel.md) to consume.
+**Script.** `coordinator-doctor-sentinel.sh` (in the coordinator-claude plugin tree). Fires P-1..P-12 in batch, classifies each result, and writes a sentinel at `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` for [`scan-addon-health.sh`](addon-health-sentinel.md) to consume.
 
 **Why a script and not a slash skill.** The §1 framing ("not a slash skill") remains the design. A slash skill would imply an interactive flow with EM choice points; the cadence path is the opposite — fire the probes, write the receipt, move on. The script is a thin glue layer over the same probes operators run inline.
 
@@ -163,9 +214,12 @@ For P-5 failures (package not importable), the package ships at `plugins/coordin
   "red_probes":   ["P-1", "P-5", ...],
   "amber_probes": ["P-3", "P-9", ...],
   "hint":         "<one-line per failing probe, joined with ' | '>",
+  "machine":      { "os": {...}, "arch": {...}, "gpu": {...}, "python": {...}, "uv": {...} },
   "plugin":       "coordinator-claude"
 }
 ```
+
+The `machine` field is informational host inventory (see § Machine info above), not a probe verdict — gated on P-5, empty object `{}` when `coordinator_whoami` is not importable. `scan-addon-health.sh` ignores it (additive-safe).
 
 **Severity rule for missing dependencies.** Probes for OPTIONAL tools whose dependency is absent (e.g. P-9 `verify-ue-overrides.sh` on a non-UE workstation) are silently skipped — not surfaced. Probes for REQUIRED INFRASTRUCTURE whose binary is missing (P-4 `machine-local` CLI, P-10 `claude-home` resolver) are RED — their absence means `/coordinator:setup` Phase 3 regressed and downstream plugins will fail.
 
@@ -183,7 +237,7 @@ For P-5 failures (package not importable), the package ships at `plugins/coordin
 ## Cross-References
 
 - [`machine-local-registry.md`](machine-local-registry.md) — substrate doctrine: what belongs in the registry, resolution order, anti-patterns, tracked-baseline + `.local` discipline. For health verification, see P-1 through P-4 above; do not consult this wiki for "is my registry healthy?" — that is what P-1 through P-4 answer.
-- [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) — envelope schema, binding/status field semantics, validation, and reference implementation. For operator-facing health verification using `coordinator_whoami`, use P-5 through P-7 above.
+- [`cross-plugin-whoami-contract.md`](cross-plugin-whoami-contract.md) — envelope schema, binding/status field semantics, validation, and reference implementation. For operator-facing health verification using `coordinator_whoami`, use P-5, P-6s (orientation health), P-6 (project-rag plugin-binding health), and P-7 above.
 - [`addon-health-sentinel.md`](addon-health-sentinel.md) — decay-discipline convention: doctor writes receipts (stale = signal), scanner is the no-side-effects bridge. P-8 above surfaces sentinel absence as the operator-facing gap this convention addresses.
 - [`plugin-identity-and-health-sentinels.md`](plugin-identity-and-health-sentinels.md) — companion doctrine defining the live/persistent split that underlies the P-6-not-P-7 rule in §5.
 - [`coordinator-installer-shape.md`](coordinator-installer-shape.md) — three-audience installer contract; Phase 3 referenced in §6 above.

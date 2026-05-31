@@ -73,7 +73,23 @@ From the 2026-05-07 queue cleanup session (drove 131 → 91 entries via 1 sessio
 
 Queue cleanup at entry level 91 residual was ~6:1 prose-doctrine to engineering work ratio.
 
+## Deterministic Extraction Discipline
+
+**Extraction is never a model call.** `bin/extract-lessons.py` is the canonical extraction surface for the central run. It applies a three-check grounding gate before emitting any lesson record:
+
+1. **Source-line check:** the lesson text exists at the cited source line
+2. **ID check:** the emitted `id` field matches the extracted entry's identifier  
+3. **Title-overlap check:** extracted title has ≥25 character overlap with the source heading
+
+The model handles only bounded routing judgment (after extraction); the grounding gate catches LLM fakery at the routing layer. Free-form classifiers that emit their own `L<n>` line numbers (rather than echoing the extractor's `id` field) drift from the file's true lines and cannot drive a line-number prune — feed classifiers the `extracted.yaml` records and require them to echo the extractor `id` field.
+
+**F6 colon-suffix filter stays "drop all."** The `**Rule:** prose continues` body-emphasis pattern is widespread in the project corpus — lesson titles end with `.`, `?`, or a plain word; never with `:`. Tightening the filter to "alone-on-line" regressed extraction from 149 to 619 records. This corpus-aligned convention is documented in the `extract-lessons.py` docstring as load-bearing; do not weaken the colon filter without re-running the extraction regression check.
+
+**Generalized pattern:** Identify the determinism seam and don't run a model on the deterministic side. Any agent-enumerates-N-items-from-structured-source task should: script extracts → model routes → grounding gate catches LLM fakery at routing layer.
+
 ## Per-lesson routing schema
+
+**Classification workers must echo the extractor's deterministic IDs, never emit their own line numbers.** A free-form classifier's `L<n>` drifts from the file's true lines (off-by-one in blank-separated regions, aligned in dense regions) and cannot drive a line-number prune. Feed classifiers the `extracted.yaml` records and require them to echo the extractor `id` field; prune by content-match against the extractor body, never by a worker-emitted line number. Source: 2026-05-27 central run (two Sonnet classifiers reported their own `L<n>`; recovered by content-matching via scipy optimal assignment). [universal]
 
 Each candidate lesson is shaped into a YAML record:
 
@@ -111,7 +127,7 @@ escalation_reason: ""                   # one-line; only meaningful if doe_escal
 
 ## Central-mode six-phase pipeline
 
-- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/tasks/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `bin/learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
+- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/tasks/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
 - **Phase 1 — Discovery:** glob configured roots, count tagged universals.
 - **Phase 2 — Fan-out scouts:** one per repo, parallel `general-purpose` Sonnet, two-pass extraction (tagged + untagged candidates), themes section, DONE protocol.
 - **Phase 3 — Synthesis:** EM directly produces the four-section A/B/C/D structure (see below).
@@ -278,6 +294,42 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 **Decision (historical):** Accept growth in CLAUDE.md when every line is a unique lesson. The file is the surface agents read; wiki guides are second-class. `lessons-trim` can prune later.
 **Source:** `archive/handoffs/2026-05-05_113500_08614bff.md`
 **Superseded by:** `skills/learn-lessons/SKILL.md` § CLAUDE.md char-budget pre-flight (40K hard refuse, 38K–40K demote-target gate) + § Routing Bias DoE-only adjudication on `doctrine-edit`/`memory-pointer`. The blanket acceptance no longer applies — most CLAUDE.md proposals filter to wiki-* via the DoE gate; survivors must clear both the four-check justification gate AND the char-budget gate.
+
+### Neutralise reverted lessons in-place, do not delete
+
+**When a lesson in `tasks/lessons.md` turns out to have an inverted rule (postmortem-revealed or PM-overridden), neutralise the entry in-place — do not delete it.**
+**Why:** Deletion loses the "why" of the inversion and invites future re-derivation of the same wrong rule. Greppable in-file history shows both the original and the corrected version.
+**How to apply:** replace the lesson body with a `Neutralised YYYY-MM-DD — superseded by entry at <location>` note that preserves the original text in audit-trail framing. Append the corrected lesson at EOF. This composes with the delete-on-resolution rule for queue entries (queue entries are discarded once resolved; lesson entries carry a correction note that stays visible).
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L131, central-promoted 2026-05-28).*
+
+### Local vs. Central Concurrent Run — Strip Only the Pre-Window Subset
+
+**`/learn-lessons` local mode on a `lessons.md` a central run is concurrently processing is a concurrent-edit hazard — reconcile delta-vs-full scope before stripping.**
+
+Local mode extracts the full file (no `--since`) and counts every uncovered universal; central extracts only the delta since its last run. A local "N universals pending" figure is inflated — most are already-promoted-but-never-stripped pre-window entries (e.g. local reported 73, central's authoritative delta was 1 new universal).
+
+**How to apply:** when a `~/.claude/tasks/learn-lessons-<today>/` central run is active on the same file, strip only the pre-window subset (entries before the last-central-run date) and leave the delta window and universals to central. Verify `lessons.md` is byte-identical before any line-keyed edit. Source: 2026-05-27 project-rag. [universal]
+
+### Retag Safety — Target the Header Line, Not the Block
+
+**Retagging a lesson by string-replacing `[universal]` corrupts prior retag-history comments — replace on the `## **...**` header line specifically.**
+
+`extract-lessons.py`'s `tag_universal` matches the tag anywhere in the block, including provenance comments like `<!-- Retag proposed ...: [universal] → [python] -->`. A naive global replace hits the comment text, not the actual header tag (which may already carry the target tag from a prior run).
+
+**How to apply:** (1) replace the tag on the header line specifically, not globally in the block; (2) before re-applying a router's retag proposal, confirm the entry wasn't already retagged in a prior run — a retag whose header already carries the target tag is a no-op, not a re-edit. Stale proposals are common on multi-run cadences. Source: 2026-05-27 project-rag. [universal]
+
+### After Age-Sweep: Retained-Count ≠ Universals-Count Signals Untagged Entries
+
+*Source: project-rag tasks/lessons.md:60, 2026-05-29. [universal]*
+
+After a local-mode age-sweep prunes expired entries, if the retained entry count does not equal the `[universal]`-tagged entry count, the delta is untagged entries that may carry universal-shape substance. Before writing a central-promotion memo, cross-check: count entries, count `[universal]` tags, and audit the gap. An entry shaped like a universal pattern but lacking the `[universal]` tag will be missed by the central-run's Phase 1 discovery step and silently accumulates without promotion. Tag first, then promote.
+
+### `[universal]` Tag Is NOT a Stop-Sign for Local-Mode Wiki Folds
+
+*Source: holodeck tasks/lessons.md:9, 2026-05-29. [universal]*
+
+A `[universal]`-tagged lesson is a promotion candidate for the central queue — it is NOT a block on local-mode wiki folding. **Substance and proposed-target are independent of the tag.** If a `[universal]` lesson has a clear proposed-target wiki and the substance belongs there, fold it locally in the same `/update-docs` pass. The tag means "this should also propagate centrally"; it does not mean "wait for central mode before touching the destination wiki." Delaying a local fold until the next central run leaves the wiki stale for sessions running between cadences.
 
 ### DR-012 — Three commits per integration round, not one bundled
 

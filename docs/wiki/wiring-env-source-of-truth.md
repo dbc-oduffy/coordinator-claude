@@ -1,7 +1,9 @@
 ---
-title: Wiring.env — Source of Truth
+title: Wiring.env — Source of Truth (DEPRECATED — transitional layer)
 created: 2026-05-18
-status: current
+status: deprecated
+deprecated_at: 2026-05-20
+superseded_by: docs/wiki/machine-local-registry.md
 provenance:
   - spinoff_plan: docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md
     audit_synthesis: tasks/comprehensive-audit-2026-05-18/SYNTHESIS.md
@@ -10,7 +12,26 @@ provenance:
 
 <!-- Imported from X:/project-rag at SHA d376cb01 on 2026-05-19. Inherited substrate; canonical lineage now in Claude Central. Origin: project-rag/docs/... — see CLAUDE.local.md "Sibling repos" for layout. -->
 
-# Wiring.env — Source of Truth
+# Wiring.env — Source of Truth (DEPRECATED — transitional layer)
+
+> **Deprecated 2026-05-20.** `~/.project-rag/wiring.env` is the transitional
+> write-through cache that the daemon-boot read path uses during the
+> coordination window. The canonical source of per-machine config is now
+> **`~/.claude/machine-local/`**, populated via `machine-local set <key> <value>`
+> and read via `machine-local get <key>` — see
+> [`machine-local-registry.md`](machine-local-registry.md). New addons MUST
+> target machine-local; wiring.env retirement is the worked precedent named in
+> `machine-local-registry.md` §11.
+>
+> This page is retained as the reference for daemon-boot wiring while
+> wiring.env still exists. Once host daemon reads
+> `addons.ue.paths.corpus` (or the composed `core.whoami` CLI) directly, this
+> page goes to `archive/`.
+>
+> _Trigger for the deprecation: project-rag-ue-addon dogfood doctor friction
+> 2026-05-20 — doctor prescriptions were routing operators through wiring.env
+> instead of machine-local. Symmetric audit caught the same drift in
+> `authoring-an-addon.md:118`._
 
 <!-- Spec backlink: docs/plans/2026-05-18-daemon-reads-wiring-env-directly.md § Chunk 3 -->
 

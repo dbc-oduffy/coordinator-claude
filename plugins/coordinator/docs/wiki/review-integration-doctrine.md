@@ -102,3 +102,11 @@ persistence. Preserve verbatim. The integrator's job is to read the disk artifac
 job is to make sure that artifact exists.
 
 → `agents/code-reviewer.md` — the canonical write-restricted reviewer (read-only tool surface)
+
+## Cross-session review convergence routes through the integrator, not SUPERSEDED prose
+
+**Cross-session review outputs flow through the review-integrator on a single canonical artifact — "SUPERSEDED" prose is not review provenance.**
+**Why:** When concurrent EM sessions independently produce review outputs against parallel artifacts, marking the loser SUPERSEDED with a "findings carry forward" assertion is structurally unverifiable — Session B's enrichment may never have seen Session A's reviewer pass.
+**How to apply:** at convergence time, the EM that supersedes MUST dispatch the review-integrator with the loser's findings as input and the winner artifact as target — same as a normal integrator pass. Review provenance is not transitive across artifact splits; an asserted carry-forward is just prose. Pairs with `coordinator/CLAUDE.md` § Cross-session reviews converge on one canonical artifact.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L121, central-promoted 2026-05-28).*

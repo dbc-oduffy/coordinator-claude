@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # dev-sync.sh — Sync coordinator-claude plugin source to Claude Code's cache
 #
 # For plugin developers: run after editing plugin files to make changes
@@ -48,7 +48,7 @@ sync_plugin() {
     version=$(jq -r '.version' "$plugin_json" 2>/dev/null || true)
   fi
   if [[ -z "$version" ]]; then
-    version=$(sed -n 's/.*"version"\s*:\s*"\([^"]*\)".*/\1/p' "$plugin_json" | head -1)
+    version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$plugin_json" | head -1)
   fi
 
   if [[ -z "$version" ]]; then

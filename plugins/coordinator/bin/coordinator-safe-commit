@@ -1455,6 +1455,15 @@ do_scoped() {
 # ---------------------------------------------------------------------------
 
 main() {
+  # Self-heal orphaned git locks before any git operation. Under concurrent-EM on
+  # Git-for-Windows, a prior session's commit can leave an orphaned `.git/index.lock`
+  # that blocks every subsequent commit ("Unable to create '.../index.lock': File exists").
+  # The reaper removes ONLY aged + stable locks (never a fresh/in-flight one), so this is
+  # safe as a hot-path pre-flight. Best-effort: a non-zero rc (fresh lock present, rc=2)
+  # is not fatal — git itself will surface a real collision. See the reaper header and
+  # docs/wiki/concurrent-em-hazards.md § H21.
+  "${SCRIPT_DIR}/coordinator-reap-stale-locks" >/dev/null 2>&1 || true
+
   # Issue B: --expected-branch deterministic branch-pin gate. Fails-closed
   # before any staging if the active branch doesn't match the expected one.
   # Per docs/plans/2026-05-05-issue-b-expected-branch-flag.md.

@@ -52,7 +52,7 @@ audience you are shapes which flags and flows are operative.
 
 ### Meta-repo operator dogfooding
 
-**Who:** The meta-repo operator (the PM O'Duffy, or any future operator running
+**Who:** The meta-repo operator (Dónal O'Duffy, or any future operator running
 `~/.claude` as their personal coordinator tree) re-running `/coordinator:setup` after
 a percolation cycle that updates plugin content.
 
@@ -78,7 +78,7 @@ a percolation cycle that updates plugin content.
 This file is **operator-local**. It is written by `/coordinator:setup` at runtime and
 read by downstream skills that need the operator's display name. It is **never** a
 publish-target — do not add it to `setup/publish-targets.sh`. (The publishable artifact
-is `plugins/coordinator/templates/CLAUDE.local.md.tmpl`; the rendered
+is `plugins/coordinator-claude/coordinator/templates/CLAUDE.local.md.tmpl`; the rendered
 `~/.claude/CLAUDE.local.md` is the local output.)
 
 ### Schema
@@ -125,7 +125,7 @@ overwrite other operators' configuration on their machines.
 ## 3. Render-template primitive
 
 `/coordinator:setup` and `/project-onboarding` both render templates. The shared helper
-is `bin/render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
+is `render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
 multiple skills consume it).
 
 A test suite lives at `bin/tests/test-render-template.sh`. Run as:
@@ -220,11 +220,11 @@ trail:
 
 - **Architecture parent:** `2026-05-19-coordinator-installer-redesign.md` (lives in meta-repo
   `docs/plans/`; not bundled with the plugin) — four decisions (D1 installer shape, D2 operator
-  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; the Director of Engineering
+  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; Zolí
   review (APPROVED_WITH_NOTES).
 - **Implementation plan:** `2026-05-19-coordinator-installer-redesign-implementation.md` (lives
   in meta-repo `docs/plans/`; not bundled with the plugin) — seven chunks (C1–C7), file-overlap
-  analysis, sequential gate order. The Staff Engineer review integrated prior to execution.
+  analysis, sequential gate order. Patrik review integrated prior to execution.
 
 <!-- Review: code-reviewer — spec_backlink paths were path-shaped but the plans live in meta-repo docs/plans/, not the plugin tree; converted to prose-shaped strings -->
 - **Wiki amendments shipped 2026-05-19 (commit `9527128d`):**
@@ -235,3 +235,95 @@ trail:
     instance-#1 promotion with named-instances-#2/#3 blocked on the same surface (the
     D3 case: three named templates on the same installer surface with structural dependence
     on the same renderer).
+
+---
+
+## 6. Phase architecture
+
+```
+Phase 1 — Environment probes (git repo, agent-teams env var, scc, deep-research, global CLAUDE.md import)
+Phase 2 — Operator identity (coordinator-identity.yaml existence check; capture or skip)
+Phase 3 — Meta-repo doctrine (CLAUDE.local.md install consuming Phase 2 identity; ~/.claude git-tracking offer)
+Phase 4 — Project-local (coordinator.local.md install and project_type capture)
+Phase 5 — Optional (persona customization, percolation setup)
+Phase 6 — Status report
+```
+
+Phase numbering shifted during redesign (2026-05-19): the original Phase 1g (CLAUDE.local.md) and Phase 1h (git-tracking offer) became Phase 3. All probe steps (1a/1b/1c/1d/1f) are independent — they can fan in parallel before Phase 2 consumes their results.
+
+### Flag contract
+
+| Flag | Effect |
+|---|---|
+| `--non-interactive` | Suppresses `AskUserQuestion` calls; each callsite has a documented fallback (fail-loud, default-with-warning, or skip-with-note). |
+| `--check-only` | Strict superset of `--non-interactive` — no mutations regardless of interactivity mode. Status report shows "would write" rows instead of writes. |
+| `--reconfigure` | Re-runs Phase 2 even when `coordinator-identity.yaml` already exists with matching schema. |
+
+The canonical invocation from the holodeck install chain (chain step 5) is `--check-only --non-interactive`.
+
+---
+
+## 7. Status-report schema
+
+Phase 6 emits a structured status report. The schema is stable (append-only across coordinator versions; renaming or removing a check identifier is a breaking change requiring a version bump). Consumer (`holodeck` wrapper) matches via `<Check> .* <Status>` regex.
+
+**Check identifiers:**
+`git_repo`, `agent_teams_env`, `scc`, `deep_research`, `notebooklm`, `global_claude_md_import`, `meta_repo_doctrine`, `claude_git_tracking`, `coordinator_local_md`, `percolation`, `project_scaffolding`, `operator_identity`, `non_interactive_contract`, `render_template_helper`
+
+**Status vocabulary:**
+`ready`, `missing`, `not_configured`, `not_a_repo`, `skipped (non-interactive default)`, `failed`, `not_applicable`
+
+Full schema wiki: `docs/wiki/coordinator-installer-status-schema.md`.
+
+---
+
+## 8. Central vs publish-target separation
+
+The Central meta-repo and the OSS publish-target are deliberately asymmetric. Expected diffs:
+
+| Artifact | Central | Publish-target |
+|---|---|---|
+| `setup/install.sh` | Absent | Present (1271 lines; OSS entry point) |
+| `setup/publish.sh` | Present | Absent (Central meta-repo sync tool) |
+| `setup/publish-targets.sh` | Present (machine-local, gitignored) | Absent |
+| `machine-local`, `bin/_machine_local.py` | Present | Absent |
+| `whoami/tests/` (18 test files) | Present | Absent (expected for OSS) |
+| `commands/doctor.md` | **Absent in both** | **Absent in both** (deliberate gap — no dedicated coordinator doctor entry point) |
+
+Structural divergence beyond path substitutions (`coordinator-claude/coordinator/` → `coordinator/`) and persona depersonalization is a drift signal worth investigating.
+
+**Publish-repo content (setup scripts, top-level docs) is authored in Claude Central only.** Direct edits to `X:/coordinator-claude/setup/install.sh` or similar bypass the planning/review/doctrine pipeline and drift silently. The canonical source is `coordinator/dist/publish-repo-{setup,toplevel}/` under Claude Central; `publish_sync.py` propagates outward.
+
+---
+
+## 9. Gotchas
+
+### machine-local/ is never created by the installer
+
+Neither `install.sh` nor `publish.sh` creates or seeds `~/.claude/machine-local/`. The deprecated `publish-targets.sh` fallback activates silently when the directory is absent (no warning). OSS newcomers cannot leverage `machine-local` for coordinator config without a manual bootstrap step. This gap is Medium-severity today; blocking when the deprecated fallback is retired.
+
+Mitigation for now: document the manual step. Long-term fix tracked in `tasks/coordinator-improvement-queue.md`.
+
+### coordinator_whoami package is not installed by any installer path (pre-2026-05-21)
+
+`coordinator_whoami` (Python package under `whoami/`) was completely absent from all operator-facing health-check prose and installer status schema as of the 2026-05-20 audit. Three independent wiring failures: (1) setup didn't install, (2) onboarding was passive, (3) session-start silently skipped on import failure. The gap is closed by `/coordinator:setup Phase 3 Step 6` installing it — but verify this step exists in your version before assuming it runs.
+
+`/session-start` must emit a loud one-line nudge (not silent skip) when `coordinator_whoami` is not importable.
+
+### Holodeck repo discovery uses wrong env var as primary
+
+CRITICAL audit finding (2026-05-20): `/holodeck:doctor` repo-discovery routing uses `HOLODECK_REPO` (deprecated env var) as its primary lookup instead of `machine-local get repos.holodeck`. Operators who populate `registry.local.toml` with `repos.holodeck` but don't also set `HOLODECK_REPO` hit the cwd-marker check or hard error silently. Fix: replace with `$(machine-local get repos.holodeck --default "")`.
+
+### project-rag:doctor hardcodes a machine-specific drive letter
+
+HIGH finding: `project-rag:doctor` Step 1 hardcodes `"X:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`.
+
+### session-start --red-only is vacuous-pass eligible on fresh installs
+
+`scan-addon-health.sh --red-only` (session-start) is silent when no sentinel files exist. Fresh-install machine sees the health check pass with no signal that their install has never been doctor'd. `/workday-start` uses `--red-and-stale` (correct for daily triage); the asymmetry is intentional but means fresh-install gaps only surface at daily cadence.
+
+### Cross-plugin coupling via ~/.claude.json parsing
+
+`/workday-start` Step 3.6 originally parsed project-rag's `~/.claude.json` entry to extract the project-root path. This is cross-plugin coupling at the wrong layer — when project-rag migrated from stdio to HTTP transport, the args[]-walk pattern raised `KeyError`. The coordinator's contract with plugin CLIs is: **invoke + read exit code + read stdout**. Coordinator must not parse peer-plugin MCP entries.
+
+Fix shipped: Step 3.6 now invokes project-rag's `cli.py cmd_staleness_survey` directly (with `PROJECT_RAG_PROJECT_ROOT` env), removing the coordinator-side JSON parsing.

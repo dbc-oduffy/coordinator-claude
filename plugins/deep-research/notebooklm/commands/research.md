@@ -192,7 +192,11 @@ Spawn all teammates in one operation:
 - `[OUTPUT_PATH]` = `~/docs/research/YYYY-MM-DD-{topic-slug}.md`
 - `[ADVISORY_PATH]` = advisory path computed in Step 1
 - `[TASK_ID]` = sweep_task.id
-- `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise
+- `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise.
+  **Cleanup-deferral contract:** even when `CLEANUP_NOTEBOOKS=true`, the sweep agent
+  must NOT call `notebook_delete` — notebook deletion is deferred to Step 6c after the
+  coverage auditor completes (notebooks must exist when the D auditor queries them).
+  The sweep writes output and lists notebook IDs; deletion runs in Step 6c.
 
 Spawn teammates using these agent types:
 - Scout: `notebooklm:research-scout`
@@ -223,21 +227,79 @@ After spawning the team, report to the PM and stop tracking:
 
 When the sweep agent sends a completion message:
 
+> **Cleanup-deferral contract (AC16):** The sweep agent does NOT delete notebooks at sweep
+> time when the coverage-auditor is in the loop. Notebook deletion is deferred to step 6c
+> below — the notebooks must still exist when the D auditor queries them. The sweep agent's
+> `CLEANUP_NOTEBOOKS` flag controls whether deletion eventually happens, but the sweep agent
+> itself must not delete before this step completes. See the `--cleanup` note in Step 4
+> (CLEANUP_NOTEBOOKS=true still passes the flag; the sweep writes the output and lists IDs
+> but does not call `notebook_delete` — deletion runs here after the auditor finishes).
+
+**Sequence — always follow this order:**
+
+**6a — Read synthesis**
+
 1. Read `{output-path}`. Verify it's substantive (not empty, not error-only).
-2. If `--cleanup`: notebooks were deleted by sweep agent — note cleanup status from the output doc. If no `--cleanup`: notebooks are preserved — mention their names/IDs to PM for future reference.
-3. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
+2. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
+
+**6b — Run coverage auditor (always-on for Pipeline D)**
+
+Dispatch the coverage auditor as a plain (non-teammate) `Agent(...)` — do NOT use
+`TeamCreate` or assign a team name. This preserves the 7-teammate ceiling.
+
+> **Fidelity relay is OOS for Pipeline D.** Pipeline D has no depth tier — no
+> `--deeper` / `--deepest` flags and no deepening gate. The relay's gating condition
+> (deep tier) structurally cannot fire for D. The relay is out of scope for D until D
+> gains a depth concept; this is an architectural boundary, not an appetite call.
+> Revisit only if `--deeper` or `--deepest` flags are added to D.
+
+Build the auditor dispatch prompt from `pipelines/coverage-auditor-prompt-template.md`
+using the **Pipeline D input block** (fills in the `[PIPELINE_INPUT_BLOCK]` placeholder):
+
+Fill-in fields:
+- `[SYNTHESIS_PATH]` = `{output-path}`
+- `[OUTPUT_PATH_WITHOUT_EXTENSION]` = `{output-path}` minus `.md`
+- `[SCRATCH_DIR]` = scratch dir path for this run
+
+The D auditor carries notebooklm MCP tools (`notebook_query` at minimum) with the
+graduated bootstrap pattern from `pipelines/coverage-auditor-prompt-template.md` §
+Pipeline D input block. If MCP tools are unavailable, the auditor degrades gracefully
+to claims-only and notes the degradation in its sidecar — this is an expected degradation
+path, not a blocker.
+
+Wait for the auditor to write `{output-path minus .md}-coverage-audit.md` and report
+`DONE: {sidecar-path}`.
+
+**6c — Notebook cleanup (deferred from sweep; now safe to run)**
+
+The auditor has completed. Notebooks may now be deleted if `--cleanup` was passed.
+
+- If `--cleanup`: read each `{scratch-dir}/{letter}-summary.md`, extract `notebook_id`
+  from YAML frontmatter, call `notebook_delete` for each. Log results: "Deleted
+  notebooks: {list of IDs and names}". Note any deletion failures for PM.
+- If no `--cleanup`: notebooks are preserved — mention their names/IDs to PM for
+  future reference (read from `{letter}-summary.md` frontmatter).
+
+**6d — Archive, teardown, commit**
+
 4. Archive scratch directory:
    ```bash
    mv tasks/scratch/notebooklm-research/{run-id}/ tasks/scratch/archive/notebooklm-research/{run-id}/
    ```
 5. Delete the team: `TeamDelete("notebooklm-{topic-slug}")`
-6. Commit the output file.
+6. Commit the output file and coverage-audit sidecar.
+
+**6e — Present summary to PM**
+
 7. Present summary to PM:
    - Topic researched + notebooks used
    - Key findings (2-3 bullet executive summary from the output doc)
    - Output path
+   - Coverage audit sidecar path (`{output-path minus .md}-coverage-audit.md`) — note
+     absent-claim count if non-zero
    - Any gaps flagged for follow-up
-   - If advisory exists: "The sweep agent flagged observations beyond scope — see the advisory at `{advisory-path}`."
+   - If advisory exists: "The sweep agent flagged observations beyond scope — see the
+     advisory at `{advisory-path}`."
 
 ---
 

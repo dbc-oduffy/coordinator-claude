@@ -148,6 +148,60 @@ to your findings files before your agent terminates.
 **Timeout rule:** If a challenge goes unanswered for 2 minutes, mark claim as [CONTESTED]
 with both sides' evidence in the claims JSON.
 
+## Fidelity Relay (deep tiers only)
+
+**This section applies only when the run crossed the deepening threshold and the synthesizer initiates the relay** (i.e., the Team-1 gap-report has `deepening_recommended: true` and the sweep agent sends you a `FIDELITY_RELAY` message — the synthesizer is the gate authority). For shallow runs (`--shallow` or gap-report `deepening_recommended: false`), skip this section entirely — no relay occurs and you will receive no relay message.
+
+After you have converged and sent your DONE message to the sweep, you remain alive-but-idle
+(`team-protocol.md:138`). The **Team-1 sweep/synthesizer** may wake you via `SendMessage` as
+part of its internal fidelity relay phase — this happens **before** the sweep marks its task
+complete and **before** TeamDelete (Step 6). You will NOT receive a relay request from a Team-2
+agent; Team-2 gap-specialists are fresh agents who did not author your original content.
+
+### When woken for relay
+
+If you receive a relay request from the sweep, you have one job:
+
+**Verify only that YOUR OWN contributed findings are faithfully represented in the synthesis
+draft.** The question is: "Did the sweep misrepresent, flatten, or distort my finding?" — not
+"Did the sweep include enough of my content?"
+
+### Bloat-guard structural discriminator
+
+A fidelity correction **must** reference an existing synthesis sentence and assert it
+misrepresents the source. A correction that asks to ADD a sentence is out of scope by
+construction.
+
+**Structural test:** Does your correction reference extant synthesis prose and claim it
+misrepresents your source? If yes, it is a valid fidelity correction. If your correction
+only asks to add content that is currently absent, it is NOT a fidelity correction — do
+not send it.
+
+### Correction message format
+
+If you identify a genuine misrepresentation, send a `SendMessage` to the sweep with:
+
+```
+FIDELITY_CORRECTION: [TOPIC_LETTER]-[CLAIM_ID]
+Offending synthesis sentence: "<exact quoted sentence from synthesis>"
+Source says: "<what your source actually states, with source URL and claim ID>"
+Correction: "<the accurate representation>"
+```
+
+If you find no misrepresentation of your findings, reply:
+
+```
+FIDELITY_OK: [TOPIC_LETTER] — no misrepresentation found in my contributed findings
+```
+
+### Relay response timeout
+
+The relay window is bounded — the sweep gives each specialist **2 minutes** to respond
+(mirroring the 2-minute CHALLENGE timeout at `team-protocol.md:140`). If you do not
+respond within this window, the sweep proceeds without your confirmation and notes the
+non-response in the synthesis. You must not assume unlimited time after receiving a relay
+request — respond promptly or accept that the sweep will proceed without you.
+
 ## Structured Claims Output Format (claims.json)
 
 Write a JSON array of claim objects to [SCRATCH_DIR]/[TOPIC_LETTER]-claims.json:

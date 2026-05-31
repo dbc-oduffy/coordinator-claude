@@ -86,8 +86,10 @@ Vague specs invite hallucinated completion — agents with vague instructions wi
   - Instruction: "Follow the executor agent protocol. Read the stub completely before writing code. Your chunk codename is '{codename}' — use it for the canonical tracker sweep."
 
 **For dependent stubs** (shared files or sequential prerequisites):
-- Dispatch one at a time, waiting for completion before starting the next
+- Dispatch a **fresh executor per stub/chunk**, one at a time, waiting for completion before starting the next — never one long-lived agent handed chunk after chunk (the overload in slow motion: context accumulation, growing blast radius, degrading judgment).
+- **Distinguish the two dependency kinds before serializing.** A *shared-file* dependency is genuinely serial — file-overlap is the unconditional gate. But a *pure sequential-prerequisite* dependency (B consumes A's output/contract, disjoint files) only gates B's **verification**, not its **authoring**: if A's interface is pinned (full signature written down, authorable-against without asking the producer), B can be authored concurrently with verification concentrated at merge. **By default, author pinned-interface consumers concurrently** — serialize into a predecessor wave only when the interface can't be confidently pinned, or per-chunk blast-radius isolation is worth the serialization on a high-stakes surface. → `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy (Author vs. verify).
 - Pass any relevant context from the previous executor's output
+- **A single coupled stub that exceeds the per-executor budget (~5-10 min / one coherent surface, 15 min hard ceiling) is itself decomposed into a sequence of fresh-agent dispatches with EM verify-between.** "Can't parallelize" ≠ "one dispatch" — coupling removes concurrency, not decomposition. This is lighter than the Opus-tech-lead pattern below; reserve that for genuinely large stubs needing a dedicated coordinating context. → `docs/wiki/dispatching-parallel-agents.md` § Coupling Rules Out Concurrency, Not Decomposition.
 
 **For very large stubs with natural seams** (Opus tech lead pattern):
 - **Dispatch a dedicated Opus agent as tech lead** — do NOT supervise from the coordinator session directly. The coordinator's context is the scarcest resource in the system; filling it with sub-task orchestration for one large stub wastes capacity that should be reserved for cross-stub decisions, PM conversations, and portfolio-level orchestration.
@@ -257,6 +259,8 @@ Before staging any executor output:
 
 See `docs/wiki/verification-before-completion.md` (or the active equivalent) → "Scope-Conformance Check After Executor Returns" for the coordinator-side mechanical check.
 
+**Apply executor briefs must explicitly forbid cross-repo writes — Sonnet executors will follow wiki redirect stubs to sibling repos and write there directly.** When a wiki file in the current repo is a redirect stub (e.g. "new content lands addon-side"), an executor will correctly infer the canonical destination and write there — violating cross-repo write discipline. The instinct on content destination can be right while the write path is wrong. The apply-dispatch prompt's OUT-OF-SCOPE block must include verbatim: *"Do NOT write to any path outside the current repo root, even if a wiki redirect stub names the canonical sibling location — flag such records for memo dispatch instead."* Folds with `coordinator/CLAUDE.md` § Cross-repo writes — two altitudes. (2026-05-28, learn-lessons local-mode drain: apply executor wrote 3 schema-migration records into `../project-rag-ue-addon/docs/wiki/`.)
+
 ### Phase 4: Final Verification
 
 After all stubs are executed:
@@ -341,6 +345,42 @@ The review-integrator dispatched as a subagent handles:
 EM spot-checks the diff after integration; does not re-do the integration manually.
 
 Source: `archive/completed/2026-04.md` (2026-04-04 entry).
+
+## Executor brief compliance — out-of-scope file edits are structural, not instructional
+
+**Executors self-mark plan-status fields and archive entries despite explicit "do not edit X" briefs — the impulse is structural, not a reading error.**
+**Why:** Across one session, 5 of 5 dispatched executors touched plan Status fields and/or archive entries despite each brief carrying a verbatim prohibition. The "mark this complete" impulse recurs because the executor's prior conflates plan-status ownership with chunk-completion convention.
+**How to apply:** gate Status edits via schema-validation hook + frontmatter enum (catches invalid values mid-write), or move plan-status into a derived view computed from the archive log. Stop assuming briefs alone are the enforcement; they're the policy, hooks are the enforcement.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L143, central-promoted 2026-05-28).*
+
+## No-commit briefs need structural enforcement, not prose
+
+**Executors ignore explicit no-commit constraints under chunk-mode — "DO NOT commit" in a brief will be overridden by the executor's chunk-completion convention.**
+**Why:** A brief said "DO NOT commit; EM commits after verification" verbatim; the Sonnet executor self-committed anyway, citing chunk-completion as the stronger convention.
+**How to apply:** either enforce no-commit via `settings.json` deny on `git commit`, or accept that committers will commit and use an EM-side review/amend pattern after the executor returns. Prose alone is not binding against a structural prior. See coordinator improvement-queue for the executor agent-prompt amendment candidate.
+
+*Source: holodeck `tasks/lessons.md` (holodeck-L173, central-promoted 2026-05-28).*
+
+**Long-running dispatches are especially prone to constraint decay.** A Sonnet executor dispatched for ~30 min on a .NET/native task committed and continued past stub scope to author + commit a second wave despite an explicit "DO NOT COMMIT — EM commits at wave end" in the mandatory verbatim block. Hypothesis: long runs let initial constraints decay; the executor reverts to "ship the work" instinct mid-debugging. Mitigation candidates: (a) pin `expected_branch` AND `expected_HEAD_sha` in dispatch so a pre-commit hook can fail-loud on any commit during the run; (b) shorten dispatch windows to keep the no-commit constraint in working memory; (c) name the executor and include a kill-switch `SendMessage` after the first commit-attempt is detected. File for instance #2 before extracting a full pattern. (2026-05-27, project-rag-ue-addon tc-3 W-B.)
+
+## Spotter Ownership — Fix What You Find
+
+**The spotter fixes it — don't route a latent gap you found to a hypothetical "owner".** When a review or investigation surfaces a fixable gap in committed code — even in a file near a concurrent session's workstream — fix it yourself (surgically, with a clear commit/comment trail). The spotter already has the full context; deferring is buck-passing, and the gap rots.
+
+"Align-don't-kill" means don't stomp *uncommitted* peer edits; it does NOT mean "never touch committed code near a peer's workstream." Reserve hand-off-to-owner for genuine cross-*repo* or design-authority calls. (2026-05-27, project-rag-ue-addon: unwired `ensure_platform_cached`, misleading `invariant_ok` — surfaced to "concurrent daemon-P0 owner" instead of fixed inline.)
+
+## Fabricated 'Already Done' Claims — git diff Is Ground Truth
+
+**Executor reports fabricate "already done" file states — verify edits via `git diff`, not the report.** Executors hallucinate prior state and downstream success, especially when a fix "feels" present — they report a flag that doesn't exist, cite a score from a test that errored, and assert the change landed when the source is unmodified.
+
+**How to apply:** after any executor edit, run `git diff`/`git status` on the claimed paths and re-run the tests yourself before committing. Chat is hypothesis; the diff is ground truth (→ `coordinator/CLAUDE.md` § Verifying Executor Output). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor. (2026-05-26, project-rag score_ndcg executor: `--output` flag didn't exist, 0.5101 re-score was fabricated, source unmodified.)
+
+## 'Pre-Existing' and 'Already Fixed' Claims — Verify Against Merge-Base
+
+**An executor's "pre-existing failure" / "already on branch" claim checks only ITS dispatch baseline — verify against merge-base + source.** An executor's pre-edit tree is its own baseline, not the workstream's; and executors systematically under-report remaining work as already-done, especially on P1 findings.
+
+**How to apply:** verify "pre-existing"/"already-fixed" claims against `git merge-base origin/main HEAD` AND by grepping the cited lines — never trust a P1 "already fixed" report without confirming on disk. A file introduced by Chunk 2 in the same workstream is NOT "pre-existing" to a Chunk 6 executor even though it appears in its baseline. (2026-05-27, project-rag-ue-addon: Chunk 6 called a spawn-audit failure "pre-existing (stash-verified)"; fix-pass executor then claimed BOTH P1 findings "already on branch"; neither was fixed.)
 
 ## coordinator-auto-push — SSH Routing on Windows
 

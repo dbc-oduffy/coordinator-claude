@@ -32,80 +32,20 @@ reasons to defer wiki promotions — the wiki promotion is the work.
 
 ## Routing Bias: Wikis Are the Default, CLAUDE.md Is Exceptional
 
-Apply **extreme skepticism** to any routing record proposing a CLAUDE.md edit or a CLAUDE.md
-pointer. The default destination for a captured lesson is **a wiki guide** — either an existing
-one (`wiki-append`) or a new one (`wiki-new`). CLAUDE.md and pointer-only additions are the
-exceptions, not the rule.
-
-**Why.** CLAUDE.md is load-bearing at every session boot. It is not a knowledge base. Every
-addition — even a one-line pointer — competes for finite boot-time attention. A plethora of
-pointers is the same anti-pattern as a plethora of inline rules: both turn CLAUDE.md into an
-index of indexes that nobody reads carefully.
-
-**The mechanism that makes wiki-only lessons land** is the prior-art-checker pre-flight in
-`coordinator:plan` (→ `docs/wiki/prior-art-checker.md`). It cross-references plans against the
-wiki + lessons + queue corpus. A lesson living in `docs/wiki/<topic>.md` will be surfaced to the
-planner when relevant — without consuming CLAUDE.md budget. **If a lesson can be found by
-prior-art-check, it does not need to be in CLAUDE.md.**
-
-### The CLAUDE.md justification gate
-
-A `doctrine-edit` (CLAUDE.md content) or `memory-pointer` (CLAUDE.md/MEMORY.md pointer line) is
-admissible **only** if the proposal can answer ALL of:
-
-1. **Cross-cutting tripwire.** Does the rule apply to multiple, named surfaces that agents touch
-   from cold boot? (Not "useful to know" — "wrong action taken without it.")
-2. **Boot-time-greppable required.** Would a planner / EM realistically fail to find this via
-   prior-art-check on a relevant plan? Wiki-routing fails ONLY if the lesson cannot be matched
-   from a plan's claim surface.
-3. **No existing wiki carries the topic.** Confirmed by `grep` against `docs/wiki/`. If a wiki
-   exists, `wiki-append` is the correct route — even if the wiki would then need a one-line
-   surfacing somewhere agents already look (which is almost never CLAUDE.md).
-4. **No existing CLAUDE.md section already covers the shape.** Demotion of a near-duplicate
-   into the proposed addition's home wiki is preferred over adding alongside it.
-
-If any check fails (during DoE adjudication of a worker-flagged escalation, or during DoE
-self-review of a proposed doctrine-edit plan), downgrade: `doctrine-edit` → `wiki-append` /
-`wiki-new` + `doe_escalation: true` (preserve the signal for DoE's separate downstream
-consideration — NOT for further apply steps in the current run); `memory-pointer` →
-`wiki-append` to the wiki that already carries the topic (the prior-art-checker will surface
-it from there — no separate pointer needed).
-
-**Substance and proposed-target are independent.** The original logging EM's `proposed target:` is a suggestion, not a verdict on the lesson's worth. When the proposed target is CLAUDE.md (or a CLAUDE.md pointer) and fails the four-check gate, the default move is **reroute** — pick the right wiki / agent prompt / hook / script surface for the substance — NOT `discard`. Discard is reserved for lessons whose *substance* is ephemeral, already covered by existing doctrine, or factually wrong from the start. "Logger proposed a rule-breaking target, therefore archive" is a category error: it conflates the lesson with its suggested destination. Ask "what problem is this lesson trying to solve, and where does that problem actually live?" before routing.
-
-**Workers MUST NOT emit `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** Route
-to `wiki-append` / `wiki-new` and set `doe_escalation: true` (with a one-line
-`escalation_reason:`) when the worker believes CLAUDE.md placement deserves DoE consideration.
-The EM/consolidator treats any record arriving with either change-kind as a routing error
-and downgrades it to the corresponding `wiki-*` before the record reaches PM surfacing.
-DoE-authored exceptions (a separate downstream plan, not lifted from worker output) require
-all four justification checks answered inline. **Do NOT auto-apply `doctrine-edit` or
-`memory-pointer` records, regardless of mode** — they always require DoE authoring, the Staff Engineer
-review, and PM surface.
-
-### DoE-only adjudication on CLAUDE.md edits
-
-CLAUDE.md loads at every session boot across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
-
-**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (the Director of Engineering or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
-
-- Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a DoE attention flag, not a blocker.
-- If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
-
-EMs proposing CLAUDE.md targets in `tasks/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
-
-### Pointer-pollution bound
-
-The CLAUDE.md "→ `docs/wiki/<name>.md`" pointer is a tool, not a destination. A run that emits
-more than **one** new CLAUDE.md pointer across all routing records is presumptively wrong —
-the underlying lessons belong in their wikis, and the wikis are findable by prior-art-check
-without a CLAUDE.md hand-hold. Surface to the PM with the full pointer list before applying.
+> **Taxonomy + routing reference:** `docs/wiki/learn-lessons-routing.md` § Routing Bias.
+>
+> Summary: default destination is a wiki guide (`wiki-append` / `wiki-new`). `doctrine-edit` and
+> `memory-pointer` are DoE-only and must clear the four-check justification gate (cross-cutting
+> tripwire / boot-time-greppable / no existing wiki / no existing CLAUDE.md section) plus the
+> char-budget pre-flight before any apply step. Workers route CLAUDE.md-targeted lessons to
+> `wiki-append` / `wiki-new` + `doe_escalation: true`. Substance and proposed-target are
+> independent — a routing-policy failure is a reroute, not a discard.
 
 ## Modes
 
 | Mode | Trigger | Authorization | Output |
 |---|---|---|---|
-| `local` | `/update-docs` Phase 6 OR direct invoke from a project repo | **Auto-apply** discard/wiki-append/retag/dedupe within bounds; surface structural changes to PM | In-place edits, archive appends, queue appends, PM summary |
+| `local` | `/update-docs` Phase 6 OR direct invoke from a project repo | **Auto-apply** discard/wiki-append/retag/dedupe within bounds + Phase 4.5 age-sweep; surface structural changes to PM | In-place edits, archive appends, queue appends, age-sweep, PM summary |
 | `central` | PM-invoked from `~/.claude` central (cross-repo extraction) | **PM gate** per apply; scouts read only, don't mutate remote lessons files | Routing manifest + review doc; apply runs plan → review → executor |
 | `recheck` | `tasks/lesson-triage-recheck-due-*.md` marker fires via `/workday-start` | Auto-extend if delta small; otherwise dispatch central mode | New marker (no work) or full central run |
 
@@ -114,6 +54,29 @@ central → default `central`; else default `local`. Always log the detected mod
 line.
 
 **Morning-brief framing is advisory.** The skill body's mode-default logic above is authoritative — if cwd is a project repo, mode is `local` even if the morning brief surfaced the central queue depth. PM can override explicitly.
+
+## Heavy-Queue Promotion Sprint (central sub-mode)
+
+When the central queue has overflowed — **≥ ~150 entries, or a large fraction never folded into doctrine** — per-record routing (Phase 2) is the wrong tool: it adds N more lines to a graveyard. Run a **promotion sprint** instead. Dogfooded 2026-05-27 (drained 324 → 190, ~49%, in one session); PM-ratified as the standard heavy-queue procedure.
+
+Shape — split → synth → check → DoE-review → EM-prune:
+
+1. **Split-classify (Sonnet ×2+).** Never one agent over ~150 items (truncation/miss risk). Split the queue into disjoint line-ranges + the delta extraction; each Sonnet emits a flat `L## | bucket | one-liner | target` classification (no dup-grouping — that needs a global view). Buckets are the recurring theme-clusters the EM names from a first read (concurrent-EM git / verify-against-disk / cross-repo-hypothesis / test-discipline / bug-class-sweeps are the empirically dominant five) + a RESIDUAL bucket sub-tagged `code-fix` / `already-shipped` / `project-specific` / `singleton`.
+2. **Combine deterministically (EM, not an agent).** `grep`-concatenate the classifications into one manifest per bucket. Mechanizing the merge removes the fabrication risk of a third LLM pass; dup-grouping moves into the synthesizer (which reads full bucket content anyway).
+3. **Synthesize (Opus ×1 per doctrine bucket, parallel, DISJOINT wikis).** Each synthesizer consolidates its cluster into wiki append/new (may write a plan), reports the EXACT absorbed queue-line numbers, kicks back items whose home is an agent-prompt/skill/other-wiki (do NOT prune those), flags the Staff Engineer-worthiness, recommends CLAUDE.md pointers (DoE decides). Assign disjoint wiki sets so parallel writes never collide; EM commits serially.
+4. **Verify mechanically (EM + Sonnet).** EM: confirm absorbed-lines ⊆ each synthesizer's manifest (no straying) and no cross-bucket line collisions. Sonnet quality-check pass on the diffs: internal dedup, broken cross-links, RAG-bait header quality, out-of-assigned-file edits, truncation. Then **DoE/Opus self-review** of the actual wiki edits for coherence — this replaces a the Staff Engineer pass for *consolidation of already-vetted lessons* (the Staff Engineer is over-spec; reserve him for novel architecture).
+5. **EM-serial prune.** `git rm` the absorbed lines. **HARD: re-verify the queue is byte-identical to classification time before pruning by line number** — a concurrent EM's `session-end` commit can append/insert lines and shift every number (the line-number-keyed-drift hazard; → `cleanup-sweep-hazards.md`). Cross-check each absorbed line's current content against its manifest one-liner; if anything shifted mid-file, prune by content, not number. Commit wikis first (durable value), then the prune + `DIRECTORY_GUIDE` + the run-dir audit trail (classify manifests + per-bucket reports + quality-check + pruned-line snapshot) so `git log` carries the full line→wiki provenance.
+
+RESIDUAL is **not** sprint material — singletons don't consolidate. Surface the residual disposition to the PM as an explicit decision; do not silently re-queue (defer-chain anti-pattern). Disposition by sub-tag:
+
+- `singleton` → individual wiki folds, or defer to next central run (PM's call).
+- `code-fix` → `tasks/bug-backlog.md` (self/central-owned) — actionable code, wrong surface for the doctrine-promotion queue.
+- `project-specific` → the **owning repo's** live backlog.
+- `already-shipped` → discard-archive.
+
+**HARD — re-home before you prune; a removed entry must land in a live, actionable home, not only an archive file.** Before `git rm`-ing any residual entry, classify whether it still has a live home:
+- **Has a live home** (sourced from the owning repo's `tasks/lessons.md`, which that repo's own local `/learn-lessons` re-surfaces; or already tracked in a sibling queue/backlog) → safe to prune from central; the central line was a redundant pointer.
+- **No live home** (sourced from a code file, plan doc, or review-findings artifact — the central queue line was the *only* live tracker) → **route it to its owning repo's backlog/inbox BEFORE pruning.** For a sibling repo, deliver via `cross-repo-memo` (or hand-write the single-delivery inbox memo if the CLI is down) and hand the PM the receiver path. Pruning a no-live-home entry into only the run-dir archive snapshot is **data loss disguised as cleanup** — the archive file is provenance, not an actionable home, and nobody triages it. The 2026-05-27 dogfood hit exactly this: 3 of 7 sibling entries (code/plan-sourced) had no `lessons.md` home and were bare-pruned; caught on PM review, re-homed via hand-written inbox memos. Make the live-home classification a per-entry gate, not an afterthought.
 
 ## When to Trigger / Don't Trigger
 
@@ -164,50 +127,15 @@ So `X:/foo`, `X:\foo`, `x:/foo/`, and `X:/foo` all normalize to the same entry `
 
 No hardcoded project paths outside the config file's documented example block.
 
-## Per-Lesson Routing Schema
+## Per-Lesson Routing Schema and Change-Kind Taxonomy
 
-Each lesson processed produces one record:
-
-```yaml
-- id: "<repo-shortname>-<entry-id>"
-  source: "<file:line>"
-  summary: "<one-line title>"
-  scope: universal | project | wiki-only | discard
-  destinations:
-    - target: "<full file path or new-file path>"
-      section: "<named section anchor or '(new section)' or '(new file)'>"
-      change_kind: <see Change-Kind Taxonomy>
-      rationale: "<one-line why>"
-      priority: HIGH | MEDIUM | LOW
-      depends_on: "<optional id pointer>"
-  open_questions: []
-  doe_escalation: false           # workers set true on a wiki-* record when they
-                                  # believe DoE should reconsider CLAUDE.md placement
-  escalation_reason: ""            # one-line; only meaningful if doe_escalation: true
-```
-
-`doe_escalation` is the worker-side flag for "this might be CLAUDE.md-worthy — DoE please
-look." It rides on a `wiki-append` or `wiki-new` record; the wiki edit lands regardless.
-Workers MUST NOT use `change_kind: doctrine-edit` or `change_kind: memory-pointer` (see
-§ Routing Bias). Records arriving with those change-kinds are treated as routing errors
-and downgraded by the consolidator.
-
-## Change-Kind Taxonomy (closed enum)
-
-| Kind | Meaning | Apply mechanism |
-|---|---|---|
-| `doctrine-edit` | **DoE-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for DoE authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | DoE-authored plan → the Staff Engineer review → executor; PM surface mandatory |
-| `agent-prompt-edit` | Edit a specific agent's prompt file | Plan → reviewer → executor |
-| `hook-edit` | Edit a hook script | Plan → reviewer → executor |
-| `script-edit` | Edit a helper script in `bin/` | Plan → reviewer → executor |
-| `snippet-sync-update` | Edit a synced snippet + run propagation script | Edit + `bin/verify-*-sync.sh --fix` |
-| `wiki-new` | Create a new `docs/wiki/` guide. **Default destination** for non-trivial cross-cutting lessons. | Plan → reviewer → executor; update `DIRECTORY_GUIDE.md` |
-| `wiki-append` | Append to existing wiki guide at named section. **Default destination** for lessons covered by an existing wiki topic. | Direct executor (low judgment) |
-| `memory-pointer` | **DoE-ONLY** — add a one-line pointer to MEMORY.md or CLAUDE.md. Workers MUST NOT propose; reserved for DoE authoring. Same four-check gate as `doctrine-edit`; prior-art-checker should be reached for first. | DoE-authored edit; PM surface mandatory |
-| `project-structural` | Change in originating project's repo | Plan → reviewer → executor in that repo |
-| `retag-local` | Change `[universal]` → `[<domain>]` tag in place | Direct edit |
-| `strip-local` | Delete entry from source file (gated on central commit SHA) | Direct edit, ONLY after depends_on lands |
-| `discard` | Archive-then-delete (no migration) | Archive append + direct edit |
+> **Full schema + closed-enum taxonomy:** `docs/wiki/learn-lessons-routing.md`
+> §§ Per-Lesson Routing Schema, Change-Kind Taxonomy, Lesson Scope Classification.
+>
+> Key fields: `scope` (universal | project | wiki-only | discard), `change_kind` (closed enum
+> — see wiki), `doe_escalation` (worker flag; wiki edit lands regardless; DoE attention only).
+> Workers MUST NOT emit `change_kind: doctrine-edit` or `change_kind: memory-pointer` — those
+> are routing errors; downgrade to `wiki-*` + `doe_escalation: true` at consolidation.
 
 ## Phase 0.5 — Dedupe Pass (central mode only)
 
@@ -247,9 +175,7 @@ bin/extract-lessons.py extract <repo>/tasks/lessons.md --shortname <shortname> \
   -o ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-delta.yaml
 ```
 
-**Why two extractions:** the verify gate asks "is the cited source line a real entry, period" — undated real entries should pass that question (they exist in source). `--since` belongs on the router's input view, not the verification oracle; if the gate used a `--since`-filtered oracle it would reject any record routing an undated real lesson, even though the cite is genuine. Run the full extraction once per repo; reuse it for verify across the run.
-
-`--since` keeps dated entries in-window and EXCLUDES undated ones (reported in meta as `undated_excluded_under_since: N`) — for a delta router input, that's correct (undated entries can't be proven in-window). To route undated lessons, run a separate non-`--since` routing pass over the full extraction. The extractor assigns deterministic ids of the form `<shortname>-L<line>` (the start-line of the entry's header block in source), which the routing layer must cite verbatim.
+**Why two extractions:** full (no `--since`) = verify oracle (undated real entries must pass it); delta (`--since`) = router input. `--since` excludes undated entries (`undated_excluded_under_since: N` in meta) — route undated lessons via a separate non-`--since` pass over the full extraction. Ids are `<shortname>-L<line>` (header start-line); the routing layer must cite them verbatim.
 
 ### Central mode — routing step
 
@@ -258,14 +184,10 @@ The EM (or a delegated router) reads the per-repo `*-extracted.yaml` files and p
 **Routing rules (apply at any altitude — EM-direct, Haiku-router, or Sonnet-router):**
 
 - **Lessons asserting a mechanical contract must cite executable authority, not narrative confidence.** A lesson stating an env-var value, a path resolution rule, an API signature, an exit-code, or any other mechanical fact (vs. an operating discipline) must point at the executable witness — a passing contract test, the live tool's observed behavior, official docs — in its body. When the routing record's source lesson is a mechanical-contract assertion, route as: (a) `wiki-append` with rationale flagging missing-citation if no executable witness is cited but one plausibly exists; (b) `discard` if no executable witness can be located OR an executable witness contradicts the lesson's assertion (the lesson is wrong, not just under-cited). The 2026-05-23 `${CLAUDE_PLUGIN_ROOT}` lesson — exactly backwards for days, would have led the next EM to revert a correct 91-file fix — is the empirical case for the contradiction branch: three independent authorities (Claude Code docs, `test_claude_plugin_root_resolution.py`, the live tool's substitution) converged against the lesson; narrative confidence in a prose log is not evidence. Rule of thumb: if a lesson and a passing contract test disagree on a mechanical fact, correct the lesson, not the test.
-- Conservative on domain-specific candidates — `retag-local` is the safer default for entries that look universal-tagged but are really domain (UE / game-dev / web-dev / data-science).
-- **NEVER use `change_kind: doctrine-edit` or `change_kind: memory-pointer`** — those are
-  DoE-only. Route every CLAUDE.md-targeted lesson the source EM proposed to `wiki-append`
-  (preferred) or `wiki-new` instead. If you genuinely believe the DoE should reconsider
-  CLAUDE.md placement, set `doe_escalation: true` on the wiki-* record with a one-line
-  `escalation_reason:` — the wiki edit still lands; escalation is just a DoE attention flag.
-  Records with `doctrine-edit` or `memory-pointer` from a worker are treated as routing errors
-  and downgraded.
+- Conservative on domain-specific candidates — `retag-local` is the safer default for entries that look universal-tagged but are really domain (UE / game-dev / web-dev / data-science). **Caveat when applying `retag-local`:** do NOT blind string-replace `[universal]` → `[domain]` — a naive replace corrupts prior retag-history comments and any in-body `[universal]` reference. Edit only the tag on the entry's header line. Note also that `extract-lessons.py` sets `tag_universal` if `[universal]` appears *anywhere* in the block, so a leftover in-body mention keeps an entry classified universal after a header-only retag — strip stray in-body occurrences too.
+- **NEVER use `change_kind: doctrine-edit` or `change_kind: memory-pointer`** — DoE-only.
+  Route CLAUDE.md-targeted lessons to `wiki-append`/`wiki-new` + `doe_escalation: true`.
+  See § Routing Bias (`docs/wiki/learn-lessons-routing.md` § Routing Bias).
 
 If a Haiku/Sonnet router is dispatched, the dispatch prompt MUST include the verify-gate clause: *"Every routing record's `id` MUST appear in the cited `*-extracted.yaml`. Inventing a record under a fabricated id will be caught by `extract-lessons.py verify` at Phase 5 and fail the run."* The gate is mechanical (Phase 5); the prompt clause is the design-as-offers framing that lets the router self-check before producing output.
 
@@ -318,23 +240,66 @@ Before removing any entry from `tasks/lessons.md`, append it to the per-repo arc
 # Discarded by /learn-lessons on YYYY-MM-DD HH:MM from tasks/lessons.md:LINE
 ```
 
-EM judges discard inline — no PM confirmation gate on individual discards. The archive is the
-safety net; it is recoverable (grep by date, source file, or line number) but not surfaced by
-default from `tasks/lessons.md`.
+EM judges discard inline — no PM confirmation gate. Archive is recoverable (grep by date/source/line) but not surfaced by default.
 
-**Reversed-lesson annotation (do NOT delete — annotate instead).** When a `[universal]` or
-doctrine-targeted lesson is overturned by a later run or PM decision, do NOT delete the original
-`tasks/lessons.md` entry. Instead, annotate it inline:
+**Reversed-lesson annotation (do NOT delete — annotate instead).** When a `[universal]` or doctrine-targeted lesson is overturned, annotate in place rather than deleting:
 
 ```
 > **INVERTED 2026-05-14:** <one-line reason for reversal> (replaced by: <new doctrine pointer>)
 ```
 
-Place the blockquote directly under the original lesson body. The original lesson remains as
-historical context; future scouts see both the prior conclusion and the inversion, preventing
-re-discovery of the same shape. Deletion is reserved for lessons that were factually wrong from
-the start (e.g. cited a nonexistent file) or exact duplicates already folded — not for
-"we changed our minds" reversals.
+Place the blockquote directly under the lesson body. Deletion reserved for lessons that were factually wrong from the start or exact duplicates — not for "we changed our minds" reversals.
+
+## Phase 4.5 — Local-Mode Age-Sweep (Bound the File)
+
+**Local mode only.** `tasks/lessons.md` is read by `/learn-lessons`, the central-mode strip-local
+pull-pass, and `/session-start` — NOT at normal session boot (it's a capture queue, not Tier 0).
+Without this sweep, local repos accumulate 200–350 KB in a month of high-volume capture
+(empirical: three sibling repos at 193/266/107 entries after a month). `[universal]` entries
+promoted to central wikis have their durable home there; once older than the last completed central
+run they're redundant in `lessons.md`. Age-sweep archived universals; keep everything else.
+
+**Mechanism — `bin/age-sweep-lessons.py`** (deterministic; reuses `extract-lessons.py`'s entry-boundary
+parser so cuts land on identical boundaries; default dry-run):
+
+```bash
+# 1. Cutoff = most recent COMPLETED central run. Central mode writes a `COMPLETE`
+#    sentinel in its run dir on success (Phase 8); a dir WITHOUT it is in-progress or
+#    aborted and MUST NOT become the cutoff (a half-finished run never promoted its
+#    entries, so sweeping against it would archive un-promoted universals).
+cutoff=$(for d in ~/.claude/tasks/learn-lessons-20*/; do
+           [ -f "${d}COMPLETE" ] && basename "$d" | sed 's#learn-lessons-##'
+         done | sort | tail -1)
+# 2. No completed central run reachable → SKIP the age-sweep (do NOT guess a cutoff;
+#    the script also fail-closes on a blank --before). A sibling that can't reach
+#    central must not have its boot blocked or its universals swept on a guess.
+if [ -z "$cutoff" ]; then
+  echo "age-sweep: no completed central run reachable — skipping"
+else
+  bin/age-sweep-lessons.py <repo-root> --before "$cutoff"            # dry-run preview
+  bin/age-sweep-lessons.py <repo-root> --before "$cutoff" --apply    # apply
+fi
+```
+
+**Partition** (per entry, on the CURRENT file — drift-safe under concurrent edits):
+ARCHIVE iff `[universal]`-tagged AND dated AND `date < cutoff`; KEEP everything else
+(project-specific entries — no central home, any age; undated entries — can't prove aged; universals
+within the window — may not be promoted yet).
+
+**Cutoff is event-based, not age-based.** `--days N` is the wrong tool for high-volume repos (a month of entries in a month = `--days 30` no-ops). The safe cutoff = "had a central run" = last completed central run date. `--days N` exists only as a fallback when no central-run history is reachable; prefer `--before <last-central-run-date>`.
+
+**Auto-apply in local mode** (reversible — archive file + git history are the recovery net). Run on a
+clean tree; commit with an explicit pathspec (`git add -- tasks/lessons.md archive/lessons-archived/<month>.md`)
+— never `git add -A` (concurrent-EM safety). Report the archived count in the Phase 8 summary.
+
+**Do NOT run the bulk age-sweep against a sibling repo from a central-mode run.** Bulk-sweeping
+another repo's `lessons.md` centrally — every aged universal at once — races that repo's own
+in-flight local runs (the 2026-05-27 collision: a sibling's `lessons.md` was dirty mid-trim while
+central considered sweeping it). Each repo's *own* local-mode run handles its bulk age-sweep.
+
+This prohibition bans **bulk** age-sweep only — NOT the **targeted strip-local** that central applies as the second half of each promotion (§ Phase 5 Apply order). Targeted strip is bounded by the promotion set and yields to drift; central promotes and strips-just-promoted; local mode bulk-bounds the residue.
+
+**Reverse race (local age-sweep vs. in-flight central run):** the `COMPLETE`-sentinel cutoff handles it — an in-flight run hasn't written `COMPLETE` yet, so the local sweep's cutoff resolves to the prior completed run and leaves the current window untouched. Sentinel is the sync primitive; no manual coordination needed.
 
 ## Phase 5 — Authorization and Apply
 
@@ -359,9 +324,7 @@ bin/extract-lessons.py verify \
 
 The gate asserts that every routing record cites a `source:` line number that a real extracted entry occupies, and that every cited `id` of the form `<shortname>-L<N>` exists in the extraction. **The full (non-`--since`) extraction is the verify oracle** — see the "Why two extractions" note above. **Exit 1 fails the apply phase loud** — ungrounded references are fabrication suspects and MUST be triaged (router error or extraction-vs-routing mismatch) before any wiki/queue write proceeds. The gate is the mechanical backstop that lets Haiku/Sonnet routers be used safely on backlogs: extraction is unforgeable (script, not LLM), and routing fakery is detectable (verify rejects it). Empirically the gate also catches Opus hand-routing line-citation drift — its first dogfood (2026-05-24) caught 2 ungrounded references in a 28-record hand-routing batch.
 
-**When to use multi-repo mode.** A second-pass Sonnet router classifying records across N source repos in one yaml (the 2026-05-24 `records-net-new.yaml` shape) used to require splitting per-shortname and running `verify` N times. Pass the run-dir directly instead — multi-repo mode auto-engaged on directory arg. Multiple `<shortname>-extracted-full.*` files for the same shortname surface as an explicit operator error (exit 2), never silently picked.
-
-EM-direct routing on a small delta still runs the gate — it catches typos and stale source-line references that would otherwise propagate to applied wiki sections citing the wrong source.
+**Multi-repo mode:** pass the run-dir as the extraction arg — auto-engaged when multiple `*-extracted-full.yaml` files are present; multiple files for the same shortname = exit 2 (operator error). EM-direct routing on small deltas still runs the gate — catches typos and stale line-citation drift.
 
 ### When the gate fails — recovery playbook
 
@@ -380,23 +343,15 @@ Before applying any queue entry, re-Read the queue from disk to catch concurrent
 
 ### Local mode — auto-apply bounds
 
-**Auto-apply without PM prompt:**
-- `discard` of pure-ephemeral entries (archive first per Phase 4)
-- `wiki-append` to existing guides — **mandatory same-run apply when destination is named**
-- `wiki-new` when (a) destination filename is named, (b) substance is concrete enough for an executor draft, and (c) the new file does not cross into doctrine surfaces. Add `DIRECTORY_GUIDE.md` entry in same executor dispatch. Surface to PM only when the wiki home is itself an unresolved design question.
-- `retag-local` within the same file
-- Dedupe of obvious duplicates
-
-**Same-run apply is the default.** When a record lands in the auto-apply bucket, dispatch the apply this run. "Next local pass should fold these" is the defer-chain anti-pattern. If parallel-dispatch budget is tight, serialize — do not defer.
-
-**Surface to PM (do not auto-apply):**
-- `doctrine-edit`, `memory-pointer` — **DoE-only.** Downgrade worker-proposed records to `wiki-*` + `doe_escalation: true` before surfacing. The DoE authors a real `doctrine-edit` plan only after reviewing the escalation bucket, clearing the four-check gate, and clearing the char-budget pre-flight.
-- `doe_escalation: true` records — surface as a separate "DoE reconsideration" bucket. The wiki edit auto-applies; the escalation flag is a DoE attention notice, NOT a blocker.
-- `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
-- `project-structural` outside the same repo
-- `strip-local` of `[universal]`-tagged entries (cross-repo promotion needed first)
-
-**Universals-pending escalation.** If ≥ 20 unactioned `[universal]`-tagged entries have accumulated since the last central-mode commit, surface the count to the PM: *"Backlog of N universals — invoke central mode now?"* — and wait. Do not launder the backlog into another "next pass" notice. Emit a one-screen PM summary with surfaced records and a "run /learn-lessons --mode=central" pointer.
+> **Full auto-apply vs. PM-surface routing table:**
+> `docs/wiki/learn-lessons-routing.md` § Local Mode — Auto-Apply Bounds.
+>
+> Auto-apply: `discard`, `wiki-append` (mandatory same-run), `wiki-new` (named destination),
+> `retag-local`, dedupes, Phase 4.5 age-sweep.
+> PM-surface: `doctrine-edit`, `memory-pointer`, `doe_escalation: true` records,
+> `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`, `project-structural`.
+> `strip-local` is NOT PM-surface — auto-applies as second half of the central chain.
+> Universals-pending: if ≥ 20 unactioned `[universal]` entries, surface to PM before proceeding.
 
 ### Central mode — PM gate
 
@@ -412,55 +367,17 @@ Batch authorization is OK ("apply all of A, defer all of B-MEDIUM, reject B-LOW"
 
 ### Apply order
 
-**Central first, then strip-local.** Strip-local records have `depends_on` pointing at the central
-change; do not strip until the central commit SHA exists.
+**Central first, then strip-local — both in the same run, both DoE-applied.** Strip-local records have `depends_on` pointing at the central change; do not strip until the central commit SHA exists. Once that SHA lands, the DoE applies the strip in the sibling repo in the same central run — do **not** defer to "the sibling's next local-mode age-sweep" (deferral is the boot-tax pattern; every day the redundant entry remains it costs every consumer that reads `lessons.md`). Concurrent-edit safety: pull-then-content-match-then-prune; skip-and-warn on drift; age-sweep catches residue.
 
 ### Per-record apply dispatch
 
-#### CLAUDE.md justification pre-flight (gates `doctrine-edit` and `memory-pointer`)
-
-**Run the § Routing Bias four-check gate FIRST.** Size is a backstop, not the primary
-filter. If any of the four checks (cross-cutting tripwire / boot-time-greppable required /
-no wiki carries it / no CLAUDE.md section already covers it) fails, the change-kind is
-downgraded to `wiki-append` or `wiki-new` before any size measurement happens. A passing
-gate-check must be recorded inline in the PM-surfacing block; "size fits" is not a
-justification.
-
-#### CLAUDE.md char-budget pre-flight (gates `doctrine-edit` targeting any CLAUDE.md)
-
-After the justification gate clears, before dispatching a `doctrine-edit` whose `target` is a
-`CLAUDE.md` file, run this pre-flight:
-
-1. Measure current char size: `wc -c <target>`.
-2. Estimate addition: char count of the proposed new bullet/section body.
-3. Compare projected size (`current + addition`) against thresholds:
-
-| Projected | Action |
-|---|---|
-| ≤ 36,000 | Proceed normally (≥4K headroom under soft limit). |
-| 36,001 – 38,000 | Proceed, but emit a "budget approaching" note to the PM summary so the next addition is on notice. |
-| 38,001 – 40,000 | **Gate: identify a demote target first.** The plan must name a specific section to compress to a wiki pointer (or an existing wiki to extend) and include the demote in the same plan. No PM ratification needed if the demote is mechanical (existing wiki carries the topic); surface to PM if creating a new wiki. |
-| > 40,000 | **Hard refuse.** The pre-commit hook (`validate-commit.sh` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
-
-The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
-
-**Rationale.** The two trims in 2026-05-06/07 both held; doctrine creep refilled the budget through ~25 small additions. The hook catches the symptom; this gate catches the cause at the only step where coordinator-doctrine additions are routed (`doctrine-edit` is the closed-enum kind for CLAUDE.md edits per Phase 0 taxonomy).
-
-#### Apply dispatch
-
-- `doctrine-edit`, `memory-pointer` → **DoE-only.** Workers MUST NOT reach this branch —
-  worker records arriving with either change-kind are downgraded to `wiki-*` +
-  `doe_escalation: true` at consolidation. Only DoE-authored plans (drafted after reviewing
-  the escalation bucket, clearing the four-check justification gate, and clearing the
-  char-budget pre-flight) reach this dispatch step. Plan → the Staff Engineer review → integrator →
-  executor.
-- `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` → write focused plan, dispatch
-  the Staff Engineer for review, integrator on findings, executor.
-- `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
-- `wiki-append`, `retag-local`, `discard` → direct executor or EM edit.
-- `strip-local` → direct edit in originating repo, gated on central SHA. Pull + status check first
-  (concurrent EM guard — same as the existing lesson-triage cross-repo mechanics).
-- `project-structural` → in originating project repo: plan → review → executor.
+> **Full dispatch table + CLAUDE.md pre-flight gates:**
+> `docs/wiki/learn-lessons-routing.md` § Per-Record Apply Dispatch.
+>
+> Includes: CLAUDE.md justification pre-flight (four-check gate), char-budget pre-flight
+> (≤36K / 36-38K / 38-40K / >40K thresholds), and the per-change-kind dispatch table.
+> `strip-local` procedure: pull-then-content-match-then-Edit + explicit-pathspec commit,
+> gated on central commit SHA; skip on non-FF pull, dirty tree, zero-match, or multi-match.
 
 ## Phase 6 — Per-Project Improvement Queue
 
@@ -482,11 +399,7 @@ Project-structural improvements queued by `/learn-lessons`. Consumed by `/workwe
 
 **When appending a NEW entry to either queue (central or per-project), write the main line only.** DR-056 amended 2026-05-17: the `recurring:` and `resolution:` sub-lines are dropped from the schema (empirical data: 100% of central-queue entries had `recurring: 0` / `resolution: pending` — 266 lines of unchanging ceremony across 133 entries). `/update-docs` Phase 11i strips trivial sub-lines on every run regardless. If recurrence count matters, append ` [recurring: N]` to the main line when N ≥ 1.
 
-**Routing:**
-- `[universal]` entries → append to `~/.claude/tasks/coordinator-improvement-queue.md` (central).
-- `[project]` entries → append to local `tasks/improvement-queue.md`.
-- `[wiki-only]` entries → append-or-promote to `docs/wiki/<topic>.md`.
-- Unclassified/ephemeral → discard (archive first per Phase 4).
+**Routing:** scope → queue mapping in `docs/wiki/learn-lessons-routing.md` § Lesson Scope Classification.
 
 ## Phase 7 — Recheck Marker
 
@@ -495,7 +408,16 @@ Drop `tasks/lesson-triage-recheck-due-<today + recheck_cadence_days>.md`. Single
 Next learn-lessons cadence due YYYY-MM-DD. Run /learn-lessons from ~/.claude (central mode).
 ```
 
-Default cadence: 21 days. `/workday-start` Step 1.6 globs `tasks/lesson-triage-recheck-due-*.md`.
+Default cadence: 21 days. `/workday-start` Step 1.7 globs `tasks/lesson-triage-recheck-due-*.md`.
+
+**Volume trigger (companion to the date cadence).** A fixed date cadence under-runs in busy weeks —
+exactly when the sibling `lessons.md` boot-surface floor (bounded by Phase 4.5 at `rate × days-since-last-central-run`)
+balloons fastest. So `/workday-start` Step 1.75 also runs `central-run-due.sh`, which counts `[universal]`
+entries accrued across the configured roots since the last **COMPLETE** central run and surfaces a
+"central run due (volume)" nudge at `central_volume_threshold` (config, default 150). Whichever fires
+first — date or volume — surfaces the nudge; both are PM-actioned, never auto-dispatched. This bounds the
+universal floor adaptively. (It does NOT bound project-specific entries — those have no central home and
+are the sibling local-mode's fold-to-wiki / discard concern, not the central run's.)
 
 ### Recheck mode behavior
 
@@ -504,7 +426,7 @@ Default cadence: 21 days. `/workday-start` Step 1.6 globs `tasks/lesson-triage-r
    `tasks/lessons.md`).
 3. **Structural-enforcement verification** (for each pending lesson naming a tripwire, wiki, or script artifact): check whether a completion entry citing the artifact exists since the lesson's capture date:
    ```bash
-   bin/query-records --type completion --where "title~<tripwire-name>" --since "<lesson-date>"
+   "$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type completion --where "title~<tripwire-name>" --since "<lesson-date>"
    ```
    A returned record = structurally enforced — exclude from delta count, log as `[enforced]`. Absence = still ambient — count normally.
 4. **If delta ≤ 5 entries total (after excluding enforced lessons):** auto-extend cadence — drop new
@@ -527,11 +449,23 @@ learn-lessons run complete (mode=<mode>):
     <list each escalated record: id — wiki target — escalation_reason>
 - T worker-emitted doctrine-edit/memory-pointer records downgraded to wiki-* before surfacing:
     <list each downgrade: id — original target → wiki target>
+- U strip-local applied (central mode only): <total> entries removed across N sibling repos
+    <per-repo breakdown: <shortname>: <count> stripped, <count> skipped-on-drift>
+    <list skipped: id — reason (pull-not-ff / content-no-match / multi-match / dirty-tree)>
+    If skipped > 0: surface to PM — "Re-run `/learn-lessons --mode central` targeting these
+    ids after the affected sibling's concurrent work settles. Age-sweep will NOT catch them
+    in the current window (just-promoted entries are inside the cutoff date)."
 ```
 
 The recurrence list is the pressure signal. PM acts or defers — no automatic block.
 The `doe_escalation` and downgrade lists are inputs to the DoE's separate doctrine-edit
 review pass; they are not actionable in the current run beyond surfacing.
+
+**Central mode — write the completion sentinel.** On successful completion of a central run,
+`touch ~/.claude/tasks/learn-lessons-YYYY-MM-DD/COMPLETE`. This is the signal Phase 4.5's local-mode
+age-sweep reads to pick its cutoff: a run dir WITHOUT `COMPLETE` is in-progress or aborted and must
+never become a sweep cutoff (it never promoted its entries). Write it last, after all applies/commits
+land — it certifies "every universal up to this date had its promotion opportunity."
 
 **Forbidden report shapes.** The end-of-run report MUST NOT include defer-chain language ("N candidates for next pass", "run /learn-lessons later to action these", "scope limited to this pass"). Records belong in one of three buckets: (a) applied this run, (b) PM-surfaced with a decision request, (c) mode escalated. Any record that fits none is a routing error — fix the routing, not the report.
 
@@ -542,6 +476,7 @@ review pass; they are not actionable in the current run beyond surfacing.
 - **Bespoke extra parameters.** Modes are the parameter surface; resist additional flags.
 - **Auto-emitting spinoff handoffs.** Section D of the review doc is advisory only.
 - **Stripping local before central commit SHA exists.** Phase 5 apply order is load-bearing.
+- **Deferring strip-local from the central run to the sibling's next local-mode age-sweep.** The age-sweep is the backstop, not the primary mechanism. Every day of deferral bloats `lessons.md` (200–350 KB in roughly a month) for the consumers that DO read it in full: `/learn-lessons`, the central strip-pass, and `/session-start`. Central promotes AND strips-just-promoted, in the same run.
 - **`git add -A` for strips.** Always explicit pathspec; concurrent-EM safety.
 - **True-deleting discards.** All discards go to archive first; never irrecoverable from Phase 4.
 - **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture; `learn-lessons` is the periodic process that classifies and routes.
@@ -557,4 +492,6 @@ review pass; they are not actionable in the current run beyond surfacing.
 - `~/.claude/tasks/coordinator-improvement-queue.md` — central queue; destination for deferred items.
 - `~/.claude/tasks/learn-lessons-config.md` — configured project roots; self-populates on each run.
 - `snippets/text-only-recovery-preamble.md` — synced snippet consumed in Phase 2 scout dispatches.
-- `archive/lessons-archived/YYYY-MM.md` — per-repo discard archive; append-only, per-month.
+- `archive/lessons-archived/YYYY-MM.md` — per-repo discard + age-sweep archive; append-only, per-month.
+- `bin/age-sweep-lessons.py` — Phase 4.5 mechanism; reuses `extract-lessons.py`'s parser; archives aged `[universal]` entries to bound `lessons.md`. Requires an explicit cutoff (`--before <last-central-run>`).
+- `central-run-due.sh` — Phase 7 volume trigger; counts `[universal]` accrued since the last `COMPLETE` central run across the configured roots and nudges a central run at `central_volume_threshold`. Surfaced by `/workday-start` Step 1.75.

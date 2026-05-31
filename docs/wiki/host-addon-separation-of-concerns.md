@@ -87,7 +87,7 @@ surrounding directory. Doc-enforced contracts decay under refactor; type-enforce
 ones don't.
 
 **Prior-art judgment grounding this tactic:**
-[codebase-judgment/typed-surface-over-text-pattern.md](codebase-judgment/typed-surface-over-text-pattern.md)
+[codebase-judgment/typed-surface-over-text-pattern.md](../../../../../plugins/project-rag/docs/wiki/codebase-judgment/typed-surface-over-text-pattern.md)
 — the callable-resolver shape IS the typed-surface-over-text-pattern judgment
 applied to host-addon boundaries. When a plan proposes encoding an
 interoperability contract as a "the host walks adjacent files by convention"
@@ -130,7 +130,7 @@ contributions at boot and at each call boundary; no host tool imports
 
 This boundary is enforced by the pluggy registry: addons that are not installed
 are simply absent from the aggregation result, and the host degrades gracefully
-(see [thin-wrapper-graceful-fail.md](thin-wrapper-graceful-fail.md)).
+(see [thin-wrapper-graceful-fail.md](../../../../../plugins/project-rag/docs/wiki/thin-wrapper-graceful-fail.md)).
 
 ---
 
@@ -258,6 +258,6 @@ cross-cite the instance rather than re-deriving the reasoning.
   table; Z-AMEND-1 boundary analysis; `ADDON_PROTOCOL_VERSION` bump history.
 - [cross-corpus-class-addon-contract.md](cross-corpus-class-addon-contract.md)
   — §1: no-UE-special-case rule; binding protocol for multi-class addons.
-- [codebase-judgment/typed-surface-over-text-pattern.md](codebase-judgment/typed-surface-over-text-pattern.md)
+- [codebase-judgment/typed-surface-over-text-pattern.md](../../../../../plugins/project-rag/docs/wiki/codebase-judgment/typed-surface-over-text-pattern.md)
   — the convergent judgment (3 independent plans) grounding Tactic 1's
   typed-surface-over-text-pattern design.

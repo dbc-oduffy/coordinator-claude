@@ -49,6 +49,10 @@
         "shell": {
           "type": "string",
           "description": "Active shell (from SHELL env, or powershell/cmd heuristic on Windows)."
+        },
+        "is_windows": {
+          "type": "boolean",
+          "description": "True on Windows (derived from sys.platform; WMI-hang-free)."
         }
       }
     },
@@ -64,6 +68,14 @@
         "apple_silicon": {
           "type": "boolean",
           "description": "True when platform.machine()=='arm64' on Darwin. Informational only — does NOT imply MPS routing."
+        },
+        "logical_cores": {
+          "type": ["integer", "null"],
+          "description": "Logical CPU count (os.cpu_count())."
+        },
+        "physical_cores": {
+          "type": ["integer", "null"],
+          "description": "Physical CPU core count, best-effort; null = undetermined."
         }
       }
     },
@@ -87,6 +99,26 @@
         "cuda_driver": {
           "type": ["string", "null"],
           "description": "CUDA driver version string from nvidia-smi, or null."
+        },
+        "vram_total_mib": {
+          "type": ["integer", "null"],
+          "description": "Total VRAM in MiB (nvidia-smi memory.total)."
+        },
+        "device_count": {
+          "type": ["integer", "null"],
+          "description": "Number of GPUs (nvidia-smi count)."
+        },
+        "name": {
+          "type": ["string", "null"],
+          "description": "Primary GPU device name."
+        },
+        "compute_capability": {
+          "type": ["string", "null"],
+          "description": "CUDA compute capability (nvidia-smi compute_cap)."
+        },
+        "driver_model": {
+          "type": ["string", "null"],
+          "description": "GPU driver model, WDDM or TCC (nvidia-smi driver_model.current)."
         }
       }
     },

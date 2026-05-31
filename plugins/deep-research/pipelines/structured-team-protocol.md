@@ -211,6 +211,29 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **All verifiers fail:** EM is notified (no completed verifier tasks), reports to PM
 - **Agents stuck in idle loops:** Known platform issue — agents may enter idle loops that resist shutdown. Commit and archive results before attempting TeamDelete. If TeamDelete fails ("active" agents), wait for timeout. Do NOT block on stuck agents — read available outputs and present to PM
 
+## Coverage-Auditor Lifecycle
+
+> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1 (structured = reduced auditor), § C6, § AC9
+
+Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the synthesizer completes and **before** TeamDelete. The auditor answers one question for structured output: did every verifier finding get mapped to an output schema field, or if dropped, was it annotated?
+
+**Drop-justification oracle:** `{scratch-dir}/synthesis-annotations.md` (written by the synthesizer alongside the structured output). The auditor reads this file as the authoritative record of intentional drops. A finding absent from both the YAML output and `synthesis-annotations.md` is an unacknowledged silent drop — this is what the reduced auditor catches.
+
+**Why reduced (not full A+C)?** Structured output is schema-locked YAML/JSON (`agents/structured-synthesizer.md:59`). There is no synthesis prose to distort — the fidelity failure mode the full auditor guards against (prose flattening, paraphrase drift) structurally cannot occur. The CONTESTED field-challenge mechanism already ensures every disputed value has explicit resolution before synthesis. The reduced auditor does not emit Coverage Pointers or a Completeness Map — it emits a field-mapping check: each `*-findings.md` row classified as `mapped` (field present in output), `dropped-annotated` (explicitly noted in `synthesis-annotations.md`), or `dropped-silent` (absent from both — flag).
+
+**Tool grant:** Read, Grep, Glob only. No write access to the structured output path.
+
+## Fidelity Relay: OUT OF SCOPE
+
+> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1, § Per-pipeline applicability matrix (C row)
+
+The fidelity relay (waking idle specialists to verify their content was faithfully represented in synthesis prose) is **not applicable to Pipeline C.** Two architectural reasons compose:
+
+1. **No prose synthesis to distort.** The structured synthesizer produces schema-conforming YAML/JSON (`agents/structured-synthesizer.md:59`). Fidelity drift means flattening or misrepresenting a finding in prose — that mechanism does not exist when the output is a typed schema field value.
+2. **CONTESTED pre-empts relay need.** Verifiers challenge each other's field values before synthesis via the adversarial cross-pollination protocol. Any value contested across verifiers is explicitly flagged `CONTESTED` and resolved by the synthesizer with both sides' evidence. There is no "author is dead before synthesis runs" gap for relay to close.
+
+The relay is revisited only if Pipeline C adds a prose-synthesis output mode. It is not an appetite call — it is absent because the problem it solves structurally cannot occur here.
+
 ## Scratch Directory
 
 `tasks/scratch/deep-research-teams/{run-id}/`

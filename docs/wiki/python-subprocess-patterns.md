@@ -158,6 +158,109 @@ def pythonw_executable(python_exe: str | None = None) -> str:
 
 If `pythonw_executable()` returns the original path (no sibling found), pass `creationflags=subprocess.CREATE_NO_WINDOW` as a belt-and-suspenders fallback — it will not eliminate the stub flash on uv venvs but is still the right default for non-uv paths.
 
+## Shell-out callers must converge on the impl's exit-code contract
+
+*2026-05-20, project-rag.* When several callers shell out to the same underlying tool, they must agree on what its exit codes *mean* — specifically, "key absent" (a legitimate empty result) versus "impl broke" (a real error) are different conditions that callers often conflate. If one caller treats non-zero-or-empty as an error and another treats it as absence, querying a genuinely-absent key produces false-positive WARNs in one path and silence in the other.
+
+Defense: give the impl an explicit absence signal that is distinct from its error signal, and have every caller use it. The `--default ''` pattern is the canonical shape — the tool returns the supplied default (empty string) on key-absent with exit 0, and reserves non-zero exit for actual failure:
+
+```bash
+# absence → empty string, exit 0;  impl-broken → non-zero exit
+value=$(mytool get "$key" --default '') || { echo "WARN: mytool failed" >&2; }
+[ -n "$value" ] || : # key legitimately absent — not an error
+```
+
+Audit cross-caller exit-code handling whenever a second consumer of the same impl appears; divergence is the recurring smell.
+
+## Related: bare-namespace package collisions across sibling repos
+
+When subprocesses or in-process imports pull two sibling repos into one interpreter, bare-namespace top-level packages (`scripts/`, `utils/`, `lib/`) collide in `sys.modules` because Python keys on import name, not path — an order-dependent, non-deterministic failure. Bilateral rename is the fix; defensive eviction is a workaround. → [`dual-identity-module-hazard.md`](./dual-identity-module-hazard.md) § Bare-namespace top-level packages collide across sibling repos.
+
+## `communicate(timeout=)` does NOT bound the reader-thread join — grandchildren wedge it forever
+
+`subprocess.communicate(timeout=N)` sends SIGTERM/TerminateProcess to the **child** and starts a join on the internal reader threads when the timeout expires. However, the join itself has **no deadline** — if the child's stdout/stderr pipes are still open (because a grandchild process inherited and is still holding them), the reader threads block forever. On Windows, `taskkill /F /IM child.exe` closes the child's handle but grandchildren that inherited the pipe descriptors keep the pipes open; the `communicate()` call then hangs after timeout.
+
+**When the subprocess may spawn grandchildren that outlive it, do not use `communicate()` with captured PIPEs.** Use file-based redirection instead:
+
+```python
+import subprocess, tempfile, os
+
+with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+    proc = subprocess.Popen(
+        cmd,
+        stdout=out_f,
+        stderr=err_f,
+    )
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        # Windows: kill entire process tree, not just the child
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                       capture_output=True)
+        proc.wait()
+    out_f.seek(0); err_f.seek(0)
+    stdout = out_f.read().decode("utf-8", errors="replace")
+    stderr = err_f.read().decode("utf-8", errors="replace")
+```
+
+The `/T` flag to `taskkill` terminates the entire child process tree, closing all inherited pipe handles and unblocking any pending reads. On POSIX, `os.killpg(os.getpgid(proc.pid), signal.SIGKILL)` is the equivalent.
+
+Add this to the Summary checklist: when grandchildren may outlive the child, redirect stdout/stderr to temp files + `proc.wait(timeout)` + `/T` tree-kill, instead of `communicate(timeout=)`.
+
+## Windows pytest Runner — pythonw Breaks stdin-Inheriting Subprocesses
+
+**Never run `pytest` through `pythonw` (python-quiet) — `pythonw` has no stdin HANDLE, so stdin-inheriting subprocess tests fail with WinError 6/50; popup suppression belongs in `conftest.py`, not the runner.**
+
+`pythonw` is safe for one-shot `python -c` diagnostics (no child spawns), but pytest orchestrates subprocesses that need a real stdin. When spawning headless, the two popup paths are different: `python -c` has no child spawns so `pythonw` is safe; pytest's children need a valid `DuplicateHandle`-able stdin.
+
+**How to apply:** route popup suppression through `tests/conftest.py` (Fortran env vars + `CREATE_NO_WINDOW` monkeypatch) and run pytest under a normal console python. `python-quiet` / `pythonw` is for `-c`/scratch-script diagnostics ONLY. Corollary: when a "test-ordering" failure reproduces only under one runner, suspect the runner before bisecting tests. Source: 2026-05-27 project-rag.
+
+## Windows Console Popup Suppression — CREATE_NO_WINDOW + DEVNULL Reconciles Popup and stdin
+
+**Windows console popup: console-python + `CREATE_NO_WINDOW` + `DEVNULL` stdin reconciles "no popup" with "valid stdin" for pytest runs.**
+
+`pythonw` fixes the popup but has no stdin handle (stdin-inheriting children die `WinError 6/50`). Console python avoids the broken-stdin issue but creates a window under headless execution. The two constraints look mutually exclusive but aren't:
+
+- Keep the process on `python.exe` (console subsystem).
+- Add `creationflags=CREATE_NO_WINDOW` — suppresses the window.
+- Add `stdin=subprocess.DEVNULL` — a valid NUL handle that children can `DuplicateHandle`.
+- Launch the outer runner itself under GUI `pythonw` so the runner process has no window of its own.
+
+Also: a doctrine bullet stating an unverified *conclusion* can mislead for weeks — verify pytest runner behavior against live process state, not the bullet. Source: 2026-05-28 project-rag.
+
+## `Path.write_text` on Windows Emits CRLF — Pass `newline='\n'` for Unix Consumers
+
+*Source: project-rag tasks/lessons.md:35, 2026-05-29. [universal]*
+
+`pathlib.Path.write_text()` (and `open(..., 'w')` without `newline=`) uses the platform's native line ending. On Windows that is `\r\n` (CRLF). Files consumed by bash scripts (`[ -f ]` path lists, `git rm --pathspec-from-file`, `xargs`), by `git`, or by any POSIX tool will mis-parse CRLF-terminated lines: the carriage return appears as part of the last token on the line, turning `path/to/file` into `path/to/file\r` and silently failing every downstream match.
+
+**Fix:** always pass `newline='\n'` when writing files intended for bash/git/POSIX consumption:
+
+```python
+path.write_text(content, encoding='utf-8', newline='\n')
+# or
+with open(path, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(content)
+```
+
+Alternatively, strip carriage returns at the reader side before passing lines to `git rm`/`xargs`:
+
+```bash
+git rm --pathspec-from-file=<(tr -d '\r' < file_list.txt)
+```
+
+The `newline='\n'` approach is preferable — it is unambiguous and locates the fix at the producer, not scattered across every consumer.
+
+## Conftest Spawn-Flag Monkeypatch Does Not Reach Production Child-Spawn Sites
+
+*Source: project-rag L5 + claude-unreal-holodeck L13, 2026-05-30.*
+
+**A `CREATE_NO_WINDOW` (or any spawn-flag) monkeypatch installed in `conftest.py` suppresses popups only for processes the *test process itself* spawns — it does NOT propagate into production child-spawn sites, nor into grandchildren the tests spawn.** A conftest fixture monkeypatches `subprocess.Popen`/`subprocess.run` in the test interpreter's address space; a production code path that spawns a child carries whatever flags *its own* call site passes. Auditing only `tests/` for popup-safety therefore misses every production spawn site — the flag belongs **at the production spawn site**, not bolted on in test infra.
+
+This is the spawn-flag analog of the network-mock leak (`test-design-discipline.md` §10, "network-layer mocks leak through real subprocess spawns"): the patch applies to the parent's address space only; the child reads its own creation flags.
+
+**Console-popup suppression is orthogonal to the bounded-Popen lifecycle gate.** Two distinct invariants ride the same `Popen` call and must be audited separately: (1) *popup suppression* (`CREATE_NO_WINDOW` / `pythonw.exe` / `stdin=DEVNULL`) governs whether a window flashes; (2) *bounded lifecycle* (timeout + tree-kill, see `communicate(timeout=)` section above) governs whether the child can wedge or leak. A spawn site can satisfy one and violate the other. When auditing spawn paths, enumerate **every** production spawn site (grep `Popen` / `subprocess.run` / `os.spawn*` across the source tree, not just the headless-runner entry point) and check both invariants at each — a single bypass spawn path re-introduces the popup or the wedge.
+
 ## Summary checklist
 
 - Always pass `encoding='utf-8'` on any `subprocess.run()` or `Popen()` call that captures output.
@@ -165,3 +268,8 @@ If `pythonw_executable()` returns the original path (no sibling found), pass `cr
 - Use `locale.getpreferredencoding(False)` to diagnose the active encoding on a suspect machine.
 - Do not rely on `PYTHONIOENCODING` alone — it does not cover subprocess capture.
 - On Windows, prefer `pythonw.exe` (GUI subsystem) over `python.exe` + `CREATE_NO_WINDOW` for truly headless spawns from uv-managed venvs — use a `pythonw_executable()` helper to locate it.
+- When grandchildren may outlive the child: redirect to temp files + `proc.wait(timeout)` + tree-kill (`taskkill /T /F` on Windows, `killpg` on POSIX) — do NOT use `communicate(timeout=)` with captured PIPEs.
+- Never run `pytest` through `pythonw` — use console python + `CREATE_NO_WINDOW` + `stdin=DEVNULL` instead; put popup suppression in `conftest.py`.
+- For headless pytest: `creationflags=CREATE_NO_WINDOW` + `stdin=DEVNULL` on console python reconciles "no window" with "valid stdin for child processes."
+- A conftest spawn-flag monkeypatch reaches only the test process's own spawns — put popup suppression at every **production** child-spawn site; auditing only `tests/` misses the leak.
+- Audit popup-suppression and bounded-Popen lifecycle as **separate** invariants at every spawn site (grep all `Popen`/`subprocess.run`, not just the runner entry point) — one bypass spawn path re-introduces the popup or the wedge.

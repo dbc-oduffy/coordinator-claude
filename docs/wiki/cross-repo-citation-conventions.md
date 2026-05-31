@@ -12,7 +12,7 @@ Cross-repo line citations use a repo qualifier:
 
 Examples:
 - `project-rag:mcp/graph/extractor.py:2980`
-- `coordinator-claude:plugins/coordinator/bin/verify-coverage.js:142`
+- `coordinator-claude:plugins/coordinator-claude/coordinator/bin/verify-coverage.js:142`
 - `holodeck-control:src/tools/manage_blueprint.py:51`
 
 ## Why bare `<path>:<line>` is wrong
@@ -28,12 +28,13 @@ The repo qualifier fixes this. Grep then targets the right repo.
 
 **Cross-repo citations** (handoffs, lessons, plans, decision records that may be read from a different repo) — ALWAYS qualify with `<repo>:<path>:<line>`. The qualifier is for human disambiguation across the install chain; no automated rewrite covers this case.
 
-**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator/<...>`) directly. The publish-time hook (`bin/depersonalize-for-publish.sh`, invoked from `setup/percolate-hooks/coordinator-claude/post-rsync/10-depersonalize.sh`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
+**Intra-coordinator citations** in wiki/skill/command/agent prose under `plugins/coordinator-claude/coordinator/` may use the dev-tree-rooted path (`plugins/coordinator-claude/coordinator/<...>`) directly. The publish-time hook (`publish-time-transform.sh`, invoked from `setup/percolate-hooks/coordinator-claude/post-rsync/10-depersonalize.sh`) normalizes these to the publish-tree form (`plugins/coordinator/<...>` or `plugins/<plugin>/<...>`) idempotently. Authors do not qualify these — the rewrite is the contract. (Note: this means dev-form paths inside fenced code blocks in this wiki also get rewritten. To preserve a literal dev-form path for documentation purposes, use prose framing — `the plugins/coordinator-claude/... form` — rather than a fenced code block.)
 <!-- Review: code-reviewer — folded the code-block caveat inline so an author who stops at the contract statement still sees it. Previously the note was a separate paragraph after "Additional qualifications". -->
 
 Additional qualifications:
 - Optional in commit messages within a single repo (context is implicit).
 - ALWAYS qualify in `~/.claude/tasks/coordinator-improvement-queue.md` (cross-repo by construction).
+- Coordinator **script** citations (an invocation, not a `file:line` location) follow a separate rule — see `claude-code-platform-gotchas.md` § "Coordinator scripts are on PATH". In short: invokable `.sh`/extensionless commands are cited by **bare name** (`fan-out-dispatch.sh`, not `bin/fan-out-dispatch.sh`); `bin/X` survives only for launcher-run interpreter scripts and data files. Both forms are PATH-namespace — never resolve them against the current repo's `./bin/`.
 
 ## Plugin-wiki vs publish-native-wiki authoring — a third rule pair
 
@@ -97,7 +98,7 @@ pinned_at: 2026-05-14
 reason: verify-coverage hard-gate landed here; downstream consumes the gate output schema
 ```
 
-Pinning by branch (`main`, `work/...`) is a re-bisect hazard — a future drift can't be located to a specific commit. SHA pins also make `bin/sync-plugin-wiki.sh` and similar mirror tools idempotent.
+Pinning by branch (`main`, `work/...`) is a re-bisect hazard — a future drift can't be located to a specific commit. SHA pins also make `sync-plugin-wiki.sh` and similar mirror tools idempotent.
 
 ## Coordination memo BEFORE shipping cross-repo changes
 
@@ -127,10 +128,10 @@ When verifying a manifest field (skill path, agent path, hook script) lives wher
 
 ```bash
 # Right — verifying skill manifest against source
-rg "^path:" plugins/coordinator/skills/*/SKILL.md
+rg "^path:" plugins/coordinator-claude/coordinator/skills/*/SKILL.md
 
 # Wrong — verifying against the installed mirror
-rg "^path:" ~/.claude/plugins/coordinator/skills/*/SKILL.md
+rg "^path:" ~/.claude/plugins/coordinator-claude/coordinator/skills/*/SKILL.md
 ```
 
 Installed-tree verification masks pre-publish drift: a manifest that's wrong in the repo but right in the install will pass the wrong-tree check and ship broken.
@@ -140,7 +141,7 @@ Installed-tree verification masks pre-publish drift: a manifest that's wrong in 
 When a downstream integrator (scout, executor, or worker) needs to act on a file across multiple repos, format paths as a single token `<repo>:<path>` — not split across columns or stitched from separate fields. Integrators that split-and-rejoin lose alignment under concurrent fan-out.
 
 ```
-Right: coordinator-claude:plugins/coordinator/skills/learn-lessons/SKILL.md
+Right: coordinator-claude:plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
 Wrong: repo=coordinator-claude  path=plugins/.../SKILL.md  (two fields, must rejoin)
 ```
 
@@ -193,6 +194,23 @@ Two reasons:
 Source: `project-rag-ue-addon:tasks/lessons.md:121` (2026-05-16).
 
 Runtime alternative: for consumers that cannot rely on sibling-layout (triangular graphs, multi-drive setups, deterministic-location requirements), prefer the machine-local registry — see `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11` for the full discovery preference order.
+
+## Doc-links across a `copy_install` boundary — absolute URLs, not relative paths
+
+> Distinct from § Sibling-layout convention for vendored code above. That rule governs **script/code paths** between sibling repos that live in the same parent dir (`../sibling/...` is the contract there). THIS rule governs **markdown doc-links** that cross a `copy_install` mirror boundary — a different surface with the opposite remedy. The two do not conflict: keep `../sibling/...` for vendored code paths; use absolute GitHub URLs for doc-links across a `copy_install` boundary.
+
+**Plugin docs that link to repo-level files (`docs/`, `archive/`) via relative paths resolve only while the plugin sits inside its origin repo.** Once the plugin is `copy_install`-mirrored into a consumer tree (only `plugin/` is copied — sibling `docs/` and `archive/` directories are NOT), every such relative link dangles regardless of `../` depth. No amount of path-walking fixes it: the link's target was never copied alongside the plugin.
+
+The failure is doubly silent because the two reference-validators disagree across the boundary:
+
+- The **source-repo** checker passes — it resolves the link in the source layout, where `docs/` and `archive/` do exist beside the plugin (and the source checker may not even scan READMEs).
+- The **consumer-repo** `validate-references` flags the same link as broken — the target directory is absent in the mirrored tree.
+
+So a link that is green at author time ships broken to every `copy_install` consumer, and only the downstream repo surfaces it.
+
+**Fix: cite repo-level files with an absolute `github.com/<org>/<repo>/blob/main/<path>` URL, not a relative path,** whenever the linking doc is inside a `copy_install`-mirrored plugin and the target lives outside the mirrored `plugin/` subtree. This matches the existing `doctor.md` precedent and survives percolation intact — an absolute URL resolves identically in the source repo and in every consumer mirror.
+
+**How to decide:** before writing a relative `../docs/...` or `../archive/...` link from inside a plugin doc, ask "does the `copy_install` mirror carry the target?" If the target is outside the copied `plugin/` subtree, the relative link will dangle downstream — use the absolute GitHub blob URL. Intra-plugin links (target also inside the mirrored subtree) stay relative; they travel with the plugin.
 
 ## Peerless installs — env-var opt-in for peer-repo paths
 

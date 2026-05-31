@@ -132,6 +132,30 @@ function globMatchesPath(glob, repoRel) {
 }
 
 // ---------------------------------------------------------------------------
+// Sidecar exemption — review-worker sidecars live in the same dirs as plan/
+// handoff files but carry their own internal schemas and MUST NOT be
+// validated against the parent schema.
+//
+// Filename shapes exempted (added 2026-05-28):
+//   *.prior-art-check*.md        — prior-art-checker output (includes .prev.md variants)
+//   *.docs-check*.md             — docs-checker output (includes -foundation-review, -h2-amendment)
+//   *.coverage-check*.md         — coverage-checker timestamped output
+//   *.plan-coverage-check*.md    — plan-coverage-checker output
+//   *.schema-migration-audit*.md — schema-migration-auditor output
+//   *.review-*.md                — named-reviewer sidecars (e.g. .review-patrik.md)
+//
+// The test checks the full repo-relative path so it is prefix-safe (a file
+// beginning with "review-" is not exempted; only internal dot-separated
+// sidecar suffixes match).
+// ---------------------------------------------------------------------------
+
+const SIDECAR_RE = /\.(prior-art-check|docs-check|coverage-check|plan-coverage-check|schema-migration-audit|review-[^./]+)\b/;
+
+function isSidecarFile(repoRel) {
+  return SIDECAR_RE.test(repoRel);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -180,6 +204,10 @@ function main() {
     const files = collectFilesForGlob(repoRoot, glob);
 
     for (const { fullPath, repoRel } of files) {
+      // Skip review-worker sidecar files — they carry their own internal schemas
+      // and must not be validated against the parent directory's schema.
+      if (isSidecarFile(repoRel)) continue;
+
       let content;
       try {
         content = fs.readFileSync(fullPath, 'utf8');

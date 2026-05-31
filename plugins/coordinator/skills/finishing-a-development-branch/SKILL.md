@@ -20,22 +20,22 @@ Guide completion of development work by presenting clear options and handling ch
 
 #### Step 1a: Acceptance-Oracle Early Feedback (non-authoritative)
 
-<!-- spec-backlink: docs/plans/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — finishing-a-development-branch early non-authoritative gate -->
+<!-- spec-backlink: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — finishing-a-development-branch early non-authoritative gate -->
 
 Run the acceptance oracle as early advisory feedback before presenting options.
 
-**Plan-path threading:** When invoked from `coordinator:execute-plan` Phase 4b, the plan path is passed explicitly from that context — use it directly. When invoked standalone with no plan path available, emit a skip-with-offer and continue.
+**Plan-path threading:** This skill is invoked standalone (by the PM, or by the executor-dispatch workflow) — it is **not** chained from `coordinator:execute-plan`. When the invoker provides a plan path, use it directly. When no plan path is available, emit a skip-with-offer and continue.
 
 - **Plan path known (passed from execute-plan or provided by invoker):**
   ```bash
-  bash bin/check-acceptance-oracle.sh <plan-path>
+  bash check-acceptance-oracle.sh <plan-path>
   ```
   - **Exit 0:** Log _"Acceptance oracle: all gate-bound tests pass."_ Continue to Step 1b.
   - **Non-zero exit:** Log the verdict (the script names which rows are red). This is advisory — do NOT block here. Continue to Step 1b and note: _"You have red acceptance tests — consider iterating before merging, since the authoritative gate at /merging-to-main Step 0a will hard-block on these."_
   - **Script not found:** Skip silently and continue to Step 1b.
 
 - **No plan path available (standalone invocation):**
-  Emit skip-with-offer: _"Acceptance oracle can be validated with `bash bin/check-acceptance-oracle.sh <plan-path>` — provide a plan path if this branch has one."_ Continue to Step 1b. Never scan the working directory for plan files (concurrent EMs would pick the wrong one).
+  Emit skip-with-offer: _"Acceptance oracle can be validated with `bash check-acceptance-oracle.sh <plan-path>` — provide a plan path if this branch has one."_ Continue to Step 1b. Never scan the working directory for plan files (concurrent EMs would pick the wrong one).
 
 #### Step 1b: Verify Tests
 
@@ -186,9 +186,11 @@ git worktree remove <worktree-path>
 ## Integration
 
 **Called by:**
-<!-- Review: the Staff Engineer — ghost caller references; subagent-driven-development and executing-plans no longer exist -->
 - **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
-- **/execute-plan** (Step 3) — After all batches complete
+- **The PM directly** — when a branch is ready for disposition (merge / PR / keep)
+
+**Not called by:**
+- **/execute-plan** — execute-plan finalizes and offers `/session-end`; it deliberately does **not** chain into branch disposition, since that reaches the keyword-gated `/merge-to-main`. Branch disposition is a separate, PM-invoked decision.
 
 **Pairs with:**
 - No worktrees — worktrees are forbidden. Use the active workstream branch for WIP parking.

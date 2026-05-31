@@ -235,6 +235,33 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 - **Scout times out (partial sources.md):** Workers use what's available + note which notebooks have incomplete source lists.
 - **All workers fail:** Sweep marks itself failed, EM is notified (no completed worker tasks).
 
+## Coverage-Auditor Lifecycle
+
+> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § C6, § AC12, § AC15, § AC16
+
+Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the sweep completes and **before** notebook cleanup. The auditor answers the same two questions as the web/repo auditor: (1) did the synthesis carry each worker claim? (2) what did the synthesis compress, and where can a reader go deeper?
+
+**D-specific divergence — MCP tool grant:** the on-disk `{letter}-claims.json` files are a lossy extraction of the actual NotebookLM notebook content. The D auditor is additionally granted the `notebook_query` MCP tool to verify claims against the actual notebooks. The EM grants this at dispatch time. Notebook IDs are sourced from each `{letter}-summary.md` YAML frontmatter (`notebook_id` field) — do not parse IDs from markdown prose.
+
+**Graduated bootstrap for MCP tools (required):**
+
+1. Try exact name: `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")`
+2. If Step 1 returns nothing, keyword fallback: `ToolSearch("+notebooklm notebook_query", max_results=5)`
+3. If both return nothing — **graceful degrade:** proceed on `{letter}-claims.json` only and include this note in the sidecar header:
+
+   > `DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only.`
+   > `Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.`
+
+**Cleanup-deferred ordering (hard constraint):** notebook deletion (`--cleanup`) MUST be deferred until **after** the auditor sidecar is written. The EM's Step 6 completion sequence is: run auditor → confirm sidecar exists → THEN delete notebooks. This ordering is enforced in `notebooklm/commands/research.md` Step 6. The sweep agent does not delete notebooks directly; deletion is an EM-step that runs post-audit.
+
+## Fidelity Relay: OUT OF SCOPE
+
+> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § Per-pipeline applicability matrix (D row)
+
+The fidelity relay is **not applicable to Pipeline D.** The relay's gating condition is a depth tier (`--deeper` / `--deepest` for repo, gap-report deepening threshold for web). Pipeline D has no depth concept — only `--cleanup`. No deepening gate exists; no depth flags are defined. The gating condition structurally cannot fire.
+
+This is an architectural boundary, not an appetite call. The relay is revisited only if Pipeline D adds depth flags or a deepening gate. Until then, it is absent by construction — not deferred.
+
 ## Scratch Directory
 
 `tasks/scratch/notebooklm-research/{run-id}/`

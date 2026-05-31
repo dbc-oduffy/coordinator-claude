@@ -38,7 +38,7 @@
  * are preserved.
  *
  * handoff-ledger synthetic type: parses `## Session Ledger` markdown table blocks
- * from handoff bodies (both tasks/handoffs/*.md and tasks/handoffs/archive/**) and
+ * from handoff bodies (both tasks/handoffs/*.md and archive/handoffs/**) and
  * returns one synthetic record per block. A handoff with N Session Ledger blocks
  * yields N records, disambiguated by path fragment (#ledger-0, #ledger-1, ...).
  * All standard query expressions (--where, --since, --sort) apply to synthetic
@@ -69,8 +69,15 @@ const TYPE_TO_GLOB = {
   completion:         'archive/completed/*/*.md', // per-entry completion log (Phase 1)
   // handoff-ledger: synthetic type — parses ## Session Ledger table blocks from handoff bodies.
   // Globs BOTH live and archived handoff directories; parser runs instead of standard frontmatter path.
+  // archive glob: archive/handoffs/**/*.md (added in queryRecords())
   // Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md §Chunk6
   'handoff-ledger':   'tasks/handoffs/*.md', // primary glob; archive glob added in queryRecords()
+  // cross-repo-memo: glob deliberately differs from schema's applies_to bracket form
+  // `cross-repo/inbox/[0-9]*.md` — filePatternToRegex (this file, ~line 350) escapes `[`/`]` as
+  // literals so a bracket class matches nothing here (divergent from schema.js globToRegex which
+  // passes brackets through). Memo-shape guard (from+to present) replaces the bracket-class
+  // filename filter.
+  'cross-repo-memo':  'cross-repo/inbox/*.md',
 };
 
 // Markdown-list format columns per type (field name → label)
@@ -83,6 +90,7 @@ const TYPE_DISPLAY = {
   lesson:            (p, fm) => `- **${fm.title || p}** [${fm.tier || 'untagged'}]`,
   completion:        (p, fm) => `- **${fm.title}** [${fm.nature}] (chain: ${fm.chain || 'none'}) — ${fm.commits?.join(', ') || 'no-commit'}`,
   'handoff-ledger':  (p, fm) => `- [${p}] tshirt=${fm.tshirt || '?'} agents=${fm.agent_dispatches ?? '?'} opus=${fm.opus_dispatches ?? '?'} session=${fm.session_id || '?'} created=${fm.created || '?'}`,
+  'cross-repo-memo': (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'} (from ${fm.from || '?'})`,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,6 +107,7 @@ function parseArgs(argv) {
     olderThan: null,
     root: null,
     format: 'markdown-list',
+    includeUnparseable: false,
   };
 
   // Review: patrik R2 finding 4 — normalize --key=value form to --key value before dispatch.
@@ -124,6 +133,7 @@ function parseArgs(argv) {
     else if (a === '--older-than') { opts.olderThan = normalizedArgs[++i]; }
     else if (a === '--root')   { opts.root   = normalizedArgs[++i]; }
     else if (a === '--format') { opts.format = normalizedArgs[++i]; }
+    else if (a === '--include-unparseable') { opts.includeUnparseable = true; }
     else {
       process.stderr.write(`Unknown argument: ${a}\n`);
       process.exit(1);
@@ -557,9 +567,9 @@ function queryRecords(opts, root) {
   } else if (opts.type === 'handoff-ledger') {
     // Synthetic type: parse ## Session Ledger blocks from handoff bodies.
     // Crawl BOTH live handoffs (tasks/handoffs/*.md) and archived handoffs
-    // (tasks/handoffs/archive/**/*.md) since the query surface spans the full chain.
+    // (archive/handoffs/**/*.md) since the query surface spans the full chain.
     const liveFiles = walkGlob(root, 'tasks/handoffs/*.md');
-    const archiveFiles = walkGlob(root, 'tasks/handoffs/archive/**/*.md');
+    const archiveFiles = walkGlob(root, 'archive/handoffs/**/*.md');
     const allFiles = [...liveFiles, ...archiveFiles];
     records = [];
     for (const file of allFiles) {
@@ -584,9 +594,23 @@ function queryRecords(opts, root) {
       let content;
       try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
       const { frontmatter, body } = parseFrontmatter(content);
-      if (!frontmatter) continue;
-      applyConsumedMarker(frontmatter, body);
       const relPath = path.relative(root, file).replace(/\\/g, '/');
+      if (!frontmatter) {
+        // includeUnparseable opt-in: return a stub record with parseError instead of silently skipping.
+        // Default OFF (false) preserves the existing silent-skip for all current consumers.
+        if (opts.includeUnparseable) {
+          records.push({ path: relPath, frontmatter: null, parseError: 'no frontmatter block found' });
+        }
+        continue;
+      }
+      // cross-repo-memo memo-shape guard: skip files whose frontmatter lacks the
+      // expected memo fields (from + to). This silently excludes README.md and any
+      // non-memo files that land in the inbox without being fail-loud — fail-loud is
+      // HANDOFF-ONLY; memos use plain queryRecords filtering via this guard.
+      if (opts.type === 'cross-repo-memo') {
+        if (!frontmatter.from || !frontmatter.to) continue;
+      }
+      applyConsumedMarker(frontmatter, body);
       records.push({ path: relPath, frontmatter });
     }
   }

@@ -271,6 +271,8 @@ If `.percolate-ignore` already exists, ALSO show:
 
 **Pattern subset reminder:** `**/` is NOT supported. Multi-depth matches need explicit listing. Directory patterns (trailing `/`) are already recursive — they match the directory at any depth in the source tree.
 
+**Coordinate-system reminder (mirror mode, multi-plugin source roots):** in `publish_sync.py::sync_mirror`, patterns are matched against the **SOURCE_DIR-relative (plugin-qualified) path** — e.g. `coordinator/bin/tests/`, `data/` — NOT the sub-plugin-relative path. Author patterns with the sub-plugin name prefix when the source root contains multiple plugins (`coordinator/`, `data/`, `web-dev/`…). A pattern at the wrong root (`bin/tests/` when you meant `coordinator/bin/tests/`, or vice-versa) is a **silent no-op** — the exclusion never fires and the files leak. The 2026-05-30 leak of operator-identity + runtime-state files onto the public OSS repo was exactly this class. The `test-percolate-ignore-plugin-qualified.sh` regression test now fails loud on a dead pattern; the Step 3d pre-write matcher walk is the author-time guard.
+
 Compose the file with comment-grouped sections so future readers (and the next re-run at Branch 0 / `/setup`) can see the reasoning:
 
 ```
@@ -394,5 +396,11 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 ---
 
 ## Known Hazards
+
+**`/percolate` dry-run file-count is inflated by the depersonalization-delta — not a signal of real changes.** A dry-run may report 200+ "UPDATE" files when the real run syncs only 2-3 genuinely-changed files and re-depersonalizes the rest (the dest is already depersonalized; the source is not, so every file reads as "changed" in a naive diff). Judge percolate scope by `git status` in the dest repo after the real run, not the dry-run UPDATE count. The content-leakage scan result (0 hits) is the real safety signal.
+
+*Note on depersonalize scope:* the depersonalize hook strips identity tokens (the PM/oduffy/paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
+
+*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
 
 **One-way mirror percolate silently reverts direct edits in publish repo** (2026-05-16 self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.

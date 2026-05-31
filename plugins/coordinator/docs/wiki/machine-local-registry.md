@@ -50,7 +50,7 @@ Machine-local is where that wiki's "operator-set configuration" concept lives on
 
 ## 4. Resolution Order
 
-The reader (`bin/machine-local get <key>`) resolves in this order, most-specific-and-most-local first:
+The reader (`machine-local get <key>`) resolves in this order, most-specific-and-most-local first:
 
 ```
 1. <concern>.local.toml (most specific + per-machine)
@@ -109,7 +109,7 @@ From the resolved `$HOME` analog, the four downstream paths derive trivially: `<
 
 **Why `CLAUDE_HOME` ranks above `HOME`.** Unlike `MACHINE_LOCAL_<KEY>` env vars (which rank *below* the registry because the registry is the deliberate audited source — §4), `CLAUDE_HOME` ranks *above* `HOME` because it answers a different question: not "what is this value" but "where does the entire Claude install live for this invocation". Test sandboxes, CI runners, scratch installs, and per-user-on-shared-machine setups all need to point the resolution at an alternate root without polluting the operator's real `$HOME`. There is no "registry of registries" to consult above it; `CLAUDE_HOME` *is* the deliberate audited override at this layer.
 
-**Canonical resolver — `bin/claude-home`.** Installed by `/coordinator:setup` Phase 3 Step 3 alongside `bin/machine-local`. Same shape: shell shim → Python module → Windows `.cmd`. Source-of-truth at `coordinator/lib/claude-home/` (load-bearing module: README + tests + artifacts co-located); install destination `~/.claude/bin/`. The `lib/<module>/` location is deliberate — it signals "cross-repo contract surface, do not customize" rather than "template scaffolding the operator may modify." Use from any coordinator-installed environment:
+**Canonical resolver — `claude-home`.** Installed by `/coordinator:setup` Phase 3 Step 3 alongside `machine-local`. Same shape: shell shim → Python module → Windows `.cmd`. Source-of-truth at `coordinator/lib/claude-home/` (load-bearing module: README + tests + artifacts co-located); install destination `~/.claude/bin/`. The `lib/<module>/` location is deliberate — it signals "cross-repo contract surface, do not customize" rather than "template scaffolding the operator may modify." Use from any coordinator-installed environment:
 
 ```bash
 # Resolve the $HOME analog (CLAUDE_HOME if set, else $HOME)
@@ -149,9 +149,9 @@ The shell-out form is preferred for cross-language portability AND avoids the du
 
 **Generic JSON I/O surface.** `_claude_home.py` ships the two generic primitives any install script touching `~/.claude.json` needs: `read_config()` (BOM-tolerant, returns `{}` for absent files, enriches `JSONDecodeError` with the file path) and `write_config()` (atomic tempfile + `os.replace`, creates parent dir, cleans up tmp files on failure). Higher-level shape-specific helpers — e.g., "update a single `mcpServers` entry under global vs `projects.<root>.mcpServers`" — stay with their consumer; those carry policy decisions (key-collision rules, project-key normalization) that don't generalize.
 
-**Cross-repo alignment — coordinator is canonical.** `bin/claude-home` (path resolver) plus the JSON I/O primitives ship with `/coordinator:setup`. Peer repos that previously inlined a CLAUDE_HOME precedence chain (notably `plugins/project-rag/scripts/_claude_config.py`) should consume this surface and retire their local copies; the only thing that stays peer-side is the *shape-specific* layer (e.g., project-rag's `update_mcp_entry()`). Test coverage lives at `coordinator/tests/test_claude_home.py` (stdlib-only `unittest`, 16 tests, no pytest dep).
+**Cross-repo alignment — coordinator is canonical.** `claude-home` (path resolver) plus the JSON I/O primitives ship with `/coordinator:setup`. Peer repos that previously inlined a CLAUDE_HOME precedence chain (notably `plugins/project-rag/scripts/_claude_config.py`) should consume this surface and retire their local copies; the only thing that stays peer-side is the *shape-specific* layer (e.g., project-rag's `update_mcp_entry()`). Test coverage lives at `coordinator/tests/test_claude_home.py` (stdlib-only `unittest`, 16 tests, no pytest dep).
 
-**What this unblocks.** Peer plans previously deferred the CLAUDE_HOME pattern as "host-side only, not cross-repo doctrine" (e.g., holodeck's review of project-rag F11). With §4a formalized, `bin/claude-home` installed by coordinator setup, and the JSON I/O primitives shipped alongside, the pattern IS coordinator doctrine with a first-class resolver. Peer repos adopt by shelling out to `claude-home {home|path|dir|machine-local|plugins}` or importing the Python helpers — no precedence chain re-derivation, no duplicate test surface to maintain.
+**What this unblocks.** Peer plans previously deferred the CLAUDE_HOME pattern as "host-side only, not cross-repo doctrine" (e.g., holodeck's review of project-rag F11). With §4a formalized, `claude-home` installed by coordinator setup, and the JSON I/O primitives shipped alongside, the pattern IS coordinator doctrine with a first-class resolver. Peer repos adopt by shelling out to `claude-home {home|path|dir|machine-local|plugins}` or importing the Python helpers — no precedence chain re-derivation, no duplicate test surface to maintain.
 
 **Out of scope.** `CLAUDE_HOME` resolves *where the directory lives*, not *what is inside it*. Values inside (sibling-repo roots, vendor SDK paths, etc.) continue to resolve through the machine-local registry chain (§4). The two chains are orthogonal and compose cleanly: `CLAUDE_HOME` selects which `~/.claude/machine-local/registry.toml` the reader opens; the reader's own precedence chain then resolves keys within it.
 
@@ -184,7 +184,7 @@ Port-time cleanup uses sibling-relatives because that is still better than absol
 
 A recurring failure mode (observed across multiple EM sessions, 2026-05) is reading "the coordinator owns the registry" as "EMs other than the coordinator team should not write here," then sidecarring `~/.<tool>/config.toml` to avoid the perceived gate. That is the opposite of the design intent. Two distinct authorities are at play; conflating them is the bug:
 
-- **Schema authorship** (coordinator-team responsibility). The shape of shared keys (`repos.*`, `install.*`, `plugin.mirrors.*`), the resolution order (§4), the reader contract (§7), and the helper surface (`bin/machine-local`, `claude-machine-local.sh/ps1`, the Python module) are coordinator-governed because every consumer depends on them. Changing the reader contract, renaming a shared namespace, or adding a tracked baseline key requires coordinator-team coherence.
+- **Schema authorship** (coordinator-team responsibility). The shape of shared keys (`repos.*`, `install.*`, `plugin.mirrors.*`), the resolution order (§4), the reader contract (§7), and the helper surface (`machine-local`, `claude-machine-local.sh/ps1`, the Python module) are coordinator-governed because every consumer depends on them. Changing the reader contract, renaming a shared namespace, or adding a tracked baseline key requires coordinator-team coherence.
 
 - **Value writing** (anyone on the machine). Appending values under existing namespaces, opening a new tool-specific namespace (`mything.*`), or hand-editing per-machine paths in `registry.local.toml` does NOT require coordinator-team sign-off. The reader is schemaless by design — no per-key validation, no declaration step (§7). The registry's whole value proposition is being the convenient shared place that prevents per-tool sidecars from accreting; gatekeeping value-writes would defeat the substrate.
 
@@ -217,7 +217,7 @@ When a concern file is listed in `registry.toml`'s `concerns` array, that concer
 
 ## 7. Reader Contract — Intentionally Minimal
 
-The reader (`bin/machine-local`) returns string values. No nested types. No per-key schemas. No built-in validation beyond TOML parse and schema version check.
+The reader (`machine-local`) returns string values. No nested types. No per-key schemas. No built-in validation beyond TOML parse and schema version check.
 
 This is a deliberate choice: the substrate is a flat string-typed key/value store. If your consumer needs structured values (a list of targets, a typed enum), parse the string in your consumer. The reader stays small so every language and script environment can call it without ceremony.
 
@@ -225,7 +225,7 @@ The reader is **read-only**. It never writes, never caches to disk, never mutate
 
 ## Ergonomic helpers
 
-Two thin wrappers over `bin/machine-local` make the registry-correct shape shorter than the hardcoded literal. Both shell out to the reader CLI — they do NOT import `_machine_local.py` directly (per §8(a) and `docs/wiki/dual-identity-module-hazard.md`).
+Two thin wrappers over `machine-local` make the registry-correct shape shorter than the hardcoded literal. Both shell out to the reader CLI — they do NOT import `_machine_local.py` directly (per §8(a) and `docs/wiki/dual-identity-module-hazard.md`).
 
 **Python** — `~/.claude/bin/claude_machine_local.py`:
 
@@ -334,7 +334,7 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 
 <!-- spec-backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5 -->
 
-The `plugin.mirrors` table namespace registers plugins whose live install may be a separate git checkout of the plugin's source repo. The drift probe (`bin/check-plugin-drift.sh`) reads these entries to detect when a live install has fallen behind its source.
+The `plugin.mirrors` table namespace registers plugins whose live install may be a separate git checkout of the plugin's source repo. The drift probe (`check-plugin-drift.sh`) reads these entries to detect when a live install has fallen behind its source.
 
 **Full schema, field reference, and operator examples live in `~/.claude/machine-local/README.md § plugin.mirrors`** — do not duplicate here. The summary below covers only the doctrine decision points.
 
@@ -344,7 +344,7 @@ The `plugin.mirrors` table namespace registers plugins whose live install may be
 
 | Mode | When to use | Drift probe behavior |
 |---|---|---|
-| Default (git-checkout-managed) | Live install is a separate git checkout; source changes must be explicitly propagated via `bin/refresh-plugin-live-install.sh` | Checks git-state (commits-behind) and venv-state (editable pin, MAPPING integrity, console-script shims) |
+| Default (git-checkout-managed) | Live install is a separate git checkout; source changes must be explicitly propagated via `refresh-plugin-live-install.sh` | Checks git-state (commits-behind) and venv-state (editable pin, MAPPING integrity, console-script shims) |
 | `propagation_mode = "source_is_live"` | Live install IS the canonical source (e.g., coordinator — `~/.claude/` is both source and install) | Emits `[n/a] propagation_mode=source_is_live` and skips all checks |
 | `propagation_mode = "copy_install"` | Live install is a file-copy produced by a copy-based installer (e.g., the holodeck trio — `holodeck`, `holodeck-control`, `game-dev`); no git remote in the live path | SHA-sentinel drift class: compares `version.txt` (40-char SHA written by the installer) against `git -C <source_path> rev-parse HEAD`; no git fetch, no venv legs |
 
@@ -361,9 +361,14 @@ checkout), set `propagation_mode = "copy_install"`. The canonical example is the
 `claude-unreal-holodeck` trio (`holodeck`, `holodeck-control`, `game-dev`), installed via
 `scripts/install-plugin.sh` from the holodeck source repo.
 
-**Applicable fields.** Only `source_path` and `live_path` are used. `track_ref` and
-`dist_name` do not apply — no git remote is consulted and no venv editable-install is
-involved.
+**Applicable fields.** `track_ref` and `dist_name` do not apply — no git remote is consulted and no venv editable-install is involved. The fields that apply are:
+
+| Field | Required | Semantics |
+|-------|----------|-----------|
+| `source_path` | yes | Absolute path to the plugin source repo root (for `git rev-parse HEAD` + locating the installer) |
+| `live_path` | yes | Absolute path to the live install directory (for reading `version.txt`) |
+| `refresh_cmd` | no | Shell command run from `source_path` to reinstall. If absent, refresh prints the manual path and exits non-zero. |
+| `source_subpath` | no | Relative path within `source_path` to the plugin tree (e.g. `plugin/holodeck-control`). Used by the content-equivalence fallback to scope `git ls-tree`. Default: `plugin/<plugin_name>` when absent. |
 
 **SHA-sentinel drift class.** This is a distinct third drift class alongside git-state drift
 and venv-state drift. The installer writes a 40-char source HEAD SHA to
@@ -409,10 +414,10 @@ installer injects BOMs into `.ps1` files, copies the marketplace manifest, and s
 **Registration example** (Striker, holodeck trio):
 
 ```bash
-bin/machine-local set plugin.mirrors.holodeck-control.propagation_mode copy_install
-bin/machine-local set plugin.mirrors.holodeck-control.source_path X:/claude-unreal-holodeck
-bin/machine-local set plugin.mirrors.holodeck-control.live_path C:/Users/oduffy/.claude/plugins/claude-unreal-holodeck/holodeck-control
-bin/machine-local set plugin.mirrors.holodeck-control.refresh_cmd 'bash scripts/install-control-plugin.sh --allow-standalone --no-enable'
+machine-local set plugin.mirrors.holodeck-control.propagation_mode copy_install
+machine-local set plugin.mirrors.holodeck-control.source_path X:/claude-unreal-holodeck
+machine-local set plugin.mirrors.holodeck-control.live_path C:/Users/oduffy/.claude/plugins/claude-unreal-holodeck/holodeck-control
+machine-local set plugin.mirrors.holodeck-control.refresh_cmd 'bash scripts/install-control-plugin.sh --allow-standalone --no-enable'
 # game-dev: same shape, refresh_cmd → install-game-dev-plugin.sh --allow-standalone --no-enable
 # holodeck (docs, no forwarder): refresh_cmd → 'HOLODECK_UMBRELLA_INSTALL=1 bash scripts/install-plugin.sh holodeck --no-enable'
 ```
@@ -421,9 +426,40 @@ For clean-install reproducibility on a fresh machine, installers should self-reg
 entries at install time. See the holodeck repo's `cross-repo/2026-05-23-copy-install-drift.md` (holodeck pre-restructure root-level placement; will move to cross-repo/inbox/ on next migration) (asks tracked in `docs/plans/2026-05-23-copy-install-drift-coverage.md`)
 for the memo requesting this from the holodeck installer.
 
+### `reverse_drift_cmd` (reverse-drift merge gate)
+
+`refresh_cmd` polices **forward** drift (source newer than live). `reverse_drift_cmd` polices the
+opposite direction: a live install hand-edited *after* the last copy, which the forward-SHA probe
+cannot see. It is the per-plugin command that digest-compares live against source and exits non-zero
+on a hand-edit. Registered per `copy_install` plugin alongside `refresh_cmd`:
+
+```bash
+machine-local set plugin.mirrors.holodeck.reverse_drift_cmd 'bash bin/check-reverse-drift.sh'
+```
+
+**Invocation contract.** `/workweek-complete` Step 4g discovers registered commands via
+`list-reverse-drift-cmds.sh` (which reads this registry from any cwd), then runs each from its
+`source_path` — the same `( cd <source_path> && bash -c "<reverse_drift_cmd>" )` idiom as `refresh_cmd`.
+Because the value is shell-evaluated once by `bash -c`, operators **MUST single-quote** the value in
+`registry.local.toml` (the registration example above does). The reader is referenced by its
+authoritative absolute path in Step 4g; a cwd-relative path would silently no-op when
+`/workweek-complete` runs from the meta-repo cwd — the exact bug DR-146 fixed.
+
+**Distinct from `refresh_cmd` on rollback.** `refresh_cmd` runs inside `refresh-plugin-live-install.sh`,
+which wraps it with snapshot + REPLACE-semantics rollback (it *mutates* the live install). `reverse_drift_cmd`
+is a **detection-only read** — it never mutates anything, so it is invoked bare in a loop with no
+snapshot/rollback wrapper. Do not route `reverse_drift_cmd` through `refresh-plugin-live-install.sh`.
+See the `refresh_cmd` contract above (`docs/wiki/machine-local-registry.md`, "Refresh action").
+
+**Fail-loud, never silent.** The reader exits `3` when `copy_install` plugins are registered but none
+carry a `reverse_drift_cmd` (the gate would be structurally blind) — Step 4g turns that into a blocking
+failure with a registration hint. When no `copy_install` plugins exist at all, the gate is genuinely
+N/A and passes cleanly (exit `0`, empty output). Detection logic itself remains holodeck-owned
+(`X:/claude-unreal-holodeck/bin/check-reverse-drift.sh`); the coordinator only routes to it via this field.
+
 ### `track_ref` lifecycle
 
-**`track_ref` lifecycle.** Register against `origin/main` by default. Pin to a workbranch (e.g. `origin/work/<machine>/<date>`) only during active rollout, and flip back to `origin/main` at merge — otherwise the drift probe goes silent (when the workbranch is deleted post-merge) or errors. Plugin authors with separate-checkout-style live installs (project-rag, project-rag-ue-addon, future plugins) should set this field as part of registration; the drift probe (`bin/check-plugin-drift.sh`) reads it.
+**`track_ref` lifecycle.** Register against `origin/main` by default. Pin to a workbranch (e.g. `origin/work/<machine>/<date>`) only during active rollout, and flip back to `origin/main` at merge — otherwise the drift probe goes silent (when the workbranch is deleted post-merge) or errors. Plugin authors with separate-checkout-style live installs (project-rag, project-rag-ue-addon, future plugins) should set this field as part of registration; the drift probe (`check-plugin-drift.sh`) reads it.
 
 ### Idempotent registration
 

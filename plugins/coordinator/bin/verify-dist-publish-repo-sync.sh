@@ -51,15 +51,33 @@ else
 fi
 
 # Publish repo root resolution (per global CLAUDE.md § Build For Someone Else's Machine):
-#   env var → machine-local registry → hardcoded fallback (Striker default, last resort).
+#   env var → machine-local registry → fail-loud (no hardcoded fallback).
 if [ -n "${COORDINATOR_CLAUDE_PUBLISH_REPO:-}" ]; then
     PUBLISH_REPO_ROOT="$COORDINATOR_CLAUDE_PUBLISH_REPO"
 elif command -v machine-local >/dev/null 2>&1; then
-    PUBLISH_REPO_ROOT="$(machine-local get repos.coordinator_claude 2>/dev/null || echo '/x/coordinator-claude')"
+    PUBLISH_REPO_ROOT="$(machine-local get repos.coordinator_claude 2>/dev/null || true)"
+    if [ -z "$PUBLISH_REPO_ROOT" ]; then
+        echo "ERROR  cannot resolve publish repo root: machine-local key 'repos.coordinator_claude' is unset" >&2
+        echo "       Fix one of:" >&2
+        echo "         (a) export COORDINATOR_CLAUDE_PUBLISH_REPO=/path/to/coordinator-claude" >&2
+        echo "         (b) machine-local set repos.coordinator_claude /path/to/coordinator-claude" >&2
+        exit 1
+    fi
 elif [ -x "$HOME/.claude/bin/machine-local" ]; then
-    PUBLISH_REPO_ROOT="$("$HOME/.claude/bin/machine-local" get repos.coordinator_claude 2>/dev/null || echo '/x/coordinator-claude')"
+    PUBLISH_REPO_ROOT="$("$HOME/.claude/bin/machine-local" get repos.coordinator_claude 2>/dev/null || true)"
+    if [ -z "$PUBLISH_REPO_ROOT" ]; then
+        echo "ERROR  cannot resolve publish repo root: machine-local key 'repos.coordinator_claude' is unset" >&2
+        echo "       Fix one of:" >&2
+        echo "         (a) export COORDINATOR_CLAUDE_PUBLISH_REPO=/path/to/coordinator-claude" >&2
+        echo "         (b) ~/.claude/bin/machine-local set repos.coordinator_claude /path/to/coordinator-claude" >&2
+        exit 1
+    fi
 else
-    PUBLISH_REPO_ROOT="/x/coordinator-claude"
+    echo "ERROR  cannot resolve publish repo root: COORDINATOR_CLAUDE_PUBLISH_REPO is unset and machine-local is not available" >&2
+    echo "       Fix one of:" >&2
+    echo "         (a) export COORDINATOR_CLAUDE_PUBLISH_REPO=/path/to/coordinator-claude" >&2
+    echo "         (b) install machine-local and run: machine-local set repos.coordinator_claude /path/to/coordinator-claude" >&2
+    exit 1
 fi
 
 DIST_SETUP="$PLUGIN_ROOT/dist/publish-repo-setup"
@@ -189,7 +207,7 @@ if [ "$COUNT_MISMATCH" -gt 0 ] || [ "$COUNT_MISSING" -gt 0 ]; then
     echo "  and content-leakage scans that a manual cp bypasses."
     echo ""
     echo "  Note on MISMATCH false-positives:"
-    echo "    depersonalize-for-publish.sh rewrites dev-tree plugin paths to"
+    echo "    publish-time-transform.sh rewrites dev-tree plugin paths to"
     echo "    publish-tree form at publish time (e.g. plugins/coordinator/"
     echo "    → plugins/coordinator/). Files whose source contains such paths will"
     echo "    report MISMATCH by design — the publish-tree version is the intended"

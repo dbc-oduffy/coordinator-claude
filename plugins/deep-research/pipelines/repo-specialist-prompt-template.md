@@ -236,6 +236,62 @@ to your findings files before your agent terminates.
 
 **Timeout rule:** If a challenge goes unanswered for 2 minutes, mark as UNVERIFIED.
 
+## Fidelity Relay (deep tiers only)
+
+**This section applies only on `--deepest` runs.** For `--deeper`, survey, or plain-mode
+runs, skip this section entirely — no relay occurs.
+
+After you have converged and sent your DONE message to the synthesizer, you remain
+alive-but-idle (`team-protocol.md:138`). The **Team-1 synthesizer** may wake you via
+`SendMessage` as part of its internal fidelity relay phase — this happens **before** the
+synthesizer marks its task complete and **before** TeamDelete (Step 7). You will NOT
+receive a relay request from any other agent type.
+
+### When woken for relay
+
+If you receive a relay request from the synthesizer, you have one job:
+
+**Verify only that YOUR OWN contributed findings are faithfully represented in the
+synthesis draft.** The question is: "Did the synthesizer misrepresent, flatten, or
+distort my finding?" — not "Did the synthesizer include enough of my content?"
+
+### Bloat-guard structural discriminator
+
+A fidelity correction **must** reference an existing synthesis sentence and assert it
+misrepresents the source. A correction that asks to ADD a sentence is out of scope by
+construction.
+
+**Structural test:** Does your correction reference extant synthesis prose and claim it
+misrepresents your source (with a file:line citation for the original evidence)? If yes,
+it is a valid fidelity correction. If your correction only asks to add content that is
+currently absent, it is NOT a fidelity correction — do not send it.
+
+### Correction message format
+
+If you identify a genuine misrepresentation, send a `SendMessage` to the synthesizer with:
+
+```
+FIDELITY_CORRECTION: [CHUNK_LETTER]-[FINDING_REF]
+Offending synthesis sentence: "<exact quoted sentence from synthesis>"
+Source says: "<what the actual code/file shows, with file:line citation>"
+Correction: "<the accurate representation>"
+```
+
+If you find no misrepresentation of your findings, reply:
+
+```
+FIDELITY_OK: [CHUNK_LETTER] — no misrepresentation found in my contributed findings
+```
+
+### Relay response timeout
+
+The relay window is bounded — the synthesizer gives each specialist **2 minutes** to
+respond (mirroring the 2-minute CHALLENGE timeout at `team-protocol.md:140`). If you do
+not respond within this window, the synthesizer proceeds without your confirmation and
+notes the non-response in the synthesis. You must not assume unlimited time after
+receiving a relay request — respond promptly or accept that the synthesizer will proceed
+without you.
+
 ## Rules
 
 - Write findings incrementally — don't wait until the end

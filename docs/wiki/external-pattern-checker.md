@@ -5,8 +5,8 @@ type: doctrine
 related:
   - docs/wiki/prior-art-checker.md
   - docs/wiki/docs-checker-pre-review.md
-  - plugins/coordinator/agents/external-pattern-checker.md
-  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator-claude/coordinator/agents/external-pattern-checker.md
+  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
 ---
 
 <!-- Spec backlink: ~/.claude/plans/external-pattern-checker.md Phase 2 -->

@@ -38,9 +38,40 @@ Ask: _"Does this summary match your recollection? Proceed with release ceremony?
 Run the complete validation stack:
 
 ```bash
-python .github/scripts/run-all-checks.py
+_LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-resolve-validation-cmd.sh"
+_RESOLVE_TMP=$(mktemp)
+trap 'rm -f "$_RESOLVE_TMP"' EXIT
+
+if [[ -f "$_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$_LIB"
+  CMD=$(cs_resolve_fast_test_cmd 2>"$_RESOLVE_TMP")
+  RC_RESOLVE=$?
+else
+  echo "WARN: resolver lib not found at $_LIB — skipping fast-test gate" >&2
+  RC_RESOLVE=2
+  CMD=""
+fi
+
+if [[ $RC_RESOLVE -eq 0 ]]; then
+  # bash -c (child-shell sandbox) — matches workday-complete and skills/validate/SKILL.md;
+  # prevents assignment-injection clobber of caller state via the resolved command.
+  bash -c "$CMD"
+  RC_CMD=$?
+  # Validation: $RC_CMD  (0 = pass, non-zero = fail)
+elif [[ $RC_RESOLVE -eq 2 ]]; then
+  # Validation: skipped  (no fast_test_cmd configured — see stderr for remediation)
+  RC_CMD=0
+  [[ -s "$_RESOLVE_TMP" ]] && cat "$_RESOLVE_TMP" >&2
+fi
+
 node --test ~/.claude/plugins/coordinator/tests/plugin-ecosystem/run.js
 ```
+
+Capture exit codes — they populate `Validation:` in the changelog block:
+- **`Validation: 0`** — fast-tier passed; plugin ecosystem check passed.
+- **`Validation: <non-zero>`** — configured fast-test command failed. Stop and fix before proceeding.
+- **`Validation: skipped`** — no `fast_test_cmd` configured in `coordinator.local.md` and `$COORDINATOR_FAST_TEST_CMD` is unset. Set one or the other; proceed with awareness that fast-tier was not run.
 
 Any blocking failure → stop and report. Fix before proceeding. Do not proceed to Step 3 on a failing validation.
 
@@ -56,32 +87,19 @@ Wait for completion before proceeding.
 
 ## Step 4: Improvement-Queue Triage
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. Schema (DR-056 amended 2026-05-17) is main-line-only:
-- **Main line:** `- YYYY-MM-DD | <source-repo> | <source-file>:<line> | <summary> | proposed target: <target>`
-- **Optional recurrence suffix:** ` [recurring: N]` appended to the main line when N ≥ 1.
+Read `~/.claude/tasks/coordinator-improvement-queue.md`. Note oldest entry date and total active count.
 
-Note the oldest entry date and total active count.
+**Triage triggers (any):** ≥5 active entries; oldest >14 days ago; any `[recurring: ≥3]`.
 
-**Triage triggers (any condition):**
-- ≥ 5 active entries, OR
-- Oldest entry is > 14 days ago, OR
-- Any entry carries `[recurring: ≥3]` on its main line (recurring-without-action threshold).
+If triggered: (1) read entries, (2) prioritize `[recurring: ≥3]` first, (3) dispatch small executor per `proposed target`, (4) delete resolved entries (do NOT annotate), (5) commit naming closed entries, (6) >15 entries → `/staff-session`-style sweep.
 
-If triggered:
-1. Read the queue entries.
-2. **Prioritize recurring-without-action items first** (any with `[recurring: ≥3]`).
-3. For each prioritized entry, dispatch a small executor per the `proposed target` field.
-4. Verify applied entries; delete the resolved entries from the queue (main-line `git rm`-equivalent — do NOT annotate as resolved).
-5. Commit subject names each closed entry (`workweek triage: closed <id-or-summary>, <id-or-summary>`).
-6. If > 15 total entries to triage, treat as a `/staff-session`-style multi-executor sweep.
+If not triggered: note _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
 
-If not triggered: note in summary — _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
+**Write-time discipline (DR-056):** Append NEW entries as a single main line — no sub-lines, no closure-log sections (`## History`, `## Resolved`, `## Done`, etc.) — the pruner strips them.
 
-**Write-time discipline (DR-056 amended 2026-05-17):** Append NEW entries as a single main line — no `recurring:` or `resolution:` sub-lines. The pruner (`/update-docs` Phase 11i) strips trivial sub-lines on every run, so writing them is wasted ceremony. Closure-log sections (`## History`, `## Resolved`, `## Processed`, `## Closed`, `## Done`, `## Archive`, `## Closeout`) are also stripped — do NOT create them.
+**Prior-art sidecar scan (judgment-based):** Scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times is a revision candidate — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution".
 
-**Prior-art sidecar scan (judgment-based):** While reading the improvement queue, also scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times across those dispositions is a candidate for revision — surface to PM. Repeated `update-prior-art` against the same wiki is the strongest staleness signal (two plans correcting the same entry within a quarter ⇒ the entry is structurally stale, not just occasionally wrong). Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution" and § "False-positive arbitration — feedback loop on wiki quality."
-
-**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open items in P1 and P2 tables. (Closure-log sections like `## History` / `## Resolved` are stripped by `/update-docs` Phase 11i — if any survive in your read, count them as zero open items.) If the open count is ≥10, propose running `/bug-blitz` as part of this triage session — surface the count and ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ If not triggered: note in summary — _"Bug backlog: N open P1/P2 items — no blitz needed."_ If the file is absent: skip silently.
+**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open P1/P2 items. If ≥10 open, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If absent: skip silently.
 
 ---
 
@@ -93,11 +111,11 @@ If `bin/check-install-reproducer-fresh.sh` exists in the repo root:
 bash bin/check-install-reproducer-fresh.sh
 ```
 
-- **Exit 0 (marker fresh, < 24h):** Print notice; no test run; proceed to Step 5.
-- **Exit 0 (test ran and passed):** Print pass notice; proceed to Step 5.
-- **Exit 1 (test failed):** Halt and report. Do NOT proceed to Step 5 (scc), Step 6 (ShellCheck), or beyond until either the OOM reproducer passes or PM grants `--force` bypass.
+- **Exit 0 (marker fresh, <24h):** notice; proceed.
+- **Exit 0 (test ran and passed):** proceed.
+- **Exit 1 (test failed):** halt and report; do NOT proceed to Step 5+ until fixed or PM grants `--force`.
 
-This check is informational when the marker is fresh; it is a **blocking gate** only when the test is actually run and fails.
+Informational when fresh; **blocking gate** only when the test runs and fails.
 
 ---
 
@@ -111,57 +129,43 @@ UNRESOLVED=$(find tasks/review-trail -maxdepth 1 -name "*.ubt-compile.pending.js
 done)
 ```
 
-Passes silently when none found. If any are unresolved, halt and emit their `sha_range` values with remediation: _"run /workday-complete on the affected day(s) or override with `COORDINATOR_OVERRIDE_UBT_GATE=1`."_ Non-UE repos have no pending records; this step passes silently. Mirrors Step 4b pattern.
+Passes silently when none found. If unresolved: halt and emit `sha_range` values — _"run /workday-complete on the affected day(s) or override with `COORDINATOR_OVERRIDE_UBT_GATE=1`."_ Non-UE repos no-op silently.
 
 ---
 
 ## Step 4d: Skill Description Length Advisory
 
 ```bash
-# Advisory only — never blocks. Both findings AND script crashes surface to stdout
-# where the EM running the ceremony can fold them into the week's summary.
 set +e
-_DESC_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh 2>&1)
-_DESC_RC=$?
+_DESC_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh 2>&1); _DESC_RC=$?
 set -e
-echo "---"
-echo "description-length advisory (rc=$_DESC_RC):"
-echo "$_DESC_OUT"
-echo "---"
-# _DESC_RC is never propagated to ceremony exit
+echo "---"; echo "description-length advisory (rc=$_DESC_RC):"; echo "$_DESC_OUT"; echo "---"
 ```
 
-Informational. Note over-budget skills in the weekly summary (Step 1); address next session. A non-zero rc with no findings indicates a script crash — investigate out-of-band.
+Informational — never blocks. Note over-budget skills in the weekly summary; address next session.
 
 ---
 
 ## Step 4e: Owner-File Invariant Lint Advisory
 
-Applies only when `scripts/lint-owner-file-invariants.py` exists in the repo root — projects without the §1a "Owner-File Invariant Paragraph" convention (see `docs/wiki/rag-bait-conventions.md` §1a) pass silently.
+Presence-detected. Applies only when `scripts/lint-owner-file-invariants.py` exists — repos without the §1a convention (`docs/wiki/rag-bait-conventions.md` §1a) pass silently.
 
 ```bash
-# Advisory only — never blocks. Surfaces drift: owner files in scripts/owner_files.yaml
-# that have lost or never had their "Invariant —" paragraph in the first 3000 chars.
 if [[ -f scripts/lint-owner-file-invariants.py ]]; then
   set +e
-  _LINT_OUT=$(python scripts/lint-owner-file-invariants.py 2>&1)
-  _LINT_RC=$?
+  _LINT_OUT=$(python scripts/lint-owner-file-invariants.py 2>&1); _LINT_RC=$?
   set -e
-  echo "---"
-  echo "owner-file-invariant advisory (rc=$_LINT_RC):"
-  echo "$_LINT_OUT"
-  echo "---"
-  # _LINT_RC is never propagated to ceremony exit
+  echo "---"; echo "owner-file-invariant advisory (rc=$_LINT_RC):"; echo "$_LINT_OUT"; echo "---"
 fi
 ```
 
-Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `Invariant —` marker (rename, refactor, or accidental docstring rewrite). Note in the weekly summary; address next session. Fail-soft by design — convention shipped 2026-05-17, weekly drift detection is the right friction level. Pattern mirrors Step 4d; cadence doctrine: `docs/wiki/workday-workweek-cadence.md` lines 56–75 (weekly-only advisories).
+Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `Invariant —` marker. Note in weekly summary; address next session. Cadence doctrine: `docs/wiki/workday-workweek-cadence.md` lines 56–75.
 
 ---
 
 ## Step 4f: enabledPlugins Drift Audit Advisory
 
-*Lesson 2026-05-14 — `enabledPlugins: true` entries drift silently across repos.* Plugin installs write `true` lines without review; cross-contamination compounds over months. **Per-repo advisory** — audits the current repo's `enabledPlugins` against its `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
+Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
 
 ```bash
 set +e
@@ -174,7 +178,53 @@ set -e
 echo "---"; echo "enabledPlugins drift advisory (rc=$_EP_RC):"; echo "$_EP_OUT"; echo "---"
 ```
 
-Advisory only — never blocks. `project_type: meta` short-circuits (all plugins intentional). When drift is reported, **full uninstall requires 3 steps** (removing the `enabledPlugins` line alone leaves a partial-install state): (1) remove entry from every project's `.claude/settings.json`; (2) remove from `~/.claude/plugins/installed_plugins.json`; (3) `rm -rf ~/.claude/plugins/cache/<marketplace>/<plugin>/`. EM surfaces the recipe; PM authorizes.
+Advisory only — never blocks. `project_type: meta` short-circuits (all plugins intentional). When drift is reported, full uninstall requires removing the entry from `.claude/settings.json`, from `~/.claude/plugins/installed_plugins.json`, and from `~/.claude/plugins/cache/<marketplace>/<plugin>/` — EM surfaces the recipe, PM authorizes.
+
+---
+
+## Step 4g: Reverse-Drift Merge Gate (copy_install plugins only)
+
+Blocking gate for plugins whose live install is a copy of source (`copy_install` in `plugin.mirrors`). The forward-SHA `check-plugin-drift.sh` is structurally blind to a live install that was hand-edited *after* the last install — each plugin's registered `reverse_drift_cmd` closes that direction by digest-comparing live against source.
+
+Detection is delegated to the per-plugin `reverse_drift_cmd` registered in `plugin.mirrors.<name>` and discovered through the machine-local registry — so the gate fires from any cwd, not only the holodeck source repo. The reader script is referenced by its **authoritative absolute path**; a cwd-relative `bin/...` path would reproduce the exact silent-no-op bug this gate's 2026-05-28 rework fixed (DR-146). Never shorten it.
+
+```bash
+# Discover registered reverse-drift commands via the machine-local registry.
+# Absolute path is load-bearing — see DR-146 and docs/wiki/machine-local-registry.md § reverse_drift_cmd.
+# `|| REVDRIFT_RC=$?` (not a bare `RC=$?` on the next line) so a non-zero rc is captured
+# even if this block is paste-run under `set -e` — otherwise the shell aborts on the
+# assignment before rc is read, and the fail-loud branches below never fire.
+REVDRIFT_RC=0
+REVDRIFT_ROWS="$(~/.claude/plugins/coordinator/bin/list-reverse-drift-cmds.sh)" || REVDRIFT_RC=$?
+
+if [[ $REVDRIFT_RC -eq 3 ]]; then
+  # copy_install plugins ARE registered but none carry a reverse_drift_cmd: the gate is blind.
+  echo "Reverse-drift gate MISCONFIGURED — copy_install plugins exist but none have a reverse_drift_cmd. Register with: machine-local set plugin.mirrors.<name>.reverse_drift_cmd '<invocation>'. See docs/wiki/machine-local-registry.md § reverse_drift_cmd."
+  [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
+elif [[ $REVDRIFT_RC -ne 0 ]]; then
+  echo "Reverse-drift gate: could not read the registry (rc=$REVDRIFT_RC). Investigate before merging."
+  [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
+else
+  # rc==0: run each registered command from its source_path. Empty rows = no
+  # copy_install plugins on this machine = genuinely N/A (clean pass).
+  REVERSE_DRIFT_FAIL=0
+  while IFS='|' read -r PLUGIN SRC CMD; do
+    [[ -z "$PLUGIN" ]] && continue
+    # bash -euo pipefail -c (not plain bash -c) so a pipeline failure inside the
+    # registered reverse_drift_cmd fails-fast rather than being masked — matches the
+    # hardened refresh_cmd invocation (refresh-plugin-live-install.sh:393, code-reviewer F7).
+    if ! ( cd "$SRC" && bash -euo pipefail -c "$CMD" ); then
+      REVERSE_DRIFT_FAIL=1
+    fi
+  done <<< "$REVDRIFT_ROWS"
+  if [[ $REVERSE_DRIFT_FAIL -ne 0 ]]; then
+    echo "Reverse-drift gate FAILED. Remediation: run \`holodeck_recover --step reverse-drift\` to back-propagate live→source, or override with COORDINATOR_OVERRIDE_REVERSE_DRIFT=1."
+    [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
+  fi
+fi
+```
+
+Do NOT proceed to Step 5 until the gate passes or PM grants override. Note `reverse_drift_cmd` is registry-supplied and shell-evaluated once by `bash -c` — operators MUST single-quote the value in `registry.local.toml` (same idiom as `refresh_cmd`). Detection logic remains holodeck-owned (`X:/claude-unreal-holodeck/bin/check-reverse-drift.sh`; `docs/plans/2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` AC7); this gate only routes to it via the registry.
 
 ---
 
@@ -191,7 +241,7 @@ If `scc` is not installed: note in summary — _"scc not available — install f
 
 ---
 
-## Step 6: ShellCheck Sweep
+## Step 6: ShellCheck Sweep + Console-Flash Guard
 
 ```bash
 git ls-files '*.sh' | while read -r f; do
@@ -203,86 +253,80 @@ done
 - **Clean:** report _"ShellCheck: all .sh files clean."_
 - **Not installed:** note in summary.
 
+**Console-flash guard (CONSOLE-FLASH-GUARD):** After ShellCheck, run the spawn-suppression guard:
+
+```bash
+# Runs from the coordinator plugin root regardless of cwd.
+_GUARD="${CLAUDE_PLUGIN_ROOT}/bin/verify-no-console-flash.sh"
+if [[ -f "$_GUARD" ]]; then
+  bash "$_GUARD" "$HOME/.claude/plugins"
+  _FLASH_RC=$?
+  if [[ $_FLASH_RC -ne 0 ]]; then
+    echo "Console-flash guard: UNSUPPRESSED spawns found (see above). Fix before merging."
+  else
+    echo "Console-flash guard: OK"
+  fi
+else
+  echo "Console-flash guard: guard not found at $_GUARD — install or check CLAUDE_PLUGIN_ROOT"
+fi
+```
+
+- **Issues found:** report and offer to fix; same offer-and-fix shape as ShellCheck. Route bare python/node/powershell spawns through `lib/spawn-hidden.sh` or add `# verify-no-console-flash: allow` if the spawn is verifiably not on the Windows hot-path.
+- **Clean:** report _"Console-flash guard: OK"_.
+- **Guard missing:** note in summary — install or check `$CLAUDE_PLUGIN_ROOT`.
+
+<!-- spec: CONSOLE-FLASH-GUARD; see docs/wiki/coordinator-tripwires.md § Console-window flash and docs/plans/2026-05-29-windows-console-flash-elimination.md § Chunk 4 -->
+
 ---
 
 ## Step 7: Parallel Code-Review Gate
 
-### Step 7 prelude — trail-reading and scope computation
+> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7`.
 
-Before invoking `parallel-code-review`, compute the narrowed **code-semantics** scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk. (The helper's JSON keys are still named `patrik`/`patrik_seam_files` for back-compat; post-restructure the `patrik` SHA set is the code-semantics chunking input and `patrik_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.)
-
-Run the helper (fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`):
+**Compute scope.** Run the trail helper (fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
 ```
 
-**Contract:** The helper parses `Week starting:` from HEADER.md, filters trail records to the current week by filename date-prefix, then computes:
-- `reviewed_set` — union of all segment SHA sets
-- `unreviewed_set` — weekly `origin/main..HEAD` SHAs minus `reviewed_set`
-- `cross_segment_seams` — file paths touched by ≥2 distinct trail segments (pairwise intersection)
-- `patrik_scope` — `unreviewed_set ∪ seam_SHAs`
+**Run gate.** After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The brief references `tasks/review-trail/.weekly-reviewer-scopes.json`. The Staff Engineer is NOT in this gate — see Step 7.5.
 
-Output JSON shape: `{ "patrik": [sha...], "patrik_seam_files": [path...], "mechanical_workers": "full" }`. Fail-loud on missing HEADER.md, unparseable `Week starting:` date, missing `sha_range`, or any git subprocess error. Implementation: `coordinator/lib/workweek-trail-scope.sh`.
+- **BLOCKED:** halt before Step 8 and Step 9; surface verdict line + findings-dir path to PM. Do not proceed until fixed or `--force` granted.
+- **WARN:** include verdict line in release-notes draft (Step 9); proceed.
+- **OK:** proceed; verdict line goes into release-notes draft for the record.
 
----
-
-After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), run the parallel code-review gate on the week's diff against `origin/main`.
-
-Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The skill snapshots the diff, chunks the narrowed code-semantics scope into N disjoint file-scope partitions, dispatches **N Sonnet `code-reviewer-weekly` chunks + 3 mechanical workers** (security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer, and emits a structured `BLOCKED | WARN | OK` verdict. **the Staff Engineer is NOT in this gate** — he runs a separate architecture pass in Step 7.5. The brief that invokes parallel-code-review references `tasks/review-trail/.weekly-reviewer-scopes.json` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
-
-- **BLOCKED:** halt before Step 8 (Tracker Reconciliation) and Step 9 (Release Notes). Surface verdict line and findings-dir path to PM. Do NOT proceed to release notes or merge until either the issue is fixed and the gate is re-run, or `--force` bypass is granted.
-- **WARN:** include the verdict line in the release-notes draft (Step 9); proceed.
-- **OK:** proceed silently; verdict line still goes into the release-notes draft for the record.
-- **OK (code-semantics trail-covered, mechanical clean):** when the trail covers all weekly code-semantics-tier scope AND no findings from any worker. Informational subvariant of OK; the dispatch still ran.
-
-**Skip rules** (full detail in the skill body): skip entirely on <10 lines or internal-only paths; skip the code-semantics chunk reviewers on doc-only weeks (mechanical workers still run); skip the entire gate on plan-only weeks; `--force` escape passes through from `/workweek-complete --force`.
-
-**Plan:** `docs/plans/2026-05-06-parallel-code-review-weekly-gate.md`; restructure `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md`.
+**Skip rules** (full detail in skill body): <10 lines or internal-only → skip entirely; doc-only week → skip code-semantics chunks (mechanical workers still run); plan-only week → skip entire gate; `--force` passes through.
 
 ---
 
 ## Step 7.5: the Staff Engineer Layer-2 — Architecture Pass (advisory, does NOT gate merge)
 
-The Staff Engineer comes off the diff-level gate (Step 7) and runs at architecture altitude instead. This step is **decoupled from the merge decision** — the mechanical gate (Step 7) is the only hard block. An architecture-altitude concern surfaces to the PM as a *recommendation*; it never silently blocks merge (DECISION D3).
+> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7.5`. Disposition ladder and accepted-loss reasoning are documented there.
 
-**Run only when there is something architectural to read.** Skip Step 7.5 (note "no arch-tier signal this week") if ALL of: `arch_tier_candidates` is empty AND `convergent_findings` is empty AND the seam-file set is empty. Otherwise dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with these four inputs:
+**Run condition:** skip (note "no arch-tier signal this week") if ALL of: `arch_tier_candidates` empty AND `convergent_findings` empty AND seam-file set empty AND daily strategic-observer trail carries no `for-weekly-arch-review` flags.
 
-1. **Changelog digest** — the week's `tasks/week-changelog/*.md` daily summaries (what shipped, at a glance).
-2. **`arch_tier_candidates`** — from `$FINDINGS_DIR/synthesis.json`; the findings the Sonnet chunk reviewers flagged `escalate_to_architecture: true`. This is the explicit "a Sonnet thought this needed Opus judgment" feed.
-3. **`convergent_findings`** — from `synthesis.json`; issues independently flagged by ≥2 lenses. Convergence is a cross-cutting signal N independently-scoped Sonnets cannot self-produce.
-4. **Seam-file set** — `patrik_seam_files` from `tasks/review-trail/.weekly-reviewer-scopes.json` (the actual cross-segment integration surface computed by `workweek-trail-scope.sh`). The integration surface is exactly where multi-session erosion lives.
+**Otherwise** dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with five inputs: (1) changelog digest, (2) `arch_tier_candidates` from `$FINDINGS_DIR/synthesis.json`, (3) `convergent_findings` from `synthesis.json`, (4) `patrik_seam_files` from `tasks/review-trail/.weekly-reviewer-scopes.json`, (5) daily strategic-observer trail (`archive/daily-summaries/*.md` DSR rows tagged `for-weekly-arch-review`).
 
-**the Staff Engineer's output:** a tech-debt / refactor-consolidate / YAGNI architectural read. The Staff Engineer **produces candidates only — he never auto-authors spinoff files** (spinoff is PM-gated, `/spinoff` Step 0). He is read-only at this step.
+The Staff Engineer produces candidates only — never auto-authors spinoffs. EM routes candidates down the disposition ladder (trivial+non-structural → immediate executor; mid-size cluster → bundled spinoff candidate; large/structural → standalone spinoff or `/plan`).
 
-**EM routes the Staff Engineer's candidates down the disposition ladder** (same ladder as the architecture-audit skill, Strand 3a):
-- **Trivial / tradeoff-free AND non-structural** (one-liners, mechanical corrections, no module/interface/cross-system boundary touch) → EM dispatches an executor immediately; ordinary EM remit, no PM gate.
-- **Mid-size cluster** → EM groups into ONE bundled spinoff candidate (`Candidate spinoff: <slug> — <topic>. Authorize?`), surfaced to PM.
-- **Large / genuinely structural** → standalone spinoff candidate or escalate to `/plan`.
-
-Any boundary-touching finding (module move, interface change, cross-system surface) is ineligible for the trivial path regardless of line count — it routes to a bundled/standalone spinoff candidate so it stays recorded.
-
-**Surface the Staff Engineer's spinoff candidates to the PM alongside the release-notes draft (Step 9)** — they are part of the weekly read-out, not a merge blocker.
-
-**Residual accepted loss (architectural OOS):** a cross-cutting erosion spanning multiple chunks that no individual Sonnet flags as architectural — and so never appears in `arch_tier_candidates` — is not caught at the weekly gate. Accepted because session-end covers within-session integration, the seam set + `convergent_findings` substantially close the gap, and an Opus full-diff read at weekly cadence is not justified by frequency.
+**Surface the Staff Engineer's spinoff candidates to PM alongside the release-notes draft (Step 9).**
 
 ---
 
 ## Step 7.6: Architecture Audit Staleness Fold
 
-The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Make it self-enforcing here on **two triggers**:
+> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7.6`. Scope (DECISION D6) and disposition ladder documented there.
 
-**Hard floor (automatic):** run the staleness check:
+**Run the staleness check:**
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"
 ```
-It reads the `Last targeted audit` clock from `tasks/health-ledger.md`. `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle. `FRESH` → no fold. `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.
 
-**EM discretion:** even when the clock reads `FRESH`, the EM MAY trigger the targeted audit when the week's churn warrants it (heavy multi-system churn — a large refactor landing across several systems — even on a fresh calendar).
+- `STALE` (>10 days or never targeted-audited) → auto-fold a targeted-on-diff audit: read `${CLAUDE_PLUGIN_ROOT}/skills/architecture-audit/SKILL.md` and run it scoped to diff-touched systems only.
+- `FRESH` → no fold (EM may still trigger on heavy multi-system churn).
+- `UNKNOWN` → do NOT auto-fold; note and move on.
 
-**Scope when folded — targeted-on-diff (DECISION D6):** audit only the systems the week's diff actually touched (read diff-touched paths from the trail / `git diff --name-only origin/main...HEAD` mapped through `docs/architecture/file-index.md`), NOT a full atlas rebuild. The full breadth survey stays a deliberate PM invocation of `/architecture-survey`. Read `${CLAUDE_PLUGIN_ROOT}/skills/architecture-audit/SKILL.md` and run it scoped to the diff-touched systems.
-
-**Disposition:** the folded audit **never edits code** — it packages findings as spinoff candidates down the disposition ladder (immediate executor for trivial+non-structural / bundled spinoff candidate / standalone-or-plan for large) and writes only the `Last targeted audit` clock + atlas metadata. Surface its spinoff candidates to the PM **alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9)** — a single architecture-candidate read-out. The fold does NOT block merge.
+The folded audit never edits code — packages findings as spinoff candidates; writes only `Last targeted audit` clock + atlas metadata. Surface candidates alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9). Does NOT block merge.
 
 If skipped (FRESH and no EM churn trigger): note _"Architecture audit: fresh (Last targeted audit within 10d) — no fold."_ in the summary.
 
@@ -298,9 +342,7 @@ Report: _"Tracker reconciliation: N workstreams updated."_
 
 ## Step 8.5: LoE High-Water Check — MANDATORY Before Step 9
 
-**Purpose:** Surface any XL chain-terminal completion entries from the past week to the PM before release notes are drafted. This ensures large chains are explicitly acknowledged in the weekly summary, not silently folded into Other bucket prose.
-
-> **This step is MANDATORY.** Do NOT proceed to Step 9 without completing it. A missing LoE check means large-scope work goes unacknowledged in the PM summary — the Phase 2 not-surveillance guarantee depends on this weekly surface point.
+> **MANDATORY.** Do NOT proceed to Step 9 without completing it. Surfaces XL chain-terminal completion entries so large chains are explicitly acknowledged in the weekly summary, not silently folded into Other bucket prose.
 
 ### 8.5.1 Query chain-terminal XL entries
 
@@ -311,29 +353,11 @@ bin/query-completions --since "7d" \
   --format json
 ```
 
-Alternatively, using the lower-level primitive:
-
-```bash
-bin/query-records --type completion \
-  --since "7d" \
-  --where "chain_terminal=true AND chain_loe.tshirt IN (XL)" \
-  --format json
-```
-
-**Single-session XL entries** (no `chain_loe`, just `loe.tshirt: XL`) are surfaced separately by running the query a second time with `--where "loe.tshirt=XL AND chain_terminal=true"`. Union both result sets in the PM summary — the doctrine surfaces XL effort regardless of whether it came from one big session or aggregated across a chain.
+Run a second time with `--where "loe.tshirt=XL AND chain_terminal=true"` to surface single-session XL entries (no `chain_loe`). Union both result sets in the PM summary.
 
 ### 8.5.2 Surface to PM
 
-**If one or more XL chain-terminal entries are returned:**
-
-For each entry, surface to the PM in the weekly summary with:
-- `title:` — what was shipped
-- `chain:` — the plan/handoff slug identifying the chain
-- `chain_loe.sessions:` — how many sessions the chain spanned (if `chain_loe` block is present)
-- `chain_loe.tshirt:` — aggregate t-shirt size at chain level (if present); else `loe.tshirt` for single-session XL entries
-- Date span (earliest `created:` in the chain to this entry's `created:`)
-
-Format in the PM summary:
+For each returned entry include: `title`, `chain` slug, `chain_loe.sessions`, `chain_loe.tshirt` (or `loe.tshirt` for single-session XL), date span. Format:
 
 ```
 **XL chain-terminal entries this week:**
@@ -341,21 +365,13 @@ Format in the PM summary:
 - "<title>" — single-session XL, <date>
 ```
 
-**If the query returns zero entries:**
+**If zero entries:** note explicitly _"No XL chain-terminal entries this week."_ — do NOT silently omit (absence is indistinguishable from a skipped step).
 
-Note explicitly: _"No XL chain-terminal entries this week."_
-
-Do NOT silently omit this note — its absence would be indistinguishable from a skipped step.
-
-### 8.5.3 Proceed to Step 9
-
-After surfacing (or noting absence), proceed to Step 9. No PM gate required here — this is informational surfacing, not a release blocker. The PM may choose to promote an XL entry to Highlights in the editorial bucketing step.
+No PM gate required — informational surfacing only. PM may promote an XL entry to Highlights in Step 9 editorial bucketing.
 
 ---
 
 ## Step 9: Editorial Bucketing + Release Notes Draft — PM Review Gate
-
-**Purpose:** Convert per-entry completion records into an editorially-bucketed pending-release file, then draft human-readable release notes from it.
 
 ### 9.0 Ensure output directory exists
 
@@ -363,19 +379,17 @@ After surfacing (or noting absence), proceed to Step 9. No PM gate required here
 mkdir -p tasks/week-changelog/
 ```
 
-Idempotent. Must run before any write to this path.
-
 ### 9.1 Query the week's completion entries
 
 ```bash
-query-completions --since "7d" --where "status=pending-release" --format json
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --since "7d" --where "status=pending-release" --format json
 ```
 
-Collect all entries with `status: pending-release` from the past 7 days. If the query returns zero entries, skip to Step 9.4 and write an empty-week note.
+Zero entries → skip to Step 9.4 with an empty-week note.
 
 ### 9.2 Dispatch Sonnet editorial worker
 
-Dispatch a Sonnet worker with the entry corpus. The worker assigns each entry to exactly one bucket and writes `tasks/week-changelog/YYYY-MM-DD-pending-release.md`.
+Dispatch a Sonnet worker with the entry corpus. Worker assigns each entry to one bucket, writes `tasks/week-changelog/YYYY-MM-DD-pending-release.md`.
 
 **Default bucket rules** (primary key: `nature`; refined by `loe.tshirt` when present):
 
@@ -390,9 +404,7 @@ Dispatch a Sonnet worker with the entry corpus. The worker assigns each entry to
 | tech-debt / infra | non-XL | **Other** |
 | tech-debt / infra | XL | **Notable** (EM call) |
 
-EM override permitted for any entry — state overrides explicitly in the dispatch.
-
-**Worker output format** (`tasks/week-changelog/YYYY-MM-DD-pending-release.md`):
+EM override permitted — state explicitly in the dispatch. **Worker output format:**
 
 ```markdown
 # Pending Release — YYYY-MM-DD
@@ -411,15 +423,11 @@ _Code-review gate verdict: [OK | WARN <verdict-line> | not-run]_
 - ... and assorted fixes  _(collapse long tails ≥5 similar entries; not for Highlights/Notable)_
 ```
 
-Empty buckets: include the `## Heading` with `_none this week_`. Each entry cites its source file. WARN verdict from Step 7 goes verbatim under `_Code-review gate verdict:_`.
-
-### 9.3 Worker writes pending-release file
-
-Worker writes to `tasks/week-changelog/YYYY-MM-DD-pending-release.md`. Verify the file exists and is non-trivial before proceeding.
+Empty buckets: `## Heading` with `_none this week_`. Each entry cites its source file. WARN verdict from Step 7 goes verbatim under `_Code-review gate verdict:_`. Verify file exists and is non-trivial before proceeding.
 
 ### 9.4 Draft release notes as thin wrapper
 
-Read `tasks/week-changelog/YYYY-MM-DD-pending-release.md`. Write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` as a human-readable wrapper over the pending-release buckets — do NOT re-author; format for the reader:
+Read pending-release file. Write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` — do NOT re-author; format for the reader:
 
 ```markdown
 # Release Notes — vX.Y.Z (YYYY-MM-DD)
@@ -437,20 +445,24 @@ Read `tasks/week-changelog/YYYY-MM-DD-pending-release.md`. Write `archive/releas
 _Code-review gate: [verdict]_
 ```
 
-Version is a placeholder (`vX.Y.Z`) until Step 10 confirms it.
+Version is a placeholder until Step 10 confirms it.
 
 Present to PM: _"Release notes drafted at `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md`. Bucketed: N Highlights, N Notable, N Other. Does this capture the week accurately?"_
 
-**Wait for PM review.** The PM may request reclassifications or edits before proceeding. Update both `tasks/week-changelog/YYYY-MM-DD-pending-release.md` and the release-notes wrapper to reflect any PM adjustments.
+**Wait for PM review.** Update both files to reflect any reclassifications.
 
 ---
 
 ## Step 10: Version Bump — PM Confirmation Gate
 
-Propose a semver increment based on changelog content:
+**Consumer convention takes precedence.** If the repo has `docs/wiki/versioning-convention.md`, that doc is the authority for *which* number/artifact is the canonical product version and *how* to bump it — read it first and follow it. The repo-agnostic semver heuristic below is the fallback for repos with no convention doc. (A repo with multiple version namespaces — pyproject, package.json, `.uplugin`, git tags — should not have its scheme guessed here; the convention doc exists precisely to name the one that ships.)
+
+Fallback heuristic (no convention doc present) — propose a semver increment based on changelog content:
 - **Major:** breaking change noted in any `Decisions:` field.
 - **Minor:** new feature or new command shipped (`Plans touched: implemented` with new commands/skills).
 - **Patch:** fixes, doc updates, refactors only.
+
+Either way the governing principle is the same: a version bump communicates user-noticeable change — consolidate the delta since the last user-visible release into ONE bump.
 
 Present to PM: _"Proposed: vX.Y.Z (rationale: [one line]). Confirm or adjust."_
 
@@ -535,15 +547,15 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 - **Re-author from git log.** The week-changelog is the canonical record.
 - **Push directly to main.** Step 11 delegates to `/merge-to-main`.
 - **Delete release notes or handoffs.** Only daily changelog files are archived.
-- **Touch trail records via `/distill` or `/update-docs/handoff-archival`.** Per-session JSON written by `coordinator-write-review-trail.sh`, consumed by Step 7's prelude, archived here in Step 13 — never by handoff archival.
+- **Touch trail records via `/distill` or `/update-docs/handoff-archival`.** Trail JSON is archived in Step 13 only — never by handoff archival.
 
 ### Relationship to Other Commands
 
 - **`/workday-complete`** — daily wrap; feeds the changelog this command reads.
 - **`/workweek-start`** — weekly orient; detects Step 13's HEADER reset and re-inits.
 - **`/merge-to-main`** — invoked in Step 11.
-- **`/update-docs`** — invoked in Step 3; absorbed prior artifact-consolidation (Step 12) into Phase 8b 2026-05-06.
-- **`bin/check-weekly-staleness.sh`** — informational script `/workday-complete` uses to nudge PM here.
-- **`bin/check-arch-audit-staleness.sh`** — reads the `Last targeted audit` clock from `tasks/health-ledger.md`; consumed by Step 7.6 to decide whether to auto-fold a targeted-on-diff architecture audit (STALE = >10 days).
-- **`/architecture-audit`** — the rotational audit folded in by Step 7.6 when stale; packages findings as spinoff candidates (never edits code), writes `Last targeted audit`.
-- **`/architecture-survey`** — the full breadth survey (PM-invoked, not folded); writes `Last full audit`.
+- **`/update-docs`** — invoked in Step 3.
+- **`check-weekly-staleness.sh`** — staleness nudge used by `/workday-complete`.
+- **`check-arch-audit-staleness.sh`** — reads `Last targeted audit` clock; consumed by Step 7.6 (STALE >10 days → auto-fold).
+- **`/architecture-audit`** — folded in by Step 7.6 when stale; writes `Last targeted audit`.
+- **`/architecture-survey`** — full breadth survey (PM-invoked only); writes `Last full audit`.

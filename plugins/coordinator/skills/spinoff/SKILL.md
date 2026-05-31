@@ -15,6 +15,8 @@ A **spinoff** is a handoff written mid-session by the current EM, addressed to a
 
 Topic drift counts: an earlier "spinoff that auth thing" does NOT authorize a later spinoff of "the migration cleanup." Each spinoff is its own authorization.
 
+**Paraphrase is not authorization.** A statement of *eventual intent* — "another session will do this," "we should spin that off sometime," "that's really its own workstream," "someone should pick that up" — is the EM observing that a spinoff *might* be warranted. It is NOT the PM invoking the spinoff primitive. The authorizing speech act is the literal trigger: `/spinoff`, the skill name, or one of the trigger phrases below, directed at *this specific topic now*. When you find yourself inferring authorization from intent-shaped prose rather than a literal trigger, STOP and surface the candidate (one-line proposal, below) — do not promote your read of the PM's intent into a write.
+
 If the EM identifies a candidate workstream that *would* warrant a spinoff but the PM has not authorized one, surface it as a one-line proposal — "Candidate spinoff: <slug> — <one-line topic>. Authorize?" — and wait. Do not proceed past Step 0 until the PM says yes.
 
 Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) MUST surface the candidate list and obtain PM authorization before writing any spinoff file. The skill body following Step 0 only runs after authorization.
@@ -54,6 +56,10 @@ kind: spinoff                       # or spinoff-roadmap (Phase 5 roadmap stubs 
 predecessor: none
 authoring_session: <one-line description of the session that wrote this>
 workstream: <slug>
+category: <roadmap|infra|bug|docs|research|refactor>
+                                    # category ∈ {roadmap|infra|bug|docs|research|refactor};
+                                    # summary ≤120 chars, one-line tl;dr
+summary: "<one-line tl;dr>"        # ≤120 chars. Required on handoffs created ≥ 2026-05-29.
 deployment_state: ready_to_fire     # default — spinoffs are authored to be picked up cold.
                                     # Override to awaiting_gate ONLY if the spinoff depends
                                     # on another spinoff/handoff shipping first; in that
@@ -85,7 +91,7 @@ Body sections (adapted from the regular handoff template):
 **Related-chain discovery (optional, run while authoring the body).** Before writing `## Reference materials`, query for completion records in the same chain so the picking-up EM has concrete prior-work context:
 
 ```bash
-bin/query-records --type completion --where "chain~<topic-slug>"
+"$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type completion --where "chain~<topic-slug>"
 ```
 
 Replace `<topic-slug>` with the spinoff's `workstream` slug. If the query returns matches, surface the most relevant entries as a `### Prior completed work in this chain` subsection under `## Reference materials` — one line per entry with its date and summary. This is optional: if the query returns zero rows, omit the subsection (no zero-row rendering required here; the absence is informative). The `predecessor: none` frontmatter rule is unchanged — body-level citation of related chains is orientation aid only, not lineage.

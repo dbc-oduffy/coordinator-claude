@@ -312,6 +312,12 @@ const REF_ALLOWLIST = new Set([
   // 'game-dev' is known but the specific agent-id is not resolvable from the coordinator-plugin tree.
   // Reference in docs/wiki/install-surface-completeness.md:97 is a cross-ref advisory, not a dispatch.
   'game-dev:schema-migration-auditor',  // holodeck project-local game-dev agent; coordinator wiki cross-ref only (2026-05-24)
+  // Skill demoted to a methodology 2026-05-30 — it collided with native Claude Code vocabulary.
+  // References in docs/plans/ are (a) the demotion plan itself (2026-05-30-fan-out-skill-to-methodology-demotion.md),
+  // (b) the pre-demotion fan-out doctrine plan (2026-05-27-fan-out-default-doctrine.md), and
+  // (c) plan/prior-art sidecars that cite the old skill name as historical context.
+  // The skill no longer exists on disk; these are legitimate historical/demotion-record references.
+  'coordinator:fan-out',                // demoted to methodology 2026-05-30; remaining refs are historical plan docs
 ]);
 
 // ---------------------------------------------------------------------------

@@ -65,10 +65,35 @@ if [[ -z "$REPO_ROOT" ]]; then
   exit 2
 fi
 
+# Submodule-context surface: `git rev-parse --show-toplevel` resolves to the
+# *submodule* root when $PWD is inside a submodule, so REPO_ROOT — and every
+# worktree we enumerate below — would belong to the submodule, not its
+# superproject. A submodule and its superproject keep independent worktree sets
+# (agent worktrees live under <repo>/.claude/worktrees/). Surface which repo is
+# actually being swept rather than silently operating on the inner one. This is
+# offer-shape, not a block: it tells the operator how to target the superproject
+# if that's what they meant, and never changes reap behavior.
+SUPERPROJECT="$(git -C "$REPO_ROOT" rev-parse --show-superproject-working-tree 2>/dev/null || true)"
+if [[ -n "$SUPERPROJECT" ]]; then
+  echo "note: $REPO_ROOT is a submodule of $SUPERPROJECT" >&2
+  echo "      this sweep covers the submodule only; agent worktrees in $SUPERPROJECT will NOT be reached — re-run from there for those." >&2
+fi
+
 ACTIVE_BRANCH="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || true)"
 if [[ -z "$ACTIVE_BRANCH" ]]; then
   echo "calling repo is in detached HEAD; refuse to reap" >&2
   REAP=0
+fi
+
+# Comparison base for COMMITS_AHEAD: the active branch when on one, else the
+# detached-HEAD SHA. Without this fallback, ACTIVE_BRANCH is empty under detached
+# HEAD so COMMITS_AHEAD stays 0 for every worktree — a commits-ahead worktree is
+# then misclassified as empty-clean in scan-only output. Worktrees share the repo's
+# object store, so the SHA resolves from each worktree's context. Reap stays off
+# under detached HEAD (above), so this affects classification only, never removal.
+COMPARE_REF="$ACTIVE_BRANCH"
+if [[ -z "$COMPARE_REF" ]]; then
+  COMPARE_REF="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 fi
 
 # git worktree list --porcelain emits stanzas like:
@@ -110,10 +135,26 @@ if [[ -n "$CURRENT_PATH" ]]; then
   WORKTREES+=("${CURRENT_PATH}|${CURRENT_BRANCH}|${CURRENT_LOCKED}")
 fi
 
+# Escape a value for safe embedding inside a JSON string literal. Worktree paths
+# on Windows carry backslashes and either field can in principle contain a
+# double-quote; raw interpolation produced malformed JSON for jq/script consumers.
+# Backslash MUST be escaped before the double-quote so the quote's own backslash
+# is not doubled. Control chars (tab/newline) cannot occur in git refs or worktree
+# paths, so backslash + quote is the complete surface here.
+_json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"   # backslash first, before any escape that introduces a backslash
+  s="${s//\"/\\\"}"
+  s="${s//$'\t'/\\t}" # the detail field is built from git-status output — a tab in a
+  s="${s//$'\n'/\\n}" # dirty filename (legal on POSIX) would otherwise break the JSON
+  printf '%s' "$s"
+}
+
 emit_json() {
   local path="$1" branch="$2" state="$3" action="$4" detail="$5"
   printf '{"path":"%s","branch":"%s","state":"%s","action":"%s","detail":"%s"}\n' \
-    "$path" "$branch" "$state" "$action" "$detail"
+    "$(_json_escape "$path")" "$(_json_escape "$branch")" "$(_json_escape "$state")" \
+    "$(_json_escape "$action")" "$(_json_escape "$detail")"
 }
 
 emit_text() {
@@ -148,8 +189,8 @@ for entry in "${WORKTREES[@]:-}"; do
 
   # Count commits unique to the worktree relative to the calling branch
   COMMITS_AHEAD=0
-  if [[ -n "$ACTIVE_BRANCH" ]]; then
-    COMMITS_AHEAD="$(git -C "$WT_PATH" rev-list --count "${ACTIVE_BRANCH}..HEAD" 2>/dev/null || echo 0)"
+  if [[ -n "$COMPARE_REF" ]]; then
+    COMMITS_AHEAD="$(git -C "$WT_PATH" rev-list --count "${COMPARE_REF}..HEAD" 2>/dev/null || echo 0)"
   fi
 
   # Detect dirty state (staged + unstaged + untracked)
@@ -213,7 +254,11 @@ for entry in "${WORKTREES[@]:-}"; do
       ;;
 
     commits-clean)
-      # Collect oldest-first commit list for cherry-pick
+      # Collect oldest-first commit list for cherry-pick.
+      # ACTIVE_BRANCH is guaranteed non-empty here: REAP is forced to 0 under detached HEAD
+      # (where ACTIVE_BRANCH is empty), so the commits-clean + REAP=1 path that reaches this
+      # line is unreachable when ACTIVE_BRANCH is empty. Invariant depends on that guard
+      # ordering above — do not reorder the REAP=0 detached-HEAD clamp below COMPARE_REF.
       mapfile -t COMMITS < <(git -C "$WT_PATH" rev-list --reverse "${ACTIVE_BRANCH}..HEAD")
       PICKED=0
       PICK_FAILED=""

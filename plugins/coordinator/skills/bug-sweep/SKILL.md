@@ -40,7 +40,7 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 4. **Hot-zone identification — rank chunks by recent bugfix density (YOU do this):**
 
    ```bash
-   query-completions --since "30d" --where "nature=bugfix" --format json
+   "$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --since "30d" --where "nature=bugfix" --format json
    ```
 
    Aggregate results by file-path-prefix or chain to identify which subsystems have the highest recent bugfix traffic. Chunks covering high-density paths rank first in Phase 1 dispatch order — they are statistically more likely to contain latent follow-on bugs.
@@ -132,6 +132,20 @@ Dispatch one `coordinator:docs-checker` agent per chunk with `model: "sonnet"`. 
 
 Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks/scratch/bug-sweep/{run-id}/`). If any chunk agent failed to write, re-dispatch once. If it fails again, proceed with available findings.
 
+## Phase 1.5: Churn-Gated Findings Verification (conditional)
+
+**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA captured in `tasks/bug-backlog.md` header ("Commit at sweep:"). If no prior sweep SHA exists or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
+
+**Why gated on churn:** *2026-05-28, project-rag (809 commits since prior sweep).* Sonnet sweepers pattern-match on historical bug shapes. Under heavy churn, the highest-confidence P1 findings have the highest false-positive rate — concurrent EMs already fixed the loud bugs, but the sweeper still remembers their shape. Low-churn sweeps don't show this inversion; Phase 1.5 cost (4 Haiku, ~10K tokens each, <5 min) is not worth paying every run.
+
+**Procedure:** Dispatch one Haiku verifier per chunk. Each verifier receives the chunk's Phase 1 findings file (`{chunk-name}-phase1-sonnet.md`) and reads the cited file:line for every P0/P1 finding. For each, return one of:
+
+- `still-present` — current source matches the buggy state described
+- `already-fixed` — current source is in the fixed state (cite the resolving SHA from `git log -1 --format=%H -- <file>` filtered since the last-sweep SHA, or `unattributed`)
+- `pattern-shifted` — code at the cited location no longer resembles either the buggy or fixed shape (likely refactored away; finding is stale)
+
+Write verdicts to `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1.5-verification.md`. Phase 2 reads this file alongside the Phase 1 findings file for the same chunk and considers only `still-present` findings for triage; `already-fixed` and `pattern-shifted` drop out and are noted in the Phase 4 report.
+
 ## Phase 2: Triage (~5 min, YOU do this)
 
 Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_VERIFY = true`, this includes Track C docs-checker reports — merge their INCORRECT and suspicious-UNVERIFIED findings into the main finding list before categorizing.
@@ -155,6 +169,16 @@ Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_V
 
 **Output:** Two lists — "Fix now" and "Backlog" — grouped by file for efficient executor dispatch.
 
+**Also write `tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json`** — machine-readable list of fix-now findings, consumed by the Phase 4 mechanical diff gate. Schema:
+
+```json
+[
+  {"id": "F-A-03", "file": "src/foo.py", "line": 142, "severity": "P1", "description": "missing threading.Lock on counter"}
+]
+```
+
+Minimum required field: `file` (the Phase 4 gate joins on this). `id`, `line`, `severity`, `description` improve the PM report.
+
 ## Phase 3: Fix (dispatch Sonnet executors, parallel)
 
 Dispatch Sonnet executors with `model: "sonnet"` to fix all "fix now" items. Group fixes by file/system to minimize conflicts.
@@ -164,7 +188,19 @@ Each executor receives:
 - The source files to modify
 - Clear acceptance criteria per fix
 
-**Agent prompt must instruct:** "Fix the listed bugs. For each fix, verify the fix is correct by reading the result. Write a brief summary of changes to `{scratch-path}` using the Write tool."
+**Agent prompt must instruct (verbatim — verify-first executor contract):**
+
+> Fix the listed bugs. For each fix:
+> 1. Read the cited line range.
+> 2. Determine whether the code is in the buggy state described OR already in the fixed state.
+> 3. If already fixed, report `no-op — already in HEAD` for that finding and SKIP without editing.
+> 4. If buggy, apply the fix and re-read to verify the edit landed.
+>
+> **Do NOT apply an edit that produces byte-identical content.** An Edit that succeeds with no diff is a false-positive finding, not a fix.
+>
+> Write a brief summary of changes to `{scratch-path}` using the Write tool. The summary MUST distinguish `fixed` vs `no-op — already in HEAD` per finding.
+
+**Why verify-first:** *2026-05-28, project-rag.* After 800+ commits of intervening churn, Sonnet sweepers anchor on historical bug shapes; 11/11 fix-now P1s in one run were already fixed in HEAD. Executors honestly "fixed" them with byte-identical edits and reported DONE. The verify-first contract converts that silent-success failure mode into an explicit `no-op` per finding.
 
 **Post-fix:** Run the test suite again to verify fixes don't introduce regressions. If any test fails that wasn't failing before, revert that fix and move the finding to backlog with "regression introduced."
 
@@ -190,6 +226,20 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
 **Phase 3.5 does NOT re-run the full sweep.** It reads only the changed files, verifying that executor agents didn't introduce new API errors while fixing existing bugs.
 
 ## Phase 4: Report and Commit (YOU do this)
+
+0. **Mechanical diff gate — fail loud on zero-diff runs.** Before commit, assert that fix-now-claimed files actually changed on disk (requires bash — uses process substitution):
+
+   ```bash
+   EXPECTED_FILES=$(jq -r '.[].file' < tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json | sort -u)
+   ACTUAL_CHANGED=$(git diff --name-only | sort -u)
+   MISSING=$(comm -23 <(echo "$EXPECTED_FILES") <(echo "$ACTUAL_CHANGED"))
+   if [ -n "$MISSING" ]; then
+     echo "ALERT: fix-now files with no diff (likely false-positive cohort):"
+     echo "$MISSING"
+   fi
+   ```
+
+   If `MISSING` is non-empty, surface each file in the Phase 4 PM report under a **Zero-diff fixes** line — these were executor `no-op` responses (finding already in HEAD). This is the loud-failure counterpart to the verify-first contract in Phase 3: it converts "executor reported DONE, no fixes landed" from a silent class into an explicit count. Do not block commit on a non-empty MISSING set — the remaining real fixes still ship — but the count goes in the report so the false-positive rate is visible.
 
 1. **Commit fixes:**
    ```bash
@@ -243,6 +293,8 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    **Tests run:** [pass/fail/error counts]
    **Found:** [total] findings ([X] fixed, [Y] blocked, [Z] false positives)
    **Fixes applied:** [list with file:line refs]
+   **Zero-diff fixes:** [N fix-now findings where executor reported no-op (finding already in HEAD) / none]
+   **Phase 1.5 verification:** [ran (churn=X commits): K still-present, L already-fixed, M pattern-shifted / skipped: <200 commits since last sweep / skipped: no prior sweep record]
    **Backlog pruned:** [N already-fixed items removed with paper-trail commit / none]
    **Blocked items:** [list with "why blocked" for each, or "none"]
    **Docs verification (Phase 3.5):** [clean / N incorrect API claims in fixes reverted / skipped: not C++/UE and no external APIs touched]
