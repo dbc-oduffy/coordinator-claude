@@ -22,7 +22,7 @@ Capture the current session state so future sessions (or other agents) can pick 
 When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each session writes its own file (unique timestamp), so multiple concurrent sessions never overwrite each other.
 
 **Path convention:**
-- **Active handoffs:** `tasks/handoffs/*.md` — current, available for `/session-start` pickup
+- **Active handoffs:** `tasks/handoffs/*.md` — current, available for `/workstream-start` pickup
 - **Archived handoffs:** `archive/handoffs/*.md` — consumed, kept as paper trail
 - Both are git-tracked. `tasks/` and `archive/` must NOT be in `.gitignore` — they contain session continuity data that travels with the repo. `.claude/` contains only platform settings and does not need to be tracked.
 
@@ -75,8 +75,8 @@ If none of these hold, STOP. Take the next action in this session instead. "Plan
 - The work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
 - All in-flight chunks of the active plan have landed and the plan doc is marked complete.
 - **Plan is reviewed/approved but the executor hasn't been dispatched yet in this session.** A reviewed plan is scaffolding, not a deliverable — the next action belongs in *this* session (dispatch the executor), not in a successor's. Framing the session as winding down at plan-approval inverts the doctrine: plans exist to produce executed code. If acceptance criteria are still empirically unverified and no executor has run, STOP — dispatch, don't hand off. Handoff is legitimate only after the executor has run and there is genuine in-progress executor/integrator/test work for a successor to resume.
-- **You are also planning to invoke `/session-end` for this same workstream.** `/handoff` and `/session-end` are mutually exclusive — never combined. `/session-end` caps a workstream that is *done*; `/handoff` passes an *in-flight* workstream to a successor. The same workstream cannot be both. If the work is finished, STOP and run `/session-end` alone. If it is in-flight, run `/handoff` alone — `/session-end` will not also run on this workstream. If you genuinely have two workstreams (one finished, one in-flight), end the finished one with `/session-end` *separately*, naming it explicitly, then write the in-flight handoff here for the other one — never bundle the two surfaces in one closing motion.
-- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/session-end` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `tasks/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
+- **You are also planning to invoke `/workstream-complete` for this same workstream.** `/handoff` and `/workstream-complete` are mutually exclusive — never combined. `/workstream-complete` caps a workstream that is *done*; `/handoff` passes an *in-flight* workstream to a successor. The same workstream cannot be both. If the work is finished, STOP and run `/workstream-complete` alone. If it is in-flight, run `/handoff` alone — `/workstream-complete` will not also run on this workstream. If you genuinely have two workstreams (one finished, one in-flight), end the finished one with `/workstream-complete` *separately*, naming it explicitly, then write the in-flight handoff here for the other one — never bundle the two surfaces in one closing motion.
+- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/workstream-complete` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `tasks/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
 
 ### YES-tests — only consulted if all NO-tests fail
 
@@ -91,7 +91,7 @@ If none of these hold, STOP. Take the next action in this session instead. "Plan
 The right artifact is one of:
 - `/workday-complete` — end-of-day ceremony; Step 4 daily summary lands in `archive/daily-summaries/`, indexed by Step 9 in `tasks/week-changelog/`
 - Commit-and-stop — for mid-day completion of a workstream that's already merged or PR-ready
-- `/session-end` — if lessons need capture but no successor brief is needed
+- `/workstream-complete` — if lessons need capture but no successor brief is needed
 
 ### If at least one YES-test fires AND no NO-test trips → continue to Step 1
 
@@ -146,8 +146,8 @@ pickup_ready: true                  # DEFAULT ON for all handoffs authored by th
                                     # non-blocking warning at /pickup time (not a
                                     # block). Do NOT remove — stays as authorial-intent
                                     # record on consumed handoffs.
-reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
-                                    # OPTIONAL. Written by /session-end (Step 2.8) or
+reviewed_at_workstream_complete: <sha-range> <reviewer> <YYYY-MM-DD>
+                                    # OPTIONAL. Written by /workstream-complete (Step 2.8) or
                                     # /handoff (Step 2.X) after running coordinator:review-code
                                     # on this session's diff. Format: "<sha-range> <reviewer>
                                     # <YYYY-MM-DD>" — e.g. "abc123..def456 code-reviewer 2026-05-18".
@@ -167,7 +167,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 ## Current State
 - **Build status:** [compiles / unknown / broken + error]
 - **Tests:** [all passing / N failing / not run]
-- **Branch:** [branch name] — session-start uses this to find resumable branches
+- **Branch:** [branch name] — workstream-start uses this to find resumable branches
 - **Remote synced:** [yes/no — check `git log origin/{branch}..HEAD`]
 - **Uncommitted changes:** [yes/no — what]
 
@@ -251,7 +251,7 @@ Then replace the placeholder comment cells in the `## Session Ledger` block with
 
 **Multi-ledger rule (re-pickup / recovery flavor):** If the handoff being written already contains a `## Session Ledger` block — because this is a recovery flavor or re-pickup of an existing handoff doc — DO NOT overwrite that block. Instead, append a second `## Session Ledger` block below the existing one. Multiple ledger blocks in one handoff file = multiple sessions touched the same workstream. The chain-aggregator (Chunk 5) and `bin/query-completions --type handoff-ledger` (Chunk 6) parse ALL `## Session Ledger` blocks in a file as separate synthetic records, using `session_id` as the deduplicator.
 
-> **Design note — body, not frontmatter.** Session Ledger lives in the body, not in the YAML frontmatter. The frontmatter schema (`schemas/handoff.yaml`) already carries `reviewed_at_session_end`; adding LoE there would bloat the schema and complicate `bin/query-records` frontmatter parsing. Body placement keeps the data accessible to the Chunk 6 query extension without schema changes.
+> **Design note — body, not frontmatter.** Session Ledger lives in the body, not in the YAML frontmatter. The frontmatter schema (`schemas/handoff.yaml`) already carries `reviewed_at_workstream_complete`; adding LoE there would bloat the schema and complicate `bin/query-records` frontmatter parsing. Body placement keeps the data accessible to the Chunk 6 query extension without schema changes.
 >
 > **Spec backlink:** `docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md` § Chunk 4 (plan lines 162–188).
 
@@ -301,19 +301,19 @@ If the script is absent or exits non-zero, skip silently. The generated file is 
 
 #### Step 2: Capture Lessons
 
-Follow `/session-end` Step 1 (Capture Lessons) — same intake filter, same format requirements, same merge-over-add rules. Skip if compaction is imminent — the handoff file is the priority.
+Follow `/workstream-complete` Step 1 (Capture Lessons) — same intake filter, same format requirements, same merge-over-add rules. Skip if compaction is imminent — the handoff file is the priority.
 
 #### Step 2.5: Doc-Alignment Insurance
 
-Follow `/session-end` Step 2.5 (Doc-Alignment Insurance) — verify status fields match reality for any chunk/stub docs and execution trackers worked on this session. Lightweight pass only — read what's in conversation context, don't re-read every file.
+Follow `/workstream-complete` Step 2.5 (Doc-Alignment Insurance) — verify status fields match reality for any chunk/stub docs and execution trackers worked on this session. Lightweight pass only — read what's in conversation context, don't re-read every file.
 
 #### Step 2.6: Update Plan Documentation
 
-Follow `/session-end` Step 2 (Update Plan Documentation) — including the active search across all plan locations (`tasks/<feature>/`, `tasks/plans/`, `docs/plans/`, `~/.claude/plans/`). Mark completed items, update status fields, add completion notes. Don't skip this because you don't recall opening a plan — search for one. Skip only if no plan docs exist for this session's work area.
+Follow `/workstream-complete` Step 2 (Update Plan Documentation) — including the active search across all plan locations (`tasks/<feature>/`, `tasks/plans/`, `docs/plans/`, `~/.claude/plans/`). Mark completed items, update status fields, add completion notes. Don't skip this because you don't recall opening a plan — search for one. Skip only if no plan docs exist for this session's work area.
 
 #### Step 2.7: Archive Uncaptured Work
 
-Follow `/session-end` Step 2.6 (Archive Uncaptured Work) — sweep session commits for completed work not yet in the project tracker or completion archive. Skip if the project hasn't adopted unified tracking (`archive/` and `docs/project-tracker.md` don't exist).
+Follow `/workstream-complete` Step 2.6 (Archive Uncaptured Work) — sweep session commits for completed work not yet in the project tracker or completion archive. Skip if the project hasn't adopted unified tracking (`archive/` and `docs/project-tracker.md` don't exist).
 
 #### Step 2.8: Build/Test Awareness
 
@@ -323,7 +323,7 @@ If the project uses a compiled language with a running IDE or editor (e.g., Unre
 
 #### Step 2.9: Refresh Orientation Documents
 
-Update the documents that future sessions read for orientation — closing the read-write loop with `/session-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
+Update the documents that future sessions read for orientation — closing the read-write loop with `/workstream-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
 
 1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections.** `/handoff` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append (one line, overwrite-or-omit). The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`).
 
@@ -341,17 +341,17 @@ Update the documents that future sessions read for orientation — closing the r
 
 3. **Action items** (first match: `ACTION-ITEMS.md`, `docs/active/ACTION-ITEMS.md`, `docs/ACTION-ITEMS.md`): If one exists and this session resolved any listed items, check them off.
 
-**Same guidance as `/session-end` Step 2.7** — targeted patches to what this session touched, not regeneration. Concurrency-safe.
+**Same guidance as `/workstream-complete` Step 2.7** — targeted patches to what this session touched, not regeneration. Concurrency-safe.
 
 #### Step 2.10: Code Review Consideration
 
-Follow `/session-end` Step 2.9 (Code Review Consideration) — same diff-shape table, same precedence rule, same anti-ceremony-bias and symmetric anti-ceremony tripwires, same dispatch via `coordinator:review-code` Branch A.2, same trail-marker write via `coordinator-write-review-trail.sh`.
+Follow `/workstream-complete` Step 2.9 (Code Review Consideration) — same diff-shape table, same precedence rule, same anti-ceremony-bias and symmetric anti-ceremony tripwires, same dispatch via `coordinator:review-code` Branch A.2, same trail-marker write via `coordinator-write-review-trail.sh`.
 
-**Gate alignment:** This step fires ONLY when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/session-end` or commit-and-stop, the review consideration belongs to that downstream surface, not here. Do not double-review.
+**Gate alignment:** This step fires ONLY when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/workstream-complete` or commit-and-stop, the review consideration belongs to that downstream surface, not here. Do not double-review.
 
 **Additional handoff-specific behavior:** when this step writes a trail record, ALSO mirror the marker into the handoff frontmatter as:
 ```
-reviewed_at_session_end: <sha-range> <reviewer> <YYYY-MM-DD>
+reviewed_at_workstream_complete: <sha-range> <reviewer> <YYYY-MM-DD>
 ```
 Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the optional schema field added in `schemas/handoff.yaml`). Add this field to the frontmatter block written in Step 1.
 
@@ -361,7 +361,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 
 #### Step 2.95: Pre-terminate dirty-tree gate
 
-**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before the handoff commit, run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path:
+**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before the handoff commit, run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path. **EOL phantoms are benign — never case (c):** a dirty file that is content-equal to the index (`git diff --quiet -- <path>` exits 0 — worktree vs. index, no HEAD; this is the membership test the sweep itself uses) is a Git-for-Windows EOL stat-staleness artifact (`docs/wiki/concurrent-em-hazards.md` § H23), not an orphaned edit — leave it untouched; it is swept automatically by `coordinator-renormalize-index` at every session open (`session-init.sh`), so no per-ceremony step is needed. Classify each remaining path:
 
 - **(a) This session authored it** → it belongs in this terminator's scoped commit (handled by the existing scope/commit step).
 - **(b) A known concurrent session owns it** → leave it alone (existing rule). "Known" means you can name the workstream/session — a sibling `scope:` block, an active handoff, or a session claim under `.git/coordinator-sessions/` accounts for it. The machine-checkable form of "a session claim accounts for it" is a handoff-frontmatter `consumed_by:` field naming another session's id (sourced from `.git/coordinator-sessions/.current-session-id` per `schemas/handoff.yaml`) — grep for that to tie the prose signal to a field an executor can actually check.
@@ -372,7 +372,7 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 
 The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write crash, per CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash them blind.
 
-**Note — this dirty-tree gate is replicated across all three session terminators (session-end, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (session-end commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
+**Note — this dirty-tree gate is replicated across all three session terminators (workstream-complete, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (workstream-complete commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
 
 #### Step 3: Commit + Verify Remote
 
@@ -406,7 +406,7 @@ The forbidden outcome is terminating with case-(c) files still dirty and unnamed
 
 #### Step 3.5: Archive Session Claim
 
-Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (session-start, workday-complete, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (workstream-start, workday-complete, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
 
 Run:
 ```bash
@@ -422,7 +422,7 @@ Idempotent — already-archived sessions return 0 silently. Failures are non-fat
 #### Step 4: Confirm
 
 Remind the user:
-- "Handoff saved to `tasks/handoffs/`. Pick up with `/pickup` (relay-race resumption) or `/session-start` (general orientation)."
+- "Handoff saved to `tasks/handoffs/`. Pick up with `/pickup` (relay-race resumption) or `/workstream-start` (general orientation)."
 - "Run `/update-docs` if you want repo-wide documentation maintenance (directory sync, handoff archiving to `archive/handoffs/`)."
 
 **Verify `.gitignore`:** Quickly check that `tasks/` is NOT gitignored. If it is, warn the user — handoffs in a gitignored directory will be invisible to other sessions and lost on clone.

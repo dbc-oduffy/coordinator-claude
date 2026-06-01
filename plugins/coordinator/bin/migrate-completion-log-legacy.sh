@@ -84,7 +84,8 @@ echo ""
 # Glob is restricted to that directory; files under subdirs are not touched.
 # ---------------------------------------------------------------------------
 
-mapfile -t MONOLITHS < <(
+MONOLITHS=()
+while IFS= read -r line; do MONOLITHS+=("$line"); done < <(
   find "$COMPLETED_DIR" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-[0-9][0-9].md' -type f \
   | sort
 )

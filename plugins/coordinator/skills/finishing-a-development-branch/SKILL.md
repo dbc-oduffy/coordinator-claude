@@ -190,7 +190,7 @@ git worktree remove <worktree-path>
 - **The PM directly** — when a branch is ready for disposition (merge / PR / keep)
 
 **Not called by:**
-- **/execute-plan** — execute-plan finalizes and offers `/session-end`; it deliberately does **not** chain into branch disposition, since that reaches the keyword-gated `/merge-to-main`. Branch disposition is a separate, PM-invoked decision.
+- **/execute-plan** — execute-plan finalizes and offers `/workstream-complete`; it deliberately does **not** chain into branch disposition, since that reaches the keyword-gated `/merge-to-main`. Branch disposition is a separate, PM-invoked decision.
 
 **Pairs with:**
 - No worktrees — worktrees are forbidden. Use the active workstream branch for WIP parking.

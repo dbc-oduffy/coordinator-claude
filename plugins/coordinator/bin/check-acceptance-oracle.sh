@@ -234,7 +234,7 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
         while IFS= read -r cell_entry; do
             idx="${cell_entry%%:*}"
             cell="${cell_entry#*:}"
-            cell_lower="${cell,,}"
+            cell_lower="$(printf '%s' "$cell" | tr '[:upper:]' '[:lower:]')"
             if [[ "$cell_lower" == "id" ]]; then
                 header_id_col=$idx
             elif echo "$cell_lower" | grep -q "^test"; then
@@ -303,7 +303,7 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
     done < <(parse_pipe_row "$line")
 
     # Normalize class to lowercase for comparison
-    row_class_lower="${row_class,,}"
+    row_class_lower="$(printf '%s' "$row_class" | tr '[:upper:]' '[:lower:]')"
 
     # Skip rows where binding class is reviewer-judgment
     if echo "$row_class_lower" | grep -q "reviewer"; then
@@ -430,8 +430,40 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             fi
             ;;
 
+        sh|bash)
+            # sh:<script-path> [args...]  — run the named script with bash.
+            # bash: is an alias for sh: — both use the same dispatch path.
+            # Exit 0 → PASS; non-zero → FAIL. Matches the run_typed_test idiom of
+            # sibling prefixes; no per-repo runner resolution (bash is the runner).
+            # The script path and any arguments are word-split by run_typed_test
+            # (same as pytest/node/cargo) and passed to bash as positional args.
+            args="${row_test#*:}"
+            # trim leading whitespace (mirrors grep/cited whitespace trimming above)
+            args="${args#"${args%%[![:space:]]*}"}"
+            # Review: security-audit — path-validation guard: reject absolute paths,
+            # path-traversal sequences, and non-existent files before dispatching to bash.
+            # Accepts repo-relative paths only (e.g. plugins/foo/bar.sh [--flag]).
+            _sh_script_path="${args%% *}"
+            if [[ "$_sh_script_path" == *..* ]]; then
+                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: contains '..' (path traversal not allowed)")
+                (( red++ )) || true
+            elif [[ "$_sh_script_path" == /* ]]; then
+                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: absolute path not allowed (use repo-relative path)")
+                (( red++ )) || true
+            elif [[ ! -f "$_sh_script_path" ]]; then
+                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: '${_sh_script_path}' is not an existing regular file")
+                (( red++ )) || true
+            elif err_suffix="$(run_typed_test "bash" "$args")"; then
+                (( green++ )) || true
+            else
+                red_messages+=("AC-${row_id} (${row_test}) red — 'bash' exited non-zero${err_suffix}")
+                (( red++ )) || true
+            fi
+            unset _sh_script_path
+            ;;
+
         *)
-            red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited")
+            red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited, sh, bash")
             (( red++ )) || true
             ;;
     esac

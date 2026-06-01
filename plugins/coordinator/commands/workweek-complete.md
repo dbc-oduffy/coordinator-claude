@@ -165,7 +165,7 @@ Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `
 
 ## Step 4f: enabledPlugins Drift Audit Advisory
 
-Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from `.claude/coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
+Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from repo-root `coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
 
 ```bash
 set +e
@@ -188,21 +188,25 @@ Blocking gate for plugins whose live install is a copy of source (`copy_install`
 
 Detection is delegated to the per-plugin `reverse_drift_cmd` registered in `plugin.mirrors.<name>` and discovered through the machine-local registry — so the gate fires from any cwd, not only the holodeck source repo. The reader script is referenced by its **authoritative absolute path**; a cwd-relative `bin/...` path would reproduce the exact silent-no-op bug this gate's 2026-05-28 rework fixed (DR-146). Never shorten it.
 
+**Per-repo scoping (`--scope-repo`).** The gate is scoped to the repo running `/workweek-complete`: the meta-repo (`~/.claude`, the coordinator home) checks **every** `copy_install` plugin on the machine (the 2026-05-28 §Chunk 3 meta-repo-coverage intent); a **consumer repo** (project-rag, dronesim, etc.) checks only `copy_install` plugins whose `source_path` IS that repo — usually none, so a clean no-op. This stops a consumer-repo release from gating on a *sibling* plugin's live-install drift, which violates the dependency-direction invariant (a host must never be forced to sync with a consumer's state). The repo root is resolved via `git rev-parse --show-toplevel` and passed through; path forms are normalized inside the reader (Windows `X:/` vs MSYS `/x/` vs `$HOME` `/c/`).
+
 ```bash
-# Discover registered reverse-drift commands via the machine-local registry.
+# Discover registered reverse-drift commands via the machine-local registry,
+# scoped to THIS repo (see Per-repo scoping above).
 # Absolute path is load-bearing — see DR-146 and docs/wiki/machine-local-registry.md § reverse_drift_cmd.
 # `|| REVDRIFT_RC=$?` (not a bare `RC=$?` on the next line) so a non-zero rc is captured
 # even if this block is paste-run under `set -e` — otherwise the shell aborts on the
 # assignment before rc is read, and the fail-loud branches below never fire.
+REVDRIFT_SCOPE_REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 REVDRIFT_RC=0
-REVDRIFT_ROWS="$(~/.claude/plugins/coordinator/bin/list-reverse-drift-cmds.sh)" || REVDRIFT_RC=$?
+REVDRIFT_ROWS="$(~/.claude/plugins/coordinator/bin/list-reverse-drift-cmds.sh --scope-repo "$REVDRIFT_SCOPE_REPO")" || REVDRIFT_RC=$?
 
 if [[ $REVDRIFT_RC -eq 3 ]]; then
   # copy_install plugins ARE registered but none carry a reverse_drift_cmd: the gate is blind.
   echo "Reverse-drift gate MISCONFIGURED — copy_install plugins exist but none have a reverse_drift_cmd. Register with: machine-local set plugin.mirrors.<name>.reverse_drift_cmd '<invocation>'. See docs/wiki/machine-local-registry.md § reverse_drift_cmd."
   [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
 elif [[ $REVDRIFT_RC -ne 0 ]]; then
-  echo "Reverse-drift gate: could not read the registry (rc=$REVDRIFT_RC). Investigate before merging."
+  echo "Reverse-drift gate: reader exited with an unexpected code (rc=$REVDRIFT_RC) — e.g. a registry-read or invocation error. Check the reader output above before merging."
   [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
 else
   # rc==0: run each registered command from its source_path. Empty rows = no
@@ -467,6 +471,47 @@ Either way the governing principle is the same: a version bump communicates user
 Present to PM: _"Proposed: vX.Y.Z (rationale: [one line]). Confirm or adjust."_
 
 **Wait for PM confirmation.** Update the release-notes filename and HEADER.md `Prior week released:` value to the confirmed version.
+
+---
+
+## Step 10.5: Release Publish — Backstop Un-Draft (catch-all for non-merge-tagged work)
+
+<!-- spec-backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C1 — Release cadence -->
+<!-- purpose: belt-and-suspenders catch-all for non-trivial work that reached main via direct
+     daily-branch commits that bypassed /merge-to-main (and therefore bypassed the per-merge
+     tagged-publish leg in skills/merging-to-main/SKILL.md Step 1.5). -->
+
+**Precondition:** PM has confirmed the version at Step 10 (i.e., `$VERSION_TAG` is set, e.g. `v2.7.0`).
+
+**Skip when:** the week's non-trivial work was ALREADY tagged and published per-merge via the `/merge-to-main` tagged-publish leg. Verify:
+
+```bash
+gh release view "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --json isDraft,isLatest 2>/dev/null
+```
+
+- `isDraft=false, isLatest=true` → already published; skip this step and note _"Release already published at $VERSION_TAG — no backstop action needed."_
+- Draft exists (`isDraft=true`) OR no release for the tag → proceed with the backstop below.
+- Tag does not exist yet → create the release (see below).
+
+**Backstop action — un-draft or create the release:**
+
+If a draft release for `$VERSION_TAG` exists:
+```bash
+gh release edit "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --draft=false --latest
+```
+
+If no release exists yet for `$VERSION_TAG` (e.g., the tag was never created):
+```bash
+# Use the release-notes file drafted in Step 9.4 as the body.
+gh release create "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude \
+  --title "$VERSION_TAG" \
+  --notes-file "archive/release-notes/$(date +%Y-%m-%d)-${VERSION_TAG}.md" \
+  --latest
+```
+
+**Scope:** coordinator-claude only on this plan. Deep-research-claude release publishing is owned by the deep-research-currency-notification spinoff (`tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md`). **Claude Prime (`source_is_live`) is never tagged** — skip silently when the active repo is the `~/.claude` meta-repo.
+
+Surface to PM: _"Release $VERSION_TAG published on coordinator-claude (or already published — no action)."_
 
 ---
 

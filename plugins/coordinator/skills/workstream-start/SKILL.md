@@ -1,11 +1,11 @@
 ---
-name: session-start
+name: workstream-start
 description: Orient session — preflight, load context, choose work
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: "[task-description]"
 ---
 
-# Session Start — Preflight and Orientation
+# Workstream Start — Preflight and Orientation
 
 Orient this agent by verifying the environment, loading project context, and choosing work.
 
@@ -23,7 +23,7 @@ Secure any uncommitted work before touching branches:
 
 1. Run `git status` — if there are ANY uncommitted changes (staged, unstaged, or untracked), commit immediately:
    ```
-   CLAUDE_INVOKING_COMMAND=session-start ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "chore: session-start sweep — pre-orientation capture"
+   CLAUDE_INVOKING_COMMAND=workstream-start ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "chore: workstream-start sweep — pre-orientation capture"
    ```
 2. This is crash insurance. If a previous session died mid-work, this captures its state. The auto-push hook will push to the remote.
 3. If nothing to commit, move on silently.
@@ -52,7 +52,7 @@ No output to surface. On non-`source_is_live` machines this is a no-op; on `sour
 
 ### Agent worktree check
 
-Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); session-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
+Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); workstream-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
 
 ```bash
 ~/.claude/plugins/coordinator/bin/agent-worktree-sweep.sh --format text
@@ -94,7 +94,7 @@ Get on the right branch:
    Create: `git checkout -b work/{machine}/{date}`
    If name collision: append suffix: `work/{machine}/{date}-2`
 
-   **Note:** `/workday-start` handles branch setup and open-branch consolidation at the start of each workday. If you're starting a new day and workday-start hasn't run yet, the session-start branch creation here is a safety fallback — recommend running `/workday-start` to also consolidate any open branches from previous days.
+   **Note:** `/workday-start` handles branch setup and open-branch consolidation at the start of each workday. If you're starting a new day and workday-start hasn't run yet, the workstream-start branch creation here is a safety fallback — recommend running `/workday-start` to also consolidate any open branches from previous days.
 
 ### Branch staleness
 
@@ -130,7 +130,7 @@ Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system
 
 ### Addon health (RED only + bootstrap notice)
 
-Plugins that ship a doctor skill may write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Session-start surfaces RED verdicts only — stale-but-green is workday-start's beat, not every-session noise.
+Plugins that ship a doctor skill may write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Workstream-start surfaces RED verdicts only — stale-but-green is workday-start's beat, not every-session noise.
 
 ```bash
 ~/.claude/plugins/coordinator/bin/scan-addon-health.sh --red-only
@@ -188,7 +188,7 @@ Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6s (the session 
 
 Note: the session adopter is the **orientation spine** — daemon-independent, computed from git+fs. Plugin-specific binding (e.g. project-rag source registration) is surfaced separately and optionally; plugin whoamis are optional ribs, never the orientation spine.
 
-Note: session-start does NOT surface bound-but-cwd-mismatch — that is `/project-onboarding`'s job. Session-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
+Note: workstream-start does NOT surface bound-but-cwd-mismatch — that is `/project-onboarding`'s job. Workstream-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
 
 ### Handoffs
 
@@ -226,7 +226,7 @@ Reporting rules:
 
 Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated handoffs that the PM needed visibility on for cross-workstream planning. Six days is roughly one working week — long enough that a gate that hasn't cleared is worth a glance, short enough to catch drift before it ossifies.
 
-**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `tasks/handoff-tracker.md` (written by `/session-end` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `node plugins/coordinator/bin/render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
+**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `tasks/handoff-tracker.md` (written by `/workstream-complete` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `node plugins/coordinator/bin/render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
 
 **Stale advisory / call-note markdowns are not pendency.** Files in `tasks/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
 
@@ -291,7 +291,7 @@ If the hook reported no fresh cache, note: _"No orientation cache — run `/work
 
 **Stale advisory markdowns ≠ pendency.** Before treating any `tasks/advisory/*.md`, `tasks/call-notes/*.md`, or similarly-named orientation note as a live work item: `git log --oneline -- <path>` to check authoring and last-touch dates. A markdown that hasn't been touched in >14 days is hypothesis until re-verified against current HEAD — it may describe a state already resolved by subsequent commits.
 
-- **Last session-end review (informational):** if any review-trail records exist (live or archived), surface the most recent one (`list-review-trail-records.sh | tail -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
+- **Last workstream-complete review (informational):** if any review-trail records exist (live or archived), surface the most recent one (`list-review-trail-records.sh | tail -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
 
 ### Documentation index
 
@@ -392,7 +392,7 @@ Then orient the operator toward their `~/.claude` meta-repo as the primary surfa
 
 > **Welcome — coordinator is installed.** Your `~/.claude` directory is a git-tracked repo that is your live coordinator install. It's the surface you evolve — adding project context, capturing lessons, writing your CLAUDE.md — not the upstream `coordinator-claude` source.
 >
-> The primary path from here is to `/pickup` the continue-onboarding handoff that the installer left in `tasks/handoffs/` — it walks you through co-writing your CLAUDE.md and running your first `/session-start` on a real project. If no handoff is visible above, you can start fresh:
+> The primary path from here is to `/pickup` the continue-onboarding handoff that the installer left in `tasks/handoffs/` — it walks you through co-writing your CLAUDE.md and running your first `/workstream-start` on a real project. If no handoff is visible above, you can start fresh:
 >
 > **Suggested first steps:**
 > 1. **Co-write your `~/.claude/CLAUDE.md`** — personalize your EM persona, coding conventions, and any project-level extensions with the EM's help (just ask).

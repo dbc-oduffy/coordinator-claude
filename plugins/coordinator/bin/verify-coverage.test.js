@@ -122,15 +122,18 @@ test('qualified orphan: typo in skill name surfaces as QUALIFIED orphan', () => 
 });
 
 test('qualified orphan: ref to wrong plugin namespace flagged', () => {
-  // `coordinator:writing-plans` is a real superpowers skill but NOT a coordinator skill.
-  // Writers sometimes get this wrong — exactly the drift this validator catches.
+  // `coordinator:no-such-skill` is a plausible-looking but nonexistent coordinator skill.
+  // Writers sometimes reference a renamed/removed skill — exactly the drift this validator
+  // catches. (Must NOT be an allowlisted name; `coordinator:writing-plans` was used here
+  // originally but is now in QUALIFIED_ALLOWLIST as a known historical rename, which
+  // correctly suppressed it and left this assertion stale — see 2026-06-01 fix.)
   const root = scaffold(
     { coordinator: { skills: ['plan'] } },
-    { 'coordinator/skills/plan/SKILL.md': '# plan\n\nSee `coordinator:writing-plans`.\n' }
+    { 'coordinator/skills/plan/SKILL.md': '# plan\n\nSee `coordinator:no-such-skill`.\n' }
   );
   const r = runValidator(root);
   assert.equal(r.exit, 1);
-  assert.equal(r.json.violations[0].ref, 'coordinator:writing-plans');
+  assert.equal(r.json.violations[0].ref, 'coordinator:no-such-skill');
 });
 
 test('refs to plugins NOT in tree are skipped (treated as external)', () => {

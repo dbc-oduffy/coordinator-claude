@@ -17,7 +17,7 @@ I'm using coordinator:parallel-code-review for the /workweek-complete pre-merge 
 
 This skill snapshots the week's diff against `origin/main`, dispatches **N Sonnet `code-reviewer-weekly` instances over disjoint file-scope chunks of the narrowed code-semantics scope** plus **3 mechanical specialist workers** (security, deps, tests) over the full diff, all in parallel, synthesizes their findings into a structured verdict, and halts or proceeds accordingly before release notes are drafted. It is the enforcement surface for the parallel-review merge-gate carve-out pinned in `coordinator/CLAUDE.md` § Review Sequencing.
 
-**the Staff Engineer is NOT in this gate.** The mechanical gate (N Sonnets + 3 specialists → synthesizer verdict) is the only hard block. The Staff Engineer runs a separate architecture-altitude pass (Layer 2, post-gate, advisory) — see `/workweek-complete` Step 7.5. The doctrinal reason: named reviewers (personas) add no value on en-masse diff-sweep coverage — that is exactly the mechanical-worker domain — and everything in the week's diff already had `/session-end` code review, so this gate is insurance, not a first look. Opus-tier judgment (the Staff Engineer) is reserved for architecture over the changelog digest + escalated candidates + the integration-seam set. See plan `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Why.
+**the Staff Engineer is NOT in this gate.** The mechanical gate (N Sonnets + 3 specialists → synthesizer verdict) is the only hard block. The Staff Engineer runs a separate architecture-altitude pass (Layer 2, post-gate, advisory) — see `/workweek-complete` Step 7.5. The doctrinal reason: named reviewers (personas) add no value on en-masse diff-sweep coverage — that is exactly the mechanical-worker domain — and everything in the week's diff already had `/workstream-complete` code review, so this gate is insurance, not a first look. Opus-tier judgment (the Staff Engineer) is reserved for architecture over the changelog digest + escalated candidates + the integration-seam set. See plan `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Why.
 
 ---
 
@@ -129,7 +129,7 @@ git rev-parse HEAD > "$FINDINGS_DIR/head.sha"
 
 ## Chunking — seam-first construction of the code-semantics partitions
 
-The narrowed code-semantics scope is `patrik_scope` from the Step 7 prelude (`workweek-trail-scope.sh` output: `patrik` SHA set + `patrik_seam_files` path set). It is NOT the whole week — it is unreviewed-since-session-end commits PLUS cross-segment seam files. The 3 specialist workers see the full diff; only the code-semantics lens is narrowed and chunked.
+The narrowed code-semantics scope is `patrik_scope` from the Step 7 prelude (`workweek-trail-scope.sh` output: `patrik` SHA set + `patrik_seam_files` path set). It is NOT the whole week — it is unreviewed-since-workstream-complete commits PLUS cross-segment seam files. The 3 specialist workers see the full diff; only the code-semantics lens is narrowed and chunked.
 
 Build the N chunks **seam-first** (hard constraint — `coordinator/CLAUDE.md` lineage and plan § Strand 1 F2):
 

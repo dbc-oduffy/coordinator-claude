@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # spawn-hidden.sh — Windows-console-window-suppressing launcher for coordinator scripts.
 #
 # Spec backlink: docs/plans/2026-05-29-windows-console-flash-elimination.md § Chunk 1
@@ -139,7 +139,8 @@ _interp_base() {
   local name
   name="$(basename "$1")"
   name="${name%.exe}"
-  echo "${name,,}"   # lowercase (bash 4+)
+  # tr is POSIX; ${name,,} is bash 4+ only.
+  printf '%s' "$name" | tr '[:upper:]' '[:lower:]'
 }
 
 # ------------------------------------------------------------------

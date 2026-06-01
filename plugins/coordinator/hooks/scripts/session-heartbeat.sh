@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Write a last_activity heartbeat to the current session's
 # meta.json so the orphan sweep in session-init.sh can distinguish a live
 # long-running session (e.g. a multi-minute Bash extraction) from a truly
@@ -6,7 +6,7 @@
 #
 # Problem context (spec backlink: docs/plans/2026-05-17-ws2-channel-a-narrow-activation.md § Chunk 7):
 #   session-init.sh's orphan sweep gates archival on kill -0 <pid> where pid
-#   is the hook subshell PID from cs_init — dead seconds after session boot.
+#   is the hook subshell PID from cs_init — dead seconds after session open.
 #   All sessions therefore look dead to the PID check. The sweep's only real
 #   guard is then the "consumed" frontmatter status. A session that is still
 #   running a long Bash command will not have updated last_activity unless a
@@ -81,9 +81,10 @@ else
   # a concurrent heartbeat from a sibling write is idempotent at 1s resolution).
   NOW_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")
   _sed_escaped=$(printf '%s' "$NOW_ISO" | sed 's/[&/\\]/\\&/g')
-  _tmp=$(mktemp) && \
-    sed "s/\"last_activity\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"last_activity\": \"${_sed_escaped}\"/" \
-      "$META_JSON" > "$_tmp" 2>/dev/null && \
+  _tmp=$(mktemp)
+  trap 'rm -f "$_tmp"' EXIT
+  sed "s/\"last_activity\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"last_activity\": \"${_sed_escaped}\"/" \
+    "$META_JSON" > "$_tmp" 2>/dev/null && \
     mv "$_tmp" "$META_JSON" || rm -f "$_tmp"
 fi
 

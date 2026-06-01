@@ -631,6 +631,28 @@ const CROSS_FIELD_RULES = {
         return null;
       },
     },
+    // supersedes: is the conditional-live orientation-supersession field on install/orientation
+    // batons. It belongs only on kind: spinoff — not kind: spinoff-roadmap or any other kind.
+    //
+    // Structural disambiguation: this rule lives in the HANDOFF block (not the memo block).
+    // The memo block carries the terminal status: superseded ⇒ superseded_by: coupling, which
+    // is a different lifecycle concept. Baton supersession (conditional-live, install-chain) and
+    // memo supersession (terminal, lifecycle) are separate mechanisms; do not conflate them.
+    {
+      check: (fm) => {
+        if (fm.supersedes === undefined || fm.supersedes === null || String(fm.supersedes).trim() === '') {
+          return null;
+        }
+        if (fm.kind !== 'spinoff') {
+          return {
+            field: 'supersedes',
+            error: `permitted only when kind=spinoff (current kind: ${fm.kind || 'unset'})`,
+            hint: 'supersedes: on a baton is the conditional-live orientation-supersession field; it belongs only on a kind: spinoff install/orientation baton, not spinoff-roadmap. Distinct from the terminal memo supersedes:/superseded_by: coupling.'
+          };
+        }
+        return null;
+      },
+    },
   ],
 
   // ---------------------------------------------------------------------------

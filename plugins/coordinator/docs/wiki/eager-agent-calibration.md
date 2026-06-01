@@ -55,7 +55,7 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 ### Surface 3 — Design-as-Offers Heuristic in CLAUDE.md
 
-**What it is.** A one-line heuristic in `~/.claude/CLAUDE.md` § Implementation Standards — Extensions, visible to the EM at every session boot:
+**What it is.** A one-line heuristic in `~/.claude/CLAUDE.md` § Implementation Standards — Extensions, visible to the EM at every session start:
 
 > **Design agent-facing tooling as offers, not nags.** When adding a hook, validator, doctor, or any tool the agent encounters mid-work, default to offer-shape: lead with the better alternative, not the violation. Assume willing collaboration; mistrust-shape fights agent eagerness rather than redirecting it. → `docs/wiki/eager-agent-calibration.md`.
 
@@ -101,6 +101,14 @@ These are two valid, distinct intervention shapes for agent behavior. They answe
 **Friction-as-warning with typed override (2026-05-17 lesson, `tasks/lessons.md`).** Apply when the agent has a *strong incentive to reach for a wrong surface* and we genuinely want that surface to be hard to reach — not just less convenient, but actively resisted. The correct shape there is block-with-typed-justification: require the caller to name why the wrong surface is the right choice in this case. Warn-only is insufficient (agents override soft warnings automatically); silent toggle is worse (no audit trail). Example: a guardrail that blocks a destructive operation unless the caller provides a typed override string.
 
 The fork: offer-shape applies when the agent is eager but misdirected; friction-as-warning applies when the agent has a genuine incentive to take a wrong path and we need an explicit override checkpoint. Both shapes are valid; picking the wrong one produces the wrong outcome — offer-shape on a genuinely-wrong-path surface gives no protection; friction-on-misdirection fights eagerness without redirecting it.
+
+## Follow-Up Work (Deferred)
+
+## A Check That Speaks Only on Drift Is Free to Run Anywhere
+
+When an agent-facing safety script is silent on the clean state and emits only on drift, adding it to more invocation points costs nothing — every clean run is a no-op (zero noise tax). `check-em-environment.sh` 2026-05-30: runs as a step in all three start ceremonies; a clean Opus+medium env prints nothing.
+
+**Rule.** Separating *does the check run* from *does it say anything* lets you scatter the call liberally without noise. Prefer baking such a check into the relevant skills over a per-prompt hook (a `UserPromptSubmit` hook re-introduces the documented Windows stdin-hang and per-prompt overhead for no gain when skills are the real entry points). Extends design-as-offers / silent-on-pass. (Source: ~/.claude, 2026-05-30.)
 
 ## Follow-Up Work (Deferred)
 

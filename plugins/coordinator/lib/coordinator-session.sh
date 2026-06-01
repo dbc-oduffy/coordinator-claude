@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-session.sh — Session tracking library for scoped safety commits
 #
 # Provides functions for:
@@ -19,7 +19,7 @@
 #   │   ├── touched.txt     one repo-relative path per line (append-only, deduped)
 #   │   └── meta.json       { "session_id", "branch", "pid", "last_activity", "goal" }
 #   └── .archive/
-#       └── <session-id>-<YYYY-MM-DD>/   archived after session-end or handoff
+#       └── <session-id>-<YYYY-MM-DD>/   archived after workstream-complete or handoff
 #
 # Designed to be sourced, not executed directly. Safe to source multiple times.
 # Bash only — no jq dependency on the hot path (touch append). jq used only in
@@ -279,6 +279,11 @@ cs_touch() {
     [[ -n "$rel" ]] && fpath="$rel"
   fi
 
+  # Guard: if normalization returned empty (e.g. Python unavailable, path outside
+  # repo) and the original fpath was absolute, fpath stays absolute — an absolute
+  # path in touched.txt corrupts the relative-path scope set.  Fail-open: skip.
+  [[ -z "$fpath" ]] && return 0
+
   local touched="${sdir}/touched.txt"
 
   # Create session dir on first touch if cs_init was skipped (fail-safe)
@@ -368,7 +373,10 @@ cs_compute_scope() {
   fi
 
   # --- Step 3: Build other sessions' claim sets ---
-  declare -A other_claims  # path -> session_id
+  # Bash 3.2-safe: two parallel arrays (keys + values) replace associative array.
+  # Lookup is O(n) linear scan over other_claim_paths; touched.txt is small (<100).
+  local other_claim_paths=()   # parallel array: path claimed by another session
+  local other_claim_sids=()    # parallel array: which session owns that path
   if [[ -d "$base" ]]; then
     for other_sdir in "${base}"/*/; do
       [[ -d "$other_sdir" ]] || continue
@@ -380,19 +388,35 @@ cs_compute_scope() {
 
       if [[ -f "${other_sdir}/touched.txt" ]]; then
         while IFS= read -r opath; do
-          [[ -n "$opath" ]] && other_claims["$opath"]="$other_id"
+          if [[ -n "$opath" ]]; then
+            other_claim_paths+=("$opath")
+            other_claim_sids+=("$other_id")
+          fi
         done < "${other_sdir}/touched.txt"
       fi
     done
   fi
+
+  # Helper: _cs_other_claim_owner <path> → prints owner sid or empty string
+  _cs_other_claim_owner() {
+    local needle="$1" i
+    for (( i=0; i<${#other_claim_paths[@]}; i++ )); do
+      if [[ "${other_claim_paths[$i]}" == "$needle" ]]; then
+        echo "${other_claim_sids[$i]}"
+        return
+      fi
+    done
+  }
 
   # --- Step 4: Apply subtraction and emit MY_SCOPE ---
   local my_scope=()
   if (( ${#touched_set[@]} > 0 )); then
     for candidate in "${touched_set[@]}"; do
       [[ -z "$candidate" ]] && continue
-      if [[ -v "other_claims[$candidate]" ]]; then
-        echo "skipping ${candidate} — owned by session ${other_claims[$candidate]}" >&2
+      local owner
+      owner=$(_cs_other_claim_owner "$candidate")
+      if [[ -n "$owner" ]]; then
+        echo "skipping ${candidate} — owned by session ${owner}" >&2
       else
         my_scope+=("$candidate")
       fi
@@ -412,7 +436,9 @@ cs_compute_scope() {
       fi
       [[ "$in_mine" == true ]] && continue
 
-      if [[ -v "other_claims[$dfile]" ]]; then
+      local dfile_owner
+      dfile_owner=$(_cs_other_claim_owner "$dfile")
+      if [[ -n "$dfile_owner" ]]; then
         : # owned by another session — not an orphan, skip silently
       else
         # Dirty, not claimed — orphan
@@ -483,7 +509,14 @@ cs_reap_stale() {
     local last_activity_iso last_activity_epoch
     last_activity_iso=$(_cs_read_meta_field "$sdir" "last_activity")
     last_activity_epoch=$(_cs_iso_to_epoch "$last_activity_iso")
+    # epoch=0 means timestamp was empty/unparseable; treat as unknown, not stale.
+    if [[ "$last_activity_epoch" -eq 0 ]]; then
+      continue  # unknown timestamp — skip reap
+    fi
     local inactive_for=$(( now_epoch - last_activity_epoch ))
+    # Clamp against clock skew (NTP jump, VM resume, DST) — mirrors cs_active_sessions;
+    # a negative inactive_for must read as "just active", never wrap to a large value.
+    (( inactive_for < 0 )) && inactive_for=0
     if [[ "$inactive_for" -le "$threshold_seconds" ]]; then
       continue  # still active
     fi
@@ -500,6 +533,22 @@ cs_reap_stale() {
       echo "reaped ${sid}"
     fi
   done
+}
+
+# _cs_is_session_live <pid> <elapsed_sec>
+#   Returns 0 (true) when the session should be considered Live:
+#     - PID is alive (kill -0 check)
+#     - elapsed_sec < 30 minutes
+#   Returns 1 (false) otherwise.
+#   Single-source-of-truth: cs_active_sessions, cs_live_session_ids (fast-path
+#   and fallback), and any future callers must use this helper to stay in sync.
+_cs_is_session_live() {
+  local pid="${1:-}" elapsed_sec="${2:-0}"
+  local thirty_min=$(( 30 * 60 ))
+  if [[ "$elapsed_sec" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
+    return 0
+  fi
+  return 1
 }
 
 # cs_active_sessions
@@ -534,6 +583,9 @@ cs_active_sessions() {
     last_activity_iso=$(_cs_read_meta_field "$sdir" "last_activity")
     last_activity_epoch=$(_cs_iso_to_epoch "$last_activity_iso")
     elapsed_sec=$(( now_epoch - last_activity_epoch ))
+    # Clamp against clock skew (NTP jump, VM resume, DST): negative elapsed
+    # would make every session appear Live with a misleading "-Xs ago" label.
+    (( elapsed_sec < 0 )) && elapsed_sec=0
 
     # Human-readable elapsed time
     if [[ "$elapsed_sec" -lt 60 ]]; then
@@ -547,8 +599,7 @@ cs_active_sessions() {
     fi
 
     # Liveness: Live requires alive PID AND < 30 min since last activity
-    local thirty_min=$(( 30 * 60 ))
-    if _cs_pid_alive "$pid" && [[ "$elapsed_sec" -lt "$thirty_min" ]]; then
+    if _cs_is_session_live "$pid" "$elapsed_sec"; then
       printf "%-60s  Live (last activity %s)\n" "$sid" "$elapsed_label"
     else
       printf "%-60s  Stale (last activity %s, candidate for reap)\n" "$sid" "$elapsed_label"
@@ -566,16 +617,14 @@ cs_active_sessions() {
 #   Consumed by coordinator-safe-commit's agent-id-union candidate-set build
 #   (Issue A, archive/specs/2026-05-05-issue-a-agent-id-linkage.md).
 #
-# Liveness criterion mirrored in cs_active_sessions (lines 477-481 above);
-# keep in sync. Future consolidation: extract _cs_is_session_live private
-# helper (the Staff Engineer v3 finding 3, deferred — out of scope for Issue A).
+# Liveness criterion delegated to _cs_is_session_live (defined above cs_active_sessions);
+# both functions call through that helper — no duplication.
 cs_live_session_ids() {
   local base
   base=$(_cs_sessions_dir) || return 0
   [[ -d "$base" ]] || return 0
   local now_epoch
   now_epoch=$(_cs_now_epoch)
-  local thirty_min=$(( 30 * 60 ))
 
   # Fast path: one Python invocation parses every meta.json + computes the
   # last_activity epoch in-process, replacing the per-dir
@@ -633,7 +682,7 @@ PYEOF
         last_epoch="${last_epoch%$'\r'}"
         [[ -z "$last_epoch" || ! "$last_epoch" =~ ^[0-9]+$ ]] && last_epoch=0
         elapsed=$(( now_epoch - last_epoch ))
-        if [[ "$elapsed" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
+        if _cs_is_session_live "$pid" "$elapsed"; then
           echo "$sid"
         fi
       done <<< "$tsv"
@@ -650,15 +699,16 @@ PYEOF
     [[ "$sid" == ".archive" ]] && continue
     [[ "$sid" == ".agents" ]] && continue
 
+    local pid last_iso last_epoch elapsed
     pid=$(_cs_read_meta_field "$sdir" "pid")
     last_iso=$(_cs_read_meta_field "$sdir" "last_activity")
     last_epoch=$(_cs_iso_to_epoch "$last_iso")
     elapsed=$(( now_epoch - last_epoch ))
 
-    # Cheap-check ordering: timestamp first (pure bash arithmetic), then
-    # kill -0 (bash builtin) — same per-dir cost as before for the fallback,
-    # but skip kill on stale sessions for a small additional saving.
-    if [[ "$elapsed" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
+    # Cheap-check ordering: _cs_is_session_live checks elapsed first (pure bash
+    # arithmetic), then kill -0 (bash builtin) — same per-dir cost as before for
+    # the fallback, but skips kill on stale sessions for a small additional saving.
+    if _cs_is_session_live "$pid" "$elapsed"; then
       echo "$sid"
     fi
   done

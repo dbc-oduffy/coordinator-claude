@@ -99,7 +99,7 @@ NL=$'\n'
 CMD="${CMD//\\$NL/ }"
 
 # Fast bail: nothing to do unless this is a git command.
-echo "$CMD" | grep -qE '\bgit\b' || exit 0
+grep -qE '\bgit\b' <<< "$CMD" || exit 0
 
 # Escape hatch (honored early, before any git work).
 [[ "${COORDINATOR_ALLOW_ORPHAN:-0}" == "1" ]] && exit 0
@@ -143,7 +143,7 @@ SEGMENTS=$(printf '%s' "$CMD" | sed -E 's/[;&|]+/\n/g')
 
 while IFS= read -r SEG; do
   [[ -z "${SEG//[[:space:]]/}" ]] && continue
-  echo "$SEG" | grep -qE '\bgit\b' || continue
+  grep -qE '\bgit\b' <<< "$SEG" || continue
 
   # Per-segment repo resolution: honor `git -C <dir>` (quote-stripped), else cwd.
   GOPT=()
@@ -154,11 +154,11 @@ while IFS= read -r SEG; do
   # -------------------------------------------------------------------------
   # CHECK 1 — git reset --hard <target>  (the 2026-05-28 near-miss shape)
   # -------------------------------------------------------------------------
-  if echo "$SEG" | grep -qE '\breset\b' && echo "$SEG" | grep -qE -- '--hard'; then
+  if grep -qE '\breset\b' <<< "$SEG" && grep -qE -- '--hard' <<< "$SEG"; then
     AFTER=$(echo "$SEG" | sed -E 's/.*\breset\b//')
 
     # Unverifiable target (subshell): cannot resolve without running it -> deny safe.
-    if echo "$AFTER" | grep -qE '\$\(|`'; then
+    if grep -qE '\$\(|`' <<< "$AFTER"; then
       deny "BLOCKED: 'git reset --hard' with a subshell-resolved target ($(...) or backticks) cannot be verified safe — the hook will not execute the subshell to learn what it points at.
 
 Resolve the ref to a literal first and re-check what it would drop:
@@ -169,7 +169,7 @@ ${OVERRIDE_HINT}"
 
     # Pathspec form (reset --hard <ref> -- <path>) does NOT move HEAD; git in fact
     # rejects --hard with paths. Either way it cannot orphan commits -> allow.
-    if echo "$AFTER" | grep -qE '(^|[[:space:]])--([[:space:]]|$)'; then
+    if grep -qE '(^|[[:space:]])--([[:space:]]|$)' <<< "$AFTER"; then
       :
     else
       # Collect bare (non-flag) tokens, quote-stripped. reset --hard takes at most
@@ -212,8 +212,8 @@ If those ${N} commits are genuinely disposable (or provably safe on another ref)
   # CHECK 2 — force push: plain --force, bundled short -f (e.g. -uf), or a
   # leading-'+' refspec (git push origin +main). --force-with-lease is allowed.
   # -------------------------------------------------------------------------
-  if echo "$SEG" | grep -qE '\bpush\b'; then
-    if echo "$SEG" | grep -qE '(--force([^-=]|$)|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)|(^|[[:space:]"'\''])\+[^[:space:]]+)'; then
+  if grep -qE '\bpush\b' <<< "$SEG"; then
+    if grep -qE '(--force([^-=]|$)|(^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)|(^|[[:space:]"'\''])\+[^[:space:]]+)' <<< "$SEG"; then
       deny "BLOCKED: this 'git push' uses a forcing form (--force / -f / +refspec) that rewrites remote history and can drop commits existing only on the remote (a concurrent push you have not fetched).
 
 Use --force-with-lease instead. It refuses the push if the remote moved since your last fetch — exactly the protection plain --force discards:
@@ -227,15 +227,15 @@ ${OVERRIDE_HINT}"
   # CHECK 3 — force-delete a branch: -D, bundled -rD, --delete+--force in any
   # order, OR lowercase -d/--delete combined with -f/--force.
   # -------------------------------------------------------------------------
-  if echo "$SEG" | grep -qE '\bbranch\b'; then
+  if grep -qE '\bbranch\b' <<< "$SEG"; then
     FORCE_DELETE=0
     # Uppercase -D bundle (e.g. -D, -rD) => force-delete by itself.
-    if echo "$SEG" | grep -qE '(^|[[:space:]])-[a-zA-Z]*D[a-zA-Z]*([[:space:]]|$)'; then
+    if grep -qE '(^|[[:space:]])-[a-zA-Z]*D[a-zA-Z]*([[:space:]]|$)' <<< "$SEG"; then
       FORCE_DELETE=1
     fi
     # Lowercase delete flag AND a force flag (any order, separate or combined).
-    if echo "$SEG" | grep -qE '((^|[[:space:]])-[a-zA-Z]*d[a-zA-Z]*([[:space:]]|$)|--delete)' \
-       && echo "$SEG" | grep -qE '((^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)|--force)'; then
+    if grep -qE '((^|[[:space:]])-[a-zA-Z]*d[a-zA-Z]*([[:space:]]|$)|--delete)' <<< "$SEG" \
+       && grep -qE '((^|[[:space:]])-[a-zA-Z]*f[a-zA-Z]*([[:space:]]|$)|--force)' <<< "$SEG"; then
       FORCE_DELETE=1
     fi
     if [[ "$FORCE_DELETE" == "1" ]] && git "${GOPT[@]}" rev-parse --git-dir &>/dev/null; then

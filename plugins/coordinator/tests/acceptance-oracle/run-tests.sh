@@ -52,8 +52,6 @@ echo ""
 echo "=== Test 1: fixture run (rows 2, 4, 6 red) ==="
 
 # Run from REPO_ROOT so relative paths in fixture resolve correctly
-stdout="$(cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" 2>/dev/null)" || true
-stderr="$(cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" 2>&1 >/dev/null)" || true
 exit_code=0
 cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" >/dev/null 2>&1 || exit_code=$?
 
@@ -64,12 +62,16 @@ else
 fi
 
 # Re-run capturing both streams cleanly
-combined="$(cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" 2>&1)" || true
 stdout_only="$(cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" 2>/dev/null)" || true
 stderr_only="$(cd "$REPO_ROOT" && bash "$GATE" "$FIXTURE" 2>&1 >/dev/null)" || true
 
-# Assert final summary line (rows 1+3 green, 2+4+6 red, 5 skipped → 2/5 green; 3 red; 1 skipped)
-assert_contains "Test 1b — summary line" "$stdout_only" "2/5 gate-bound acceptance tests green; 3 red; 1 skipped (reviewer-judgment)"
+# Assert final summary line:
+#   green:   rows 1 (grep match), 3 (cited SHA), 7 (sh:fixture-sh-pass.sh), 9 (bash:fixture-sh-pass.sh)  → 4
+#   red:     rows 2 (grep no-match), 4 (cited bad SHA), 6 (multi-path), 8 (sh:fixture-sh-fail.sh) → 4
+# Review: chunk-1 nit Finding 8 — updated from sh:true/sh:false shorthand to actual fixture script names.
+#   skipped: row 5 (reviewer-judgment) → 1
+#   total gate-bound: 8
+assert_contains "Test 1b — summary line" "$stdout_only" "4/8 gate-bound acceptance tests green; 4 red; 1 skipped (reviewer-judgment)"
 
 # Assert cited-resolvable loud log on stderr for row 3
 assert_contains "Test 1c — row 3 cited loud log on stderr" "$stderr_only" "AC-3 satisfied by citation"
@@ -87,6 +89,16 @@ assert_contains "Test 1f — row 6 red reason" "$stdout_only" "all-must-match"
 
 # Assert row 5 (reviewer-judgment) is NOT mentioned as red
 assert_not_contains "Test 1g — row 5 not red" "$stdout_only" "AC-5.*red"
+
+# Assert sh: PASS row (row 7, sh:true) is green — NOT mentioned as red
+assert_not_contains "Test 1h — row 7 (sh:true) not red" "$stdout_only" "AC-7.*red"
+
+# Assert sh: FAIL row (row 8, sh:false) is red
+assert_contains "Test 1i — row 8 (sh:false) red" "$stdout_only" "AC-8"
+assert_contains "Test 1i — row 8 red reason" "$stdout_only" "bash.*exited non-zero"
+
+# Assert bash: alias PASS row (row 9, bash:true) is green — NOT mentioned as red
+assert_not_contains "Test 1j — row 9 (bash:true) not red" "$stdout_only" "AC-9.*red"
 
 # ---------------------------------------------------------------------------
 # Test 2: COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 — exit 0 + override message
@@ -114,7 +126,7 @@ assert_contains "Test 2d — gate skipped message" "$override_out" "gate skipped
 echo ""
 echo "=== Test 3: plan with no ## Acceptance Criteria heading ==="
 
-TMPFILE="$(mktemp /tmp/check-oracle-test-XXXX.md)"
+TMPFILE="$(mktemp "${TMPDIR:-/tmp}/check-oracle-test-XXXX.md")"
 cat > "$TMPFILE" <<'NOAC'
 ---
 status: draft

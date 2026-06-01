@@ -75,13 +75,13 @@ The Game Dev Reviewer (`game-dev:staff-game-dev`) is gated to UE-context session
 | `~/.claude/bin/claude-ue-bootstrap.sh` | _(reference helper, not shipped)_ — one-shot script to write/merge the per-project override |
 | `~/.claude/bin/verify-ue-overrides.sh` | _(reference helper, not shipped)_ — drift verifier for UE-context dirs |
 | `coordinator/hooks/scripts/ue-knowledge-distrust.sh` | SessionStart hook — auto-bootstraps on `.uproject` detection |
-| `coordinator/bin/probe-cwd-project-rag-relevance.sh` | Session-start probe — emits gift-shape project-RAG importance signal for any project-RAG-bound cwd; UE enrichment layer added when UE detected. Generic cross-stack (UE, TS, Python, meta-repo). `ue-knowledge-distrust.sh` is NOT renamed or extended — it retains its UE-knowledge-gap warning job. |
+| `coordinator/bin/probe-cwd-project-rag-relevance.sh` | Workstream-start probe — emits gift-shape project-RAG importance signal for any project-RAG-bound cwd; UE enrichment layer added when UE detected. Generic cross-stack (UE, TS, Python, meta-repo). `ue-knowledge-distrust.sh` is NOT renamed or extended — it retains its UE-knowledge-gap warning job. |
 | `coordinator/commands/workday-complete.md` | _(no longer auto-invoked)_ — manual diagnostic; run via `~/.claude/bin/verify-ue-overrides.sh` when you suspect peer-repo drift |
 | `coordinator/agents/staff-eng.md` | Carries lean-session routing note for the Game Dev Reviewer |
 
 ## verify-ue-overrides.sh — Manual Diagnostic Only
 
-`verify-ue-overrides.sh` is a personal-machine config diagnostic: it walks a hardcoded list of peer directories (stored in `NAMED_DIRS` within the script, e.g. `/x/DroneSim`, `/x/project-rag`, `~/.claude`) and asserts each carries the expected `enabledPlugins` keys. Because the peer paths are specific to the source author's local layout, the script is not shipped with this plugin and is never auto-invoked by any ceremony. Per `docs/plans/2026-05-08-coordinator-claude-publish-sanitization.md` PM-D3, wiring it into automated sequences on consumer machines would produce false failures wherever the hardcoded peer dirs don't exist. Run it manually when you suspect drift on your own machine; do not add it to any ceremony hook or session-start nudge.
+`verify-ue-overrides.sh` is a personal-machine config diagnostic: it walks a hardcoded list of peer directories (stored in `NAMED_DIRS` within the script, e.g. `/x/DroneSim`, `/x/project-rag`, `~/.claude`) and asserts each carries the expected `enabledPlugins` keys. Because the peer paths are specific to the source author's local layout, the script is not shipped with this plugin and is never auto-invoked by any ceremony. Per `docs/plans/2026-05-08-coordinator-claude-publish-sanitization.md` PM-D3, wiring it into automated sequences on consumer machines would produce false failures wherever the hardcoded peer dirs don't exist. Run it manually when you suspect drift on your own machine; do not add it to any ceremony hook or workstream-start nudge.
 
 ---
 

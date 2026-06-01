@@ -18,3 +18,6 @@ kind: plan
 | 4 | A non-existent SHA resolves — it should not (cited SHA that does not exist → red). | `cited:0000000000000000000000000000000000000000` | gate-bound | ☐ |
 | 5 | Quality criterion: the fixture is well-shaped for human review — no mechanical test can confirm this. | `reviewer-judgment` | reviewer-judgment | ☐ |
 | 6 | "Acceptance Oracle" must appear in BOTH writing-plans.md AND coordinator/CLAUDE.md (multi-path all-must-match; second path lacks the phrase → red). | `grep:Acceptance Oracle@plugins/coordinator/docs/wiki/writing-plans.md,plugins/coordinator/CLAUDE.md` | gate-bound | ☐ |
+| 7 | A shell script that exits 0 must register green (sh: prefix smoke — PASS path). | `sh:plugins/coordinator/tests/acceptance-oracle/fixture-sh-pass.sh` | gate-bound | ☐ |
+| 8 | A shell script that exits 1 must register red (sh: prefix smoke — FAIL path). | `sh:plugins/coordinator/tests/acceptance-oracle/fixture-sh-fail.sh` | gate-bound | ☐ |
+| 9 | bash: alias must also work — exits 0 → green. | `bash:plugins/coordinator/tests/acceptance-oracle/fixture-sh-pass.sh` | gate-bound | ☐ |

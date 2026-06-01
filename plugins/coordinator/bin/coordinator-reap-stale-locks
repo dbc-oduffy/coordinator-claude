@@ -147,6 +147,8 @@ fi
 for nl in "${GIT_DIR}"/next-index-*.lock; do
   [[ -e "$nl" ]] || continue
   _reap "$nl" "$AGE_SEC" "next-index lock"
+  # return 2 (present but fresh/mutating) is intentionally NOT surfaced separately here — unlike
+  # index.lock's fresh-index signal, a fresh next-index lock just means "leave it, deferred".
   [[ $? -eq 1 ]] && rc=1
 done
 

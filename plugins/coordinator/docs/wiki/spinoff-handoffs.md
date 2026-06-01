@@ -54,6 +54,20 @@ Continuing a session past the point where focus has split empirically produces n
 
 A spinoff matches a real handoff in detail: load-bearing context, references, acceptance criteria, anti-scope. It is **not** a one-line queue entry — it must be pickup-able cold.
 
+## Install-leg spinoffs — the one sanctioned non-`/spinoff` creation path
+
+> Added 2026-06-01. Spinoffs are normally PM-authorized and keyword-gated: the EM surfaces `Candidate spinoff: <slug> — <topic>. Authorize?` and blocks; paraphrase is not authorization; only `/spinoff` (or `coordinator:roadmap-planning`) creates one. This carve-out names the **single** exception and explains why it does not erode the gate.
+
+When an operator installs coordinator as the root of a multi-repo setup, each *additional* repo they want (deep-research, or downstream repos) is materialized as a **spinoff** by that repo's installer — not by an EM typing `/spinoff`. The baton is a normal `kind: spinoff` file in the standard `~/.claude/tasks/handoffs/` folder (the same place `/spinoff` writes), distinguished from the coordinator onboarding handoff by an `install_chain_order:` tag, and carrying `authoring_session:` naming the install + the operator's opt-in (the audit-trail field this schema requires of every spinoff). It is seeded via `cp`/`sed`, not the Write tool, so it does not trip the unauthorized-handoff nudge. This is legitimate because **the authorization is captured at the install's pre-restart question** ("what else do you want to install?"). The operator selecting a leg there *is* the human authorizing that fork — the same authorization `/spinoff` captures, captured at a different but equally explicit moment.
+
+The gate is not eroded:
+
+- **A human still authorizes every leg.** A spinoff never appears unless the operator chose it at the pre-restart question. The installer materializes a choice the human already made; it does not invent a fork. The EM driving the install is not self-initiating spinoffs — it is stitching operator-authorized ones.
+- **Scope is narrow.** This applies only to install-time leg-seeding, where the human's selection is the gate. It does not license script- or EM-created spinoffs in any steady-state workstream — there, the `Candidate spinoff: … Authorize?` block still holds.
+- **`predecessor: none` is native.** These legs are genuine forks of different install topics, not continuations of coordinator onboarding (which is the handoff). The spinoff frame fits without a lineage exception.
+
+Mechanics and the seed/drive role split live in `agent-install-contract.md` § Install-spinoff layer; the install-chain spine that tracks the legs is `coordinator/templates/plans/install-chain-tracking.md`.
+
 ## Frontmatter schema
 
 ```yaml
@@ -65,6 +79,18 @@ workstream: <slug>          # required, so /pickup can group them
 ```
 
 `predecessor: none` is load-bearing. The "Single Predecessor, No Adjacency-Inference" rule (in coordinator/CLAUDE.md) requires every handoff to have a single named predecessor or `none`. Spinoffs are always `none`; the audit trail back to origin lives in `authoring_session`.
+
+### `supersedes:` on a live baton — optional field, distinct from `status: superseded`
+
+`supersedes:` is an **optional** field on a `kind: spinoff` baton used by the orientation-supersession convention (see `docs/wiki/agent-install-contract.md` § Orientation-supersession). It asserts a spine-build-time preference — "when building the orientation spine, prefer this baton over the one it names." It is **not** a lifecycle terminator and does not mark any baton as dead.
+
+This is **distinct** from the `status: superseded` lifecycle state, which is terminal: a baton with `status: superseded` is dead and will not be picked up. The `supersedes:` field on a *live* baton does none of that.
+
+Canonical contrast (verbatim, also in `docs/wiki/cross-repo-communication.md` § Grandfather cutoff note):
+
+> "`supersedes:` on a memo = terminal (paired with `superseded_by:` + `status: superseded`, wired in the `CROSS_FIELD_RULES` memo block); `supersedes:` on a live baton = conditional+live, a spine-build-time preference (never flips status, no back-pointer, wired in the `CROSS_FIELD_RULES` handoff block)."
+
+Cross-reference: `docs/wiki/cross-repo-communication.md` § Grandfather cutoff carries the matching note disambiguating the memo-side `supersedes:` meaning from this baton-side meaning.
 
 ## Pickup-side and workday-start handling
 
@@ -149,8 +175,8 @@ Expect 30–60% of inherited items to be already closed (pickup SKILL Step 3 emp
 |---|---|---|
 | author spinoff | (n/a) → ready_to_fire \| awaiting_gate | /spinoff or roadmap-planning |
 | /pickup grabs | ready_to_fire → in_flight | /pickup Step 5 |
-| gate clears | awaiting_gate → ready_to_fire | /handoff or /session-end (gate-meaningfulness audit) |
-| session ships | in_flight → shipped (+ shipped_in) | /handoff or /session-end |
+| gate clears | awaiting_gate → ready_to_fire | /handoff or /workstream-complete (gate-meaningfulness audit) |
+| session ships | in_flight → shipped (+ shipped_in) | /handoff or /workstream-complete |
 | session pauses | in_flight → ready_to_fire | /handoff |
 | abandoned | any → abandoned | PM-authorized only |
 

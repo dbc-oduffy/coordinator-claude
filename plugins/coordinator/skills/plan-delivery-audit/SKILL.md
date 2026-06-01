@@ -107,7 +107,7 @@ all current-week records into `archive/review-trail/<week-starting>/` on every w
 A live-only read systematically under-counts coverage for anything older than the current week.
 This is the exact failure mode that prompted this skill — the 2026-05-27 holodeck audit found
 22 archived records invisible in the live dir, producing a false "most work unreviewed" alarm.
-See `docs/wiki/session-end-review.md` § Archive-Aware Glob.
+See `docs/wiki/workstream-complete-review.md` § Archive-Aware Glob.
 
 **For each trail record returned by `list-review-trail-records.sh`:**
 
@@ -206,7 +206,7 @@ exists to amortise.
 Closest analogues in `skills/`: `bug-sweep` (sweep-and-classify), `architecture-audit`
 (multi-oracle assessment), `validate` (typed-prefix test running). All three support skill-shape
 for recurring structured procedures. A wiki-only home would re-derive the dispatch shape every
-invocation and would not be greppable from `coordinator:plan` or `/session-end` as a routine option.
+invocation and would not be greppable from `coordinator:plan` or `/workstream-complete` as a routine option.
 
 ## Dispatch sequencing
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-safe-commit — Scoped safety commit helper (Phase 3, scoped-safety-commits plan)
 #
 # Canonical invocation:
@@ -16,13 +16,36 @@
 #   CLAUDE_SESSION_ID            — explicit session-ID override (manual / tests)
 #   CLAUDE_CODE_SESSION_ID       — platform-injected session ID (Claude Code ≥ ~2.1.150;
 #                                  authoritative for the running session, beats the sentinel)
-#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: session-start, workday-complete, update-docs, relay-protocol, distillation)
+#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: workstream-start, workday-complete, update-docs, relay-protocol, distillation)
 #   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
 #
 # See: ~/.claude/plans/scoped-safety-commits.md  (design)
 #      ~/.claude/plans/review-scoped-safety-commits-patrik.md  (Patrik's review)
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# bash version guard (ratified policy: Coordinator requires bash >= 4 — see
+# docs/wiki/cross-platform-shell-portability.md § bash-version policy).
+# This helper specifically uses `local -n` namerefs (bash 4.3+) in addition to
+# `declare -A` (bash 4.0+), so its true floor is 4.3. macOS ships bash 3.2 as
+# /bin/bash; without this guard the script aborts mid-commit at the first
+# `declare -A`/`local -n` with a cryptic "invalid option" and no context — and
+# this is the commit helper the whole team depends on, so a silent break is
+# catastrophic. Fail fast with actionable remediation instead.
+# (BASH_VERSINFO and (( )) exist since bash 2.x, so this guard runs fine on 3.2.)
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+  echo "ERROR: coordinator-safe-commit requires bash 4.3 or later." >&2
+  echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+  echo "" >&2
+  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it first on PATH:" >&2
+  echo "      brew install bash" >&2
+  echo '      export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc' >&2
+  echo "" >&2
+  echo "  (Linux, WSL, and Git Bash for Windows ship bash 4.3+ already — if you hit" >&2
+  echo "   this there, upgrade bash via your package manager.)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Library source
@@ -556,10 +579,10 @@ _blanket_check_foreign_staging() {
   [[ -d "$base" ]] || return 0
 
   # --- 1. Build foreign_paths: paths claimed by live sibling sessions ----------
-  # mapfile requires bash 4+; cs_live_session_ids already uses bash 4 features so
-  # this is safe.  Use process substitution to avoid subshell variable scoping.
+  # Read live session IDs into array. Use a read loop for bash 3.2 portability;
+  # process substitution avoids subshell variable scoping.
   local -a live_sids=()
-  mapfile -t live_sids < <(cs_live_session_ids 2>/dev/null || true)
+  while IFS= read -r _lsid; do live_sids+=("$_lsid"); done < <(cs_live_session_ids 2>/dev/null || true)
 
   # Map each foreign path to the short session id that claims it.
   # Format: "path|sid-short"  (pipe separator avoids spaces-in-paths issues)
@@ -641,11 +664,12 @@ _blanket_check_foreign_staging() {
 do_blanket() {
   local session_id="$1"
 
-  # Carve-out enforcement: only valid from session-start or workday-complete
+  # Carve-out enforcement: only valid from workstream-start or workday-complete
   local invoking="${CLAUDE_INVOKING_COMMAND:-}"
   local allowed=false
 
-  if [[ "$invoking" == "session-start" || "$invoking" == "workday-complete" || \
+  if [[ "$invoking" == "workstream-start" || \
+        "$invoking" == "workday-complete" || \
         "$invoking" == "update-docs" || "$invoking" == "relay-protocol" || \
         "$invoking" == "distillation" ]]; then
     allowed=true
@@ -659,7 +683,8 @@ do_blanket() {
     else
       ppid_cmd=$(ps -p "$PPID" -o command= 2>/dev/null || true)
     fi
-    if [[ "$ppid_cmd" == *"session-start.md"* || "$ppid_cmd" == *"workday-complete.md"* || \
+    if [[ "$ppid_cmd" == *"workstream-start.md"* || \
+          "$ppid_cmd" == *"workday-complete.md"* || \
           "$ppid_cmd" == *"update-docs.md"* || "$ppid_cmd" == *"relay-protocol.md"* || \
           "$ppid_cmd" == *"distillation"* ]]; then
       allowed=true
@@ -668,7 +693,7 @@ do_blanket() {
 
   if [[ "$allowed" == false ]]; then
     cat >&2 <<'ERR'
-ERROR: --blanket is only valid from authorized sweep ceremonies: /session-start, /workday-complete, /update-docs, relay-protocol, or distillation.
+ERROR: --blanket is only valid from authorized sweep ceremonies: /workstream-start, /workday-complete, /update-docs, relay-protocol, or distillation.
 Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.
 ERR
     exit 1
@@ -710,9 +735,9 @@ ERR
     # Subject-reference grep — word-boundary anchored tokens only. Bare substrings
     # like `plan`/`queue`/`review` were false-positive magnets (matched `workplan`,
     # `dequeue`, `code review style comments`). Word-boundary tokens: handoff,
-    # spinoff, learn-lessons, update-docs, session-end, distill. Word-anchored
+    # spinoff, learn-lessons, update-docs, distill. Word-anchored
     # forms: plan/, plan #, lessons.md, queue file paths, review-trail.
-    if echo "$subj" | grep -qiE '(\bhandoff\b|\bspinoff\b|\blearn-lessons\b|\bupdate-docs\b|\bsession-end\b|\bdistill\b|\bPR[ #]|#[0-9]+|\bplan/|plan #|\blessons\.md\b|\bqueue\.md\b|\breview-trail\b|\bworkday-(complete|start)\b|\bworkweek-(complete|start)\b)'; then
+    if echo "$subj" | grep -qiE '(\bhandoff\b|\bspinoff\b|\blearn-lessons\b|\bupdate-docs\b|\bdistill\b|\bPR[ #]|#[0-9]+|\bplan/|plan #|\blessons\.md\b|\bqueue\.md\b|\breview-trail\b|\bworkday-(complete|start)\b|\bworkweek-(complete|start)\b|\bworkstream-(complete|start)\b)'; then
       return 0
     fi
     # Count files with deletion-heavy diffs in the staged set.
@@ -1052,7 +1077,7 @@ do_scoped() {
   # gate, so concurrent sessions are expected and safe at this point.
   if [[ "${_sfm_trap_installed:-0}" -ne 1 ]]; then
     local _live_ids=()
-    mapfile -t _live_ids < <(cs_live_session_ids 2>/dev/null || true)
+    while IFS= read -r _liveid; do _live_ids+=("$_liveid"); done < <(cs_live_session_ids 2>/dev/null || true)
     local _live_count=${#_live_ids[@]}
     if [[ "$_live_count" -gt 1 ]]; then
       echo "ERROR: multiple live sessions detected (${_live_count}); default-mode commit is unsafe under concurrency." >&2
@@ -1474,7 +1499,10 @@ main() {
     # canonical case on Windows (.git/HEAD literal vs ref-file). Both forms
     # describe the same branch — compare case-insensitively. (lessons.md:3,
     # 2026-05-07 HTTPS-autopush case-mismatch.)
-    if [[ "${_current_branch,,}" != "${EXPECTED_BRANCH,,}" ]]; then
+    local _cb_lower _eb_lower
+    _cb_lower=$(printf '%s' "${_current_branch}" | tr '[:upper:]' '[:lower:]')
+    _eb_lower=$(printf '%s' "${EXPECTED_BRANCH}" | tr '[:upper:]' '[:lower:]')
+    if [[ "${_cb_lower}" != "${_eb_lower}" ]]; then
       echo "ERROR: branch mismatch — current is '${_current_branch:-<detached>}', expected '${EXPECTED_BRANCH}'." >&2
       echo "Reflog (current branch):" >&2
       if [[ -n "$_current_branch" ]]; then

@@ -65,7 +65,7 @@ Shape — split → synth → check → DoE-review → EM-prune:
 2. **Combine deterministically (EM, not an agent).** `grep`-concatenate the classifications into one manifest per bucket. Mechanizing the merge removes the fabrication risk of a third LLM pass; dup-grouping moves into the synthesizer (which reads full bucket content anyway).
 3. **Synthesize (Opus ×1 per doctrine bucket, parallel, DISJOINT wikis).** Each synthesizer consolidates its cluster into wiki append/new (may write a plan), reports the EXACT absorbed queue-line numbers, kicks back items whose home is an agent-prompt/skill/other-wiki (do NOT prune those), flags the Staff Engineer-worthiness, recommends CLAUDE.md pointers (DoE decides). Assign disjoint wiki sets so parallel writes never collide; EM commits serially.
 4. **Verify mechanically (EM + Sonnet).** EM: confirm absorbed-lines ⊆ each synthesizer's manifest (no straying) and no cross-bucket line collisions. Sonnet quality-check pass on the diffs: internal dedup, broken cross-links, RAG-bait header quality, out-of-assigned-file edits, truncation. Then **DoE/Opus self-review** of the actual wiki edits for coherence — this replaces a the Staff Engineer pass for *consolidation of already-vetted lessons* (the Staff Engineer is over-spec; reserve him for novel architecture).
-5. **EM-serial prune.** `git rm` the absorbed lines. **HARD: re-verify the queue is byte-identical to classification time before pruning by line number** — a concurrent EM's `session-end` commit can append/insert lines and shift every number (the line-number-keyed-drift hazard; → `cleanup-sweep-hazards.md`). Cross-check each absorbed line's current content against its manifest one-liner; if anything shifted mid-file, prune by content, not number. Commit wikis first (durable value), then the prune + `DIRECTORY_GUIDE` + the run-dir audit trail (classify manifests + per-bucket reports + quality-check + pruned-line snapshot) so `git log` carries the full line→wiki provenance.
+5. **EM-serial prune.** `git rm` the absorbed lines. **HARD: re-verify the queue is byte-identical to classification time before pruning by line number** — a concurrent EM's `workstream-complete` commit can append/insert lines and shift every number (the line-number-keyed-drift hazard; → `cleanup-sweep-hazards.md`). Cross-check each absorbed line's current content against its manifest one-liner; if anything shifted mid-file, prune by content, not number. Commit wikis first (durable value), then the prune + `DIRECTORY_GUIDE` + the run-dir audit trail (classify manifests + per-bucket reports + quality-check + pruned-line snapshot) so `git log` carries the full line→wiki provenance.
 
 RESIDUAL is **not** sprint material — singletons don't consolidate. Surface the residual disposition to the PM as an explicit decision; do not silently re-queue (defer-chain anti-pattern). Disposition by sub-tag:
 
@@ -188,6 +188,7 @@ The EM (or a delegated router) reads the per-repo `*-extracted.yaml` files and p
 - **NEVER use `change_kind: doctrine-edit` or `change_kind: memory-pointer`** — DoE-only.
   Route CLAUDE.md-targeted lessons to `wiki-append`/`wiki-new` + `doe_escalation: true`.
   See § Routing Bias (`docs/wiki/learn-lessons-routing.md` § Routing Bias).
+- **`wiki-append`/`wiki-new` destinations must be reachable, not merely exist.** Placement in a wiki file is not sufficient — a lesson is only "routed" if its target wiki is reachable from at least one surface an agent actually traverses: the `docs/wiki/DIRECTORY_GUIDE.md` index, a skill step, a dispatch preamble, or the prior-art-checker corpus. An orphan wiki (file exists but is unlinked from every traversal surface) is functionally a discarded lesson with file-bloat — the doctrine inside it is never recalled. Before routing to a `wiki-append`/`wiki-new` target, verify the wiki appears in `DIRECTORY_GUIDE.md` or is referenced from a skill/agent/hook surface. If the target wiki is orphaned, either (a) link it from `DIRECTORY_GUIDE.md` as part of the same apply, or (b) reroute to an existing linked wiki. This mirrors the "enumerate contact-points" rule for adding a convention (→ coordinator `CLAUDE.md` § Adding a Convention to the Coordinator System) — a lesson that reaches no contact-point has no more impact than a deleted one.
 
 If a Haiku/Sonnet router is dispatched, the dispatch prompt MUST include the verify-gate clause: *"Every routing record's `id` MUST appear in the cited `*-extracted.yaml`. Inventing a record under a fabricated id will be caught by `extract-lessons.py verify` at Phase 5 and fail the run."* The gate is mechanical (Phase 5); the prompt clause is the design-as-offers framing that lets the router self-check before producing output.
 
@@ -253,7 +254,7 @@ Place the blockquote directly under the lesson body. Deletion reserved for lesso
 ## Phase 4.5 — Local-Mode Age-Sweep (Bound the File)
 
 **Local mode only.** `tasks/lessons.md` is read by `/learn-lessons`, the central-mode strip-local
-pull-pass, and `/session-start` — NOT at normal session boot (it's a capture queue, not Tier 0).
+pull-pass, and `/workstream-start` — NOT at normal session open (it's a capture queue, not Tier 0).
 Without this sweep, local repos accumulate 200–350 KB in a month of high-volume capture
 (empirical: three sibling repos at 193/266/107 entries after a month). `[universal]` entries
 promoted to central wikis have their durable home there; once older than the last completed central
@@ -476,7 +477,7 @@ land — it certifies "every universal up to this date had its promotion opportu
 - **Bespoke extra parameters.** Modes are the parameter surface; resist additional flags.
 - **Auto-emitting spinoff handoffs.** Section D of the review doc is advisory only.
 - **Stripping local before central commit SHA exists.** Phase 5 apply order is load-bearing.
-- **Deferring strip-local from the central run to the sibling's next local-mode age-sweep.** The age-sweep is the backstop, not the primary mechanism. Every day of deferral bloats `lessons.md` (200–350 KB in roughly a month) for the consumers that DO read it in full: `/learn-lessons`, the central strip-pass, and `/session-start`. Central promotes AND strips-just-promoted, in the same run.
+- **Deferring strip-local from the central run to the sibling's next local-mode age-sweep.** The age-sweep is the backstop, not the primary mechanism. Every day of deferral bloats `lessons.md` (200–350 KB in roughly a month) for the consumers that DO read it in full: `/learn-lessons`, the central strip-pass, and `/workstream-start`. Central promotes AND strips-just-promoted, in the same run.
 - **`git add -A` for strips.** Always explicit pathspec; concurrent-EM safety.
 - **True-deleting discards.** All discards go to archive first; never irrecoverable from Phase 4.
 - **Conflating improvement queue with lessons.md.** `lessons.md` is in-the-moment capture; `learn-lessons` is the periodic process that classifies and routes.

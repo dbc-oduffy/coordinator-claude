@@ -72,8 +72,19 @@
 #   1 — hits found (--check) or rewrite error (--fix)
 #   2 — usage error
 #   3 — state/environment fault (self-corruption detected — restore from source)
+#   4 — environment prerequisite unmet (bash < 4) — distinct from code 1 so a
+#       --check caller does not misread a version abort as "hits found"
 
 set -euo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: publish-time-transform.sh requires bash 4.0 or later (associative arrays)." >&2
+    echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+    echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it first on PATH:" >&2
+    echo "      brew install bash" >&2
+    echo '      export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc' >&2
+    exit 4
+fi
 
 usage() {
   cat <<'EOF'
@@ -121,6 +132,14 @@ Identity vocabulary table:
 Per-operator org-slug rewrites are loaded from an optional sibling file
 `depersonalize-identity.sh` (see `depersonalize-identity.example.sh` for the
 shape). Without that file, no org-slug rewrites are applied.
+
+Exit codes:
+  0  clean (--check) or rewrite applied (--fix)
+  1  hits found (--check) or rewrite error (--fix)
+  2  usage error
+  3  state/environment fault (self-corruption detected — restore from source)
+  4  environment prerequisite unmet (bash < 4) — distinct from code 1 so a
+     --check caller does not misread a version abort as "hits found"
 EOF
 }
 

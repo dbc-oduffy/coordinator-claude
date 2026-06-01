@@ -374,6 +374,29 @@ A distill / cleanup dry-run that classifies plan-scaffolding for deletion emits 
 
 **Rule.** Before deleting any plan-scaffolding deletion set, **re-derive each parent's live `status:` from the file on disk** (`grep '^status:' <parent-plan>`), not from the classifier's manifest column. **HOLD** any parent whose disk status is non-terminal (`draft` / `executing` / `reviewed`) — only `archived` / `shipped` / `consumed` / `superseded` clears a parent's scaffolding for deletion. Pair this with the active-reference guard (§1 / §22): terminal-status AND zero active-reference grep hits is the conjoint bar; either alone is insufficient. The audit is a pre-commit gate, not a post-hoc link-heal that happens to catch the dangling reference. Composes with §15 (scout delete-candidate lists need EM-side grep before `rm`) and §37 (state artifacts from abandoned work mislead — frontmatter `status:` is itself a state artifact that the classifier can misread).
 
+## 39. `large-producer | grep -q` Under `set -o pipefail` Silently Fails Open
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+`tail -N file | grep -q PAT` on a multi-MB input: `grep -q` matches early and closes the read end of the pipe; `tail` (still writing) receives SIGPIPE (exit 141); `pipefail` propagates that 141 as the pipeline status — so `if tail … | grep -q …` evaluates **FALSE** despite a match. The bug only manifests past the ~64 KB pipe buffer, so small-fixture tests pass and the hazard is invisible in unit testing.
+
+**Concrete failure (2026-05-30):** both nudge hooks' skill-suppression branch was dead on every real-sized transcript (>64 KB), causing the `/handoff` nudge to fire 100% of the time — caught only in production.
+
+**Rule.** Read into a variable, match via here-string:
+```bash
+content=$(tail -N "$file")
+if grep -qE "PAT" <<< "$content"; then ...
+```
+Keep the early-exiting `grep -q` reader out of the pipeline. Test with a real-sized fixture, not a 3-line one.
+
+## 40. Fleet-Wide Worktree EOL Strip Assumes an Autocrlf-Normalized LF Index
+
+*Source: ~/.claude, 2026-05-31. [universal]*
+
+Bulk CRLF→LF worktree stripping kills the Git-for-Windows autocrlf nag only where the index is already pure LF. A mixed/CRLF index (LFS-heavy or older repo) shows thousands of files "modified" post-strip and needs `git add --renormalize`, not just a strip.
+
+**Before any fleet-wide strip:** survey per-repo index EOL with `git ls-files --eol` and watch for `i/mixed` or `i/crlf` index attributes. The committed `.gitattributes` `* text=auto eol=lf` is the durable fix (survives a fresh clone under system `autocrlf=true`); a worktree-only strip without an index renormalization is belt-only and may not survive the next checkout.
+
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep.

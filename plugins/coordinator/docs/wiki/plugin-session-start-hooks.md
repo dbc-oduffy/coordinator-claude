@@ -2,10 +2,11 @@
 
 > Spec backlink: `archive/specs/2026-05-27-cqcs-cluster6-infra-tooling.md` § Entry B
 > Purpose: Authoring rules for plugin SessionStart hooks — three rules that prevent the silent-skip failure mode detected by `scan-addon-health.sh --red-and-stale`.
+> These are the **`SessionStart` platform hooks that constitute the SessionStart hook path** — distinct from the `/workstream-start` *skill*. This guide is about authoring that platform hook.
 
 ## The silent-skip failure mode
 
-Claude Code executes SessionStart hooks declared in a plugin's `hooks/hooks.json`. When a declared hook command references a script that doesn't exist on disk, Claude Code silently no-ops the command — no error surfaces, no log entry, no indication the hook didn't fire. A botched plugin install that leaves a missing hook script is therefore invisible until the operator notices the expected session-start behavior never fires.
+Claude Code executes SessionStart hooks declared in a plugin's `hooks/hooks.json`. When a declared hook command references a script that doesn't exist on disk, Claude Code silently no-ops the command — no error surfaces, no log entry, no indication the hook didn't fire. A botched plugin install that leaves a missing hook script is therefore invisible until the operator notices the expected session-boot behavior never fires.
 
 `scan-addon-health.sh --red-and-stale` (Third pass, 2026-05-27) catches this by:
 1. Parsing `hooks.json` for each installed plugin.

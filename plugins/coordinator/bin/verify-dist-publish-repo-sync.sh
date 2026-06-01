@@ -113,18 +113,26 @@ fi
 
 # ---------------------------------------------------------------------------
 # Load .percolate-ignore for the toplevel target (if present)
+# Portable replacement for declare -A: write entries to a temp file and
+# use grep -qF for presence checks (works on bash 3.2 + BSD coreutils).
 # ---------------------------------------------------------------------------
 TOPLEVEL_PERCOLATE_IGNORE="$DIST_TOPLEVEL/.percolate-ignore"
-declare -A TOPLEVEL_IGNORED=()
+_IGNORE_TMP="$(mktemp)"
+trap 'rm -f "$_IGNORE_TMP"' EXIT
 
 if [ -f "$TOPLEVEL_PERCOLATE_IGNORE" ]; then
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
         # Skip blank lines and comments
-        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-        [[ "$line" =~ ^# ]] && continue
-        TOPLEVEL_IGNORED["$line"]=1
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        printf '%s\n' "$line" >> "$_IGNORE_TMP"
     done < "$TOPLEVEL_PERCOLATE_IGNORE"
 fi
+
+_is_ignored() {
+    grep -qxF "$1" "$_IGNORE_TMP" 2>/dev/null
+}
 
 # ---------------------------------------------------------------------------
 # Counters
@@ -184,7 +192,7 @@ while IFS= read -r -d '' src_file; do
     [ -f "$src_file" ] || continue
 
     # Check against .percolate-ignore list
-    if [ -n "${TOPLEVEL_IGNORED["$rel"]+x}" ]; then
+    if _is_ignored "$rel"; then
         printf "%-10s %s\n" "IGNORED" "toplevel/$rel"
         continue
     fi

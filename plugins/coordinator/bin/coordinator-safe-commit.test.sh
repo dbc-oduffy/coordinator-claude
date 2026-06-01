@@ -143,7 +143,7 @@ test_no_foreign_overlap_silent() {
 
   local stderr_out rc
   rc=0
-  stderr_out=$(CLAUDE_INVOKING_COMMAND="session-start" CLAUDE_SESSION_ID="$my_sid" \
+  stderr_out=$(CLAUDE_INVOKING_COMMAND="workstream-start" CLAUDE_SESSION_ID="$my_sid" \
     bash "$HELPER" --blanket "test: no overlap" 2>&1 >/dev/null) || rc=$?
 
   local head_moved=false
@@ -177,7 +177,7 @@ test_foreign_overlap_warns_and_commits() {
 
   local stderr_out rc
   rc=0
-  stderr_out=$(CLAUDE_INVOKING_COMMAND="session-start" CLAUDE_SESSION_ID="$my_sid" \
+  stderr_out=$(CLAUDE_INVOKING_COMMAND="workstream-start" CLAUDE_SESSION_ID="$my_sid" \
     bash "$HELPER" --blanket "test: overlap warn" 2>&1 >/dev/null) || rc=$?
 
   local head_advanced=false
@@ -217,7 +217,7 @@ test_foreign_overlap_accepted_no_warn() {
   local stderr_out rc
   rc=0
   stderr_out=$(COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 \
-    CLAUDE_INVOKING_COMMAND="session-start" CLAUDE_SESSION_ID="$my_sid" \
+    CLAUDE_INVOKING_COMMAND="workstream-start" CLAUDE_SESSION_ID="$my_sid" \
     bash "$HELPER" --blanket "test: accept foreign" 2>&1 >/dev/null) || rc=$?
 
   local head_advanced=false

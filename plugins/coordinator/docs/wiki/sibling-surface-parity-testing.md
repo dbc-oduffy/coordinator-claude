@@ -81,7 +81,7 @@ When siblings share a version bump (e.g., schema migration, frontmatter field ad
 must move together. Assert that both files contain the same version string or schema field.
 
 ```bash
-grep 'schema_version' coordinator/skills/session-end/SKILL.md coordinator/skills/handoff/SKILL.md \
+grep 'schema_version' coordinator/skills/workstream-complete/SKILL.md coordinator/skills/handoff/SKILL.md \
   | awk -F: '{print $2}' | sort -u | wc -l  # must equal 1
 ```
 

@@ -13,7 +13,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 **Addressed by:**
 - `/handoff` — Snapshot session state to disk before context pressure hits. Includes goal, decisions, tried-and-abandoned, next steps.
 - `/pickup` — Resume from a handoff with full orientation before continuing. Never cold-start.
-- `/session-start` — Full session orientation: triage handoffs, surface staleness, choose work. PM-invoked when they want help picking what to do; the EM does not auto-invoke it.
+- `/workstream-start` — Full session orientation: triage handoffs, surface staleness, choose work. PM-invoked when they want help picking what to do; the EM does not auto-invoke it.
 - `tasks/lessons.md` + `coordinator:learn-lessons` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Processed via `/update-docs` Phase 6.
 - `/workday-start` / `/workday-complete` — Full-day framing: morning triage and evening consolidation.
 
@@ -108,8 +108,8 @@ Full component inventory for the record. The failure-mode sections above are the
 
 | Command | Purpose |
 |---------|---------|
-| `/session-start` | Orient session — preflight, load context, choose work |
-| `/session-end` | Wrap up finished work — capture lessons, update docs |
+| `/workstream-start` | Orient session — preflight, load context, choose work |
+| `/workstream-complete` | Wrap up finished work — capture lessons, update docs |
 | `/handoff` | Save session state for next session handoff |
 | `/pickup` | Resume work from a handoff — grab the baton and orient before continuing |
 | `/workday-start` | Morning orientation — triage handoffs, surface staleness, align priorities |
@@ -170,7 +170,7 @@ Full component inventory for the record. The failure-mode sections above are the
 
 ### Hooks
 
-- **SessionStart** — `project-orientation.sh` injects the boot orientation RAM cache (the `── Orientation ──` block); this is what loads context at boot — *not* the `/session-start` skill, which is separately PM-invoked. Plus coordinator-reminder (EM role/pipeline awareness), settings-integrity / model / dropped-files guards, and the UE knowledge-distrust guard.
+- **SessionStart** — `project-orientation.sh` injects the boot orientation RAM cache (the `── Orientation ──` block); this is what loads context at boot — *not* the `/workstream-start` skill, which is separately PM-invoked. Plus coordinator-reminder (EM role/pipeline awareness), settings-integrity / model / dropped-files guards, and the UE knowledge-distrust guard.
 - **PreToolUse (Bash)** — validate-commit: blocks bad commit patterns before they run
 - **PreToolUse (WebSearch|WebFetch)** — suggest-sonnet-research: advisory to use deep-research pipelines instead of direct web calls
 - **PostToolUse (ExitPlanMode)** — plan-persistence-check: ensures plan content is written to disk, not held in context
@@ -237,7 +237,7 @@ Transforms the coordinator from a delivery-only pipeline into a full engineering
 - **Reviewer self-checks:** All 6 reviewers (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer) get built-in self-moderation prompts. Experimental — validate after 2 weeks.
 - **Routing intelligence:** Effort calibration table, skip conditions, and EM override guidance added to routing.md.
 - **Health infrastructure:** Three new skills (daily-code-health, weekly-architecture-audit, debt-triage) with health ledger and debt backlog templates per project.
-- **Session-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.
+- **Workstream-start health surface:** New Step 0g reads health ledger and surfaces findings (non-blocking). New maintenance menu option.
 - **Workday-complete redesign:** Branch consolidation + health survey. No longer merges to main — merging is a deliberate, supervised act via /merge-to-main.
 - **Merge-to-main hardening:** New Step 0 test suite gate with --force escape hatch. First Officer Doctrine: EM can refuse to merge.
 

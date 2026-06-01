@@ -335,6 +335,29 @@ strip_quotes() {
   echo "$t"
 }
 
+# is_separator <token> — true if the token is a shell command/pipeline
+# separator. The per-arm positional scans below MUST stop at the first
+# separator: tokens after it belong to a DIFFERENT command in a compound, and
+# attributing their flags/positionals to the git op produces false positives.
+#
+# Postmortem (2026-05-31): `git branch --contains <sha> | grep -C 0 foo && echo
+# "NO-not-yet-in-HEAD"` was blocked because the unbounded branch-arm scan read
+# grep's `-C` (context-lines) as `git branch -C` (copy) and the echoed string
+# as the rename target. A read-only ancestry check got a false rename deny.
+# Bounding each scan to the git op's own segment closes that class.
+#
+# Covers, as standalone word-split tokens: && || ; | (list/pipe operators),
+# |& (pipe-with-stderr), & (background), and ;; (case-arm terminator — guards a
+# git op embedded in a `case` body from scanning into the next arm). None of
+# these can appear mid-argument, so none can prematurely truncate a legitimate
+# single git command's args.
+is_separator() {
+  case "$1" in
+    '&&'|'||'|';'|';;'|'|'|'|&'|'&') return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Walk tokens, find the relevant git op.
 i=0
 n=${#TOKENS[@]}
@@ -397,7 +420,10 @@ while (( i < n )); do
           #   git checkout <sha|tag>      (allow — detached / non-branch)
 
           # File-restore form: contains a literal '--' token after checkout.
-          for ((j=i+1; j<n; j++)); do
+          # Stop at a separator — a '--' in a later command is not ours.
+          # Start at i+2 to skip the already-known subcommand token.
+          for ((j=i+2; j<n; j++)); do
+            is_separator "${TOKENS[$j]}" && break
             [[ "${TOKENS[$j]}" == "--" ]] && exit 0
           done
 
@@ -405,6 +431,8 @@ while (( i < n )); do
           create_target=""
           switch_target=""
           for ((j=i+2; j<n; j++)); do
+            # Stop at a separator — the rest of the compound is a different op.
+            is_separator "${TOKENS[$j]}" && break
             t=$(strip_quotes "${TOKENS[$j]}")
             case "$t" in
               -b|-B|-c|-C)
@@ -495,6 +523,9 @@ while (( i < n )); do
           has_create_flag=0
           new=""
           for ((j=i+2; j<n; j++)); do
+            # Stop at a separator — flags/positionals past it belong to a
+            # different command (e.g. a piped `grep -C` is not `git branch -C`).
+            is_separator "${TOKENS[$j]}" && break
             t=$(strip_quotes "${TOKENS[$j]}")
             case "$t" in
               -m|-M|--move)
@@ -525,6 +556,10 @@ while (( i < n )); do
           # Form: git stash branch <name> [<stash>]
           if [[ "${TOKENS[$((i+2))]:-}" == "branch" ]]; then
             new=$(strip_quotes "${TOKENS[$((i+3))]:-}")
+            # If the name slot holds a separator (e.g. `git stash branch && ...`),
+            # there is no branch name — the command is malformed-but-harmless, not
+            # a creation. Exit rather than denying on the separator token.
+            is_separator "$new" && exit 0
             # Creation arm: canonical-case oracle.
             if [[ -n "$new" ]] && ! is_canonical_branch "$new"; then
               emit_deny "Materialising stash onto off-daily or non-canonical-case branch '$new' is forbidden." "$new"

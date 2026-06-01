@@ -28,9 +28,18 @@ set -euo pipefail
 
 KEY="fan_out.large_wave_threshold"
 
+# Resolve Python via the canonical portable resolver (handles python3/python/py on Windows).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/resolve-python.sh
+source "${SCRIPT_DIR}/../lib/resolve-python.sh"
+if [[ -z "$PYTHON_BIN" ]]; then
+    echo "WARN: capture-fan-out-threshold.sh: no Python on PATH; skipping threshold capture" >&2
+    exit 0
+fi
+
 _compute_value() {
     local cores
-    cores="$(python3 -c 'import os; print(max(1, os.cpu_count() or 1))')"
+    cores="$("$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c 'import os; print(max(1, os.cpu_count() or 1))')"
     echo "$(( 3 * cores ))"
 }
 

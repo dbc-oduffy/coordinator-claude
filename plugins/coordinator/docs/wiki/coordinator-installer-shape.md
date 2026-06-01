@@ -306,9 +306,9 @@ Mitigation for now: document the manual step. Long-term fix tracked in `tasks/co
 
 ### coordinator_whoami package is not installed by any installer path (pre-2026-05-21)
 
-`coordinator_whoami` (Python package under `whoami/`) was completely absent from all operator-facing health-check prose and installer status schema as of the 2026-05-20 audit. Three independent wiring failures: (1) setup didn't install, (2) onboarding was passive, (3) session-start silently skipped on import failure. The gap is closed by `/coordinator:setup Phase 3 Step 6` installing it — but verify this step exists in your version before assuming it runs.
+`coordinator_whoami` (Python package under `whoami/`) was completely absent from all operator-facing health-check prose and installer status schema as of the 2026-05-20 audit. Three independent wiring failures: (1) setup didn't install, (2) onboarding was passive, (3) workstream-start silently skipped on import failure. The gap is closed by `/coordinator:setup Phase 3 Step 6` installing it — but verify this step exists in your version before assuming it runs.
 
-`/session-start` must emit a loud one-line nudge (not silent skip) when `coordinator_whoami` is not importable.
+`/workstream-start` must emit a loud one-line nudge (not silent skip) when `coordinator_whoami` is not importable.
 
 ### Holodeck repo discovery uses wrong env var as primary
 
@@ -318,9 +318,9 @@ CRITICAL audit finding (2026-05-20): `/holodeck:doctor` repo-discovery routing u
 
 HIGH finding: `project-rag:doctor` Step 1 hardcodes `"X:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`.
 
-### session-start --red-only is vacuous-pass eligible on fresh installs
+### workstream-start --red-only is vacuous-pass eligible on fresh installs
 
-`scan-addon-health.sh --red-only` (session-start) is silent when no sentinel files exist. Fresh-install machine sees the health check pass with no signal that their install has never been doctor'd. `/workday-start` uses `--red-and-stale` (correct for daily triage); the asymmetry is intentional but means fresh-install gaps only surface at daily cadence.
+`scan-addon-health.sh --red-only` (workstream-start) is silent when no sentinel files exist. Fresh-install machine sees the health check pass with no signal that their install has never been doctor'd. `/workday-start` uses `--red-and-stale` (correct for daily triage); the asymmetry is intentional but means fresh-install gaps only surface at daily cadence.
 
 ### Cross-plugin coupling via ~/.claude.json parsing
 

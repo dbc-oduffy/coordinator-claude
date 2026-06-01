@@ -4,7 +4,7 @@
 WHY THIS EXISTS
 ---------------
 `tasks/lessons.md` is read in full by `/learn-lessons` itself, by the central-mode
-strip-local pull-pass, and by the PM-invoked `/session-start` ceremony (it is NOT
+strip-local pull-pass, and by the PM-invoked `/workstream-start` ceremony (it is NOT
 a Tier-0 boot read; see coordinator/CLAUDE.md § Session Orientation). It is an
 append log: local-mode `/learn-lessons` folds recent lessons to wikis but
 historically had no step that *bounds the file's size*, so it grows unbounded and

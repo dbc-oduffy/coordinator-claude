@@ -10,9 +10,9 @@ Rotate through project systems ensuring complete coverage. Uses a weighted scori
 
 ## When to Trigger
 
-- Surfaced at session-start when `Last targeted audit` in health ledger is >10 days old
+- Surfaced at workstream-start when `Last targeted audit` in health ledger is >10 days old
 - Auto-folded by `/workweek-complete` Step 7.6 when `check-arch-audit-staleness.sh` returns STALE
-- Available as maintenance menu option (Option 6 in session-start)
+- Available as maintenance menu option (Option 6 in workstream-start)
 - Can be invoked directly any time
 
 ## The Process

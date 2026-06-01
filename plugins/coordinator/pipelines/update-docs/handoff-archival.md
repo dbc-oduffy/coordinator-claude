@@ -1,6 +1,6 @@
 ---
 name: handoff-archival
-description: "Archive superseded handoffs (chain-aware) and PM-directed handoffs from tasks/handoffs/ to archive/handoffs/. Defense-in-depth 24h mtime backstop only. Consumed-handoff archival is handled by /handoff chain-archival, /session-end Step 2.7, and session-init.sh boot sweep."
+description: "Archive superseded handoffs (chain-aware) and PM-directed handoffs from tasks/handoffs/ to archive/handoffs/. Defense-in-depth 24h mtime backstop only. Consumed-handoff archival is handled by /handoff chain-archival, /workstream-complete Step 2.7, and session-init.sh boot sweep."
 version: 3.0.0
 ---
 
@@ -15,8 +15,8 @@ version: 3.0.0
 
 Consumed-handoff archival is no longer this pipeline's responsibility. The three surfaces that own it:
 - **`/handoff` chain-archival** (`skills/handoff/SKILL.md` Step 1, chain-archival paragraph): when a session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
-- **`/session-end` Step 2.7** (`skills/session-end/SKILL.md`): when a session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
-- **`session-init.sh` boot sweep** (`hooks/scripts/session-init.sh`): at every session boot, consumed handoffs whose authoring session is dead are quietly archived — covering crash/restart/cross-machine orphans.
+- **`/workstream-complete` Step 2.7** (`skills/workstream-complete/SKILL.md`): when a session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
+- **`session-init.sh` boot sweep** (`hooks/scripts/session-init.sh`): at every session start, consumed handoffs whose authoring session is dead are quietly archived — covering crash/restart/cross-machine orphans.
 
 > **Negative-spec (v3.0.0):** This pipeline no longer reads or writes the `<!-- consumed: YYYY-MM-DD -->` marker — deprecated. This pipeline no longer surfaces `status: consumed` / `deployment_state: in_flight` as stuck-mid-pickup warnings — `session-init.sh` handles orphan recovery silently. This pipeline no longer gates on `pickup_ready: true` — the field is a positive pickup-authorized signal, not a veto. The new consumption signal is `consumed_by:` populated in frontmatter; archival is confirmed by file presence in `archive/handoffs/`.
 
@@ -24,7 +24,7 @@ Consumed-handoff archival is no longer this pipeline's responsibility. The three
 
 Both directories are git-tracked:
 
-- **Active handoffs:** `tasks/handoffs/*.md` — available for `/session-start` and `/pickup`
+- **Active handoffs:** `tasks/handoffs/*.md` — available for `/workstream-start` and `/pickup`
 - **Archived handoffs:** `archive/handoffs/*.md` — post-pickup or post-supersession; paper trail
 
 **Skip entirely if no handoff files exist.**
@@ -48,7 +48,7 @@ The two paths this pipeline handles:
    ```bash
    stat -c %Y <file>   # Linux/Git Bash; or: stat -f %m <file> on macOS
    ```
-   If the file is less than 86400 seconds old (24 hours), **skip it entirely** — do not archive, do not surface to PM. Log the skip: `"Skipped <file> — mtime < 24h (mechanical veto)."` This veto is unconditional and cannot be overridden by frontmatter or instruction. **Rationale:** defends against non-pickup paths (concurrent sessions, scripted moves, future skills) that might otherwise silently archive a fresh handoff. This backstop catches the paths that bypass the primary archival surfaces (`/handoff`, `/session-end`, `session-init.sh`).
+   If the file is less than 86400 seconds old (24 hours), **skip it entirely** — do not archive, do not surface to PM. Log the skip: `"Skipped <file> — mtime < 24h (mechanical veto)."` This veto is unconditional and cannot be overridden by frontmatter or instruction. **Rationale:** defends against non-pickup paths (concurrent sessions, scripted moves, future skills) that might otherwise silently archive a fresh handoff. This backstop catches the paths that bypass the primary archival surfaces (`/handoff`, `/workstream-complete`, `session-init.sh`).
 
    After the veto passes, scan all active handoffs for `Continuing from` references (look for the pattern `_Continuing from [filename]:` or `Continuing from [filename]` in the `## What Was Accomplished` section). If the referenced predecessor file is still in `tasks/handoffs/`, archive it — the successor has absorbed both the predecessor's context (via the preamble) and its unresolved obligations (via the `## Carried Forward` section). The predecessor is fully superseded.
 

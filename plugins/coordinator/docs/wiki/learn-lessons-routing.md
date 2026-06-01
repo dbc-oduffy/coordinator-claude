@@ -18,7 +18,7 @@ pointer. The default destination for a captured lesson is **a wiki guide** — e
 one (`wiki-append`) or a new one (`wiki-new`). CLAUDE.md and pointer-only additions are the
 exceptions, not the rule.
 
-**Why.** CLAUDE.md is load-bearing at every session boot. It is not a knowledge base. Every
+**Why.** CLAUDE.md is load-bearing at every session start. It is not a knowledge base. Every
 addition — even a one-line pointer — competes for finite boot-time attention. A plethora of
 pointers is the same anti-pattern as a plethora of inline rules: both turn CLAUDE.md into an
 index of indexes that nobody reads carefully.
@@ -66,7 +66,7 @@ review, and PM surface.
 
 ### DoE-only adjudication on CLAUDE.md edits
 
-CLAUDE.md loads at every session boot across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
+CLAUDE.md loads at every session start across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
 
 **Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (the Director of Engineering or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
 
@@ -219,7 +219,7 @@ automatically vs. require PM surfacing.
 - `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
 - `project-structural` outside the same repo
 
-`strip-local` is **NOT** in the PM-surface bucket — it auto-applies as the second half of the central promotion chain (see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md`). Surfacing a strip-local to the PM is process theater: the PM has already authorized the central promotion that obsoletes the source-repo entry, and every day the entry remains in source bloats `lessons.md` for `/learn-lessons`, the central strip-pass, and `/session-start` (sibling files have hit 200–350 KB in roughly a month of high-volume capture).
+`strip-local` is **NOT** in the PM-surface bucket — it auto-applies as the second half of the central promotion chain (see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md`). Surfacing a strip-local to the PM is process theater: the PM has already authorized the central promotion that obsoletes the source-repo entry, and every day the entry remains in source bloats `lessons.md` for `/learn-lessons`, the central strip-pass, and `/workstream-start` (sibling files have hit 200–350 KB in roughly a month of high-volume capture).
 
 **Universals-pending escalation.** If ≥ 20 unactioned `[universal]`-tagged entries have accumulated since the last central-mode commit, surface the count to the PM: *"Backlog of N universals — invoke central mode now?"* — and wait. Do not launder the backlog into another "next pass" notice. Emit a one-screen PM summary with surfaced records and a "run /learn-lessons --mode=central" pointer.
 

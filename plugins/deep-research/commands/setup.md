@@ -83,7 +83,41 @@ Note that the NotebookLM sub-plugin is kept disabled by default to reduce contex
 
 ---
 
-## 4. Status Report
+## 4. Update baseline (`version.txt`) — re-run after each `git pull`
+
+The coordinator plugin's boot currency-notification hook compares this install's
+`version.txt` against deep-research-claude's latest published GitHub release to decide
+whether to surface an "update available" nag at session start. For that comparison to
+be meaningful, `version.txt` must hold a **deep-research-claude commit SHA** — the
+commit this install was cloned/pulled to — not the publish-time placeholder that ships
+in the repo (which records the upstream source-repo HEAD and is not a deep-research-claude
+commit; comparing it against a release tag would mis-fire as "differs" forever).
+
+**Re-run `/deep-research setup` after every `git pull`** so the baseline tracks the commit
+you actually have — otherwise the hook nags "differs" against a stale baseline.
+
+The bash block self-skips in `--check-only` mode (it writes a file):
+
+```bash
+if [[ "${ARGUMENTS:-}" == *--check-only* ]]; then
+  echo "  SKIP: --check-only mode — version.txt baseline not modified."
+else
+  DR_ROOT="${CLAUDE_PLUGIN_ROOT}"
+  if git -C "$DR_ROOT" rev-parse HEAD > "$DR_ROOT/version.txt" 2>/dev/null; then
+    echo "  OK: version.txt update baseline = $(tr -d '[:space:]' < "$DR_ROOT/version.txt")"
+  else
+    # Not a git checkout (e.g. tarball install): remove the partial/placeholder file so
+    # the currency hook treats this install as source_is_live (silent) rather than nagging
+    # on a non-comparable baseline.
+    rm -f "$DR_ROOT/version.txt" 2>/dev/null
+    echo "  NOTE: $DR_ROOT is not a git checkout — version.txt baseline not planted (currency hook stays silent)."
+  fi
+fi
+```
+
+---
+
+## 5. Status Report
 
 ```
 ## Deep Research Setup
@@ -97,6 +131,7 @@ Note that the NotebookLM sub-plugin is kept disabled by default to reduce contex
 | Pipeline D (notebooklm)    | ... |
 | NotebookLM MCP CLI         | ... (if Pipeline D) |
 | NotebookLM auth             | run `nlm login` in terminal |
+| Update baseline (version.txt) | ... |
 
 ### Available commands
 

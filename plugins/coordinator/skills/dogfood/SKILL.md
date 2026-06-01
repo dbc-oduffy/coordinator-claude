@@ -245,7 +245,7 @@ Do NOT route surface-and-skip findings to `tasks/bug-backlog.md`. If PM later de
 | `/bug-blitz` | Works `tasks/bug-backlog.md`. `/dogfood` does NOT file remainder there — if `/dogfood` exits via switch-gears, the output is a replan, not a backlog dump. |
 | `/bug-sweep` | Searches the repo for latent bugs (repo-driven). `/dogfood` invokes a specific thing (invocation-driven). A sweep finds bugs that exist; a dogfood finds bugs that the new thing causes when used. |
 | `coordinator:validate` | Static repo-state pre-flight. Appropriate before the first smoke pass and after the loop ends. Does not substitute for dynamic invocation. |
-| `/session-end` | `/dogfood` exit emits a session-end-shaped summary (bugs surfaced + commits shipped + filed skips + verdict), but does not invoke `/session-end`. PM may chain. |
+| `/workstream-complete` | `/dogfood` exit emits a workstream-complete-shaped summary (bugs surfaced + commits shipped + filed skips + verdict), but does not invoke `/workstream-complete`. PM may chain. |
 | `/learn-lessons` | Surfaced doctrine drift is filed to `tasks/lessons.md` for `/learn-lessons` triage — out-of-loop, by design. |
 
 ## Final Status Report Format

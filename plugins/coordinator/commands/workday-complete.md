@@ -28,7 +28,7 @@ If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` 
 
 - **Exit 0 (no pending records, or all resolved to ok):** proceed.
 - **Exit 1 (one or more resolved to blocked):** halt and report. Fix the C++ compile error, then run `/workday-complete` again. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM explicitly authorises bypassing the gate.
-- **Script absent:** skip silently. Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/session-end` Step 2.9.
+- **Script absent:** skip silently. Uses `[ -x bin/<name>.sh ]` presence-detection per the convention established in `/workstream-complete` Step 2.9.
 
 Source the fast-test resolver lib and invoke `/validate`'s resolver to discover the configured command for this repo:
 
@@ -78,7 +78,7 @@ If `ToolSearch` finds any `mcp__project-rag__*` tool, run the staleness survey. 
 
 ## Step 2.5: Pre-terminate dirty-tree gate
 
-**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before Branch Consolidation (Step 3) — the merge/rebase will fail opaquely on an unrecognized dirty tree — run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path:
+**Pre-terminate dirty-tree gate (fail loud on unattributable files).** Before Branch Consolidation (Step 3) — the merge/rebase will fail opaquely on an unrecognized dirty tree — run `git status --porcelain` and classify every dirty (modified / untracked / partially-staged) path. **EOL phantoms are benign — never case (c):** a dirty file that is content-equal to the index (`git diff --quiet -- <path>` exits 0 — worktree vs. index, no HEAD; this is the membership test the sweep itself uses) is a Git-for-Windows EOL stat-staleness artifact (`docs/wiki/concurrent-em-hazards.md` § H23), not an orphaned edit — leave it untouched; it is swept automatically by `coordinator-renormalize-index` at every session start (`session-init.sh`). Classify each remaining path:
 
 - **(a) This session authored it** → it belongs in this terminator's scoped commit (handled by the existing scope/commit step).
 - **(b) A known concurrent session owns it** → leave it alone (existing rule). "Known" means you can name the workstream/session — a sibling `scope:` block, an active handoff, or a session claim under `.git/coordinator-sessions/` accounts for it. The machine-checkable form of "a session claim accounts for it" is a handoff-frontmatter `consumed_by:` field naming another session's id (sourced from `.git/coordinator-sessions/.current-session-id` per `schemas/handoff.yaml`) — grep for that to tie the prose signal to a field an executor can actually check.
@@ -91,7 +91,7 @@ The forbidden outcome is terminating with case-(c) files still dirty and unnamed
 
 **Cross-reference:** Step 3 sub-step 3 already halts on non-trivial merge conflicts (line 72) — the dirty-tree gate is the *upstream* catch that prevents an unattributable dirty tree from reaching that merge at all.
 
-**Note — this dirty-tree gate is replicated across all three session terminators (session-end, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (session-end commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
+**Note — this dirty-tree gate is replicated across all three session terminators (workstream-complete, handoff, workday-complete) because the failure is identical across them.** Three surfaces, same gate, inline-not-snippet: the three blocks legitimately vary by `<terminating action>` / `<terminator>` token (workstream-complete commit vs. handoff commit vs. workday-complete merge/rebase). Snippet-sync is for byte-identical text that must not drift; near-identical-with-intentional-variation is the correct shape here. This is the instance-#3 ceremony moment the `ceremony-calibration.md` rule names — three terminator surfaces in one plan IS the threshold, and the conscious choice is inline-over-snippet because parameterizing the per-surface variation into a single snippet would make that variation invisible. Trigger for revisiting: a fourth terminator surface appears, OR the three blocks converge to byte-identical.
 
 ---
 
@@ -343,7 +343,7 @@ Capture exit code for the changelog `Validation:` field.
 
 1. `git log --oneline --since="$TODAY 00:00" --until="$TODAY 23:59"` — gather today's commits.
 2. `query-completions --where "created=$TODAY" --format json` — gather today's per-entry completion-log records (replaces the prior monolith-read flow).
-3. Reconcile: add missing entries via per-entry write (per `skills/session-end/SKILL.md` Step 2.6 schema), fix inaccurate ones, skip trivial commits.
+3. Reconcile: add missing entries via per-entry write (per `skills/workstream-complete/SKILL.md` Step 2.6 schema), fix inaccurate ones, skip trivial commits.
 4. If `docs/project-tracker.md` exists, verify completed workstreams have updated status.
 5. Report: _"Archive audit: N entries verified, M added, K corrected."_
 
@@ -382,7 +382,7 @@ exit codes — it is not LLM-authored prose.
 ```
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 ```
-Multiple records produce multiple `**Reviewed:**` lines — one per record. If today had non-trivial commits (any commit subject NOT matching `^(chore|docs?)([(:]|$)|^session-end quick-save`) AND no review-trail records for today exist, emit exactly one fallback line:
+Multiple records produce multiple `**Reviewed:**` lines — one per record. If today had non-trivial commits (any commit subject NOT matching `^(chore|docs?)([(:]|$)|^workstream-complete quick-save`) AND no review-trail records for today exist, emit exactly one fallback line:
 <!-- Review: the Staff Engineer — previous regex ^chore|^doc|^session-end quick-save matched
      "docker:" and "chored" as trivial; tightened to require conventional-commits
      punctuation after chore/doc(s) or an exact prefix match. -->

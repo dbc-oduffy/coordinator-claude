@@ -40,3 +40,5 @@ require('./pipeline-templates.test.js');
 require('./coordinator-degradation.test.js');
 require('./orphan-sweep.test.js');
 require('./handoff-schema.test.js');
+require('./discover-working-repos.test.js');
+require('./exec-bit.test.js');

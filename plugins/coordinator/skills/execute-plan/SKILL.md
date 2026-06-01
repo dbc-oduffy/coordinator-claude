@@ -7,7 +7,7 @@ argument-hint: <plan-path>
 
 # Execute Plan — Direct In-Session Plan Execution
 
-Run a PM-approved implementation plan to completion without stopping for permission between tasks. The PM's approval of the plan is the authorization — this command executes it diligently and in its entirety, commits the work, and reports. It does **not** chain into branch disposition (merge / PR / keep): finishing a development branch involves the PM-gated `/merge-to-main` and is a separate decision. The natural next step after a plan is executed is `/session-end` (cap the workstream — lessons, docs, session-end review), which execute-plan offers but does not auto-invoke. See Phase 4.
+Run a PM-approved implementation plan to completion without stopping for permission between tasks. The PM's approval of the plan is the authorization — this command executes it diligently and in its entirety, commits the work, and reports. It does **not** chain into branch disposition (merge / PR / keep): finishing a development branch involves the PM-gated `/merge-to-main` and is a separate decision. The natural next step after a plan is executed is `/workstream-complete` (cap the workstream — lessons, docs, workstream-complete review), which execute-plan offers but does not auto-invoke. See Phase 4.
 
 **Core principle:** Write-ahead every task (both plan document on disk AND task list via TaskUpdate), execute autonomously, stop only when your judgment says the plan itself is in trouble — not when a task is merely hard.
 
@@ -179,9 +179,9 @@ bash check-acceptance-oracle.sh "$ARGUMENTS"
 2. **Report completion** — what landed, the acceptance-oracle verdict from Phase 4a, and the branch the work is committed on.
 3. **Offer the natural next step as an offer, not an auto-invocation:**
 
-   > _Plan executed and committed on `<branch>`. The natural next step is `/session-end` to cap the workstream (lessons, docs, session-end review). When you want to ship it, `/merge-to-main` or `/workday-complete` carries the branch to main._
+   > _Plan executed and committed on `<branch>`. The natural next step is `/workstream-complete` to cap the workstream (lessons, docs, workstream-complete review). When you want to ship it, `/merge-to-main` or `/workday-complete` carries the branch to main._
 
-   Do **not** invoke `/session-end`, `/merge-to-main`, `/workday-complete`, or `coordinator:finishing-a-development-branch` automatically. `/merge-to-main` is keyword-gated (the PM invokes it by name); `/session-end` vs `/handoff` vs `/workday-complete` depends on workstream state, which the PM picks. Naming the affordance keeps it discoverable without firing it — design-as-offers.
+   Do **not** invoke `/workstream-complete`, `/merge-to-main`, `/workday-complete`, or `coordinator:finishing-a-development-branch` automatically. `/merge-to-main` is keyword-gated (the PM invokes it by name); `/workstream-complete` vs `/handoff` vs `/workday-complete` depends on workstream state, which the PM picks. Naming the affordance keeps it discoverable without firing it — design-as-offers.
 
 ---
 
@@ -198,7 +198,7 @@ bash check-acceptance-oracle.sh "$ARGUMENTS"
 | Task fails with structural error after 2 attempts | Stop, record what was tried, consult PM |
 | Verification step in plan fails | Stop and report — do not skip verifications |
 | Plan's approach is invalidated mid-execution | Stop, record `Tried/Failed`, flag for PM to update plan |
-| Tests fail at Phase 4 | Report failures in the completion report; do not offer `/session-end` as a clean next step until they're green. Fix routine failures and re-run; stop and consult the PM on structural failures |
+| Tests fail at Phase 4 | Report failures in the completion report; do not offer `/workstream-complete` as a clean next step until they're green. Fix routine failures and re-run; stop and consult the PM on structural failures |
 
 ---
 
@@ -209,5 +209,5 @@ bash check-acceptance-oracle.sh "$ARGUMENTS"
 - **`/enrich-and-review`** — should be run before executor dispatch; not required before `/execute-plan` (plans that route here are typically less chunked).
 - **`/review-code`** — optional post-execution code quality pass on the implemented work. If the plan called for it, route through `/review-code` before reporting completion in Phase 4b.
 - **`coordinator:plan`** — creates the plan that this command executes. A plan produced by that skill is the ideal input here.
-- **`coordinator:session-end`** — the natural next step after a plan is executed, offered (not auto-invoked) in Phase 4b. Caps the workstream: lessons, docs, session-end review.
+- **`coordinator:workstream-complete`** — the natural next step after a plan is executed, offered (not auto-invoked) in Phase 4b. Caps the workstream: lessons, docs, workstream-complete review.
 - **`coordinator:finishing-a-development-branch`** — **not** chained from here. Branch disposition (merge / PR / keep) is a separate, PM-invoked decision that reaches the keyword-gated `/merge-to-main`. The PM invokes it directly when ready to ship.

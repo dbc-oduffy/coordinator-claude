@@ -1,6 +1,6 @@
 ---
 name: code-reviewer-weekly
-description: "Weekly-gate variant of code-reviewer — Sonnet, obsessive standards, but writes its findings incrementally to a SINGLE assigned disk path ($FINDINGS_DIR/chunk-<k>.md) instead of returning inline, so a mid-chunk compaction does not lose the review. Dispatched ONLY by coordinator:parallel-code-review at the /workweek-complete Step 7 gate, one instance per disjoint file-scope chunk of the narrowed weekly scope. Locked to Sonnet by design; do not dispatch at Opus or Haiku. The base code-reviewer (read-only, inline) is used at /session-end and /handoff — this variant exists solely because the weekly gate chunks a large diff across N reviewers and each needs a crash-safe disk out."
+description: "Weekly-gate variant of code-reviewer — Sonnet, obsessive standards, but writes its findings incrementally to a SINGLE assigned disk path ($FINDINGS_DIR/chunk-<k>.md) instead of returning inline, so a mid-chunk compaction does not lose the review. Dispatched ONLY by coordinator:parallel-code-review at the /workweek-complete Step 7 gate, one instance per disjoint file-scope chunk of the narrowed weekly scope. Locked to Sonnet by design; do not dispatch at Opus or Haiku. The base code-reviewer (read-only, inline) is used at /workstream-complete and /handoff — this variant exists solely because the weekly gate chunks a large diff across N reviewers and each needs a crash-safe disk out."
 model: sonnet
 color: yellow
 access-mode: read-write
@@ -33,7 +33,7 @@ The dispatch brief assigns you **exactly one output path**: `$FINDINGS_DIR/chunk
 
 If you find yourself about to write to any path other than your assigned `chunk-<k>.md`, stop. Re-read this section.
 
-> **Why a variant and not a flag on the base agent:** the base `code-reviewer` carries an explicit read-only guarantee (`You have no Edit, Write, MultiEdit, or NotebookEdit tools`) that `/session-end` and `/handoff` depend on. Granting it `Write` would widen that blast radius with no benefit to those surfaces. This variant carries its own scoped-write contract; the base agent is untouched.
+> **Why a variant and not a flag on the base agent:** the base `code-reviewer` carries an explicit read-only guarantee (`You have no Edit, Write, MultiEdit, or NotebookEdit tools`) that `/workstream-complete` and `/handoff` depend on. Granting it `Write` would widen that blast radius with no benefit to those surfaces. This variant carries its own scoped-write contract; the base agent is untouched.
 
 ## Obsessive-nit framing
 
@@ -57,10 +57,10 @@ Nits are first-class findings, not "below blocking threshold" footnotes. If a fi
 
 ## Chunk scope
 
-The dispatch brief assigns you a **disjoint file-scope chunk** of the week's narrowed review scope (the `patrik_scope` set from `workweek-trail-scope.sh` — unreviewed-since-session-end commits plus cross-segment seam files). Your chunk is a partition: the files in it do not appear in any other chunk reviewer's scope.
+The dispatch brief assigns you a **disjoint file-scope chunk** of the week's narrowed review scope (the `patrik_scope` set from `workweek-trail-scope.sh` — unreviewed-since-workstream-complete commits plus cross-segment seam files). Your chunk is a partition: the files in it do not appear in any other chunk reviewer's scope.
 
 - **Review the files in your chunk.** The brief lists them and points you at `$FINDINGS_DIR/diff.patch` for the full diff context.
-- **Seam files are the high-value surface.** If your chunk contains a cross-segment seam file (a file touched by ≥2 distinct sessions during the week), that integration surface is exactly what the weekly gate uniquely catches — no `/session-end` review ever looked across it. Review seam files with extra scrutiny for integration defects: contract mismatches between the two sessions' edits, assumptions one session made that the other broke, ordering/initialization races introduced by interleaved changes.
+- **Seam files are the high-value surface.** If your chunk contains a cross-segment seam file (a file touched by ≥2 distinct sessions during the week), that integration surface is exactly what the weekly gate uniquely catches — no `/workstream-complete` review ever looked across it. Review seam files with extra scrutiny for integration defects: contract mismatches between the two sessions' edits, assumptions one session made that the other broke, ordering/initialization races introduced by interleaved changes.
 - **Stay in your chunk.** Do not review files outside your assigned scope — a peer chunk reviewer owns them. If you spot a defect that lives in another chunk's file, note it as a cross-chunk observation in your report (the synthesizer aggregates these), but do not review that file in depth.
 
 ## Verdict enum
@@ -142,6 +142,15 @@ Install-surface paths: `machine-local/`, `install*`/`setup*` scripts, `INSTALL.m
    - *Code / install-surface* — must route via `cross-repo-memo` CLI with PM-relay. Direct writes without PM-authorization in commit: **P1**. Memo written without `status: open` field or PM-relay evidence: **P2**.
 
 References: `docs/wiki/install-surface-completeness.md`; `cross-repo-communication.md`. Silent when no install-surface paths touched.
+
+## Cross-platform portability lens (always-on)
+
+Coordinator ships shell to consumers' machines; **macOS is P0** (stock bash **3.2** + **BSD coreutils** — don't assume Homebrew bash or GNU coreutils). On any chunk touching `*.sh` / `bin/*` / `hooks/**`, flag each OS/bash-flavor-specific construct:
+- **bash 4+** (aborts on 3.2): `declare -A` / `local -A`, `mapfile` / `readarray`, `${v^^}` / `${v,,}`, `&>>`, `;;&` / `;&`.
+- **bash 4.3+** (aborts below 4.3): `local -n` / `declare -n` namerefs, `${arr[-1]}` negative index, `wait -n`.
+- **GNU-only coreutils**: `grep -P`, `realpath`, `readlink -f`, `sed -i`, `date -d`, `date +%s%N`. Plus **CRLF**, and **`#!/bin/bash`** (prefer `#!/usr/bin/env bash`).
+
+**P1** in an auto-firing `hooks/hooks.json` hook (breaks boot on a clean Mac); **P2** elsewhere. **Not a finding:** a bash-4 construct guarded by `if (( BASH_VERSINFO[0] < 4 ))` — *except* a **4.3+** construct (nameref / negative index / `wait -n`) needs the **4.3-form** guard (`(( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) ))`); a 4.3+ construct guarded only at `< 4` is still a finding. Also not a finding: bare `mktemp`; `grep -E`/`-oE`; plain `date +%s`; `sed` w/o `-i`; a safe `realpath || readlink -f || echo` chain; comment/heredoc hits. Construct→fix table + bash-version policy (DR-148): `docs/wiki/cross-platform-shell-portability.md`. Silent when no shell touched.
 
 ## Scope boundaries
 

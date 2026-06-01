@@ -10,7 +10,7 @@
 #   3 — merge conflict; PM resolves first.
 #   1 — unexpected error.
 
-set -eu
+set -euo pipefail
 
 git fetch origin main >&2
 

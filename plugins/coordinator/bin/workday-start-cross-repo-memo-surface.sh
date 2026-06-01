@@ -43,9 +43,9 @@ MOCK_TODAY="${MOCK_TODAY:-}"
 
 # Resolve Python binary — mirrors coordinator-doctor-sentinel.sh convention.
 if command -v python3 >/dev/null 2>&1; then
-  PY=python3
+  PYTHON_BIN=python3
 elif command -v python >/dev/null 2>&1; then
-  PY=python
+  PYTHON_BIN=python
 else
   # Without Python we cannot parse YAML frontmatter. Stay silent.
   exit 0
@@ -67,7 +67,7 @@ memo_lines=()
 
 for f in "$INBOX_DIR"/*.md; do
   [[ -f "$f" ]] || continue
-  result=$("$PY" - "$f" <<'PYEOF'
+  result=$("$PYTHON_BIN" - "$f" <<'PYEOF'
 import sys, re
 
 path = sys.argv[1]
@@ -139,8 +139,8 @@ done
 
 # Sort by (band_rank, created) ascending — urgent band (ask/consult) before quiet (fyi),
 # within each band by created date ascending.
-IFS=$'\n' sorted=($(printf '%s\n' "${memo_lines[@]}" | sort))
-unset IFS
+sorted=()
+while IFS= read -r line; do sorted+=("$line"); done < <(printf '%s\n' "${memo_lines[@]}" | sort)
 
 output_lines=()
 for line in "${sorted[@]}"; do
@@ -152,7 +152,7 @@ for line in "${sorted[@]}"; do
   if [[ ! "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
     age_days=0
   else
-    age_days=$("$PY" -c "
+    age_days=$("$PYTHON_BIN" -c "
 import os, sys
 from datetime import date
 mock = os.environ.get('MOCK_TODAY', '').strip()

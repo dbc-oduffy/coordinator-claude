@@ -215,7 +215,7 @@ cs_resolve_full_test_cmd() {
   # Step 3 — FALL BACK to the fast tier (not skip). Surface the caveat so the
   # caller reports fast-tier-only coverage rather than claiming full-suite.
   local fast_cmd fast_exit
-  fast_cmd=$(cs_resolve_fast_test_cmd "$repo_root")  # its own stderr diagnostics still fire
+  fast_cmd=$(cs_resolve_fast_test_cmd "$repo_root" 2>/dev/null)  # stderr suppressed: fast-tier diags must not bleed into full-tier output
   fast_exit=$?
   if [[ $fast_exit -eq 0 ]]; then
     echo "[cs_resolve_full_test_cmd] step=fast-fallback — no full_test_cmd configured; running the FAST tier. Coverage is fast-tier-only. To run the full suite, set full_test_cmd: in coordinator.local.md or \$COORDINATOR_FULL_TEST_CMD." >&2

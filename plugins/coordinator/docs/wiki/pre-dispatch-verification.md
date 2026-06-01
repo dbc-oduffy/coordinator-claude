@@ -164,6 +164,20 @@ After a period of heavy commits on a shared surface, Sonnet sweep agents anchor 
 
 *Source: holodeck `tasks/lessons.md` (central-promoted 2026-05-29).*
 
+## Measure Blast Radius Before Framing the Fix Shape
+
+Before offering a fix shape for any sweep/citation/rename task, grep the full corpus + classify before estimating. A confident "~300, mechanical" stated pre-measurement can collapse to "~1200, heterogeneous classes, mostly NOT uniformly convertible" on a real grep. Corpus-grep + class-classify BEFORE framing the fix shape to the PM; a fix-shape offered pre-measurement is a hypothesis wearing a recommendation's costume.
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+## A Cited Identifier From a Trusted Internal Source Is Still a Hypothesis — Disk-Verify Before Folding Into a Plan
+
+Prior-art-checker conflicts, wiki citations, and peer-reviewer findings are framing — they may prescribe a fix for the wrong target, cite a script that doesn't exist for this repo, or reference an older shape. Twice in one session a cited claim folded unverified was wrong: a prior-art-checker Conflict prescribed a manifest include-list fix for a *mirror*-mode target (wrong remedy — MODE matters); a wiki-cited `bin/register-claude-plugin` script name pinned into an executor brief doesn't exist for coordinator (phantom — `setup/install.sh` registers). Both reached plan/brief and were caught only downstream.
+
+**Rule.** Grep the literal identifier/mechanism against disk before it propagates into a plan or executor brief. This extends no-fabrication-on-cited-fields to internal-source citations — prior reviewers, wikis, and pre-flight checkers are framing, not ground truth.
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
 ## Related
 
 - `coordinator/CLAUDE.md` § Pre-Dispatch Verification — the canonical bullet list.

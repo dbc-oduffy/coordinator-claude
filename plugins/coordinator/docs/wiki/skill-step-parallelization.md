@@ -6,9 +6,9 @@
 
 Skills look like checklists, and the coordinator doctrine ("follow skills like a pilot follows a checklist") rewards careful linear walking. But pilots don't actually walk checklists linearly when the items are independent — they batch. Treating every numbered step as a gate costs:
 
-- **Wall-clock latency** — 5-15 minutes per long-skill invocation, especially on `/handoff`, `/session-end`, `/update-docs`, `/workday-start`.
+- **Wall-clock latency** — 5-15 minutes per long-skill invocation, especially on `/handoff`, `/workstream-complete`, `/update-docs`, `/workday-start`.
 - **PM patience** — the EM idling on Step N before doing Step N+1 when N+1 doesn't read N's output.
-- **Context-pressure pain** — `/handoff` and `/session-end` fire when context is most constrained, which is exactly when serialization hurts most.
+- **Context-pressure pain** — `/handoff` and `/workstream-complete` fire when context is most constrained, which is exactly when serialization hurts most.
 
 The PM observation that prompted this convention (2026-05-20, mid-`/workweek-complete`): *"Claude, can we accelerate the rest of this please? I don't think we need to be so precious about this process."*
 

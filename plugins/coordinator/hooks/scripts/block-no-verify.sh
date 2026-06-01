@@ -12,11 +12,18 @@
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "..." }, "session_id": "..." }
+#
+# CRLF-robustness: this file MUST stay LF-only AND avoid backslash line-continuation
+# in executable lines. A `\`+CRLF sequence makes `\` escape the CR (not the newline),
+# splitting the statement and crashing the hook — which denies ALL bash. The pipeline
+# below is therefore kept on a single physical line. (.gitattributes pins *.sh eol=lf.)
 
 # Honor escape hatch before doing any work.
 if [[ "${COORDINATOR_OVERRIDE_NO_VERIFY:-0}" == "1" ]]; then
   exit 0
 fi
+
+set -uo pipefail
 
 # Safe stdin read — timeout prevents hang on Windows/Git Bash.
 if command -v timeout &>/dev/null; then
@@ -43,10 +50,8 @@ fi
 #      Both are normalised so multi-line commands don't evade detection.
 #   2. The result goes into FLAT_COMMAND for regex matching only;
 #      COMMAND is preserved for the error message.
-FLAT_COMMAND=$(printf '%s' "$COMMAND" \
-  | tr -d '\r' \
-  | sed ':a;N;$!ba;s/\\\n/ /g' \
-  | sed 's/\\n/ /g')
+#   (Single physical line by design — see CRLF-robustness note in the header.)
+FLAT_COMMAND=$(printf '%s' "$COMMAND" | tr -d '\r' | sed ':a;N;$!ba;s/\\\n/ /g' | sed 's/\\n/ /g')
 
 # ERE that catches the three bypass forms our doctrine prohibits.
 # Branch explanations:
@@ -60,17 +65,14 @@ FLAT_COMMAND=$(printf '%s' "$COMMAND" \
 BYPASS_RE='(^|&&|\|\||;|\|)[[:space:]]*git[[:space:]]+(.*[[:space:]])?(-c[[:space:]]+commit\.gpgsign[[:space:]]*=[[:space:]]*false|--no-verify|--no-gpg-sign)'
 
 if echo "$FLAT_COMMAND" | grep -qE "$BYPASS_RE"; then
-  echo "BLOCKED: git bypass flag detected in command." >&2
-  echo "" >&2
-  echo "  Command: $COMMAND" >&2
-  echo "" >&2
-  echo "  The coordinator doctrine prohibits --no-verify, --no-gpg-sign, and" >&2
-  echo "  -c commit.gpgsign=false. These flags skip commit hooks or signing that" >&2
-  echo "  guard the audit trail and quality gates." >&2
-  echo "" >&2
-  echo "  If the PM has explicitly authorized bypassing hooks for this commit," >&2
-  echo "  set COORDINATOR_OVERRIDE_NO_VERIFY=1 before re-running." >&2
-  exit 2
+  REASON="BLOCKED: git bypass flag detected. The coordinator doctrine prohibits --no-verify, --no-gpg-sign, and -c commit.gpgsign=false. If the PM has explicitly authorized bypassing hooks, set COORDINATOR_OVERRIDE_NO_VERIFY=1 before re-running."
+  if command -v jq &>/dev/null; then
+    jq -nc --arg r "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  else
+    esc="${REASON//\\/\\\\}"; esc="${esc//\"/\\\"}"; esc="${esc//$'\n'/\\n}"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  fi
+  exit 0
 fi
 
 exit 0

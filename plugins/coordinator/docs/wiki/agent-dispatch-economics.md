@@ -70,7 +70,7 @@ Anthropic CLI v2.1.141 ships no opt-out for `isolation: "worktree"`. Per-agent w
 
 Mitigations:
 
-- **`agent-worktree-sweep.sh`** — reaps orphan worktrees. Wired into `/workday-start` Step 0.6 and `/session-start` warn-detect.
+- **`agent-worktree-sweep.sh`** — reaps orphan worktrees. Wired into `/workday-start` Step 0.6 and `/workstream-start` warn-detect.
 - **`disableAgentView: true` in settings.json** — nuclear option; disables agent telemetry alongside worktree creation. Use only if worktree overhead is untenable and sweep is insufficient.
 - **File upstream.** Issue #58597 is open as a request for a `defaultIsolation` settings key that would allow per-project opt-down to `isolation: "none"` for large repos.
 - **Coordinator-side dispatch throttling.** On repos confirmed >30k files, prefer batching mechanical fixes into a single executor pass over N individual dispatches. One worktree creation + N edits beats N worktree creations.

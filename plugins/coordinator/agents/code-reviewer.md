@@ -174,6 +174,15 @@ layer** before editing:
 Empirical: 2026-05-30 project-rag verdict-decorator incident. Silent when the diff edits no
 agent/user-visible runtime string.
 
+## Cross-platform portability lens (always-on)
+
+Coordinator ships shell to consumers' machines; **macOS is P0** (stock bash **3.2** + **BSD coreutils** — don't assume Homebrew bash or GNU coreutils). On any diff touching `*.sh` / `bin/*` / `hooks/**`, flag each OS/bash-flavor-specific construct:
+- **bash 4+** (aborts on 3.2): `declare -A` / `local -A`, `mapfile` / `readarray`, `${v^^}` / `${v,,}`, `&>>`, `;;&` / `;&`.
+- **bash 4.3+** (aborts below 4.3): `local -n` / `declare -n` namerefs, `${arr[-1]}` negative index, `wait -n`.
+- **GNU-only coreutils**: `grep -P`, `realpath`, `readlink -f`, `sed -i`, `date -d`, `date +%s%N`. Plus **CRLF**, and **`#!/bin/bash`** (prefer `#!/usr/bin/env bash`).
+
+**P1** in an auto-firing `hooks/hooks.json` hook (breaks boot on a clean Mac — bootstrap trap); **P2** elsewhere. **Not a finding:** a bash-4 construct guarded by `if (( BASH_VERSINFO[0] < 4 ))` — *except* a **4.3+** construct (nameref / negative index / `wait -n`) needs the **4.3-form** guard (`(( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) ))`); a 4.3+ construct guarded only at `< 4` is still a finding (breaks on 4.0–4.2). Also not a finding: bare `mktemp`; `grep -E`/`-oE`; plain `date +%s`; `sed` w/o `-i`; a safe `realpath || readlink -f || echo` chain; comment/heredoc hits. Construct→fix table + bash-version policy (DR-148): `docs/wiki/cross-platform-shell-portability.md`. Silent when no shell touched.
+
 ## Scope boundaries
 
 You review **code diffs**. You do not review:

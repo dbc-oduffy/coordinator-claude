@@ -223,7 +223,7 @@ The Opus agent produces all atlas artifacts:
    ```
    **Last full audit:** YYYY-MM-DD
    ```
-   This is the clock the session-start / survey-staleness nudge reads. **Do NOT write it on the targeted single-system refresh path** (Phase 1 § targeted refresh) — that path updates one system page only and is not a full pass; writing `Last full audit` there would falsely mark the whole atlas fresh. The targeted *audit* (`/architecture-audit`) writes the separate `Last targeted audit` clock, never this one. (Clock-separation rationale: `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Strand 3b.)
+   This is the clock the workstream-start / survey-staleness nudge reads. **Do NOT write it on the targeted single-system refresh path** (Phase 1 § targeted refresh) — that path updates one system page only and is not a full pass; writing `Last full audit` there would falsely mark the whole atlas fresh. The targeted *audit* (`/architecture-audit`) writes the separate `Last targeted audit` clock, never this one. (Clock-separation rationale: `docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md` § Strand 3b.)
 
 5. **Atomic commit:**
    ```bash

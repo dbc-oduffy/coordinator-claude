@@ -198,10 +198,10 @@ def _to_shell_path(p: str) -> str:
     Falls back to the path as-is if cygpath is unavailable (POSIX hosts).
     Escapes single-quotes for safe use inside single-quoted shell strings by
     ending the quote, adding an escaped quote, and re-opening — but since we
-    use double-quoted Bash strings, we instead escape double-quotes and
-    backslashes only.
+    use double-quoted Bash strings, we escape every char that retains special
+    meaning inside bash double quotes: double-quote, dollar-sign, and backtick.
     """
-    # Escape for Bash double-quoted string: backslash and double-quote.
+    # Normalize Windows separators first; quote/dollar/backtick escaping happens last.
     escaped = p.replace("\\", "/")  # Convert Windows backslashes to forward slashes.
     # cygpath conversion (best-effort, ignored if not available)
     try:
@@ -219,5 +219,5 @@ def _to_shell_path(p: str) -> str:
     # Escape double-quotes and dollar signs for safe interpolation inside
     # bash -c "..." double-quoted strings (backslash handling above already
     # converted Windows separators; do quotes/dollars last).
-    escaped = escaped.replace('"', '\\"').replace('$', '\\$')
+    escaped = escaped.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
     return escaped

@@ -24,7 +24,7 @@ It tells you:
 ## What you must NOT do
 
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, bash version checks) that you will get wrong without it.
-- Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at session-start hooks.
+- Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
 - Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The playbook stages a continue-onboarding handoff; the post-restart step is `/pickup tasks/handoffs/continue-onboarding-and-installation.md`.
 
 Follow the playbook. Then report back to the human.

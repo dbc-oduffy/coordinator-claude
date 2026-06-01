@@ -2,7 +2,9 @@
 
 > **What this is.** The optional "what next?" step at the end of `/coordinator:setup`. Setup wired your environment; this is the guided tour of *how to actually work with it.* Written to be read directly, and to be **facilitated by the EM** — if you ask Claude to walk you through the system, it reads this guide and runs the tour as a conversation, not a lecture.
 
-You didn't just install a set of slash commands. You installed a way of working: an engineering manager (the EM — Claude) who sits *in your reasoning loop* as a thinking partner you brief, push back on, and learn alongside — not a delegate you assign tickets to and grade. Almost everything below pays off under that posture. If a different posture fits you better, the system is built to be slimmed as readily as extended — that's part of the tour too.
+You didn't install software. You installed a **collaboration contract** — a way of working with an engineering manager (the EM — Claude) who sits *in your reasoning loop* as a thinking partner you brief, push back on, and learn alongside, not a delegate you assign tickets to and grade. The whole system went in (it's not a pick-and-choose of parts — *though it's not like installing Linux, nothing that deep*), and now the real work begins: you and your now-Coordinator-shaped Claude **customize it together**. This tour is the start of that, and the very first thing you tailor — your `CLAUDE.md` — is itself the opening demonstration of the system improving itself. Framing changes before details.
+
+Almost everything below pays off under the thinking-partner posture. If a different posture fits you better, the system is built to be slimmed as readily as extended — that's part of the tour too.
 
 There's no rush. This step is elective and re-runnable. Skip it and start working if you'd rather learn by doing.
 
@@ -23,16 +25,30 @@ The headline ideas, in the order they'll matter:
 - **First Officer Doctrine.** You're the PM (product authority — what to build, what to ship, what to cut). The EM is the EM (implementation authority — how to build it, when to dispatch, how to review). The EM acts on engineering decisions without hand-holding, *and* pushes back when it disagrees with you. More Sisko and Dax than Picard and Riker.
 - **The pipeline.** Non-trivial work flows through *plan → enrich → review → execute → review* rather than straight to code. It's cheaper to catch a wrong assumption in a plan than three sessions after shipping. `/coordinator:plan` is the front door.
 - **Reviewer personas.** You have staff-engineer reviewers available at the cost of minutes and tokens — the Staff Engineer (generalist code/architecture), plus domain specialists (the Game Dev Reviewer for game-dev, the Data Science Reviewer for data/ML, the Front-End Reviewer and the UX Reviewer for web/UX) that activate based on your project type. Use them liberally; a second opinion isn't an admission of doubt.
-- **The cadence.** `/session-start` and `/session-end` bracket a working session. `/workday-complete` and `/workweek-complete` are daily and weekly ceremonies. They keep context from leaking away unrecorded — the real threat, more than imperfect code.
+- **The cadence.** `/workstream-start` and `/workstream-complete` bracket a working session. `/workday-complete` and `/workweek-complete` are daily and weekly ceremonies. They keep context from leaking away unrecorded — the real threat, more than imperfect code.
 - **Where the doctrine lives.** Global `~/.claude/CLAUDE.md` (loads everywhere), `~/.claude/CLAUDE.local.md` (loads when you're working in `~/.claude` itself), per-project `CLAUDE.md`, and the plugin's own wikis under `docs/wiki/`. Plugin wikis are *not* auto-loaded — the EM reads them on demand.
+- **Where you're sitting changes who you're talking to.** Same Claude, three altitudes, set by your working directory:
+  - **In `~/.claude` itself** — you're talking to the **Director of Engineering** about *process and methodology*: the doctrine, the consult chains, how the whole way-of-working evolves. This is where you change *how the system thinks*, not what it builds today.
+  - **In a setup or code repo** — you're working with the **EM** on *this project's* work: planning, dispatching, reviewing, shipping.
+  - **Anywhere else** — general work, no Coordinator scaffolding.
 
-**EM facilitation:** don't recite all five. Ask what the operator's background is and what they're hoping to use this for, then lead with the two or three ideas that matter for *them*. Surface the rest only if they pull.
+    `~/.claude` is a *hidden* directory (the leading dot). To find and edit it, turn on "show hidden files" in your file browser (macOS Finder: `Cmd+Shift+.`; most Linux file managers: `Ctrl+H`; Windows Explorer: View → Show → Hidden items) — or just `cd ~/.claude` in a terminal and let the EM open files for you.
+
+**You do not need to learn the machinery.** Coordinator ships dozens of agent types and a whole dispatch apparatus — which reviewer for which diff, when to parallelize, how the pipeline routes. *That's the EM's job, not yours.* You brief the EM in plain language; it picks the agents and runs them. Don't try to memorize the roster.
+
+**EM facilitation:** don't recite all six. Ask what the operator's background is and what they're hoping to use this for, then lead with the two or three ideas that matter for *them*. Surface the rest only if they pull. This whole orientation is itself the system demonstrating how it improves itself — name that throughline when it helps.
 
 ---
 
 ## Movement 2 — Make it yours: tailor to taste
 
-**The one rule that matters most:** customize your **live, git-tracked `~/.claude` — your Claude Central — not the upstream `coordinator-claude` repo you installed from.**
+**Start with `CLAUDE.md` — the contract every agent reads before it even speaks to you.** Before any session does anything, before the EM forms its first sentence to you, it reads `CLAUDE.md`. It is the operating contract for the whole collaboration: who has authority over what, how you like to be pushed back on, what "done" means here. Editing it is the single highest-leverage customization you can make — and the *first*, because framing changes before details.
+
+And edit it **together**, not solo. Hand-editing `CLAUDE.md` alone is fine, but co-writing it with your now-Coordinator-shaped Claude is the better move and the *opening demonstration of Coordinator-Claude improving itself*: you describe how you want to work, the EM proposes contract language, you refine it, and the very next session reads the result. The system tuning the rules it runs under, with you — that is the whole ethos in one act. Do this first.
+
+Once the contract reflects how you actually work, the rest is detail.
+
+**The one rule that matters most for everything you tailor:** customize your **live, git-tracked `~/.claude` — your Claude Central — not the upstream `coordinator-claude` repo you installed from.**
 
 Here's why. Claude Code loads doctrine, plugins, and settings from `~/.claude`. That directory *is* your install — editing it changes how every session behaves immediately. The `coordinator-claude` source repo (on GitHub, or a clone you may have made) is a *distribution artifact*: edits there don't touch your sessions, and your next install would overwrite them. So:
 
@@ -44,7 +60,7 @@ Here's why. Claude Code loads doctrine, plugins, and settings from `~/.claude`. 
 
 Things worth tweaking on day one (the EM should *offer* the one or two most relevant to your Movement 1 conversation, not dump the whole menu):
 
-- **Persona names.** Don't like "the Staff Engineer"? Rename the reviewers to names that fit your team.
+- **Persona names — and why the spellings are odd.** The reviewers carry unusual names ("the Staff Engineer", not "Patrick") on purpose: each name is a **hot-word**. Saying *"ask the Staff Engineer"* does two things at once — it triggers the reviewer fast (one token, no ambiguity), and it *disambiguates your intent*. *"Ask a staff engineer to look at this"* could send an eager Claude off to literally **email a staff engineer**; *"ask the Staff Engineer"* cannot be misread as anything but "run the reviewer." The deliberately unusual spelling, saved in your memory, keeps that intent unambiguous every time. Don't like "the Staff Engineer"? Rename the reviewers — but **coin your own odd names** rather than plain words, so they keep working as hot-words. The unusualness is the feature.
 - **`coordinator.local.md` project type.** Sets which domain specialists route in this repo (`general`, `game-dev`, `web-dev`, `data-science`).
 - **`CLAUDE.local.md`.** Your meta-repo collaboration doctrine — the template is a starting point. Rewrite the role framing to match how you actually want to work.
 - **Slim what you don't want.** Coordinator ships opinionated. If a ceremony or a consult chain doesn't fit you, cut it. The methodology of *how to evolve safely* is itself documented — see `ceremony-calibration.md` (when to add vs strip ceremony) and `lesson-triage.md` (how lessons graduate to doctrine).
@@ -62,10 +78,10 @@ Reading about the loop and *feeling* it are different things. Pick something sma
 
 Good first spins, easiest to most:
 
-1. **`/session-start`**, then ask the EM to orient you in one of your real repos — let it load context and tell you what it sees.
+1. **`/workstream-start`**, then ask the EM to orient you in one of your real repos — let it load context and tell you what it sees.
 2. **A tiny plan.** Name a small change you actually want and say "let's plan it." Watch `/coordinator:plan` verify substrate against disk, run its pre-flights, and route the plan through a reviewer before any code is written.
 3. **A review dispatch.** After (or instead), point a reviewer at a recent diff or the plan — `/review` for plans, `/review-code` for diffs — and read what comes back.
-4. **`/session-end`** to close the loop: capture a lesson, update docs, leave the trail tidy.
+4. **`/workstream-complete`** to close the loop: capture a lesson, update docs, leave the trail tidy.
 
 **EM facilitation:** pick *with* the operator, start at the rung that matches their comfort, and narrate what's happening as it happens — "here's why I'm dispatching a reviewer now," "here's the assumption the plan just checked." The goal is for them to feel the system thinking *with* them.
 
@@ -73,7 +89,7 @@ Good first spins, easiest to most:
 
 ## After the tour
 
-- Run `/session-start` whenever you sit down to real work.
+- Run `/workstream-start` whenever you sit down to real work.
 - The system is yours — evolve it. Capture what you learn as lessons (`/coordinator:learn-lessons`) so refinements compound into doctrine instead of evaporating.
 - Lost? `/coordinator:setup --check-only` re-reports your environment, and the plugin wikis under `docs/wiki/` are the living reference (`DIRECTORY_GUIDE.md` indexes them).
 
@@ -96,4 +112,4 @@ Run it as a conversation, not a recital. Concretely:
 - **Offer, don't dump.** In Movement 2, propose the one or two customizations that follow from what they told you — not the whole menu. (This is the design-as-offers ethos applied to onboarding.)
 - **Make the test drive real.** Movement 3 should use one of *their* repos and *their* actual task. A real spin teaches; a contrived demo doesn't.
 - **All customizations land in `~/.claude`, the live install** — never a separate clone of the source repo. This is the load-bearing correctness point of the whole tour; if the operator is about to edit the wrong tree, stop them.
-- **It's optional and re-runnable.** If they'd rather learn by doing, point them at `/session-start` and stand down gracefully.
+- **It's optional and re-runnable.** If they'd rather learn by doing, point them at `/workstream-start` and stand down gracefully.

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -198,12 +199,43 @@ def sync_mirror(src_dir: Path, dst_dir: Path, ignore: IgnoreMatcher, dry_run: bo
     # Distinct local name (orphan_name) so the outer loop's plugin_name is never
     # shadowed if this block is ever moved inside it.
     if dst_dir.is_dir():
-        for dst_plugin in sorted(p for p in dst_dir.iterdir() if p.is_dir()):
+        non_dot_dst = [p for p in sorted(dst_dir.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+        orphans = [p for p in non_dot_dst if not (src_dir / p.name).is_dir()]
+
+        # Mass-deletion guard: a misconfigured src_dir makes EVERY dst plugin look
+        # orphaned, so an unguarded rmtree loop would wipe the whole destination.
+        # Fail loud when orphans would remove >50% of dst plugin dirs (and there are
+        # ≥2 of them). Override with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 for the rare
+        # legitimate mass-prune. Dry-run reports but never aborts.
+        if orphans and len(non_dot_dst) >= 2 and len(orphans) > len(non_dot_dst) / 2:
+            override = os.environ.get("COORDINATOR_OVERRIDE_ORPHAN_SWEEP") == "1"
+            names = ", ".join(p.name for p in orphans)
+            if not override and not dry_run:
+                print(
+                    f"FATAL: orphan sweep would remove {len(orphans)} of {len(non_dot_dst)} "
+                    f"destination plugin dirs ({names}) — refusing as a likely src_dir "
+                    f"misconfiguration. Set COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 to force.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(3)
+            if not override and dry_run:
+                # Preview only — report the would-be-fatal condition, never abort
+                # (the dry-run contract is non-aborting; a real run would SystemExit(3)).
+                print(
+                    f"    WARNING: orphan sweep WOULD remove {len(orphans)}/{len(non_dot_dst)} "
+                    f"plugin dirs ({names}) — a real run would FATAL here without "
+                    f"COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1.",
+                    file=sys.stderr,
+                )
+            if override:
+                print(
+                    f"    WARNING: orphan sweep removing {len(orphans)}/{len(non_dot_dst)} "
+                    f"plugin dirs ({names}) — COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 set, proceeding.",
+                    file=sys.stderr,
+                )
+
+        for dst_plugin in orphans:
             orphan_name = dst_plugin.name
-            if orphan_name.startswith("."):
-                continue
-            if (src_dir / orphan_name).is_dir():
-                continue
             file_count = sum(1 for _ in _walk_files(dst_plugin))
             if dry_run:
                 print(f"    REMOVE DIR: {orphan_name}/ ({file_count} file(s), not in source)")

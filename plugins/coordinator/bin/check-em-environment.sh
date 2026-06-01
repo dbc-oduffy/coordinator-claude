@@ -1,13 +1,13 @@
 #!/bin/bash
 # EM environment safety-check — invoked as a STEP inside the ceremony skills
-# (/session-start, /workday-start, /workweek-start), NOT as a hook. Verifies the
+# (/workstream-start, /workday-start, /workweek-start), NOT as a hook. Verifies the
 # EM is running on the expected EFFORT (medium) and, best-effort, MODEL (Opus),
 # and prints a loud banner on drift. Silent on a clean env. Always exits 0.
 #
 # Why a skill step, not a hook:
 #   A UserPromptSubmit hook would fire before every prompt (overhead + the
 #   documented Windows/Git-Bash stdin-hang that moved context-pressure-advisory
-#   off that event in 2026-03). A SessionStart hook fires on every boot — noise.
+#   off that event in 2026-03). A SessionStart hook fires on every session start — noise.
 #   Baking the check into the three "start" ceremonies runs it exactly when the
 #   EM is deliberately orienting, with zero per-prompt cost. The skill relays
 #   any banner this prints; clean env prints nothing.

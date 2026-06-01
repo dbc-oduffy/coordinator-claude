@@ -18,7 +18,7 @@ created: 2026-05-28
 
 ### Trail-reading and scope computation
 
-Before invoking `parallel-code-review`, the EM computes the narrowed **code-semantics** scope from the session-end review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk.
+Before invoking `parallel-code-review`, the EM computes the narrowed **code-semantics** scope from the workstream-complete review trail. The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) always see the full week diff — only the code-semantics lens narrows, and that narrowed scope is then **chunked** into N disjoint file-scope partitions, one Sonnet `code-reviewer-weekly` per chunk.
 
 > The helper's JSON keys are still named `patrik`/`patrik_seam_files` for back-compat; post-restructure the `patrik` SHA set is the code-semantics chunking input and `patrik_seam_files` additionally feeds the Staff Engineer's Layer-2 pass in Step 7.5.
 
@@ -89,7 +89,7 @@ Any boundary-touching finding (module move, interface change, cross-system surfa
 
 ### Accepted loss
 
-**Residual accepted loss (architectural OOS):** a cross-cutting erosion spanning multiple chunks that no individual Sonnet flags as architectural — and so never appears in `arch_tier_candidates` — is not caught at the weekly gate. Accepted because session-end covers within-session integration, the seam set + `convergent_findings` substantially close the gap, and an Opus full-diff read at weekly cadence is not justified by frequency.
+**Residual accepted loss (architectural OOS):** a cross-cutting erosion spanning multiple chunks that no individual Sonnet flags as architectural — and so never appears in `arch_tier_candidates` — is not caught at the weekly gate. Accepted because workstream-complete covers within-session integration, the seam set + `convergent_findings` substantially close the gap, and an Opus full-diff read at weekly cadence is not justified by frequency.
 
 ---
 

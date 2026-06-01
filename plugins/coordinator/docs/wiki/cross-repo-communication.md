@@ -14,7 +14,7 @@
 | Trigger | Skill | Shape |
 | --- | --- | --- |
 | Context pressure mid-workstream | `/handoff` | Continuation — successor session resumes |
-| Lessons/state capture at session end | `/session-end` | Audit trail, no successor required |
+| Lessons/state capture at session end | `/workstream-complete` | Audit trail, no successor required |
 | PM-authorized fork of a different topic | `/spinoff` | New file, `kind: spinoff`, `predecessor: none` |
 | Pickup of an existing handoff | `/pickup` | Mutates frontmatter in place, never creates new files |
 
@@ -44,11 +44,11 @@ Nothing else creates files in those directories. This routing is enforced by the
 - It is a **self-executing CLI already on `PATH`.** Type `cross-repo-memo …` directly. Do **not** prefix `bash` (it's Python, not a shell script) and do **not** spell out a full `$HOME/.claude/.../bin/` path (it's on PATH).
 - For a multi-line body, write the body to a temp file and pass **`--body-file <path>`**. With no `--body-file`, the CLI reads the body from **stdin**.
 - **`--help`** lists every flag — reach for it instead of grepping the script.
-- Do **not** route it through `pythonw`/`py` to dodge the Windows console flash. `pythonw` discards stdout, and this CLI prints the **receiver path on stdout that you must hand the PM** — you'd lose it. The transient flash is covered machine-wide by the ConPTY belt (`docs/plans/2026-05-29-windows-console-flash-elimination.md`), not by per-call interpreter gymnastics.
+- Do **not** route it through `pythonw`/`py` to dodge the Windows console flash. `pythonw` discards stdout, and this CLI prints the **receiver path on stdout that you must hand the PM** — you'd lose it. The transient flash from this manually-invoked CLI is acceptable (not a hot-path spawn); the recurring blue `powershell.exe` flash was the PowerShell *tool* backing process, fixed separately by setting `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` — not by per-call interpreter gymnastics.
 
 The CLI writes ONE memo file as a dirty (uncommitted) file into the receiver's repo at `<receiver-repo>/cross-repo/inbox/YYYY-MM-DD-<topic>.md`. The file carries `status: open`. The CLI prints the receiver file path — hand the PM that path for relay to the receiving session.
 
-The act of sending is noted naturally in your session-end notes. No sender-side artifact, no separate sender-side ceremony. The sender keeps no copy.
+The act of sending is noted naturally in your workstream-complete notes. No sender-side artifact, no separate sender-side ceremony. The sender keeps no copy.
 
 **Directionality — the memo goes to the RECIPIENT's inbox, never your own.** `cross-repo/inbox/` in *your* repo is *your* **inbox**: it holds memos addressed TO you. When you send, the CLI writes the memo into the **recipient's** `cross-repo/inbox/` (their inbox), in their repo — not yours. A memo you put in your own `cross-repo/inbox/` sits where the recipient will never look. You never choose the destination by hand; `--to <receiver-em-id>` resolves it. The failure mode this prevents: an EM writing an *outbound* reply into its *own* `cross-repo/inbox/` and the recipient never finding it.
 
@@ -68,13 +68,13 @@ The act of sending is noted naturally in your session-end notes. No sender-side 
 
 Two recurring failure patterns:
 
-1. **Handoff-as-completion-ceremony.** EMs reach for `/handoff` at "tidy stopping points" because it feels like a clean wrap. The handoff folder fills with dreck — closed work dressed as in-flight continuation — and `/session-start` / `/workday-start` surface stale entries that waste future-EM attention. Fix: handoffs only when context pressure forces it; commit-and-stop or `/workday-complete` handle clean endings.
+1. **Handoff-as-completion-ceremony.** EMs reach for `/handoff` at "tidy stopping points" because it feels like a clean wrap. The handoff folder fills with dreck — closed work dressed as in-flight continuation — and `/workstream-start` / `/workday-start` surface stale entries that waste future-EM attention. Fix: handoffs only when context pressure forces it; commit-and-stop or `/workday-complete` handle clean endings.
 
 2. **Spinoff-as-cross-repo-message.** EMs reflexively reach for `kind: spinoff` when they want to tell another repo's EM something, because `/spinoff` is what the doctrine talks about. The other repo never reads our `tasks/handoffs/`. The actual primitive is the PM as a human relay — `cross-repo-memo` CLI for the file, PM for the relay. Fix: route cross-repo coordination through the PM and the CLI, never through hand-rolled surfaces in either repo.
 
 ## Plan skill integration
 
-`coordinator:plan` Branch C rejects any chunk that authors a handoff, spinoff, or session-end artifact. Plans that pre-authorize "Chunk N: write a spinoff to <topic>" launder the PM gate through plan approval — by execution time the EM treats it as a checklist item and the spinoff's Step 0 PM-gate never fires. Cross-EM coordination chunks should read "surface cross-repo brief to PM via `cross-repo-memo`" with the path handed to the PM for relay.
+`coordinator:plan` Branch C rejects any chunk that authors a handoff, spinoff, or workstream-complete artifact. Plans that pre-authorize "Chunk N: write a spinoff to <topic>" launder the PM gate through plan approval — by execution time the EM treats it as a checklist item and the spinoff's Step 0 PM-gate never fires. Cross-EM coordination chunks should read "surface cross-repo brief to PM via `cross-repo-memo`" with the path handed to the PM for relay.
 
 ## Hook tripwire
 
@@ -125,8 +125,11 @@ _CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset({"claude-central-em", "central
 _PUBLISH_TARGET_EM_IDS: frozenset[str] = frozenset({
     "coordinator-claude-em", "coordinator-claude",
     "deep-research-claude-em", "deep-research-claude",
+    "deep-research-em", "deep-research",   # registry-shortname asymmetry: repos.deep_research → deep-research-em
 })
 ```
+
+Note the `deep-research-em`/`deep-research` rows: the deep-research publish mirror is commonly registered under `repos.deep_research` (not `repos.deep_research_claude`), which reverses to `deep-research-em` — distinct from the `deep-research-claude-em` doctrine name. Both resolve to the OSS mirror where no EM reads inbound memos, so both must be rejected. Without this, `--to deep-research-em` silently misdelivers (the D6 failure). `--list-receivers` filters the same set, so a publish target never appears as a discoverable receiver.
 
 `_CENTRAL_RECEIVER_IDS` is consumed by both `_resolve_receiver_path` AND `_em_id_for_root` / `_repo_key_to_em_id` (the sender-identity derivation). If the two sides had separate definitions they could drift, producing a sender identity mismatch.
 
@@ -163,7 +166,7 @@ Otherwise: verify in-session, ship both producer and consumer halves under one w
 
 3. **No move, no second side — and no `sent/`.** The memo is created in `cross-repo/inbox/` and lives there as the primary record. Once actioned, the receiver MAY sweep it to `cross-repo/archive/` for housekeeping (co-located with the inbox — the whole channel is under `cross-repo/`). `cross-repo/archive/` is the canonical closed-memo destination; `archive/cross-repo/` (the old top-level path) is removed. **There is deliberately no `sent/` subfolder** — an EM looking to file an outbound copy finds no home for it, and the absence is the signal: the sender keeps no copy; the memo lives in the *recipient's* inbox.
 
-**`/session-end` Step 2.65 — lifecycle sweep.** At session end, before the final commit, `/session-end` runs a cross-repo memo lifecycle sweep: it scans this repo's `cross-repo/inbox/*.md` for memos whose underlying work was completed during the session (i.e., the issue they described has been resolved), and flips their `status: open → actioned` inline with a `decision:` note. This prevents the inbox from drifting from reality — memos where the work is done should not stay `open` and surface again at the next `/workday-start` Step 1.45.
+**`/workstream-complete` Step 2.65 — lifecycle sweep.** At workstream end, before the final commit, `/workstream-complete` runs a cross-repo memo lifecycle sweep: it scans this repo's `cross-repo/inbox/*.md` for memos whose underlying work was completed during the session (i.e., the issue they described has been resolved), and flips their `status: open → actioned` inline with a `decision:` note. This prevents the inbox from drifting from reality — memos where the work is done should not stay `open` and surface again at the next `/workday-start` Step 1.45.
 
 **Distill integration.** `/distill` gains a `## Cross-repo archive distillation` phase: it mines `cross-repo/archive/*.md` with `status: actioned` for evergreen knowledge (folding into wiki), then clears entries older than the configured retention threshold. `/update-docs` runs a 90-day janitorial sweep on `cross-repo/archive/` — cadence is anchored at ≥3× expected distill cadence to ensure the sweep never deletes un-mined content.
 
@@ -183,7 +186,9 @@ cross-repo-memo --to <receiver-em-id> --topic <slug> --title "<one-line>" \
   [--body-file <path>]
 ```
 
-**Receiver resolution is by convention, not a hand-maintained table.** A `<receiver>-em` identity maps to the machine-local registry key `repos.<receiver, dashes→underscores>` — e.g. `project-rag-ue-addon-em → repos.project_rag_ue_addon`, `dronesim-em → repos.dronesim`. **The receiver set IS your machine-local repo list:** any repo registered under `repos.<name>` (`machine-local set repos.<name> <path>`) is automatically a valid `<name>-em` receiver with no code change — so anyone installing the coordinator gets cross-repo delivery to their own registered repos for free. Run `machine-local keys | grep '^repos\.'` to see them. The only exceptions are identities whose doctrine name diverges from the repo's registry shortname (currently just `holodeck-em → repos.claude_unreal_holodeck`), held in a tiny alias map in `cross-repo-memo` that does not grow with repo count.
+**Discovering valid receivers — run `cross-repo-memo --list-receivers`.** That is the one canonical enumerator of every valid `--to` target on this machine. It lists `claude-central-em` first, then every registered sibling, each with its resolved path. **Do NOT discover receivers via `machine-local keys | grep '^repos\.'`:** that lists the `repos.*` siblings, but `claude-central-em` is *not* a `repos.*` key (it is special-cased to `~/.claude`), so enumerating receivers that way **hides central** — and an EM who reasons "central isn't in the registry, so it isn't a receiver" ends up hand-authoring a memo into `~/.claude/cross-repo/inbox/`, the exact anti-pattern this CLI exists to prevent. `claude-central-em` (aliases `central-em`, `central`) is **always** a valid target, registry or no registry.
+
+**Receiver resolution is by convention, not a hand-maintained table.** A `<receiver>-em` identity maps to the machine-local registry key `repos.<receiver, dashes→underscores>` — e.g. `project-rag-ue-addon-em → repos.project_rag_ue_addon`, `dronesim-em → repos.dronesim`. Any repo registered under `repos.<name>` (`machine-local set repos.<name> <path>`) is automatically a valid `<name>-em` receiver with no code change — so anyone installing the coordinator gets cross-repo delivery to their own registered repos for free. The only exceptions are identities whose doctrine name diverges from the repo's registry shortname (currently just `holodeck-em → repos.claude_unreal_holodeck`), held in a tiny alias map in `cross-repo-memo` that does not grow with repo count.
 
 On machines where the receiver repo is not registered, the CLI **hard-errors** (exit 1, no file written) and lists the known receivers — a dirty memo cannot be written to a repo that isn't on this machine. There is no central-only fallback in the single-surface model; route via the PM's next session in that repo instead. (`central-only` survives only as a grandfathered `delivery_mode` value in the schema for pre-2026-05-23 memos — the CLI no longer issues it.)
 
@@ -212,6 +217,14 @@ The optional `kind:` frontmatter field lets the sender declare what shape of res
 **`ack` is NOT a `kind` — it is receipt-state, not a sender-declared value.** An acknowledgement is the receiver flipping `status: open → actioned` (with `decision:` + note) in-place. `ack` is never a valid `kind:` value and never a return-memo. The same rule as "don't send an ack-of-ack when the inbound was a confirmation" (§ Memo content is hypothesis — verify before acting, item 8) applies here: the `status` flip IS the receipt; authoring a separate ack memo is ceremony with no value.
 
 **Absent `kind:` defaults to `ask` at the READER.** The CLI does not stamp a default — absence stays meaningful. Every reader (surfacing helper, `/pickup` branch) applies `ask` when the field is absent. This preserves back-compat: no pre-2026-05-30 memo is silently downgraded to a quiet `fyi` by the absence of a field it never had.
+
+#### Authoring an `ask` — presume action, don't write it meek
+
+> Added 2026-06-01 under PM ruling. The send side shapes the receive side: a meek ask invites lazy handling.
+
+When you author an `ask` memo to a sibling repo, **write it presuming action** — name what needs doing and why, in the imperative, as a fellow EM handing real work to a peer who ships. Do NOT hedge it into a suggestion-box submission: "um, maybe a backlog item?", "could be worth queueing eventually?", "low priority, no rush" are the meek shapes to avoid. A tentatively-framed ask *tells* the receiver it's backlog-tier, and the compliant response to a backlog-tier ask is to file it to a queue — the exact laundering the receive-side gate (§ Picking up a memo) forbids. The two failures are one disease: **presumed-action on the send side and action-on-receipt on the receive side are the same rule.** We ship more working code in a day than a human team ships in a month — an ask between our own repos should read as "here's what needs doing," not "here's a thing you might consider someday."
+
+This is not a license to manufacture urgency or skip the verification the receiver owes the ask (§ Memo content is hypothesis). It is a framing discipline: state the work plainly and let the receiving EM adjudicate-and-own it (Accept / Decline / Surface-to-PM). If the ask genuinely *is* low-stakes-someday work, that is a judgment for the receiving EM to make on their own consumers' priorities — not something you pre-decide for them by wording it as deferrable. Name the work; trust the peer to adjudicate.
 
 ### `/workday-start` Step 1.45 surfacing (receiver-inbound)
 
@@ -259,17 +272,45 @@ A memo-ask is a PEER HYPOTHESIS from the sender's EM — a suggestion from a fel
 - **Disagree, or wrong for this repo's consumers** → decline; mark `status: actioned` + `decision: declined` + `decision_note: <rationale>`.
 - **Genuine product/tradeoff/architectural fork** → surface to PM for direction, then act on the answer.
 
+**There is no fourth disposition. Filing the ask into the improvement queue is the laundering anti-pattern, not a way to handle a memo.** Moving an inbound ask from the inbox into `tasks/improvement-queue.md` (or the central queue, or "a separate plan for later") shuffles paper between two staging grounds, adds zero value, and silently makes a *prioritization* call — deciding the ask is not-now — that is the PM's to make, not the EM's. The inbox row clearing feels like progress; it is not. The honest exits when you can't action this session are **decline-with-architectural-rationale** or **surface-to-PM-for-priority** — never queue. "Annoying to fix right now" is not a rationale; presume action. (This is the inbound-memo instance of the general rule in coordinator CLAUDE.md § Improvement Queue: an inbound cross-repo ask is one of the two cases hard-forbidden from the queue.)
+
 This is the **"reviewer findings: apply, don't ratify"** framing applied to memo-asks. It is NOT "always bounce to the PM" — § Memo-lifecycle adjudication is EM work explicitly forbids "what should I do?" escalation. Escalate only when the memo implicates a product decision, not as a default.
 
-**`/session-start` surfaces, `/pickup` acts.** This is an architectural boundary, not a gap: `/session-start` (via `workday-start-cross-repo-memo-surface.sh`) provides awareness; lifecycle mutation and adjudication live solely in the `/pickup` memo branch. Teaching both entry points the same fork creates divergence risk.
+#### Adjudicate-and-own includes ceremony, not just disposition — and ceremony is the receiver's call
+
+Once you Accept (above), a second judgment follows: how much *ceremony* does the work earn? This is the receiver's call, because **magnitude is not knowable to the sender and the sender's register does not encode it.** Under § Authoring an ask the sender writes every ask plainly and in the imperative — that rule governs sender *plainness* (don't soft-pedal real work into a suggestion-box submission), NOT how big a deal the ask is for your repo. The two rules are complementary halves of one discipline: **the sender states the work plainly; the receiver decides how big a deal it is.** Reading an imperatively-worded ask as therefore-weighty is the misread this pairing exists to prevent — a plainly-stated "move these eight documents" is mechanical, not a planning exercise.
+
+- **Default: mechanical-direct.** Most accepted asks are surgical follow-ups. Do the work, commit it (both sides where authorized — see the carve-out below), action the memo. No plan, no round-trip, no back-and-forth.
+- **Escalate to a plan ONLY on a NAMED weighty signal** — inherit [`ceremony-calibration.md`](./ceremony-calibration.md) § TL;DR: a *novel decision* (not a surgical follow-up to one already made), *instance #1* of a pattern with downstream occupancy, or *vague framing* that needs shaping first. Absent a named signal the default stands; do not manufacture ceremony to feel thorough.
+
+**Channel and ceremony are orthogonal axes — do not conflate them.** Two independent questions govern cross-repo coordination; they are NOT a hierarchy:
+
+- **Channel axis — *do I use the memo channel at all?* — keyed to GOVERNANCE.** `triad-roles-doctrine.md` §208 (project-rag-ue-addon) eliminates the blocking memo channel within the same-PM/EM triad: there, cross-repo coordination is *direct commits into the peer repo*; memos become after-the-fact `## Response` records, not handshakes. The channel choice is settled by who owns the repos, regardless of magnitude.
+- **Ceremony axis — *given a memo arrived, how much process?* — keyed to MAGNITUDE,** operative only *inside* the memo channel. This is the receiver-judgment rule above.
+
+§208 is **not** "the low-ceremony case of the receiver-judgment rule," and the receiver-judgment rule is **not** "§208 generalized." A triad EM doing weighty work still skips the memo channel (channel axis); a non-triad EM receiving a mechanical ask still does it directly (ceremony axis). Name the axis that applies — never nest one rule inside the other. (This is the exact confusion that produced the over-ceremony incident this rule fixes: a mechanical transfer was read as weighty because the channel-vs-ceremony axes were conflated.)
+
+**Both-sides-commit carve-out — three cases (mechanical cross-repo transfers).** When an accepted mechanical ask is a *transfer* (move a document, relocate a file, hand over ownership), the receiver may need to write into the offering repo too. Scope it:
+
+- **(i) Triad + you own both repos** → §208 direct-commit governs (channel axis). The both-sides-commit is native to §208's regime; this is not a separate carve-out.
+- **(ii) Non-triad but you hold authority over both repos** → the both-sides-commit carve-out applies as a ceremony-axis legibility aid: commit the offering-side change because you hold authority over it. This is a sanctioned cross-repo write for a *mechanical transfer*, scoped to has-authority-over-both — **not** a blanket license.
+- **(iii) You lack authority over the offering repo** → the offering-side change routes per the altitude rules (§ Doctrine seeding vs code/install-surface): memo + PM-relay for code/install-surface, direct doctrine-seed for doctrine. The carve-out does not apply.
+
+**`/workstream-start` surfaces, `/pickup` acts.** This is an architectural boundary, not a gap: `/workstream-start` (via `workday-start-cross-repo-memo-surface.sh`) provides awareness; lifecycle mutation and adjudication live solely in the `/pickup` memo branch. Teaching both entry points the same fork creates divergence risk.
 
 ### Don't re-nag the PM about already-sent memos
 
-Once the receiver path has been handed to the PM at send time, the sender's job is done. Do not re-list memos (or doctrine-seeding direct writes) as "pending PM-relay" or "pending your action" in later session reports, `/handoff` bodies, or session openings. The receiving repo's `/workday-start` Step 1.45 surfacing is the canonical channel; sender-side action-state knowledge goes stale silently. Operative rule lives in `skills/session-end/SKILL.md` § Step 2.66.
+Once the receiver path has been handed to the PM at send time, the sender's job is done. Do not re-list memos (or doctrine-seeding direct writes) as "pending PM-relay" or "pending your action" in later session reports, `/handoff` bodies, or session openings. The receiving repo's `/workday-start` Step 1.45 surfacing is the canonical channel; sender-side action-state knowledge goes stale silently. Operative rule lives in `skills/workstream-complete/SKILL.md` § Step 2.66.
 
 ### Grandfather cutoff
 
 **Pre-2026-05-22 memos are grandfathered.** Step 1.45 skips memos with `created: < 2026-05-22` by design. If a pre-cutoff memo has unfinished business, re-issue via `cross-repo-memo` with `supersedes: <old-path>`.
+
+**Disambiguation — `supersedes:` on a memo vs. on a live baton.** The `supersedes:` field means something different depending on the artifact type. Canonical contrast (verbatim, also in `docs/wiki/spinoff-handoffs.md` § `supersedes:` on a live baton):
+
+> "`supersedes:` on a memo = terminal (paired with `superseded_by:` + `status: superseded`, wired in the `CROSS_FIELD_RULES` memo block); `supersedes:` on a live baton = conditional+live, a spine-build-time preference (never flips status, no back-pointer, wired in the `CROSS_FIELD_RULES` handoff block)."
+
+On a **memo**, `supersedes:` is a terminal re-issue signal — the old memo is paired with `superseded_by:` and its `status:` flips to `superseded`; the old memo is dead. On a **live baton** (`kind: spinoff`), `supersedes:` is an optional spine-build-time preference used by the orientation-supersession convention (`docs/wiki/agent-install-contract.md` § Orientation-supersession); it does NOT mark any baton dead and never flips `status:`. Cross-reference: `docs/wiki/spinoff-handoffs.md` § `supersedes:` on a live baton carries the matching note.
 
 ### Worked example
 
@@ -300,9 +341,9 @@ Hand the PM this path for relay: X:/project-rag/cross-repo/inbox/2026-05-23-gate
 Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.
 ```
 
-Sender notes the send in their session-end notes. No sender-side file is created.
+Sender notes the send in their workstream-complete notes. No sender-side file is created.
 
-**Step 2 — project-rag-EM sees the dirty file** at next session-start (`git status` shows `?? cross-repo/inbox/2026-05-23-gate-check-fix.md`), reads it, implements the fix, then flips status in-place:
+**Step 2 — project-rag-EM sees the dirty file** at next session open (`git status` shows `?? cross-repo/inbox/2026-05-23-gate-check-fix.md`), reads it, implements the fix, then flips status in-place:
 ```yaml
 status: actioned
 decision: "Fixed gate-check exit-code handling in check-plugin-drift.sh"
@@ -341,7 +382,7 @@ Done. Memo lives in `project-rag/cross-repo/inbox/` as the active record; once a
 
 **On disposition — when reporting or closing:**
 
-4. **`status:` is a lagging indicator; grep code-evidence.** The receiver flips `status:` at *their* close-out cadence, but on-disk work can land via parallel workstreams (integrator passes, session-end fix-folds, sibling EMs) before the field flips. When reporting cross-repo disposition, grep code-evidence against target files (specific symbols, function shapes, comment fragments) — the `status:` field is the audit signal at the slowest cadence; code state is ground truth at the fastest.
+4. **`status:` is a lagging indicator; grep code-evidence.** The receiver flips `status:` at *their* close-out cadence, but on-disk work can land via parallel workstreams (integrator passes, workstream-complete fix-folds, sibling EMs) before the field flips. When reporting cross-repo disposition, grep code-evidence against target files (specific symbols, function shapes, comment fragments) — the `status:` field is the audit signal at the slowest cadence; code state is ground truth at the fastest.
 
 **On sending — the send/don't-send distinction:**
 
@@ -586,6 +627,6 @@ On a shared concurrent-EM branch with cross-repo coupling, an inbox memo is a li
 
 - `skills/handoff/SKILL.md` Step 0 — handoff trigger gate (YES-tests / NO-tests)
 - `skills/spinoff/SKILL.md` Step 0 — PM-authorization gate
-- `skills/session-end/SKILL.md` — lessons/state capture
+- `skills/workstream-complete/SKILL.md` — lessons/state capture
 - `CLAUDE.md` § Handoff Lineage — single-predecessor doctrine
 - `docs/wiki/install-surface-completeness.md` — the universal install-surface rule, which combines with the cross-repo doctrine differently at the two altitudes above

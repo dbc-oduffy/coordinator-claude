@@ -235,6 +235,8 @@ if command -v md5sum &>/dev/null; then
   TRANSCRIPT_HASH=$(echo -n "$TRANSCRIPT_PATH" | md5sum | cut -d' ' -f1)
 elif command -v md5 &>/dev/null; then
   TRANSCRIPT_HASH=$(echo -n "$TRANSCRIPT_PATH" | md5 -q)
+elif command -v cksum &>/dev/null; then
+  TRANSCRIPT_HASH=$(echo -n "$TRANSCRIPT_PATH" | cksum | awk '{print $1}')
 else
   TRANSCRIPT_HASH="$SESSION_ID"
 fi
@@ -262,13 +264,13 @@ if [[ "$FILE_SIZE" -ge "$CRITICAL_BYTES" && ! -f "$CRITICAL_SENTINEL" ]]; then
   touch "$ADVISORY_SENTINEL" "$CRITICAL_SENTINEL"
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
-    cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
-JSONEOF
+    jq -n \
+      --arg ctx "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Compaction is close (~60%). Autonomous run active — continuing per PM instruction. Verify all progress is in TaskList and committed to disk. Compaction will compress context but tasks persist. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)" \
+      '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": $ctx}}'
   else
-    cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count, so treat it as a soft signal. Auto-compaction is observed near ~60%. If this estimate looks right for the work you've done, consider running /handoff soon — the handoff itself consumes context, so leave headroom. If you front-loaded large reads (the estimate runs hot on read-heavy sessions), you likely have more runway than this suggests. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
-JSONEOF
+    jq -n \
+      --arg ctx "CONTEXT PRESSURE — HIGH (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count, so treat it as a soft signal. Auto-compaction is observed near ~60%. If this estimate looks right for the work you've done, consider running /handoff soon — the handoff itself consumes context, so leave headroom. If you front-loaded large reads (the estimate runs hot on read-heavy sessions), you likely have more runway than this suggests. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)" \
+      '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": $ctx}}'
   fi
   exit 0
 fi
@@ -278,13 +280,13 @@ if [[ "$FILE_SIZE" -ge "$ADVISORY_BYTES" && ! -f "$ADVISORY_SENTINEL" ]]; then
   touch "$ADVISORY_SENTINEL"
   EST_PCT=$(( FILE_SIZE * 100 / (CONTEXT_WINDOW * BYTES_PER_TOKEN) ))
   if [[ "$AUTONOMOUS_RUN" == true ]]; then
-    cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Autonomous run: checkpoint state to disk at the next natural boundary so the run is resumable. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
-JSONEOF
+    jq -n \
+      --arg ctx "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Autonomous run: checkpoint state to disk at the next natural boundary so the run is resumable. The estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)" \
+      '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": $ctx}}'
   else
-    cat <<JSONEOF
-{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Consider completing the current task unit, then running /handoff. This is informational — no action required yet, and the estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)"}}
-JSONEOF
+    jq -n \
+      --arg ctx "CONTEXT PRESSURE — ADVISORY (${MODEL_ID:-unknown}): est. ~${EST_PCT}% of window used — a ROUGH byte-based proxy (~${BYTES_PER_TOKEN} bytes/token), not a measured token count. Context usage is getting heavy. Consider completing the current task unit, then running /handoff. This is informational — no action required yet, and the estimate runs hot on read-heavy sessions. (Transcript: ${FILE_SIZE} bytes vs ${CONTEXT_WINDOW}-token window)" \
+      '{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": $ctx}}'
   fi
   exit 0
 fi

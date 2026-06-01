@@ -690,6 +690,22 @@ The preferred sentinel-comment shape: `# guard-allow: <rule-id> <rationale>` on 
 
 **Rule.** A new consumer of a shared config format (machine-local registry, BOM, manifest, schema) must: **(a)** reuse the canonical parser verbatim rather than hand-roll a regex/tab variant, and **(b)** run once against the REAL artifact before trusting fixtures — fixtures don't reproduce the format's accumulated variform reality (CRLF, both TOML key-shapes, backslash paths). A vacuous all-clear gate is the worst outcome: it ships confidence with zero coverage. Composes with the round-trip-against-reader rule in `implementation-standards-by-domain.md` § Structured-config write primitives.
 
+## 54. Tests Must Mirror Production Substrate Layout AND the Caller's Actual Mode
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+A path-resolving gate can pass flat scratch-repo tests yet be dead in the real nested layout. `check-schema-version-bump.sh --staged` returned "OK" on a staged change because its tests put the file at git-root and only exercised `--commit` mode; the real plugin nests 3 deep and the commit hook uses `--staged`.
+
+**Rule.** Mirror production directory nesting in fixtures and test the mode the production caller actually invokes. Use `git rev-parse --show-prefix`, never a manual `${ABS#$GIT_ROOT/}` prefix-strip (breaks on Windows `C:/` vs MSYS `/c/`). When a hook or script has multiple invocation modes, the test suite must cover the production mode, not just the convenient one.
+
+## 55. `bash -n` and Static Review Are Blind to Bash Function-Ordering Bugs
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+An executor defined `_check_venv_state` at L995 but called it from a new branch at L557 (earlier in execution order). `bash -n` passed (syntax is fine), static plan review passed (logic is fine), but the live dry-run hit `_check_venv_state: command not found` → fell through to "stale" → reinstalled every run. Bash binds a function name only after its definition line executes, not at parse time.
+
+**Rule.** For any script edit that adds a caller earlier than a definition, the gate is a real invocation, not a read or a syntax check. `bash -n` is the syntax floor; a real run is the control-flow ceiling. The test for this class of bug is: invoke the script and observe the intended path, not just `bash -n && read`.
+
 ## 53. Structural-Grep Guards Need an Integration Counterpart That Actually Invokes the Script
 
 *Source: coordinator. 2026-05-28.*

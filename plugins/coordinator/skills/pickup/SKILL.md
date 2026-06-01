@@ -9,7 +9,7 @@ argument-hint: "[handoff-file-path | memo-file-path]"
 
 Pick up a handoff document and continue executing where the previous session left off, OR action an inbound cross-repo memo. Both are batons from another place — you must read the artifact before acting on it. This is a relay race; your job is to grab the baton and run, not to ask what race you're in.
 
-**Design contrast with `/session-start`:** Session-start is general orientation — "what are we doing today?" with handoffs as one option among many. Pickup is artifact-first — the PM has already pointed you at specific prior work to continue or an inbound memo to act on. Skip the menu, skip the ceremony, get to the work.
+**Design contrast with `/workstream-start`:** Workstream-start is general orientation — "what are we doing today?" with handoffs as one option among many. Pickup is artifact-first — the PM has already pointed you at specific prior work to continue or an inbound memo to act on. Skip the menu, skip the ceremony, get to the work.
 
 ---
 
@@ -73,7 +73,7 @@ The PM has pointed you at a specific handoff. Read it immediately and proceed to
 1. Check `tasks/handoffs/` for `.md` files.
 
 2. **If no handoffs exist:**
-   _"No active handoffs in `tasks/handoffs/`. Nothing to pick up — use `/session-start` for general orientation."_
+   _"No active handoffs in `tasks/handoffs/`. Nothing to pick up — use `/workstream-start` for general orientation."_
    **Stop here.**
 
 3. **If exactly one handoff exists:**
@@ -177,7 +177,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    ```
    Recovery handoffs follow the standard continuation flow, but the successor's first move is disk verification (uncommitted edits, orphan `.tmp.*` files, partial executor output) per CLAUDE.md § "Verifying Executor Output After a Crash or Timeout". A null `predecessor:` on `kind: recovery` is permitted (no recoverable predecessor existed) and is NOT a stale-handoff signal.
 
-5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/session-end` Step 2.7).
+5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/workstream-complete` Step 2.7).
 
    ### Pre-mutation safety gates (sequential, all must pass before any write)
 
@@ -196,7 +196,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    - `status: active` → `status: consumed`
    - `deployment_state: <whatever>` → `deployment_state: in_flight`
-   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_CODE_SESSION_ID` first (platform-injected, per-session, unclobberable by sibling sessions; Claude Code ≥ ~2.1.150), falling back to `cat .git/coordinator-sessions/.current-session-id` (the last-writer-wins sentinel written by `session-init.sh`, for older Claude Code). Never the machine name. Same resolution pattern as `/session-end` Step 2.7.
+   - Append `consumed_at: <ISO UTC timestamp>`, `consumed_by: <session-id>` — resolve the session id with `$CLAUDE_CODE_SESSION_ID` first (platform-injected, per-session, unclobberable by sibling sessions; Claude Code ≥ ~2.1.150), falling back to `cat .git/coordinator-sessions/.current-session-id` (the last-writer-wins sentinel written by `session-init.sh`, for older Claude Code). Never the machine name. Same resolution pattern as `/workstream-complete` Step 2.7.
    - Do NOT remove `pickup_ready: true` if present — it stays as authorial-intent record on the consumed handoff.
 
    ### Commit
@@ -208,9 +208,9 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    The handoff remains in `tasks/handoffs/`. Archival happens at one of two successor moments:
    - **`/handoff` chain-archival** — when this session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
-   - **`/session-end` Step 2.7** — when this session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
+   - **`/workstream-complete` Step 2.7** — when this session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
 
-6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/session-end` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
+6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/workstream-complete` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
 
 ---
 
@@ -281,16 +281,21 @@ The sender is requesting action. Per `docs/wiki/cross-repo-communication.md` § 
 
 Weigh the request against this repo's context, then choose one of three dispositions:
 
-**Accept** — the ask is sound and actionable:
+**Accept** — the ask is sound and actionable. **Before performing the work, calibrate ceremony — this is the receiver's call, not the sender's.** An ask's magnitude is not knowable from its register: a sender writes every `ask` plainly and in the imperative (§ Authoring an ask, comm wiki) — that governs sender *plainness*, NOT how big a deal it is for *your* repo. You judge magnitude here, at pickup. Ceremony and channel are orthogonal: this calibration is about how much process an *accepted* ask earns, independent of whether a memo channel was the right vehicle at all (that is the §208 channel question — see comm wiki § Picking up a memo).
 
-1. Perform the work.
+- **Default: mechanical-direct.** Most accepted asks are surgical follow-ups, not novel decisions. Perform the work now, commit it (on both sides where you hold authority over the offering repo — see step 3), and action the memo. **No plan, no round-trip, no back-and-forth.** Moving a document, adopting a named doctrine, applying an agreed rename are direct-dispatch work — treat them as such.
+- **Escalate to a plan ONLY on a NAMED weighty signal.** Inherit the `ceremony-calibration.md` § TL;DR decider — escalate when the ask is a *novel decision* (not a surgical follow-up to one already made), *instance #1* of a pattern with downstream occupancy, or *vague enough* in framing to need shaping first. Absent a named signal, the default stands; do not manufacture ceremony to feel thorough.
+
+Then, having calibrated:
+
+1. Perform the work — directly (the default), or via the plan pipeline if you named a weighty signal above.
 2. Write in place:
    ```yaml
    status: actioned
    decision: accepted
    decision_note: "<what was done, one line>"
    ```
-3. Commit with memo mutation included (or as a follow-on single-file commit).
+3. Commit with memo mutation included (or as a follow-on single-file commit). **A mechanical cross-repo transfer commits on both sides** when you hold authority over the offering repo (comm wiki § Picking up a memo, both-sides-commit carve-out); where you lack that authority, the offering-side change routes per the altitude rules (memo + PM-relay for code, doctrine-seed for doctrine).
 
 **Decline** — the ask is wrong for this repo's consumers, already done, or superseded:
 
@@ -307,6 +312,8 @@ Weigh the request against this repo's context, then choose one of three disposit
 1. Surface a one-line summary: _"Inbound `ask` memo from `<from>` on `<topic>` requires a product decision: `<one-line framing>`. Proceed with [option A] or [option B]?"_
 2. **Wait for PM response before writing any frontmatter.** Do not mark `actioned` until the PM has decided.
 3. Once decided, write `status: actioned` + the chosen `decision:` + `decision_note:`.
+
+**There is no fourth disposition — queuing the ask is the laundering anti-pattern, not a disposition.** Accept / Decline / Surface-to-PM are the *only* exits. Filing the inbound ask into `tasks/improvement-queue.md` (or `~/.claude/tasks/coordinator-improvement-queue.md`, or re-framing it as "a separate plan for later") is NOT a way to handle a memo — it moves the baton from one staging ground to another, adds zero value, and silently makes a *prioritization* call (deciding this ask is not-now) that belongs to the PM, not the EM. The reflex feels productive because the inbox row clears; it is not. If you cannot Accept the work this session, the honest exits are: **Decline** with an architectural rationale (the ask is wrong for this repo's consumers / already done / superseded), or **Surface-to-PM** (you'd action it but it's competing for priority — that's a PM call, so ask, don't queue around them). "Annoying to do right now" is not an architectural rationale; presume action and do it. → coordinator CLAUDE.md § Improvement Queue (admission rule); `docs/wiki/cross-repo-communication.md` § Picking up a memo.
 
 **Critical negative-spec:** write `status: actioned` (the terminal state). NEVER write `status: action_taken` — that is a grandfathered-only schema value whose cross-field rule (`bin/lib/schema.js:664-671`) requires both `action_taken_at` AND `decision`. The `decision:` field on `actioned` is an audit choice, not a schema requirement.
 
@@ -399,9 +406,9 @@ Done. No return memo sent.
   - **The spinoff *fork* IS still PM-gated — but it must NOT block the plan.** Forking the T3 continuation into its own spinoff handoff creates a new continuity artifact, which stays PM-authorized per `skills/spinoff` Step 0. Surface it as a separate one-line candidate (_"Candidate spinoff: <slug> — <topic>. Authorize?"_) **without gating the plan on the answer** — plan now off the pickup; the fork is an orthogonal continuity question the PM can answer in parallel or later. Conflating the two (the prior failure mode) let a PM-gated fork question hold a transitively-authorized plan hostage.
 
   - **Cross-repo plan obligations carry regardless.** For the cross-repo case, the plan must cross-check the file-overlap and contract-change gates per coordinator CLAUDE.md § Pre-Dispatch Verification before any parallel dispatch, and route sibling-repo edits via `cross-repo-memo` + PM relay (never direct host-session edits to the sibling). T3 cross-repo also warrants the Staff Engineer review on the plan — but that is `coordinator:plan` → `coordinator:review` pipeline work, not a reason to ask before planning.
-- This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/session-start` territory. Pickup is laser-focused on the handoff.
+- This command does NOT load action items, roadmaps, project trackers, or orientation caches. That's `/workstream-start` territory. Pickup is laser-focused on the handoff.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
 - **`git mv` after Edit stages only the rename, not the content change.** If a future revision of this skill (or a sibling skill) ever needs to both rename AND edit a file, the correct order is: `git mv src dst` FIRST, THEN Edit `dst`, THEN `git add -- dst`, THEN commit. Edit-then-`git mv` stages only the rename and silently drops the content delta.
-- **Archiving:** `/pickup` mutates frontmatter in place at `tasks/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/session-end` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
+- **Archiving:** `/pickup` mutates frontmatter in place at `tasks/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/workstream-complete` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
 - **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

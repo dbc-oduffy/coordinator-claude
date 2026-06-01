@@ -65,7 +65,7 @@ for arg in "$@"; do
             COMMIT_REF="${arg#--commit=}"
             ;;
         -h|--help)
-            sed -n '2,/^# Negative-spec/p' "$0" | grep '^#' | sed 's/^# \?//'
+            sed -n '2,/^# Negative-spec/p' "$0" | grep '^#' | sed 's/^# \?//' || true
             exit 0
             ;;
         *)
