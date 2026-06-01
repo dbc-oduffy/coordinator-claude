@@ -4,13 +4,26 @@
 # Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (holodeck consult);
 #   docs/wiki/concurrent-em-hazards.md § H21.
 #
-# Sets `gc.autoDetach false`: git's default auto-gc/maintenance DETACHES into a background
-# process on Git-for-Windows, and that detached child is the likely concurrent handle-holder
-# that blocks a commit's `index.lock` cleanup under concurrent-EM (see the consult memo for
-# the full root-cause). Setting autoDetach=false makes auto-gc run SYNCHRONOUSLY in the
-# foreground of the triggering command, so it completes and releases its handles before the
-# command returns — eliminating the "lock outlived the process that created it" race while
-# preserving automatic repacking (no unbounded loose-object growth, unlike `gc.auto 0`).
+# Sets two content-neutral, idempotent local-config hardenings:
+#
+# 1. `gc.autoDetach false`: git's default auto-gc/maintenance DETACHES into a background
+#    process on Git-for-Windows, and that detached child is the likely concurrent handle-holder
+#    that blocks a commit's `index.lock` cleanup under concurrent-EM (see the consult memo for
+#    the full root-cause). Setting autoDetach=false makes auto-gc run SYNCHRONOUSLY in the
+#    foreground of the triggering command, so it completes and releases its handles before the
+#    command returns — eliminating the "lock outlived the process that created it" race while
+#    preserving automatic repacking (no unbounded loose-object growth, unlike `gc.auto 0`).
+#
+# 2. `core.checkStat minimal`: Git-for-Windows records nanosecond mtimes in the index, but NTFS
+#    reports them back at coarser precision, and the default `checkStat` compares the unstable
+#    ctime/ino/dev fields too — so under concurrent-EM sessions continuously rewriting the
+#    shared .git/index, entries perpetually re-flag as "racy" and `git status` reports a phantom
+#    dirty tree that no `git update-index --refresh` can clear. `minimal` compares only mtime+size,
+#    which are stable across the NTFS round-trip, curing the phantom-dirty churn. Benign and
+#    content-neutral on every platform (no-op effect where ctime/ino are already stable). BECAUSE
+#    it is benign everywhere — unlike gc.autoDetach, which changes auto-gc behavior — `/setup` ALSO
+#    sets core.checkStat as the machine-wide --global default (commands/setup.md § 1a.1); this
+#    script only sets it per-repo. The asymmetry is deliberate, not an oversight.
 #
 # Idempotent: re-running is a no-op if already set. Per-repo by default; pass --global to
 # set the machine-wide default at coordinator install time (covers every current and future
@@ -40,10 +53,11 @@ if [[ "$SCOPE_LABEL" == "repo" ]]; then
   fi
 fi
 
-# Desired hardening settings: key -> value.
-# gc.autoDetach=false is the index.lock-orphan mitigation (see header).
-declare -a KEYS=("gc.autoDetach")
-declare -a VALS=("false")
+# Desired hardening settings: key -> value (see header for per-setting rationale).
+# gc.autoDetach=false  — index.lock-orphan mitigation.
+# core.checkStat=minimal — Git-for-Windows + NTFS phantom-dirty-index mitigation.
+declare -a KEYS=("gc.autoDetach" "core.checkStat")
+declare -a VALS=("false" "minimal")
 
 changed=0
 for i in "${!KEYS[@]}"; do

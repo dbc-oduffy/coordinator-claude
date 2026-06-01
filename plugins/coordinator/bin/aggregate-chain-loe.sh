@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # aggregate-chain-loe.sh — Chain-walk aggregator: traverse a handoff predecessor chain,
 # parse all Session Ledger blocks encountered, and emit summed LoE metrics.
 #
 # Purpose: given the terminal handoff of a multi-session chain (the one consumed by
-# the chain-terminal /session-end), walks the predecessor: chain backward to root,
+# the chain-terminal /workstream-complete), walks the predecessor: chain backward to root,
 # collects every Session Ledger block from every handoff visited, deduplicates by
 # session_id, and emits summed (agent_dispatches, opus_dispatches, em_tokens) +
-# unioned commits + recomputed t-shirt. Consumed by /session-end Step 2.6 on the
+# unioned commits + recomputed t-shirt. Consumed by /workstream-complete Step 2.6 on the
 # chain-terminal path (Chunk 3 wiring).
 #
 # Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
@@ -23,6 +23,15 @@
 #   needed; re-run is free.
 
 set -uo pipefail
+
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: aggregate-chain-loe.sh requires bash 4.0 or later (associative arrays)." >&2
+    echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+    echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it first on PATH:" >&2
+    echo "      brew install bash" >&2
+    echo '      export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc' >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -576,7 +585,7 @@ fi
 case "$FORMAT" in
   yaml-frontmatter)
     # Emit chain-aggregate values as `chain_loe:` nested block (NOT `loe:`)
-    # so session-end can keep the terminal session's own per-session `loe:`
+    # so workstream-complete can keep the terminal session's own per-session `loe:`
     # alongside the chain-aggregate. Wiki + workweek-complete reference
     # chain_loe.tshirt as the XL-surfacing field. Code-reviewer F2/F3/F7 fix.
     cat <<EOF

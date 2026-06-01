@@ -247,7 +247,7 @@ scope:
 **Two schema fields NOT in the template** — they're populated by lifecycle events, not by `roadmap-planning`:
 
 - **`pickup_ready: true`** — defaults to absent for roadmap stubs. Absence triggers a non-blocking warning at `/pickup` time (not a block); the EM proceeds to mutation. `awaiting_gate` + `gate_dependency` is the correct sequencing mechanism for stubs that must not be picked up yet — do not use `pickup_ready` absence as a gate.
-- **`shipped_in: <sha-or-PR-ref>`** — never authored by the roadmap-planning skill. Set by `/handoff` or `/session-end` post-execution when the work transitions to `deployment_state: shipped`. `/distill` requires this field present before deleting an archived stub (Phase 4c safety guard).
+- **`shipped_in: <sha-or-PR-ref>`** — never authored by the roadmap-planning skill. Set by `/handoff` or `/workstream-complete` post-execution when the work transitions to `deployment_state: shipped`. `/distill` requires this field present before deleting an archived stub (Phase 4c safety guard).
 
 <!-- Review: the Staff Engineer — authoring_session must be path-shaped so /pickup can Read the origin context deterministically (P1-2); pickup_ready and shipped_in are lifecycle fields not authored here (P2-5) -->
 
@@ -402,11 +402,11 @@ Before Phase 3:
 For each sprint in `sprint` order:
 
 1. Run `/mise-en-place` on the sprint's stubs (filtered by `query-records --type handoff --where "roadmap_id=<run-id> AND sprint=<N> AND deployment_state=ready_to_fire"`).
-2. After mise completes, the `awaiting_gate` stubs in the next sprint may be ready to transition to `ready_to_fire`. **Do NOT auto-transition.** The `/handoff` or `/session-end` of the sprint's executor sessions transitions individual stubs as their gate clears — and at each transition, the gate-meaningfulness audit (Step 3.2) fires.
+2. After mise completes, the `awaiting_gate` stubs in the next sprint may be ready to transition to `ready_to_fire`. **Do NOT auto-transition.** The `/handoff` or `/workstream-complete` of the sprint's executor sessions transitions individual stubs as their gate clears — and at each transition, the gate-meaningfulness audit (Step 3.2) fires.
 
 ### Step 3.2 — Gate-meaningfulness audit (brief recommendation F)
 
-Implementation surface: `/handoff` and `/session-end` fire the audit when they would write `deployment_state: ready_to_fire` over an existing `awaiting_gate` value. NOT from `/pickup` — pickup transitions to `in_flight`, not `ready_to_fire`. The audit hooks the *unblock* event.
+Implementation surface: `/handoff` and `/workstream-complete` fire the audit when they would write `deployment_state: ready_to_fire` over an existing `awaiting_gate` value. NOT from `/pickup` — pickup transitions to `in_flight`, not `ready_to_fire`. The audit hooks the *unblock* event.
 
 **Detection:** read prior frontmatter from git (`git show HEAD:tasks/handoffs/<file>`); if the prior `deployment_state` was `awaiting_gate` and the new value is `ready_to_fire`, emit:
 
@@ -448,7 +448,7 @@ By the end of a roadmap-planning run:
 - `tasks/roadmap/<run-id>/pm-gates.md` — Phase 2 PM-gate enumeration
 - `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` × N — Phase 2 stubs (one per KEEP / MERGE-target cluster)
 
-Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` clusters them. `/session-start`, `/workday-start`, `/pickup` light up automatically — no second-class artifact.
+Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` clusters them. `/workstream-start`, `/workday-start`, `/pickup` light up automatically — no second-class artifact.
 
 ---
 
@@ -459,8 +459,8 @@ Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` cl
 <!-- Review: the Staff Engineer — gate_dependency text durability is more load-bearing for roadmap stubs because Step 3.2 reads it from git history; file-pathed values go stale on archive-move (P2-7) -->
 
 - **`/project-onboarding`** — verify roadmap-planning is mentioned in the orientation flow when the project tracker contains roadmap entries.
-- **`/session-start`** — query callout already covers `kind: spinoff-roadmap` via the universal `deployment_state=ready_to_fire` filter.
-- **`/session-end`** — verifies session-end's plan-doc update step covers roadmap stubs (no special-case logic; they're spinoffs).
+- **`/workstream-start`** — query callout already covers `kind: spinoff-roadmap` via the universal `deployment_state=ready_to_fire` filter.
+- **`/workstream-complete`** — verifies workstream-complete's plan-doc update step covers roadmap stubs (no special-case logic; they're spinoffs).
 - **`/workday-start`** — Step 1.1 routing groups `kind: spinoff-roadmap` with spinoffs and clusters by `roadmap_id` when count > 3 per group.
 - **Hooks:** `hooks/scripts/session-init.sh` provides a boot-time quiet sweep: consumed handoffs whose authoring session is dead are silently archived to `archive/handoffs/`. Covers orphaned roadmap stubs without roadmap-specific hook logic.
 - **Canonical artifact:** roadmap stubs themselves are the artifact agents will encounter. The `kind:` enum and frontmatter schema make them discoverable via `bin/query-records --list-schemas` and `bin/lint-frontmatter --list-schemas`.
@@ -471,7 +471,7 @@ Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` cl
 
 - Auto-derive `gate_dependency:` text from natural language. Author-supplied only.
 - Cross-repo roadmap rollup. Single-repo only for v1.
-- Auto-trigger gate-meaningfulness on `/pickup` (only on `awaiting_gate → ready_to_fire` transitions, which are `/handoff` and `/session-end` events).
+- Auto-trigger gate-meaningfulness on `/pickup` (only on `awaiting_gate → ready_to_fire` transitions, which are `/handoff` and `/workstream-complete` events).
 - Render dashboards or HTML. The query callout in markdown is the surface.
 - **Replace `coordinator:plan` for single-plan work.** If a roadmap stub itself becomes the basis for a `coordinator:plan` invocation, that's a downstream plan in the same workstream — NOT a continuation of the stub. The picking-up EM running `coordinator:plan` against a stub:
   - keeps the stub's `deployment_state: in_flight` (set by `/pickup` at archival time),

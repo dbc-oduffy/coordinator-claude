@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # scope-warning-resolve — mark a scope-warning log entry with its resolution
 #
 # Usage:

@@ -16,26 +16,31 @@ set -euo pipefail
 umask 077
 
 # ---------------------------------------------------------------------------
-# bash 4.0+ guard
+# bash 4.3+ guard (system admission gate — see below)
 # ---------------------------------------------------------------------------
-# Plugin selection uses an associative array (declare -A SELECTED). macOS ships
-# bash 3.2 (2007, frozen on GPLv2) as /bin/bash, which has indexed arrays but
-# NOT associative arrays — so `bash setup/install.sh` there dies at the first
-# `declare -A` with a cryptic "declare: -A: invalid option" and no context. Fail
-# fast with actionable remediation instead. Mirrors the guard in name-personas.sh.
-# Linux, WSL, and Git Bash for Windows all ship bash 4+ already.
-# (BASH_VERSINFO and (( )) arithmetic exist since bash 2.x, so the guard itself
-# runs fine on 3.2 — it executes well before the first declare -A.)
-if (( BASH_VERSINFO[0] < 4 )); then
-  echo "ERROR: the coordinator-claude installer requires bash 4.0 or later." >&2
+# This installer is the SYSTEM ADMISSION GATE — it must require what the installed
+# coordinator needs to run, not merely what this script uses. The installer itself
+# uses an associative array (declare -A SELECTED, bash 4.0+), but it installs
+# `coordinator-safe-commit` — the commit helper invoked on essentially every commit —
+# which uses `local -n` namerefs (bash 4.3+). So the floor is bash 4.3, enforced here
+# at install time rather than letting the helper abort cryptically on the user's first
+# commit. macOS ships bash 3.2 (2007, frozen on GPLv2) as /bin/bash; install a current
+# bash via Homebrew and run the installer with it. Linux, WSL, and Git Bash for Windows
+# all ship bash 4.3+ already. (BASH_VERSINFO and (( )) exist since bash 2.x, so the
+# guard itself runs fine on 3.2 — it executes well before the first declare -A.)
+# Policy: DR-148-require-bash4-on-macos. Cf. the per-script 4.0 guard in
+# name-personas.sh, which is downstream of this gate and only uses declare -A.
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+  echo "ERROR: the coordinator-claude installer requires bash 4.3 or later." >&2
   echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
   echo "" >&2
-  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and re-run with it:" >&2
+  echo "  macOS ships bash 3.2 as /bin/bash. Install Homebrew (https://brew.sh), then a" >&2
+  echo "  current bash, and re-run the installer with it:" >&2
   echo "      brew install bash" >&2
   echo '      "$(brew --prefix)/bin/bash" setup/install.sh' >&2
   echo "" >&2
   echo "  (Pass the same flags you used here after the script path. Linux, WSL, and" >&2
-  echo "   Git Bash for Windows ship bash 4+ — if you hit this there, upgrade bash via" >&2
+  echo "   Git Bash for Windows ship bash 4.3+ — if you hit this there, upgrade bash via" >&2
   echo "   your package manager.)" >&2
   exit 1
 fi
@@ -1315,6 +1320,21 @@ print(sum(1 for k in plugins if k.endswith('@coordinator-claude')))
     echo "  OK: installed_plugins.json has $found coordinator-claude plugin(s)"
   fi
 
+  # Consumer-side presence check for the OSS-only coordinator-update skill.
+  # This skill is injected into the publish tree by the publish-side hook
+  # (20-inject-oss-only-skills.sh) but is NOT present in the source-is-live
+  # meta-repo tree. A partial copy, permission error, or interrupted install
+  # can silently drop it — the user gets an inert /coordinator-update verb
+  # with no diagnostic. Fail loud here so the installer surfaces the gap.
+  local coordinator_update_skill="$PLUGINS_TARGET/coordinator/skills/coordinator-update"
+  if [[ -d "$coordinator_update_skill" ]]; then
+    echo "  OK: coordinator-update skill present"
+  else
+    echo "  FAIL: coordinator-update skill missing — $coordinator_update_skill"
+    echo "        Re-run the installer to restore it."
+    errors=$((errors + 1))
+  fi
+
   # Issue #9: validation failure must be fatal.
   if [[ "$errors" -gt 0 ]]; then
     echo ""
@@ -1402,7 +1422,7 @@ print_summary() {
   fi
   echo ""
 
-  echo "Next step: restart Claude Code, then run /session-start to verify plugins loaded."
+  echo "Next step: restart Claude Code, then run /workstream-start to verify plugins loaded."
   echo ""
 
   echo "Hit a rough edge getting this working? Patch it — then send the fix back."

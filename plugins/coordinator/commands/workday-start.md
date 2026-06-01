@@ -7,7 +7,7 @@ argument-hint: "[optional day focus]"
 
 # Workday Start — Morning Orientation
 
-Prepare the day's session-start calls to be maximally efficient. Ensure context is fresh, priorities are clear, and any overnight health findings are surfaced.
+Prepare the day's workstream-start calls to be maximally efficient. Ensure context is fresh, priorities are clear, and any overnight health findings are surfaced.
 
 **Announce at start:** "I'm running workday-start to prepare the day's context."
 
@@ -386,7 +386,7 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
-**Skip silently** if `ToolSearch` finds no `mcp__project-rag__*` tool — same gate pattern as `session-start.md`. Coordinator does not depend on project-rag; it only adapts when present.
+**Skip silently** if `ToolSearch` finds no `mcp__project-rag__*` tool — same gate pattern as `workstream-start.md`. Coordinator does not depend on project-rag; it only adapts when present.
 
 When present:
 
@@ -456,7 +456,7 @@ Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint f
   _(Omit this bullet if no spinoffs exist.)_
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
-- **Tracker:** durable snapshot at `tasks/handoff-tracker.md` (refreshed by `/session-end` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). DoE aggregate across all repos: `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos` → `tasks/doe-handoff-tracker.md`.
+- **Tracker:** durable snapshot at `tasks/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). DoE aggregate across all repos: `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos` → `tasks/doe-handoff-tracker.md`.
 
 #### Recent roadmap (last 90d, top-10 by size)
 _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
@@ -476,7 +476,7 @@ Pull from the active state: bugs (top severity first), stale sweep, stale tests,
 [Surface tracker Ready items, handoff action items, and PM-facing options]
 ```
 
-**Set marker:** Write `tasks/.workday-start-marker` with today's date (single line). Session-start checks this one file.
+**Set marker:** Write `tasks/.workday-start-marker` with today's date (single line). Workstream-start checks this one file.
 
 ## Step 5.5: Write Orientation Cache
 
@@ -486,10 +486,10 @@ Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the Sessi
 
 ## What This Does NOT Do
 
-Run bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedicated invocations). Merge to main (use `/merge-to-main`). Choose work (session-start's Engage section).
+Run bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedicated invocations). Merge to main (use `/merge-to-main`). Choose work (`/workstream-start`'s Engage section).
 
 ## Relationship & Concurrent Safety
 
-`workday-start` runs once/day; `session-start` runs per-session and skips redundant checks when the marker is fresh. `/workday-complete` is the evening counterpart. `/update-docs` and `/bug-sweep` are recommended (not dispatched) when state warrants. Read-only for all tracking files; writes only `tasks/.workday-start-marker`. Failure mode to avoid: acting on stale handoff items a concurrent session shipped — Step 1.3's git reconciliation is the prevention.
+`workday-start` runs once/day; `/workstream-start` runs per-session and skips redundant checks when the marker is fresh. `/workday-complete` is the evening counterpart. `/update-docs` and `/bug-sweep` are recommended (not dispatched) when state warrants. Read-only for all tracking files; writes only `tasks/.workday-start-marker`. Failure mode to avoid: acting on stale handoff items a concurrent session shipped — Step 1.3's git reconciliation is the prevention.
 
 If `$ARGUMENTS` is provided, include as a focus hint: _"Requested focus: {arguments}"_

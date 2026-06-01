@@ -245,7 +245,12 @@ fi
 # Hard violation: emit JSON deny on stdout, print warnings to stderr, exit 0.
 if [[ -n "$CLAUDEMD_HARD_VIOLATION" && "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET:-0}" != "1" ]]; then
   if [[ -n "$WARNINGS" ]]; then
-    echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+    # $WARNINGS is the %b ARGUMENT (never the format string — no injection risk).
+    # %b is intentional: WARNINGS is assembled with literal "\n" separators that must
+    # expand to newlines here. Content is internally-built (ShellCheck output + our own
+    # strings); a stray "\c"/"\x.." in that content would be %b-interpreted, but the
+    # inputs don't carry those. Applies to all four warning-banner emits in this file.
+    printf '=== Commit Validation Warnings ===%b\n===================================\n' "$WARNINGS" >&2
   fi
   REASON="BLOCKED: staged CLAUDE.md exceeds 40K char limit (Claude Code perf warning threshold):${CLAUDEMD_HARD_VIOLATION}"$'\n\n'
   REASON+="Trim before committing: demote a section to docs/wiki/ and replace with a pointer."$'\n'
@@ -272,7 +277,7 @@ if [[ -n "$CLAUDEMD_HARD_VIOLATION" && "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET:-
   GIT_ROOT_LOG=$(git rev-parse --show-toplevel 2>/dev/null || true)
   OVERRIDE_LOG="${GIT_ROOT_LOG:-.}/.git/coordinator-sessions/${SESSION_ID:-no-session}/overrides.log"
   mkdir -p "$(dirname "$OVERRIDE_LOG")" 2>/dev/null || true
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | ${SESSION_ID:-no-session} | OVERRIDE-CLAUDEMD-BUDGET |$(echo -e "$CLAUDEMD_HARD_VIOLATION" | tr '\n' ' ')" >> "$OVERRIDE_LOG" 2>/dev/null || true
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | ${SESSION_ID:-no-session} | OVERRIDE-CLAUDEMD-BUDGET |$(printf '%b\n' "$CLAUDEMD_HARD_VIOLATION" | tr '\n' ' ')" >> "$OVERRIDE_LOG" 2>/dev/null || true
   WARNINGS="${WARNINGS}\nCLAUDEMD-BUDGET (override):${CLAUDEMD_HARD_VIOLATION}"
 fi
 
@@ -292,7 +297,7 @@ fi
 if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; then
   # Early-exit path: print accumulated warnings before allowing/denying.
   if [[ -n "$WARNINGS" ]]; then
-    echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+    printf '=== Commit Validation Warnings ===%b\n===================================\n' "$WARNINGS" >&2
   fi
   # If the override env var is set, log and allow:
   if [[ "${COORDINATOR_OVERRIDE_SCOPE:-0}" == "1" ]]; then
@@ -304,7 +309,7 @@ if [[ "${COORDINATOR_SCOPE_STRICT:-0}" == "1" && -n "$SCOPE_FOREIGN_FILES" ]]; t
   REASON="BLOCKED: commit contains files outside this session's scope:${SCOPE_FOREIGN_FILES}"$'\n\n'
   REASON+="Override: set COORDINATOR_OVERRIDE_SCOPE=1 to commit anyway (logged to overrides.log)."$'\n'
   REASON+="Stage explicit paths: git add -- <paths>, then git commit -m \"<subject>\" -- <paths>."$'\n'
-  REASON+="The helper is reserved for sweep ceremonies (/session-start, /workday-complete, /update-docs, relay-protocol, distillation — all --blanket) and agents/executor.md (--expected-branch per SC-DR-006). See docs/wiki/scoped-safety-commits.md SC-DR-008."
+  REASON+="The helper is reserved for sweep ceremonies (/workstream-start, /workday-complete, /update-docs, relay-protocol, distillation — all --blanket) and agents/executor.md (--expected-branch per SC-DR-006). See docs/wiki/scoped-safety-commits.md SC-DR-008."
 
   # Emit the JSON deny form on stdout (only parsed on exit 0).
   # jq is preferred for proper escaping; fall back to printf-based JSON if absent.
@@ -346,7 +351,7 @@ fi
 # Otherwise warn (or block under COORDINATOR_FRONTMATTER_STRICT=1).
 #
 # Doctrine: coordinator/CLAUDE.md:206-209 — deployment_state and status enums are
-# load-bearing for /session-start, /workday-start, query-driven surfacing. A
+# load-bearing for /workstream-start, /workday-start, query-driven surfacing. A
 # frontmatter mutation without a subject-line audit trail makes
 # `git log -- tasks/handoffs/<file>` opaque.
 
@@ -402,7 +407,7 @@ if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
     if [[ "${COORDINATOR_FRONTMATTER_STRICT:-0}" == "1" && "${COORDINATOR_OVERRIDE_FRONTMATTER:-0}" != "1" ]]; then
       # Early-exit path: print accumulated warnings before emitting deny.
       if [[ -n "$WARNINGS" ]]; then
-        echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+        printf '=== Commit Validation Warnings ===%b\n===================================\n' "$WARNINGS" >&2
       fi
       REASON="BLOCKED: commit modifies load-bearing frontmatter without subject-line audit trail.\n\nFiles:${FRONTMATTER_MUTATIONS}\n\nFix: amend commit subject to name the changed key (e.g., 'handoff: flip deployment_state to ready_to_fire') or a lifecycle verb.\n\nOverride: COORDINATOR_OVERRIDE_FRONTMATTER=1 (logged)."
       if command -v jq &>/dev/null; then
@@ -458,7 +463,7 @@ fi
 # themselves before denying. Flushing here (not before Checks 8/9) is what fixes
 # the previously-dropped frontmatter + schema-bump warnings.
 if [[ -n "$WARNINGS" ]]; then
-  echo -e "=== Commit Validation Warnings ===${WARNINGS}\n===================================" >&2
+  printf '=== Commit Validation Warnings ===%b\n===================================\n' "$WARNINGS" >&2
 fi
 
 exit 0

@@ -76,7 +76,7 @@ esac
 # Extract agent_id (snake_case, top-level — subagent fires only).
 # Documented at track-touched-files.sh:72-85: present on subagent fires only;
 # absent on top-level EM fires. EM writes to archive/ are legitimate (e.g.
-# /session-end, /distill, EM-serial commit sweeps); only subagent writes are
+# /workstream-complete, /distill, EM-serial commit sweeps); only subagent writes are
 # the violation class this hook addresses.
 # Format guard: lowercase hex, 12+ chars (Probe 0.1 captured 17-char hex).
 AGENT_ID=""

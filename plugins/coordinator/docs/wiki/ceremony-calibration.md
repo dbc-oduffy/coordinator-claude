@@ -35,6 +35,10 @@ The failure mode is applying the heaviest shape uniformly because "queue-clear" 
 
 *2026-05-29, project-rag.* A queue/handoff item framed as a "small fix" can conceal a product decision or an architectural fork — the conflicting ground-truth surfaces only once the EM starts coding. **Before dispatching a small-fix into an execution path, check whether the fix presupposes a decision that isn't actually settled.** When two sources of truth disagree about the desired end-state (the bug report wants X, the architecture implies not-X), that is a fork to *defuse* (surface to PM / route through `/shape` or `coordinator:plan`), not a fix to *code*. Never dispatch an executor onto a path whose ground-truth is internally contradictory — the executor will pick one side silently and ship a decision nobody made. Tell: the "fix" requires the executor to decide *which behaviour is correct*, not just *how to implement the agreed behaviour*. This is the calibration axis (§ TL;DR) applied to disguised forks — a product-decision wearing a small-fix costume earns ceremony, not direct dispatch.
 
+## Cross-repo memo ceremony — the receiver calibrates magnitude
+
+*2026-06-01, claude-central.* When you Accept an inbound cross-repo memo-ask, the ceremony it earns is the **receiver's** call, not a sender-declared field — magnitude is not knowable to the sender. **Default to mechanical-direct** (do the work, commit both sides where authorized, action the memo — no plan, no round-trip); **escalate to a plan only on a named weighty signal** per § TL;DR (novel decision / instance-#1 with downstream occupancy / vague framing). A plainly-worded ask is not therefore a weighty one: the sender states work plainly (the presume-action authoring rule), the receiver decides how big a deal it is — complementary halves, not one knob. This is the cross-repo-memo instance of the calibration axis; the canonical procedure lives in [`cross-repo-communication.md`](./cross-repo-communication.md) § Picking up a memo (adjudicate-and-own includes ceremony). Keep it distinct from the **channel** axis (`triad-roles-doctrine.md` §208 — *whether to use the memo channel at all*, keyed to governance): channel and ceremony are orthogonal, not nested. Conflating them is the over-ceremony failure mode this entry exists to prevent.
+
 ## Vague-vs-concrete framing
 
 **`/brainstorming` is for vague requirements, not well-scoped follow-ups.** When the PM says "build X and the way is clear," skip brainstorm — go straight to plan. When the PM says "we should probably do something about Y" with multiple plausible shapes, brainstorm. The signal is whether the action's *shape* is contested, not whether it's hard. Hard-but-clear → plan. Easy-but-shape-unknown → brainstorm.
@@ -101,9 +105,9 @@ Small framing is not a discount lens on review doctrine. A workstream may be sma
 
 Inline triage by the EM is a legitimate fallback when a classification scout fails (1M-tail-error, TEXT-ONLY hallucination), provided the EM applies the same bucket schema the scout would have used AND records the inline-vs-dispatched decision. Don't redispatch over a partial scout result if disciplined inline finish is cheaper.
 
-## Session-end-as-defer is hedging in disguise
+## Workstream-complete-as-defer is hedging in disguise
 
-Mid-session offering to defer non-blocking work to a future session — "want me to session-end and pick this up next time?" — is the anti-ambition tell. When findings are applicable now, apply them; reserve `session-end` for genuine completion or PM redirect. The "we could do less" framing rationalizes the heaviest ceremony available (close out, write a handoff, restart) for what's actually a tradeoff between two minutes of work and an hour of context-loss next time. Default: keep going. Only invoke session-end when it's the *cheapest* remaining action, not the easiest *to ask permission for*.
+Mid-session offering to defer non-blocking work to a future session — "want me to workstream-complete and pick this up next time?" — is the anti-ambition tell. When findings are applicable now, apply them; reserve `/workstream-complete` for genuine completion or PM redirect. The "we could do less" framing rationalizes the heaviest ceremony available (close out, write a handoff, restart) for what's actually a tradeoff between two minutes of work and an hour of context-loss next time. Default: keep going. Only invoke `/workstream-complete` when it's the *cheapest* remaining action, not the easiest *to ask permission for*.
 
 ## Phase deferral beats redundant smoke-spend
 
@@ -132,7 +136,7 @@ one context window, it drops edge cases at the seam between tasks.
 
 ## Daily-ceremony gate discipline
 
-Daily ceremony gates (gates in /workday-complete, /session-end, /workday-start) MUST test
+Daily ceremony gates (gates in /workday-complete, /workstream-complete, /workday-start) MUST test
 TODAY'S WORK — the diff, the commits, the branch state. Machine-configuration diagnostics and
 pre-publish style lints do not belong in daily-ceremony gates.
 

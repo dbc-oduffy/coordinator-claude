@@ -172,6 +172,33 @@ describe('coordinator-safe-commit', () => {
     }
   });
 
+  it('CLAUDE_INVOKING_COMMAND=workstream-start + --blanket stages everything (exit 0)', () => {
+    // additive: workstream-start is the new ceremony token alongside session-start
+    if (!bashAvailable) return;
+    const subRepo = mkTempRepo();
+    const bSid = `test-blanket-ws-${process.pid}`;
+    try {
+      const filePath = path.join(subRepo, 'ws-blanketfile.md');
+      fs.writeFileSync(filePath, 'workstream-start blanket content');
+      execSync('git add ws-blanketfile.md', { cwd: subRepo, stdio: 'pipe' });
+      makeSession(subRepo, bSid);
+
+      const r = runBash(SAFE_COMMIT, ['--blanket', 'test: workstream-start blanket'], {
+        cwd: subRepo,
+        env: {
+          ...process.env,
+          CLAUDE_SESSION_ID: bSid,
+          CLAUDE_CODE_SESSION_ID: bSid,
+          CLAUDE_INVOKING_COMMAND: 'workstream-start',
+          HOME: os.homedir(),
+        },
+      });
+      assert.equal(r.status, 0, `Expected exit 0 for blanket+workstream-start. stderr: ${r.stderr}`);
+    } finally {
+      cleanupTempRepo(subRepo);
+    }
+  });
+
   it('--blanket without CLAUDE_INVOKING_COMMAND is rejected (non-zero exit)', () => {
     if (!bashAvailable) return;
     const subRepo = mkTempRepo();
@@ -186,8 +213,9 @@ describe('coordinator-safe-commit', () => {
       });
       assert.notEqual(r.status, 0, 'Expected non-zero exit when blanket used without CLAUDE_INVOKING_COMMAND');
       assert.ok(
-        r.stderr.includes('session-start') || r.stderr.includes('workday-complete'),
-        `Expected rejection message mentioning valid commands. stderr: ${r.stderr}`
+        r.stderr.includes('workstream-start') &&
+          (r.stderr.includes('session-start') || r.stderr.includes('workday-complete')),
+        `Expected rejection message mentioning the new workstream-start token (and a deprecated/peer token). stderr: ${r.stderr}`
       );
     } finally {
       cleanupTempRepo(subRepo);

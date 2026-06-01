@@ -66,7 +66,7 @@ esac
 
 ### Hook-context callers (project-orientation.sh)
 
-Hook scripts run at session boot and must NOT block it. Wrap the entire gate-and-generate
+Hook scripts run at session open and must NOT block it. Wrap the entire gate-and-generate
 block in a guard that exits 0 on any failure:
 
 ```bash

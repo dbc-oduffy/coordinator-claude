@@ -133,7 +133,7 @@ splits a section, refactors prose — while preserving intent, the classifier co
 diff between their prose customization and the new structural version of the same skill. The
 classifier gives them the diff and lets them decide; it cannot tell them "the new version says
 the same thing in a better structure — your edit is still valid, you just need to rebase it."
-For skills with heavy consumer customization (e.g. `session-start.md` with project-specific
+For skills with heavy consumer customization (e.g. `workstream-start.md` with project-specific
 steps added), this results in a `--overwrite-modified` prompt where the consumer wants the new
 structure but is afraid of losing their customization.
 
@@ -204,7 +204,7 @@ drift or notice a discrepancy in agent behavior.
 of C3). Consumption at boot is the parked extension: we have the data; we have not built the
 reader. The `/workday-start` Step 1.10 Addon Health already surfaces `[drift]` when the sentinel
 mismatches — the probe is there; the question is whether to surface a softer "N versions behind,
-here is the changelog link" nudge at session-start as well.
+here is the changelog link" nudge at workstream-start as well.
 
 **Revisit trigger.** When a consumer reports a **doctrinal flip silently disagreeing with their
 stale install** — specifically, an agent that behaved one way on their machine and a different way

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# probe-cwd-project-rag-relevance.sh — Session-start gift-shape signal for project-RAG visibility.
+# probe-cwd-project-rag-relevance.sh — Workstream-start gift-shape signal for project-RAG visibility.
 #
 # Purpose: Detect whether the current working directory has a project-RAG binding, assess MCP
 # health, and apply a UE enrichment layer when a Unreal Engine project is detected. Emits

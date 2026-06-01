@@ -34,10 +34,22 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Constants
+# Constants — sourced from lib/oss-repo-constants.sh (single source of truth)
 # ---------------------------------------------------------------------------
+# Spec backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C2
+# Negative-spec: DO NOT define CANONICAL_PUBLISH_URL inline here — it lives in
+# lib/oss-repo-constants.sh. That file must be sourced before use.
 
-CANONICAL_PUBLISH_URL="https://github.com/dbc-oduffy/coordinator-claude.git"
+_COMPUTE_DELTA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_OSS_CONSTANTS="${_COMPUTE_DELTA_DIR}/../../../../lib/oss-repo-constants.sh"
+if [[ ! -f "$_OSS_CONSTANTS" ]]; then
+    echo "ERROR: lib/oss-repo-constants.sh not found at ${_OSS_CONSTANTS}" >&2
+    exit 4
+fi
+# shellcheck source=../../../../lib/oss-repo-constants.sh
+source "$_OSS_CONSTANTS"
+
+CANONICAL_PUBLISH_URL="${COORDINATOR_PUBLISH_URL}"
 
 # The marketplace.json path (relative, POSIX) that install.sh always rewrites.
 MARKETPLACE_JSON_PATH="coordinator/.claude-plugin/marketplace.json"

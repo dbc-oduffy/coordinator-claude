@@ -430,7 +430,7 @@ Run Step 7 prelude (external to skill body) to compute seam-first chunks and wri
 - `test-evidence-parser` (Sonnet): runs test suite, classifies failures, full week diff always.
 
 The three mechanical workers ALWAYS run on the full week diff. They are never scoped down
-by the trail — session-end reviews do not invoke them, so "trail-covered" ≠ "mechanically
+by the trail — workstream-complete reviews do not invoke them, so "trail-covered" ≠ "mechanically
 covered."
 
 **Step C (sequential — after all workers return):**
@@ -478,7 +478,7 @@ surfaces to PM as recommendations only.
 The base `code-reviewer.md` is read-only. The weekly variant authorizes exactly one Write
 target: the assigned findings path (`$FINDINGS_DIR/chunk-<k>.md`). The base read-only
 contract is intentionally preserved — adding Write to the base would grant Write to
-session-end dispatches (explicitly out-of-scope). Any extension of the weekly variant's
+workstream-complete dispatches (explicitly out-of-scope). Any extension of the weekly variant's
 Write surface requires EM explicit scope-check on return via `git status`.
 
 ### Cost envelope (per merge gate invocation)
@@ -493,7 +493,7 @@ Write surface requires EM explicit scope-check on return via `git status`.
 | synthesizer (Sonnet, in/out) | 15–40K / 3–8K |
 
 Total: ~75–200K tokens. Expected frequency: 1–3× per active day. This is the justified
-cost — multi-lens mechanical sweep at merge is the gate that session-end reviews and
+cost — multi-lens mechanical sweep at merge is the gate that workstream-complete reviews and
 plan-time reviews do not substitute for.
 
 ## Reviewer Elevation Past Charter
@@ -533,7 +533,7 @@ is a **doctrine violation** — persona prompt complexity is calibrated for Opus
 Sonnet yields a "Sonnet-flavored the Staff Engineer" without the payoff. → `agents/code-reviewer.md`.
 
 **2. Sonnet-tier code review uses `code-reviewer`, not a persona at Sonnet.** The dedicated agent
-at `agents/code-reviewer.md` is the correct tool for session-end review, handoff review, mid-session
+at `agents/code-reviewer.md` is the correct tool for workstream-complete review, handoff review, mid-session
 quick review, and all code-output review contexts. Read-only tool surface (no Edit/Write);
 OK/WARN/BLOCKED verdict enum where BLOCKED is advisory (EM retains shipping authority).
 
@@ -541,7 +541,7 @@ OK/WARN/BLOCKED verdict enum where BLOCKED is advisory (EM retains shipping auth
 reviewer. `code-reviewer` is the diff reviewer, scoped to weak tests / dead code / naming /
 correctness on a frozen diff — not architectural judgment on a plan body. If a plan is worth
 reviewing, dispatch the appropriate Opus persona; if it's not worth that ceremony, skip review
-and let `code-reviewer` catch issues on the diff at `/session-end`. Triage happens at
+and let `code-reviewer` catch issues on the diff at `/workstream-complete`. Triage happens at
 plan-time (plan-or-just-do-it), not at review-time (review-or-downgrade).
 
 **4. Parallel dispatch exception is merge-gate-only.** The carve-out from the sequential-dispatch

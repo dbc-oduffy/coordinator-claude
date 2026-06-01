@@ -235,9 +235,12 @@ declare -A TARGET_NATIVE_SLUGS=()
 
 # Pattern matching helpers — $1 is a PCRE regex (not a literal string).
 # Safe with hardcoded REVIEW_PATTERNS; do NOT pass unvalidated user input.
-# LC_ALL=C ensures grep -P works on Windows/MSYS2 (avoids "unibyte and UTF-8 locales" error).
-perl_match() { LC_ALL=C grep -qE "$1" "$2"; }
-perl_any()   { LC_ALL=C grep -E  "$1" "$2"; }
+# Uses perl for regex so \b word-boundaries work on macOS/BSD/Linux without
+# requiring GNU grep. LC_ALL=C on grep was needed for MSYS2; perl handles
+# encoding cleanly on its own.
+# Portability fix: replaced grep -P (GNU/PCRE-only) with perl -ne (universally available).
+perl_match() { perl -ne '$f=1 if /'"$1"'/; END{exit !$f}' "$2"; }
+perl_any()   { perl -ne 'print if /'"$1"'/' "$2"; }
 
 # Global array for per-target file tracking (populated by sync_mirror/sync_manifest)
 AUDIT_FILES=()
@@ -765,6 +768,30 @@ for target_entry in "${TARGETS[@]}"; do
     continue
   fi
 
+  # Dirty-tree guard: publish copies the WORKING TREE of $SOURCE_DIR, so
+  # uncommitted (or stash-resurrected — see 2026-05-31) edits would ship to the
+  # publish target. Refuse when the source subtree is dirty, unless
+  # COORDINATOR_OVERRIDE_DIRTY_TREE=1. Skipped when SOURCE_DIR is not inside a git
+  # work tree (can't assess). Dry-run warns but never aborts.
+  if git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    dirty="$(git -C "$SOURCE_DIR" status --porcelain -- . 2>/dev/null)"
+    if [[ -n "$dirty" ]]; then
+      if $DRY_RUN; then
+        echo "  WARNING: $SOURCE_DIR has uncommitted changes — these would publish from the working tree:" >&2
+        printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+      elif [[ "${COORDINATOR_OVERRIDE_DIRTY_TREE:-0}" == "1" ]]; then
+        echo "  WARNING: $SOURCE_DIR is dirty; COORDINATOR_OVERRIDE_DIRTY_TREE=1 set — publishing working-tree state anyway." >&2
+      else
+        echo "  Error: $SOURCE_DIR has uncommitted changes; refusing to publish working-tree state." >&2
+        echo "         Commit first, or set COORDINATOR_OVERRIDE_DIRTY_TREE=1 to override." >&2
+        printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+        echo "  Skipping $name."
+        echo ""
+        continue
+      fi
+    fi
+  fi
+
   # Validate target path exists
   if [[ ! -d "$path" ]]; then
     echo "  Error: target path does not exist: $path" >&2
@@ -842,12 +869,20 @@ for target_entry in "${TARGETS[@]}"; do
         if [[ -n "$_bare_ident" ]] && perl_match "\\b${_bare_ident}\\b" "$f"; then
           # Build allow_re from PERSONAL_ALLOW_TOKENS, joined by '|'. Add
           # per-target native_slugs (comma-separated → '|'-separated) if set.
+          # CONTRACT: allow_re tokens are interpolated verbatim into a Perl inline
+          # regex — tokens must not contain Perl metacharacters (., *, +, (, ), [, ],
+          # ^, $, ?, {, }, \, |). Current live tokens (e.g. "foo-delphi", "O'Duffy")
+          # are safe. If you add a token with a metacharacter, escape it first or
+          # pre-process with quotemeta.
           allow_re="$(IFS='|'; echo "${PERSONAL_ALLOW_TOKENS[*]}")"
           _slugs="${TARGET_NATIVE_SLUGS[$name]:-}"
           if [[ -n "$_slugs" ]]; then
             allow_re="${allow_re}|${_slugs//,/|}"
           fi
-          if perl_any "\\b${_bare_ident}\\b" "$f" | perl -ne "\$f=1 if !/$allow_re/; END{exit !\$f}"; then
+          # Collect grep output before piping to perl — avoids SIGPIPE false-negative
+          # under set -o pipefail when perl exits early after finding a disallowed match.
+          _matches="$(perl_any "\\b${_bare_ident}\\b" "$f" || true)"
+          if printf '%s\n' "$_matches" | perl -ne "\$f=1 if !/$allow_re/; END{exit !\$f}"; then
             echo "  REVIEW  [bare ${_bare_ident}]  $f"
             local_review_found=true
           fi
@@ -865,6 +900,11 @@ for target_entry in "${TARGETS[@]}"; do
   fi
 
   # Phase 5: write last-sync marker (real run only; inverse-drift anchor for /percolate)
+  # SEMANTICS: records the DESTINATION repo HEAD at the time of publish — this is the
+  # pre-publish HEAD (before the operator commits the synced files). The marker therefore
+  # represents "what was in the destination just before this publish run", not the
+  # post-commit state. /percolate uses it to detect inverse-drift (dest changes since
+  # last sync); its anchor being pre-commit is intentional and expected.
   if ! $DRY_RUN; then
     if [[ -d "$path/.git" ]] || git -C "$path" rev-parse --git-dir &>/dev/null; then
       dest_head="$(git -C "$path" rev-parse HEAD 2>/dev/null || true)"

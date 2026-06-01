@@ -15,7 +15,7 @@ Review the debt backlog, verify items are still relevant, re-prioritize based on
 ## When to Trigger
 
 - On demand (PM or EM invocation)
-- When debt backlog exceeds 20 open items (surfaced by weekly-architecture-audit with escalating insistence — mild concern at >20, visible the Staff Engineer disappointment at >30, coffee-down intervention at >40 — and by session-start)
+- When debt backlog exceeds 20 open items (surfaced by weekly-architecture-audit with escalating insistence — mild concern at >20, visible the Staff Engineer disappointment at >30, coffee-down intervention at >40 — and by workstream-start)
 - After a major refactor that may have resolved multiple debt items
 
 ## The Process

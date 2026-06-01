@@ -315,7 +315,7 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 
 The `Status:` field is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. See ARCHITECTURE.md § "The Write-Ahead Status Protocol" for the full state machine.
 
-**`## Deviations` is auto-appended at session completion — do not hand-author it.** When the session's work was governed by this plan and the implementation deviated from the plan's forecast, `/session-end` Step 2.4 appends a `## Deviations` audit table and corrects the affected ALLOWLIST sections in place. This section is provenance-only and intentionally non-crystallized — `/distill` drops it as `[EPHEMERAL]`. Writing your own `## Deviations` section before session-end will conflict with the auto-append. → `docs/wiki/plan-deviation-reconciliation.md` for the full format and contact-point contract.
+**`## Deviations` is auto-appended at workstream completion — do not hand-author it.** When the session's work was governed by this plan and the implementation deviated from the plan's forecast, `/workstream-complete` Step 2.4 appends a `## Deviations` audit table and corrects the affected ALLOWLIST sections in place. This section is provenance-only and intentionally non-crystallized — `/distill` drops it as `[EPHEMERAL]`. Writing your own `## Deviations` section before workstream completion will conflict with the auto-append. → `docs/wiki/plan-deviation-reconciliation.md` for the full format and contact-point contract.
 
 ## Acceptance Oracle (outer-loop)
 
@@ -369,7 +369,7 @@ Dispatch-graph doctrine: at `coordinator:execute-plan` Phase 1.5, the EM decides
 
 ### Green-gate seam topology
 
-The acceptance-oracle gate runs as **authoritative** at `coordinator:merging-to-main` Step 0 — the merge choke point: oracle-bearing plans with red/missing gate-bound tests hard-block the merge via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the merge boundary). `/session-end` and `/workday-complete` emit offer-shaped notices, never hard blocks (they are not merges). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the merge-boundary skill is the choke; CI is a separate infrastructure concern.
+The acceptance-oracle gate runs as **authoritative** at `coordinator:merging-to-main` Step 0 — the merge choke point: oracle-bearing plans with red/missing gate-bound tests hard-block the merge via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the merge boundary). `/workstream-complete` and `/workday-complete` emit offer-shaped notices, never hard blocks (they are not merges). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the merge-boundary skill is the choke; CI is a separate infrastructure concern.
 
 Gate mechanism: `check-acceptance-oracle.sh <plan-path>`. Override: `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` skips the gate (exceptional use; `cited:` is the routine accommodation). Registered in `docs/wiki/coordinator-tripwires.md`.
 
@@ -805,6 +805,12 @@ Before shipping any "blocked on X" / "gated on Y" / "closes when Z" language, ch
 ## Gate on the Discriminating Signal, Not the Coarse Aggregate
 
 When a plan gates downstream behavior on a status, color, or rollup that aggregates multiple underlying conditions, gate on the *discriminating* sub-signal instead — the coarse aggregate fires on cases that need opposite handling. **Worked example (doctor F-2, 2026-05-23 project-rag):** a fresh-state offer was gated on `AMBER`, but `AMBER` fires both on never-indexed (INFO — the offer is correct) *and* on half-indexed-WARN (a real problem the offer would paper over). The fix gates the offer on the never-indexed INFO branch specifically, not the AMBER color. At plan-write time, for any gate keyed on an aggregate: enumerate every underlying condition the aggregate rolls up, and confirm they all want the same downstream action. If they diverge, gate on the discriminating branch. Source: 2026-05-23 project-rag.
+
+## Invokable Skill/Command Names Can Collide With Evolving Platform Vocabulary
+
+`coordinator:fan-out` shipped 2026-05-27; within 3 days "fan out" became native Claude Code dispatch vocabulary, forcing a skill→methodology demotion (2026-05-30). A command verb that is also a platform primitive is a latent collision.
+
+**Rule (Branch C skill-scaffold checklist item):** when naming a new invokable skill/command, prefer a collision-free verb and re-check against current platform primitives at the time of authoring. Platform vocabulary evolves post-ship — a name collision that didn't exist at creation may appear at any future Claude Code release. The only resilient defense is to avoid platform-verb-shaped names at the outset. (Source: ~/.claude, 2026-05-30.)
 
 ## VERBATIM / Spelling-Lock Blocks Must Carve Out Standard Capitalization
 

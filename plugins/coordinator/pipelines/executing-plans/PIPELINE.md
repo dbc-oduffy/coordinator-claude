@@ -38,7 +38,7 @@ Do NOT pause between tasks to ask "should I proceed?" or "ready for feedback?" �
 After all tasks complete and verified:
 - Commit any uncommitted work (scoped, explicit-path; EM-remit quick-save).
 - Report what landed and the branch it's committed on.
-- **Offer the natural next step — do not auto-invoke it:** `/session-end` caps the workstream (lessons, docs, session-end review). Branch disposition (merge / PR / keep) is a **separate, PM-invoked** decision reaching the keyword-gated `/merge-to-main` — execute-plan does **not** chain into `coordinator:finishing-a-development-branch`.
+- **Offer the natural next step — do not auto-invoke it:** `/workstream-complete` caps the workstream (lessons, docs, workstream-complete review). Branch disposition (merge / PR / keep) is a **separate, PM-invoked** decision reaching the keyword-gated `/merge-to-main` — execute-plan does **not** chain into `coordinator:finishing-a-development-branch`.
 
 ## When to Stop and Reassess
 
@@ -78,5 +78,5 @@ After all tasks complete and verified:
 - **coordinator:plan** - Creates the plan this skill executes
 
 **Offered (not chained) after all tasks:**
-- **coordinator:session-end** - Natural next step; caps the workstream (lessons, docs, review)
+- **coordinator:workstream-complete** - Natural next step; caps the workstream (lessons, docs, review)
 - Branch disposition (merge / PR / keep) is a separate, PM-invoked decision — execute-plan does not chain into **coordinator:finishing-a-development-branch**

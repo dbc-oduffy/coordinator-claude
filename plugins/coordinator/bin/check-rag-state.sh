@@ -9,7 +9,7 @@
 #
 # Output (stdout, one token):
 #   absent   — no project-RAG MCP tool is registered in this session
-#   stale    — RAG present but staleness banner was emitted at session boot (W1 hook)
+#   stale    — RAG present but staleness banner was emitted at session start (W1 hook)
 #   fresh    — RAG present and freshness marker is current
 #   unknown  — could not determine state from bash-readable signals
 #
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 # ── Marker file locations ────────────────────────────────────────────────────
-# The W1 hook (project-rag-detect.*) writes these markers at session start.
+# The W1 hook (project-rag-detect.*) writes these markers at session open.
 # Location preference: CLAUDE_PLUGIN_ROOT if set, else ~/.claude heuristic.
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/coordinator-claude/coordinator}"

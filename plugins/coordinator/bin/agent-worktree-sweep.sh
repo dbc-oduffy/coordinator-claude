@@ -259,7 +259,8 @@ for entry in "${WORKTREES[@]:-}"; do
       # (where ACTIVE_BRANCH is empty), so the commits-clean + REAP=1 path that reaches this
       # line is unreachable when ACTIVE_BRANCH is empty. Invariant depends on that guard
       # ordering above — do not reorder the REAP=0 detached-HEAD clamp below COMPARE_REF.
-      mapfile -t COMMITS < <(git -C "$WT_PATH" rev-list --reverse "${ACTIVE_BRANCH}..HEAD")
+      COMMITS=()
+      while IFS= read -r line; do COMMITS+=("$line"); done < <(git -C "$WT_PATH" rev-list --reverse "${ACTIVE_BRANCH}..HEAD")
       PICKED=0
       PICK_FAILED=""
       for sha in "${COMMITS[@]}"; do

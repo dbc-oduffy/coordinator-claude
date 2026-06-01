@@ -4,15 +4,15 @@
 
 ## Overview
 
-The "night shift colleague" — reviews today's commits, dispatches a reviewer for any issues, applies findings via review-integrator, and updates health tracking. Results are ready for the next morning's session-start.
+The "night shift colleague" — reviews today's commits, dispatches a reviewer for any issues, applies findings via review-integrator, and updates health tracking. Results are ready for the next morning's workstream-start.
 
 **Announce at start:** "I'm using /code-health to review recent commits."
 
 ## When to Trigger
 
 - **End-of-day (primary):** `/workday-complete` runs this as part of its health survey phase
-- **On-demand:** Available in the session-start maintenance menu (Option 6)
-- **NOT auto-triggered at session-start.** The PM runs 30+ sessions/day; automatic health checks would be friction, not value
+- **On-demand:** Available in the workstream-start maintenance menu (Option 6)
+- **NOT auto-triggered at workstream-start.** The PM runs 30+ sessions/day; automatic health checks would be friction, not value
 
 ## The Process
 
@@ -124,7 +124,7 @@ For any findings not fixed inline:
 
 ### Step 7: Write Health Summary
 
-Write results to `tasks/health-summary.md` — this is what session-start reads the next morning:
+Write results to `tasks/health-summary.md` — this is what workstream-start reads the next morning:
 
 ```markdown
 # Health Summary

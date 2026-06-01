@@ -445,6 +445,19 @@ Because the value is shell-evaluated once by `bash -c`, operators **MUST single-
 authoritative absolute path in Step 4g; a cwd-relative path would silently no-op when
 `/workweek-complete` runs from the meta-repo cwd — the exact bug DR-146 fixed.
 
+**Per-repo scoping (`--scope-repo`).** Step 4g passes the releasing repo's root
+(`git rev-parse --show-toplevel`) as `--scope-repo`, so the gate is scoped to that repo, **not**
+machine-global. The **meta-repo** (`${HOME}/.claude`, the coordinator home) is the explicit check-all
+case — releasing it covers every `copy_install` plugin on the machine. Any **consumer repo** (project-rag,
+dronesim, geneva-mvp, …) checks only `copy_install` plugins whose `source_path` IS that repo — usually
+none, so a clean no-op. This prevents a consumer-repo release from gating on a *sibling* plugin's
+live-install drift, which would violate the dependency-direction invariant (a host must never be forced
+to sync with a consumer's state). Path forms are normalized before comparison (Windows `X:/` vs MSYS
+`/x/` vs `$HOME`-derived `/c/`), so the meta-repo and `source_path` matches survive cross-platform path
+representations. Omitting `--scope-repo` (direct callers, tests) retains the legacy emit-all behavior.
+The scope filter runs **before** the `copy_install`-seen counter, so a consumer repo that legitimately
+sources none of the registered plugins exits `0` (clean), not `3` (misconfig).
+
 **Distinct from `refresh_cmd` on rollback.** `refresh_cmd` runs inside `refresh-plugin-live-install.sh`,
 which wraps it with snapshot + REPLACE-semantics rollback (it *mutates* the live install). `reverse_drift_cmd`
 is a **detection-only read** — it never mutates anything, so it is invoked bare in a loop with no

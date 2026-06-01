@@ -28,9 +28,10 @@ erroring, so a habitual `bash` prefix is forgiven, not punished. `--help` lists
 every flag (and `bash cross-repo-memo --help` now prints it instead of a
 traceback). Do NOT route it through `pythonw`/`py` to dodge the Windows console
 flash: pythonw discards stdout, and this CLI prints the receiver path on stdout
-that you must hand the PM. The transient flash is covered machine-wide by the
-ConPTY belt (docs/plans/2026-05-29-windows-console-flash-elimination.md), not by
-per-call interpreter gymnastics.
+that you must hand the PM. The transient flash from this manually-invoked CLI is
+acceptable (not a hot-path spawn); the recurring blue powershell.exe flash was the
+PowerShell tool backing process, fixed separately by CLAUDE_CODE_USE_POWERSHELL_TOOL=0
+— not per-call interpreter gymnastics.
 
 Spec backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
 Prior spec: docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 2
@@ -46,7 +47,7 @@ Single-delivery-copy model (PM ruling 2026-05-23):
 - The receiver reads the dirty file, acts on it, flips status: open → actioned
   in place via a normal Edit + commit. Terminal state — no move, no closure
   subcommand, no second side.
-- The act of sending is noted in the sender's normal session-end notes.
+- The act of sending is noted in the sender's normal workstream-complete notes.
 
 Negative-spec: There is NO closure subcommand. The receiver edits the memo in
 place (open → actioned). Do NOT add a --close/--action subcommand — receiver
@@ -176,6 +177,14 @@ _PUBLISH_TARGET_EM_IDS: frozenset[str] = frozenset({
     "coordinator-claude",
     "deep-research-claude-em",
     "deep-research-claude",
+    # Registry-shortname asymmetry guard: the deep-research publish mirror is
+    # commonly registered under repos.deep_research (NOT repos.deep_research_claude),
+    # which reverses to 'deep-research-em' — distinct from the 'deep-research-claude-em'
+    # doctrine name above. Both must be rejected: either way the path resolves to the
+    # OSS mirror (X:/deep-research-claude), where no EM reads inbound memos. Without
+    # this row, `--to deep-research-em` silently misdelivers — the exact D6 failure.
+    "deep-research-em",
+    "deep-research",   # bare shortname, same defense as 'coordinator-claude' / 'deep-research-claude' above
 })
 
 
@@ -246,6 +255,12 @@ def _resolve_python() -> str:
     override = os.environ.get("CROSS_REPO_MEMO_PYTHON")
     if override:
         return override
+    # python3-first is correct HERE (subprocess calls to _machine_local.py): macOS
+    # ships python3 and no bare `python` post-Catalina; Windows clean installs have
+    # `python` but no `python3`, so the fallback covers it. This is NOT in tension
+    # with the module docstring's `python`-not-`python3` rule — that rule governs the
+    # polyglot shebang/exec line (which must run under bash on a clean Windows box),
+    # a different concern from interpreter resolution for a Python subprocess.
     for candidate in ("python3", "python"):
         try:
             result = subprocess.run(
@@ -344,6 +359,62 @@ def _known_receiver_ids() -> list[str]:
     """
     sibling_ids = sorted(_repo_key_to_em_id(k) for k in _machine_local_repos_keys())
     return ["claude-central-em"] + sibling_ids
+
+
+def _format_receiver_listing() -> str:
+    """Human-readable enumeration of every valid --to target on this machine.
+
+    Doctrine: docs/wiki/cross-repo-communication.md § CLI (Discovering valid receivers).
+
+    This is the canonical receiver-discovery surface, and it exists to close a
+    specific failure: an EM enumerating receivers via `machine-local keys |
+    grep '^repos\\.'` sees only the repos.* siblings, never claude-central-em
+    (central is special-cased in _resolve_receiver_path, NOT a registry key).
+    The compliant-but-wrong inference is "central is not a registered receiver"
+    → hand-author into ~/.claude/cross-repo/inbox/, the exact anti-pattern the
+    CLI exists to prevent. This listing always names central FIRST, decoupled
+    from the registry, so the discovery instinct is answered correctly.
+
+    Reuses _machine_local_repos_keys / _repo_key_to_em_id / _machine_local_get —
+    the same convention that backs delivery — so the listing can never drift
+    from what --to actually resolves.
+    """
+    lines = [
+        "Valid --to receivers on this machine:",
+        "",
+        "  claude-central-em   → ~/.claude (coordinator home / the DoE)",
+        "                        aliases: central-em, central",
+        "                        ALWAYS available — not a repos.* key, never in `machine-local keys`",
+        "",
+    ]
+    # Filter out publish-target EM ids: they are registered repos.* keys but the
+    # CLI hard-rejects them as receivers (they are outward distribution mirrors,
+    # not EM working trees). A discovery surface must not list a target --to will
+    # reject — that would be exactly as misleading as omitting central.
+    repo_keys = _machine_local_repos_keys()
+    sibling_rows = []
+    for key in sorted(repo_keys):
+        em_id = _repo_key_to_em_id(key)
+        if _is_publish_target_em(em_id):
+            continue
+        path = _machine_local_get(key) or f"(key present but unresolved — run: machine-local get {key})"
+        sibling_rows.append(f"    {em_id}   → {path}")
+    if sibling_rows:
+        lines.append("  Sibling repos (machine-local registry, repos.*):")
+        lines.extend(sibling_rows)
+    else:
+        lines.append(
+            "  (no sibling repos registered — "
+            "`machine-local set repos.<name> <path>` to add one)"
+        )
+    lines.append("")
+    lines.append(
+        "Note: publish-target mirrors are deliberately omitted — they are outward "
+        "distribution mirrors, not EM working trees, and are rejected if used as --to. "
+        "All of these forms reject: coordinator-claude-em / coordinator-claude, "
+        "deep-research-claude-em / deep-research-claude / deep-research-em / deep-research."
+    )
+    return "\n".join(lines)
 
 
 def _resolve_receiver_path(receiver_em_id: str, home: str) -> str | None:
@@ -642,14 +713,23 @@ def _build_parser() -> argparse.ArgumentParser:
         Dispatch a cross-repo memo to a receiver-EM working tree.
 
         RECEIVER-EM IDENTITY RESOLUTION
-        The --to argument accepts a receiver-EM identifier. It resolves to a
-        machine-local registry key by convention:
-          <receiver>-em → repos.<receiver, dashes→underscores>
-          e.g. project-rag-ue-addon-em → repos.project_rag_ue_addon
-               dronesim-em             → repos.dronesim
-        The receiver set IS your machine-local repo list — any repo registered
-        under repos.<name> is a valid <name>-em receiver with no code change.
-        Run `machine-local keys | grep '^repos\\.'` to see them.
+        Run `cross-repo-memo --list-receivers` to see every valid --to target on
+        this machine — that is the canonical discovery surface.
+
+        The --to argument accepts a receiver-EM identifier resolved two ways:
+          1. claude-central-em (aliases: central-em, central) → ~/.claude, the
+             coordinator home / the DoE. ALWAYS valid — it is NOT a repos.* key,
+             so it does NOT appear in `machine-local keys`. (Enumerating receivers
+             via `machine-local keys` and concluding central is unregistered is the
+             exact trap --list-receivers exists to close — don't hand-author into
+             ~/.claude/cross-repo/inbox/; --to claude-central-em delivers there.)
+          2. A sibling repo, by convention:
+               <receiver>-em → repos.<receiver, dashes→underscores>
+               e.g. project-rag-ue-addon-em → repos.project_rag_ue_addon
+                    dronesim-em             → repos.dronesim
+             Any repo registered under repos.<name> is a valid <name>-em receiver
+             with no code change — register it (machine-local set repos.<name>
+             <path>) and it delivers.
 
         Divergent identities (doctrine name ≠ repo shortname) are handled by
         RECEIVER_EM_ALIASES in this script — currently only:
@@ -665,7 +745,7 @@ def _build_parser() -> argparse.ArgumentParser:
         DIRTY-FILE BACKSTOP
         The receiver-side memo is written to <receiver>/cross-repo/inbox/ but NOT
         committed. The receiver-EM sees it as an untracked file in git status
-        at every session-start, /workday-start, and commit attempt.
+        at every workstream-start, /workday-start, and commit attempt.
         PM-relay is the primary channel; the dirty file is the structural
         backstop. The receiver edits the memo in place (open → actioned) and
         commits in their own repo — no move, no closure subcommand.
@@ -684,28 +764,48 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--to",
-        required=True,
+        required=False,
+        default=None,
         metavar="RECEIVER_EM_ID",
         help=(
             "Receiver-EM identifier (e.g. project-rag-em, project-rag-ue-addon-em, "
             "dronesim-em, claude-central-em). Sibling repos resolve to repos.<name> "
             "in the machine-local registry by convention. claude-central-em (aliases: "
-            "central-em, central) delivers to the coordinator home (~/.claude). If a "
-            "sibling repo isn't registered on this machine, the CLI hard-errors — "
-            "route via the PM's next session instead."
+            "central-em, central) delivers to the coordinator home (~/.claude) and is "
+            "ALWAYS a valid target — it is NOT a repos.* key, so it will not appear in "
+            "`machine-local keys`. Run `cross-repo-memo --list-receivers` to see every "
+            "valid target (central + registered siblings). If a sibling repo isn't "
+            "registered on this machine, the CLI hard-errors — route via the PM's next "
+            "session instead."
+        ),
+    )
+    parser.add_argument(
+        "--list-receivers",
+        action="store_true",
+        default=False,
+        help=(
+            "Print every valid --to target on this machine and exit. Lists "
+            "claude-central-em (the coordinator home, always available) first, then "
+            "every sibling repo registered under repos.<name>. This is the canonical "
+            "receiver-discovery surface — `machine-local keys` omits central by design. "
+            "When set, --to/--topic/--title are not required."
         ),
     )
     parser.add_argument(
         "--topic",
-        required=True,
+        required=False,
+        default=None,
         metavar="SLUG",
-        help="Short slug used in the memo filename (e.g. gate-check-failures).",
+        help="Short slug used in the memo filename (e.g. gate-check-failures). "
+        "Required unless --list-receivers is given.",
     )
     parser.add_argument(
         "--title",
-        required=True,
+        required=False,
+        default=None,
         metavar="ONE_LINE",
-        help="One-line memo title (appears in frontmatter and workday-start surfacing).",
+        help="One-line memo title (appears in frontmatter and workday-start surfacing). "
+        "Required unless --list-receivers is given.",
     )
     parser.add_argument(
         "--body-file",
@@ -780,7 +880,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # --list-receivers is a discovery-only mode: print every valid --to target
+    # (central first, then registered siblings) and exit before any send-path
+    # argument validation. This is the canonical answer to "who can I send to?"
+    # — the one enumerator that includes claude-central-em.
+    if args.list_receivers:
+        print(_format_receiver_listing())
+        return 0
+
+    # --to/--topic/--title are required for the send path (made conditionally
+    # optional only so --list-receivers can run without them). Enforce here.
+    # `not val` treats BOTH None (flag omitted) and "" (explicit empty string)
+    # as missing — the error message is the same for both, which is acceptable.
+    # A whitespace-only value (e.g. --title "   ") is truthy, so it passes this
+    # check; --to's whitespace is caught by the strip() guard just below, and
+    # --topic's by the slug regex (_TOPIC_SLUG_RE) further down.
+    missing = [
+        flag
+        for flag, val in (("--to", args.to), ("--topic", args.topic), ("--title", args.title))
+        if not val
+    ]
+    if missing:
+        print(
+            f"cross-repo-memo: missing required argument(s): {', '.join(missing)}. "
+            f"(These are required unless --list-receivers is given. Run "
+            f"`cross-repo-memo --list-receivers` to see valid --to targets.)",
+            file=sys.stderr,
+        )
+        return 2
+
     # Reject an empty/whitespace --to before it derives a degenerate 'repos.' key.
+    # Invariant: args.to is guaranteed a non-empty string here — the `missing`
+    # check above already returned 2 for both None and "" (via `not val`), so the
+    # only values reaching .strip() are truthy strings. Do NOT refactor the
+    # `missing` check to skip the falsy/None case without also guarding this line
+    # (an AttributeError on None.strip() is the trap that would reintroduce).
     if not args.to.strip():
         print(
             "cross-repo-memo: --to must be a non-empty receiver-EM identifier "
@@ -880,7 +1014,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Single-delivery-copy model: ONE dirty file in receiver's cross-repo/inbox/.
     # No archive copy, no sender-side copy — the send is noted in the sender's
-    # session-end notes as a natural part of the session record.
+    # workstream-complete notes as a natural part of the session record.
     # B1: target is cross-repo/inbox/<file> (not flat cross-repo/).
     # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B1
     filename = _memo_filename(args.topic)

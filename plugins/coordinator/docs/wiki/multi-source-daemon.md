@@ -177,7 +177,7 @@ The boot-race retry is implemented in `CwdResolverMiddleware.__call__` in `proje
 
 ## 6. SessionStart hook by-PID marker (C5)
 
-The SessionStart hook writes a JSON marker file under `~/.project-rag/sessions/by-pid/` at session boot. This marker serves as the fallback channel when psutil cwd-resolution fails or is unavailable.
+The SessionStart hook writes a JSON marker file under `~/.project-rag/sessions/by-pid/` when the session opens. This marker serves as the fallback channel when psutil cwd-resolution fails or is unavailable.
 
 ### Marker file shape
 

@@ -17,7 +17,7 @@ required:
 optional:
   # Session id of the consuming /pickup invocation; sourced from $CLAUDE_CODE_SESSION_ID
   # (platform-injected, unclobberable) with .git/coordinator-sessions/.current-session-id
-  # last-writer-wins fallback. Used by /session-end Step 2.7 detection and
+  # last-writer-wins fallback. Used by /workstream-complete Step 2.7 detection and
   # session-init.sh orphan sweep. Never the machine name.
   consumed_by: string
   consumed_at: iso-date
@@ -42,7 +42,7 @@ optional:
   blocked_by: list-of-string
   roadmap_id: string
   # Preserved verbatim from the active handoff schema on archival. Written by
-  # /session-end and /handoff after running coordinator:review-code; format
+  # /workstream-complete and /handoff after running coordinator:review-code; format
   # "<sha-range> <reviewer> <YYYY-MM-DD>". Absent on spinoff-kind handoffs.
   # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
-  reviewed_at_session_end: string
+  reviewed_at_workstream_complete: string

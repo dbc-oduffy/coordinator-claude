@@ -300,6 +300,89 @@ describe('validateFrontmatter — handoff category + summary cutoff rules', () =
 });
 
 // ---------------------------------------------------------------------------
+// validateFrontmatter — handoff supersedes: kind-gate rule
+// A supersedes: field is permitted only on kind: spinoff install/orientation batons.
+// Distinct from the terminal memo superseded_by: coupling in the memo block.
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — handoff supersedes kind-gate', () => {
+  const handoffSchema = SCHEMAS['handoff'];
+
+  // Helper: base valid kind: spinoff handoff with all post-cutoff required fields.
+  // post-cutoff created date: includes category+summary to satisfy the 2026-05-29 cutoff rules (independent of the supersedes kind-gate under test)
+  function baseSpinoff(overrides = {}) {
+    return Object.assign({
+      title: 'Spinoff install baton',
+      created: '2026-05-29',
+      branch: 'work/striker/2026-05-29',
+      status: 'active',
+      predecessor: null,
+      kind: 'spinoff',
+      category: 'infra',
+      summary: 'Install orientation spinoff with supersession',
+    }, overrides);
+  }
+
+  it('kind: spinoff WITH supersedes: passes (valid conditional-live supersession)', () => {
+    const fm = baseSpinoff({ supersedes: 'foo-orientation' });
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.ok(result.ok, `kind:spinoff + supersedes should be valid, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('kind: spinoff-roadmap WITH supersedes: FAILS (supersedes not permitted on spinoff-roadmap)', () => {
+    const fm = {
+      title: 'Roadmap stub',
+      created: '2026-05-29',
+      branch: 'work/striker/2026-05-29',
+      status: 'active',
+      predecessor: null,
+      kind: 'spinoff-roadmap',
+      roadmap_id: 'rm-001',
+      tc_id: 'tc-001',
+      wave: 1,
+      blocks: [],
+      blocked_by: [],
+      category: 'infra',
+      summary: 'Roadmap stub that should not carry supersedes',
+      supersedes: 'foo-orientation',
+    };
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, 'spinoff-roadmap + supersedes should fail');
+    const err = result.errors.find(e => e.field === 'supersedes');
+    assert.ok(err, `Expected supersedes error, got: ${JSON.stringify(result.errors)}`);
+    // Review: code-reviewer — exercise the interpolated current-kind in the error message, not just the base text
+    assert.match(err.error, /permitted only when kind=spinoff \(current kind: spinoff-roadmap\)/);
+    assert.match(err.hint, /conditional-live/);
+  });
+
+  it('kind absent WITH supersedes: FAILS (supersedes not permitted when kind is not spinoff)', () => {
+    // Review: code-reviewer — exercises the fm.kind !== 'spinoff' branch for kind-absent/other-kind
+    const fm = {
+      title: 'Recovery baton',
+      created: '2026-05-29',
+      branch: 'work/striker/2026-05-29',
+      status: 'active',
+      predecessor: null,
+      kind: 'recovery',
+      category: 'infra',
+      summary: 'Recovery baton that should not carry supersedes',
+      supersedes: 'foo-orientation',
+    };
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.equal(result.ok, false, 'non-spinoff kind + supersedes should fail');
+    const err = result.errors.find(e => e.field === 'supersedes');
+    assert.ok(err, `Expected supersedes error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /permitted only when kind=spinoff/);
+  });
+
+  it('baton WITHOUT supersedes: is unaffected by the new rule (passes)', () => {
+    const fm = baseSpinoff();  // no supersedes field
+    const result = validateFrontmatter(fm, handoffSchema);
+    assert.ok(result.ok, `Baton without supersedes should be unaffected, got: ${JSON.stringify(result.errors)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateFrontmatter — cross-repo-memo summary length rule
 // Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
 // ---------------------------------------------------------------------------

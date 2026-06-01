@@ -145,7 +145,7 @@ entries:
     schema: null
     readme: null
 
-  # tasks/review-trail/ — review records written by /session-end and /handoff.
+  # tasks/review-trail/ — review records written by /workstream-complete and /handoff.
   - path: tasks/review-trail/
     creation: lazy
     schema: review

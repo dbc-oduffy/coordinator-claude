@@ -318,6 +318,18 @@ const REF_ALLOWLIST = new Set([
   // (c) plan/prior-art sidecars that cite the old skill name as historical context.
   // The skill no longer exists on disk; these are legitimate historical/demotion-record references.
   'coordinator:fan-out',                // demoted to methodology 2026-05-30; remaining refs are historical plan docs
+  // FORWARD-reference (not historical): an unimplemented rename plan
+  // (docs/plans/2026-06-01-session-complete-rename.md + its sidecars) proposes
+  // renaming coordinator:session-end -> coordinator:session-complete. The target
+  // skill does not exist yet. Allowlist is a no-op once the rename ships, and
+  // harmless if the plan is abandoned (plan doc stays as a historical artifact).
+  'coordinator:session-complete',       // forward-ref in unimplemented rename plan (2026-06-01)
+  // Renamed to coordinator:workstream-{start,complete} and the deprecation-alias stubs
+  // DELETED 2026-06-01. Remaining refs are historical: the workstream/session-complete
+  // rename plans + their pre-flight sidecars, the archive completion entries, and the
+  // CHANGELOG migration notes. No live dispatch resolves to these names.
+  'coordinator:session-start',          // renamed→workstream-start; stub deleted 2026-06-01, refs historical
+  'coordinator:session-end',            // renamed→workstream-complete; stub deleted 2026-06-01, refs historical
 ]);
 
 // ---------------------------------------------------------------------------

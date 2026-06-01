@@ -225,11 +225,11 @@ The bus is shared, so a sibling EM may be co-driving — detection is read-side 
 - **Before authoring an overlapping code fix**, run a `git log --oneline -- <target-paths>` peer check — a sibling may have already landed it; grep sibling plans before reverting apparent "out-of-scope drift" as contamination.
 - Pickup- and plan-time concurrent-work surfacing is catalogued in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) § "Detecting Concurrent Work at Pickup / Plan-Time".
 
-## Session-end chain-diff scoping on long-lived shared branches
+## Workstream-complete chain-diff scoping on long-lived shared branches
 
-**`merge-base origin/main..HEAD` sweeps the ENTIRE shared daily branch, not just the current session's commits.** On a long-lived span branch (`work/<machine>/2026-05-26to27`) that carries multiple sessions' worth of commits, a session-end diff using this range surfaces all prior sessions' work — making the review meaningless (too broad) and the commit subject misleading.
+**`merge-base origin/main..HEAD` sweeps the ENTIRE shared daily branch, not just the current session's commits.** On a long-lived span branch (`work/<machine>/2026-05-26to27`) that carries multiple sessions' worth of commits, a workstream-complete diff using this range surfaces all prior sessions' work — making the review meaningless (too broad) and the commit subject misleading.
 
-Scope the session-end review to the session's own commits instead:
+Scope the workstream-complete review to the session's own commits instead:
 
 ```bash
 # Commits authored during this session only:
@@ -237,7 +237,7 @@ git log --oneline <session-start-sha>..HEAD
 git diff <session-start-sha>..HEAD
 ```
 
-This is especially important for **spinoffs** (`predecessor: none`) — a spinoff operates on the same shared branch but represents a distinct workstream fork. Its chain-diff must not silently include the parent chain's commits. Record `session-start-sha` at `/pickup` time (or session boot) to make the scoping mechanical.
+This is especially important for **spinoffs** (`predecessor: none`) — a spinoff operates on the same shared branch but represents a distinct workstream fork. Its chain-diff must not silently include the parent chain's commits. Record `session-start-sha` at `/pickup` time (or session open) to make the scoping mechanical.
 
 ## See also
 

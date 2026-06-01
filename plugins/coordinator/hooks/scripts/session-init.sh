@@ -76,6 +76,22 @@ _REAPER="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-reap-stale-locks"
 _CFGGIT="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-configure-git"
 [[ -x "$_CFGGIT" ]] && ( cd "$GIT_ROOT" && "$_CFGGIT" ) >/dev/null 2>&1 || true
 
+# --- Boot-time EOL phantom-dirty index sweep (best-effort, idempotent, silent) ---
+# Clear "phantom-dirty" entries where the index records a stale line-ending blob size while
+# HEAD and the worktree already agree on normalized content — `git status` flags these ` M`
+# forever and no `--refresh` / `core.checkStat minimal` clears them (the size differs). The
+# sweep refreshes ONLY content-equal paths (ls-files-m minus real worktree-vs-index diffs), so
+# it can never absorb a sibling's live edit or unstage their staged blob — safe on a shared
+# tree. No-op (no index write) when the tree is clean, and defers if a live index.lock is present.
+# This is the hook home for the cadence: every session start, every repo, instead of per-ceremony
+# prose steps. ORDERING IS INTENTIONAL — the stale-lock reaper (above) runs FIRST so any orphan
+# index.lock is cleared before this sweep's index.lock-present deferral check, and so the sweep
+# does not pile a write onto a lock the reaper would have removed. The script self-skips (clean
+# no-op) on bash < 4; this hook discards its output regardless via >/dev/null 2>&1 || true.
+# Spec: docs/wiki/concurrent-em-hazards.md § H23.
+_RENORM="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-renormalize-index"
+[[ -x "$_RENORM" ]] && ( cd "$GIT_ROOT" && "$_RENORM" ) >/dev/null 2>&1 || true
+
 # --- Source the lib and call cs_init for proper session-dir setup ---
 LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-session.sh"
 [[ ! -f "$LIB_PATH" ]] && LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
@@ -143,7 +159,7 @@ fi
 # Under the split-pickup-archival lifecycle, /pickup mutates frontmatter only
 # (status: consumed, deployment_state: in_flight, consumed_by: <sid>). Archival
 # to archive/handoffs/ happens at the terminal event: /handoff chain-archival or
-# /session-end Step 2.7. A handoff in tasks/handoffs/ with status: consumed is
+# /workstream-complete Step 2.7. A handoff in tasks/handoffs/ with status: consumed is
 # therefore an orphan — the picking-up session died before its terminal event.
 #
 # Recovery: for each such file, check if the consuming session is still alive. If
@@ -154,8 +170,8 @@ fi
 # archive/handoffs/. No PM ping, no WARNING line — silent recovery.
 #
 # This handles: cross-machine pickup-then-end-elsewhere, mid-workstream Claude Code
-# restart, crash-without-/session-end. Recovery latency drops from "7 days" (reaper)
-# to "next session boot."
+# restart, crash-without-/workstream-complete. Recovery latency drops from "7 days" (reaper)
+# to "next session start."
 #
 # Why query-records, not grep: per coordinator CLAUDE.md "Tripwire call-shape
 # coverage" rule, raw grep misses quoted/whitespace variants. query-records uses
@@ -211,7 +227,7 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
       #   docs/plans/2026-05-17-ws2-channel-a-narrow-activation.md § Chunk 7):
       #
       # The PID recorded in meta.json is $$ of the cs_init hook subshell — dead
-      # within seconds of session boot. kill -0 therefore always returns non-zero
+      # within seconds of session open. kill -0 therefore always returns non-zero
       # for any session older than its launch instant; session_alive=true via PID
       # is structurally unreachable (the Staff Engineer review: lib/coordinator-session.sh:189).
       #
@@ -272,7 +288,7 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
       [ "$session_alive" = "true" ] && continue
 
       # Flip deployment_state: in_flight → abandoned before archival.
-      # The consuming session died without /handoff or /session-end, so by
+      # The consuming session died without /handoff or /workstream-complete, so by
       # definition this handoff did not complete its workstream — leaving it
       # in_flight forever makes archived records look active to any query.
       # `abandoned` is the honest terminal: we don't know if work shipped on
@@ -313,6 +329,11 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
     if git -C "$GIT_ROOT" diff --cached --quiet 2>/dev/null; then
       : # nothing staged — no commit needed
     else
+      # gpgsign=false is DELIBERATE here (not a block-no-verify violation): this is a
+      # best-effort orphan-archival commit from a TTY-less SessionStart hook. A
+      # passphrase-protected signing key would hang the hook with no prompt to answer,
+      # so signing is disabled for this internal housekeeping commit only. block-no-verify
+      # guards EM-issued Bash commits, not hook-internal subprocess commits.
       git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
     fi
   fi

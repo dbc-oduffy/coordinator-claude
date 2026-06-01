@@ -9,7 +9,7 @@ argument-hint: "[system-name]"
 
 Selects the highest-priority system from the health ledger using a weighted rotation formula, dispatches domain reviewers against it, and **packages the findings as spinoff candidates** down a disposition ladder — the audit pass itself **never edits code**. Updates the health ledger's `Last targeted audit` clock and the atlas metadata. Implements the rotational architecture audit pipeline as an invocable command.
 
-Run this when the session-start prompt surfaces "Last targeted audit >10 days" or any time you want a targeted system review. When `$ARGUMENTS` names a system explicitly, that system is audited directly — skipping the rotation score calculation. Useful for targeted re-audits or when PM intuition overrides the formula.
+Run this when the workstream-start prompt surfaces "Last targeted audit >10 days" or any time you want a targeted system review. When `$ARGUMENTS` names a system explicitly, that system is audited directly — skipping the rotation score calculation. Useful for targeted re-audits or when PM intuition overrides the formula.
 
 > **Note on the two clocks (see Step 6):** this rotational audit writes **`Last targeted audit`**. The full breadth survey (`/architecture-survey`) writes **`Last full audit`**. They are intentionally separate — a targeted audit must NOT touch `Last full audit`, or it would falsely suppress the PM's nudge to run a real survey.
 

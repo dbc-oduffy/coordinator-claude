@@ -13,6 +13,11 @@
 
 set -euo pipefail
 
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "WARN: orphan-branch-sweep.sh: bash 4+ required; skipping" >&2
+    exit 0
+fi
+
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 
 # ---------------------------------------------------------------------------

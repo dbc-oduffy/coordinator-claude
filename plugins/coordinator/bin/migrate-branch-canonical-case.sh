@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # migrate-branch-canonical-case.sh — One-shot rename of mixed-case work/* refs
 # to their canonical lowercase form.
 #
@@ -80,7 +80,8 @@ fi
 
 # --- Step 1: Mixed-case ref-file rename (the documented failure mode) -------
 # Enumerate local work/* refs. Idempotent: a clean repo has no mixed-case files.
-mapfile -t LOCAL_REFS < <(git for-each-ref --format='%(refname:short)' 'refs/heads/work/*')
+LOCAL_REFS=()
+while IFS= read -r _ref; do LOCAL_REFS+=("$_ref"); done < <(git for-each-ref --format='%(refname:short)' 'refs/heads/work/*')
 
 RENAMED=0
 SKIPPED=0

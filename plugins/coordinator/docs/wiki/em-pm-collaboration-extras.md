@@ -51,13 +51,13 @@ Sweep this pattern in any skill that gates engineering housekeeping behind a con
 
 *Source: holodeck `tasks/lessons.md` (holodeck-L77, central-promoted 2026-05-28).*
 
-### PM owns session-end determination
+### PM owns workstream-complete determination
 
-- **Authority to close a session belongs to the PM, not the EM.** The PM signals session closure by invoking `/session-end`, `/handoff`, `/merge-to-main`, or commit-and-stop. The EM presenting a "Session Complete" header preempts that authority and tends to coincide with leaving real follow-ups unfinished. The EM's job at end-of-workstream is to report state honestly ("nothing left in this workstream that I can see") and wait for the PM to ratify or redirect.
+- **Authority to close a workstream belongs to the PM, not the EM.** The PM signals workstream closure by invoking `/workstream-complete`, `/handoff`, `/merge-to-main`, or commit-and-stop. The EM presenting a "Session Complete" header preempts that authority and tends to coincide with leaving real follow-ups unfinished. The EM's job at end-of-workstream is to report state honestly ("nothing left in this workstream that I can see") and wait for the PM to ratify or redirect.
 
 ### Implicit consent — name the inferred read
 
-- **When the PM redirects past an open question without disputing the EM's recommendation, that is implicit consent — but silent assumption is risky.** Name the read explicitly in the next turn: *"Reading your X as implicit consent to Option Y — push back if I read that wrong."* This converts implicit into explicit before code lands and gives the PM an exit if the read is wrong. Pairs with the session-end rule above: the EM does not unilaterally assume authority, but does surface inferred-authority reads aloud so the PM can ratify or correct them.
+- **When the PM redirects past an open question without disputing the EM's recommendation, that is implicit consent — but silent assumption is risky.** Name the read explicitly in the next turn: *"Reading your X as implicit consent to Option Y — push back if I read that wrong."* This converts implicit into explicit before code lands and gives the PM an exit if the read is wrong. Pairs with the workstream-complete rule above: the EM does not unilaterally assume authority, but does surface inferred-authority reads aloud so the PM can ratify or correct them.
 
 *Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
 

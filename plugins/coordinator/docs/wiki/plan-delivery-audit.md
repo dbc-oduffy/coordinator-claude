@@ -36,7 +36,7 @@ Reads what **actually landed** in the working tree: commits, file mutations, dif
 
 Source: archive-aware review-trail glob — `tasks/review-trail/**` AND `archive/review-trail/**`.
 
-Reads whether the delivered work **was reviewed** at session-end. Must use both live and archived dirs (see § Archive-Aware Glob below).
+Reads whether the delivered work **was reviewed** at workstream-complete. Must use both live and archived dirs (see § Archive-Aware Glob below).
 
 ## Five Classification Buckets
 
@@ -64,7 +64,7 @@ All review-trail consumers must glob BOTH:
 
 - After any crash or context reset where session state is uncertain
 - When `/pickup` handoff claims X was delivered but git tells a different story
-- Before declaring a workstream "complete" at `/session-end` or `/handoff`
+- Before declaring a workstream "complete" at `/workstream-complete` or `/handoff`
 - `/workweek-complete` deep-audit of the week's delivery record
 
 ## Decision Records

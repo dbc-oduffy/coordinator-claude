@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # scope-flip-readiness — evaluate whether strict-mode scope-guard can be enabled
 #
 # Reads warn-logs from all (live + archived) sessions and evaluates the flip predicate:

@@ -6,7 +6,7 @@ branch: {{BRANCH}}
 status: active
 predecessor: null
 category: infra
-summary: "Resume post-install: co-write CLAUDE.md, finish deferred install legs, first dogfood"
+summary: "Resume post-install: lay the install-chain spine, reload the live surfaces, then begin the collaboration contract by co-writing CLAUDE.md together"
 workstream: coordinator-onboarding
 scope:
   # The operator's live Claude Central is the surface this workstream evolves.
@@ -14,7 +14,7 @@ scope:
   # If {{BRANCH}} is not a claude-central branch, the EM narrows this at pickup.
   - CLAUDE.md
   - CLAUDE.local.md
-  - .claude/coordinator.local.md
+  - coordinator.local.md
   - .claude/settings.json
   - tasks/handoffs/**
 deployment_state: ready_to_fire
@@ -25,35 +25,134 @@ pickup_ready: true
 
 ## What Was Accomplished
 
-The coordinator install script has run. The environment is wired and the core setup is
-complete. The following initial state is confirmed:
+The coordinator install script has run. The *whole* system went in — not a cherry-picked
+subset, not "like installing Linux, not that deep." What was installed is not really software;
+it is a **collaboration contract** the operator and their now-Coordinator-shaped Claude will
+customize together, starting in this session. The following initial state is confirmed:
 
 - Plugin files present at `~/.claude/plugins/coordinator-claude/`
-- `~/.claude/CLAUDE.md` bootstrapped (may be the shipped default — the operator has not yet
-  personalized it)
+- `~/.claude/CLAUDE.md` bootstrapped (still the shipped default — the contract every agent reads
+  before it even speaks to the operator, not yet personalized)
 - Git tracking on `~/.claude` offered and either accepted or deferred
 
-This handoff exists because the install intentionally **does not** complete the
-collaboration-model conversation. That conversation is a co-creation step that belongs in a
-real working session with the operator — not inside the install script.
+This handoff exists because the install intentionally **does not** write the collaboration
+contract for the operator. That first edit — co-writing CLAUDE.md — is the opening demonstration
+of Coordinator-Claude improving itself, and it belongs in a real working session with the
+operator, not inside an install script.
 
 ## Current State
 
 The operator has a running coordinator install but has not yet:
 
-1. Co-written their `CLAUDE.md` / `CLAUDE.local.md` with an EM
-2. Encoded their preferred working relationship (PM-EM model vs. direct delegation) into
+1. Reloaded the live plugin/skill surfaces so the things they are about to edit are the
+   fully-present, live ones — this happens *before* any customization, on purpose: you do not
+   shape a contract against a half-loaded copy of it (see Step 1)
+2. Co-written their `CLAUDE.md` / `CLAUDE.local.md` with an EM — the **first** customization of the
+   contract, and the opening demonstration of Coordinator-Claude improving itself (see Step 2)
+3. Encoded their preferred working relationship (PM-EM model vs. direct delegation) into
    their live config
-3. Confirmed all install legs completed (some may have been deferred or warned-soft-missing)
-4. Taken their first real working spin through the pipeline
+4. Confirmed all install legs completed (some may have been deferred or warned-soft-missing)
+5. Laid out and followed through any *other* install spinoffs they queued before the restart
+   (deep-research, or downstream repos) — see Step 0
+6. Taken their first real working spin through the pipeline
 
-The system is functional. The first-session work below shapes it to fit them.
+The system is functional. The order below — **install → reload the live surfaces → orient,
+starting with the contract** — is not a setup checklist. It is the operator and their
+Coordinator-shaped Claude beginning to shape the contract to fit them, with the very first edit
+serving as the opening self-improvement demo.
 
 ## Recommended Next Steps
 
-### 1. Co-write `CLAUDE.md` and `CLAUDE.local.md` together (lead item — highest leverage)
+### 0. Lay a durable spine before anything else
 
-**This is the single most valuable thing to do first, and the gentlest reversible entry point.**
+Coordinator installs and runs **standalone** — it is not part of any mandatory chain. But it is also
+the natural *first* thing to install when an operator wants several related tools, precisely because
+the durability below is what a vanilla session lacks. The whole collaboration contract is now in
+place; before the operator and their Coordinator-shaped Claude start customizing it, make the install
+survivable across compaction. The spine tracks each leg along three sub-axes — **installed /
+provisioning / oriented** — so a long-running step (e.g. a downstream repo's background index) and a
+not-yet-oriented leg are both legible at a glance and neither is silently dropped.
+
+1. **Open a flight recorder** (Tasks API) for this session: goal = "complete coordinator onboarding
+   and any queued install legs", with a task per step below.
+2. **Look for the install spinoffs the operator queued.** The operator may have chosen to install
+   `deep-research` (the recommended OSS add-on) and/or other downstream repos before the restart.
+   Each such choice was seeded as a **spinoff** — a fork of a *different* install topic, authorized
+   by the operator at the pre-restart question. Spinoffs live in the **standard handoff folder**
+   (`tasks/handoffs/`, same as `/spinoff`'s output), tagged `kind: spinoff` with an
+   `install_chain_order:`; that tag is what distinguishes them from this onboarding handoff:
+
+   ```bash
+   grep -l 'install_chain_order:' "${CLAUDE_HOME:-$HOME/.claude}/tasks/handoffs/"*.md 2>/dev/null
+   ```
+
+   There may be **zero, one, or several**. Read what is actually there — do **not** assume a fixed
+   set, order, or that any particular downstream repo is present. Coordinator knows only
+   `deep-research` by name; everything else is whatever the operator queued. These are install
+   spinoffs, not this session's continuation — `predecessor: none` is native to a spinoff, so there
+   is no lineage to reconcile; you are stitching a set of authorized forks. (Because they carry
+   `kind: spinoff`, `/workday-start` already surfaces them as "spinoffs awaiting pickup" and
+   `/pickup` classifies them correctly — no special handling needed.)
+3. **Write a lightweight install-chain spine to disk** — start from the pre-made template at
+   `${CLAUDE_HOME:-$HOME/.claude}/plugins/coordinator/templates/plans/install-chain-tracking.md`,
+   copy it to `tasks/<feature>/install-chain.md`, and edit it to list each install spinoff you found
+   (coordinator onboarding — this handoff — first; the spinoffs in whatever order each declares via
+   `install_chain_order:`, else discovered order). Fill the spine's per-leg **install / provision /
+   orient** status as you go, so a leg that is installed-but-still-provisioning (a background index,
+   say) or installed-but-not-yet-oriented is visibly distinct from a finished one. The spine exists
+   for one reason: **guarantee every queued install spinoff is followed to conclusion before the
+   workstream is completed**, so nothing the operator asked for is silently dropped when context
+   turns over. This is the same spine-plus-spinoffs shape `coordinator:roadmap-planning` produces;
+   lay out the whole chain ahead of you even if it is just this one item.
+
+4. **Resolve any supersession relationships in the spine.** Some spinoffs carry a `supersedes:`
+   field that conditionally replaces an earlier orientation or install-leg baton. The mechanism is
+   the shipped one — `supersedes:` on a `kind: spinoff` baton — documented in full at
+   `docs/wiki/agent-install-contract.md § Orientation-supersession`. Do **not** re-derive it here;
+   apply it. For each baton present in `tasks/handoffs/` that declares `supersedes: <X>`, drop or
+   defer `<X>`'s entry from the install-chain spine in favor of the declaring baton's. If no present
+   baton declares `supersedes: <X>`, then `<X>` stands as-is — it is the correct default for that slot.
+
+   ```bash
+   # Generic over supersedes:<any-id>; names no specific repo/orientation/order.
+   grep -l 'supersedes:' "${CLAUDE_HOME:-$HOME/.claude}/tasks/handoffs/"*.md 2>/dev/null
+   ```
+
+   Read each match to identify which orientation or leg baton it supersedes, then update the
+   spine accordingly before beginning execution. This pass is a spine-edit only — do not yet
+   pick up the superseding baton; that happens in sequence order below.
+
+Then proceed through the steps below. As you finish coordinator onboarding, pick up each install
+spinoff (`/pickup tasks/handoffs/<leg>.md`) in turn and check it off the spine as it completes.
+
+### 1. Reload the live surfaces first
+
+Before the operator edits anything, make the surfaces they are about to shape the **live,
+fully-present** ones. The install wrote the whole system to disk, but a session started before (or
+during) the install may be running against a half-loaded copy. You do not co-write a contract
+against a stale image of it — so reload before customizing, not after:
+
+```
+/reload-plugins
+/reload-skills
+```
+
+(If the session predates the install entirely, a clean Claude Code restart is the surer reload.)
+Then confirm the environment without triggering a re-install:
+
+```
+/coordinator:setup --check-only
+```
+
+This re-reports environment state. With the live surfaces confirmed present, the customization in
+Step 2 lands against the real thing.
+
+### 2. Co-write `CLAUDE.md` and `CLAUDE.local.md` together — the first customization
+
+**This is the first customization of the contract, and the highest-leverage one.** `CLAUDE.md` is
+the contract every agent reads before it even speaks to the operator — so editing it together,
+right after reload, *is* the opening demonstration of Coordinator-Claude improving itself. Framing
+changes before details: shape how you work together before tuning any single knob.
 
 The coordinator ships with an opinionated default `CLAUDE.md`. Before doing real work in any
 repo, the operator and EM should write the version that actually fits how *they* want to work.
@@ -93,7 +192,7 @@ Do NOT edit the `coordinator-claude` source repo or any clone of it.**
 
 → Cross-reference: `docs/wiki/getting-started.md` Movement 2 for the full customization menu.
 
-### 2. Finish any deferred install legs
+### 3. Finish any deferred install legs
 
 During install, some legs may have been deferred or shown as soft-missing. Check:
 
@@ -108,17 +207,14 @@ deferred items:
 - Optional plugins not yet installed (deep-research-claude, project-rag)
 - `.mcp.json` wiring for sibling repos not yet done
 
-### 3. Reload plugins and skills if config was changed
+A leg may install instantly but **provision** slowly — a downstream repo's first RAG index can
+run for the better part of an hour. That provision step runs in the background and does **not**
+block this chain; record it as `provisioning` in the spine (Step 0) and move on, returning to
+orient that leg once it reports ready.
 
-If `CLAUDE.md`, `settings.json`, or any plugin files were modified during this session,
-restart Claude Code (or the relevant session) to pick up the changes cleanly. Then confirm
-with:
-
-```
-/coordinator:setup --check-only
-```
-
-This re-reports environment state without triggering a re-install.
+(If co-writing the contract in Step 2 changed `CLAUDE.md`, `settings.json`, or plugin files, a
+quick `/reload-plugins` + `/reload-skills` — or a restart — picks the edits up cleanly; the
+*initial* reload already happened in Step 1.)
 
 ### 4. Point the operator at `~/.claude` as their evolving surface
 
@@ -147,11 +243,15 @@ This is a **fresh-start handoff** — there is no prior session state to reconci
 picking-up EM should:
 
 1. Read this handoff at `/pickup tasks/handoffs/continue-onboarding-and-installation.md`
-2. Run a quick `/session-start` orient (if the operator is in a real repo) or skip it (if
+2. Lay the install-chain spine (Step 0), then **reload the live surfaces (Step 1) before any
+   customization** — the order is install → (spine-build, Step 0) → reload → orient, and you do not
+   shape the contract against a half-loaded copy of it
+3. Run a quick `/workstream-start` orient (if the operator is in a real repo) or skip it (if
    they are starting from `~/.claude`)
-3. Begin with the "co-write CLAUDE.md" conversation — lead with the partnership-shape offer
-   from Step 1, not a feature tour
-4. Run the getting-started guided tour (`docs/wiki/getting-started.md`) if the operator
+4. With the live surfaces confirmed, open the "co-write CLAUDE.md" conversation (Step 2) — lead
+   with the partnership-shape offer as the **first** customization of the contract, not a feature
+   tour
+5. Run the getting-started guided tour (`docs/wiki/getting-started.md`) if the operator
    wants it — the EM facilitates it as a conversation, not a recital
 
 The operator may not know what `/pickup` does yet. The install script's final message should

@@ -304,7 +304,7 @@ fi
 
 # --- P-6s: live coordinator_whoami.session envelope (orientation-health probe) --
 # Distinct from P-6 (plugin-binding health for project-rag adopter): P-6s probes
-# the first-class session-identity spine that /session-start depends on.
+# the first-class session-identity spine that /workstream-start depends on.
 # Only fire if coordinator_whoami is importable; otherwise the failure is
 # downstream of P-5. (Gate is the unconditional import check, not P-5 active-membership.)
 if is_active "P-6s"; then

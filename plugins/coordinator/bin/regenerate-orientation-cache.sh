@@ -6,16 +6,16 @@
 # Verifier: plugins/coordinator/bin/verify-orientation-cache-sync.sh
 #
 # Usage:
-#   regenerate-orientation-cache.sh --invoker <workday-start|update-docs|session-end|handoff>
+#   regenerate-orientation-cache.sh --invoker <workday-start|update-docs|workstream-complete|handoff>
 #   regenerate-orientation-cache.sh --invoker <slug> --check       Print to stdout, don't write
 #
 # Writer tiers:
 #   ceremony    (workday-start, update-docs)  — full regen, clears pinboard
-#   mid-session (session-end, handoff)         — re-derives all sections from disk (same as ceremony);
-#                                                 preserves existing pinboard slot unless --pinboard supplied
+#   mid-session (workstream-complete, handoff) — re-derives all sections from disk (same as ceremony);
+#                                               preserves existing pinboard slot unless --pinboard supplied
 #
 # Mid-session pinboard writes:
-#   regenerate-orientation-cache.sh --invoker session-end --pinboard "<one-line note>"
+#   regenerate-orientation-cache.sh --invoker workstream-complete --pinboard "<one-line note>"
 #   (overwrites the single pinboard slot; pass --pinboard "" to clear)
 
 set -euo pipefail
@@ -35,14 +35,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$INVOKER" ]]; then
-    echo "ERROR: --invoker <slug> required (workday-start|update-docs|session-end|handoff)" >&2
+    echo "ERROR: --invoker <slug> required (workday-start|update-docs|workstream-complete|handoff)" >&2
     exit 2
 fi
 
 case "$INVOKER" in
     workday-start|update-docs)            TIER=ceremony ;;
-    session-end|handoff)                  TIER=mid-session ;;
-    *) echo "ERROR: unknown invoker: $INVOKER (expected workday-start|update-docs|session-end|handoff)" >&2; exit 2 ;;
+    workstream-complete|handoff) TIER=mid-session ;;
+    *) echo "ERROR: unknown invoker: $INVOKER (expected workday-start|update-docs|workstream-complete|handoff)" >&2; exit 2 ;;
 esac
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

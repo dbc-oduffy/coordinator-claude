@@ -102,7 +102,7 @@ The `## Worker Dispatch Recommendations` block in a reviewer's output is the **o
 
 **Rule.** After every review, before writing the marker-trail record, verify that every named worker in the `## Worker Dispatch Recommendations` block has been dispatched and its output integrated. Treat an undispatched recommendation the same as an unaddressed P1 finding. Sessions that end with pending worker recommendations should note them in `tasks/lessons.md` for the next pickup.
 
-*Note: a session-end checklist gate was proposed (skills/session-end Step 2.9 "reviewer-recommended workers dispatched: y/n"). Pending authoring at that site.*
+*Note: a workstream-complete checklist gate was proposed (skills/workstream-complete Step 2.9 "reviewer-recommended workers dispatched: y/n"). Pending authoring at that site.*
 
 ## Reviewer Correctly Suppressing a Worker Is Not Worker Validation — Exercise Every New Worker in Phase 1
 

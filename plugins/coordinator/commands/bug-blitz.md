@@ -429,7 +429,7 @@ In all cases: commit completed waves, update backlog with current state, write a
 
 `/bug-blitz` is wired into the discovery surfaces (smoke run 2026-05-06-22h42 follow-up):
 
-- **`/session-start`** — "work the backlog" framing advocates `/bug-blitz` when `tasks/bug-backlog.md` exists with ≥10 open P1+P2 items, OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
+- **`/workstream-start`** — "work the backlog" framing advocates `/bug-blitz` when `tasks/bug-backlog.md` exists with ≥10 open P1+P2 items, OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
 - **`/workday-start`** — Step 1.55 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
 - **`/workweek-complete` Step 4** — bug-backlog depth check joins the improvement-queue triage gate; ≥10 open proposes a blitz, otherwise summarised.
 - **Coordinator README** — listed adjacent to `/bug-sweep` in the commands table, failure-modes section, and skills section.

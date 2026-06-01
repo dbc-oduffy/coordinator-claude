@@ -49,7 +49,7 @@ done
 # ---------------------------------------------------------------------------
 # Guards
 # ---------------------------------------------------------------------------
-if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+if ! git rev-parse --is-inside-work-tree &>/dev/null; then
   echo "check-shipped-on-main: not inside a git repository" >&2
   exit 2
 fi

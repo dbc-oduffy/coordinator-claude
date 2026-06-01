@@ -47,7 +47,12 @@ PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)  #
 if command -v timeout &>/dev/null; then
   INPUT=$(timeout 2 cat 2>/dev/null || true)
 else
-  INPUT=$(cat)
+  # No external `timeout` (macOS without coreutils, minimal images): use bash's BUILTIN
+  # read timeout so a harness that holds stdin open cannot hang every Bash call. `-d ''`
+  # reads through newlines to EOF/timeout; `|| true` keeps set -u/-e calm on the non-zero
+  # read returns at EOF/timeout (INPUT is still populated with whatever was read).
+  IFS= read -r -d '' -t 2 INPUT 2>/dev/null || true
+  INPUT="${INPUT:-}"
 fi
 
 # Parse tool_name + command + session_id. session_id comes from the hook payload
@@ -86,7 +91,8 @@ fi
 NOW=$(date +%s 2>/dev/null || echo 0)
 # If the clock is unreadable the window math is meaningless (and NOW=0 entries
 # would never expire) — degrade to a no-op rather than misfire.
-[[ "$NOW" -eq 0 ]] 2>/dev/null && exit 0
+[[ "$NOW" =~ ^[0-9]+$ ]] || exit 0   # non-integer clock ⇒ window math meaningless; degrade to no-op
+[[ "$NOW" -eq 0 ]] && exit 0
 
 # --- Session-keyed state (concurrent sessions never share a file) ---
 KEY="${SESSION_ID:-${CLAUDE_SESSION_ID:-${PPID:-default}}}"
@@ -99,7 +105,9 @@ COOL="${PREFIX}.cool"
 
 WINDOW=90        # seconds — probes older than this fall out of the streak
 THRESHOLD=3      # probes within WINDOW before the first nudge
-COOLDOWN=30      # seconds between nudges so the nudge is not itself spam
+COOLDOWN=30      # seconds between nudges (one mechanism, applies equally to the low-signal
+                 # streak and a strong-probe burst — a strong burst nudges once because
+                 # EFFECTIVE_THRESHOLD=1 lets it reach this same gate immediately).
 RING_N=8         # recent commands retained for recurrence detection
 RING_RECUR_MIN=2 # a command must ALREADY appear this many times in the ring before
                  # a further occurrence counts as a probe — so a legitimately
@@ -124,12 +132,16 @@ fi
 # repetition crosses the bar.
 in_ring=0
 if [[ -n "$HASH" && -f "$RING" ]]; then
-  ring_hits=$(grep -cxF "$HASH" "$RING" 2>/dev/null)   # -c prints a single count even on no-match
+  ring_hits=$(grep -cxF "$HASH" "$RING" 2>/dev/null || true)   # grep exits 1 on no-match but -c still prints 0; || true makes that explicit
   [[ "$ring_hits" =~ ^[0-9]+$ ]] || ring_hits=0
   (( ring_hits >= RING_RECUR_MIN )) && in_ring=1
 fi
 # Update the ring (every command, probe or not) so alternation stays visible.
 if [[ -n "$HASH" ]]; then
+  # A && B || C here is intentional, not if-then-else: a failed mv is recovered by the rm on
+  # the next line, and a missed ring update only weakens recurrence detection (never blocks).
+  # The || true keeps set -e calm; do not "fix" it into a branch.
+  # shellcheck disable=SC2015
   { cat "$RING" 2>/dev/null; printf '%s\n' "$HASH"; } | grep -v '^$' | tail -n "$RING_N" > "${RING}.tmp" 2>/dev/null \
     && mv -f "${RING}.tmp" "$RING" 2>/dev/null || true
   rm -f "${RING}.tmp" 2>/dev/null || true   # clear an orphan if the mv failed (cross-device, unwritable)
@@ -151,6 +163,42 @@ if [[ "$CMD" =~ ^[[:space:]]*sleep[[:space:]]+[0-9] ]]; then is_probe=1; fi
 # recurrence within the ring.
 if [[ "$in_ring" -eq 1 ]]; then is_probe=1; fi
 
+# --- High-signal liveness probes (near-zero false positive; nudge on FIRST occurrence) ---
+# The single-token echo classifier above stops at the first `$` so it cannot see
+# `echo alive-$(date +%s)` — and that timestamped form ALSO defeats recurrence
+# detection (every probe hashes uniquely), so the shape classifier is the ONLY net
+# that can catch it. Echoing the wall clock or a liveness lexeme has essentially one
+# purpose (proving the channel is alive), so these warrant a first-occurrence nudge
+# rather than the 3-streak the low-signal shapes (bare echo / true / pwd) need.
+# Narrowed to dodge real work: `echo "head: $(git rev-parse HEAD)"` has no date/nonce
+# and no liveness lexeme, so it stays classified as real.
+is_strong_probe=0
+# tr absent: CMD_LC = CMD (case-sensitive fallback; acceptable degradation — tr is
+# present on all POSIX systems, and the hook is offer-only so a missed match is benign).
+CMD_LC=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]' 2>/dev/null || printf '%s' "$CMD")
+# Patterns are held in SINGLE-QUOTED vars and matched via `[[ "$x" =~ $var ]]`. This is
+# the safe idiom for ERE patterns containing shell metacharacters: single quotes neutralise
+# `$`, `(`, and the backtick at assignment time, and a *variable* on the =~ RHS is taken
+# literally as the regex (no command substitution). This structurally removes the parse-time
+# hazard that an inline `date / $(date) pattern carries — the bug that broke this hook once.
+# Do NOT inline these patterns or quote the var on the RHS (`=~ "$var"` matches a literal string).
+#
+# ts_probe_pat: echo emitting the wall clock or a nonce. $SECONDS is deliberately EXCLUDED —
+# it is bash's elapsed-time counter (real timing scripts do `echo $SECONDS`), not a liveness
+# nonce. lexeme_pat: distinctive liveness words, word-boundary-fenced so substrings don't
+# over-match (shipping≠ping, reprobed≠probe). The ambiguous tokens `ping`/`probe` are omitted —
+# they recur in real output and their bare form is already caught by the single-token
+# classifier at the 3-streak, so omitting them loses only the first-occurrence upgrade.
+# single quotes are DELIBERATE: no expansion is the whole point (literal ERE for the =~ RHS).
+# SC2016's "did you mean double quotes" is the opposite of intent here.
+# shellcheck disable=SC2016
+ts_probe_pat='(\$\(date|`date|\$EPOCHSECONDS|\$RANDOM)'
+# shellcheck disable=SC2016
+lexeme_pat='(^|[^a-z0-9_])(alive|heartbeat|se-flush|chan[_-]?ok|still[_-](alive|here|there))([^a-z0-9_]|$)'
+if [[ "$CMD" =~ ^[[:space:]]*echo[[:space:]] ]] && [[ "$CMD" =~ $ts_probe_pat ]] && [[ ! "$CMD" =~ [\|\>] ]]; then is_strong_probe=1; fi
+if [[ "$CMD_LC" =~ ^[[:space:]]*echo[[:space:]] ]] && [[ "$CMD_LC" =~ $lexeme_pat ]] && [[ ! "$CMD" =~ [\|\>] ]]; then is_strong_probe=1; fi
+(( is_strong_probe )) && is_probe=1
+
 nudge() {
   local count="$1"
   local msg="PROBE-SPRAY DETECTED: ${count} channel-test-shaped commands (echo / printf / sleep / no-op / repeated read) within ${WINDOW}s. This is the probe-spray loop — see docs/wiki/tool-output-flakiness-protocol.md § Not this protocol — blocked / no-return.
@@ -165,8 +213,15 @@ Two probes for the same fact is already the stop signal. (Silence this in a legi
     jq -nc --arg m "$msg" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",additionalContext:$m}}'
   elif [[ -n "$PY" ]]; then
     local mj
-    mj=$(printf '%s' "$msg" | "$PY" -c 'import json,sys;sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null) \
-      || mj="\"$(printf '%s' "$msg" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')\""
+    mj=$(printf '%s' "$msg" | "$PY" -c 'import json,sys;sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null)
+    # json.dumps on a str is total, so this guards the RARE python-PROCESS failure (crash /
+    # broken install / signal) that would otherwise leave mj empty → malformed JSON. Same
+    # escape idiom as the no-python branch below (one idiom, no sed/tr); the only difference is
+    # the quotes are added INTO mj here to match json.dumps's already-quoted-string shape, since
+    # this branch's printf uses a bare %s (the no-python branch quotes in its format string).
+    if [[ -z "$mj" ]]; then
+      local esc="${msg//\\/\\\\}"; esc="${esc//\"/\\\"}"; esc="${esc//$'\n'/\\n}"; mj="\"$esc\""
+    fi
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":%s}}\n' "$mj"
   else
     local esc="${msg//\\/\\\\}"; esc="${esc//\"/\\\"}"; esc="${esc//$'\n'/\\n}"
@@ -195,7 +250,13 @@ printf '%s' "$NEWTIMES" > "$TIMES" 2>/dev/null || true
 # failed (unwritable TMPDIR) state cannot persist, so COUNT stays 1 and we fail open.
 COUNT=$(printf '%s' "$NEWTIMES" | grep -c . 2>/dev/null || echo 0)
 
-if (( COUNT >= THRESHOLD )); then
+# High-signal liveness shapes nudge on first occurrence; low-signal shapes need the
+# 3-streak so a single legitimate `true`/`pwd`/bare-echo is never nagged. The cooldown
+# below still applies, so a burst of strong probes nudges once, not per-probe.
+EFFECTIVE_THRESHOLD=$THRESHOLD
+(( is_strong_probe )) && EFFECTIVE_THRESHOLD=1
+
+if (( COUNT >= EFFECTIVE_THRESHOLD )); then
   LASTNUDGE=$(cat "$COOL" 2>/dev/null || echo 0)
   [[ "$LASTNUDGE" =~ ^[0-9]+$ ]] || LASTNUDGE=0
   if (( NOW - LASTNUDGE >= COOLDOWN )); then

@@ -31,6 +31,15 @@
 
 set -euo pipefail
 
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: verify-parallel-review-lens-orthogonality.sh requires bash 4.0 or later (associative arrays)." >&2
+    echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
+    echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it first on PATH:" >&2
+    echo "      brew install bash" >&2
+    echo '      export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc' >&2
+    exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Argument parsing: optional --chunk-manifest <path>
 # ---------------------------------------------------------------------------

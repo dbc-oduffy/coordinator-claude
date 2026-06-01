@@ -35,8 +35,8 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── docs/wiki/DIRECTORY_GUIDE.md        — guide index with decision record mapping
 ├── docs/plans/                         — implementation plans (LAZY — created when first plan is copied from ~/.claude/plans/)
 ├── docs/research/                      — research outputs (LAZY — created by deep-research:research on first run)
-├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:session-end on first lesson)
-├── archive/completed/                  — completion archive (LAZY — created by coordinator:session-end on first completion)
+├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:workstream-complete on first lesson)
+├── archive/completed/                  — completion archive (LAZY — created by coordinator:workstream-complete on first completion)
 ├── tasks/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
 ├── CONTEXT.md                          — domain glossary (LAZY — never scaffold; produced when first term is resolved)
 ├── DIRECTORY.md                        — source index
@@ -191,7 +191,7 @@ Only scaffold files that have **meaningful day-1 content**. A placeholder header
 | `docs/wiki/` dir | LAZY | Wiki guides come from `/distill` after artifacts accumulate |
 | `docs/plans/` dir | LAZY | Plans come from plan mode; none exist on day 1 |
 | `docs/research/` dir | LAZY | Research outputs come from `/deep-research` pipelines |
-| `tasks/review-trail/` dir | LAZY | Review records written by `/session-end` and `/handoff` |
+| `tasks/review-trail/` dir | LAZY | Review records written by `/workstream-complete` and `/handoff` |
 
 LAZY items are NOT created here. Each has a designated "create on first use" owner noted in its section below.
 
@@ -233,7 +233,7 @@ If PM said "stubs": create one placeholder workstream:
 
 #### 3c. tasks/lessons.md — SKIP (lazy)
 
-Do NOT create this file during onboarding — no meaningful day-1 content. Created by `coordinator:session-end` on first lesson capture.
+Do NOT create this file during onboarding — no meaningful day-1 content. Created by `coordinator:workstream-complete` on first lesson capture.
 
 #### 3d. docs/README.md (if missing)
 
@@ -344,7 +344,7 @@ exit 0
 
 Skip if a custom auto-push hook already exists and the PM has signed off on it.
 
-Then harden this repo's git config against the concurrent-EM orphaned-`index.lock` failure mode (sets `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process that can orphan the index lock on Git-for-Windows — see `docs/wiki/concurrent-em-hazards.md` § H21):
+Then harden this repo's git config against two concurrent-EM Git-for-Windows failure modes (see `docs/wiki/concurrent-em-hazards.md` § H21–H22): `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process that can orphan the index lock, and `core.checkStat minimal` so the index comparison ignores the NTFS-unstable `ctime/ino/dev` fields that cause a phantom-dirty tree under concurrent index rewrites:
 
 ```bash
 "$HOME/.claude/plugins/coordinator/bin/coordinator-configure-git"
@@ -420,7 +420,7 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
 0. **Your `~/.claude` is the surface you evolve** — it is a git-tracked repo that IS your live coordinator install. Customize it (CLAUDE.md, lessons, wiki), commit, and push. Never edit the upstream `coordinator-claude` source clone; changes there are overwritten on the next publish/refresh.
 1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
 2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
-3. **Run `/session-start`** — verifies everything is wired up correctly
+3. **Run `/workstream-start`** — verifies everything is wired up correctly
 4. **Introspect coordinator / plugin bindings** — run the envelope-branch check below to verify the coordinator sees this project correctly.
 
    ```sh

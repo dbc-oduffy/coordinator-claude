@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-write-review-trail.sh — Write a per-session review-trail record
 #
-# Purpose: records a code-review marker after /session-end or /handoff review
+# Purpose: records a code-review marker after /workstream-complete or /handoff review
 # completion, enabling /workday-complete Step 9 and /workweek-complete Step 7
 # to shed redundant review load by reading what has already been reviewed.
 #
@@ -13,7 +13,17 @@
 #     --reviewer code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile \
 #     --scope chain|session \
 #     --verdict ok|warn|blocked|waived|pending \
-#     --diff-loc <integer>
+#     --diff-loc <integer> \
+#     [--scope-kind diff|plan|integration]
+#
+# --scope-kind (optional, default: diff):
+#   diff        — this record covers a real code diff; included in weekly diff-scope accounting.
+#   plan        — plan-review or integration pass with no code sha_range; skipped silently by
+#                 workweek-trail-scope.sh without a WARN (legitimately non-diff record).
+#   integration — same as plan; use when the reviewer pass was a review-integrator run.
+#
+# Negative-spec: do NOT repurpose or remove the existing --scope field (chain|session);
+# --scope-kind is orthogonal and carries a different classification dimension.
 #
 # Automated-check reviewer names are mechanism-named (e.g. ubt-compile, not automated-check)
 # so future automated verdicts (clippy, eslint, pytest-coverage) each add one unambiguous entry.
@@ -23,7 +33,7 @@
 #   1. CLAUDE_SESSION_ID env var (explicit override; if set and non-empty)
 #   2. CLAUDE_CODE_SESSION_ID env var (platform-injected, Claude Code ≥ ~2.1.150)
 #   3. Sentinel file: $(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id
-#   3. If neither resolves → exit 3 with a clear error naming both sources attempted.
+#   4. If neither resolves → exit 3 with a clear error naming both sources attempted.
 #
 # Idempotency contract:
 #   - Target file absent            → write and exit 0
@@ -36,7 +46,7 @@
 #     structured format avoids parser fragility against bold-prefixed key:value markdown;
 # (b) sole writer is this helper (no LLM authorship), so text-only-recovery and grep-tooling
 #     concerns motivating markdown-canonical don't apply;
-# (c) record shape is closed and small (6 fields) — markdown's flexibility provides no benefit.
+# (c) record shape is closed and small (7 fields) — markdown's flexibility provides no benefit.
 # This deviation is intentional and greppable. Do not "fix" the format.
 
 set -euo pipefail
@@ -50,6 +60,7 @@ REVIEWER=""
 SCOPE=""
 VERDICT=""
 DIFF_LOC=""
+SCOPE_KIND="diff"  # optional; default: diff
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,9 +84,13 @@ while [[ $# -gt 0 ]]; do
       DIFF_LOC="${2:-}"
       shift 2
       ;;
+    --scope-kind)
+      SCOPE_KIND="${2:-}"
+      shift 2
+      ;;
     *)
       echo "ERROR: Unknown argument: $1" >&2
-      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile --scope chain|session --verdict ok|warn|blocked|waived|pending --diff-loc <integer>" >&2
+      echo "Usage: coordinator-write-review-trail.sh --sha-range A..B --reviewer code-reviewer|patrik|code-reviewer+patrik|waived|ubt-compile --scope chain|session --verdict ok|warn|blocked|waived|pending --diff-loc <integer> [--scope-kind diff|plan|integration]" >&2
       exit 1
       ;;
   esac
@@ -140,6 +155,23 @@ esac
 
 if ! [[ "$DIFF_LOC" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --diff-loc value '${DIFF_LOC}' is not a non-negative integer" >&2
+  exit 1
+fi
+
+case "$SCOPE_KIND" in
+  diff|plan|integration) ;;
+  *)
+    echo "ERROR: --scope-kind value '${SCOPE_KIND}' is invalid; allowed: diff | plan | integration" >&2
+    exit 1
+    ;;
+esac
+
+# Review: focused-review — close writer/consumer validation asymmetry: the consumer
+# (workweek-trail-scope.sh) always drops diff records without a ".." range; the writer
+# must reject them at write-time rather than silently accepting invalid records.
+# plan/integration scope_kind records do not consume sha_range, so no constraint there.
+if [[ "$SCOPE_KIND" == "diff" ]] && [[ "$SHA_RANGE" != *..* ]]; then
+  echo "ERROR: --scope-kind diff requires --sha-range to contain '..', got: '${SHA_RANGE}'" >&2
   exit 1
 fi
 
@@ -214,7 +246,7 @@ mkdir -p "$TRAIL_DIR"
 # Compose JSON record
 # ---------------------------------------------------------------------------
 
-JSON_RECORD="{\"sha_range\":\"${SHA_RANGE}\",\"reviewer\":\"${REVIEWER}\",\"scope\":\"${SCOPE}\",\"verdict\":\"${VERDICT}\",\"diff_loc\":${DIFF_LOC},\"session_id\":\"${SESSION_ID}\"}"
+JSON_RECORD="{\"sha_range\":\"${SHA_RANGE}\",\"reviewer\":\"${REVIEWER}\",\"scope\":\"${SCOPE}\",\"scope_kind\":\"${SCOPE_KIND}\",\"verdict\":\"${VERDICT}\",\"diff_loc\":${DIFF_LOC},\"session_id\":\"${SESSION_ID}\"}"
 
 # ---------------------------------------------------------------------------
 # Idempotency check and write

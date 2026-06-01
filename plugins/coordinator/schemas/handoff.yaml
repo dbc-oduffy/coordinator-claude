@@ -12,7 +12,7 @@ required:
 optional:
   # Session id of the consuming /pickup invocation; sourced from $CLAUDE_CODE_SESSION_ID
   # (platform-injected, unclobberable) with .git/coordinator-sessions/.current-session-id
-  # last-writer-wins fallback. Used by /session-end Step 2.7 detection and
+  # last-writer-wins fallback. Used by /workstream-complete Step 2.7 detection and
   # session-init.sh orphan sweep. Never the machine name.
   consumed_by: string
   consumed_at: iso-date
@@ -42,6 +42,14 @@ optional:
   authoring_session: string
   # Required-by-convention on spinoffs: short slug grouping related forks.
   workstream: string
+  # Install-leg spinoff fields (see docs/wiki/agent-install-contract.md § Install-spinoff layer).
+  # Present on kind: spinoff batons a downstream repo's installer seeds into tasks/handoffs/ to
+  # mark an install-chain leg. repo = the leg's repo_id; install_chain_order = relative install
+  # position (lower = earlier; coordinator = 0) — also the tag the continue-onboarding Step 0 sweep
+  # greps to distinguish install legs from the onboarding handoff. Validator is lenient on unknown
+  # keys, but these are registered so the convention is greppable and type-checked, not just tolerated.
+  repo: string
+  install_chain_order: number
   # Optional on any handoff. Git pathspec syntax.
   scope: list-of-string
   # Positive pickup-authorized signal. Absence triggers a non-blocking warning at
@@ -51,7 +59,7 @@ optional:
   pickup_ready: boolean
   # Lifecycle readiness — universal across all handoff kinds. Drives query-records
   # filtering at /session-start and /workday-start; transitions tracked by /pickup
-  # (→ in_flight), /handoff and /session-end (→ shipped or back to ready_to_fire).
+  # (→ in_flight), /handoff and /workstream-complete (→ shipped or back to ready_to_fire).
   # See docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 1a.
   deployment_state:
     type: enum
@@ -61,7 +69,7 @@ optional:
   # Durability rule (per /handoff): subsystem-named, not file-pathed.
   gate_dependency: string
   # Commit SHA or PR ref where this handoff's work landed. Set by /handoff or
-  # /session-end on transition to deployment_state=shipped. /distill requires
+  # /workstream-complete on transition to deployment_state=shipped. /distill requires
   # this field present before deleting an archived handoff (Phase 4c safety guard).
   shipped_in: string
   # Roadmap-only graph primitives — permitted ONLY when kind=spinoff-roadmap.
@@ -87,10 +95,10 @@ optional:
   category:
     type: enum
     values: [roadmap, infra, bug, docs, research, refactor, uncategorized]
-  # One-line session summary (≤120 chars). Written by /handoff and /session-end.
+  # One-line session summary (≤120 chars). Written by /handoff and /workstream-complete.
   # Presence and length enforced post-cutoff via cross-field rule in schema.js.
   summary: string
-  # Written by /session-end and /handoff after running coordinator:review-code on the
+  # Written by /workstream-complete and /handoff after running coordinator:review-code on the
   # session diff. Format (documented but not type-enforced): "<sha-range> <reviewer> <YYYY-MM-DD>"
   # where reviewer is one of: sonnet | patrik | sonnet+patrik | waived.
   # Example: "abc123..def456 sonnet 2026-05-08"
@@ -98,7 +106,7 @@ optional:
   # authored mid-session by the current EM; the review marker belongs on continuation
   # handoffs only. See skills/spinoff/SKILL.md § Anti-scope.
   # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
-  reviewed_at_session_end: string
+  reviewed_at_workstream_complete: string
 
 # ---------------------------------------------------------------------------
 # Session Ledger — body convention, NOT a frontmatter field (Phase 2)
@@ -122,7 +130,7 @@ optional:
 #   2026-05-20 | def456 | S | 3d / 0o | Docs update and minor fix
 #
 # Field semantics:
-#   YYYY-MM-DD   — date the picking-up session ran /session-end
+#   YYYY-MM-DD   — date the picking-up session ran /workstream-complete
 #   <sid6>       — last 6 chars of $em_sid (same source as completion-entry authored_by)
 #   <tshirt>     — per-session t-shirt size: XS | S | M | L | XL
 #   <Nd / No>    — agent_dispatches / opus_dispatches for that session

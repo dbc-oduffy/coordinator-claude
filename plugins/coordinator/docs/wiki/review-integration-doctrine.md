@@ -35,11 +35,11 @@ The failure mode this prevents: EM treating every review finding as a question r
 
 Plan-time review (the Staff Engineer on the stub, prior-art-checker on the plan) checks substrate and approach: are the paths real, is the schema correct, does this contradict prior doctrine, is the architecture coherent? These checks work against the plan artifact before any code is written.
 
-Chain-end review (session-end `code-reviewer` or `code-reviewer`+the Staff Engineer on the landed diff) catches a different class: boundary-relabeling bugs (where a function's name or contract shifted during implementation), integration-seam mismatches (where two independently-implemented chunks don't compose), and structural drift from the plan. These defects are invisible at plan time because they emerge from the gap between intent and implementation.
+Chain-end review (workstream-complete `code-reviewer` or `code-reviewer`+the Staff Engineer on the landed diff) catches a different class: boundary-relabeling bugs (where a function's name or contract shifted during implementation), integration-seam mismatches (where two independently-implemented chunks don't compose), and structural drift from the plan. These defects are invisible at plan time because they emerge from the gap between intent and implementation.
 
 Running only plan-time review and skipping chain-end review is not "sufficient review" — it is review that structurally cannot see the defect class that most commonly survives execution.
 
-→ coordinator/CLAUDE.md § Session-end review and marker trail (under Review Sequencing) for the chain-end review procedure.
+→ coordinator/CLAUDE.md § Workstream-complete / weekly marker trail (under Review Sequencing) for the chain-end review procedure.
 
 ## Single-agent math and precedence findings need verification
 

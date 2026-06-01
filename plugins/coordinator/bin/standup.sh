@@ -96,8 +96,8 @@ echo "== Handoffs touched today =="
 TODAY_ANCHOR=$(date -I 2>/dev/null || date +%Y-%m-%d)
 HANDOFFS_DIR="$REPO_ROOT/tasks/handoffs"
 if [[ -d "$HANDOFFS_DIR" ]]; then
-  if find "$HANDOFFS_DIR" -name '*.md' -newermt "${TODAY_ANCHOR} 00:00" \
-       -print 2>/dev/null | grep -q .; then
+  _hits="$(find "$HANDOFFS_DIR" -name '*.md' -newermt "${TODAY_ANCHOR} 00:00" -print 2>/dev/null)"
+  if [[ -n "$_hits" ]]; then
     find "$HANDOFFS_DIR" -name '*.md' -newermt "${TODAY_ANCHOR} 00:00" \
          -print 2>/dev/null | while IFS= read -r f; do
       heading=$(head -1 "$f" 2>/dev/null | sed 's/^#* *//' || echo "(no heading)")

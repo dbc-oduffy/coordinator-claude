@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # verify-no-console-flash.sh — guard against console-window flashes on Windows.
 #
 # On Windows (git-bash/mintty), spawning any native console-subsystem .exe
@@ -45,7 +45,7 @@
 # Exits 0 if all sites are clean, 1 with a report otherwise.
 # Scans *.sh, *.json, and coordinator-auto-push under coordinator-claude tree.
 
-set -uo pipefail
+set -euo pipefail
 
 ROOT="${1:-$HOME/.claude/plugins}"
 COORD_ROOT="$ROOT/coordinator-claude"
@@ -68,7 +68,8 @@ _is_suppressed() {
 # ---------------------------------------------------------------------------
 # (6) powershell / pwsh without -WindowStyle Hidden  (legacy shape)
 # ---------------------------------------------------------------------------
-mapfile -t ps_hits < <(
+ps_hits=()
+while IFS= read -r line; do ps_hits+=("$line"); done < <(
     grep -rEn --include='*.sh' --include='*.json' --include='coordinator-auto-push' \
         -e 'powershell\.exe[[:space:]]' -e '(^|[[:space:]/])pwsh[[:space:]]' \
         "$COORD_ROOT" 2>/dev/null \
@@ -99,7 +100,8 @@ done
 # The heredoc shape "${PYTHON:-python3}" - "$x" <<'...' is matched by the
 # variable-interpreter pattern above — the ' - ' suffix is part of the line.
 # ---------------------------------------------------------------------------
-mapfile -t py_node_hits < <(
+py_node_hits=()
+while IFS= read -r line; do py_node_hits+=("$line"); done < <(
     grep -rEn --include='*.sh' --include='coordinator-auto-push' \
         -e '\$\{PYTHON[^}]*\}' \
         -e '\$PYTHON[A-Z_0-9]*' \
@@ -131,7 +133,8 @@ done
 # ---------------------------------------------------------------------------
 # (5) hooks.json command strings containing python or node invocations
 # ---------------------------------------------------------------------------
-mapfile -t json_hits < <(
+json_hits=()
+while IFS= read -r line; do json_hits+=("$line"); done < <(
     grep -rEn --include='*.json' \
         -e '"command"[[:space:]]*:[[:space:]]*"(python|python3|node)[[:space:]]' \
         "$COORD_ROOT" 2>/dev/null \

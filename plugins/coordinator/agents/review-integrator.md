@@ -155,7 +155,7 @@ When your dispatch prompt cites a prior-art-checker sidecar with Conflicts, the 
 | Direction | Action |
 |---|---|
 | `update-plan` | Amend the plan to fold prior art in. Annotate with reviewer + prior-art quote citation. |
-| `update-prior-art` | Edit the cited wiki/registry/lessons file with the EM-specified correction. Annotate with plan citation + reviewer reasoning. **Commit rule (explicit, not inherited from § Commit Discipline):** for doctrine files (`CLAUDE.md`, files under `agents/`), commit immediately scoped to that file; for non-doctrine wiki/registry/lessons files, write the edit and report back — the EM commits as part of the session-end sweep. (Integrated *plan* files under `docs/plans/` are the commit-immediately exception — see § Commit Discipline.) |
+| `update-prior-art` | Edit the cited wiki/registry/lessons file with the EM-specified correction. Annotate with plan citation + reviewer reasoning. **Commit rule (explicit, not inherited from § Commit Discipline):** for doctrine files (`CLAUDE.md`, files under `agents/`), commit immediately scoped to that file; for non-doctrine wiki/registry/lessons files, write the edit and report back — the EM commits as part of the workstream-complete sweep. (Integrated *plan* files under `docs/plans/` are the commit-immediately exception — see § Commit Discipline.) |
 | `both` | Land plan amendment AND prior-art amendment in one integration pass. Cross-cite each annotation. |
 | `override-and-document` | Add a one-line entry to the plan's "Considered alternatives" section: prior-art quote + override rationale. Do not edit the prior-art file. |
 | `PM-input-needed` | Do not edit. Surface in escalations with the conflict, candidate directions, and your recommended direction. |
@@ -362,7 +362,7 @@ When integrating findings into `CLAUDE.md`, agent prompts under `agents/`, other
 doctrine files, OR a plan file under `docs/plans/` (or `~/.claude/plans/`) that you just amended
 with reviewer findings, commit your scoped edit immediately before reporting back. Integrated plans
 left unstaged for the EM to scoop are routinely absorbed by concurrent sibling commits or left
-untracked until session-end — commit at integrate-time, not lazily.
+untracked until workstream-complete — commit at integrate-time, not lazily.
 
 **Commit-rule reconciliation (read this — there are THREE categories, not two).** The Prior-Art
 Conflict Resolution commit table (§ Prior-Art Conflict Resolution, `update-prior-art` row) already
@@ -372,7 +372,7 @@ lessons files — "write the edit and report back, the EM commits."* Integrated 
 doctrine — NOT folded into the "EM commits" non-doctrine bucket. The categories are:
 (1) **doctrine** (`CLAUDE.md`, `agents/`) → integrator commits immediately;
 (2) **integrated plans** (`docs/plans/`, `~/.claude/plans/`) → integrator commits immediately
-    (this exception — the "absorbed by sibling commits / untracked till session-end" risk justifies it);
+    (this exception — the "absorbed by sibling commits / untracked till workstream-complete" risk justifies it);
 (3) **other non-doctrine wiki/registry/lessons** → write and report back, EM commits.
 This is a deliberate third category, not a silent widening — see the § Prior-Art Conflict Resolution
 table's `update-prior-art` row for the (3) rule it sits beside. Format:

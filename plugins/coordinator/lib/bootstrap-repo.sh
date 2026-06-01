@@ -117,17 +117,18 @@ if [[ ! -f "$DIVERGENCE_PY" ]]; then
     exit 1
 fi
 
-# Resolve Python interpreter.
-PYTHON=""
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON=python3
-elif command -v python >/dev/null 2>&1; then
-    PYTHON=python
-elif command -v py >/dev/null 2>&1; then
-    PYTHON=py
-else
-    echo "bootstrap-repo.sh: no python interpreter (python3/python/py) found (required for conflict-warn stage)" >&2
-    exit 1
+# Resolve Python interpreter — use the shared resolver so PYTHON_ARGS (e.g. "-3"
+# for the Windows py launcher) are correctly set; a bare `py script.py` without
+# -3 defaults to Python 2 on mixed machines.
+_BOOTSTRAP_LIB="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
+[[ ! -f "$_BOOTSTRAP_LIB" ]] && _BOOTSTRAP_LIB="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
+if [[ -f "$_BOOTSTRAP_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$_BOOTSTRAP_LIB"
+fi
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  echo "bootstrap-repo.sh: no python interpreter (python3/python/py) found (required for conflict-warn stage)" >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -315,7 +316,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
         echo "[bootstrap-repo dry-run] stage 4 (conflict-warn): no version.txt — first-time bootstrap, skipping classifier"
     fi
 elif [[ $_has_baseline -eq 1 ]]; then
-    "$PYTHON" "$DIVERGENCE_PY" \
+    "$PYTHON_BIN" "${PYTHON_ARGS[@]}" "$DIVERGENCE_PY" \
         --source "$COORDINATOR_ROOT" \
         --live "$ROOT_PATH" \
         --format text 2>&1 || _conflict_exit=$?

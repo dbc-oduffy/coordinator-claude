@@ -37,6 +37,11 @@
 # missing stamp is EXPECTED — the probe treats source_is_live repos as structural no-ops
 # (mirrors check-plugin-drift.sh behaviour). This is not inconclusive.
 
+# NOTE: deliberately NO `-e` — this file is SOURCED (probe-onboarding-currency.sh,
+# bootstrap-orchestrate.sh, setup/onboarding skills, tests). A file-scope `set -e`
+# in a sourced lib turns on errexit in the CALLER's shell, aborting it on the first
+# benign non-zero. Functions that need errexit semantics capture exit codes explicitly
+# (see the cat_exit pattern in coordinator_currency_write). Mirrors coordinator-session.sh.
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
@@ -116,7 +121,7 @@ coordinator_currency_write() {
     # set -uo pipefail does NOT propagate through here-doc writes inside a sourced
     # function without -e; explicit exit-code capture is required.
     local tmp_path
-    tmp_path="${stamp_path}.tmp.$$"
+    tmp_path="$(mktemp "${stamp_path}.XXXXXX")"
 
     cat > "$tmp_path" <<EOF
 # coordinator-currency.yaml — per-repo coordinator schema currency stamp.

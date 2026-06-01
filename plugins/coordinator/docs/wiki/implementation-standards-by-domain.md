@@ -11,7 +11,7 @@ provenance: extracted from coordinator/CLAUDE.md § Implementation Standards Clu
 
 ## Why this exists
 
-Coordinator CLAUDE.md is read at every session boot. Domain-specific standards (observability, DB/indexer, dependency, engine plugin) apply only when working in that domain — the other 95% of sessions don't need them in context. Promoting them to a wiki keeps the doctrine intact, greppable when relevant, and out of the boot path.
+Coordinator CLAUDE.md is read at every session start. Domain-specific standards (observability, DB/indexer, dependency, engine plugin) apply only when working in that domain — the other 95% of sessions don't need them in context. Promoting them to a wiki keeps the doctrine intact, greppable when relevant, and out of the boot path.
 
 See `docs/wiki/document-bloat-trim.md` for the general extraction rule.
 

@@ -1528,6 +1528,164 @@ def test_kind_invalid_value_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests 36-40 — --list-receivers discovery surface + publish-target asymmetry guard
+#
+# Doctrine: docs/wiki/cross-repo-communication.md § CLI (Discovering valid receivers).
+#
+# Regression target: an EM enumerating receivers via `machine-local keys` sees
+# only repos.* siblings and concludes claude-central-em is not a valid target,
+# then hand-authors into ~/.claude/cross-repo/inbox/. --list-receivers is the
+# enumerator that ALWAYS includes central, decoupled from the registry.
+# ---------------------------------------------------------------------------
+
+def _make_mock_machine_local_keys_and_get(tmpdir: str, key_paths: dict) -> str:
+    """Stub machine-local where `keys` lists keys and `get <key>` resolves a path.
+
+    Unlike _make_mock_machine_local_subcommand_aware (get always fails), this
+    resolves get so --list-receivers can render the sibling path column.
+    """
+    stub_path = os.path.join(tmpdir, "_mock_ml_keys_get.py")
+    kp_repr = repr(key_paths)
+    script = textwrap.dedent(f"""\
+        #!/usr/bin/env python3
+        import sys
+        kp = {kp_repr}
+        argv = sys.argv[1:]
+        if argv and argv[0] == "keys":
+            for k in kp:
+                print(k)
+            sys.exit(0)
+        if len(argv) == 2 and argv[0] == "get" and argv[1] in kp:
+            print(kp[argv[1]])
+            sys.exit(0)
+        print("machine-local: key not found", file=sys.stderr)
+        sys.exit(1)
+    """)
+    with open(stub_path, "w") as f:
+        f.write(script)
+    return stub_path
+
+
+def test_list_receivers_includes_central() -> None:
+    name = "Test 36 — --list-receivers names claude-central-em even with siblings registered"
+    with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
+         tempfile.TemporaryDirectory() as impl_tmpdir:
+        mock_impl = _make_mock_machine_local_keys_and_get(
+            impl_tmpdir,
+            {"repos.project_rag": "/work/project-rag",
+             "repos.claude_unreal_holodeck": "/work/claude-unreal-holodeck"},
+        )
+        env = {**os.environ, "MACHINE_LOCAL_IMPL": mock_impl, "CLAUDE_HOME": claude_home_tmpdir}
+        # No --to/--topic/--title — discovery mode must not require them.
+        result = _run_dispatcher(["--list-receivers"], env=env, stdin_text="")
+        if result.returncode != 0:
+            fail_test(name, f"--list-receivers should exit 0; got {result.returncode}. stderr: {result.stderr!r}")
+            return
+        if "claude-central-em" not in result.stdout:
+            fail_test(name, f"central must be listed. stdout: {result.stdout!r}")
+            return
+        pass_test(name)
+
+
+def test_list_receivers_lists_registered_siblings() -> None:
+    name = "Test 37 — --list-receivers lists registered siblings (incl. alias reversal)"
+    with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
+         tempfile.TemporaryDirectory() as impl_tmpdir:
+        mock_impl = _make_mock_machine_local_keys_and_get(
+            impl_tmpdir,
+            {"repos.project_rag": "/work/project-rag",
+             "repos.claude_unreal_holodeck": "/work/claude-unreal-holodeck"},
+        )
+        env = {**os.environ, "MACHINE_LOCAL_IMPL": mock_impl, "CLAUDE_HOME": claude_home_tmpdir}
+        result = _run_dispatcher(["--list-receivers"], env=env, stdin_text="")
+        if result.returncode != 0:
+            fail_test(name, f"--list-receivers should exit 0; got {result.returncode}. stderr: {result.stderr!r}")
+            return
+        if "project-rag-em" not in result.stdout:
+            fail_test(name, f"sibling project-rag-em must be listed. stdout: {result.stdout!r}")
+            return
+        if "holodeck-em" not in result.stdout:
+            fail_test(name, f"alias must reverse to holodeck-em. stdout: {result.stdout!r}")
+            return
+        if "/work/project-rag" not in result.stdout:
+            fail_test(name, f"resolved sibling path must be shown. stdout: {result.stdout!r}")
+            return
+        pass_test(name)
+
+
+def test_list_receivers_omits_publish_targets() -> None:
+    name = "Test 38 — --list-receivers omits publish-target mirrors (deep-research-em incl.)"
+    with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
+         tempfile.TemporaryDirectory() as impl_tmpdir:
+        # repos.deep_research reverses to deep-research-em — the registry-shortname
+        # asymmetry that previously escaped the publish-target guard.
+        mock_impl = _make_mock_machine_local_keys_and_get(
+            impl_tmpdir,
+            {"repos.project_rag": "/work/project-rag",
+             "repos.coordinator_claude": "/work/coordinator-claude",
+             "repos.deep_research": "/work/deep-research-claude"},
+        )
+        env = {**os.environ, "MACHINE_LOCAL_IMPL": mock_impl, "CLAUDE_HOME": claude_home_tmpdir}
+        result = _run_dispatcher(["--list-receivers"], env=env, stdin_text="")
+        if result.returncode != 0:
+            fail_test(name, f"--list-receivers should exit 0; got {result.returncode}. stderr: {result.stderr!r}")
+            return
+        # DELIBERATE FORMAT COUPLING: we match the sibling-ROW prefix
+        # "    {em_id}   → " (4 leading spaces, ' → ' separator) rather than the bare
+        # em_id, because the footer Note line ALSO names coordinator-claude-em /
+        # deep-research-em as rejected forms — a bare-substring check would false-fail
+        # on the footer. This couples the assertion to _format_receiver_listing's row
+        # format; if that format changes, update both sites (the row template lives at
+        # `sibling_rows.append(f"    {em_id}   → {path}")` in the CLI).
+        if "    coordinator-claude-em   →" in result.stdout:
+            fail_test(name, f"coordinator-claude-em must not be a listed receiver row. stdout: {result.stdout!r}")
+            return
+        if "    deep-research-em   →" in result.stdout:
+            fail_test(name, f"deep-research-em must not be a listed receiver row (publish mirror). stdout: {result.stdout!r}")
+            return
+        if "    project-rag-em   →" not in result.stdout:
+            fail_test(name, f"real sibling project-rag-em should still be listed. stdout: {result.stdout!r}")
+            return
+        pass_test(name)
+
+
+def test_deep_research_em_rejected_as_publish_target() -> None:
+    name = "Test 39 — --to deep-research-em rejected as publish target (asymmetry guard)"
+    with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
+         tempfile.TemporaryDirectory() as impl_tmpdir:
+        mock_impl = _make_mock_machine_local_keys_and_get(
+            impl_tmpdir, {"repos.deep_research": "/work/deep-research-claude"},
+        )
+        env = {**os.environ, "MACHINE_LOCAL_IMPL": mock_impl, "CLAUDE_HOME": claude_home_tmpdir}
+        result = _run_dispatcher(
+            ["--to", "deep-research-em", "--topic", "t", "--title", "T"],
+            env=env, stdin_text="Body.\n",
+        )
+        if result.returncode != 1:
+            fail_test(name, f"expected exit 1 (publish-target rejection); got {result.returncode}. stderr: {result.stderr!r}")
+            return
+        if "publish target" not in result.stderr.lower():
+            fail_test(name, f"error should name the publish-target reason. stderr: {result.stderr!r}")
+            return
+        pass_test(name)
+
+
+def test_missing_send_args_points_at_list_receivers() -> None:
+    name = "Test 40 — missing --to (no --list-receivers) → exit 2, points at --list-receivers"
+    with tempfile.TemporaryDirectory() as claude_home_tmpdir:
+        env = {**os.environ, "CLAUDE_HOME": claude_home_tmpdir}
+        # --topic/--title present but --to absent: conditional-required enforcement.
+        result = _run_dispatcher(["--topic", "t", "--title", "T"], env=env, stdin_text="Body.\n")
+        if result.returncode != 2:
+            fail_test(name, f"expected exit 2 for missing --to; got {result.returncode}. stderr: {result.stderr!r}")
+            return
+        if "--list-receivers" not in result.stderr:
+            fail_test(name, f"error should point at --list-receivers. stderr: {result.stderr!r}")
+            return
+        pass_test(name)
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -1578,6 +1736,12 @@ def main() -> int:
         test_kind_fyi_round_trips,
         test_kind_omitted_produces_no_kind_line,
         test_kind_invalid_value_rejected,
+        # Tests 36-40 — --list-receivers discovery surface + publish-target asymmetry guard
+        test_list_receivers_includes_central,
+        test_list_receivers_lists_registered_siblings,
+        test_list_receivers_omits_publish_targets,
+        test_deep_research_em_rejected_as_publish_target,
+        test_missing_send_args_points_at_list_receivers,
     ]
 
     for test_fn in tests:

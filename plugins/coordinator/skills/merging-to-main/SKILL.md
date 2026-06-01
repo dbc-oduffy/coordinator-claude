@@ -10,7 +10,7 @@ version: 1.1.0
 
 ## Overview
 
-Merge a work or feature branch to main via PR with CI gating. Creates the PR, waits for checks, merges on success, and cleans up the branch.
+Merge a work or feature branch to main via PR with CI gating.
 
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
@@ -51,42 +51,30 @@ bash check-acceptance-oracle.sh <plan-path>
   ```
   Stop. Do NOT proceed to PR creation.
 
-**If plan path resolved but the plan has no bindable `## Acceptance Criteria` table** (old-form plan):
-Skip-with-offer: _"Plan found but no bindable acceptance-criteria table detected — oracle gate skipped. Consider upgrading to the bindable-table form (`docs/wiki/writing-plans.md` § Acceptance Oracle) when you next revise this plan."_ Continue to Step 0b.
+**If plan path resolved but no bindable `## Acceptance Criteria` table** (old-form plan):
+Skip-with-offer: _"Plan found but no bindable acceptance-criteria table — oracle gate skipped. Consider upgrading (`docs/wiki/writing-plans.md` § Acceptance Oracle)."_ Continue to Step 0b.
 
 #### Step 0b: Test Suite Gate
-
-Before creating a PR, attempt the project's test suite to catch issues early.
 
 1. **Run the coordinator hook test suite first:**
    ```bash
    node --test ~/.claude/plugins/coordinator/tests/plugin-ecosystem/run.js
    ```
-   If this fails, halt and report which tests failed before proceeding. The hook suite
-   covers load-bearing infrastructure (coordinator-safe-commit, verify-preamble-sync,
-   coordinator-auto-push, session-init) and must pass before any merge.
+   If this fails, halt and report which tests failed. The hook suite covers load-bearing infra
+   (coordinator-safe-commit, verify-preamble-sync, coordinator-auto-push, session-init) and must pass before any merge.
 
-2. **Detect project test runner:** Look for common test commands:
-   - `pnpm test` or `npm test` (Node.js projects)
-   - `pytest` or `python -m pytest` (Python projects)
-   - `/validate` skill (all projects with CI)
-   - Project-specific test commands from `CLAUDE.md` or `package.json`
+2. **Detect project test runner:** `pnpm test` / `npm test` (Node.js), `pytest` / `python -m pytest` (Python), `/validate` (CI), or project-specific from `CLAUDE.md`/`package.json`.
 
-3. **Run the project test suite.** If tests pass: proceed to Step 1. If tests fail: alert the PM and halt — _"Test suite failed before merge. Fix the failures first, or use `/merge-to-main --force` to bypass the test gate for hotfixes."_ Do NOT proceed to PR creation.
+3. **Run the project test suite.** Pass → proceed to Step 1. Fail → halt: _"Test suite failed. Fix first, or use `/merge-to-main --force` to bypass for hotfixes."_ Do NOT proceed to PR creation.
 
-4. **`--force` escape hatch:** If `$ARGUMENTS` contains `--force`:
-   - Skip the test suite entirely (Step 0b only — the acceptance-oracle gate in Step 0a is NOT bypassed by `--force`; use `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` for that)
-   - Log: _"Force-merge requested — test suite gate bypassed."_
-   - Proceed to Step 1
-   - This is for hotfixes where the PM/EM has decided the merge is urgent
+4. **`--force` escape hatch:** Skips Step 0b only — acceptance-oracle gate (Step 0a) is NOT bypassed; use `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` for that. Log: _"Force-merge requested — test suite gate bypassed."_ Proceed to Step 1.
 
-5. **First Officer Doctrine:** If the EM detects the branch has known issues (from health survey or prior test failures), the EM can refuse to merge and alert the PM. The EM is empowered to protect main.
+5. **First Officer Doctrine:** EM may refuse to merge and alert the PM if the branch has known issues.
 
 ### Step 1: Pre-flight
 
-1. **Check for uncommitted changes.** If any exist, commit only the paths this session touched — do NOT use coordinator-safe-commit here (SC-DR-008, lessons.md:207):
+1. **Check for uncommitted changes.** Commit only paths this session touched — do NOT use coordinator-safe-commit here (SC-DR-008):
    ```bash
-   # Stage only the paths you explicitly touched this session (no git add -A / git add .)
    git add -- <path1> <path2> ... && git commit -m "pre-merge quick-save" -- <path1> <path2> ...
    ```
 
@@ -95,22 +83,18 @@ Before creating a PR, attempt the project's test suite to catch issues early.
    **If on a work/feature branch:** proceed to step 3.
 
    **If on main with unpushed commits ahead of origin/main:**
-   These commits need to go through a PR, not be pushed directly. Auto-recover:
+   Auto-recover: commits go through a PR, not a direct push.
    ```bash
-   # Sync-main invariant: verify origin/main is reachable before creating branch.
-   # If local main is ahead of origin/main, abort rather than creating a stale branch.
    ~/.claude/plugins/coordinator/bin/sync-main.sh || {
      echo "sync-main.sh failed — local main has diverged. Investigate before creating a recovery branch."
      exit 1
    }
-   # Determine branch name using git-workflow conventions
    BRANCH="work/$(hostname | tr '[:upper:]' '[:lower:]')/$(date +%Y-%m-%d)"
    # Review: patrik F1 — inline override required; block-off-daily-branch.sh hook
    # would deny git checkout -b and git checkout here without it.
    COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 create recovery branch" \
      git checkout -b "$BRANCH"
    git push origin "$BRANCH" --set-upstream
-   # Reset local main back to origin
    COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 checkout main for reset" \
      git checkout main && git reset --hard origin/main
    COORDINATOR_OVERRIDE_BRANCH=1 COORDINATOR_OVERRIDE_BRANCH_REASON="merging-to-main step 1 return to work branch" \
@@ -133,13 +117,11 @@ Before creating a PR, attempt the project's test suite to catch issues early.
 
 ### Step 1.5: Build PR Body (mandatory, every merge)
 
-Every merge to `main` produces a PR body composed of three parts: ship verdict, release notes, and demo path (user-visible work only). LLM authoring overhead is near-zero — omitting any part imposes a cost on downstream readers.
-
-The VP-of-Product lens at merge (refactor-vs-patch, shape-of-the-solution, dumb questions experienced engineers skip) is the **PM's lens** — applied in meatspace by the Head of Product, not by a the VP-Product Reviewer dispatch. If the PM wants a structured second opinion on shape, they request `/staff-session` with `vp-product` in the team or invoke the VP-Product Reviewer by name. The merge gate does not auto-dispatch the VP-Product Reviewer.
+Every merge to `main` produces a PR body composed of three parts: ship verdict, release notes, and demo path (user-visible work only). The VP-of-Product lens is the PM's lens — applied in meatspace; request `/staff-session` with `vp-product` for a structured second opinion.
 
 **Part 1 — Ship Verdict (every merge)**
 
-Before creating the PR, the EM stages a one-line ship verdict for the PR body:
+EM stages one line; PM confirms or overrides. Don't merge on `hold`/`split` without PM redirect. Always present for audit history.
 
 ```markdown
 **Ship verdict:** [ship | ship-behind-flag | hold | split | spike-only] — [one-sentence rationale]
@@ -147,117 +129,172 @@ Before creating the PR, the EM stages a one-line ship verdict for the PR body:
 
 | Verdict | Meaning |
 |---------|---------|
-| **ship** | Acceptance criteria satisfied (or explicitly waived); evidence supports merge to main; no blocking concerns |
-| **ship-behind-flag** | Code is ready, but rollout should be gated (feature flag, percentage rollout, opt-in). Name the flag |
-| **hold** | Don't merge yet — specific concern remains. Name it |
-| **split** | This branch contains two changes that should land separately. Name them and recommend split-then-merge |
-| **spike-only** | Code is informative but not for production. Document findings, don't merge to main |
-
-The EM **stages** the verdict; the PM **confirms or overrides**. Don't merge on a `hold` or `split` verdict without explicit PM redirect. For routine `ship` verdicts on small internal merges, the PM's silent acceptance is fine — but the verdict line is always present so future-you can scan history and see the call.
+| **ship** | AC satisfied/waived; evidence supports merge; no blocking concerns |
+| **ship-behind-flag** | Code ready but rollout should be gated. Name the flag |
+| **hold** | Don't merge — specific concern remains. Name it |
+| **split** | Two changes that should land separately. Name them |
+| **spike-only** | Informative only — don't merge to main |
 
 **Part 2 — Release Notes (every merge)**
 
-**Release-notes source detection (run first):**
-
 ```bash
-# Prefer the workweek-complete pending-release file if present.
 PENDING_RELEASE=$(ls tasks/week-changelog/*-pending-release.md 2>/dev/null | sort | tail -1)
 ```
 
-- **If `$PENDING_RELEASE` is set (normal path — workweek-complete ran):** Use that file as the primary release-notes source. The three-bucket structure (Highlights / Improvements / Other) already captures everything. Skip steps 1–5 below and jump directly to step 6 (CHANGELOG update) using the pending-release file's content as the draft entry. Set:
-  ```bash
-  PENDING_RELEASE_FILE="$PENDING_RELEASE"  # retain for post-merge status-flip (Step 5.5)
-  ```
-- **If absent (emergency-release path — workweek-complete has not run):** Fall through to steps 1–5 to draft inline. Set `PENDING_RELEASE_FILE=""`.
+- **`$PENDING_RELEASE` set (normal path):** Use as primary; skip steps 1–5, go to step 6. Set `PENDING_RELEASE_FILE="$PENDING_RELEASE"` (retain for Step 5.5).
+- **Absent (emergency-release path):** Draft inline via steps 1–5. Set `PENDING_RELEASE_FILE=""`.
 
 1. **Inventory the merge:**
    ```bash
-   COMMITS=$(git log main..HEAD --oneline)
-   COMMIT_COUNT=$(git rev-list --count main..HEAD)
-   CHANGED_FILES=$(git diff --name-only main..HEAD)
-   STATS=$(git diff --shortstat main..HEAD)
+   COMMITS=$(git log main..HEAD --oneline) && CHANGED_FILES=$(git diff --name-only main..HEAD)
+   COMMIT_COUNT=$(git rev-list --count main..HEAD) && STATS=$(git diff --shortstat main..HEAD)
    ```
 
-2. **Group changes by impact category** (don't mirror commit-by-commit; group by what a reader cares about):
-   - **Added** — new features, new files, new capabilities
-   - **Changed** — behavior changes, refactors with user-visible effect, API changes
-   - **Fixed** — bug fixes, regression repairs
-   - **Deps** — dependency bumps, CVE remediation, transitive updates
-   - **Internal** — refactors with no user-visible effect (omit if trivial; keep if substantive)
-
-   Single-commit dependency-bump merges still get a one-line note (e.g. _"Deps: bump express past path-to-regexp CVE; transitive only, no API surface change."_). Don't skip "trivial" merges — that's how CHANGELOGs rot.
+2. **Group by impact** (don't mirror commit-by-commit): **Added**, **Changed**, **Fixed**, **Deps**, **Internal** (omit if trivial). Single-commit dep-bump merges still get a one-line note — don't skip "trivial" merges.
 
 3. **Detect repo-root `CHANGELOG.md`:**
    ```bash
    if [ -f CHANGELOG.md ]; then HAS_CHANGELOG=1; else HAS_CHANGELOG=0; fi
    ```
-   - If present: this repo has external consumers and an established notes convention. Always update it.
-   - If absent: do NOT auto-create. Embed notes in PR body only.
+   Present → always update it. Absent → do NOT auto-create; embed notes in PR body only.
 
 4. **Determine version bump suggestion** (advisory — surfaced for PM, never auto-applied):
-   - Read `package.json` `version` field (or equivalent for the repo's ecosystem).
-   - Suggest based on diff scope:
-     - **patch** — bug fixes, dep bumps, internal refactors
-     - **minor** — new backwards-compatible features
-     - **major** — breaking changes, removed APIs
-   - If unsure between two levels, suggest the lower one and let the PM override.
+   - If `version_source: tag` in `coordinator.local.md`: do NOT read the manifest (may be frozen sentinel). Surface `version per docs/wiki/versioning-convention.md — PM to confirm number`; skip the rest.
+   - Otherwise (`version_source: manifest`, the default): read ecosystem manifest (`package.json` / `pyproject.toml` / `Cargo.toml`). Suggest: **patch** (fixes/deps/internal), **minor** (new compat features), **major** (breaking). When unsure, suggest lower.
 
-5. **Draft the entry.** Format:
-   ```markdown
-   ## v{suggested-version} — {YYYY-MM-DD}
+   **Tagged-publish leg** (drives off bump suggestion — no separate triviality gate):
 
-   ### Added
-   - {one-line bullet per logical addition}
+   Evaluate both before proposing:
+   - Bump suggestion is `>= patch` (not a skip).
+   - Merge touches more than `tasks/`, `tmp/`, or other internal-only paths.
 
-   ### Changed
-   - {one-line bullet per logical change}
+   If BOTH hold, **check `coordinator.local.md` for `tag_anchor`** to select publish mode:
 
-   ### Fixed
-   - {one-line bullet per fix}
+   <!-- tag_anchor=git-tag mode (C4, 2026-06-01): registry-property opt-in for repos that use
+        annotated git tags as the sole disclosure anchor (no GitHub Releases / no OSS publish repo).
+        Declared via `tag_anchor: git-tag` in coordinator.local.md frontmatter.
+        Spec: docs/plans/2026-06-01-version-disclosure-and-boot-currency-hook.md § C4 -->
 
-   ### Deps
-   - {one-line bullet per dep change, including CVE refs if applicable}
+   **Mode A — `tag_anchor: git-tag` (repo declares git-tag-only mode):**
 
-   ### Internal
-   - {one-liners for substantive internal refactors; omit section if all trivial}
+   If `coordinator.local.md` frontmatter `tag_anchor: git-tag`, this is a git-tag-only disclosure
+   repo — propose ONLY the annotated tag, no GitHub Release step. Two OPTIONAL companion fields
+   (defaults reproduce bare-`v*`, manifest-driven behavior; repos without them are unchanged — see DR-149):
+
+   - **`tag_prefix:`** (default empty) — namespace prefix. Empty → `vX.Y.Z`; `holodeck-` → `holodeck-vX.Y.Z`.
+     The cut here and the consumer's currency check MUST resolve the same `${tag_prefix}v*` pattern.
+     **Coupling warning:** `tag_prefix` and the consumer's currency-check resolver drift silently — update in lockstep.
+   - **`version_source:`** (default `manifest`) — `manifest` → read ecosystem manifest for version SSOT;
+     `tag` → latest `${tag_prefix}v*` tag is the SSOT; manifest is NOT read (may be a frozen sentinel,
+     e.g. holodeck's `pyproject` at `0.0.0`). Number choice per consumer's `versioning-convention.md` (PM-confirmed).
+
+   Propose:
+
+   ```
+   Suggested bump: <prefix>vX.Y.Z (patch|minor|major — rationale, or "per versioning-convention.md").
+   Tagged publish: propose cutting the annotated git tag <prefix>vX.Y.Z on origin/main.
+   Confirm version and tag, or adjust.
    ```
 
-   For trivial single-commit merges, collapse to a single bullet under one section — don't pad sections that don't apply.
+   PM confirms inline (release surface — never a silent EM auto-tag). Mode A only when `tag_anchor: git-tag` is explicitly set; repos without it use Mode B. Before adding, confirm GitHub Releases are not in use for the version line this tag governs.
 
-6. **If `HAS_CHANGELOG=1`:** prepend the new entry to `CHANGELOG.md` (above prior entries, below any header). Commit on the same branch:
+   On confirmation, cut and push the annotated tag:
+
+   ```bash
+   # Replace the version with the confirmed number — do not run this block literally.
+   # tag_anchor=git-tag mode: annotated ${TAG_PREFIX}v* tag is the sole disclosure anchor.
+   # → project-rag/docs/plans/2026-06-01-version-disclosure-and-boot-currency-hook.md § C4; DR-149.
+   # Fail-loud on quoted tag_prefix (detect-then-fail-loud, not detect-then-silently-pick).
+   TAG_PREFIX="$(awk -F':[ \t]*' '
+     /^---[ \t]*$/          { f++; next }
+     f==1 && /^tag_prefix:/ { v=$2; sub(/[ \t]+#.*$/, "", v); print v; exit }
+     f>=2                   { exit }
+   ' coordinator.local.md)"
+   case "$TAG_PREFIX" in
+     *[\"\']*) echo "FATAL: tag_prefix in coordinator.local.md must be unquoted (got: $TAG_PREFIX)" >&2; exit 1 ;;
+   esac
+   TAG="${TAG_PREFIX}vX.Y.Z"                    # e.g. v0.9.0  OR  holodeck-v0.4.0
+   git fetch origin main
+   MERGE_SHA="$(git rev-parse origin/main)"
+   # Idempotent on retry: only (re)cut+push the tag if it does not already point at MERGE_SHA.
+   existing="$(git rev-parse "$TAG" 2>/dev/null || true)"
+   if [ "$existing" != "$MERGE_SHA" ]; then
+       git tag -a "$TAG" "$MERGE_SHA" -m "$TAG"
+       git push origin "$TAG"
+   fi
+   ```
+
+   No `gh release` command is run. `git tag -a` is hardcoded (annotated-never-lightweight). Tag-cut is idempotent.
+
+   **Mode B — default (no `tag_anchor` field, or `tag_anchor` is not `git-tag`):**
+
+   Propose a **tagged version bump + GitHub-release publish** alongside the bump suggestion:
+
+   ```
+   Suggested bump: vX.Y.Z (patch|minor|major — rationale).
+   Tagged publish: propose cutting the vX.Y.Z git tag on coordinator-claude and un-drafting
+   the corresponding GitHub release. Confirm version and publish, or adjust.
+   ```
+
+   PM confirms inline. On confirmation, **cut and push the `v*` git tag explicitly** — do NOT rely on un-drafting a release to create the tag as a side-effect:
+
+   ```bash
+   # The boot currency check anchors on the latest v* GIT TAG via git ls-remote --tags, NOT
+   # the Release object. Tag MUST be pushed first — un-drafted release without tag push leaves
+   # consumers on stale anchor. → docs/wiki/release-cadence-and-currency-notification.md
+   git fetch origin main
+   MERGE_SHA="$(git rev-parse origin/main)"
+   # Idempotent on retry: only (re)cut+push the tag if it does not already point at MERGE_SHA.
+   existing="$(git rev-parse "vX.Y.Z" 2>/dev/null || true)"
+   if [ "$existing" != "$MERGE_SHA" ]; then
+       git tag -a "vX.Y.Z" "$MERGE_SHA" -m "vX.Y.Z"
+       git push origin "vX.Y.Z"
+   fi
+   # Then publish the human-facing release (un-draft existing, or create if absent):
+   gh release edit vX.Y.Z --repo dbc-oduffy/coordinator-claude --draft=false --latest \
+     || gh release create vX.Y.Z --repo dbc-oduffy/coordinator-claude --latest --notes-file <release-notes>
+   ```
+
+   `git push origin vX.Y.Z` is load-bearing for currency; `gh release` is human-facing discoverability. Both run; release-edit failure must not leave the tag un-pushed. Tag-cut is idempotent.
+
+   **Publish target:** OSS publish repo(s) touched by this workstream (e.g. `dbc-oduffy/coordinator-claude`). Release notes from Step 1.5 Part 2 are the release body.
+
+   **Claude Prime (`source_is_live`) is NEVER tagged.** The meta-repo at `~/.claude` has `propagation_mode = "source_is_live"` — skip this leg silently when active repo is the meta-repo.
+
+   If either condition does NOT hold (bump is skip-eligible or merge is internal-only), skip the tagged-publish proposal silently.
+
+5. **Draft the entry:**
+   ```markdown
+   ## v{suggested-version} — {YYYY-MM-DD}
+   ### Added / Changed / Fixed / Deps / Internal
+   - {one-line bullet per logical change; omit empty sections}
+   ```
+   For trivial single-commit merges, collapse to a single bullet — don't pad sections that don't apply.
+
+6. **If `HAS_CHANGELOG=1`:** prepend entry to `CHANGELOG.md` (above prior entries, below header). Commit on branch:
    ```bash
    git add -- CHANGELOG.md && git commit -m "docs(changelog): release notes for upcoming merge" -- CHANGELOG.md
    git push origin "$BRANCH"
    ```
-   This commit lands as part of the PR — consumers reading the merge see the notes inline with the work.
 
-7. **Stash the entry text** for use as the PR body in Step 2. Whether or not CHANGELOG.md exists, the entry is the PR body's primary content.
+7. **Stash entry text** for use as PR body in Step 2.
 
-**Skip rule (rare):** Only skip release notes when the merge contains zero user-visible changes — i.e., it ONLY touches `tasks/`, `tmp/`, or other intentionally-non-consumer-facing paths. In that case, log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
+**Skip rule (rare):** Skip only when the merge ONLY touches `tasks/`, `tmp/`, or other internal-only paths. Log: _"Release notes skipped — merge touches only internal-tracking paths."_ Even then, prefer a one-line "Internal" entry over a skip.
 
-**Part 3 — Demo Path (user-visible only)**
+**Part 3 — Demo Path (user-visible merges only)**
 
-For user-visible merges, append a **Demo Path** section to the PR body:
-
+Append to PR body (omit for internal merges):
 ```markdown
 ### Demo Path
-
 **Setup:** [commands, seed data, environment]
-**Steps:**
-1. [user action]
-2. [user action]
-3. [observe result]
-**Expected:** [what should happen]
-**Known limitations:** [what *not* to claim from this demo]
+**Steps:** 1. [action] 2. [action] 3. [observe result]
+**Expected:** [what should happen] | **Known limitations:** [what *not* to claim]
 ```
-
-For internal merges, omit. The point is to make every user-visible increment demonstrable — not to add ceremony.
-
-The composed PR body is what flows into Step 2's `gh pr create --body`.
+The composed PR body flows into Step 2's `gh pr create --body`.
 
 ### Step 1.6: UE-specific check items (project_type: game-dev, project_subtypes: unreal)
 
-If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtypes` contains `unreal`, run these three additional checks after the main release-readiness steps. The coord-claude steps run first; this UE addendum runs after.
+If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtypes` contains `unreal`, run these additional checks after the main release-readiness steps.
 
 | Check | Detection | Action |
 |---|---|---|
@@ -267,18 +304,13 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
 | **Reverse-drift gate** | `bin/check-reverse-drift.sh` is executable in cwd | Run it. On non-zero exit (a `copy_install` live install hand-edited since last install — the case forward-SHA `check-plugin-drift.sh` is blind to), halt with the script's remediation: run `holodeck_recover --step reverse-drift` to back-propagate live→source, or override with `COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`. No script present → passes silently. Mirrors `/workweek-complete` Step 4g. |
 
-If `project_type` is not `game-dev` or `project_subtypes` does not contain `unreal`, skip this step entirely.
+Otherwise skip.
 
 ### Step 2: Create PR
 
 ```bash
 BRANCH=$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
-
-# Title based on branch type
-# work/<machine>/2026-03-13 → "Work: <machine> 2026-03-13"
-# feature/my-feature → "Feature: my-feature"
-
-# PR body = ship verdict + release notes + demo path (Step 1.5 Parts 1–3)
+# work/<machine>/2026-03-13 → "Work: <machine> 2026-03-13"; feature/my-feature → "Feature: my-feature"
 BODY="$(cat <<EOF
 $SHIP_VERDICT
 $YK_VERDICT
@@ -298,9 +330,8 @@ EOF
 gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
 ```
 
-- Title: `"Work: {machine} {date}"` for work branches, `"Feature: {name}"` for feature branches.
-- Body: structured release notes from Step 1.5 (primary), with the raw commit log collapsed in a `<details>` appendix for traceability.
-- If a version bump was suggested in Step 1.5 and the PM hasn't confirmed it, surface in the PR body: _"Suggested bump: patch ({old} → {new}) — confirm before tagging."_
+- Body: ship verdict + release notes + demo path (Step 1.5 Parts 1–3); commit log collapsed in `<details>`.
+- If version bump suggested but not PM-confirmed, surface: _"Suggested bump: patch ({old} → {new}) — confirm before tagging."_
 
 ### Step 3: Wait for CI
 
@@ -308,20 +339,15 @@ gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
 gh pr checks <pr-number> --watch
 ```
 
-This blocks until all checks complete.
-
-- **If checks pass:** proceed to Step 4.
-- **If "no checks reported"** (exit code 1 with that message): this means the repo has
-  no CI configured. Treat as a pass and proceed to Step 4.
-- **If checks fail:** report which checks failed. Do NOT merge. Stop and report:
-  _"CI failed on {check}. Fix the issue and re-run `/merge-to-main`, or investigate with the four-phase root-cause process at `docs/wiki/systematic-debugging.md`."_
+- **Checks pass:** proceed to Step 4.
+- **"no checks reported"** (exit 1): no CI configured — treat as pass, proceed to Step 4.
+- **Checks fail:** report which failed. Do NOT merge. _"CI failed on {check}. Fix and re-run `/merge-to-main`, or investigate via `docs/wiki/systematic-debugging.md`."_
 
 ### Step 4: Merge
 
-**Pre-merge quiet check (5-minute activity gate).** Source branches still receiving commits in the last 5 minutes indicate active work that may not belong in this merge. Run before `gh pr merge`:
+**Pre-merge quiet check (5-minute activity gate).** Run before `gh pr merge`:
 
 ```bash
-# Get the timestamp of the last commit on the PR's source branch via gh
 last_iso=$(gh pr view "$PR" --json commits -q '.commits[-1].committedDate')
 last=$(python -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$last_iso")
 now=$(python -c "import time; print(int(time.time()))")
@@ -332,9 +358,9 @@ if [ $((now - last)) -lt 300 ]; then
 fi
 ```
 
-**Note:** `gh pr view --json commits` returns commits in chronological order (verified against gh 2.87.3). `.commits[-1]` is the newest commit.
+**Note:** `gh pr view --json commits` returns commits in chronological order (verified against gh 2.87.3). `.commits[-1]` is the newest.
 
-**Override:** If `$ARGUMENTS` contains `--force-merge-active-branch`, skip this gate entirely. Use for deliberate fast merges where the 5-minute window is known-safe.
+**Override:** If `$ARGUMENTS` contains `--force-merge-active-branch`, skip this gate entirely.
 
 Use merge commit (not squash) — preserves commit history as breadcrumbs.
 
@@ -343,24 +369,19 @@ gh pr merge <pr-number> --merge --delete-branch
 ```
 
 **If "base branch policy prohibits the merge":**
-This can happen if the ruleset configuration requires conditions not yet met.
-Auto-recover with `--auto`, which tells GitHub to merge as soon as all
-requirements are satisfied:
+Auto-recover with `--auto` (merges when requirements are satisfied):
 ```bash
 gh pr merge <pr-number> --merge --delete-branch --auto
 ```
-Then wait briefly and verify the merge completed:
+Verify:
 ```bash
 sleep 5 && gh pr view <pr-number> --json state --jq '.state'
 ```
-If state is `MERGED`, proceed to Step 5. If still `OPEN`, the auto-merge is queued —
-wait and check again.
+If `MERGED`, proceed to Step 5. If still `OPEN`, auto-merge is queued — wait and check again.
 
-**Note:** As of 2026-03-13, rulesets no longer require status checks or block force push.
-The primary gate is the PR requirement (0 approvals). CI runs advisory.
+**Note:** As of 2026-03-13, rulesets no longer require status checks or block force push. Primary gate is the PR requirement (0 approvals). CI advisory.
 
 **If "head branch is not up to date with base":**
-This is expected when main has advanced (e.g., a previous branch was just merged).
 Auto-recover — do NOT stop or ask:
 ```bash
 git fetch origin main
@@ -369,25 +390,18 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 gh pr merge <pr-number> --merge --delete-branch  # retry
 ```
 
-**If merge conflicts (actual file conflicts):**
-Do NOT force. Report conflicting files and suggest:
-_"Main has diverged with conflicts. Options: (a) merge main into this branch and resolve conflicts, (b) rebase onto main. Recommend (a) for simplicity."_
-Stop and wait for PM judgment.
+**If merge conflicts:** Do NOT force. Report conflicting files: _"Main has diverged. Options: (a) merge main in and resolve conflicts, (b) rebase. Recommend (a)."_ Stop and wait for PM.
 
 ### Step 4.5: Post-Merge Re-Verify Shared Infra (geneva T1.7)
 
-After the merge completes — especially when merge conflicts were resolved or when main had concurrent edits to shared files (plugin internals, shared scripts, configs) — re-verify that your intended changes survived.
+After merge — especially when conflicts were resolved or main had concurrent edits — re-verify intended changes survived (last-writer-wins silently reverts edits on naively resolved hunks).
 
-**Why this matters:** Last-writer-wins silently reverts edits when both sides touched the same hunk and the conflict was resolved naively. A merge that "succeeded" may have dropped your change without any warning.
-
-**Verification steps:**
-
-1. For each file you specifically edited on this branch, run:
+1. For each file edited on this branch:
    ```bash
    git show HEAD:<file-path> | grep -F "<canonical phrase from your change>"
    ```
-2. If a canonical phrase is missing, your change was overwritten. Re-apply it and push a follow-up commit immediately.
-3. Pay particular attention to shared infra files (`~/.claude/`, config files, shared scripts) — these are the highest-risk files in concurrent-session environments.
+2. If a canonical phrase is missing, your change was overwritten — re-apply and push a follow-up commit immediately.
+3. Highest-risk files: shared infra (`~/.claude/`, config files, shared scripts).
 
 ### Step 5: Local Cleanup
 
@@ -403,56 +417,45 @@ If on a worktree: `git worktree remove <path>` instead.
 
 ### Step 5.5: Post-Merge Completion-Log Status Flip
 
-_Runs only when `$PENDING_RELEASE_FILE` was set in Step 1.5 (i.e., a workweek-complete pending-release file existed). Skip this step if `$PENDING_RELEASE_FILE` is empty._
+_Runs only when `$PENDING_RELEASE_FILE` was set in Step 1.5. Skip if empty._
 
-After the merge commit lands on main and the local branch is deleted (Step 5):
+1. **Ensure archive directory exists:** `mkdir -p archive/release-notes/`
 
-1. **Ensure archive directory exists** (idempotent; safe to run on every merge):
-   ```bash
-   mkdir -p archive/release-notes/
-   ```
-
-2. **Flip all `pending-release` completion entries to `released`.** Materialize the path list via `query-completions`, then update each entry's frontmatter in-place:
+2. **Flip all `pending-release` completion entries to `released`:**
    ```bash
    ENTRY_PATHS=$(query-completions --where "status=pending-release" --format paths)
    MERGE_SHA=$(git rev-parse HEAD)
    MERGE_DATE=$(date +%Y-%m-%d)
-   # For each entry path, set: status: released, released_in: <tag>, released_at: <date>, released_sha: <sha>
-   # Use sed or a frontmatter-aware helper — do NOT use git add -A.
+   # For each entry path, set frontmatter — do NOT use git add -A.
    ```
-   Replace the four frontmatter fields in each entry:
+   Set four frontmatter fields in each entry:
    ```yaml
    status: released
-   released_in: <version-tag>       # e.g. v1.4.0 — the tag applied at merge or PM-confirmed bump
+   released_in: <version-tag>       # e.g. v1.4.0
    released_at: <MERGE_DATE>
    released_sha: <MERGE_SHA>
    ```
 
-3. **Archive the pending-release file** (rename + relocate as a historic record):
+3. **Archive the pending-release file:**
    ```bash
    PENDING_BASENAME=$(basename "$PENDING_RELEASE_FILE")
    git mv "$PENDING_RELEASE_FILE" "archive/release-notes/${PENDING_BASENAME%-pending-release.md}-${VERSION_TAG}-pending-release.md"
    ```
-   Where `$VERSION_TAG` is the version string (e.g. `v1.4.0`).
 
-4. **Commit the mutations** on main — all three path sets in a single scoped commit (never `git add -A`):
+4. **Commit on main — scoped, never `git add -A`:**
    ```bash
-   RELEASE_FILE="archive/release-notes/<date>-<version-tag>.md"   # human-readable release notes file, if written
    ARCHIVED_PENDING="archive/release-notes/${PENDING_BASENAME%-pending-release.md}-${VERSION_TAG}-pending-release.md"
-
    git add -- $ENTRY_PATHS "$ARCHIVED_PENDING"
-   # Include human-readable release notes file if it was written this step:
-   # git add -- "$RELEASE_FILE"
+   # git add -- "$RELEASE_FILE"   # if a human-readable release notes file was written
    git commit -m "release: flip completion entries to released for ${VERSION_TAG}" -- $ENTRY_PATHS "$ARCHIVED_PENDING"
    ```
-   Alternative if shell word-splitting on `$ENTRY_PATHS` is awkward: write the path list to a tmpfile and use `git add --pathspec-from-file=<tmpfile>`.
+   Alternative if shell word-splitting on `$ENTRY_PATHS` is awkward: use `git add --pathspec-from-file=<tmpfile>`.
 
-   Push the release commit:
    ```bash
    git push origin main
    ```
 
-**Result:** every completion entry that was `pending-release` before this merge is now `released` with `released_in`, `released_at`, and `released_sha` stamped; the pending-release file is archived alongside any human-readable release notes under `archive/release-notes/`.
+**Result:** all `pending-release` entries stamped `released`; pending-release file archived under `archive/release-notes/`.
 
 ### Step 6: Report
 
@@ -465,26 +468,21 @@ After the merge commit lands on main and the local branch is deleted (Step 5):
 ```
 
 **Other unmerged branches:**
-
 ```bash
 ~/.claude/plugins/coordinator/bin/orphan-branch-sweep.sh --format text --severity-min warning | grep -v "^OK"
 ```
-
-If any output: include in the report and recommend: _"Multiple work branches in flight — verify these don't carry work intended for this PR."_
+If any output, include in the report: _"Multiple work branches in flight — verify these don't carry work intended for this PR."_
 
 ## Red Flags
 
-**Never:** squash commits (we want the breadcrumb trail); push directly to main.
+**Never:** squash commits; push directly to main.
 
 **Use judgment:** CI failures are advisory — review them, but they don't block merge. Force push is allowed by the ruleset if needed.
 
-**Concurrent-writer caveat:** When `/merge-to-main` runs alongside an active concurrent writer (orphan-promotion handoff, parallel session), cap commit sweeps at ~6 and accept a moving target. Don't loop trying to converge.
+**Concurrent-writer caveat:** When `/merge-to-main` runs alongside an active concurrent writer, cap commit sweeps at ~6 and accept a moving target. Don't loop trying to converge.
 
 ## Integration
 
-**Called by:**
-- **coordinator:finishing-a-development-branch** (Option 1) — delegates merge workflow here
-- Invoked directly by PM/EM when ready to merge (no longer called by /workday-complete)
+**Called by:** `coordinator:finishing-a-development-branch` (Option 1); PM/EM directly (no longer called by `/workday-complete`).
 
-**Pairs with:**
-- No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.
+**Pairs with:** No worktrees — worktrees are forbidden. Use the daily branch for WIP parking.

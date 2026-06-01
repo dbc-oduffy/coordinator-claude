@@ -5,7 +5,7 @@
 # Purpose: reads three signals for a given session (total agent dispatches,
 # Opus-model dispatches, EM token consumption) and applies the threshold table
 # from coordinator/config/loe-thresholds.yaml to produce a t-shirt size.
-# Consumed by /session-end, /handoff, and chain-aggregation (Chunk 5).
+# Consumed by /workstream-complete, /handoff, and chain-aggregation (Chunk 5).
 #
 # Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
 # § Chunk 2 — coordinator-session-loe.sh read helper (plan lines 100–144).

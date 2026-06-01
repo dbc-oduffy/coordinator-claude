@@ -38,7 +38,7 @@
 #   - The written file's frontmatter carries `kind: recovery` — a documented
 #     legitimate direct write; suppressed via a FIRST-CLASS signal (the
 #     artifact's own content), not the proxy scrape.
-#   - Transcript shows an active authoring skill: /handoff, /session-end,
+#   - Transcript shows an active authoring skill: /handoff, /workstream-complete,
 #     /spinoff (best-effort scrape; failure is harmless — see header).
 #   - Path is outside tasks/handoffs/ and tasks/spinoffs/.
 #
@@ -131,6 +131,20 @@ if printf '%s' "$CONTENT" | grep -qE '^kind:[[:space:]]*recovery[[:space:]]*$'; 
   exit 0
 fi
 
+# First-class suppression: an install-leg spinoff (`kind: spinoff` carrying
+# `install_chain_order:`) is the one sanctioned non-/spinoff direct write — the
+# operator authorized it at the install's pre-restart question (docs/wiki/
+# spinoff-handoffs.md § Install-leg spinoffs; agent-install-contract.md §
+# Install-spinoff layer). The install path seeds via `cp` (not the Write tool), so
+# this hook already short-circuits at the Write check above; this guard is
+# defense-in-depth for any future seed that does go through Write. Same
+# OWN-frontmatter positive-signal basis as the recovery suppression, so it does not
+# desensitize the EM to the steady-state nudge.
+if printf '%s' "$CONTENT" | grep -qE '^kind:[[:space:]]*spinoff[[:space:]]*$' \
+   && printf '%s' "$CONTENT" | grep -qE '^install_chain_order:[[:space:]]*[0-9]'; then
+  exit 0
+fi
+
 # Best-effort: suppress the nudge when an authoring skill is active. This is a
 # NOISE-REDUCER, not a gate — if it misses (Skill-tool invocation, buried past
 # the window), the only cost is one extra nudge the EM reads and proceeds past.
@@ -142,7 +156,7 @@ if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
   # grep closes its write end, so grep never takes SIGPIPE. This is NOT the
   # `tail | grep -q` trap fixed in check (2); leaving it as a pipeline is correct.
   LAST_CMD=$(grep -oE '<command-name>[^<]*</command-name>' "$TRANSCRIPT_PATH" 2>/dev/null | tail -1)
-  if echo "$LAST_CMD" | grep -qE '<command-name>/?(coordinator:)?(handoff|session-end|spinoff)</command-name>'; then
+  if echo "$LAST_CMD" | grep -qE '<command-name>/?(coordinator:)?(handoff|workstream-complete|spinoff)</command-name>'; then
     exit 0
   fi
   # (2) Generous-tail fallback for user-typed slash and Skill-tool invocations.
@@ -162,7 +176,7 @@ if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
   # The `Skill\(...\)` branch matches only a literal `Skill(coordinator:handoff)`
   # in prose/tool-output; kept as a cheap belt-and-braces, not the primary catch.
   RECENT_TAIL=$(tail -2000 "$TRANSCRIPT_PATH" 2>/dev/null || true)
-  if grep -qE '(^|[^a-z])/(coordinator:)?(handoff|session-end|spinoff)([^a-z]|$)|(^|[^a-z:/])coordinator:(handoff|session-end|spinoff)([^a-z]|$)|Skill\((coordinator:)?(handoff|session-end|spinoff)\)' <<< "$RECENT_TAIL"; then
+  if grep -qE '(^|[^a-z])/(coordinator:)?(handoff|workstream-complete|spinoff)([^a-z]|$)|(^|[^a-z:/])coordinator:(handoff|workstream-complete|spinoff)([^a-z]|$)|Skill\((coordinator:)?(handoff|workstream-complete|spinoff)\)' <<< "$RECENT_TAIL"; then
     exit 0
   fi
 fi
@@ -171,14 +185,14 @@ fi
 # to the model's next turn WITHOUT blocking (the file is already on disk).
 cat >&2 <<EOF
 [nudge] You just created a file under $(dirname "$FILE_PATH_NORM")/ directly —
-[nudge] no /handoff, /session-end, or /spinoff was active. This is a nudge, not
+[nudge] no /handoff, /workstream-complete, or /spinoff was active. This is a nudge, not
 [nudge] a block: the file is written and you may proceed if this was deliberate.
 [nudge]
 [nudge] If you reached for this because the work feels "done" or "tidy here":
 [nudge]   handoffs are NOT tidy stopping points — /handoff passes an IN-FLIGHT
-[nudge]   workstream. A DONE workstream is capped by /session-end (or commit and
+[nudge]   workstream. A DONE workstream is capped by /workstream-complete (or commit and
 [nudge]   stop, or /workday-complete). (coordinator/CLAUDE.md § Handoff Lineage —
-[nudge]   "/handoff and /session-end are mutually exclusive.")
+[nudge]   "/handoff and /workstream-complete are mutually exclusive.")
 [nudge]
 [nudge] If you are messaging another repo's EM:
 [nudge]   use the cross-repo-memo CLI (writes into <receiver>/cross-repo/ and

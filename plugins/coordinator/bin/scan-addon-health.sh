@@ -14,9 +14,9 @@
 #   }
 #
 # Modes:
-#   --red-only                emit lines only for RED verdicts (session-start — signal-not-noise)
+#   --red-only                emit lines only for RED verdicts (workstream-start — signal-not-noise)
 #   --red-and-stale           emit lines for RED + AMBER + stale (>24h) + missing sentinels + plugins declaring a doctor with no sentinel (workday-start, default — triage posture)
-#   --check-sentinel-presence fresh-install bootstrap check (session-start, alongside --red-only):
+#   --check-sentinel-presence fresh-install bootstrap check (workstream-start, alongside --red-only):
 #                               exit 0 + empty output  → no plugins installed, OR sentinels exist
 #                               exit 0 + one-line msg  → plugins installed but no sentinel in any data/ dir
 #                             Fires at most once per install life (sentinels appear after first doctor run).
@@ -164,7 +164,7 @@ except Exception:
       ;;
     AMBER)
       # AMBER surfaces in --red-and-stale (workday-start: operator already in triage posture)
-      # but NOT in --red-only (session-start: signal-not-noise). Empirically, a sentinel's
+      # but NOT in --red-only (workstream-start: signal-not-noise). Empirically, a sentinel's
       # AMBER verdict can age out of sync with substrate before the staleness threshold
       # fires (project-rag-ue-addon, 2026-05-21: AMBER at 10:03Z, RED at 10:30Z, sentinel
       # still wall-clock-fresh) — surfacing AMBER avoids silent workday-start under those

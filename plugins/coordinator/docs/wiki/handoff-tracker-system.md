@@ -32,12 +32,12 @@ hand-edit it — edits are silently overwritten on the next render.
 
 | Mode | Output path | Trigger |
 |------|-------------|---------|
-| Per-repo | `<repo-root>/tasks/handoff-tracker.md` | `/session-end`, `/handoff`, `/workday-start` |
-| DoE (all repos) | `~/.claude/tasks/doe-handoff-tracker.md` | `/session-start` (coordinator meta-repo), ad-hoc `--all-repos` |
+| Per-repo | `<repo-root>/tasks/handoff-tracker.md` | `/workstream-complete`, `/handoff`, `/workday-start` |
+| DoE (all repos) | `~/.claude/tasks/doe-handoff-tracker.md` | `/workstream-start` (coordinator meta-repo), ad-hoc `--all-repos` |
 
 `tasks/handoff-tracker.md` is **lazily created on first render** — no manual scaffolding
 needed. The renderer ships with the coordinator plugin and creates the file automatically the
-first time any session-boundary skill (session-end, handoff, workday-start) runs.
+first time any session-boundary skill (workstream-complete, handoff, workday-start) runs.
 
 `doe-handoff-tracker.md` aggregates all repos registered in machine-local `repos.*` keys.
 Repos absent on disk are skipped with a note in the output. It uses the same machine-local
@@ -98,7 +98,7 @@ signal-dense and the weekly view structurally complete.
 
 ### Daily tracker — handoffs, spinoffs, cross-repo memos
 
-Queried and rendered by `/session-end`, `/handoff`, `/workday-start`:
+Queried and rendered by `/workstream-complete`, `/handoff`, `/workday-start`:
 
 - Active `tasks/handoffs/*.md` records (kind: session-handoff, spinoff, spinoff-roadmap, recovery)
 - Active `tasks/handoffs/spinoffs/*.md` records (if the spinoffs directory exists)
@@ -200,7 +200,7 @@ To change what the tracker shows, edit the relevant handoff's frontmatter (`cate
 ## Negative-Spec
 
 - The tracker IS committed to its own repo (durable, diffable, pushed as crash-insurance —
-  like `tasks/orientation_cache.md`); `/session-end`, `/handoff`, and `/workday-start` refresh
+  like `tasks/orientation_cache.md`); `/workstream-complete`, `/handoff`, and `/workday-start` refresh
   and commit it. It is NOT hand-edited — the renderer owns its content (see § Edit-Resistance).
 - The renderer does NOT archive, move, or mutate any handoff or memo file.
 - The renderer does NOT glob handoff files directly — it calls `query-records` to benefit

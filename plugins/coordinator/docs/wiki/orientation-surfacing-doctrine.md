@@ -7,7 +7,7 @@ created: 2026-05-18
 
 # Orientation Surfacing Doctrine
 
-**Purpose:** Rules for filtering and structuring orientation surfaces — the lists the EM reads at session start to choose work. Applies to `/session-start`, `/workday-start`, and any primary-list filter in a handoff index.
+**Purpose:** Rules for filtering and structuring orientation surfaces — the lists the EM reads at session start to choose work. Applies to `/workstream-start`, `/workday-start`, and any primary-list filter in a handoff index.
 
 ---
 
@@ -97,5 +97,5 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 ## Related
 
 - → `docs/wiki/tiered-context-loading.md` (boot-time orientation budget and tier discipline)
-- → `coordinator/CLAUDE.md` § Session Orientation (the `/session-start` is PM-invoked rule and quick-orient boot)
+- → `coordinator/CLAUDE.md` § Session Orientation (the `/workstream-start` is PM-invoked rule and quick-orient boot)
 - → `coordinator/CLAUDE.md` § Handoff Lineage (handoff frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`)

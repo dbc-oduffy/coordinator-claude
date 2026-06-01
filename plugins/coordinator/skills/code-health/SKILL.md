@@ -7,7 +7,7 @@ argument-hint: (no arguments needed)
 
 # Code Health — Night Shift Commit Review
 
-The "night shift colleague." Queries today's completion entries to identify the surfaces that saw recorded work, dispatches a domain-appropriate reviewer with `--problems-only`, applies findings inline via review-integrator, defers complex findings to the debt backlog, updates the health ledger with current grades, and writes a morning-ready summary. Results are waiting at the next session-start.
+The "night shift colleague." Queries today's completion entries to identify the surfaces that saw recorded work, dispatches a domain-appropriate reviewer with `--problems-only`, applies findings inline via review-integrator, defers complex findings to the debt backlog, updates the health ledger with current grades, and writes a morning-ready summary. Results are waiting at the next workstream-start.
 
 **Announce at start:** "I'm using /code-health to review recent commits."
 
@@ -167,7 +167,7 @@ For any findings not fixed inline:
 
 ## Step 7: Write Health Summary
 
-Write results to `tasks/health-summary.md` — this is what session-start reads the next morning:
+Write results to `tasks/health-summary.md` — this is what workstream-start reads the next morning:
 
 ```markdown
 # Health Summary
@@ -232,6 +232,6 @@ The post-commit hook pushes automatically.
 ## Relationship to Other Commands
 
 - **`/workday-complete`** — primary trigger for this command; runs code-health as part of its end-of-day health survey phase. The normal path is to let `/workday-complete` invoke this, not to run it standalone.
-- **`/session-start`** — reads `tasks/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
+- **`/workstream-start`** — reads `tasks/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
 - **`/review-code`** — this command dispatches a reviewer directly with `--problems-only` for targeted code health assessment; it does not go through the full `/review-code` feature-review workflow. Don't substitute one for the other.
 - **`pipelines/daily-code-health/PIPELINE.md`** — the pipeline definition this command executes. If you need to customize routing or scope, read it directly.

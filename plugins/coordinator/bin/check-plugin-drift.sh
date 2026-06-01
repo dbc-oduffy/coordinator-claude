@@ -240,7 +240,7 @@ _check_plugin() {
     # addon's own git repo); venv-state runs on live_path/.venv (the HOST plugin's venv
     # that holds the editable install). live_path IS the host plugin's (frequently dirty)
     # dev tree — allowing the unconditional working-tree cleanliness leg at L475-481 to
-    # run would false-positive [drift] working-tree on every dev invocation (Patrik P1-3).
+    # run would false-positive [drift] working-tree on every dev invocation (the Staff Engineer P1-3).
     # Spec backlink: docs/plans/2026-05-30-editable-sibling-venv-propagation-mode.md §Chunk 2
     if [[ "$prop_mode" == "editable_sibling_venv" ]]; then
         local esv_live_path="${live_path//\\//}"

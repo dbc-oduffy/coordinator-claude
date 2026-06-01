@@ -25,10 +25,10 @@
 #      with the path as its source argument; that is intentional and authorized.
 #   3. docs/wiki/ files — instructional mentions of the literal path in docstrings and
 #      reference docs are not write instructions.
-#   4. Lines containing COORDINATOR_OVERRIDE_LEGACY_MONOLITH — the session-end
+#   4. Lines containing COORDINATOR_OVERRIDE_LEGACY_MONOLITH — the workstream-complete
 #      AUTO-MIGRATE block documents the override path; those lines are not write calls.
 #   5. Lines that are HTML/Markdown comment tripwire markers (<!-- TRIPWIRE: ...) — the
-#      self-describing prohibition comment in session-end/SKILL.md is not a write call.
+#      self-describing prohibition comment in workstream-complete/SKILL.md is not a write call.
 #
 # Call shapes detected (all six enumerated in the tripwire registry):
 #   1. String literal in markdown body:       archive/completed/YYYY-MM.md

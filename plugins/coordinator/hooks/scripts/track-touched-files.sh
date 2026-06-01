@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PostToolUse hook: Track files touched by the current session.
 #
 # Fires ONLY on Write|Edit|MultiEdit|NotebookEdit tool calls (see hooks.json

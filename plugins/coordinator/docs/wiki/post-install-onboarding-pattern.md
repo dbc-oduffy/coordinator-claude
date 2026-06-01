@@ -40,6 +40,18 @@ The base pattern assumes a **standalone-capable** tool (coordinator, project-rag
 
 The discriminator is **mandatory vs. optional** downstream capability — an optional dependency keeps the standalone "self-fire and degrade" shape (Movement 3 just trims the unavailable spin); a mandatory one flips to leaf-onboarding.
 
+### Coordinator-completeness rule (orthogonal to the mandatory-vs-optional discriminator)
+
+The mandatory-vs-optional discriminator governs **how a downstream dep onboards** — does it self-fire, or does it defer to the leaf? The coordinator-completeness rule is a separate, orthogonal concern: **installing coordinator is installing a collaboration contract, not software.** The whole system goes in.
+
+**DIY-cherry-pick of coordinator is unsupported — period.** Not "off the rails, your responsibility" with a shrug, but genuinely unsupportable: downstream repos plug into coordinator infra, and a cherry-picked subset could silently remove the skill, agent, or hook a downstream chain depends on. We can't validate a custom subset, so we cannot say whether the chain will work. The right move is install-everything-then-tweak — disable individual pieces after the fact, not during install (installed-but-disabled is a supported state; see `per-project-plugin-gating`).
+
+**Offer granularity is the add-on level, never the component level.** Add-ons (deep-research, notebookLM) are genuine install-time picks. But once you've chosen to install coordinator, you get all of it — every skill and reviewer: `/staff-session`, the personas, the full pipeline. You never pick-'n'-mix coordinator's own internals during install.
+
+These two rules apply simultaneously and do not interact: a chain can have optional dependencies and
+still require a complete coordinator install on the upstream node, and a mandatory-dependency chain
+still doesn't justify cherry-picking coordinator's internals.
+
 ## Cross-references
 
 - [`getting-started.md`](getting-started.md) — the coordinator's operator-facing *instance* of this pattern (full structure, voice, EM-facilitation playbook). The reference impl to steal from.
@@ -47,3 +59,4 @@ The discriminator is **mandatory vs. optional** downstream capability — an opt
 - [`eager-agent-calibration.md`](eager-agent-calibration.md) — design-as-offers: the offer-shape (not nag) discipline the install-chain link must follow.
 - [`cross-repo-communication.md`](cross-repo-communication.md) — seeding this pattern to sibling repos is doctrine seeding (DoE altitude); wiring a specific sibling's install chain is that EM's install-surface work, relayed via the PM.
 - Hard-dependency reference plan (sibling repo): `project-rag-ue-addon/docs/plans/2026-05-23-ue-flavored-guided-tour-wrap.md` — the holodeck/UE-addon application that surfaced the leaf-onboarding variant.
+- [`agent-install-contract.md`](agent-install-contract.md) § Install-spinoff layer — the **install-execution** counterpart to this **onboarding-tour** doctrine. This wiki governs the leaf-fires-the-tour rule (suppress double-offers); the contract's install-spinoff layer governs how a multi-repo *install itself* is sequenced durably across the coordinator reboot: coordinator onboarding is the handoff, each queued downstream repo is a `kind: spinoff` baton in the standard `~/.claude/tasks/handoffs/` folder, stitched onto one install-chain spine. Tour = "what now?"; install-spinoff layer = "the install is still coming, here's the tracked chain."

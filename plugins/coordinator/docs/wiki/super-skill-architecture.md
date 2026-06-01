@@ -112,7 +112,7 @@ Each new super-skill must be walk-through validated before shipping:
 
 ### Infrastructure features need belt-and-suspenders: process + grep bait
 
-A new convention (like `docs/README.md` maintenance, or a new hook contract) only sticks if it is greppable from every contact point agents encounter — `/project-onboarding` scaffolds it, `/session-start` surfaces it, `/session-end` patches it, hooks enforce it. Process alone is insufficient: if the phrase doesn't appear in enough places that any agent stumbling around will find it, the convention decays between sessions. When adding a cross-cutting convention to the coordinator system, enumerate its contact points and plant the phrase at each one before shipping.
+A new convention (like `docs/README.md` maintenance, or a new hook contract) only sticks if it is greppable from every contact point agents encounter — `/project-onboarding` scaffolds it, `/workstream-start` surfaces it, `/workstream-complete` patches it, hooks enforce it. Process alone is insufficient: if the phrase doesn't appear in enough places that any agent stumbling around will find it, the convention decays between sessions. When adding a cross-cutting convention to the coordinator system, enumerate its contact points and plant the phrase at each one before shipping.
 
 ### Sibling super-skills ship faster by reusing the prior instance as a template
 

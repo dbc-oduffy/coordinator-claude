@@ -79,8 +79,8 @@ Present this summary table after Step 0 records the setup-concluded receipt:
 
 ### Available commands
 
-- `/session-start` — Orient session, load context, choose work
-- `/session-end` — Wrap up, capture lessons
+- `/workstream-start` — Orient session, load context, choose work
+- `/workstream-complete` — Wrap up, capture lessons
 - `/handoff` — Save state for next session
 - `/review` (plans) / `/review-code` (diffs) — review skills with inline routing; shared phases in `docs/wiki/reviewer-pipeline.md`
 - `/update-docs` — Refresh project documentation, maintain docs/README.md index

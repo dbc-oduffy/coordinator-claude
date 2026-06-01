@@ -16,7 +16,7 @@ This wiki defines the shared introspection envelope that every **adopter** in th
 - **MCP-plugin adopters** — plugins that expose a live MCP tool (e.g. `project_whoami` for project-rag, `holodeck_whoami` for holodeck-control). Each plugin implements a conformant MCP tool in its own repo and test suite.
 - **Coordinator-session adopter** (`plugin_name: "coordinator-session"`, `extras_key: "coordinator_session"`) — a non-MCP adopter computed live from git and filesystem at query time. It is the canonical orientation-health surface for the coordinator session itself. It is always `source_kind: "live"` (computed at query time, never cached or persisted). It ships inside the `coordinator_whoami` package as a sibling subpackage (`coordinator_whoami.session`).
 
-**Orientation's canonical health surface is the session adopter.** MCP-plugin whoamis are optional ribs — they answer "is this plugin's binding healthy?" — but they do not constitute the spine of session orientation. `/session-start` routes through `coordinator_whoami.session`, not through any plugin adopter.
+**Orientation's canonical health surface is the session adopter.** MCP-plugin whoamis are optional ribs — they answer "is this plugin's binding healthy?" — but they do not constitute the spine of session orientation. `/workstream-start` routes through `coordinator_whoami.session`, not through any plugin adopter.
 
 Coordinator-claude owns the envelope schema; each adopter (MCP-plugin or session) implements a conformant surface.
 
@@ -186,7 +186,7 @@ The `examples:` keyword in JSON Schema draft 2020-12 is **annotation-only** — 
 
 ## Tripwires and failure recovery
 
-**DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or session-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
+**DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or workstream-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
 
 - **Missing install:** run `/coordinator:setup` (installs the `coordinator_whoami` package via pip in Phase 3 Step 6).
 - **Unbound envelope:** run `/project-onboarding` or `/project-rag:setup` to bind the project.
@@ -228,9 +228,9 @@ Operators — as distinct from plugin authors implementing the contract — cons
 
 4. **Live-call rule.** Operators and consumers wanting current binding health MUST call live `*_whoami` MCP, NOT read persisted snapshots. This is the Live-not-receipt invariant from **§ Error semantics** above, and it is also the binding-health rule named in [`coordinator-doctor.md`](coordinator-doctor.md) §5. Any file on disk labelled "whoami snapshot" is by definition stale — it was conformant at write time, not now.
 
-### Session-start three-branch surfacing spec
+### Workstream-start three-branch surfacing spec
 
-The session-start Context Load emits exactly one line per session, branching on import state. Session orientation routes through `coordinator_whoami.session` (probe **P-6s**), not through any plugin adopter. The session adopter has binary binding (`bound` / `unbound` only — no `degraded` binding kind); the freshness/reconcile gradient is carried on `status.state` instead.
+The workstream-start Context Load emits exactly one line per session, branching on import state. Session orientation routes through `coordinator_whoami.session` (probe **P-6s**), not through any plugin adopter. The session adopter has binary binding (`bound` / `unbound` only — no `degraded` binding kind); the freshness/reconcile gradient is carried on `status.state` instead.
 
 1. **Import fails:** `whoami: not installed (run /coordinator:setup to install the introspection package)`
 2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /project-onboarding to onboard this repo as a coordinator workspace)`
@@ -238,7 +238,7 @@ The session-start Context Load emits exactly one line per session, branching on 
 
 Plugin whoamis (project-rag, holodeck-control, etc.) may appear as optional sub-lines after the session line, but they are not the spine. A session that emits `whoami: bound → (healthy)` is oriented regardless of whether any MCP plugin is currently reachable.
 
-Note: session-start does NOT surface bound-but-target-mismatched as a separate state — that is `/project-onboarding`'s responsibility. Surfacing mismatch at session-start generates false positives for operators in a folder that is not the bound project root.
+Note: workstream-start does NOT surface bound-but-target-mismatched as a separate state — that is `/project-onboarding`'s responsibility. Surfacing mismatch at workstream-start generates false positives for operators in a folder that is not the bound project root.
 
 Auto-repair on import failure is explicitly out of scope. The loud nudge (branch 1) is the correct primitive — surfacing with remediation path, not mutating on the operator's behalf.
 
@@ -250,7 +250,7 @@ The cross-plugin whoami contract is wired into operator-facing pipelines at thre
    **Why-not for the session adopter:** no new install step is needed. The `coordinator_whoami.session` subpackage ships inside the same `coordinator_whoami` package the existing step installs. Adding a separate install step would be redundant.
 2. **`/project-onboarding` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/project-onboarding/SKILL.md`.
    **Why-not for the session adopter:** `/project-onboarding`'s concern is "is this project registered as a project-rag source" (project-registration). That question is answered by project-rag's binding semantics. The session adopter answers a different question ("am I in a coordinator-onboarded repo / oriented") and does not replace the project-onboarding branch. Step 4 stays on project-rag's binding.
-3. **`/session-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/session-start/SKILL.md`. **Rewired to the session adopter** (`python -m coordinator_whoami.session`, probe P-6s in [`coordinator-doctor.md`](coordinator-doctor.md)). This is the contact point that moves when a new session adopter is added.
+3. **`/workstream-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/workstream-start/SKILL.md`. **Rewired to the session adopter** (`python -m coordinator_whoami.session`, probe P-6s in [`coordinator-doctor.md`](coordinator-doctor.md)). This is the contact point that moves when a new session adopter is added.
 
 The canonical why-not detail for each contact point also lives in [`coordinator-doctor.md`](coordinator-doctor.md) §Probe Catalog (P-6s entry). Cross-reference rather than duplicate if the two surfaces diverge.
 

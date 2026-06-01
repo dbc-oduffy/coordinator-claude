@@ -3,19 +3,19 @@ applies_to: "archive/completed/*/*.md"
 # Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Cross-phase frontmatter schema
 #
 # Per-entry completion log record. Each file in archive/completed/YYYY-MM/ carries this
-# frontmatter, authored by /session-end Step 2.6 and queryable via bin/query-completions.
+# frontmatter, authored by /workstream-complete Step 2.6 and queryable via bin/query-completions.
 #
 # Forward-compat: Phase 2 populates `loe` and may set chain_terminal: false on mid-chain
 # handoff ledger entries. Phase 3 adds no new fields — only new query expressions against
 # existing fields. No schema bump required for either phase.
 required:
   title: string
-  # One-line past-tense description of work shipped (e.g. "Rewrote session-end Step 2.6
-  # to write per-entry completion files"). Authored by the EM at /session-end time.
+  # One-line past-tense description of work shipped (e.g. "Rewrote workstream-complete Step 2.6
+  # to write per-entry completion files"). Authored by the EM at /workstream-complete time.
 
   created: iso-date
-  # Date of /session-end authoring (YYYY-MM-DD). Written by /session-end Step 2.6.
-  # Note: this is the session-end date, not necessarily the date the work was done —
+  # Date of /workstream-complete authoring (YYYY-MM-DD). Written by /workstream-complete Step 2.6.
+  # Note: this is the workstream-complete date, not necessarily the date the work was done —
   # they differ when a session spans midnight.
 
   nature:
@@ -42,7 +42,7 @@ optional:
 
   commits:
     type: list-of-string
-    # Commit SHAs landing this work. May be an empty list if /session-end runs before
+    # Commit SHAs landing this work. May be an empty list if /workstream-complete runs before
     # the work is committed (uncommon but permitted). /merge-to-main uses this list
     # to correlate entries with the release diff.
 
@@ -67,7 +67,7 @@ optional:
   chain_terminal: bool
   # Phase 2 field. true if this entry is the chain-terminal aggregation entry;
   # false/absent on mid-chain handoff ledger entries.
-  # Phase 1 default: /session-end writes chain_terminal: true on every entry
+  # Phase 1 default: /workstream-complete writes chain_terminal: true on every entry
   # (no mid-chain ledger entries exist in Phase 1).
   # Phase 2 will set chain_terminal: false for mid-chain entries and aggregate
   # the chain at the terminal entry. No schema bump required.
@@ -105,7 +105,7 @@ optional:
       tshirt:
         type: enum
         values: [XS, S, M, L, XL]
-  # Set by /session-end on chain-terminal entries (chain_terminal: true) when the
+  # Set by /workstream-complete on chain-terminal entries (chain_terminal: true) when the
   # session was opened via /pickup. Populated by bin/aggregate-chain-loe.sh from
   # the predecessor handoff chain's Session Ledger blocks.
   #   sessions:         count of distinct sessions in the chain
@@ -149,9 +149,9 @@ optional:
   # Set by /workday-complete on non-lead entries in a multi-entry chain.
 
   nature_inferred: bool
-  # true when nature was AUTO-INFERed by the Sonnet dispatch in /session-end Step 3;
+  # true when nature was AUTO-INFERed by the Sonnet dispatch in /workstream-complete Step 3;
   # false/absent when declared by the EM via COMPLETION_NATURE env var before invoking
-  # /session-end (bypasses the Sonnet dispatch entirely).
+  # /workstream-complete (bypasses the Sonnet dispatch entirely).
   # Phase 3 consumers may weight inferred vs declared entries differently when building
   # nature-based aggregates.
 

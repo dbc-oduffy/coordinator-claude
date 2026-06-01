@@ -140,7 +140,7 @@ JSON
 run_probe() {
   local test_home="$1"
   local fake_pwd="$2"
-  OUTPUT=$(COORDINATOR_TEST_HOME="$test_home" COORDINATOR_TEST_PWD="$fake_pwd" bash "$SUBJECT" 2>/dev/null)
+  OUTPUT=$(COORDINATOR_TEST_HOME="$test_home" COORDINATOR_TEST_PWD="$fake_pwd" bash "$SUBJECT" 2>&1)
   EXIT_CODE=$?
 }
 
@@ -399,19 +399,17 @@ else
   fail "Test 7: expected exit 0, got $EXIT7"
 fi
 
-# The mock python injects project_kind=ue — we should see UE enrichment
-# However, the probe calls python twice for whoami (once to get JSON, once to extract field).
-# The mock handles both calls that include "coordinator_whoami". Check for UE output.
+# The mock python injects project_kind=ue — we require UE-enrichment output.
+# The mock intercepts all python -c "...coordinator_whoami...get_whoami_json..." calls
+# and returns {"project_kind": "ue", ...}. If the mock fails to intercept, the probe
+# falls back to non-UE and emits healthy: — which means the mock broke, not the probe.
+# TODO: if this assertion becomes flaky on a platform where the mock can't intercept
+# reliably (e.g. Windows cmd.exe without bash on PATH), downgrade to a smoke test and
+# mark it explicitly with DEGRADED-MODE-SMOKE-TEST in the test name.
 if echo "$OUTPUT7" | grep -qE '(healthy-ue:|p0-broken-ue:|suggest-engine-corpus:)'; then
   pass "Test 7: UE enrichment emitted (whoami mock triggered)"
 else
-  # If coordinator_whoami is not installed, the probe gracefully falls back to non-UE
-  # and emits healthy: instead — that's also acceptable behavior.
-  if echo "$OUTPUT7" | grep -q '\[project-rag-relevance\]'; then
-    pass "Test 7: probe emitted a relevance line (UE mock may not have intercepted correctly — acceptable)"
-  else
-    fail "Test 7: expected some [project-rag-relevance] output, got: $OUTPUT7"
-  fi
+  fail "Test 7: expected UE enrichment (healthy-ue:/p0-broken-ue:/suggest-engine-corpus:) — mock may not have intercepted correctly; got: $OUTPUT7"
 fi
 
 # ---------------------------------------------------------------------------

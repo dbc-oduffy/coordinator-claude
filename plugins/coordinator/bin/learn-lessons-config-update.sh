@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # learn-lessons-config-update.sh — append normalized $PWD to the learn-lessons config if absent.
 # Normalization: absolute path, lowercase on Windows (msys/cygwin), strip trailing slash, POSIX separators.
 # Idempotent — silent no-op if already present.

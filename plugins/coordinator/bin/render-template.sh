@@ -99,12 +99,17 @@ for pair in "${kv_pairs[@]}"; do
         echo "render-template: invalid key: $key (must be a bare identifier)" >&2
         exit 1
     fi
-    # Escape sed replacement string: & \ newline (POSIX BRE safe)
-    escaped_value="$(printf '%s\n' "$value" | sed 's|[&\\]|\\&|g; s|$|\\|; $s|\\$||')"
-    # Apply substitution via temp file to preserve trailing newlines
+    # Escape sed replacement string: \ and & (POSIX BRE safe); also escape the
+    # SOH control-char delimiter (\001) used below so a literal \001 in the value
+    # cannot corrupt the substitution command.
+    escaped_value="$(printf '%s\n' "$value" | sed 's/\\/\\\\/g; s/&/\\&/g; s/\x01/\\\x01/g')"
+    # Apply substitution via temp file to preserve trailing newlines.
+    # Delimiter is SOH (\001) — a control char that never appears in template keys or
+    # typical values, making the substitution immune to | characters in the value.
+    D=$'\001'
     tmp_sed="$(mktemp)"
     printf '%s' "$rendered" > "$tmp_sed"
-    sed -i "s|{{${key}}}|${escaped_value}|g" "$tmp_sed"
+    sed "s${D}{{${key}}}${D}${escaped_value}${D}g" "$tmp_sed" > "${tmp_sed}.new" && mv "${tmp_sed}.new" "$tmp_sed"
     IFS= read -r -d '' rendered < "$tmp_sed" || true
     rm -f "$tmp_sed"
 done

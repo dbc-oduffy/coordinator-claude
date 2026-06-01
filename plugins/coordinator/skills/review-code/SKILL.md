@@ -55,7 +55,7 @@ _(EM-initiated pre-flight; the normal case is reviewer-routed dispatch via the W
 
 | Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
 |--------|---------------------|------------------------|--------|
-| Sonnet-tier code review (session-end, handoff, mise-en-place, mid-session quick review) | `code-reviewer` (Sonnet, locked) | (none) | Low |
+| Sonnet-tier code review (workstream-complete, handoff, mise-en-place, mid-session quick review) | `code-reviewer` (Sonnet, locked) | (none) | Low |
 | Game dev / Unreal / DroneSim | the Game Dev Reviewer (Opus only) | the Staff Engineer (Opus only) | Medium → Medium |
 | Architectural change, new subsystem | the Staff Engineer (Opus only) | (backstop: the Director of Engineering, Opus only) | High |
 | Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude, Opus only) | (none) | High |

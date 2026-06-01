@@ -1,10 +1,10 @@
 ---
 name: percolate
-description: Dry-run then confirm publish of coordinator plugin files to a named publish-repo target. Wraps publish.sh with gate + CI smoke.
+description: Dry-run then confirm publish of files from a working source tree to a named publish-repo target. Wraps publish.sh with gate + CI smoke.
 triggers:
   - /percolate
   - percolate
-  - publish to coordinator-claude
+  - publish to publish repo
   - push to publish repo
   - sync meta to publish
   - ship plugin updates
@@ -12,7 +12,7 @@ argument-hint: "<target>"
 version: 1.0.0
 ---
 
-# /percolate — Publish Plugin Files to a Publish-Repo Target
+# /percolate — Publish Files to a Publish-Repo Target
 
 <!-- spec backlink: docs/plans/2026-05-08-formalize-percolation-spec2-push-to-publish-skill.md -->
 
@@ -23,7 +23,7 @@ Wraps the existing `publish.sh` + publish-repo CI gate into a single determinist
 ## When to Use / When NOT to Use
 
 **Use `/percolate` when:**
-- Publishing coordinator plugin files to a registered publish-repo target (e.g., `coordinator-claude`, `deep-research-claude`, `holodeck`).
+- Publishing files from a working source tree to a registered publish-repo target (any name listed in your `publish-targets.sh`).
 - You want a dry-run diff + PM-confirm gate before any real rsync.
 - You want CI smoke to run automatically after publish.
 
@@ -90,9 +90,9 @@ If `<target>` is not in the list, print the registered targets and exit non-zero
 ```
 Error: target '<target>' is not registered in publish-targets.sh.
 Registered targets:
-  coordinator-claude
-  deep-research-claude
-  holodeck
+  <target-a>
+  <target-b>
+  ...
 ```
 
 ### Step 2 — Dry Run
@@ -273,7 +273,9 @@ Inverse drift — dest commits touching files about to be overwritten:
 
 If output is empty, skip the panel entirely.
 
-**Gate behaviour:** ≥1 inverse-drift commit forces the Step 3 gate to fire (same severity as MEDIUM content-leak), and the gate prompt notes the count. Does NOT auto-abort — PM decides whether to back-port first or proceed.
+**Dismiss two structural false positives before alarming** — neither is lost work: a **CRLF-only** commit (source is CRLF, dest is LF-normalized — verify with `diff --strip-trailing-cr <dest-file> <source-file>`; empty = no content change), and a **release/version landing** (a prior percolation echo — source is the origin and has since moved ahead = forward drift). Only a non-CRLF, non-release change authored directly in dest is real drift. **Never use a raw `diff <dest> <source>` as the signal** — dest content has passed through `publish-time-transform.sh` (identity scrub) and so always differs; the git-log-since-marker above is the reliable signal.
+
+**Gate behaviour:** ≥1 *real* (non-CRLF, non-release) inverse-drift commit forces the Step 3 gate to fire (same severity as MEDIUM content-leak), and the gate prompt notes the count. Does NOT auto-abort — PM decides whether to back-port first or proceed.
 
 **Marker-stale caveat:** if the stored SHA no longer exists in dest history (force-push, rebase, repo reinit), the 30-day fallback runs and `anchor_mode: marker-stale` renders. PM should re-percolate to refresh the anchor afterward.
 
@@ -286,7 +288,7 @@ If output is empty, skip the panel entirely.
 - Dry-run touches ≥10 files.
 - Dry-run touches a sensitive path (`CLAUDE.md`, `settings.json`, `hooks/`, `agents/`).
 - Step 2c content-leakage scan reported ≥1 MEDIUM hit (PM/EM identity, internal path, peer-repo name). HIGH hits aborted before reaching this step; MEDIUM hits force the gate even if all other conditions are absent.
-- Step 2d inverse-drift detection reported ≥1 dest commit touching files about to be overwritten.
+- Step 2d inverse-drift detection reported ≥1 *real* (non-CRLF, non-release) dest commit touching files about to be overwritten.
 
 **Zero-changes case:** if dry-run reports no files to transfer ("sending incremental file list" with no file entries, or rsync reports 0 files), skip the gate AND Step 4. Proceed directly to Step 5. The Step 6 summary reports `real-run: skipped (no-op)`.
 

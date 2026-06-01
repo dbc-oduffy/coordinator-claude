@@ -58,7 +58,8 @@ log() { [ "$QUIET" -eq 1 ] || echo "$@"; }
 # use "project-rag-ue-addon/docs/wiki/<name>.md" source attribution. The grep extracts only the suffix
 # fragment, making these look like plugin-internal citations when they are not.
 PLACEHOLDER_RE='^(foo|bar|baz|qux|example|name|your-wiki-name|wiki-name|held-out-slice-sealing-doctrine|lfs-gitattributes-discipline)$'
-mapfile -t names < <(
+names=()
+while IFS= read -r line; do names+=("$line"); done < <(
   grep -rhoE 'docs/wiki/[a-zA-Z0-9_-]+\.md' \
     "${PLUGIN_ROOT}/CLAUDE.md" \
     "${PLUGIN_ROOT}/README.md" \
@@ -97,10 +98,10 @@ for name in "${names[@]}"; do
   if [ -f "$dev" ]; then
     mirror_count=$((mirror_count + 1))
     mirror_files+=("${name}.md")
-    dev_mtime=$(stat -c "%y" "$dev" 2>/dev/null | cut -c1-19 || echo "unknown")
+    dev_mtime=$(stat -c "%y" "$dev" 2>/dev/null || stat -f "%Sm" "$dev" 2>/dev/null || echo "unknown")
     bundled_mtime="(not present)"
     if [ -f "$bundled" ]; then
-      bundled_mtime=$(stat -c "%y" "$bundled" 2>/dev/null | cut -c1-19 || echo "unknown")
+      bundled_mtime=$(stat -c "%y" "$bundled" 2>/dev/null || stat -f "%Sm" "$bundled" 2>/dev/null || echo "unknown")
     fi
     if [ "${COORDINATOR_OVERRIDE_WIKI_MIRROR:-0}" = "1" ]; then
       log "WARN (override): dev-side mirror exists for $name.md — single-tree invariant suppressed by COORDINATOR_OVERRIDE_WIKI_MIRROR=1"

@@ -4,6 +4,72 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.8.1] — 2026-06-01
+
+Patch release — 2026-06-01 weekly-close ceremony residual: install-surface exec-bit fix, an acceptance-oracle shell-test prefix, review-trail `scope_kind`, weekly-gate test hardening, plus the nomenclature cleanups deferred from 2.8.0.
+
+### Fixed
+
+- **Exec bit restored on 168 coordinator hook/bin `.sh` scripts.** Scripts under `coordinator/hooks/scripts/` and `coordinator/bin/` were committed at mode `100644`; on fresh Mac/Linux clones (and OSS publish repos) scripts invoked as `./x`, gated by `[[ -x ]]`, or run as bare `hooks.json` commands silently never ran (Windows masked it). Now `100755`, with an `exec-bit.test.js` lint pinning the invariant. Two mirror files owned by sibling source repos are allowlisted and memo'd to their EMs.
+- **Weekly code-review gate test hardening.** The `block-no-verify` CRLF-regression test is now portable (removed GNU-only `grep -P`; `#!/usr/bin/env bash`) and fails loud when CRLF injection produces no CR bytes (was silently passing with zero coverage).
+- **Restored a dropped behavioral spec block** in `setup.md` (the install "Test surface" expectations) lost during a line-ceiling trim.
+
+### Added
+
+- **`sh:` / `bash:` typed-prefix in the acceptance-oracle checker.** Gate-bound shell-script ACs (this repo's `.sh` test convention) can now be expressed and run (exit 0 = pass), with a path-validation guard (rejects `..`, absolute, non-existent script paths) before dispatch. Closes the false-red at `/merge-to-main` Step 0a.
+- **Typed `scope_kind` (`diff` | `plan` | `integration`) on review-trail records.** The weekly scope helper classifies via the typed field (plan/integration → skip; diff → process) instead of fragile `..`-presence inference, with a backward-compatible fallback for existing records.
+
+### Changed
+
+- **`reviewed_at_session_end` handoff frontmatter key renamed to `reviewed_at_workstream_complete`.** 2.8.0 deliberately kept the old key name for record back-compat (the command/data-field split). That constraint turned out to be empty — the field is write-only (no consumer reads it) and zero handoff records, live or archived, ever carried it — so the back-compat justification was moot. The key now matches the renamed ceremony. Schemas (`handoff.yaml`, `handoff-archived.yaml`), the `/handoff` frontmatter template, and the spinoff anti-scope note are updated; no record migration was needed.
+
+### Removed
+
+- **`/session-start` and `/session-end` deprecation aliases removed.** The transition stubs shipped in 2.8.0 (aliasing to `/workstream-start` / `/workstream-complete`) are gone. The aliases were live for a single release cycle; the rename had already landed and the stubs carried no behavior of their own. Use `/workstream-start` and `/workstream-complete`. (Temporal "session start/end" prose and the `SessionStart`/`SessionEnd` platform hooks are unaffected — only the slash-command aliases were removed.)
+
+## [2.8.0] — 2026-06-01
+
+Minor release — lifecycle skill renames and nomenclature correction, plus a cross-repo-memo discovery surface, the install-contract orientation layer, and a generalized git-tag cut seam.
+
+### Added
+
+- **`cross-repo-memo --list-receivers`.** A canonical enumerator of every valid `--to` target (Claude Central first, then registered siblings with their paths). The previously-documented discovery path (`machine-local keys | grep '^repos\.'`) structurally could not surface Claude Central — it is special-cased to `~/.claude`, not a `repos.*` key — so a sibling EM enumerating receivers that way concluded "central isn't registered" and hand-authored into the inbox, the exact anti-pattern the CLI exists to prevent. The new flag also filters out publish-target mirrors so a repo where no EM reads inbound memos can never appear as a discoverable receiver (closes a latent `--to deep-research-em` misdelivery into the OSS mirror).
+- **Install-contract orientation-supersession layer.** A continuing onboarding/install chain driven by the coordinator trunk: a durable continuation-handoff layer, conditional-and-live `supersedes:` on `kind: spinoff` batons (validated in the handoff frontmatter schema), and narrative coherence across the install/orient surfaces with a `provision` sub-axis. Captured in `agent-install-contract.md` and the continue-onboarding template.
+
+### Changed
+
+- **`/session-start` → `/workstream-start` (skill rename).** The PM-invoked front-of-session orientation skill is now `/workstream-start`. The old name `/session-start` is a deprecation alias that resolves to the same skill; it will be removed in a future major release. Update any automation or documented workflows that reference `/session-start`.
+- **`/session-end` → `/workstream-complete` (skill rename).** The PM-invoked end-of-session wrap-up skill is now `/workstream-complete`. The old name `/session-end` is a deprecation alias; same removal timeline. The mutual-exclusion doctrine (`/handoff` vs. `/workstream-complete`) is unchanged — just the command name.
+- **"session boot" coinage reverted.** The term "session boot" (used briefly in doctrine to name the automatic open-session machinery) has been removed. The platform hook is `SessionStart` (PascalCase, no slash); temporal prose uses "session start"; neither role needed a separate coined term. Doctrine updated across `CONTEXT.md` and `coordinator/CLAUDE.md`.
+- **`merging-to-main` Mode A git-tag cut seam generalized (DR-149).** The Step 1.5 Mode A cut (`tag_anchor: git-tag`) gains two optional, additive `coordinator.local.md` knobs — `tag_prefix:` (default empty → bare `vX.Y.Z`; e.g. `holodeck-` → `holodeck-vX.Y.Z`) and `version_source:` (default `manifest` reads `pyproject`/`package.json`/`Cargo`; `tag` treats the latest `${tag_prefix}v*` tag as the version SSOT). Defaults reproduce the current bare-`v*` behavior exactly — non-breaking — so one cut seam now serves single-package repos and prefixed multi-version-line repos alike instead of forcing a hand-rolled fork.
+- **Receiver-side ceremony calibration for memo pickup.** `/pickup` now scales its ceremony to the inbound memo's `--kind` rather than applying full workstream rigor to every memo, with the calibration recorded in `ceremony-calibration.md`.
+
+### Motivation
+
+The `{session}-start` / `{session}-end` skill names shadowed the `SessionStart` / `SessionEnd` platform hook identifiers, creating a three-way collision (skill slash-command, platform hook key, temporal phrase). Renaming to `workstream-*` breaks the collision: platform hooks keep `SessionStart`/`SessionEnd` (PascalCase, no slash); temporal "session start/end" prose stays as free English; the PM-invoked skills are now `workstream-start`/`workstream-complete`.
+
+### Migration
+
+```diff
+- /session-start
++ /workstream-start
+
+- /session-end
++ /workstream-complete
+```
+
+Deprecation aliases are active during the transition window — existing invocations continue to work. The `reviewed_at_session_end` frontmatter key is **not** renamed (it is a data key, not a command reference).
+
+## [2.7.1] — 2026-06-01
+
+Patch release — the 2026-06-01 weekly-close ceremony fixes.
+
+### Fixed
+
+- **Weekly validation gate unblocked.** `validate-capability-catalog` now reads the union of `capability-catalog*.md` so holodeck-domain agents documented in the `.holodeck.md` split count as covered; `_plugin_discovery` skips nested-git/submodule plugin dirs so the meta-repo no longer gates its release on a submodule's internal files; `setup.md` trimmed under the 500-line ceiling.
+- **`block-no-verify.sh` made CRLF-robust.** The `FLAT_COMMAND` pipeline is collapsed onto a single physical line so a transient working-tree CRLF can't make a backslash-continuation escape the CR and crash the hook (which had denied all Bash mid-session).
+- **`workweek-trail-scope.sh` hardened.** Skips (warns) trail records whose `sha_range` isn't a diff range instead of aborting the weekly gate on a co-located plan-review record, and validates `sha_range` against git-argument injection before handing it to git.
+
 ## [2.7.0] — 2026-05-31
 
 Minor release. A large batch of session-lifecycle, hook, and skill work, plus the previously-undocumented 2.6.0 safety hook folded in. Headlines: EM-environment and boundary-guard hooks, a generated-tracker system, the cross-repo memo `--kind` lifecycle, the fan-out demotion, and assorted reviewer/skill hardening.

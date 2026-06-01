@@ -378,6 +378,64 @@ Any hit is a `bash <script>` papercut waiting to happen.
 
 ---
 
+## 10. `git -C /x/...` via a Python `subprocess` silently fails — Windows-native git can't resolve MSYS paths
+
+**Source:** 2026-06-01 holodeck-em (cross-repo memo — phantom-dirty-index investigation).
+
+### Symptom
+
+A Python `subprocess.run(["git", "-C", "/x/repo", "status", "--porcelain"])` returns **empty stdout with a non-zero returncode** — which *reads exactly like* "0 modified / clean tree." An enumeration built on that output (e.g. a phantom-dirty file list, a drift check, a "which files changed" sweep) silently produces an **empty set that masks the real state**. The author iterates against a clean-looking nothing while the tree is actually dirty.
+
+### Why
+
+A `/x/...` (or `/c/...`) path is an **MSYS/Git-Bash mount-table POSIX path**, not a real filesystem path. When you run `git` *inside* bash, bash's MSYS layer translates `/x/repo` → `X:\repo` before the `git.exe` exec. A Python `subprocess`, by contrast, invokes **Windows-native `git.exe` directly** with no MSYS translation — so git.exe is handed a literal `/x/repo` it cannot resolve, errors out, and returns empty. The empty stdout is an *error channel*, not an *answer channel* — but a caller that only inspects stdout cannot tell the difference.
+
+### Fix
+
+- **Enumerate in bash, not Python, for any `git -C /x/...`.** Bash resolves the mount path; the command actually runs. This is the simplest fix and the one the memo validated.
+- If Python *must* drive git, pass a **Windows-native path** (`X:/repo` or `X:\\repo`, or translate via `cygpath -w "$p"`), AND **check `returncode` explicitly** — never treat empty stdout as "clean." `result.check_returncode()` or an explicit `if result.returncode != 0: raise` converts the silent mask into a loud failure.
+
+This is arguably the higher-value universal in the source memo: it silently corrupts **any** Python-driven git enumeration on Windows, well beyond the phantom-dirty case that surfaced it.
+
+### Greppable signature
+
+```bash
+# Python subprocess invoking git -C with an MSYS mount path (/x/, /c/, …).
+# These run Windows-native git.exe, which cannot resolve the POSIX path.
+grep -rn 'subprocess.*git.*-C.*["'\'']/[a-z]/' --include='*.py' . \
+  | grep -v 'cygpath\|check_returncode\|returncode'
+```
+
+---
+
+## 11. `GIT_OPTIONAL_LOCKS=0` makes `git status` refresh in memory but never persist — flaky contradictory reads
+
+**Source:** 2026-06-01 holodeck-em (same memo).
+
+### Symptom
+
+`git status --porcelain` reads **0** while `git status --short` reads **thousands** — in the same second, on the same tree. Repeated reads disagree with each other. The phantom-dirty count appears to flap rather than hold steady.
+
+### Why
+
+Agent Bash harnesses commonly run with `GIT_OPTIONAL_LOCKS=0` (it avoids taking the `index.lock` so concurrent git invocations don't contend). But persisting a stat-cache refresh to the index **requires** taking that lock. So git computes the clean refresh **in memory**, uses it for *that* invocation's output, and then discards it — the next invocation recomputes from the still-stale on-disk index. Two reads in the same second legitimately disagree because one persisted nothing for the other to read.
+
+### Fix
+
+- **Trust the stable repeated reading; never act on a single flaky read.** This composes directly with `tool-output-flakiness-protocol.md` (§ "two reads disagree → read a third way; never act on one flaky read before an irreversible op").
+- To actually *clear* the phantom state, the index lock has to be taken — either let the `coordinator-renormalize-index` SessionStart hook do its real `git add` (which persists), or run the hygiene op in a shell where `GIT_OPTIONAL_LOCKS` is unset. A read-only `git status` under `OPTIONAL_LOCKS=0` will never make the phantoms go away no matter how many times you run it.
+
+### Greppable signature
+
+```bash
+# Disagreement between two status reads, or OPTIONAL_LOCKS in the env of a
+# script that then acts on a status count.
+grep -rn 'GIT_OPTIONAL_LOCKS' . --include='*.sh'
+# Behavioral tell: --porcelain and --short counts diverge in the same second.
+```
+
+---
+
 ## Detection signatures (greppable)
 
 | Signature | Risk |
@@ -390,13 +448,17 @@ Any hit is a `bash <script>` papercut waiting to happen.
 | `read -p "..."` in publish/release scripts with no `_CONFIRM` bypass | Hangs in Bash-tool / CI sessions with no `/dev/tty`; use the `_CONFIRM` env-var escape hatch |
 | `git commit -m @'…'@` in the Bash tool | PowerShell here-string syntax; subject becomes `@`, body shifts down; use heredoc or `-m "..."` |
 | `bash -n` used as syntax gate on installers in Windows working tree | False positives under `core.autocrlf=true` (SC1017 literal CR); use ShellCheck instead |
+| Cross-shell line-count comparison (`bash wc -l` vs PowerShell `Measure-Object -Line`) | CRLF/final-newline handling differs; mismatches misread as concurrent-EM edits; use `git status` + `git log -- <file>` as the ONLY drift oracle — never cross-shell counts |
 | Extensionless Python CLI in `bin/` (shebang `python`, no `''''exec python "$0"` line) | `bash <script>` feeds Python to bash → traceback; add the §9 polyglot trampoline |
 | Trampolined file with BOTH a `''''exec…'''` line AND a `"""docstring"""` before `from __future__` | Two leading string literals → `SyntaxError: from __future__ … must occur at the beginning`; let the trampoline be the sole leading string (§9), demote the docstring to a `#` comment block |
+| Python `subprocess` calling `git -C /x/...` (or `/c/...`) without `cygpath -w` / explicit `returncode` check | Windows-native git.exe can't resolve the MSYS path → empty stdout masquerades as a clean tree (§10); enumerate in bash, or pass a Windows path and check returncode |
+| Script reads a `git status` count under `GIT_OPTIONAL_LOCKS=0` and acts on it | Refresh computed in memory but never persisted → `--porcelain` and `--short` disagree second-to-second (§11); trust the stable repeated read, persist via a real `git add` |
 
 ---
 
 ## Related
 
+- → `docs/wiki/concurrent-em-hazards.md` § H23 — the EOL phantom-dirty index (stale line-ending blob size flags content-equal files) and the `coordinator-renormalize-index` automatic fix. §10 and §11 here are the two Windows gotchas that ambush an EM *diagnosing* a phantom-dirty tree before they find H23's fix.
 - → `docs/wiki/claude-code-platform-gotchas.md` — Windows subprocess pop-ups, MCP CRLF, process-group handling
 - → `docs/wiki/python-subprocess-patterns.md` — `CREATE_NO_WINDOW` flag, `pythonw.exe` vs `python.exe`, stdout pipe encoding
 - → `docs/wiki/implementation-standards-by-domain.md` § Shell — idempotency, concurrency, resume strategy requirements for load-bearing scripts

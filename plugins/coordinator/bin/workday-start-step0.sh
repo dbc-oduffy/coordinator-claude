@@ -38,14 +38,14 @@ fi
 
 # Step 0.2 — Determine machine and today
 MACHINE=$(cs_compute_machine)
-TODAY=$(date +%Y-%m-%d)
+TODAY=$(date -u +%Y-%m-%d)
 CURRENT=$(git branch --show-current 2>/dev/null || echo "")
 
 # Step 0.3 — Precedence switch
 
 # Check 1 — Stale-commit guard
 LAST_EPOCH=$(git log -1 --format="%ct" 2>/dev/null || echo 0)
-NOW_EPOCH=$(date +%s)
+NOW_EPOCH=$(date -u +%s)
 AGE_DAYS=$(( (NOW_EPOCH - LAST_EPOCH) / 86400 ))
 if [[ "$AGE_DAYS" -gt 2 ]] && [[ "$CURRENT" == work/* ]]; then
   echo "STALE-NEEDS-ABC branch=$CURRENT age_days=$AGE_DAYS"
@@ -97,7 +97,7 @@ if [[ "$CURRENT" == "main" ]] || [[ "$HEAD_DETACHED" == "yes" ]] || \
   git checkout -b "$NEW_BRANCH" >&2
   COORDINATOR_OVERRIDE_BRANCH=1 \
   COORDINATOR_OVERRIDE_BRANCH_REASON="workday-start step 0 push new workstream branch" \
-  git push -u origin "$NEW_BRANCH" >&2 || true
+  git push -u origin "$NEW_BRANCH" >&2 || echo "WARN: push of new branch failed — crash-insurance push not established" >&2
   echo "FRESH-CUT branch=$NEW_BRANCH"
   exec bash "${PLUGIN_ROOT}/bin/workday-start-step0-reconcile.sh"
 fi

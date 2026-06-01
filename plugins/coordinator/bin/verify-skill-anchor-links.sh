@@ -84,7 +84,10 @@ is_qualified_global() {
 # unmatched. The VALID_SECTIONS list is passed via env.
 resolve_anchors() {
     local line="$1"
-    VALID_SECTIONS_ENV="$VALID_SECTIONS" "${PYTHON_BIN:-python3}" - "$line" <<'PYEOF'
+    # CI/verification tool (run from /workweek-complete and on demand), not the
+    # interactive per-prompt/per-commit hot-path; the per-line python spawn never
+    # fires during normal EM sessions, so console-flash suppression is unnecessary.
+    VALID_SECTIONS_ENV="$VALID_SECTIONS" "${PYTHON_BIN:-python3}" - "$line" <<'PYEOF'  # verify-no-console-flash: allow
 import os, re, sys
 line = sys.argv[1]
 sections = [s for s in os.environ.get("VALID_SECTIONS_ENV", "").splitlines() if s.strip()]

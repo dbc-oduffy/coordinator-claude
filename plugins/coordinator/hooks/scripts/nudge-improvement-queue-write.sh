@@ -8,7 +8,9 @@
 # moves on. Doctrine alone hasn't held (cf. 2026-05-16 self lesson "PM-brought
 # improvement with a known fix-locus is an action, not a queue entry"). This
 # hook adds tool-boundary friction: every queue-append must justify itself
-# against the four laziness traps.
+# against the five laziness traps (the 5th, added 2026-06-01, is the inbound
+# cross-repo memo-ask case — picking up a memo and queuing its request is one
+# of two hard-forbidden writes the message now names explicitly).
 #
 # Fires on: Write or Edit where file_path matches *improvement-queue.md.
 #
@@ -18,17 +20,17 @@
 #     reformat, or non-append edits).
 #   - Transcript tail shows an active legitimate-author skill:
 #     /learn-lessons, /workweek-complete, /workday-complete, /distill,
-#     /session-end (these surfaces own queue maintenance).
+#     /workstream-complete (these surfaces own queue maintenance).
 #   - Authorized override: COORDINATOR_QUEUE_PUNT="<reason>" in env. The
 #     reason MUST be non-empty and is logged so the EM can't reuse "1" or
 #     "ok" — it has to name what's being punted.
 #
-# Blocked: any other queue-append. Block message lists the four questions and
+# Blocked: any other queue-append. Block message lists the five questions and
 # the two ways to proceed (fix it / set COORDINATOR_QUEUE_PUNT="<reason>").
 #
 # Implementation note: this is a "block to nudge" not a "block to forbid" —
 # the override is one env var away. The friction is the cognitive load of
-# reading the four questions and writing a plain-English reason, not the
+# reading the five questions and writing a plain-English reason, not the
 # difficulty of bypassing.
 
 set -uo pipefail
@@ -170,7 +172,7 @@ fi
 # can never reach the `if`.
 if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
   RECENT_TAIL=$(tail -500 "$TRANSCRIPT_PATH" 2>/dev/null || true)
-  if grep -qE '(^|[^a-z])/(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)([^a-z]|$)|coordinator:(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)|<command-name>(learn-lessons|workweek-complete|workday-complete|distill|session-end|update-docs|bug-blitz|mise-en-place)</command-name>' <<< "$RECENT_TAIL"; then
+  if grep -qE '(^|[^a-z])/(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)([^a-z]|$)|coordinator:(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)|<command-name>(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)</command-name>' <<< "$RECENT_TAIL"; then
     exit 0
   fi
 fi
@@ -202,7 +204,19 @@ The queue is for items that are (a) universal patterns worth promoting, or
 (b) genuinely-not-this-session deferrals with an architectural reason. It is
 NOT a laundromat for "I noticed a thing, moving on."
 
-Before this write lands, answer the four questions out loud:
+TWO WRITES ARE HARD-FORBIDDEN (2026-06-01 PM ruling) — the override does NOT
+make them OK:
+  - Work actionable THIS SESSION (named fix-locus + bounded scope = an action,
+    not a queue line — dispatch it or do it inline).
+  - An INBOUND CROSS-REPO MEMO 'ask'. Filing a picked-up memo-ask to the queue
+    launders an inbox into a staging ground and silently makes a PRIORITIZATION
+    call (this ask is not-now) that belongs to the PM, not you. A memo-ask's
+    only exits are Accept / Decline-with-architectural-rationale / Surface-to-PM
+    (skills/pickup M3; docs/wiki/cross-repo-communication.md § Picking up a
+    memo). If this write is either case, do NOT set the override — go fix,
+    decline, or surface instead.
+
+Before this write lands, answer the five questions out loud:
 
   1. CAN I FIX IT NOW?
      A quick dispatch is almost always faster than queueing + triage + a
@@ -224,11 +238,21 @@ Before this write lands, answer the four questions out loud:
      an EM call. If you're deferring something the PM might want done now,
      ask — don't queue around them.
 
-If after those four questions you still believe queueing is right
+  5. IS THIS AN INBOUND CROSS-REPO MEMO ASK?
+     If you picked up a memo and are about to queue its request, STOP — that
+     is one of the two hard-forbidden writes above. Adjudicate-and-own it:
+     Accept (do the work), Decline (architectural rationale), or Surface-to-PM
+     (it's competing for priority — that's the PM's call). Queuing it is
+     laundering the inbox, not handling the memo.
+
+If after those five questions you still believe queueing is right
 (legitimate cases: cross-cutting universal pattern noticed mid-other-work,
 genuinely needs its own plan, depends on something not yet built):
 
   Set COORDINATOR_QUEUE_PUNT="<one-sentence reason>" and re-run the write.
+  THEN surface a one-line "Queuing X because Y" to the PM in-session — the
+  PM ruling is visibility-not-approval: you don't need sign-off, but nothing
+  lands silently, so the PM can veto.
 
 The override deliberately requires a typed reason — not because the hook
 will read it, but because YOU have to read it. If writing the sentence
