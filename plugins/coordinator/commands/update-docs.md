@@ -13,9 +13,11 @@ Ensure all documentation reflects the current state of the codebase.
 
 Repo-wide maintenance — syncs all documentation artifacts to match the current codebase state, regardless of which agent(s) made the changes.
 
-**Arguments:** `--no-distill` — skip Phase 12 distillation check (use for overnight/unattended runs).
+**Arguments:** `--no-distill` — skip Phase 13 distillation check (use for overnight/unattended runs).
 
-**Execution model:** Dispatch Phases 1–11d to a **Sonnet agent** (`model: "sonnet"`). The coordinator handles Phase 0, 12, 13, 14, and any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly.
+**Execution model:** Dispatch Phases 1–11d to a **Sonnet doc-maintenance agent** (`model: "sonnet"`). The coordinator (EM) handles Phase 0, **Phase 12 (Agent dispatch — EM only)**, Phases 11f / 11g / 11h / 11h2 / 11i, and Phases 13 / 14 / 15, plus any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly.
+
+> **EM/subagent boundary — read this before dispatching the Sonnet agent.** The Sonnet doc-maintenance agent's scope ENDS at Phase 11d. It MUST NOT attempt Phase 12: subagents cannot dispatch other subagents via `Agent`, and a Sonnet worker reaching for `doc-link-checker` will fail. Phase 12 is structurally EM-led and is the explicit hand-back point — when the Sonnet agent returns, the EM resumes execution at Phase 12 and runs everything from there onward (the 11f / 11g / 11h* / 11i bash checks plus the Phase 13+ tail).
 
 **Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, or any `gh` command mutating GitHub state beyond pushing the current branch. DO NOT commit to `main`. If you find yourself reaching for a merge, STOP and surface to the EM. The EM merges via `/merge-to-main`.
 
@@ -119,7 +121,7 @@ For each plan doc related to current codebase state: read it, update status mark
 
 **Do NOT add:** phase/milestone status → `git log` / tracker; completion logs → git log; key-files tables → DIRECTORY.md; architectural decisions inline → DR or wiki; system health stats → CI / atlas; active priorities → `tasks/`; anything that duplicates CLAUDE.md; session-specific details; speculative conclusions from one file.
 
-**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it — promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with pointers. Lessons-style content (behavior corrections, anti-patterns) routes via `/learn-lessons` to `tasks/lessons.md`, not here.
+**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it — promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with pointers. Lessons-style content (behavior corrections, anti-patterns) routes via `/learn-lessons` to `state/lessons.md`, not here.
 
 #### Phase 5: Maintain Project Tracker + Archive Completed Work
 
@@ -138,6 +140,22 @@ Only if source architecture no longer matches reality, new project-wide rules we
 #### Phase 8: Archive Old Handoffs
 
 Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/handoff-archival.md` and follow all steps exactly.
+
+#### tasks/ vs state/ — sweep scope for Phases 8b and 13
+
+Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
+
+**`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Sweeps of `state/` surfaces are surgical and named — `coordinator:learn-lessons` writes `state/lessons.md`; Phase 11i's queue pruner operates on named queue files only; the orientation-cache regenerator (Phase 10) runs its own schema-governed replacement. No blanket sweep ever touches `state/`.
+
+**`tasks/`** is the aggressive sweep target: UUID flight-recorder dirs, dated reports, dated topic dirs, and loose scratch. Phases 8b and 13 may archive or delete from `tasks/` under the thresholds defined in their respective sub-routines. Specific rules:
+
+- **Dated reports** (`*-YYYY-MM-DD*.md`) older than 14 days → eligible for archival after active-reference check.
+- **Dated topic directories** (`<topic>-YYYY-MM-DD/`) with no recent git activity → eligible for archival after active-reference check.
+- **Loose scratch files** (`tasks/scratch/*.{py,log,txt,sh}`) older than 7 days → eligible for deletion (no active-reference check required).
+- **UUID flight-recorder dirs** — managed by the Tasks API; `/update-docs` does **NOT** touch them.
+- **Frontmatter `status: superseded` or `status: archived`** on any `tasks/*.md` → archive immediately regardless of age.
+
+**Hard constraint — `state/scratch/<managed-namespace>/`** (deep-architecture-survey, bug-blitz, artifact-distillation): these roots are sustained cross-session work products, not ephemera. They are protected by the `state/` no-touch rule above. Only loose `tasks/scratch/*` files are fair game; the managed-namespace roots under `state/scratch/` are never swept.
 
 #### Phase 8b: Prune Accumulated Artifacts
 
@@ -170,12 +188,12 @@ Gate via `check-rag-state.sh`, then invoke `generate-repomap.sh`. Full gating pa
 RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
 case "$RAG_STATE" in
   fresh)
-    # Note in Phase 13 report: "Repomap: skipped (RAG present + fresh)."
+    # Note in Phase 14 report: "Repomap: skipped (RAG present + fresh)."
     ;;
   absent|stale|unknown)
     bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh"
     if [ "$RAG_STATE" != "absent" ]; then
-      # Note in Phase 13 report: "Repomap: generated as RAG-fallback (RAG state: ${RAG_STATE})."
+      # Note in Phase 14 report: "Repomap: generated as RAG-fallback (RAG state: ${RAG_STATE})."
     fi
     ;;
 esac
@@ -183,7 +201,7 @@ esac
 
 #### Phase 10: Refresh Orientation Cache
 
-If `tasks/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
+If `state/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
 
 ```bash
 bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs
@@ -199,7 +217,7 @@ If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
 **Only execute when:** RAG present AND repomap generated as fallback this run (stale/uninitialized, not fresh).
 
-Emit a single log entry to `tasks/repomap-audit.log` (create if absent, append-only):
+Emit a single log entry to `state/repomap-audit.log` (create if absent, append-only — load-bearing append-log, lives under `state/` per the tasks-state-folder-split):
 
 ```
 YYYY-MM-DD | repomap_unique_value: yes|no | <brief justification — what did repomap reveal that RAG could not?>
@@ -211,9 +229,9 @@ After **two consecutive `no` entries**, surface to PM: "Repomap has provided no 
 
 Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/atlas-integrity-check.md` and follow all steps exactly.
 
-**Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it in the Phase 13 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
+**Atlas freshness check (when RAG present):** If project-RAG staleness banner was emitted at session start (W1 hook), surface it in the Phase 14 report: *"Project-RAG staleness: [fresh/stale/uninitialized] — consider reindexing before next heavy investigation session."*
 
-**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `docs/architecture/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 13: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
+**Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `docs/architecture/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 14: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
 
 #### Phase 11b: Snippet Sync Check
 
@@ -232,7 +250,7 @@ exit $fail
 
 **If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. Investigate which consumer drifted from its canonical snippet.
 
-**If all verifiers exit 0:** Note in Phase 13 report: "Snippet sync: all N verifiers in sync."
+**If all verifiers exit 0:** Note in Phase 14 report: "Snippet sync: all N verifiers in sync."
 
 #### Phase 11g: Plugin-bundled wiki validate
 
@@ -245,11 +263,11 @@ Verify that no plugin-doctrine wiki has a dev-side mirror at `~/.claude/docs/wik
 ~/.claude/plugins/coordinator/bin/sync-plugin-wiki.sh
 ```
 
-**If the script exits 0:** log in the Phase 13 report: "Plugin-bundled wiki: clean (N validated)."
+**If the script exits 0:** log in the Phase 14 report: "Plugin-bundled wiki: clean (N validated)."
 
 **If the script exits 5:** a dev-side mirror exists for a plugin-doctrine wiki. Output names both paths and remediation steps. Resolve before proceeding (override with `COORDINATOR_OVERRIDE_WIKI_MIRROR=1` only for wikis genuinely not belonging in the plugin tree).
 
-**If the script reports WARN (missing-bundled):** a wiki name is referenced but absent from the bundled tree. Doc-link health (Phase 11e) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 13 report.
+**If the script reports WARN (missing-bundled):** a wiki name is referenced but absent from the bundled tree. Doc-link health (Phase 12) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 14 report.
 
 #### Phase 11c: Query Callout Refresh
 
@@ -259,11 +277,11 @@ Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... --
 ~/.claude/plugins/coordinator/bin/refresh-queries.sh
 ```
 
-**If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 13 report: "Query callouts: N file(s) updated."
+**If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 14 report: "Query callouts: N file(s) updated."
 
 **If the script exits non-zero** (parse error or query failure): surface the error to PM with the stderr output. Do NOT abort the rest of `/update-docs` — log the failure and continue.
 
-**If the script reports no changes:** note in the Phase 13 report: "Query callouts: up to date."
+**If the script reports no changes:** note in the Phase 14 report: "Query callouts: up to date."
 
 #### Phase 11d: Frontmatter Schema Drift Sweep
 
@@ -277,21 +295,29 @@ Run the lint:
 
 Parse the JSON. Three behaviors:
 
-1. **`ok: true` (zero violations):** Note in Phase 13 report: *"Frontmatter schema drift: 0 violations."*
+1. **`ok: true` (zero violations):** Note in Phase 14 report: *"Frontmatter schema drift: 0 violations."*
 2. **`ok: false` with N violations:**
    - Group by schema. Identify the top 3 most-violated schemas with their counts.
-   - List up to 5 specific offending files (path + schema name) in the Phase 13 report.
+   - List up to 5 specific offending files (path + schema name) in the Phase 14 report.
    - Total count goes in the report headline; full JSON output is logged below the bullet.
-   - Phase 13 wording: *"Frontmatter schema drift: N violations across S schema(s). Top: [schema A] (count), [schema B] (count). Files: [path1, path2, ...]. WARN-mode validator did not block these writes — fix-forward at the listed paths."*
-3. **Non-zero exit other than 1:** Note "frontmatter drift sweep: errored, stderr attached" in the Phase 13 report and continue. Do NOT abort the rest of `/update-docs`.
+   - Phase 14 wording: *"Frontmatter schema drift: N violations across S schema(s). Top: [schema A] (count), [schema B] (count). Files: [path1, path2, ...]. WARN-mode validator did not block these writes — fix-forward at the listed paths."*
+3. **Non-zero exit other than 1:** Note "frontmatter drift sweep: errored, stderr attached" in the Phase 14 report and continue. Do NOT abort the rest of `/update-docs`.
 
 **Do not auto-fix.** This phase reports only — violations may encode intentional decisions (predating the schema, field deprecation in flight). Escalation path: ≥2 consecutive non-zero runs → lift schema default to STRICT (`COORDINATOR_SCHEMA_STRICT=1`) or open a bulk-fix debt entry. **Exception:** tradeoff-free correctness fixes on records authored this session (typo, missing required field) may be fixed inline before the Phase 9 commit.
 
-#### Phase 11e: Doc-link health check (plugin assets)
+---
 
-Dispatch the `doc-link-checker` agent with the following prompt. The agent returns a `DONE: <actual-path>` reply.
+### ── EM resumes here (Sonnet doc-maintenance agent has returned) ──
 
-After the worker returns, read the report and surface counts in the Phase 13 rollup:
+The Sonnet agent's Phase 1–11d work is complete. The EM owns every phase below. The first one (11e) exists at this seam *specifically because* it requires `Agent` dispatch, which only the EM can perform.
+
+#### Phase 12: Doc-link health check (plugin assets) — EM-LED
+
+> **EM-only phase. The Sonnet doc-maintenance agent MUST NOT execute this — subagents cannot dispatch other subagents.** If you are the Sonnet doc-maintenance agent reading this: STOP at the end of Phase 11d and return to the EM. The EM dispatches `doc-link-checker` here, then runs Phases 11f through 11i (mechanical bash) and the Phase 13+ tail itself.
+
+The EM dispatches the `doc-link-checker` agent with the prompt below. The agent returns a `DONE: <actual-path>` reply.
+
+After the worker returns, read the report and surface counts in the Phase 14 rollup:
 - Broken-link count (rows with `status: broken`)
 - Anchor-missing count (rows with `status: anchor-missing`)
 - Report path (so PM can read findings)
@@ -374,7 +400,7 @@ Aggressively strip resolved-state bloat and schema ceremony from the three queue
 This is belt-and-suspenders. The write-time discipline (main-line-only entries; delete on resolution) lives in `learn-lessons` and `workweek-complete`; the pruner is the structural backstop that catches drift regardless of writer.
 
 ```bash
-for queue in tasks/coordinator-improvement-queue.md tasks/improvement-queue.md tasks/bug-backlog.md; do
+for queue in state/coordinator-improvement-queue.md state/improvement-queue.md state/bug-backlog.md; do
   [[ -f "$queue" ]] || continue
   before=$(wc -l < "$queue")
   ~/.claude/plugins/coordinator/bin/prune-resolved-queue-entries.sh "$queue"
@@ -389,7 +415,7 @@ done
 
 **On zero exit with no lines pruned:** Note in the report: "Queue prune: clean (no resolved bloat found)."
 
-#### Phase 12: Artifact Distillation (Conditional)
+#### Phase 13: Artifact Distillation (Conditional)
 
 **Skip this phase if `--no-distill` was passed.**
 
@@ -401,7 +427,10 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
    PLANS=$(find docs/plans/ -name "*.md" 2>/dev/null | wc -l)
    HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
    COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
-   TASKS=$(find tasks/ -mindepth 2 -name "*.md" -not -name "lessons.md" -not -name "health-ledger.md" -not -name "bug-backlog.md" -not -name "debt-backlog.md" 2>/dev/null | wc -l)
+   # state/ is excluded by directory scope. The previous -not -name filters for
+   # lessons.md / health-ledger.md / bug-backlog.md / debt-backlog.md were dropped
+   # per the tasks-state-folder-split (those files now live under state/).
+   TASKS=$(find tasks/ -mindepth 2 -name "*.md" 2>/dev/null | wc -l)
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```
 
@@ -411,7 +440,7 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
 
 4. **If threshold not met:** Note in report: "Distillation: not needed (N artifacts, last run M days ago)."
 
-#### Phase 13: Report
+#### Phase 14: Report
 
 Present a concise `## Documentation Update Summary` with one `### <section>` heading per item below, status line drawn from the phase's own success/skip/failure outputs.
 
@@ -431,10 +460,10 @@ Present a concise `## Documentation Update Summary` with one `### <section>` hea
 - **Frontmatter Schema Drift** — 0 / N across S schemas with top offenders
 - **Distillation** — ran (N guides, M deleted) / not needed / skipped
 - **Pushed to Remote** — yes (branch) / no (reason)
-- **Cross-Repo Registry (Phase 14)** — N candidates / all verified / N unreachable / skipped
+- **Cross-Repo Registry (Phase 15)** — N candidates / all verified / N unreachable / skipped
 
-#### Phase 14: Cross-Repo Registry Refresh (cwd-gated, EM-only)
+#### Phase 15: Cross-Repo Registry Refresh (cwd-gated, EM-only)
 
-**Skip if `pwd` is not `~/.claude`.** Per-project runs skip with: *"Phase 14: skipped — not running from ~/.claude."* **EM-only** — the Sonnet agent does NOT execute this phase; if it reaches Phase 14, it logs `"Phase 14 is EM-only — deferring to coordinator"` and exits.
+**Skip if `pwd` is not `~/.claude`.** Per-project runs skip with: *"Phase 15: skipped — not running from ~/.claude."* **EM-only** — the Sonnet agent does NOT execute this phase; if it reaches Phase 15, it logs `"Phase 15 is EM-only — deferring to coordinator"` and exits.
 
 Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/cross-repo-registry-refresh.md` and follow all steps exactly.

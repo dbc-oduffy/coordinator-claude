@@ -319,7 +319,7 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 
 | Namespace | Owner | Contents | Notes |
 |---|---|---|---|
-| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/tasks/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` (grandfathered pre-cutoff memo) |
+| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/state/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` (grandfathered pre-cutoff memo) |
 | `~/.claude/project-rag/` | project-rag host | host runtime state | Existing; predates this doctrine |
 | `~/.claude/machine-local/` | coordinator | TOML registry — see §1–10 above | The config substrate, not a project state dir |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |

@@ -1,4 +1,4 @@
-<!-- Layer 0 of agent-install.md substitutes {{DATE}} and {{BRANCH}} when copying this to tasks/handoffs/ -->
+<!-- Layer 0 of agent-install.md substitutes {{DATE}} and {{BRANCH}} when copying this to state/handoffs/ -->
 ---
 title: "Continue coordinator onboarding and installation"
 created: {{DATE}}
@@ -16,7 +16,7 @@ scope:
   - CLAUDE.local.md
   - coordinator.local.md
   - .claude/settings.json
-  - tasks/handoffs/**
+  - state/handoffs/**
 deployment_state: ready_to_fire
 pickup_ready: true
 ---
@@ -79,11 +79,11 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    `deep-research` (the recommended OSS add-on) and/or other downstream repos before the restart.
    Each such choice was seeded as a **spinoff** — a fork of a *different* install topic, authorized
    by the operator at the pre-restart question. Spinoffs live in the **standard handoff folder**
-   (`tasks/handoffs/`, same as `/spinoff`'s output), tagged `kind: spinoff` with an
+   (`state/handoffs/`, same as `/spinoff`'s output), tagged `kind: spinoff` with an
    `install_chain_order:`; that tag is what distinguishes them from this onboarding handoff:
 
    ```bash
-   grep -l 'install_chain_order:' "${CLAUDE_HOME:-$HOME/.claude}/tasks/handoffs/"*.md 2>/dev/null
+   grep -l 'install_chain_order:' "${CLAUDE_HOME:-$HOME/.claude}/state/handoffs/"*.md 2>/dev/null
    ```
 
    There may be **zero, one, or several**. Read what is actually there — do **not** assume a fixed
@@ -109,13 +109,13 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    field that conditionally replaces an earlier orientation or install-leg baton. The mechanism is
    the shipped one — `supersedes:` on a `kind: spinoff` baton — documented in full at
    `docs/wiki/agent-install-contract.md § Orientation-supersession`. Do **not** re-derive it here;
-   apply it. For each baton present in `tasks/handoffs/` that declares `supersedes: <X>`, drop or
+   apply it. For each baton present in `state/handoffs/` that declares `supersedes: <X>`, drop or
    defer `<X>`'s entry from the install-chain spine in favor of the declaring baton's. If no present
    baton declares `supersedes: <X>`, then `<X>` stands as-is — it is the correct default for that slot.
 
    ```bash
    # Generic over supersedes:<any-id>; names no specific repo/orientation/order.
-   grep -l 'supersedes:' "${CLAUDE_HOME:-$HOME/.claude}/tasks/handoffs/"*.md 2>/dev/null
+   grep -l 'supersedes:' "${CLAUDE_HOME:-$HOME/.claude}/state/handoffs/"*.md 2>/dev/null
    ```
 
    Read each match to identify which orientation or leg baton it supersedes, then update the
@@ -123,7 +123,7 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    pick up the superseding baton; that happens in sequence order below.
 
 Then proceed through the steps below. As you finish coordinator onboarding, pick up each install
-spinoff (`/pickup tasks/handoffs/<leg>.md`) in turn and check it off the spine as it completes.
+spinoff (`/pickup state/handoffs/<leg>.md`) in turn and check it off the spine as it completes.
 
 ### 1. Reload the live surfaces first
 
@@ -224,7 +224,7 @@ Close the session by orienting the operator to their own meta-repo:
   All methodology refinements land here. The `coordinator-claude` source repo is a
   distribution artifact; edits there don't change their running sessions.
 - **Lessons compound into doctrine.** As they work, `/coordinator:learn-lessons` promotes
-  patterns from `tasks/lessons.md` into `docs/wiki/`. The system gets better as they use it.
+  patterns from `state/lessons.md` into `docs/wiki/`. The system gets better as they use it.
 - **The setup is optional and re-runnable.** If they want to revisit any part of onboarding,
   `docs/wiki/getting-started.md` is the guided-tour wiki, and `/coordinator:setup --check-only`
   re-audits the environment anytime.
@@ -242,7 +242,7 @@ None. This handoff is ready to pick up immediately.
 This is a **fresh-start handoff** — there is no prior session state to reconcile. The
 picking-up EM should:
 
-1. Read this handoff at `/pickup tasks/handoffs/continue-onboarding-and-installation.md`
+1. Read this handoff at `/pickup state/handoffs/continue-onboarding-and-installation.md`
 2. Lay the install-chain spine (Step 0), then **reload the live surfaces (Step 1) before any
    customization** — the order is install → (spine-build, Step 0) → reload → orient, and you do not
    shape the contract against a half-loaded copy of it
@@ -255,7 +255,7 @@ picking-up EM should:
    wants it — the EM facilitates it as a conversation, not a recital
 
 The operator may not know what `/pickup` does yet. The install script's final message should
-have told them: "Start a fresh Claude Code session and run: `/pickup tasks/handoffs/continue-onboarding-and-installation.md`"
+have told them: "Start a fresh Claude Code session and run: `/pickup state/handoffs/continue-onboarding-and-installation.md`"
 
 → Cross-reference: `docs/wiki/post-install-onboarding-pattern.md` — the pattern doctrine
   (Movement 2 = first dogfood, refinement-target framing) this handoff body follows.

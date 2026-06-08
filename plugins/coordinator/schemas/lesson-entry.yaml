@@ -1,5 +1,5 @@
 schema: lesson-entry
-applies_to: "tasks/lessons.md"
+applies_to: "state/lessons.md"
 match_mode: inline-tag-per-entry
 entry_pattern: "^\\*\\*[^*]+\\*\\*"
 tag_enum:

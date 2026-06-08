@@ -15,7 +15,7 @@ Git Bash for Windows is a Unix-shell veneer over a Win32 syscall layer; subtle b
 
 ## 1. Python stdout via `read -r` carries CR on Git Bash
 
-**Source:** 2026-05-17 self, `tasks/lessons.md` L3.
+**Source:** 2026-05-17 self, `state/lessons.md` L3.
 
 ### Symptom
 
@@ -163,7 +163,7 @@ Any hit is a portability debt item.
 
 ## 4. `flock` is not on Git Bash for Windows — use `mkdir` for shell locks
 
-**Source:** 2026-05-08 self, `tasks/lessons.md` ~L37.
+**Source:** 2026-05-08 self, `state/lessons.md` ~L37.
 
 ### Symptom
 

@@ -29,7 +29,7 @@ Before writing ANY handoff (spinoff or continuation), run Step 0: the successor-
 - A plan in flight with remaining unexecuted chunks (not chunks that just landed in this session)
 
 **When to write a commit-and-stop instead of a handoff:**
-"Shipped" work that needs no successor → `/workday-complete` week-changelog or commit-and-stop. A completed workstream does not need a `tasks/handoffs/` entry.
+"Shipped" work that needs no successor → `/workday-complete` week-changelog or commit-and-stop. A completed workstream does not need a `state/handoffs/` entry.
 
 Source: `archive/specs/2026-05-07-handoff-no-successor-gate.md` (status: complete, 2026-05-07).
 
@@ -58,7 +58,7 @@ A spinoff matches a real handoff in detail: load-bearing context, references, ac
 
 > Added 2026-06-01. Spinoffs are normally PM-authorized and keyword-gated: the EM surfaces `Candidate spinoff: <slug> — <topic>. Authorize?` and blocks; paraphrase is not authorization; only `/spinoff` (or `coordinator:roadmap-planning`) creates one. This carve-out names the **single** exception and explains why it does not erode the gate.
 
-When an operator installs coordinator as the root of a multi-repo setup, each *additional* repo they want (deep-research, or downstream repos) is materialized as a **spinoff** by that repo's installer — not by an EM typing `/spinoff`. The baton is a normal `kind: spinoff` file in the standard `~/.claude/tasks/handoffs/` folder (the same place `/spinoff` writes), distinguished from the coordinator onboarding handoff by an `install_chain_order:` tag, and carrying `authoring_session:` naming the install + the operator's opt-in (the audit-trail field this schema requires of every spinoff). It is seeded via `cp`/`sed`, not the Write tool, so it does not trip the unauthorized-handoff nudge. This is legitimate because **the authorization is captured at the install's pre-restart question** ("what else do you want to install?"). The operator selecting a leg there *is* the human authorizing that fork — the same authorization `/spinoff` captures, captured at a different but equally explicit moment.
+When an operator installs coordinator as the root of a multi-repo setup, each *additional* repo they want (deep-research, or downstream repos) is materialized as a **spinoff** by that repo's installer — not by an EM typing `/spinoff`. The baton is a normal `kind: spinoff` file in the standard `~/.claude/state/handoffs/` folder (the same place `/spinoff` writes), distinguished from the coordinator onboarding handoff by an `install_chain_order:` tag, and carrying `authoring_session:` naming the install + the operator's opt-in (the audit-trail field this schema requires of every spinoff). It is seeded via `cp`/`sed`, not the Write tool, so it does not trip the unauthorized-handoff nudge. This is legitimate because **the authorization is captured at the install's pre-restart question** ("what else do you want to install?"). The operator selecting a leg there *is* the human authorizing that fork — the same authorization `/spinoff` captures, captured at a different but equally explicit moment.
 
 The gate is not eroded:
 
@@ -243,7 +243,7 @@ Force a re-check when ALL THREE conditions hold:
 2. `deployment_state: awaiting_gate`
 3. No `last_gate_recheck:` field present, OR `last_gate_recheck:` is ≥7 days ago
 
-**Threshold derivation:** 14d matches the existing spinoff stale-nudge threshold (wiki § "Pickup-side and workday-start handling", L73). The 7d recheck cadence matches the lesson-triage recheck shape (`tasks/lesson-triage-recheck-due-*.md` pattern, ~weekly cadence per coordinator CLAUDE.md § Triage cadence).
+**Threshold derivation:** 14d matches the existing spinoff stale-nudge threshold (wiki § "Pickup-side and workday-start handling", L73). The 7d recheck cadence matches the lesson-triage recheck shape (`state/lesson-triage-recheck-due-*.md` pattern, ~weekly cadence per coordinator CLAUDE.md § Triage cadence).
 
 ### Recheck mechanics
 

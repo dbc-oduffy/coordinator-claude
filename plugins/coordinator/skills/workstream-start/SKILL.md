@@ -120,7 +120,7 @@ Load project state into context. These checks are independent of each other.
 
 ### Lessons
 
-Read `tasks/lessons.md` (if it exists) — learned patterns from past corrections. Review every entry.
+Read `state/lessons.md` (if it exists) — learned patterns from past corrections. Review every entry.
 
 Read `CONTEXT.md` (if it exists at the project root) — domain glossary with canonical terms and `_Avoid_:` synonym lists. If absent, proceed silently — do not flag, suggest, or scaffold.
 
@@ -188,7 +188,7 @@ Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6s (the session 
 
 Note: the session adopter is the **orientation spine** — daemon-independent, computed from git+fs. Plugin-specific binding (e.g. project-rag source registration) is surfaced separately and optionally; plugin whoamis are optional ribs, never the orientation spine.
 
-Note: workstream-start does NOT surface bound-but-cwd-mismatch — that is `/project-onboarding`'s job. Workstream-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
+Note: workstream-start does NOT surface bound-but-cwd-mismatch — that is `/repo-setup`'s job. Workstream-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
 
 ### Handoffs
 
@@ -226,9 +226,9 @@ Reporting rules:
 
 Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated handoffs that the PM needed visibility on for cross-workstream planning. Six days is roughly one working week — long enough that a gate that hasn't cleared is worth a glance, short enough to catch drift before it ossifies.
 
-**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `tasks/handoff-tracker.md` (written by `/workstream-complete` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `node plugins/coordinator/bin/render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
+**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `state/handoff-tracker.md` (written by `/workstream-complete` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `node plugins/coordinator/bin/render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
 
-**Stale advisory / call-note markdowns are not pendency.** Files in `tasks/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
+**Stale advisory / call-note markdowns are not pendency.** Files in `state/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
 
 **Acceptance-oracle notice (one-liner, when applicable):** When surfacing actionable handoffs or active workstreams, check whether the relevant plan is oracle-bearing (carries a bindable `## Acceptance Criteria` table). If so, append a single line to the handoff entry: "Plan carries an acceptance oracle — run `bash check-acceptance-oracle.sh <path>` for current status." This is informational; do not make it a gate or a hard stop.
 
@@ -238,7 +238,7 @@ Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated 
 
 **Archive lifecycle:** `/pickup` archives the handoff atomically (frontmatter mutation + `git mv` to `archive/handoffs/` + commit, in one operation). Supersession archival happens at `/update-docs` (chain-aware pass for explicit predecessors named via `Continuing from`).
 
-**Path convention:** Active handoffs in `tasks/handoffs/`, archived in `archive/handoffs/`. Both git-tracked.
+**Path convention:** Active handoffs in `state/handoffs/`, archived in `archive/handoffs/`. Both git-tracked.
 
 **Why query, not grep:** `deployment_state` filters out handoffs that aren't ready for execution — the prior per-file walk surfaced everything regardless of state, which is grep-shaped behavior. Sub-second queryability requires a clear filter; the stale-gate flag preserves the deferred-work signal for `awaiting_gate` items without forcing them through the primary list.
 
@@ -252,7 +252,7 @@ Same surface, same semantics, same helper as `/workday-start` Step 1.45 — cros
 
 ### Action items and roadmap
 
-**Conditional on workday-start:** If `tasks/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.
+**Conditional on workday-start:** If `state/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.
 
 These are operational documents — they tell the EM what's immediately actionable and where the project is headed.
 
@@ -267,7 +267,7 @@ No summary needed — just load them into context. Their content speaks for itse
 
 ### Project tracker
 
-**Conditional on workday-start:** If `tasks/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed the tracker. If no marker or stale marker, read as a graceful fallback.
+**Conditional on workday-start:** If `state/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed the tracker. If no marker or stale marker, read as a graceful fallback.
 
 Read `docs/project-tracker.md` (if it exists). This is the strategic tracker that `/update-docs` maintains — active workstreams, their statuses, dependencies, and blockers.
 
@@ -392,11 +392,11 @@ Then orient the operator toward their `~/.claude` meta-repo as the primary surfa
 
 > **Welcome — coordinator is installed.** Your `~/.claude` directory is a git-tracked repo that is your live coordinator install. It's the surface you evolve — adding project context, capturing lessons, writing your CLAUDE.md — not the upstream `coordinator-claude` source.
 >
-> The primary path from here is to `/pickup` the continue-onboarding handoff that the installer left in `tasks/handoffs/` — it walks you through co-writing your CLAUDE.md and running your first `/workstream-start` on a real project. If no handoff is visible above, you can start fresh:
+> The primary path from here is to `/pickup` the continue-onboarding handoff that the installer left in `state/handoffs/` — it walks you through co-writing your CLAUDE.md and running your first `/workstream-start` on a real project. If no handoff is visible above, you can start fresh:
 >
 > **Suggested first steps:**
 > 1. **Co-write your `~/.claude/CLAUDE.md`** — personalize your EM persona, coding conventions, and any project-level extensions with the EM's help (just ask).
-> 2. **`/project-onboarding` in your first project repo** — sets up tracking, CLAUDE.md, and the post-commit hook.
+> 2. **`/repo-setup` in your first project repo** — sets up tracking, CLAUDE.md, and the post-commit hook.
 > 3. **`/workday-start`** — run once per day to orient, sweep, and load the day's context.
 >
 > _This orientation fires once. The sentinel `~/.claude/.coordinator-fresh-install` has been cleared — subsequent no-handoff sessions will show the standard work menu instead._
@@ -415,7 +415,7 @@ Then orient the operator toward their `~/.claude` meta-repo as the primary surfa
 3. **Reviewing code** — Code review of recent changes
 4. **Research / exploration** — No ceremony, just start
 5. **Maintenance** — Daily health check, weekly audit, or debt triage
-6. **Work the backlog** — Improvement queues, deferred items, recurring lessons. Central queue: `~/.claude/tasks/coordinator-improvement-queue.md`; local queue: `tasks/improvement-queue.md`. Surface current depth when framing this option (e.g., "Central: 17 entries, 3 with recurring ≥ 3. Local: 2 entries. Want to tackle some of these?"). Also check `tasks/bug-backlog.md` — if it exists and has ≥10 open items (P1 + P2 rows, excluding resolved), advocate `/bug-blitz` as a backlog-grinding option.
+6. **Work the backlog** — Improvement queues, deferred items, recurring lessons. Central queue: `~/.claude/state/coordinator-improvement-queue.md`; local queue: `state/improvement-queue.md`. Surface current depth when framing this option (e.g., "Central: 17 entries, 3 with recurring ≥ 3. Local: 2 entries. Want to tackle some of these?"). Also check `state/bug-backlog.md` — if it exists and has ≥10 open items (P1 + P2 rows, excluding resolved), advocate `/bug-blitz` as a backlog-grinding option.
 7. **Other** — Something else (describe it)
 
 If `$ARGUMENTS` is provided, use it to identify the task directly and skip the menu.

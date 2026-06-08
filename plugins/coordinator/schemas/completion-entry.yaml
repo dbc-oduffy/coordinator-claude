@@ -37,7 +37,7 @@ optional:
   # narrative summary for chains with ≥2 entries on the same day.
   # Example values:
   #   "docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md"
-  #   "tasks/handoffs/2026-05-19-installer-redesign.md"
+  #   "state/handoffs/2026-05-19-installer-redesign.md"
   #   "installer-redesign"
 
   commits:

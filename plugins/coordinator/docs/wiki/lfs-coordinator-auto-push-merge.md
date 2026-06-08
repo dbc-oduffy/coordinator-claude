@@ -75,7 +75,7 @@ manual dance above is the contract.
 
 ## When to Apply This Pattern
 
-- Any new repo onboarded with `coordinator:project-onboarding` that also
+- Any new repo onboarded with `coordinator:repo-setup` that also
   needs LFS for large artifacts (corpora, asset packs, model weights).
 - Any existing repo adding LFS to a tree that already carries the
   coordinator-auto-push hook.

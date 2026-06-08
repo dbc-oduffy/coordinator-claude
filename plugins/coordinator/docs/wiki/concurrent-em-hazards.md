@@ -68,7 +68,7 @@ The trailing `-- <paths>` on `git commit` is non-negotiable — it scopes the co
 
 **Trap.** While you hold an edit uncommitted, a concurrent `/workstream-complete`, `/workday-complete`, or `--blanket` sweep stages and commits whatever is dirty in the tree — including your work. This is the inverse of H1 (you're the victim, not the polluter), and it is structurally undefendable from your side once the edit is dirty and unguarded.
 
-**Rule.** **Commit shared / hot files explicitly and immediately after the edit — never batch them for workstream-complete.** For known shared buses (`tasks/lessons.md`, `tasks/improvement-queue.md`, shared registration/index files), `git add -- <file> && git commit -m "..." -- <file>` the moment the edit is complete. The window between edit and commit is the entire attack surface; close it to near-zero.
+**Rule.** **Commit shared / hot files explicitly and immediately after the edit — never batch them for workstream-complete.** For known shared buses (`state/lessons.md`, `state/improvement-queue.md`, shared registration/index files), `git add -- <file> && git commit -m "..." -- <file>` the moment the edit is complete. The window between edit and commit is the entire attack surface; close it to near-zero.
 
 ### H5 — Committing a shared registration/index file ships a HEAD that imports untracked modules
 
@@ -246,13 +246,13 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 **Rule.** Before adding any archive/orientation entry at workstream-complete, grep `archive/completed/` for your commit hashes and check the orientation cache's `git_head_at_generation` field. If your work is already indexed, skip the entry — do not add a duplicate. Duplicates cause merge friction and wasted edits on shared branches.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L37, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L37, central-promoted 2026-05-28).*
 
 ### H16 — Shared-file edits under concurrent EMs get clobbered at workstream-complete
 
-**Symptom.** Edits to `tasks/lessons.md` or `tasks/improvement-queue.md` accumulated during a session vanish when a concurrent session commits its own version before your workstream-complete commit.
+**Symptom.** Edits to `state/lessons.md` or `state/improvement-queue.md` accumulated during a session vanish when a concurrent session commits its own version before your workstream-complete commit.
 
-**Trap.** `tasks/lessons.md` and similar shared buses are last-writer-wins on the working tree. A staged `git mv` or pending edit held for the batched workstream-complete commit is overwritten the moment a sibling's commit/checkout touches the same path (H4). Two lessons appended mid-session can be silently lost.
+**Trap.** `state/lessons.md` and similar shared buses are last-writer-wins on the working tree. A staged `git mv` or pending edit held for the batched workstream-complete commit is overwritten the moment a sibling's commit/checkout touches the same path (H4). Two lessons appended mid-session can be silently lost.
 
 **Rule.** When editing a known shared file during a multi-session window, commit it immediately after the edit — `git add -- <file> && git commit -m "..." -- <file>` — rather than holding it for the batched workstream-complete commit. The window between edit and commit is the entire attack surface; close it to near-zero.
 
@@ -280,7 +280,7 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 **Rule.** When an executor finds its cited seam has moved into shared/out-of-scope territory, the correct response is an in-scope adaptation that preserves behaviour — NOT silently widening scope to absorb the drift (Branch D violation). Flag the deviation in the return so the EM records it. If the seam moved into a shared library that is genuinely out-of-scope, compute the new field or behaviour via an inline alternative, deliver identical observable behaviour, and report the deviation explicitly.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### H20 — Editing Build-Input Source During an In-Flight Long-Running Build
 
@@ -297,7 +297,7 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 **Trap — this is NOT coordinator code.** `coordinator-auto-push` only runs `git push` (never touches the index); `coordinator-safe-commit`'s session lock is `.overlap-gate.lock` (PID-stamped, self-reaping), never `index.lock`, and it commits via plain foreground git. The real mechanism is a Windows file-sharing artifact: a foreground `git add`/`git commit` writes a full index copy to `index.lock`, then the final `rename(index.lock → index)`/unlink fails with a sharing violation because another process holds a handle on `index` — a concurrent session's `git`, antivirus/Defender, the search indexer, or **git's own *detached* auto-maintenance child** (`gc.autoDetach` defaults true; the co-present `maintenance.lock` is its fingerprint). The commit's objects+ref are already durable, so the commit "succeeds" while the orphan lock survives. `index.lock` carries no holder PID, so liveness cannot be read from the lock itself.
 
 **Rule — two-leg fix, both ship to every coordinator install:**
-1. **Production-reduction:** `gc.autoDetach false` (set by `coordinator-configure-git`, asserted per-repo at `/setup`, `/project-onboarding` § 3f.5, and every coordinator session start via `session-init.sh` — kept per-repo by design, not globalized, to avoid changing auto-gc behavior in non-coordinator repos). Auto-gc then runs synchronously and releases its handles before the triggering command returns — no detached child to orphan the lock. Keeps automatic repacking (unlike the heavier `gc.auto 0`).
+1. **Production-reduction:** `gc.autoDetach false` (set by `coordinator-configure-git`, asserted per-repo at `/setup`, `/repo-setup` § 3f.5, and every coordinator session start via `session-init.sh` — kept per-repo by design, not globalized, to avoid changing auto-gc behavior in non-coordinator repos). Auto-gc then runs synchronously and releases its handles before the triggering command returns — no detached child to orphan the lock. Keeps automatic repacking (unlike the heavier `gc.auto 0`).
 2. **Self-heal:** `coordinator-reap-stale-locks` removes an orphaned `index.lock`/`next-index-*.lock`/`maintenance.lock` ONLY when it is both aged (≥120s; maintenance ≥600s) AND stable across a re-sample (no active writer) — never a fresh/in-flight lock. Runs as a pre-flight in `coordinator-safe-commit` and at every session start, so worktrees auto-recover instead of needing manual `rm -f`. Manual recovery: `tasklist`/`pgrep` to confirm no live git, then `rm -f .git/index.lock .git/next-index-*.lock .git/objects/maintenance.lock`.
 
 ### H22 — Phantom-dirty index under concurrent-EM (Git-for-Windows + NTFS)
@@ -306,7 +306,7 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 **Trap.** Git-for-Windows writes nanosecond mtimes into `.git/index`, but NTFS reports them back at coarser precision, so on every stat the recorded and observed mtimes differ and the entry is flagged "racy." The default `core.checkStat` also compares `ctime/ino/dev`, which are likewise unstable across the NTFS round-trip. Concurrent EM sessions continuously rewriting the shared `.git/index` re-arm the racy flag faster than any single refresh can clear it — a refresh-clobber loop that no amount of `--refresh` escapes.
 
-**Rule.** `core.checkStat minimal` — compares only `mtime+size` (both stable across the NTFS round-trip), dropping the unstable fields. Set by `coordinator-configure-git` alongside `gc.autoDetach false`, so it self-heals per-repo via `/project-onboarding` § 3f.5 and every coordinator session start (`session-init.sh`). Unlike `gc.autoDetach` (which we keep per-repo), `core.checkStat minimal` is benign and content-neutral on every platform and the phantom-dirty pattern affects *any* repo on Git-for-Windows + NTFS, so `/setup` **also** sets it as the machine-wide default (`git config --global core.checkStat minimal`) — covering every current and future repo, coordinator-managed or not. Manual one-off: `git config --global core.checkStat minimal`. **Does not cure H23** — that phantom is a *size* mismatch, which even `minimal` compares.
+**Rule.** `core.checkStat minimal` — compares only `mtime+size` (both stable across the NTFS round-trip), dropping the unstable fields. Set by `coordinator-configure-git` alongside `gc.autoDetach false`, so it self-heals per-repo via `/repo-setup` § 3f.5 and every coordinator session start (`session-init.sh`). Unlike `gc.autoDetach` (which we keep per-repo), `core.checkStat minimal` is benign and content-neutral on every platform and the phantom-dirty pattern affects *any* repo on Git-for-Windows + NTFS, so `/setup` **also** sets it as the machine-wide default (`git config --global core.checkStat minimal`) — covering every current and future repo, coordinator-managed or not. Manual one-off: `git config --global core.checkStat minimal`. **Does not cure H23** — that phantom is a *size* mismatch, which even `minimal` compares.
 
 ### H23 — EOL phantom-dirty index: stale line-ending blob size flags content-equal files (Git-for-Windows)
 

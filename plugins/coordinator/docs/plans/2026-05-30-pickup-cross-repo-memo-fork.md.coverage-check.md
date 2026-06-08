@@ -77,7 +77,7 @@ Oracle text: "/pickup needs a form-classification fork (handoff / spinoff / memo
 
 Slate match: **C1** — "New Step 1.5 (Classify the artifact) before the existing handoff flow: read the artifact first (read-before-reasoning, stated explicitly as the anti-confabulation gate), then classify by path + frontmatter shape." Shared noun phrases: `form-classification fork`, `read-before-reasoning`, memo branch. Signal (c) confirmed. Classification: **MATCHED**.
 
-Disk verification: `skills/pickup/SKILL.md` confirmed on disk. Current file is 100% handoff-shaped (Steps 1–6 operate on `tasks/handoffs/` only, mutate `status: active → consumed`, no memo awareness). The plan's characterization of the current state is accurate.
+Disk verification: `skills/pickup/SKILL.md` confirmed on disk. Current file is 100% handoff-shaped (Steps 1–6 operate on `state/handoffs/` only, mutate `status: active → consumed`, no memo awareness). The plan's characterization of the current state is accurate.
 
 ---
 
@@ -131,7 +131,7 @@ Disk verification of the "shared helper" claim: Both `skills/session-start/SKILL
 | `schemas/cross-repo-memo.yaml` `decision` enum | CONFIRMED line 65 | values: [accepted, declined, partial, superseded] |
 | `bin/lib/schema.js` cross-repo-memo rules ~663–700 | CONFIRMED lines 649–730 | `decision`/`status: action_taken` validation shape present; no `kind` validator yet — pre-implementation |
 | `bin/workday-start-cross-repo-memo-surface.sh` filters `status: open` | CONFIRMED line 115: `if status != "open": sys.exit(0)` | `kind` not yet parsed — pre-implementation |
-| `skills/pickup/SKILL.md` handoff-shaped, no memo awareness | CONFIRMED | Steps 1–6 operate on `tasks/handoffs/`, mutate `status: active → consumed` / `deployment_state` only |
+| `skills/pickup/SKILL.md` handoff-shaped, no memo awareness | CONFIRMED | Steps 1–6 operate on `state/handoffs/`, mutate `status: active → consumed` / `deployment_state` only |
 | Both `/session-start` and `/workday-start` use same helper | CONFIRMED | `session-start/SKILL.md:239` and `commands/workday-start.md:210` both invoke `workday-start-cross-repo-memo-surface.sh` |
 
 ---

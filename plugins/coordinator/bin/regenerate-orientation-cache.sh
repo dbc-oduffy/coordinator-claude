@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# regenerate-orientation-cache.sh — Single source-of-truth derivation for tasks/orientation_cache.md.
+# regenerate-orientation-cache.sh — Single source-of-truth derivation for state/orientation_cache.md.
 #
 # Spec backlink: docs/plans/2026-05-18-orientation-cache-authoring-discipline.md
 # Schema: plugins/coordinator/pipelines/workday-start-internals.md § 5.5
@@ -46,7 +46,7 @@ case "$INVOKER" in
 esac
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-CACHE_FILE="$REPO_ROOT/tasks/orientation_cache.md"
+CACHE_FILE="$REPO_ROOT/state/orientation_cache.md"
 
 if [[ ! -d "$REPO_ROOT/tasks" ]]; then
     echo "regenerate-orientation-cache: no tasks/ directory at $REPO_ROOT — skipping (per schema spec)" >&2
@@ -103,7 +103,7 @@ PROJECT_LINE="$(printf '%s' "$PROJECT_LINE" | tr -d '\n' | cut -c1-400)"
 _clean_int() { tr -d ' \n\r\t' < <(printf '%s' "${1:-0}"); }
 
 count_handoffs_ready() {
-    local d="$REPO_ROOT/tasks/handoffs" n=0 f
+    local d="$REPO_ROOT/state/handoffs" n=0 f
     [[ ! -d "$d" ]] && { echo 0; return; }
     for f in "$d"/*.md; do
         [[ -f "$f" ]] || continue
@@ -115,7 +115,7 @@ count_handoffs_ready() {
     echo "$n"
 }
 count_spinoffs_ready() {
-    local d="$REPO_ROOT/tasks/handoffs" n=0 f
+    local d="$REPO_ROOT/state/handoffs" n=0 f
     [[ ! -d "$d" ]] && { echo 0; return; }
     for f in "$d"/*.md; do
         [[ -f "$f" ]] || continue
@@ -127,7 +127,7 @@ count_spinoffs_ready() {
     echo "$n"
 }
 count_handoffs_gated() {
-    local d="$REPO_ROOT/tasks/handoffs" n=0 f
+    local d="$REPO_ROOT/state/handoffs" n=0 f
     [[ ! -d "$d" ]] && { echo 0; return; }
     for f in "$d"/*.md; do
         [[ -f "$f" ]] || continue
@@ -136,13 +136,13 @@ count_handoffs_gated() {
     echo "$n"
 }
 count_bug_backlog() {
-    local f="$REPO_ROOT/tasks/bug-backlog.md" n=0
+    local f="$REPO_ROOT/state/bug-backlog.md" n=0
     [[ ! -f "$f" ]] && { echo 0; return; }
     n=$(grep -cE '^- (BS-|\*\*BS-)' "$f" 2>/dev/null || echo 0)
     _clean_int "$n"
 }
 count_local_queue() {
-    local f="$REPO_ROOT/tasks/improvement-queue.md" n=0
+    local f="$REPO_ROOT/state/improvement-queue.md" n=0
     [[ ! -f "$f" ]] && { echo 0; return; }
     n=$(grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2}' "$f" 2>/dev/null || echo 0)
     _clean_int "$n"

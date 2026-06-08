@@ -19,7 +19,7 @@ spec: docs/plans/2026-06-01-boot-currency-notification-hook.md
 **Claude Prime (this meta-repo, `~/.claude`) is `source_is_live` and is never tagged.** The coordinator plugin is authored here but consumed via the OSS publish repos. Tagging the meta-repo would create false release signal on a repo that is not the install surface. Only the OSS publish repos receive version tags:
 
 - `dbc-oduffy/coordinator-claude` — coordinator plugin releases.
-- `dbc-oduffy/deep-research-claude` — deep-research plugin releases (spinoff scope; see `tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md`).
+- `dbc-oduffy/deep-research-claude` — deep-research plugin releases (spinoff scope; see `state/handoffs/2026-06-01_122922_deep-research-currency-notification.md`).
 
 ### Primary anchor — `/merge-to-main`
 
@@ -84,7 +84,7 @@ The action the nag points at is **per-plugin**, not always `/coordinator-update`
 | `coordinator` | `run \`/coordinator-update\` to review` — the shipped pull-action reconciles a coordinator install |
 | `deep-research` (standalone) | `re-run the deep-research install to update` — a standalone `deep-research-claude` install has **no** `/coordinator-update` equivalent; that verb reconciles only the coordinator footprint (and the bundled deep-research add-on), never a standalone DR clone |
 
-Adding a further plugin = one `PLUGINS_TO_CHECK` entry + one `_action_hint_for` case arm. The `offline`/unknown awareness notes are also plugin-named (`[<plugin> update check] …`). Spinoff: `tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md` (Leg 1 + Leg 2 option (a)).
+Adding a further plugin = one `PLUGINS_TO_CHECK` entry + one `_action_hint_for` case arm. The `offline`/unknown awareness notes are also plugin-named (`[<plugin> update check] …`). Spinoff: `state/handoffs/2026-06-01_122922_deep-research-currency-notification.md` (Leg 1 + Leg 2 option (a)).
 
 ### Version baseline — `version.txt`
 
@@ -152,7 +152,7 @@ The `timeout: 5` outer budget encompasses sentinel read/write; the inner `timeou
 
 ### Per-plugin loop structure
 
-The hook loops over installed plugins and checks each against its own release repo. Two entries are wired: `coordinator → dbc-oduffy/coordinator-claude` (install root = plugin root) and `deep-research → dbc-oduffy/deep-research-claude` (install root = `~/.claude/plugins/deep-research-claude`, env-overridable via `DEEP_RESEARCH_INSTALL_ROOT`). The deep-research entry was added by the spinoff (`tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md`).
+The hook loops over installed plugins and checks each against its own release repo. Two entries are wired: `coordinator → dbc-oduffy/coordinator-claude` (install root = plugin root) and `deep-research → dbc-oduffy/deep-research-claude` (install root = `~/.claude/plugins/deep-research-claude`, env-overridable via `DEEP_RESEARCH_INSTALL_ROOT`). The deep-research entry was added by the spinoff (`state/handoffs/2026-06-01_122922_deep-research-currency-notification.md`).
 
 **Per-plugin independence:** each entry checks only if installed (absent `version.txt` → `source_is_live` → silently inert). A missing standalone deep-research never affects the coordinator check, and vice-versa. No cross-partition read — each entry reads only its own release surface and its own install root, per `doctor-probe-design.md` § "Each Doctor Owns Its Own Code-Currency Surface".
 
@@ -187,6 +187,6 @@ The boot hook is the coordinator consumer's currency surface. It does not reach 
 - `docs/plans/2026-05-30-oss-coordinator-update-skill.md` — the pull action this hook points at
 - `docs/wiki/doctor-probe-design.md` § Each Doctor Owns Its Own Code-Currency Surface — No Cross-Partition Reads — partition-ownership principle this hook realizes on the consumer side
 - `docs/wiki/coordinator-tripwires.md` — network-on-boot throttle invariant registered there
-- `tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md` — spinoff that adds the deep-research entry to the per-plugin loop
+- `state/handoffs/2026-06-01_122922_deep-research-currency-notification.md` — spinoff that adds the deep-research entry to the per-plugin loop
 - `lib/coordinator-currency.sh` — orthogonal axis (schema-integer onboarding currency, not release-tag currency); must remain separate per its own header note
 - `cross-repo-handshake-doctrine.md` § Carve-out — pins the bare-SHA `version.txt` format this hook reads

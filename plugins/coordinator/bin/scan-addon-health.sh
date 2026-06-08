@@ -208,6 +208,14 @@ if [[ "$MODE" == "--red-and-stale" ]]; then
     plugin="${plugin_dir%/}"
     plugin="${plugin##*/}"
 
+    # Skip non-plugin residue: underscore-prefixed dirs (e.g. _pre-refresh-snapshots/
+    # written by refresh-plugin-live-install.sh) and *-bak-* / *.bak / *.preisource-bak-*
+    # backup dirs. These contain `commands/doctor.md` only because they are snapshots
+    # of real plugins; surfacing them as "doctor has never run" is a false positive.
+    case "$plugin" in
+      _*|*.bak|*-bak-*|*.preisource-bak-*) continue ;;
+    esac
+
     # Detect a doctor command across known shapes:
     #   <plugin>/commands/doctor.md
     #   <plugin>/plugin/commands/doctor.md      (project-rag-shape)

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # detect-project-runtime.sh — Advisory runtime/operational marker scan for
-#                              project-onboarding Phase 1 context.
+#                              repo-setup Phase 1 context.
 #
 # Spec backlink: archive/specs/2026-05-06-detect-project-runtime.md
 #
 # Purpose: Surface what runtime/operational invariants the filesystem of $PWD
 # reveals (lockfile → package manager, compose file → Docker, CI dir → CI vendor,
 # Infisical refs → no .env). Output is stdout-only ADVISORY context for the PM
-# answering project-onboarding Phase 2 question 2 — never authoritative.
+# answering repo-setup Phase 2 question 2 — never authoritative.
 #
 # Output: a one-line summary header + indented bullets per detected stack +
 # fixed Notes footer. Exit 0 even when no markers fire.
@@ -121,5 +121,5 @@ for line in "${STACK_LINES[@]}"; do
 done
 echo ""
 echo "Notes:"
-echo "  - This is advisory context for project-onboarding. Confirm with the PM before relying on it."
+echo "  - This is advisory context for repo-setup. Confirm with the PM before relying on it."
 exit 0

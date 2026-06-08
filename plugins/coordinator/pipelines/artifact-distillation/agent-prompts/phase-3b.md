@@ -17,7 +17,7 @@ decision records into your dedup pass.)
 
 **Escalation resolution file (if present):**
 [PHASE3_ESC_PATH]
-(Path: `tasks/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
+(Path: `state/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
 Check whether this file exists before reading. If it exists, integrate the resolution
 blocks into your dedup pass — any claim in the resolution file supersedes contradictory
 claims in Phase 2 scratches. If it does not exist, proceed normally.

@@ -142,7 +142,7 @@ When a scout produces a recommendation table — `| path | reason | action |` �
 
 1. Parse table columns by markdown column index or convert to JSON/YAML before consumption — never regex-extract from the rendered prose.
 2. Fail closed: the deletion sweep refuses to act on any path not in a fully-parsed `path` column.
-3. Wiki-guide protection: any deletion sweep that reads from a scout report MUST hard-exclude `docs/wiki/`, `CLAUDE.md`, `archive/`, and `tasks/lessons.md` regardless of column origin — these are never legitimate sweep targets and the protection is cheap insurance against parser bugs.
+3. Wiki-guide protection: any deletion sweep that reads from a scout report MUST hard-exclude `docs/wiki/`, `CLAUDE.md`, `archive/`, and `state/lessons.md` regardless of column origin — these are never legitimate sweep targets and the protection is cheap insurance against parser bugs.
 
 **Scout delete-candidate lists need EM-side grep before `rm` fires (L754, claude-unreal-holodeck).** A scout's delete-candidate list is a *recommendation*, not an authorization. Before the `rm` executes, the EM must grep each candidate for live consumer surfaces (imports, `#include`, doc citations, agent-prompt embeddings) across the repo and named siblings — the scout's "unused" verdict is scoped to what it grepped, and it routinely misses cross-file or cross-repo consumers. This is the same hazard family as §11 (grep imports before celebrating an excision); applied to scout-driven sweeps, the grep is the EM's gate, not the scout's.
 
@@ -170,9 +170,9 @@ Refactors that fix or close a bug-backlog entry by side effect (without naming i
 
 **Defense:**
 
-1. Any sweep refactor or cleanup pass should grep `tasks/bug-backlog.md` (and project-equivalents) for paths/symbols it touches, and close matching entries in the same commit.
+1. Any sweep refactor or cleanup pass should grep `state/bug-backlog.md` (and project-equivalents) for paths/symbols it touches, and close matching entries in the same commit.
 2. Consumer-side: bug-blitz's pickup phase must verify each entry against current `HEAD` (not against the entry's authoring date) before dispatching a fix — entries that no longer reproduce get deleted, not "investigated."
-3. The commit subject names the closed backlog entry; `git log -- tasks/bug-backlog.md` becomes the audit trail.
+3. The commit subject names the closed backlog entry; `git log -- state/bug-backlog.md` becomes the audit trail.
 
 ## 20. Doctrine Flips: Audit Test Infra AND Write-Sites
 
@@ -358,7 +358,7 @@ Migrating a source module without co-migrating its test suite produces `ImportEr
 When a workstream pivots or is abandoned mid-flight, the code and spec artifacts are the obvious targets for cleanup. But the highest-risk residue lives in **STATE artifacts**: sentinel files, status JSON blobs, partial migration records, half-updated registry entries, and in-progress handoff bodies that reference the abandoned approach. These state artifacts can mislead future sessions into treating abandoned-work state as current operational state.
 
 **Rule.** When auditing a pivoted or abandoned workstream for residue, explicitly scan:
-1. `tasks/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
+1. `state/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
 2. `machine-local/` registry entries, sentinel files (`*-sentinel.json`, `addon-health-*`), and status JSONs written by the abandoned path.
 3. Any migration helper or partial-apply record that reflects an abandoned schema/path shape.
 

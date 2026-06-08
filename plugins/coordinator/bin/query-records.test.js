@@ -10,7 +10,7 @@
  *   2. Non-memo-shaped file (README.md fixture, no from/to) is silently skipped
  *   3. includeUnparseable: true returns a parseError record for an invalid-frontmatter fixture
  *      while default (false) still skips it
- *   4. handoff-ledger query globs archive/handoffs (not tasks/handoffs/archive)
+ *   4. handoff-ledger query globs archive/handoffs (not state/handoffs/archive)
  *
  * Run with: node --test bin/query-records.test.js
  */
@@ -244,7 +244,7 @@ describe('includeUnparseable — opt-in mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. handoff-ledger archive glob: archive/handoffs/ (not tasks/handoffs/archive/)
+// 4. handoff-ledger archive glob: archive/handoffs/ (not state/handoffs/archive/)
 // ---------------------------------------------------------------------------
 
 describe('handoff-ledger — archive/handoffs/ glob', () => {

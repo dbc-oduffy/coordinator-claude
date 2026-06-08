@@ -46,7 +46,7 @@ by the installer redesign (marked **new**):
 | `claude_git_tracking` | `~/.claude` git tracking | Whether `~/.claude` is a tracked git repo |
 | `coordinator_local_md` | coordinator.local.md | Whether a `coordinator.local.md` exists in the project root |
 | `percolation` | Percolation | Percolation target count and configuration state (`n/a` if not a percolation source) |
-| `project_scaffolding` | Project scaffolding | Directive to run `/project-onboarding` — always a fixed prose value, not a computed status |
+| `project_scaffolding` | Project scaffolding | Directive to run `/repo-setup` — always a fixed prose value, not a computed status |
 | `operator_identity` | Operator identity | **new** — Whether `~/.claude/coordinator-identity.yaml` exists with a parseable `version: 1` + `operator_name` field |
 | `non_interactive_contract` | Non-interactive contract | **new** — Under `--non-interactive`, each prompt site's annotation (`skip-with-note` / `default-with-warning` / `fail-loud`); surfaces which defaults were applied |
 | `render_template_helper` | Render-template helper | **new** — Whether `render-template.sh` is present and executable in the coordinator plugin directory |

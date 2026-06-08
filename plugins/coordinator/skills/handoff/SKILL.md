@@ -15,14 +15,14 @@ Capture the current session state so future sessions (or other agents) can pick 
 >
 > **Recovery flavor.** If you are writing this handoff to resume from a crash, kill, or other unclean termination of a prior session — not a clean stopping point — set `kind: recovery` in frontmatter. Point `predecessor:` at the crashed handoff or its last commit SHA when known; null is permitted when no recoverable predecessor exists. Recovery handoffs follow the standard continuation lifecycle (deployment_state, /pickup flow, archival); the tag exists so `/workday-start` surfaces them with a `(recovery)` marker and so the audit trail distinguishes crash-driven continuations from deliberate ones.
 >
-> **Recovery-flavor crash-rescue sweep (required when `kind: recovery`).** Before exiting the recovery handoff write, sweep ALL files in `tasks/handoffs/` for gate/state that the crash may have invalidated. The crash that motivated this recovery handoff likely also broke premises in concurrent or downstream handoffs: an `awaiting_gate: <X>` where X was the crashed work; an `in_flight` handoff whose source branch the crash left in an unknown state; a `ready_to_fire` next-step that assumed the crashed work had landed. For each affected sibling: edit the body inline with a one-line crash-invalidation note (`**Crash-invalidated <YYYY-MM-DD>:** <one-line>`) and flip `deployment_state` if needed (most commonly `ready_to_fire` → `awaiting_gate` with `gate_dependency: recovery from <this-handoff-slug>`). Authoring only the new rescue handoff while leaving stale siblings as live work strands the next session on a false premise. Skip the sweep only if the crashed work is a leaf with no concurrent or downstream handoffs — confirm by grep, not by recall. Specific grep targets: search `tasks/handoffs/*.md` and `docs/plans/*.md` for (a) the crashed handoff's filename slug, (b) the crashed session's branch name (`work/{machine}/{date}` shape), (c) the crashed workstream name from its frontmatter `workstream:` field, and (d) any `gate_dependency:` value naming the crashed work. Zero hits across all four = leaf, sweep may be skipped. Any hit = read that file before declaring the rescue handoff complete.
+> **Recovery-flavor crash-rescue sweep (required when `kind: recovery`).** Before exiting the recovery handoff write, sweep ALL files in `state/handoffs/` for gate/state that the crash may have invalidated. The crash that motivated this recovery handoff likely also broke premises in concurrent or downstream handoffs: an `awaiting_gate: <X>` where X was the crashed work; an `in_flight` handoff whose source branch the crash left in an unknown state; a `ready_to_fire` next-step that assumed the crashed work had landed. For each affected sibling: edit the body inline with a one-line crash-invalidation note (`**Crash-invalidated <YYYY-MM-DD>:** <one-line>`) and flip `deployment_state` if needed (most commonly `ready_to_fire` → `awaiting_gate` with `gate_dependency: recovery from <this-handoff-slug>`). Authoring only the new rescue handoff while leaving stale siblings as live work strands the next session on a false premise. Skip the sweep only if the crashed work is a leaf with no concurrent or downstream handoffs — confirm by grep, not by recall. Specific grep targets: search `state/handoffs/*.md` and `docs/plans/*.md` for (a) the crashed handoff's filename slug, (b) the crashed session's branch name (`work/{machine}/{date}` shape), (c) the crashed workstream name from its frontmatter `workstream:` field, and (d) any `gate_dependency:` value naming the crashed work. Zero hits across all four = leaf, sweep may be skipped. Any hit = read that file before declaring the rescue handoff complete.
 
 ## Instructions
 
-When invoked, create a handoff document in `tasks/handoffs/` (git-tracked). Each session writes its own file (unique timestamp), so multiple concurrent sessions never overwrite each other.
+When invoked, create a handoff document in `state/handoffs/` (git-tracked). Each session writes its own file (unique timestamp), so multiple concurrent sessions never overwrite each other.
 
 **Path convention:**
-- **Active handoffs:** `tasks/handoffs/*.md` — current, available for `/workstream-start` pickup
+- **Active handoffs:** `state/handoffs/*.md` — current, available for `/workstream-start` pickup
 - **Archived handoffs:** `archive/handoffs/*.md` — consumed, kept as paper trail
 - Both are git-tracked. `tasks/` and `archive/` must NOT be in `.gitignore` — they contain session continuity data that travels with the repo. `.claude/` contains only platform settings and does not need to be tracked.
 
@@ -45,7 +45,7 @@ This skill has a small set of sequential gates and a TODO-LIST cluster. Treat th
 
 **Todo-list (no edges between *peer* todo-list steps — execute in any order, batch parallel where two independently read/write different files):**
 
-- **Step 2** — lessons (`tasks/lessons.md`)
+- **Step 2** — lessons (`state/lessons.md`)
 - **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
 - **Step 2.6** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`)
 - **Step 2.7** — archive uncaptured work (`archive/completed/`)
@@ -76,7 +76,7 @@ If none of these hold, STOP. Take the next action in this session instead. "Plan
 - All in-flight chunks of the active plan have landed and the plan doc is marked complete.
 - **Plan is reviewed/approved but the executor hasn't been dispatched yet in this session.** A reviewed plan is scaffolding, not a deliverable — the next action belongs in *this* session (dispatch the executor), not in a successor's. Framing the session as winding down at plan-approval inverts the doctrine: plans exist to produce executed code. If acceptance criteria are still empirically unverified and no executor has run, STOP — dispatch, don't hand off. Handoff is legitimate only after the executor has run and there is genuine in-progress executor/integrator/test work for a successor to resume.
 - **You are also planning to invoke `/workstream-complete` for this same workstream.** `/handoff` and `/workstream-complete` are mutually exclusive — never combined. `/workstream-complete` caps a workstream that is *done*; `/handoff` passes an *in-flight* workstream to a successor. The same workstream cannot be both. If the work is finished, STOP and run `/workstream-complete` alone. If it is in-flight, run `/handoff` alone — `/workstream-complete` will not also run on this workstream. If you genuinely have two workstreams (one finished, one in-flight), end the finished one with `/workstream-complete` *separately*, naming it explicitly, then write the in-flight handoff here for the other one — never bundle the two surfaces in one closing motion.
-- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/workstream-complete` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `tasks/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
+- **The handoff frontmatter you would write has `deployment_state: shipped` AND `pickup_ready: false` (or any equivalent shipped+not-pickupable combination).** That combination is a contradiction in terms — shipped work has no successor to pick it up. It signals the EM reached for `/handoff` as a generic session-summary template when the right surface is `/workstream-complete` (review trail + queue triage + archival sweep) or `/workday-complete` (daily ceremony). The handoff pipeline (`/workday-start`, `/workday-complete`, session-init orphan sweep, primary-list filters) treats every file in `state/handoffs/` as in-flight work — a shipped handoff shows up where it does not belong and pollutes triage in concurrent sessions. STOP — write the artifact for finished work, not a handoff for it.
 
 ### YES-tests — only consulted if all NO-tests fail
 
@@ -89,7 +89,7 @@ If none of these hold, STOP. Take the next action in this session instead. "Plan
 ### If a NO-test trips → STOP
 
 The right artifact is one of:
-- `/workday-complete` — end-of-day ceremony; Step 4 daily summary lands in `archive/daily-summaries/`, indexed by Step 9 in `tasks/week-changelog/`
+- `/workday-complete` — end-of-day ceremony; Step 4 daily summary lands in `archive/daily-summaries/`, indexed by Step 9 in `state/week-changelog/`
 - Commit-and-stop — for mid-day completion of a workstream that's already merged or PR-ready
 - `/workstream-complete` — if lessons need capture but no successor brief is needed
 
@@ -103,7 +103,7 @@ The right artifact is one of:
 
 **Do this first. Do not run git commands, read files, or do anything else before writing the handoff.** You already have everything you need in your conversation context.
 
-Generate a filename: `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_{session-id}.md` where:
+Generate a filename: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_{session-id}.md` where:
 - `{YYYY-MM-DD}` is the current date
 - `{HHMMSS}` is the current time in 24-hour format (e.g., 143052 for 2:30:52 PM)
 - `{session-id}` is a short identifier (first 8 chars of session UUID if known, otherwise `manual`)
@@ -273,17 +273,17 @@ These four rules apply specifically to `## Recommended Next Steps` and `## In-Pr
 2. **The PM explicitly named a handoff at session start** — e.g., "continue from yesterday's auth handoff." (Combining two predecessors into one handoff requires explicit PM direction at session start — the EM does not collapse the chain on its own.)
 3. **Neither?** Then this handoff has **no predecessor**. Omit the `Continuing from` preamble entirely and write a standalone handoff.
 
-**"Most recent file in `tasks/handoffs/`" is a facile signal — do not use it.** Concurrent sessions across machines routinely produce adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. Picking the most recent timestamp corrupts the audit trail and incorrectly archives active work belonging to other workstreams. If you didn't open this session with a specific handoff, you have no predecessor.
+**"Most recent file in `state/handoffs/`" is a facile signal — do not use it.** Concurrent sessions across machines routinely produce adjacent handoffs that have nothing to do with each other. Adjacency is not ancestry. Picking the most recent timestamp corrupts the audit trail and incorrectly archives active work belonging to other workstreams. If you didn't open this session with a specific handoff, you have no predecessor.
 
 **Cascading unresolved items (only when there IS a predecessor):** When this session genuinely continues a predecessor, check its `## Recommended Next Steps` and `## Carried Forward` sections for items this session did NOT complete. Any unresolved items **must** be carried forward into the new handoff's `## Carried Forward` section — they don't disappear just because a session ended. Each carried item retains its origin annotation (e.g., `_(carried from 2026-03-20_100000_abc123.md)_`) so the full lineage is visible. Items leave the cascade only when: (1) completed by a session (moved to `## What Was Accomplished`), or (2) explicitly dismissed by the PM. A session cannot silently drop a carried item.
 
-**Chain archival (only the explicit predecessor):** Because the cascade ensures all unresolved obligations flow into the new handoff, the **explicit** predecessor can be safely archived after a continuation. Move *only* that predecessor to `archive/handoffs/` (create the directory if needed). Do not sweep other adjacent handoffs in `tasks/handoffs/` — they belong to other workstreams or other sessions and are not yours to archive.
+**Chain archival (only the explicit predecessor):** Because the cascade ensures all unresolved obligations flow into the new handoff, the **explicit** predecessor can be safely archived after a continuation. Move *only* that predecessor to `archive/handoffs/` (create the directory if needed). Do not sweep other adjacent handoffs in `state/handoffs/` — they belong to other workstreams or other sessions and are not yours to archive.
 
 > **Negative-spec — no consumed markers written here.** Moving the predecessor to `archive/handoffs/` is a file move, not a marker operation. The `<!-- consumed: YYYY-MM-DD -->` marker is `/pickup`'s exclusive responsibility (`coordinator/commands/pickup.md:130`). This step never writes that marker — to any file, in any circumstance.
 
-**Park-with-links on supersession (superseded workstream, not a continuation).** When a workstream is *superseded* rather than continued — a newer plan, spinoff, or roadmap stub now owns the work the old handoff described, and the old handoff should NOT be picked up — do not leave it sitting `active`/`ready_to_fire` in `tasks/handoffs/`. A superseded handoff left in the active queue strands the next session on a dead workstream. Park it with three links, all in one commit:
+**Park-with-links on supersession (superseded workstream, not a continuation).** When a workstream is *superseded* rather than continued — a newer plan, spinoff, or roadmap stub now owns the work the old handoff described, and the old handoff should NOT be picked up — do not leave it sitting `active`/`ready_to_fire` in `state/handoffs/`. A superseded handoff left in the active queue strands the next session on a dead workstream. Park it with three links, all in one commit:
 
-1. **Relocate out of the active queue — relocation is the load-bearing guard.** `git mv tasks/handoffs/<superseded-file> archive/handoffs/<superseded-file>`. Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
+1. **Relocate out of the active queue — relocation is the load-bearing guard.** `git mv state/handoffs/<superseded-file> archive/handoffs/<superseded-file>`. Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
 2. **Bidirectional canonical link (schema-free body prose).** In the superseded handoff body, add a one-line `**Superseded by:** <successor-path-or-roadmap-stub-id>`. In the successor (handoff, plan, or stub body), add `**Supersedes:** <superseded-handoff-path>`. The pair makes the provenance trail navigable from either end. This body-prose link pair — NOT any frontmatter field — is the canonical supersession-provenance mechanism for handoffs.
 3. **README / index provenance.** If the repo carries a handoff index or `docs/README.md` row referencing the superseded workstream, repoint it at the successor (per CLAUDE.md "Stale doc references: repoint when covered").
 
@@ -291,7 +291,7 @@ This is distinct from chain-archival (above): chain-archival moves the *explicit
 
 #### Step 1.5: Refresh Handoff Tracker
 
-After chain-archival above, regenerate `tasks/handoff-tracker.md` so the durable tracker reflects the current queue state before the commit lands.
+After chain-archival above, regenerate `state/handoff-tracker.md` so the durable tracker reflects the current queue state before the commit lands.
 
 ```bash
 node plugins/coordinator/bin/render-handoff-tracker.js
@@ -325,7 +325,7 @@ If the project uses a compiled language with a running IDE or editor (e.g., Unre
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/workstream-start` and `/workday-start`. **Skip if compaction is imminent** — the handoff file is the priority; orientation docs are best-effort.
 
-1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections.** `/handoff` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append (one line, overwrite-or-omit). The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`).
+1. **Orientation cache** (`state/orientation_cache.md`): **Do not author the cache body. Do not patch sections.** `/handoff` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append (one line, overwrite-or-omit). The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`).
 
    **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
 
@@ -422,7 +422,7 @@ Idempotent — already-archived sessions return 0 silently. Failures are non-fat
 #### Step 4: Confirm
 
 Remind the user:
-- "Handoff saved to `tasks/handoffs/`. Pick up with `/pickup` (relay-race resumption) or `/workstream-start` (general orientation)."
+- "Handoff saved to `state/handoffs/`. Pick up with `/pickup` (relay-race resumption) or `/workstream-start` (general orientation)."
 - "Run `/update-docs` if you want repo-wide documentation maintenance (directory sync, handoff archiving to `archive/handoffs/`)."
 
 **Verify `.gitignore`:** Quickly check that `tasks/` is NOT gitignored. If it is, warn the user — handoffs in a gitignored directory will be invisible to other sessions and lost on clone.
@@ -436,13 +436,13 @@ Remind the user:
 - If the user provides arguments (e.g., `/handoff focus on auth refactor`), incorporate that context
 - **Cross-repo communication is not a handoff use-case.** Telling another repo's EM something routes through the PM as relay (copy-paste in chat, or use `cross-repo-memo --to <receiver-em> --topic <slug>` for structured briefs). See `docs/wiki/cross-repo-communication.md`.
 - **Cleanup:** During `/handoff`, archive the predecessor after carrying forward its unresolved items. General handoff archiving (48-hour sweep) is handled by `/update-docs` — no broader sweep here.
-- **Active vs archived:** Active handoffs live in `tasks/handoffs/` (available for pickup). Archived handoffs live in `archive/handoffs/` (paper trail). Both are git-tracked.
+- **Active vs archived:** Active handoffs live in `state/handoffs/` (available for pickup). Archived handoffs live in `archive/handoffs/` (paper trail). Both are git-tracked.
 - **User context:** If `$ARGUMENTS` is provided (e.g., `/handoff focus on auth refactor`), incorporate that context into the handoff's "In-Progress Work" and "Recommended Next Steps" sections.
 
 ### Crash-Rescue Checklist
 
 When writing a recovery handoff after a crash or unclean termination:
 
-**Sweep all live handoffs for gate/state invalidation.** Do not only author the new rescue handoff. For each existing handoff in `tasks/handoffs/` with `deployment_state` in `{ready_to_fire, in_flight, awaiting_gate}`, re-verify the gate predicate and stated substrate against current HEAD. Update frontmatter or add a comment block for any entry whose gate has cleared, whose substrate has changed, or whose stated in-progress state is now inconsistent with the branch.
+**Sweep all live handoffs for gate/state invalidation.** Do not only author the new rescue handoff. For each existing handoff in `state/handoffs/` with `deployment_state` in `{ready_to_fire, in_flight, awaiting_gate}`, re-verify the gate predicate and stated substrate against current HEAD. Update frontmatter or add a comment block for any entry whose gate has cleared, whose substrate has changed, or whose stated in-progress state is now inconsistent with the branch.
 
-**Enumerate dirty/untracked files AND `git reflog` across all sibling repos under the same machine.** Cross-repo concurrent crashes leave fragments in N repos; stopping at the most-recent handoff misses N-1 crash sites. For each sibling repo in `~/.claude/tasks/repo-registry.md` that shares `stack_tags` or was in-flight this session, run `git status` and `git reflog --since="2 hours ago"` to surface uncommitted fragments.
+**Enumerate dirty/untracked files AND `git reflog` across all sibling repos under the same machine.** Cross-repo concurrent crashes leave fragments in N repos; stopping at the most-recent handoff misses N-1 crash sites. For each sibling repo in `~/.claude/state/repo-registry.md` that shares `stack_tags` or was in-flight this session, run `git status` and `git reflog --since="2 hours ago"` to surface uncommitted fragments.

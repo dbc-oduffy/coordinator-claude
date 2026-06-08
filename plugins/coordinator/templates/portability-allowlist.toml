@@ -1,0 +1,123 @@
+# Schema: 1
+# Portability-guard allowlist — controls which files/patterns are exempt from
+# the PostToolUse portability hook's detection categories.
+#
+# Spec backlink: docs/plans/2026-05-20-portability-guard-system.md §5.1
+# Categories (7): all, doctrine_docs, test_fixtures, captured_artifacts,
+#                 tripwire_scripts, ci_linux_paths, provenance_citations
+#
+# Adding a new glob: append to the relevant category's list.
+# Adding a per-file per-category override: use [category_overrides].
+# Inline opt-out: add `# portability-allowlist: <reason>` near the offending line.
+
+schema = 1
+
+[globs]
+# Vendored / generated — all categories.
+# These paths contain machine-specific strings by design; scanning them adds
+# noise without actionable signal.
+all = [
+  "**/corpus/vendor/**",
+  "**/chunks/compile_commands_*.json",
+  "**/.claude/repomap-cache/**",
+  "**/node_modules/**",
+  "**/.git/**",
+]
+
+# Doctrine documentation — citations of paths are intentional examples, not
+# runtime references. CLAUDE.md, wikis, plans, and decisions regularly cite
+# Windows-drive and sibling-repo paths to illustrate patterns.
+doctrine_docs = [
+  "**/CLAUDE.md",
+  "**/CLAUDE.local.md",
+  "**/CHANGELOG.md",
+  "docs/wiki/**",
+  "docs/decisions/**",
+  "docs/plans/**",
+  "docs/architecture/**",
+  "**/README.md",
+]
+
+# Test fixtures — paths here are inputs to tests, not portable runtime data.
+# Tests deliberately embed machine-specific strings to verify detection logic.
+test_fixtures = [
+  "tests/**",
+  "**/test_*.py",
+  "**/*_test.py",
+  "**/*.test.ts",
+  "**/*.spec.ts",
+  "control/plugin/**/Source/**/Tests/**",
+]
+
+# Captured artifacts — historical evidence snapshots, not authored code.
+# These may legitimately contain machine-specific paths from the capturing
+# session; they should not be rewritten.
+captured_artifacts = [
+  "tasks/dogfood-evidence/**",
+  "tasks/**/output*.json",
+  "tasks/**/results*.json",
+  "tasks/**/*.results.json",
+  "**/canary-baseline.json",
+  "archive/**",
+  "results/**",
+  "evaluation/**",
+]
+
+# Scripts whose JOB is to embed or detect paths (tripwire detectors).
+# These contain hardcoded path patterns by design — they are the detectors,
+# not the offenders.
+tripwire_scripts = [
+  "bin/detect-stale-shell-env.*",
+  "bin/verify-no-powershell-flash.*",
+]
+
+# CI workflows that legitimately reference Linux-runner-resident paths such as
+# /opt/redpoint-llvm or /home/runner/. These are GHA runner paths, not
+# developer-machine paths.
+ci_linux_paths = [
+  ".github/workflows/*.yml",
+  ".github/workflows/*.yaml",
+]
+
+# Provenance citations — module-top docstrings or comments that document where
+# code was lifted from, recording the authoring-machine path at copy time.
+# Registry resolution would change their semantic meaning; they are correctly
+# literal. Identified by line-pattern (see [provenance_citations] below), not
+# glob: the hook suppresses offenders within ±5 lines of a provenance marker.
+# Inline opt-out: `# portability-allowlist: provenance-citation`
+provenance_citations = [
+  # No glob-level exclusion — identified by proximity to line-pattern markers.
+  # See [provenance_citations] section below for the marker list.
+]
+
+[opt_out_marker]
+# Inline opt-out for one-off cases that don't fit any glob category.
+# The hook scans the offending line and ±2 surrounding lines for these markers.
+# Marker shapes (any one matches):
+markers = [
+  "# portability-allowlist:",
+  "// portability-allowlist:",
+  "<!-- portability-allowlist:",
+]
+# A marker MUST include a reason after the colon.
+# A bare marker (e.g. `# portability-allowlist:` with nothing after) emits a
+# stronger warning rather than suppressing — "why" is required for future
+# readers and reviewers.
+
+[provenance_citations]
+# Module-top docstrings carrying provenance markers — paths cited as
+# documentation of where code was lifted from. Per Patrik F0 review-fold.
+line_markers = [
+  "Lifted verbatim-on-contract",
+  "Source:",
+  "Provenance:",
+]
+# When a line within ±5 lines of an offender contains one of these markers,
+# the offender is treated as a documentary citation and suppressed.
+context_window_lines = 5
+
+[category_overrides]
+# Allowlist by (glob, category) — finer-grained than glob-all.
+# Example: GitHub workflow files allowlist Linux-runner unix_abs paths but NOT
+# windows_abs — a Windows-drive path in a CI workflow is still an error.
+"github_workflows_unix_only" = { globs = [".github/workflows/*.yml", ".github/workflows/*.yaml"], categories = ["unix_abs_home", "unix_abs_linux_home"] }

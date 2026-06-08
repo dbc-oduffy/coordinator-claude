@@ -15,7 +15,7 @@ def fake_git_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     Creates:
       tasks/            — coordinator task-management surface
       CLAUDE.md         — coordinator anchor (satisfies has_tracker check)
-      tasks/handoffs/   — for query-records to scan
+      state/handoffs/   — for query-records to scan
 
     Does NOT create a real git repo (no .git) — tests that need git state
     mock _run_git / _git_root directly.
@@ -30,7 +30,7 @@ def fake_git_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture()
 def fake_orientation_cache(fake_git_root: Path) -> Path:
-    """Write a tasks/orientation_cache.md with a known git_head_at_generation."""
+    """Write a state/orientation_cache.md with a known git_head_at_generation."""
     cache = fake_git_root / "tasks" / "orientation_cache.md"
     cache.write_text(
         "---\ngit_head_at_generation: abc123def456\n---\n\n# Orientation cache\n",

@@ -184,6 +184,40 @@ cs_format_span_suffix() {
   fi
 }
 
+# cs_rename_target <machine> <start-date> <today> <commits-ahead>
+# Chooses the midnight-rename target branch name (Check 4 of workday-start
+# Step 0). When <commits-ahead> == 0 the branch's history has all merged to
+# origin/main (or main moved ahead and we are strictly behind) — a
+# {start}to{today} span name would misleadingly advertise multi-day WIP that no
+# longer exists, so the target is today-only `work/{machine}/{today}`. When
+# <commits-ahead> > 0 the span is honest and carries the genuine WIP forward.
+# Doctrine 2026-06-02 (→ daily-branch-discipline.md): refines "reconcile not
+# rotate" — 0-ahead means no ongoing work to abandon, so renaming to an honest
+# today-only name + ff-to-main is reconciliation, not rotation.
+#
+# When <commits-ahead> > 0 but <start-date> == <today>, cs_format_span_suffix
+# collapses to <today> — same result as the 0-ahead path (no spurious span).
+#
+# Negative spec: does NOT touch git — the caller supplies <commits-ahead> so
+# this is unit-testable without a repo (mirrors cs_should_prompt_rename).
+cs_rename_target() {
+  local machine="$1"
+  local start_date="$2"
+  local today="$3"
+  local commits_ahead="$4"
+  # Detect-then-fail-loud on non-integer input: [[ "" -eq 0 ]] is true in bash,
+  # so a missing/garbage arg would otherwise silently select the 0-ahead path.
+  if ! [[ "$commits_ahead" =~ ^[0-9]+$ ]]; then
+    echo "cs_rename_target: commits_ahead must be a non-negative integer, got '$commits_ahead'" >&2
+    return 1
+  fi
+  if [[ "$commits_ahead" -eq 0 ]]; then
+    echo "work/${machine}/${today}"
+  else
+    echo "work/${machine}/$(cs_format_span_suffix "$start_date" "$today")"
+  fi
+}
+
 # cs_should_prompt_rename <branch> <today> <last-commit-epoch>
 # Returns 0 (should prompt for rename) when:
 #   - last commit was within 48h (active work — matches stale-commit cutoff in /workday-start Step 0 Check 1), AND

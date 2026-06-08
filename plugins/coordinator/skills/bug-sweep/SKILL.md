@@ -53,7 +53,7 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 5. **Check test suite** — identify the test runner and prepare to run it in Phase 1.
 
-6. **Read `tasks/lessons.md`** (if exists) for project-specific gotchas to add as patterns.
+6. **Read `state/lessons.md`** (if exists) for project-specific gotchas to add as patterns.
 
 7. **Generate run ID** — format: `YYYY-MM-DD-HHhMM` (current timestamp). Create scratch directory: `tasks/scratch/bug-sweep/{run-id}/`
 
@@ -63,7 +63,7 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 **Before dispatching any Phase 1 agents, verify that known backlog items are still applicable.**
 
-If this sweep is re-running against a prior bug backlog (`tasks/bug-backlog.md`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
+If this sweep is re-running against a prior bug backlog (`state/bug-backlog.md`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
 
 1. Read each cited file:line — does the bug pattern still exist in HEAD?
 2. Check recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
@@ -134,7 +134,7 @@ Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks
 
 ## Phase 1.5: Churn-Gated Findings Verification (conditional)
 
-**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA captured in `tasks/bug-backlog.md` header ("Commit at sweep:"). If no prior sweep SHA exists or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
+**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA captured in `state/bug-backlog.md` header ("Commit at sweep:"). If no prior sweep SHA exists or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
 
 **Why gated on churn:** *2026-05-28, project-rag (809 commits since prior sweep).* Sonnet sweepers pattern-match on historical bug shapes. Under heavy churn, the highest-confidence P1 findings have the highest false-positive rate — concurrent EMs already fixed the loud bugs, but the sweeper still remembers their shape. Low-churn sweeps don't show this inversion; Phase 1.5 cost (4 Haiku, ~10K tokens each, <5 min) is not worth paying every run.
 
@@ -249,19 +249,19 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    ```
 
 2. **Prune already-fixed rows from the existing backlog (paper-trail commit).** Before appending new blocked items, read `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` (written during Pre-Dispatch). For each entry there:
-   - Delete the corresponding row from the active P1/P2 tables in `tasks/bug-backlog.md`.
+   - Delete the corresponding row from the active P1/P2 tables in `state/bug-backlog.md`.
    - Do NOT move it to a "resolved" section in the same file — the paper trail is the resolving commit SHA from the pre-dispatch scan, captured in this commit's subject.
 
    Commit the prune (separate from the fixes commit in step 1):
    ```bash
-   git reset && git add -- tasks/bug-backlog.md && \
+   git reset && git add -- state/bug-backlog.md && \
      git commit -m "bug-sweep {run-id}: prune already-fixed — <BS-ID-1>→<sha1>, <BS-ID-2>→<sha2>, ..."
    ```
-   The commit subject names each closed ID paired with the SHA that resolved it (or `unattributed` when no single SHA is identifiable). This is the greppable record — `git log --all -- tasks/bug-backlog.md | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
+   The commit subject names each closed ID paired with the SHA that resolved it (or `unattributed` when no single SHA is identifiable). This is the greppable record — `git log --all -- state/bug-backlog.md | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
 
    Skip this sub-step entirely if no already-fixed items were detected pre-dispatch.
 
-3. **Update bug backlog** (`tasks/bug-backlog.md`) — append genuinely blocked items from this sweep + refresh the header:
+3. **Update bug backlog** (`state/bug-backlog.md`) — append genuinely blocked items from this sweep + refresh the header:
 
    Header format:
    ```markdown
@@ -274,13 +274,13 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    |----|--------|----------|-------------|-------------|-------|-----------|
    ```
 
-   ID format: `BS-{date}-{N}`. Cross-reference with `tasks/debt-backlog.md` if overlap exists.
+   ID format: `BS-{date}-{N}`. Cross-reference with `state/debt-backlog.md` if overlap exists.
 
    If no blocked items, update just the header line (last sweep date, commit hash, zero counts).
 
    Commit this update separately from the prune in step 2:
    ```bash
-   git reset && git add -- tasks/bug-backlog.md && \
+   git reset && git add -- state/bug-backlog.md && \
      git commit -m "bug-sweep {run-id}: append <M> new blocked items, refresh header"
    ```
 

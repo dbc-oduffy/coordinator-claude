@@ -85,7 +85,7 @@ No conflicts found.
 - Claim #11 — schema.js `kind` usage confined to spinoff/handoff shapes: confirmed. All `kind` references in `schema.js` are in the spinoff/roadmap validator block (`kind: spinoff-roadmap` checks at lines ~517–557). No memo schema rules reference `kind`. Plan's claim is accurate.
 - Claim #13 — Receipt-as-state (flip + commit IS the receipt; no return-memo): this is the existing wiki lifecycle (`open → actioned` in-place), but the plan's application of it to the pickup-branch is new procedure. No prior art documents pickup-as-lifecycle-driver specifically.
 - Claim #14 — `ack` is NOT a `kind` (receipt state, not sender-declared kind): the ack-of-ack wiki rule establishes the anti-pattern of ack-memos, but the explicit framing of `ack` as "receipt-state, never a sender-declared kind" is plan-new vocabulary (the wiki names the behavior but not this particular encoding).
-- Claim #15 — `/pickup` Step 2 globs `tasks/handoffs/`; Step 5 mutates `status: active → consumed`: confirmed from reading `skills/pickup/SKILL.md`. No prior art about the misapplication risk — the plan is identifying a gap, not contradicting existing doctrine.
+- Claim #15 — `/pickup` Step 2 globs `state/handoffs/`; Step 5 mutates `status: active → consumed`: confirmed from reading `skills/pickup/SKILL.md`. No prior art about the misapplication risk — the plan is identifying a gap, not contradicting existing doctrine.
 - Claim #16 — New Step 1.5 classification fork (path + frontmatter shape): this is a new addition; no prior art for it.
 - Claim #17 — Parallel fan-out C1–C5 disjoint-write architecture with C6 as merge-gate round-trip verifier: standard coordinator fan-out pattern, but no prior art specific to this feature's decomposition.
 

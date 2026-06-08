@@ -1,5 +1,5 @@
 #!/bin/bash
-# PostToolUse hook: when a new file is Written into tasks/handoffs/ or
+# PostToolUse hook: when a new file is Written into state/handoffs/ or
 # tasks/spinoffs/ WITHOUT an authoring skill active, surface an offer-shaped
 # nudge — without blocking the write.
 #
@@ -29,7 +29,7 @@
 #                             warn-reaches-the-model-without-blocking channel.
 #
 # Fires on: PostToolUse Write where file_path is a NEW-ish file under
-#   tasks/handoffs/ or tasks/spinoffs/. (The matcher is Write-only; /pickup
+#   state/handoffs/ or tasks/spinoffs/. (The matcher is Write-only; /pickup
 #   mutates existing handoffs via Edit, so it never reaches here.)
 #
 # Suppressed (silent exit 0 — no nudge):
@@ -40,7 +40,7 @@
 #     artifact's own content), not the proxy scrape.
 #   - Transcript shows an active authoring skill: /handoff, /workstream-complete,
 #     /spinoff (best-effort scrape; failure is harmless — see header).
-#   - Path is outside tasks/handoffs/ and tasks/spinoffs/.
+#   - Path is outside state/handoffs/ and tasks/spinoffs/.
 #
 # Nudged (exit 2 + stderr): any other new-file Write into those dirs. The
 # message leads with the better alternative and explicitly says "if deliberate,
@@ -112,9 +112,9 @@ fi
 
 FILE_PATH_NORM="${FILE_PATH//\\//}"
 
-# Only fire on tasks/handoffs/ and tasks/spinoffs/ paths.
+# Only fire on state/handoffs/ and tasks/spinoffs/ paths.
 case "$FILE_PATH_NORM" in
-  */tasks/handoffs/*|*/tasks/spinoffs/*|tasks/handoffs/*|tasks/spinoffs/*)
+  */state/handoffs/*|*/tasks/spinoffs/*|state/handoffs/*|tasks/spinoffs/*)
     ;;
   *)
     exit 0
@@ -196,7 +196,7 @@ cat >&2 <<EOF
 [nudge]
 [nudge] If you are messaging another repo's EM:
 [nudge]   use the cross-repo-memo CLI (writes into <receiver>/cross-repo/ and
-[nudge]   prints a path for PM relay) — do NOT seed tasks/handoffs/ as a queue
+[nudge]   prints a path for PM relay) — do NOT seed state/handoffs/ as a queue
 [nudge]   for another repo. (coordinator/CLAUDE.md § Cross-repo writes.)
 [nudge]
 [nudge] If you genuinely mean to hand off or fork a topic:

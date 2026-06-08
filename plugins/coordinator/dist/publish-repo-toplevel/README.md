@@ -27,11 +27,11 @@ You don't install this — your agent does. Open Claude Code in any project and 
 ```
 Install coordinator-claude. The playbook is at
 https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/agent-install.md
-— read it, follow it, and queue /project-onboarding as the immediate next step
+— read it, follow it, and queue /repo-setup as the immediate next step
 after I restart Claude Code.
 ```
 
-Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/project-onboarding` bootstraps tracking infrastructure in your project.
+Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/repo-setup` bootstraps tracking infrastructure in your project.
 
 **Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the installer changes, what it does not do, audit commands, and exact uninstall steps.
 
@@ -125,7 +125,7 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
 | `/bug-blitz` | Autonomous bug-backlog grinder | Wave-based execution with EM-serial commits at each gate |
 | `/dogfood` | Smoke-driven fix-through loop | Binary outcome: converge on a working capability or switch gears |
-| `/learn-lessons` | Triage `tasks/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
+| `/learn-lessons` | Triage `state/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
 | `/code-health` | Night-shift code health review | Scan today's commits, dispatch reviewer, apply findings |
 | `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
 | `/distill` | Extract knowledge from session artifacts | Turn plans and handoffs into evergreen wiki docs |

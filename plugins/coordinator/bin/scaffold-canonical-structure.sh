@@ -115,7 +115,9 @@ fi
 # readme-text has internal newlines replaced with \n literal for transport.
 # ---------------------------------------------------------------------------
 
-ENTRIES="$("$PYTHON" - "$MANIFEST" <<'PYEOF'
+# tr -d '\r' strips Windows CRLF carriage returns from Python stdout so that the
+# tab-separated fields read by bash's 'read' below are clean on all platforms.
+ENTRIES="$("$PYTHON" - "$MANIFEST" <<'PYEOF' | tr -d '\r'
 import sys, pathlib
 
 manifest_path = pathlib.Path(sys.argv[1])
@@ -131,7 +133,9 @@ except Exception as e:
 # and collecting entry blocks ourselves.
 #
 # An entry starts with "  - path: <value>" and ends at the next "  - path:" or EOF.
-# Fields within the entry: path, creation, schema, readme (may be a block scalar).
+# Fields within the entry: path, creation, schema, gitkeep, readme (may be a block scalar).
+# gitkeep: true  — create a .gitkeep sentinel instead of README.md (for dirs with no
+#                  day-1 content but that must exist for CLIs/skills to write into them).
 
 import re
 
@@ -156,7 +160,9 @@ def flush(current, readme_lines, in_readme_block):
 ENTRY_KEY_INDENT = 4  # '    creation:', '    readme:', etc.
 
 for line in lines:
-    stripped = line.rstrip()
+    # Strip CRLF: on Windows the file may have \r\n line endings; strip the
+    # trailing \r so it doesn't contaminate field comparisons or transport encoding.
+    stripped = line.rstrip().rstrip("\r")
 
     if in_readme_block:
         # A block scalar terminates when we see:
@@ -190,7 +196,7 @@ for line in lines:
                 flush(current, readme_lines, False)
                 readme_lines = []
                 path_val = stripped.split("path:", 1)[1].strip()
-                current = {"path": path_val, "creation": "", "schema": None, "readme": None}
+                current = {"path": path_val, "creation": "", "schema": None, "gitkeep": False, "readme": None}
                 continue
             elif term_toplevel:
                 # top-level key (entries: etc) — flush and reset
@@ -224,7 +230,7 @@ for line in lines:
         readme_lines = []
         in_readme_block = False
         path_val = m_entry.group(1).strip()
-        current = {"path": path_val, "creation": "", "schema": None, "readme": None}
+        current = {"path": path_val, "creation": "", "schema": None, "gitkeep": False, "readme": None}
         continue
 
     if current is None:
@@ -239,6 +245,12 @@ for line in lines:
     if m_schema:
         val = m_schema.group(1).strip()
         current["schema"] = None if val in ("null", "~", "") else val
+        continue
+
+    m_gitkeep = re.match(r'^    gitkeep:\s*(.+)', stripped)
+    if m_gitkeep:
+        val = m_gitkeep.group(1).strip().lower()
+        current["gitkeep"] = val == "true"
         continue
 
     # Detect block scalar indicators: both folded (>) and literal (|)
@@ -260,6 +272,7 @@ flush(current, readme_lines, in_readme_block)
 for entry in entries:
     path = entry.get("path", "")
     creation = entry.get("creation", "")
+    gitkeep = entry.get("gitkeep", False)
     readme = entry.get("readme") or ""
 
     # Only eager directory entries (path ends with /)
@@ -267,10 +280,28 @@ for entry in entries:
         continue
 
     # Transport: encode for tab-delimited line transport.
-    # Replace backslashes first (so \n encoding doesn't double-escape), then newlines.
+    # Column 1: path
+    # Column 2: gitkeep flag ("1" = create .gitkeep; "0" = create README)
+    # Column 3: readme text ("-" = no README; non-dash = README content)
+    #
+    # NOTE: gitkeep flag is BEFORE readme text so that bash's IFS tab-collapsing
+    # does not affect it — an empty readme column after a non-empty column is
+    # correctly read as empty, but two consecutive TABs (path\t\tgitkeep) are
+    # collapsed to one separator by bash's IFS whitespace-collapse behavior.
+    #
+    # Encoding note: this Python source is embedded in a bash <<'PYEOF' heredoc.
+    # Bash heredocs with single-quoted delimiters pass backslash pairs as single
+    # backslashes (\\X -> \X in the heredoc content). So to encode newlines as
+    # the two-char sequence backslash+n in the transport, we use chr(92)+"n" as
+    # the replacement target (chr(92) = backslash) — avoids heredoc-collapse.
     # Bash side decodes with printf '%b' to restore structure.
-    readme_transport = readme.replace("\\", "\\\\").replace("\t", "    ").replace("\n", "\\n")
-    print(f"{path}\t{readme_transport}")
+    _bs = chr(92)  # literal backslash — avoids heredoc \\ -> \ collapse
+    if readme:
+        readme_transport = readme.replace(_bs, _bs + _bs).replace("\t", "    ").replace("\n", _bs + "n")
+    else:
+        readme_transport = "-"  # sentinel: no README content
+    gitkeep_flag = "1" if gitkeep else "0"
+    print(f"{path}\t{gitkeep_flag}\t{readme_transport}")
 PYEOF
 )" || {
     echo "scaffold-canonical-structure.sh: manifest parse failed" >&2
@@ -288,6 +319,7 @@ fi
 
 CREATED_DIRS=0
 CREATED_READMES=0
+CREATED_GITKEEPS=0
 SKIPPED=0
 
 if [[ $DRY_RUN -eq 1 ]]; then
@@ -295,13 +327,17 @@ if [[ $DRY_RUN -eq 1 ]]; then
     echo "[dry-run] manifest:    $MANIFEST"
 fi
 
-while IFS=$'\t' read -r entry_path readme_text; do
+while IFS=$'\t' read -r entry_path gitkeep_flag readme_text; do
     [[ -z "$entry_path" ]] && continue
 
     # Strip trailing slash to get the directory path
     dir_rel="${entry_path%/}"
     dir_abs="${ROOT_PATH}/${dir_rel}"
     readme_abs="${dir_abs}/README.md"
+    gitkeep_abs="${dir_abs}/.gitkeep"
+
+    # Transport uses "-" as a sentinel for "no readme content"
+    [[ "$readme_text" == "-" ]] && readme_text=""
 
     # --- Directory ---
     if [[ ! -d "$dir_abs" ]]; then
@@ -319,8 +355,47 @@ while IFS=$'\t' read -r entry_path readme_text; do
         SKIPPED=$((SKIPPED + 1))
     fi
 
-    # --- README.md (only if readme text is non-empty) ---
-    if [[ -n "$readme_text" ]]; then
+    # --- .gitkeep (when gitkeep: true in manifest) ---
+    # gitkeep_flag is "1" for gitkeep: true entries; empty or "0" otherwise.
+    # Idempotence: skip if .gitkeep already exists OR if any other file exists
+    # in the directory (populated dirs don't need a sentinel).
+    if [[ "${gitkeep_flag:-0}" == "1" ]]; then
+        if [[ ! -f "$gitkeep_abs" ]]; then
+            # Only create .gitkeep when the dir is empty (no real content yet).
+            # This prevents re-adding a .gitkeep to a dir that already has content.
+            _dir_has_content=0
+            if [[ -d "$dir_abs" ]]; then
+                # Check for any non-.gitkeep file or subdirectory
+                _content="$(ls -A "$dir_abs" 2>/dev/null | grep -v '^\.' | head -1 || true)"
+                _hidden="$(ls -A "$dir_abs" 2>/dev/null | grep '^\.' | grep -v '^\.\.$' | grep -v '^\.$' | grep -v '^\.gitkeep$' | head -1 || true)"
+                if [[ -n "$_content" || -n "$_hidden" ]]; then
+                    _dir_has_content=1
+                fi
+            fi
+            if [[ $_dir_has_content -eq 0 ]]; then
+                if [[ $DRY_RUN -eq 1 ]]; then
+                    echo "[dry-run] would create .gitkeep: ${dir_rel}/.gitkeep"
+                else
+                    touch "$gitkeep_abs"
+                    echo "created .gitkeep: ${dir_rel}/.gitkeep"
+                    CREATED_GITKEEPS=$((CREATED_GITKEEPS + 1))
+                fi
+            else
+                if [[ $DRY_RUN -eq 1 ]]; then
+                    echo "[dry-run] skip .gitkeep (dir has content): ${dir_rel}/"
+                fi
+                SKIPPED=$((SKIPPED + 1))
+            fi
+        else
+            if [[ $DRY_RUN -eq 1 ]]; then
+                echo "[dry-run] skip (exists) .gitkeep: ${dir_rel}/.gitkeep"
+            fi
+            SKIPPED=$((SKIPPED + 1))
+        fi
+    fi
+
+    # --- README.md (only if readme text is non-empty and gitkeep not set) ---
+    if [[ -n "$readme_text" && "${gitkeep_flag:-0}" != "1" ]]; then
         if [[ ! -f "$readme_abs" ]]; then
             if [[ $DRY_RUN -eq 1 ]]; then
                 echo "[dry-run] would create README: ${dir_rel}/README.md"
@@ -352,5 +427,5 @@ done <<< "$ENTRIES"
 if [[ $DRY_RUN -eq 1 ]]; then
     echo "[dry-run] done — no files were created"
 else
-    echo "scaffold complete: ${CREATED_DIRS} dir(s) created, ${CREATED_READMES} README(s) created, ${SKIPPED} already-present item(s) skipped"
+    echo "scaffold complete: ${CREATED_DIRS} dir(s) created, ${CREATED_READMES} README(s) created, ${CREATED_GITKEEPS} .gitkeep(s) created, ${SKIPPED} already-present item(s) skipped"
 fi

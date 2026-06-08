@@ -1,6 +1,6 @@
 # Peer-Repo Research Triage
 
-> How to filter peer-repo prior-art lookups when scanning `~/.claude/tasks/repo-registry.md` for relevant references.
+> How to filter peer-repo prior-art lookups when scanning `~/.claude/state/repo-registry.md` for relevant references.
 
 ## Filter ordering
 
@@ -42,6 +42,6 @@ Transport-shape hits without topic/vocabulary corroboration are noise; surface t
 1. Dispatch one Sonnet `general-purpose` sizing scout per candidate. Each scout's brief: "Read the repo's README, top-level docs, and 2-3 representative files. Classify as catalog / prototype / port / skip. ~30 min budget. Return a structured brief naming the classification and ≤3 sentences of rationale."
 2. Review the briefs together. Fire deep research **only on the `port` classifications**.
 3. Catalog/prototype outcomes feed downstream work directly from the scout brief.
-4. Skip outcomes get one-line entries in `~/.claude/tasks/repo-registry.md` so future passes don't re-investigate.
+4. Skip outcomes get one-line entries in `~/.claude/state/repo-registry.md` so future passes don't re-investigate.
 
 Companion to `docs/wiki/ceremony-calibration.md` § Sizing-pass calibration — the calibration there explains *why*; this section explains *how* in the peer-repo research case specifically.

@@ -1,7 +1,7 @@
 # Pre-Dispatch Verification — Extras
 
 **System:** coordinator
-**Provenance:** consolidated 2026-05-14 from `tasks/coordinator-improvement-queue.md` triage (E24, E131, E136, E161).
+**Provenance:** consolidated 2026-05-14 from `state/coordinator-improvement-queue.md` triage (E24, E131, E136, E161).
 
 Extensions to [`pre-dispatch-verification.md`](pre-dispatch-verification.md) for specific failure modes the parent wiki doesn't carry — predicate-claim verification against schema, write-seam grep (not just read-seam), numeric-constant transcription, and mechanical enumeration as the source-of-truth for audit tables. Companion to `coordinator/CLAUDE.md` § Pre-Dispatch Verification; keep the parent for headline rules, this file for the long tail.
 

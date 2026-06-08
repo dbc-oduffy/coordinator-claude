@@ -1,5 +1,5 @@
 schema: handoff
-applies_to: "tasks/handoffs/*.md"
+applies_to: "state/handoffs/*.md"
 required:
   title: string
   created: iso-date
@@ -43,7 +43,7 @@ optional:
   # Required-by-convention on spinoffs: short slug grouping related forks.
   workstream: string
   # Install-leg spinoff fields (see docs/wiki/agent-install-contract.md § Install-spinoff layer).
-  # Present on kind: spinoff batons a downstream repo's installer seeds into tasks/handoffs/ to
+  # Present on kind: spinoff batons a downstream repo's installer seeds into state/handoffs/ to
   # mark an install-chain leg. repo = the leg's repo_id; install_chain_order = relative install
   # position (lower = earlier; coordinator = 0) — also the tag the continue-onboarding Step 0 sweep
   # greps to distinguish install legs from the onboarding handoff. Validator is lenient on unknown
@@ -137,7 +137,7 @@ optional:
 #   <one-line>   — brief description of what the session shipped
 #
 # Query path: bin/query-records --type handoff-ledger --where "tshirt=XL"
-#   globs tasks/handoffs/*.md and archive/handoffs/*.md, parses ## Session Ledger
+#   globs state/handoffs/*.md and archive/handoffs/*.md, parses ## Session Ledger
 #   blocks. Used by workweek-complete Step 8.5 LoE high-water check.
 #
 # Chain-terminal aggregation: bin/aggregate-chain-loe.sh walks all handoffs

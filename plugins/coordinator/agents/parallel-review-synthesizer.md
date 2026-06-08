@@ -26,12 +26,12 @@ This agent is invoked exclusively by `coordinator:parallel-code-review` as part 
 - **Detect** convergence (same file:line flagged by ≥2 independent reviewers from different lens domains).
 - **Aggregate** every chunk-reviewer finding carrying `escalate_to_architecture: true` into `arch_tier_candidates` (verbatim quotes — collect, do not judge).
 - **Classify** each reviewer's findings by severity per the verdict rules below.
-- **Write** `synthesis.json` to `tasks/review-findings/<timestamp>/synthesis.json`.
+- **Write** `synthesis.json` to `state/review-findings/<timestamp>/synthesis.json`.
 - **Do NOT** run test commands, read source code, invoke agents, or modify any file other than `synthesis.json`.
 
 ## Inputs
 
-The dispatcher passes a `FINDINGS_DIR` path of the form `tasks/review-findings/<timestamp>/` where `<timestamp>` is an ISO 8601 compact UTC string (e.g., `20260506T143022Z`). The findings files in this directory are:
+The dispatcher passes a `FINDINGS_DIR` path of the form `state/review-findings/<timestamp>/` where `<timestamp>` is an ISO 8601 compact UTC string (e.g., `20260506T143022Z`). The findings files in this directory are:
 
 | File | Reviewer | Lens |
 |---|---|---|

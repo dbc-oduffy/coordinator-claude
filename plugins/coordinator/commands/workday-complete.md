@@ -19,7 +19,7 @@ Daily is a branch wrap, not a release ceremony. Handoffs archive at their natura
 
 ### Step 1 preamble: UBT Pending-Record Resolution (UE work only)
 
-If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `tasks/review-trail/` for `*.ubt-compile.pending.json` records that have NO corresponding `*.ubt-compile.resolved.json` sibling. For each unresolved pair, run the UBT build (via the script) and write a new resolved record. Exit non-zero if any record resolves to `verdict=blocked` — this is a **blocking gate**. Non-UE repos see no change (script absent → silent skip).
+If `bin/check-ubt-build-fresh.sh` exists in the cwd, scan `state/review-trail/` for `*.ubt-compile.pending.json` records that have NO corresponding `*.ubt-compile.resolved.json` sibling. For each unresolved pair, run the UBT build (via the script) and write a new resolved record. Exit non-zero if any record resolves to `verdict=blocked` — this is a **blocking gate**. Non-UE repos see no change (script absent → silent skip).
 
 ```bash
 [ -x bin/check-ubt-build-fresh.sh ] && \
@@ -212,7 +212,7 @@ renders **no final architectural verdict**; it flags candidates for weekly adjud
 Opus the Staff Engineer arch pass (Step 7.5) consumes the week's accumulated trail and judges.
 
 It appends a `## Strategic Review (Sonnet daily observer)` section to the daily summary and writes
-any flagged items as `tasks/debt-backlog.md` rows (DSR-{date}-{N} format), tagging architectural
+any flagged items as `state/debt-backlog.md` rows (DSR-{date}-{N} format), tagging architectural
 flags `for-weekly-arch-review` so the Staff Engineer's Step 7.5 can find them.
 
 Full prompt template: `docs/wiki/daily-summary-procedure.md` § Daily Strategic Observer Prompt Template.
@@ -220,13 +220,13 @@ Full prompt template: `docs/wiki/daily-summary-procedure.md` § Daily Strategic 
 ### Step 4d: Health Ledger Update
 
 After the reviewer completes:
-1. Read `tasks/health-ledger.md`. If missing, create from schema in
+1. Read `state/health-ledger.md`. If missing, create from schema in
    `docs/wiki/daily-summary-procedure.md` § Health Ledger Entry Schema.
 2. Add new rows (grade `?`, unaudited) for any system touched by today's commits that has no row yet.
 3. Do **NOT** touch the two audit clocks (`Last full audit`, `Last targeted audit`) or any system's
    grade. Those clocks are written only by `/architecture-survey` (full) and `/architecture-audit`
    (targeted) — the ledger header warns against conflating them, and the daily wrap is neither. The
-   daily Sonnet observer is an *observer*: it flags candidates as `tasks/debt-backlog.md` DSR rows, it
+   daily Sonnet observer is an *observer*: it flags candidates as `state/debt-backlog.md` DSR rows, it
    does not assign grades. Grade changes come from audits, not from the daily wrap.
 
 ### Step 4e: No Commit Here
@@ -353,7 +353,7 @@ Capture exit code for the changelog `Validation:` field.
 
 ## Step 8: Improvement-Queue Depth Nudge (read-only)
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. Count `- ` lines in `## Active queue`.
+Read `~/.claude/state/coordinator-improvement-queue.md`. Count `- ` lines in `## Active queue`.
 
 - **≥ 5 entries:** emit in final summary: _"Coordinator-improvement queue: K entries (oldest: YYYY-MM-DD) — consider `/workweek-complete` to triage."_
 - **Otherwise:** skip silently.
@@ -367,18 +367,18 @@ No triage action at daily cadence — triage is weekly.
 ```bash
 MACHINE=$(hostname | tr '[:upper:]' '[:lower:]' | tr ' .' '-' | tr -cd 'a-z0-9-')
 TODAY=$(date +%Y-%m-%d)
-CHANGELOG_FILE="tasks/week-changelog/$TODAY-$MACHINE.md"
+CHANGELOG_FILE="state/week-changelog/$TODAY-$MACHINE.md"
 ```
 
-**Staleness guard:** read `tasks/week-changelog/HEADER.md`. If `Week starting:` is set and today is >14 days past it, emit a hard warning and skip the append:
+**Staleness guard:** read `state/week-changelog/HEADER.md`. If `Week starting:` is set and today is >14 days past it, emit a hard warning and skip the append:
 > "WARN: HEADER.md is stale (week started >14 days ago). Was `/workweek-complete` skipped?"
 
-**Synthesise the block** from today's handoffs (`tasks/handoffs/YYYY-MM-DD-*.md`) and the Step 4
+**Synthesise the block** from today's handoffs (`state/handoffs/YYYY-MM-DD-*.md`) and the Step 4
 daily summary (`archive/daily-summaries/YYYY-MM-DD.md`). Extract `Decisions:` and `Blockers:`
 from handoff content — do NOT re-author them. `Validation:` is auto-filled from Steps 1 and 5
 exit codes — it is not LLM-authored prose.
 
-**`Reviewed:` field** — read all records returned by `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `tasks/review-trail/` and `archive/review-trail/**` — catches records archived by a prior `/workweek-complete`). For each record, emit one line:
+**`Reviewed:` field** — read all records returned by `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `state/review-trail/` and `archive/review-trail/**` — catches records archived by a prior `/workweek-complete`). For each record, emit one line:
 ```
 **Reviewed:** sha_range=<sha_range> reviewer=<reviewer> verdict=<verdict> diff_loc=<diff_loc>
 ```
@@ -398,7 +398,7 @@ If today's commits are all trivial AND no records exist, omit the `**Reviewed:**
 **Commits:** N (range: <oldest-sha>..<newest-sha>)
 **Scope:** <one-line summary from $ARGUMENTS or derived from commit subjects>
 **Plans touched:** docs/plans/YYYY-MM-DD-foo.md (status: in-progress|implemented|reverted)
-**Handoffs:** tasks/handoffs/YYYY-MM-DD-foo.md
+**Handoffs:** state/handoffs/YYYY-MM-DD-foo.md
 **Decisions:** <extracted from today's handoffs — not re-authored>
 **Blockers:** <extracted from handoffs, or "none">
 **Validation:** validate=<exit-code-step-1> plugin-suite=<exit-code-step-5>
@@ -454,11 +454,11 @@ If `$ARGUMENTS` is provided, include as a top line: _"Day summary: {arguments}"_
 - **Triage the improvement queue.** Daily depth nudge only; triage is weekly.
 - **Run ShellCheck or scc stats.** All moved to `/workweek-complete`.
 - **Delete the work branch.** Stays alive for morning review.
-- **Delete handoffs.** workday-complete does not delete handoffs. Lifecycle (revised 2026-05-08): `/pickup` archives them atomically (`tasks/handoffs/` → `archive/handoffs/`); `/distill` deletes from the archive after extraction (opt-out via `--no-delete`), gated by extraction-artifact + `shipped_in:` + active-reference + distillation-log guards. Spec: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
+- **Delete handoffs.** workday-complete does not delete handoffs. Lifecycle (revised 2026-05-08): `/pickup` archives them atomically (`state/handoffs/` → `archive/handoffs/`); `/distill` deletes from the archive after extraction (opt-out via `--no-delete`), gated by extraction-artifact + `shipped_in:` + active-reference + distillation-log guards. Spec: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
 
 ### Concurrent Session Safety
 
-Per-machine files under `tasks/week-changelog/` eliminate concurrent-write conflicts. HEADER.md is touched only by the two weekly commands (PM-invoked, serial). Health files are global — workday-complete is the single daily writer.
+Per-machine files under `state/week-changelog/` eliminate concurrent-write conflicts. HEADER.md is touched only by the two weekly commands (PM-invoked, serial). Health files are global — workday-complete is the single daily writer.
 
 > **Force-with-lease rejection (Step 3):** fetch-rebase-retry once. Second failure → report to PM.
 

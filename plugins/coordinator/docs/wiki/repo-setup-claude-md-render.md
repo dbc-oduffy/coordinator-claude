@@ -1,13 +1,13 @@
 ---
-title: Project Onboarding — CLAUDE.md Render Procedure
+title: Repo Setup — CLAUDE.md Render Procedure
 status: active
 kind: procedure-wiki
 created: 2026-05-30
 ---
 
-# Project Onboarding — CLAUDE.md Render Procedure
+# Repo Setup — CLAUDE.md Render Procedure
 
-**Purpose:** Full procedure for constructing substitution values and calling `render-template.sh` when generating a project's `CLAUDE.md` during `/project-onboarding` Phase 3a. Referenced from `skills/project-onboarding/SKILL.md § 3a`.
+**Purpose:** Full procedure for constructing substitution values and calling `render-template.sh` when generating a project's `CLAUDE.md` during `/repo-setup` Phase 3a. Referenced from `skills/repo-setup/SKILL.md § 3a`.
 
 ---
 
@@ -67,7 +67,7 @@ Concatenate block bodies for each selected type (in selection order); blank line
 
 ```bash
 bash "$HOME/.claude/plugins/coordinator/bin/render-template.sh" \
-  "$HOME/.claude/plugins/coordinator/skills/project-onboarding/templates/CLAUDE.md.template" \
+  "$HOME/.claude/plugins/coordinator/skills/repo-setup/templates/CLAUDE.md.template" \
   -o CLAUDE.md \
   PROJECT_NAME="<derived-name>" \
   PROJECT_TYPE="<type>" \

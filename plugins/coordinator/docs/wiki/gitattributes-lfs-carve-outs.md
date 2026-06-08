@@ -64,7 +64,7 @@ For every `.gitattributes` entry that intends to OVERRIDE a more-general rule:
 
 ## Onboarding Checklist Addition
 
-At repo setup time (`/project-onboarding`), if `.gitattributes` is present:
+At repo setup time (`/repo-setup`), if `.gitattributes` is present:
 
 - Read the file; identify every `filter=lfs` rule.
 - For each LFS rule, ask: "are there fixture paths, test-data paths, or generated-asset paths
@@ -73,7 +73,7 @@ At repo setup time (`/project-onboarding`), if `.gitattributes` is present:
 - Run `git check-attr --all <representative-path>` for at least one path per carve-out to
   confirm the resolved attribute is `-filter` (not `lfs`).
 
-Propose adding a `gitattributes audit` step to `coordinator/skills/project-onboarding/SKILL.md`.
+Propose adding a `gitattributes audit` step to `coordinator/skills/repo-setup/SKILL.md`.
 
 ## Quick Diagnostic
 
@@ -92,4 +92,4 @@ absent or ordered before the generic rule.
 
 - → `docs/wiki/lfs-coordinator-auto-push-merge.md` (LFS + post-commit hook interaction)
 - → `docs/wiki/agent-dispatch-economics.md` (worktree-creation costs and failure modes)
-- → `coordinator/skills/project-onboarding/SKILL.md` (gitattributes audit step — propose adding)
+- → `coordinator/skills/repo-setup/SKILL.md` (gitattributes audit step — propose adding)

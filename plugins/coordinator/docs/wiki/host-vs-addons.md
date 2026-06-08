@@ -99,7 +99,7 @@ flag is a *capability declaration*, not a corpus-class assertion. Reference:
 Wave 2a (scaffold) landed the hookspecs and façade types. Wave 2b (physical extraction)
 moved UE code out of the host into `project-rag-ue-addon`. Phases 1A–1I and Phase 2
 (P2.1–P2.4) shipped via `/mise-en-place`; P2.5 (delete `structural_index_lite.py`) is
-tracked in spinoff handoff `tasks/handoffs/2026-05-15_203216_wave-2b-p2.5-spinoff.md`.
+tracked in spinoff handoff `state/handoffs/2026-05-15_203216_wave-2b-p2.5-spinoff.md`.
 Wave 2c (terminal carve-out) proceeds once the Phase 1 hookspec
 contract is solid (parse-test + round-trip fixture-addon test
 green). A second installed addon is not a precondition. Authority:

@@ -1,6 +1,6 @@
 // discover-working-repos.test.js — unit tests for lib/discover-working-repos.sh
 //
-// Spec backlink: tasks/handoffs/2026-06-01_105805_discover-working-repos-tier-a-lossy-decode.md
+// Spec backlink: state/handoffs/2026-06-01_105805_discover-working-repos-tier-a-lossy-decode.md
 //
 // SCOPE: exercises Tier A's lossy-encoding decode. Claude Code encodes a
 // working-dir path into a projects-dir name by mapping `:` `\` `/` `.` → `-`.

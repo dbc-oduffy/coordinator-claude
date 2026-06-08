@@ -31,7 +31,7 @@ This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus 
 
 **Todo-list (execute in any order, batch parallel where two independently read/write different files — with the Step 2→2.4 micro-chain exception noted below):**
 
-- **Step 1 (then 1.2) — run as an inseparable pair, one todo-list slot** — lessons capture + classification (`tasks/lessons.md`). The 1→1.2 edge is real; run them sequentially as a unit; the *pair* parallelizes with the other slots.
+- **Step 1 (then 1.2) — run as an inseparable pair, one todo-list slot** — lessons capture + classification (`state/lessons.md`). The 1→1.2 edge is real; run them sequentially as a unit; the *pair* parallelizes with the other slots.
 - **Step 2 (then 2.4) — run as a micro-chain, one todo-list slot** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`, etc.), then plan-doc reconciliation. The 2→2.4 edge is real: Step 2.4 reconciles the plan doc Step 2 just updated. Run them sequentially as a unit; the *pair* parallelizes with the other slots. Skip Step 2.4 if no governing plan exists.
 - **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
 - **Step 2.6** — archive uncaptured work (`archive/completed/YYYY-MM/`; internal chain 2.6.1→2.6.7 is real but isolated to this slot)
@@ -43,14 +43,14 @@ These six slots touch disjoint surfaces. Among peer slots, none consumes another
 
 ### Step 1: Capture Lessons
 
-Read `tasks/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first.
+Read `state/lessons.md` (if it exists). If anything was learned this session that isn't already captured, add it — but apply the intake filter first.
 
 **Create on first use:** If lessons exist to capture AND the file does not exist yet, create it with a `# Lessons — [Project Name]` header, a one-line purpose note, and the `<!-- EM-maintained; see CLAUDE.md § Self-Improvement Loop -->` comment, then append the entry. If no lessons to capture and the file doesn't exist, do not create it.
 
 **Feature scope:** `<feature>` is derived from the current work context:
 - If a feature-scoped plan exists at `tasks/<feature>/todo.md`, use that feature name
 - If on a `feature/<name>` branch, use `<name>`
-- Otherwise, use `tasks/lessons.md` (global)
+- Otherwise, use `state/lessons.md` (global)
 
 **Qualifies:** user corrections, surprising API/tooling behavior, patterns that worked or failed, debugging insights. **Doesn't qualify:** one-off fixes, pipeline-run details, anything already in code/CLAUDE.md/MEMORY.md. Test: *"Will this save time in the next 4 weeks?"*
 
@@ -60,7 +60,7 @@ Format: bold title + 1-2 sentence rule, max 3 lines. Prefer merging with an exis
 
 For each new lesson, ask: **"Would this apply to any project type using the coordinator pipeline?"** Autonomous self-classification; no review step.
 
-- **Yes (universal):** (a) tag with `[universal]` on the bold title line; (b) append one-liner to `~/.claude/tasks/coordinator-improvement-queue.md`: `- YYYY-MM-DD | <source-repo> | tasks/lessons.md:<line> | <summary> | proposed target: <coordinator file>`. Skip if that `<source-file>:<line>` already exists.
+- **Yes (universal):** (a) tag with `[universal]` on the bold title line; (b) append one-liner to `~/.claude/state/coordinator-improvement-queue.md`: `- YYYY-MM-DD | <source-repo> | state/lessons.md:<line> | <summary> | proposed target: <coordinator file>`. Skip if that `<source-file>:<line>` already exists.
 - **No (project-specific):** no further action.
 - **Nothing new in Step 1:** skip entirely.
 
@@ -204,7 +204,7 @@ loe:
 
 Resolve the consumed predecessor handoff path (the handoff archived by Step 2.7 this session). Resolution order:
 1. Check session state for the handoff path that was consumed at `/pickup` time.
-2. Walk `tasks/handoffs/archive/<YYYY-MM>/` for entries with `consumed_by: <this session_id>`.
+2. Walk `state/handoffs/archive/<YYYY-MM>/` for entries with `consumed_by: <this session_id>`.
 
 Then invoke the chain aggregator:
 
@@ -295,29 +295,29 @@ Banned phrasings: *"PM-relays pending your action"*, *"Cross-repo memo X awaitin
 
 ### Step 2.7: Archive Predecessor Handoff (if applicable)
 
-When this session was opened with `/pickup`, the consumed handoff still lives in `tasks/handoffs/` (mutation-only at pickup time). If this session is ending via `/workstream-complete` rather than `/handoff`, archive the predecessor now.
+When this session was opened with `/pickup`, the consumed handoff still lives in `state/handoffs/` (mutation-only at pickup time). If this session is ending via `/workstream-complete` rather than `/handoff`, archive the predecessor now.
 
-**Detection:** scan `tasks/handoffs/*.md`, read frontmatter `consumed_by:`. Resolve session id: `$CLAUDE_CODE_SESSION_ID` first; `.git/coordinator-sessions/.current-session-id` fallback. Zero matches → skip. One match → archive. Multiple matches → log to stderr and archive all.
+**Detection:** scan `state/handoffs/*.md`, read frontmatter `consumed_by:`. Resolve session id: `$CLAUDE_CODE_SESSION_ID` first; `.git/coordinator-sessions/.current-session-id` fallback. Zero matches → skip. One match → archive. Multiple matches → log to stderr and archive all.
 
-**Action:** `git mv tasks/handoffs/<file> archive/handoffs/<file>`. Create `archive/handoffs/` if absent. On `git mv` failure (already moved by a concurrent `/handoff`), log to stderr and continue. The move folds into the Step 3 commit.
+**Action:** `git mv state/handoffs/<file> archive/handoffs/<file>`. Create `archive/handoffs/` if absent. On `git mv` failure (already moved by a concurrent `/handoff`), log to stderr and continue. The move folds into the Step 3 commit.
 
 **No claim release call needed** — `cs_archive` at Step 3.5 carries the entire session directory (including `handoff-claims/`) into `.archive/`. **Skip entirely if** exiting via `/handoff` — the two paths are mutually exclusive.
 
 ### Step 2.75: Refresh Handoff Tracker
 
-After Step 2.7, regenerate `tasks/handoff-tracker.md`:
+After Step 2.7, regenerate `state/handoff-tracker.md`:
 
 ```bash
 node plugins/coordinator/bin/render-handoff-tracker.js
 ```
 
-Skip silently if the script is absent or fails. Stage `tasks/handoff-tracker.md` in Step 3's scoped commit.
+Skip silently if the script is absent or fails. Stage `state/handoff-tracker.md` in Step 3's scoped commit.
 
 ### Step 2.8: Refresh Orientation Documents
 
 Update the documents that future sessions read for orientation — closing the read-write loop with `/workstream-start` and `/workday-start`.
 
-1. **Orientation cache** (`tasks/orientation_cache.md`): **Do not author the cache body. Do not patch sections. Do not re-derive content section-by-section.** The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`). `/workstream-complete` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append.
+1. **Orientation cache** (`state/orientation_cache.md`): **Do not author the cache body. Do not patch sections. Do not re-derive content section-by-section.** The cache schema (`pipelines/workday-start-internals.md` § 5.5) is owned by ceremony writers (`/workday-start`, `/update-docs`). `/workstream-complete` is a **mid-session writer** with a single, narrowly-scoped capability: pinboard append.
 
    **Pinboard rule (the only cache mutation permitted here):** if this session surfaced something the next session start MUST see, and it would otherwise be lost (a transient surface gotcha; a critical blocker context; an environment-specific caveat that fooled this session and will fool the next), write exactly one line to `## Pinboard` via the routine:
 
@@ -327,7 +327,7 @@ Update the documents that future sessions read for orientation — closing the r
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
 
-   One-slot escape valve — a second write overwrites, not appends. Cleared at every ceremony regen. If you want to write more than one line, that's a wiki edit, handoff body, or lessons.md entry. If nothing pinboard-worthy, do nothing. If the cache file doesn't exist (`ls tasks/orientation_cache.md` before asserting), skip.
+   One-slot escape valve — a second write overwrites, not appends. Cleared at every ceremony regen. If you want to write more than one line, that's a wiki edit, handoff body, or lessons.md entry. If nothing pinboard-worthy, do nothing. If the cache file doesn't exist (`ls state/orientation_cache.md` before asserting), skip.
 
 2. **Project tracker** (`docs/project-tracker.md`): If it exists and this session completed or progressed tracked items, update their status rows. Only touch rows this session affected — don't re-derive the whole tracker.
 
@@ -348,21 +348,24 @@ Assess whether this session's diff warrants a code review pass before committing
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
+| **Big-diff brightline** (any one of: ≥500 gross LOC (insertions+deletions), OR ≥8 files changed, OR ≥3 distinct surfaces — e.g. bash + JSON + tests + doctrine; ≥5 commits is a corroborating signal, not a trigger on its own) | **Partitioned `code-reviewer` dispatches — mandatory, not chain-end-gated.** See § Partitioning large surfaces |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
-| Chain-end AND chain diff too large for a single reviewer (>500 LOC rough anchor, ≥3 segments, or multi-surface) | **Partitioned `code-reviewer` dispatches** — see § Partitioning large surfaces. Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at workstream-complete |
+| Chain-end AND chain diff exceeds the big-diff brightline above | **Partitioned `code-reviewer` dispatches**. Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at workstream-complete |
 
-**Precedence rule:** chain-end rows (4, 5) override workstream-complete rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
+**Precedence rule:** the big-diff brightline (row 4) and chain-end rows (5, 6) override workstream-complete rows (1, 2, 3) when they apply — partitioning is the integration-risk control, not a chain-end privilege.
 
-**Anchored-ranges note:** the numeric anchors (50 LOC, 500 LOC, ≥3 segments) are decision anchors, not hard thresholds — diff shape matters more than line count.
+**Brightline gate — mechanical, before picking a row.** Run `bin/review-brightline-gate.sh [<range>]`; verdict `PARTITION-MANDATORY` overrides row choice. Single-reviewer above the brightline is a doctrine violation — wiki § Worked counterexample.
 
-**Partitioning large surfaces across multiple `code-reviewer` dispatches (row 5):**
+**Anchored-ranges note:** the small-side anchor (50 LOC) is calibration — shape can adjust. **Big-side brightlines (≥500 gross LOC / ≥8 files / ≥3 surfaces) are hard floors.**
+
+**Partitioning large surfaces across multiple `code-reviewer` dispatches (rows 4 and 6 — the two partition-mandatory rows):**
 Fan out into parallel `code-reviewer` dispatches over coherent slices (by package boundary, concern, or directory cluster) — no lens-orthogonality manifest or synthesizer required. Mechanics:
 1. Each `code-reviewer` prompt names its slice explicitly (paths or commit subset) and an "out of scope: the rest of the chain diff" line.
-2. Dispatch in parallel; EM dispatches `coordinator:review-integrator` per slice or collates and dispatches one integrator over the union.
+2. **Dispatch in parallel; integrators are 1:1 with reviewer slices — one `coordinator:review-integrator` per `code-reviewer` slice, dispatched in parallel, each scoped to the same slice paths as its source reviewer.** No collation into a single union-integrator. The reasoning is structural: reviewers were partitioned because one Sonnet couldn't fit the whole surface; the same context-fit constraint binds the integrator. A union-integrator inherits N reviewers' findings against N disjoint file sets and the merged scope is exactly what the slicing avoided — see `docs/wiki/review-integration-doctrine.md` § Integrator dispatches are 1:1 with reviewer slices.
 3. Trail write uses `--reviewer code-reviewer`; record partition shape in the wrap-up sentence.
-4. Post-review the Staff Engineer-escalation criteria apply to the **combined** finding set. No upper bound on partition count — the constraint is per-reviewer context fit.
+4. Post-review the Staff Engineer-escalation criteria apply to the **combined** finding set. No upper bound on partition count — the constraint is per-reviewer context fit, which (per item 2) is also the constraint on per-integrator scope.
 
-**No named-reviewer escalation from code review.** Code output review is Sonnet `code-reviewer` only — partition across slices as needed. Architectural findings from `code-reviewer` → `tasks/lessons.md` + surface to PM; do not escalate to a named reviewer within the code-review path.
+**No named-reviewer escalation from code review.** Code output review is Sonnet `code-reviewer` only — partition across slices as needed. Architectural findings from `code-reviewer` → `state/lessons.md` + surface to PM; do not escalate to a named reviewer within the code-review path.
 
 The weekly `/workweek-complete` Step 7 merge-gate is a separate, independent ceremony — do not skip workstream-complete review and "surface to PM for workweek."
 
@@ -381,7 +384,7 @@ The weekly `/workweek-complete` Step 7 merge-gate is a separate, independent cer
 **Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
 
 **Spec cross-reference (loop closure) — include in dispatch brief when a spec exists:**
-When work is governed by a spec/plan/stub, name the spec path in the `code-reviewer` dispatch brief and instruct it to apply the **Spec completion lens** (per `agents/code-reviewer.md` § Spec completion lens). Apply on row 3/4/5 sessions; omit on row 1/2. If multiple specs apply, name all of them; the reviewer treats the union as the completion oracle. When partitioning the diff (§ Partitioning large surfaces), name each reviewer's spec slice explicitly.
+When work is governed by a spec/plan/stub, name the spec path in the `code-reviewer` dispatch brief and instruct it to apply the **Spec completion lens** (per `agents/code-reviewer.md` § Spec completion lens). Apply on row 3/4/5/6 sessions; omit on row 1/2. If multiple specs apply, name all of them; the reviewer treats the union as the completion oracle. When partitioning the diff (§ Partitioning large surfaces), name each reviewer's spec slice explicitly.
 
 Negative-spec: if no spec governs this session, omit the spec section from the brief — do not invent one. No spec named ⇒ reviewer skips the lens entirely.
 
@@ -412,7 +415,7 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 
 ### Step 2.95: Aftermath Lens-Checkers (big-workstream sessions)
 
-**Fires on big workstreams** — same trigger as Step 2.9 rows 3/4/5. Skip silently on row-1/row-2 trivial sessions.
+**Fires on big workstreams** — same trigger as Step 2.9 rows 3/4/5/6. Skip silently on row-1/row-2 trivial sessions.
 
 Step 2.9 is the *line-level* lens; these are the *cross-cutting* lenses. Run as a quick self-check (not a reviewer dispatch unless a lens surfaces something needing depth):
 
@@ -441,7 +444,7 @@ The forbidden outcome is terminating with case-(c) files still dirty and unnamed
 
 **Note:** This gate is inline (not a snippet) across all three session terminators (workstream-complete, handoff, workday-complete) because the per-surface variation (`<terminating action>`) is intentional — snippet-sync is for byte-identical text. → `ceremony-calibration.md`.
 
-1. **Stage only paths this session touched — never `git add -A`.** Name each path explicitly: `git add <path1> <path2> ...`. Typical set: `tasks/lessons.md`, `docs/plans/<feature>.md` (if Step 2.4 ran), `archive/completed/YYYY-MM/<entry>.md`, `docs/project-tracker.md`, action-items, `docs/README.md`, `tasks/handoff-tracker.md` (if Step 2.75 ran). Unfamiliar dirty files → Step 3.0 gate first; "leave alone" is only correct for case (b) named-owner files.
+1. **Stage only paths this session touched — never `git add -A`.** Name each path explicitly: `git add <path1> <path2> ...`. Typical set: `state/lessons.md`, `docs/plans/<feature>.md` (if Step 2.4 ran), `archive/completed/YYYY-MM/<entry>.md`, `docs/project-tracker.md`, action-items, `docs/README.md`, `state/handoff-tracker.md` (if Step 2.75 ran). Unfamiliar dirty files → Step 3.0 gate first; "leave alone" is only correct for case (b) named-owner files.
 2. Commit with a lightweight message: `"workstream-complete quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
 3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
@@ -461,13 +464,45 @@ sid="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coor
 
 Idempotent. Failures are non-fatal (24h reaper is the safety net). Skip if session id can't be resolved or lib is unavailable. Prefer `$CLAUDE_CODE_SESSION_ID`; `.current-session-id` is last-writer-wins fallback only.
 
-### Step 3.8: Acceptance-oracle offer (non-blocking)
+### Step 3.8: Acceptance-Oracle Gate (AUTHORITATIVE)
 
-If this session executed an oracle-bearing plan (one that went through `coordinator:review` and carries a bindable `## Acceptance Criteria` table with `gate-bound` rows) and any `gate-bound` ACs remain red or unrun, emit an offer-shaped notice before the final summary:
+<!-- spec-backlink: docs/wiki/acceptance-oracle.md § Where checked — gate seam relocated from /merge-to-main 2026-06-02 -->
 
-> "You have unresolved acceptance tests in `<plan-path>`: <count> red/unrun gate-bound AC(s). Run `bash check-acceptance-oracle.sh <plan-path>` before merging via `/merging-to-main`."
+If this session executed an oracle-bearing plan (one that went through `coordinator:review` and carries a bindable `## Acceptance Criteria` table with `gate-bound` rows), this is the authoritative gate. **One workstream = one plan = one AC table in frame; the oracle is load-bearing here, not at merge.**
 
-**Never a hard block** — teeth live at `coordinator:merging-to-main` Step 0. Advisory only. Skip silently if no oracle-bearing plan was involved or all gate-bound ACs are green.
+**Plan-path discovery (try in order):**
+1. Frontmatter `plan:` field on the workstream's plan document.
+2. Explicit `--plan <path>` flag in `$ARGUMENTS`.
+3. If neither yields a path AND the session shape is plan-execution → skip-with-offer: _"No plan path found — acceptance oracle can be validated manually with `bash check-acceptance-oracle.sh <plan-path>`."_ Continue to Step 4.
+
+**If `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` is set:**
+Skip the gate. Log: _"Acceptance-oracle gate bypassed via COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 — exceptional use only."_ Continue to Step 4.
+
+**If plan path resolved AND plan contains a bindable `## Acceptance Criteria` table:**
+
+```bash
+bash check-acceptance-oracle.sh <plan-path>
+```
+
+- **Exit 0 (all gate-bound rows green or cited-resolved):** Log the verdict. _"Acceptance oracle: all gate-bound tests pass — workstream may complete."_ Continue to Step 4.
+- **Non-zero exit (any gate-bound row red or unresolved):** Hard-block workstream completion:
+  ```
+  Workstream-complete blocked: acceptance oracle has red or unresolved gate-bound tests.
+
+  <verdict from check-acceptance-oracle.sh>
+
+  Fix the failing tests and re-run /workstream-complete, mark deviations via the
+  ## Deviations table + Status → shipped-differently with a cited: row, or set
+  COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 to bypass (exceptional use only — the
+  routine accommodation is cited: rows, not this override).
+  ```
+  Stop. Do NOT mark the workstream complete; downstream `/merge-to-main` will trust this seam.
+
+**If plan path resolved but no bindable `## Acceptance Criteria` table** (old-form plan): skip-with-offer: _"Plan found but no bindable acceptance-criteria table — oracle gate skipped. Consider upgrading (`docs/wiki/writing-plans.md` § Acceptance Oracle)."_ Continue to Step 4.
+
+**If no oracle-bearing plan was involved** (sessions where work was doctrine/sweep/memo-action without a reviewed plan in frame): skip silently. Daily-rollup branches and non-plan workstreams have nothing to gate on.
+
+**Why this is the authoritative surface:** `/merge-to-main` operates per-branch, and branches aggregate workstreams + doctrine edits + archive sweeps — no single AC table governs the union. The oracle is load-bearing where one plan is in frame; that's here.
 
 ### Step 4: Final Summary
 

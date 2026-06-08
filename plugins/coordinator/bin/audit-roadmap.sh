@@ -2,7 +2,7 @@
 # audit-roadmap.sh — Phase 2 close cross-file audits for coordinator:roadmap-planning.
 #
 # Closes the gap that bin/lint-frontmatter.js cannot enforce per-file: rules that compare
-# multiple stubs in the active set, or cross-reference a stub against tasks/roadmap/<run-id>/pm-gates.md.
+# multiple stubs in the active set, or cross-reference a stub against state/roadmap/<run-id>/pm-gates.md.
 #
 # Spec backlink: docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md § Phase 5
 # the Staff Engineer review finding: P1-1 (audit script must ship in v1, not be deferred to post-dogfood).
@@ -22,8 +22,8 @@ fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT="$PWD"
 QR="${ROOT}/plugins/coordinator/bin/query-records.js"
-PMG="${ROOT}/tasks/roadmap/${RUN_ID}/pm-gates.md"
-RECON="${ROOT}/tasks/roadmap/${RUN_ID}/reconciliation.md"
+PMG="${ROOT}/state/roadmap/${RUN_ID}/pm-gates.md"
+RECON="${ROOT}/state/roadmap/${RUN_ID}/reconciliation.md"
 
 if [ ! -f "$QR" ]; then
   echo "FAIL: query-records.js not found at $QR" >&2

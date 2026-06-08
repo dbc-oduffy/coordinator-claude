@@ -34,7 +34,7 @@ already-clustered day is a no-op.
 **Stage 3 — workweek-complete buckets for release.**
 `/workweek-complete` Step 9 queries the past 7 days' `pending-release` entries, dispatches
 a Sonnet editorial worker, and writes
-`tasks/week-changelog/YYYY-MM-DD-pending-release.md` with three H2 sections:
+`state/week-changelog/YYYY-MM-DD-pending-release.md` with three H2 sections:
 Highlights / Notable / Other.
 
 **Stage 4 — merge-to-main consumes and flips.**
@@ -163,7 +163,7 @@ archive/completed/
     2026-05.md, 2026-04.md, ...           # moved here from archive/completed/
 archive/daily-summaries/                  # UNCHANGED — /workday-complete Step 4
   YYYY-MM-DD.md
-tasks/week-changelog/
+state/week-changelog/
   YYYY-MM-DD-pending-release.md           # /workweek-complete output
 archive/release-notes/
   YYYY-MM-DD-vX.Y.Z.md                   # /merge-to-main output
@@ -366,7 +366,7 @@ The `tshirt` field is the primary consumer signal. Raw counts are forensic.
 
 **Multi-ledger handling:** a handoff chain may span multiple handoff files (each `/pickup` consumes one; `/handoff` authors the next). The Session Ledger in each handoff body accumulates only the sessions that picked up THAT handoff. Chain-terminal aggregation (see below) walks the full chain to sum across ledger blocks.
 
-**`bin/query-records --type handoff-ledger`:** Phase 2 registers `handoff-ledger` as a query type in `bin/query-records.js TYPE_TO_GLOB` (Chunk 5), globs `tasks/handoffs/*.md` and `archive/handoffs/*.md`, and parses `## Session Ledger` blocks. Filter: `--where "tshirt=XL"`. This is the consumer path for workweek-complete's LoE high-water check.
+**`bin/query-records --type handoff-ledger`:** Phase 2 registers `handoff-ledger` as a query type in `bin/query-records.js TYPE_TO_GLOB` (Chunk 5), globs `state/handoffs/*.md` and `archive/handoffs/*.md`, and parses `## Session Ledger` blocks. Filter: `--where "tshirt=XL"`. This is the consumer path for workweek-complete's LoE high-water check.
 
 ---
 
@@ -377,7 +377,7 @@ When a workstream-complete closes a chain (a completion entry with `chain_termin
 **Chain walk procedure:**
 
 1. Resolve the chain from the completion entry's `chain:` field (plan path, handoff stem, or workstream slug).
-2. Walk `archive/handoffs/` and `tasks/handoffs/` for handoffs whose `chain:` or `workstream:` matches — ordered by `created:` frontmatter date.
+2. Walk `archive/handoffs/` and `state/handoffs/` for handoffs whose `chain:` or `workstream:` matches — ordered by `created:` frontmatter date.
 3. For each handoff, parse the `## Session Ledger` block (if present) and collect all ledger lines.
 4. Sum `agent_dispatches`, `opus_dispatches`, and `em_tokens` across all lines.
 5. Re-derive a chain-level `tshirt` from the aggregate counts using the same sizing heuristic as per-session sizing.
@@ -408,7 +408,7 @@ The `chain_loe.tshirt` is the field `query-records --type completion --where "ch
 
 LoE tracking is session-scoped aggregate counts, not individual tool call recordings. The data answers "how expensive was this chain of work?" — a calibration input for planning future work of similar scope — not "who called what when."
 
-**Primary precedent:** `tasks/lessons.md` lesson at line ~361 (2026-05-18): *"Ship-and-watch telemetry needs a calendared review or it's not real."* The tier-usage telemetry lesson established that instrumentation without a concrete consumer path is ceremony. Phase 2 LoE tracking ships with a concrete consumer (workweek-complete Step 8.5 LoE high-water check) and a concrete PM-facing output (XL chain-terminal entries in the weekly summary) — not a "we'll glance if drift appears" design.
+**Primary precedent:** `state/lessons.md` lesson at line ~361 (2026-05-18): *"Ship-and-watch telemetry needs a calendared review or it's not real."* The tier-usage telemetry lesson established that instrumentation without a concrete consumer path is ceremony. Phase 2 LoE tracking ships with a concrete consumer (workweek-complete Step 8.5 LoE high-water check) and a concrete PM-facing output (XL chain-terminal entries in the weekly summary) — not a "we'll glance if drift appears" design.
 
 The workweek-complete Step 8.5 check is the calendared review: it fires weekly, surfaces XL chain-terminal entries to the PM, and requires an explicit "No XL chain-terminal entries this week" note when absent. The chain-terminal aggregation step closes the loop — the data is read on a known schedule, not accumulated write-only.
 
@@ -587,13 +587,13 @@ This is an oracle-was-wrong resolution, not an appetite-based deferral.
 ### Cross-repo query recipe
 
 When a Phase 3 consumer needs to query completion entries across sibling repos registered in
-`tasks/repo-registry.md`, DO NOT use `yq` to parse the registry. The registry is markdown
+`state/repo-registry.md`, DO NOT use `yq` to parse the registry. The registry is markdown
 with YAML-list blocks inside HTML comment sentinels — it is not a top-level YAML document,
 and `yq` is not in the coreutils dependency surface (DR-016).
 
 Correct parsing pattern:
 ```bash
-awk '/<!-- BEGIN repo-registry -->/,/<!-- END repo-registry -->/' tasks/repo-registry.md \
+awk '/<!-- BEGIN repo-registry -->/,/<!-- END repo-registry -->/' state/repo-registry.md \
   | grep -E '^\s*path:' \
   | awk '{print $2}'
 ```

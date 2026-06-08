@@ -8,7 +8,7 @@ version: 1.0.0
 
 > **Inlined by `/update-docs` Phase 8b.** Not invoked standalone — `/update-docs` is the only caller. Replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06).
 
-> **Negative-spec — consumed markers:** This pipeline moves and deletes files. It does NOT write `<!-- consumed: YYYY-MM-DD -->` markers — that's `/pickup`'s exclusive responsibility. Active handoffs in `tasks/handoffs/` are outside this pipeline's scope; chain-aware archival of those is `pipelines/update-docs/handoff-archival.md`'s job (Phase 8), which runs immediately before this pipeline.
+> **Negative-spec — consumed markers:** This pipeline moves and deletes files. It does NOT write `<!-- consumed: YYYY-MM-DD -->` markers — that's `/pickup`'s exclusive responsibility. Active handoffs in `state/handoffs/` are outside this pipeline's scope; chain-aware archival of those is `pipelines/update-docs/handoff-archival.md`'s job (Phase 8), which runs immediately before this pipeline.
 
 ## When This Runs
 
@@ -21,7 +21,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 | `plans/` | Session plan files (`*.md`) | Delete plans older than 14 days with no open references |
 | `archive/handoffs/` | Consumed handoff files | Keep the 10 most recent; delete the rest |
 | `tasks/*/` | Feature task directories | Delete dirs where all `todo.md` items are `[x]` AND the feature branch is merged or deleted |
-| `tasks/handoffs/` | Active handoffs | **Out of scope** — `pipelines/update-docs/handoff-archival.md` (Phase 8) handles these |
+| `state/handoffs/` | Active handoffs | **Out of scope** — `pipelines/update-docs/handoff-archival.md` (Phase 8) handles these |
 | `tasks/doc-link-check-*.md` | doc-link-checker reports from prior `/update-docs` runs | Keep the 3 most recent; delete the rest (PRUNE rule below) |
 | `cross-repo/archive/` | Closed `actioned` memos swept here after the receiver has acted | Delete memos with `status: actioned` older than **90 days** — 90d is chosen as ≥3× the expected `/distill` cadence so this janitorial sweep never deletes un-mined evergreen content before `/distill` has had a chance to run; if the `/distill` cadence lengthens past 30d, raise this floor proportionally. **Ordering hazard:** this 90d floor MUST exceed the max distill-run interval — if update-docs deletes a >90d actioned memo that `/distill` never mined, any evergreen content is lost (git history survives, but the promotion job never ran). The cadence-exceeds-floor anchor is what closes this hazard. |
 
@@ -31,7 +31,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 
 1. **Count and classify:**
    - **Plans (`plans/*.md`):**
-     - PRUNE if file is older than 14 days AND not referenced by any active handoff, task file, or `MEMORY.md` entry. Check references by grepping the filename across `tasks/handoffs/`, `tasks/`, and `MEMORY.md`.
+     - PRUNE if file is older than 14 days AND not referenced by any active handoff, task file, or `MEMORY.md` entry. Check references by grepping the filename across `state/handoffs/`, `tasks/`, and `MEMORY.md`.
      - KEEP otherwise.
    - **Archived handoffs (`archive/handoffs/*.md`):**
      - KEEP the 10 most recent by filename timestamp.
@@ -42,7 +42,7 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
    - **Feature task directories (`tasks/<feature>/`):**
      - PRUNE if `todo.md` exists and all items are `[x]`, AND no `lessons.md` with unmerged entries, AND the feature branch (if identifiable from the dir name) is merged or deleted.
      - KEEP if any `[ ]` items remain or unmerged lessons present.
-     - **Never delete:** `tasks/lessons.md` (global), `tasks/health-ledger.md`, `tasks/bug-backlog.md`, `tasks/debt-backlog.md`, `docs/architecture/`, `tasks/improvement-queue.md`, `tasks/coordinator-improvement-queue.md`, `tasks/handoffs/` (active), `tasks/week-changelog/`.
+     - **Never delete:** `state/lessons.md` (global), `state/health-ledger.md`, `state/bug-backlog.md`, `state/debt-backlog.md`, `docs/architecture/`, `state/improvement-queue.md`, `state/coordinator-improvement-queue.md`, `state/handoffs/` (active), `state/week-changelog/`.
    - **Cross-repo archive memos (`cross-repo/archive/*.md`):**
      - PRUNE if `status: actioned` AND file mtime > 90 days. Parse `status:` from YAML frontmatter; do NOT prune memos lacking a `status:` field (treat as open/unknown).
      - KEEP if `status:` is absent, `open`, or any value other than `actioned`, regardless of age — these are not yet closed channel traffic.

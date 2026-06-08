@@ -53,15 +53,15 @@ This is mandatory, not optional. It confirms your output paths are writable, bre
 
 After completing Phase 1 Assessment (and Phase 2 Comparison if enabled), you must run an explicit inverse-search pass targeting prior decisions that argue *against* your working hypothesis. This is not a re-investigation of the topic — it is a search for *recorded prior decisions*. **Specialists surface; they do not adjudicate.**
 
-### Always-Read Rule — `tasks/lessons.md`
+### Always-Read Rule — `state/lessons.md`
 
-**`tasks/lessons.md` is always read by the repo-specialist, regardless of what the scout passed as inputs.** This is not optional even if `lessons.md` was not mentioned in the scout's summary or inventory. Read it every time before writing your output.
+**`state/lessons.md` is always read by the repo-specialist, regardless of what the scout passed as inputs.** This is not optional even if `lessons.md` was not mentioned in the scout's summary or inventory. Read it every time before writing your output.
 
 ### Search Targets
 
 Search all four of the following locations:
 
-1. **`tasks/lessons.md`** — recorded anti-patterns, lessons, and constraints captured from prior sessions (mandatory — see above)
+1. **`state/lessons.md`** — recorded anti-patterns, lessons, and constraints captured from prior sessions (mandatory — see above)
 2. **`docs/wiki/`** — living technical reference guides that may encode prior decisions
 3. **`docs/decisions/`** — formal decision records
 4. **Archived plans** — plans in `archive/` whose successor plans superseded them; these often contain the original rationale for decisions later revised
@@ -93,4 +93,4 @@ Do not editorialize or resolve contradictions. Surface what exists; the synthesi
 
 ## Self-Check
 
-_Before converging: Have I deep-read the key files in my chunk? Have I documented architecture, patterns, data flow, strengths, and limitations? Have I run the counter-evidence pass across all four search targets (tasks/lessons.md, docs/wiki/, docs/decisions/, archived plans)? Have I read tasks/lessons.md even if the scout didn't mention it? Have I written the counter_evidence field in my assessment? Have I challenged at least one peer claim? If comparison mode: have I read the project files and compared? Have I incorporated peer messages? Have I sent CONVERGING to peers? Have I sent DONE to the synthesizer?_
+_Before converging: Have I deep-read the key files in my chunk? Have I documented architecture, patterns, data flow, strengths, and limitations? Have I run the counter-evidence pass across all four search targets (state/lessons.md, docs/wiki/, docs/decisions/, archived plans)? Have I read state/lessons.md even if the scout didn't mention it? Have I written the counter_evidence field in my assessment? Have I challenged at least one peer claim? If comparison mode: have I read the project files and compared? Have I incorporated peer messages? Have I sent CONVERGING to peers? Have I sent DONE to the synthesizer?_

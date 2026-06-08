@@ -2,7 +2,7 @@
 # lib/coordinator-currency.sh — Per-repo coordinator currency stamp: write + read + probe.
 #
 # Purpose: records and checks which COORDINATOR_SCHEMA_VERSION a project's scaffolding was
-# onboarded (or last refreshed) against. Consumed by /project-onboarding (stamp write),
+# onboarded (or last refreshed) against. Consumed by /repo-setup (stamp write),
 # the doctor probe P-13, and Wave-2 Chunk 3 (command-invocation-time currency detector).
 #
 # Spec backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1

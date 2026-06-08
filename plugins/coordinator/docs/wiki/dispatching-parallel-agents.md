@@ -489,7 +489,7 @@ When a dispatched agent spawns a background shell process (installer, pipeline r
 - Check `status` field before reading `phases_completed` — a `failed` status with a non-empty `phases_completed` means partial work was done; use this to resume from the last checkpoint, not re-run from scratch.
 - Do NOT derive status from log file size or line count — these are unreliable proxies.
 
-**Empirical source:** `tasks/lessons.md:358` — generalizes the `install_status_writer` pattern from the holodeck plugin installer, 2026-05-07.
+**Empirical source:** `state/lessons.md:358` — generalizes the `install_status_writer` pattern from the holodeck plugin installer, 2026-05-07.
 
 ## Shared-API Gap in Parallel Waves
 
@@ -526,7 +526,7 @@ Do NOT dispatch N executors with "append to `tests/foo.test.ts`" in parallel. Th
 
 ## Haiku Subagents Do NOT Inherit the Parent's 1M-Context Flag
 
-*Source: holodeck tasks/lessons.md:5, 2026-05-29. [universal]*
+*Source: holodeck state/lessons.md:5, 2026-05-29. [universal]*
 
 **Only Opus has a 1M-context tier.** A parent session running with the 1M-context flag does NOT pass that flag to Haiku subagents — Haiku operates at its standard context ceiling regardless of the parent's tier. This is distinct from the billing-gate bypass (Haiku bypasses the 1M-context billing gate that blocks Sonnet/Opus subagent dispatch) — the bypass is about *dispatch permission*, not *context window size*.
 
@@ -534,7 +534,7 @@ Do NOT dispatch N executors with "append to `tests/foo.test.ts`" in parallel. Th
 
 ## Mechanical Multi-File Migrations Fan Out, Never Serial
 
-*Source: rag-ue-addon tasks/lessons.md:14, 2026-05-29. [universal]*
+*Source: rag-ue-addon state/lessons.md:14, 2026-05-29. [universal]*
 
 When migrating, renaming, or reformatting N files with the same mechanical transformation (move + path-update, rename + import-fix, format-convert), **fan out across files in parallel, never assign one executor to grind them serially**. One executor handed a list of 10 files and told "do each in sequence" accumulates context, extends its blast radius with every file, and degrades judgment as the window fills — the overload in slow motion.
 
@@ -546,7 +546,7 @@ The correct shape: break into file-bounded chunks of ≤5 files per executor, di
 
 **Rule:** For Haiku scouts and inventory dispatches, default to a tool-bounded subagent type (`deep-research:repo-scout` or similar) rather than the `claude` catch-all. Reserve the `claude` catch-all for Sonnet/Opus dispatches where the context headroom is sufficient.
 
-*2026-05-28, project-rag (`tasks/lessons.md:67`) and claude-unreal-holodeck (companion entry, same root cause).*
+*2026-05-28, project-rag (`state/lessons.md:67`) and claude-unreal-holodeck (companion entry, same root cause).*
 
 ## Chunk-Size Signal — 14-Minute Single-Executor Run Is Under-Decomposed
 
@@ -554,7 +554,7 @@ The correct shape: break into file-bounded chunks of ≤5 files per executor, di
 
 ## Inspiration-Audit / "Compare to Upstream X" — The Three-Agent Fan-Out Recipe
 
-*2026-05-30, central-promoted from sibling-repo `tasks/lessons.md`.* For "compare our work to upstream X" / inspiration-audit tasks — auditing our coverage against an external reference system, skill suite, plugin, or body of prior art — the natural shape is a **three-agent parallel fan-out into a synthesizer**, not one agent grinding the comparison serially. The three reads are independent (disjoint sources, no write-overlap, none consumes another's output) so they parallelize freely under § Dispatch-Gate Taxonomy.
+*2026-05-30, central-promoted from sibling-repo `state/lessons.md`.* For "compare our work to upstream X" / inspiration-audit tasks — auditing our coverage against an external reference system, skill suite, plugin, or body of prior art — the natural shape is a **three-agent parallel fan-out into a synthesizer**, not one agent grinding the comparison serially. The three reads are independent (disjoint sources, no write-overlap, none consumes another's output) so they parallelize freely under § Dispatch-Gate Taxonomy.
 
 **The three parallel agents:**
 
@@ -624,7 +624,7 @@ Source plan: `archive/specs/2026-05-05-issue-b-expected-branch-flag.md`.
 
 **Generalizes to:** any task whose unit-of-work is a file (or file-bounded chunk) and whose total exceeds 5 units. Prefer fan-out + EM-serial-commit over single-executor sequential.
 
-**Source:** `tasks/lessons.md:1057` (2026-05-17).
+**Source:** `state/lessons.md:1057` (2026-05-17).
 
 **One executor = one coherent task; split by *kind of work*, not just file count.** A chunk that fuses judgment/design + wide mechanical sweep + docs into one dispatch is under-decomposed even if file count is below 5. The tell: a long, hard-to-spot-check tail AND a completion criterion that requires three different verification methods (probe test + sync-inventory test + doc grep). That is three chunks, not one. Split at dispatch time — judgment as its own chunk, wide N-surface mechanical sync as its own, docs as its own — each sized to ~5-10 min (15 min hard ceiling) and independently verifiable by a single method. (2026-05-28, unified-unreal-path-seeding Chunk 5: 32-min bundled dispatch vs 10-15 min peers.)
 
@@ -650,7 +650,7 @@ Also: de-escalate cross-repo wire-contract findings by reading the consumer's ac
 
 ## Pre-Derive and Commit the Load-Bearing Design Before Fan-Out — Park with Links on Supersession, Never Orphan
 
-**Pre-derive the load-bearing design before fan-out so a mid-flight supersession leaves reference, not waste — then park-with-links, never orphan or delete.** Commit the Opus-tier design artifact (frontmatter-graph, interface stubs, budget model) before dispatching cheap Sonnet executor bodies; when supersession strikes, it costs only the executor bodies, not the architecture. On stand-down, relocate uncommitted artifacts OUT of `tasks/handoffs/` into the roadmap/plan dir, add a README with provenance and supersession note, and bidirectionally link from the canonical surviving spec.
+**Pre-derive the load-bearing design before fan-out so a mid-flight supersession leaves reference, not waste — then park-with-links, never orphan or delete.** Commit the Opus-tier design artifact (frontmatter-graph, interface stubs, budget model) before dispatching cheap Sonnet executor bodies; when supersession strikes, it costs only the executor bodies, not the architecture. On stand-down, relocate uncommitted artifacts OUT of `state/handoffs/` into the roadmap/plan dir, add a README with provenance and supersession note, and bidirectionally link from the canonical surviving spec.
 
 *2026-05-26, claude-unreal-holodeck.* A roadmap Phase-2 session committed the per-stub frontmatter-graph template BEFORE dispatching stub-body executors. When a concurrent EM absorbed the workstream and the PM pivoted to build-now, the design survived as durable reference; the half-written stubs were relocated into the roadmap dir and cross-linked from surviving canonical surfaces. Relocating-and-linking (vs deleting or leaving in-queue) preserved a head-start without polluting the concurrent session's `/workday-start` triage with contradictory live items.
 
@@ -674,7 +674,7 @@ Three corollaries:
 **Why:** Three parallel sizing sweeps in one session matched each candidate repo to its right intervention shape (catalog→prototype, system→port, off-domain→skip). Pipeline B is heavyweight; running it on all candidates before sizing wastes 2-3× the token budget.
 **How to apply:** before `/deep-research --pipeline=repo`, dispatch a sizing scout (`general-purpose` Sonnet, ~30 min, structured brief) per candidate. Fire full deep research only where sizing recommends. Scout briefs should produce a structured verdict (RECOMMEND_PIPELINE_B / PROTOTYPE_ONLY / SKIP) with one-paragraph rationale.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L113, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L113, central-promoted 2026-05-28).*
 
 ## Load-Bearing Prose Doctrine Gets Read-and-Skipped — Convert to a Disk-Artifact Forcing Function
 

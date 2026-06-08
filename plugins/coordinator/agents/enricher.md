@@ -78,7 +78,7 @@ Before beginning file discovery via Glob/Grep, check what's already been mapped.
 
 2. **Wiki guides** — `docs/wiki/DIRECTORY_GUIDE.md` for the guide index, then any guide relevant to the stub's domain. These contain distilled technical knowledge — design decisions, patterns in use, integration points.
 
-3. **Repo map** — `tasks/repomap.md` (or task-scoped `tasks/repomap-task.md` if provided in your dispatch prompt — prefer the task-scoped version). Contains a ranked structural summary: key files, their definitions, relative importance.
+3. **Repo map** — `state/repomap.md` (or task-scoped `tasks/repomap-task.md` if provided in your dispatch prompt — prefer the task-scoped version). Contains a ranked structural summary: key files, their definitions, relative importance.
 
 4. **Documentation index** — `docs/README.md` for pointers to research, specs, or plans related to the stub's domain.
 

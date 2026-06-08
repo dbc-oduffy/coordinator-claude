@@ -100,7 +100,7 @@ This mirrors Matt's ADR-0001 discipline. The file's absence means no terms have 
 
 This is a load-bearing rule, not a style preference. The coordinator system already has scaffold bloat. `CONTEXT.md` earns its keep only if it contains real terms from real work — not a pre-populated vocabulary dump.
 
-**When to create:** First time a term is resolved during a brainstorming or writing-plans session that would clearly recur in future sessions. The signal is: "I'm about to write this term in the plan, and if I don't record the canonical form, the next session will use the wrong synonym."
+**When to create:** First time a term is resolved during a brainstorming or coordinator:plan session that would clearly recur in future sessions. The signal is: "I'm about to write this term in the plan, and if I don't record the canonical form, the next session will use the wrong synonym."
 
 **When NOT to create:**
 - Project onboarding (even if the project is terminology-heavy)

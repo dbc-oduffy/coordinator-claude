@@ -1,6 +1,6 @@
 #!/bin/bash
 # PreToolUse hook: Blocks runtime Write/Edit to the generated handoff tracker
-# files (tasks/handoff-tracker.md, tasks/doe-handoff-tracker.md).
+# files (state/handoff-tracker.md, state/doe-handoff-tracker.md).
 #
 # Spec backlink: docs/plans/2026-05-29-handoff-tracker-system.md (edit-resistance follow-up)
 #
@@ -15,7 +15,7 @@
 # a real change belongs.
 #
 # Fires on Write / Edit / MultiEdit / NotebookEdit targeting a path whose tail
-# is tasks/handoff-tracker.md or tasks/doe-handoff-tracker.md (matched on the
+# is state/handoff-tracker.md or state/doe-handoff-tracker.md (matched on the
 # tail, not the full prefix, so worktrees and project moves work).
 #
 # Override: COORDINATOR_OVERRIDE_TRACKER_EDIT=1 (rare-use; e.g. authoring a

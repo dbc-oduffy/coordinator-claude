@@ -27,9 +27,9 @@ The queue file is a workspace, not a ledger. Its job is to show what is open —
 To see when an entry was added and when it was removed:
 
 ```bash
-git log --oneline -- tasks/improvement-queue.md
-git log --oneline -- tasks/coordinator-improvement-queue.md
-git log -p -- tasks/improvement-queue.md | grep "^[-+].*<entry-fragment>"
+git log --oneline -- state/improvement-queue.md
+git log --oneline -- state/coordinator-improvement-queue.md
+git log -p -- state/improvement-queue.md | grep "^[-+].*<entry-fragment>"
 ```
 
 The removal commit subject names the closed entry; the diff confirms the line was deleted, not annotated.
@@ -38,4 +38,4 @@ The removal commit subject names the closed entry; the diff confirms the line wa
 
 - Canonical rule: `coordinator/CLAUDE.md` § Improvement Queue — "On resolution, delete the entry. Commit subject names the closed entry; `git log -- <queue-file>` is the audit trail."
 - Phase 11i stripping behavior: same section, "No `## History` / `## Closed` / `## Done` / `## Archive` / `## Closeout` graveyard sections."
-- Applies to: `tasks/improvement-queue.md`, `~/.claude/tasks/coordinator-improvement-queue.md`, `tasks/bug-backlog.md`.
+- Applies to: `state/improvement-queue.md`, `~/.claude/state/coordinator-improvement-queue.md`, `state/bug-backlog.md`.

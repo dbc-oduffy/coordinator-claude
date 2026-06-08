@@ -33,7 +33,7 @@ The repo qualifier fixes this. Grep then targets the right repo.
 
 Additional qualifications:
 - Optional in commit messages within a single repo (context is implicit).
-- ALWAYS qualify in `~/.claude/tasks/coordinator-improvement-queue.md` (cross-repo by construction).
+- ALWAYS qualify in `~/.claude/state/coordinator-improvement-queue.md` (cross-repo by construction).
 - Coordinator **script** citations (an invocation, not a `file:line` location) follow a separate rule — see `claude-code-platform-gotchas.md` § "Coordinator scripts are on PATH". In short: invokable `.sh`/extensionless commands are cited by **bare name** (`fan-out-dispatch.sh`, not `bin/fan-out-dispatch.sh`); `bin/X` survives only for launcher-run interpreter scripts and data files. Both forms are PATH-namespace — never resolve them against the current repo's `./bin/`.
 
 ## Plugin-wiki vs publish-native-wiki authoring — a third rule pair
@@ -102,7 +102,7 @@ Pinning by branch (`main`, `work/...`) is a re-bisect hazard — a future drift 
 
 ## Coordination memo BEFORE shipping cross-repo changes
 
-If a change in repo A will land before/with consumers in peers B and C, write a one-line coordination memo in `~/.claude/tasks/coordinator-improvement-queue.md` or the active handoff *before* the producing commit — not after. The memo names the producer SHA (once landed), the consumer repos, and the migration order.
+If a change in repo A will land before/with consumers in peers B and C, write a one-line coordination memo in `~/.claude/state/coordinator-improvement-queue.md` or the active handoff *before* the producing commit — not after. The memo names the producer SHA (once landed), the consumer repos, and the migration order.
 
 This is the same shape as the consumer-audit-before-deletion rule above, but for additive changes: schema bumps, manifest field additions, output format changes. Producer-first shipping without the memo creates a window where peer repos read against the old contract and don't know it.
 
@@ -149,7 +149,7 @@ The line-citation form `<repo>:<path>:<line>` is the same shape with the line ta
 
 ## Grep ratified cross-repo DRs before authoring a new hookspec
 
-Before drafting a new hookspec or seam interface, grep the peer-repo ratified DRs and coordination memos from recent days. Authoring without this check produces collisions: e.g., drafting `project_rag_declare_kind_sources` while a peer repo's already-ratified `project_rag_register_corpus_provider` (D-5) covers the same seam. The prior-art-checker catches the collision after the draft exists; this discipline catches it before. One grep run against `docs/decisions/` and `tasks/handoffs/` in each peer repo is sufficient.
+Before drafting a new hookspec or seam interface, grep the peer-repo ratified DRs and coordination memos from recent days. Authoring without this check produces collisions: e.g., drafting `project_rag_declare_kind_sources` while a peer repo's already-ratified `project_rag_register_corpus_provider` (D-5) covers the same seam. The prior-art-checker catches the collision after the draft exists; this discipline catches it before. One grep run against `docs/decisions/` and `state/handoffs/` in each peer repo is sufficient.
 
 ## Donor-module excision: check consumer imports before celebrating the split
 
@@ -171,7 +171,7 @@ Without inline preconditions, sentinel blocks become orphan auto-generated regio
 <!-- BEGIN repo-registry-candidates
      Generator: ${CLAUDE_PLUGIN_ROOT}/bin/decode-claude-projects-dir.sh
      Source: ~/.claude/projects/
-     Refresh: /update-docs Phase 14 (cwd-gated, ~/.claude only)
+     Refresh: /update-docs Phase 15 (cwd-gated, ~/.claude only)
      Last refreshed: 2026-05-14
 -->
 ...candidates...
@@ -191,7 +191,7 @@ Two reasons:
 
 **Port-time discipline:** at every repo split, grep the vendored tree for absolute repo prefixes (`<drive>:/`, `/c/`, `/Users/`, `/home/` — substitute the host's actual root prefix so e.g. `C:/`, `D:/` matches aren't missed) and rewrite to `../sibling/...`. The sibling-layout convention is the contract — document it in the source repo's README so consumers don't fight it.
 
-Source: `project-rag-ue-addon:tasks/lessons.md:121` (2026-05-16).
+Source: `project-rag-ue-addon:state/lessons.md:121` (2026-05-16).
 
 Runtime alternative: for consumers that cannot rely on sibling-layout (triangular graphs, multi-drive setups, deterministic-location requirements), prefer the machine-local registry — see `machine-local-registry.md` and `plugin-extraction-and-distribution.md § 11` for the full discovery preference order.
 
@@ -230,5 +230,5 @@ HOLODECK_REPO_ROOT="${HOLODECK_REPO_ROOT:-../claude-unreal-holodeck}"
 
 **Do NOT rewrite the sibling default in scripts that ship to normal-layout deployments** — fixing the C:/ edge case by hardcoding an absolute path breaks what already works everywhere else.
 
-Source: `tasks/lessons.md` § "C:/-rooted `~/.claude` is structurally peerless" (2026-05-18, claude-coordinator).
+Source: `state/lessons.md` § "C:/-rooted `~/.claude` is structurally peerless" (2026-05-18, claude-coordinator).
 

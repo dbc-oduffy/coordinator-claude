@@ -13,7 +13,7 @@ plan: docs/plans/2026-06-01-orientation-supersession-layer.md
 **Verdict:** WARN
 **Claims checked:** 17
 **Conflicts:** 1 | **Compatible-but-relevant:** 6 | **Silent:** 10
-**Corpora consulted:** project-wikis (97 files indexed) | global-wikis (same corpus — active project IS the coordinator meta-repo) | lessons.md (not present at checked path) | improvement-queue (~/.claude/tasks/coordinator-improvement-queue.md, 72 entries scanned)
+**Corpora consulted:** project-wikis (97 files indexed) | global-wikis (same corpus — active project IS the coordinator meta-repo) | lessons.md (not present at checked path) | improvement-queue (~/.claude/state/coordinator-improvement-queue.md, 72 entries scanned)
 
 ---
 
@@ -41,21 +41,21 @@ plan: docs/plans/2026-06-01-orientation-supersession-layer.md
 
 - **Claim #3 — no new `kind`:** Orientation rides existing `kind: spinoff`; no new `kind: orientation` is introduced.
   - **Plan covers:** Explicitly stated in § Design direction item 2.
-  - **Prior art (`docs/wiki/agent-install-contract.md` § Install-spinoff layer):** "There is **no new folder and no new convention**: a downstream repo's whole obligation is 'drop a `kind: spinoff` baton (carrying `install_chain_order:`) into `~/.claude/tasks/handoffs/`.' The `install_chain_order:` tag is what distinguishes an install leg from the coordinator onboarding handoff in the same folder."
-  - **Prior art (`docs/wiki/agent-install-contract.md`, Install-spinoff layer):** "> Do **not** invent a `tasks/spinoffs/` (or `tasks/install-chain/`) directory: no coordinator machinery scans it, so a baton dropped there is invisible to `/pickup`, `query-records`, and `/workday-start`. The standard `tasks/handoffs/` folder is the only surface all three already read."
+  - **Prior art (`docs/wiki/agent-install-contract.md` § Install-spinoff layer):** "There is **no new folder and no new convention**: a downstream repo's whole obligation is 'drop a `kind: spinoff` baton (carrying `install_chain_order:`) into `~/.claude/state/handoffs/`.' The `install_chain_order:` tag is what distinguishes an install leg from the coordinator onboarding handoff in the same folder."
+  - **Prior art (`docs/wiki/agent-install-contract.md`, Install-spinoff layer):** "> Do **not** invent a `tasks/spinoffs/` (or `tasks/install-chain/`) directory: no coordinator machinery scans it, so a baton dropped there is invisible to `/pickup`, `query-records`, and `/workday-start`. The standard `state/handoffs/` folder is the only surface all three already read."
   - **Subtype:** `cite`
   - **Suggested action:** The plan already aligns; cite these passages in C1 to show the no-new-kind choice is consistent with the no-new-folder / no-new-convention ethos already enshrined in the layer this plan extends.
 
 - **Claim #6 — CONDITIONAL+LIVE vs UNCONDITIONAL+TERMINAL semantic seam:** The new supersession is conditional+live; existing supersession (handoff `status: superseded`) is unconditional+terminal.
   - **Plan covers:** Described in § Design direction item 4 as "the single distinction that prevents a naive copy of the terminal semantics."
-  - **Prior art (coordinator CLAUDE.md § Handoff Lineage):** "**Frontmatter `status`: `active | consumed | superseded`** (`shipped` rejected — use `consumed` + `shipped_in:`). [...] `/pickup` flips to `in_flight`, mutates frontmatter in place at `tasks/handoffs/`"
+  - **Prior art (coordinator CLAUDE.md § Handoff Lineage):** "**Frontmatter `status`: `active | consumed | superseded`** (`shipped` rejected — use `consumed` + `shipped_in:`). [...] `/pickup` flips to `in_flight`, mutates frontmatter in place at `state/handoffs/`"
   - **Prior art (`docs/wiki/spinoff-handoffs.md` § Deployment_state lifecycle for spinoffs):** "Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed | superseded` (per coordinator CLAUDE.md § Handoff Lineage); `shipped` is not a valid `status:` value"
   - **Subtype:** `cite`
   - **Suggested action:** The plan correctly avoids stamping `status: superseded` on the superseded orientation baton. C4's spinoff-handoffs.md note should explicitly state that `supersedes:` on a live baton does NOT trigger the `status: superseded` lifecycle transition — it is a separate spine-build-time preference mechanism. This makes the semantic seam greppable from the schema doc.
 
 - **Claim #9 — coordinator agnosticism:** Coordinator hardcodes no orientation, no addon, no order; resolution rule is generic.
   - **Plan covers:** § Design direction item 5: "Coordinator stays agnostic. It hardcodes no orientation, no addon, no order."
-  - **Prior art (`docs/wiki/agent-install-contract.md` § Install-spinoff layer — The two roles):** "**Coordinator STITCHES + DRIVES.** Post-reboot, `continue-onboarding-and-installation.md` Step 0 greps `tasks/handoffs/` for `install_chain_order:` legs, writes a lightweight install-chain spine listing every leg found, and drives each to conclusion via `/pickup`. This is the durability a vanilla session lacked — and it is agnostic: it tracks whatever spinoffs are present, asserting no fixed set."
+  - **Prior art (`docs/wiki/agent-install-contract.md` § Install-spinoff layer — The two roles):** "**Coordinator STITCHES + DRIVES.** Post-reboot, `continue-onboarding-and-installation.md` Step 0 greps `state/handoffs/` for `install_chain_order:` legs, writes a lightweight install-chain spine listing every leg found, and drives each to conclusion via `/pickup`. This is the durability a vanilla session lacked — and it is agnostic: it tracks whatever spinoffs are present, asserting no fixed set."
   - **Subtype:** `cite`
   - **Suggested action:** The plan's C3 spine-builder rule should carry an explicit "agnostic" comment (or comment block) in the template matching the language of the existing agnosticism guarantee — so the resolution rule is greppably agnostic, not just incidentally so.
 

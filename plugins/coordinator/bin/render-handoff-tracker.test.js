@@ -42,11 +42,11 @@ function writeFile(absPath, content) {
 }
 
 /**
- * Write a handoff fixture at tasks/handoffs/<filename>.
+ * Write a handoff fixture at state/handoffs/<filename>.
  * `fields` is an object whose entries are written as YAML frontmatter.
  */
 function writeHandoff(filename, fields, body = '') {
-  const dir = path.join(tmpRoot, 'tasks', 'handoffs');
+  const dir = path.join(tmpRoot, 'state', 'handoffs');
   fs.mkdirSync(dir, { recursive: true });
   const lines = ['---'];
   for (const [k, v] of Object.entries(fields)) {
@@ -173,7 +173,7 @@ before(() => {
 
   // H8: no frontmatter block at all
   writeFile(
-    path.join(tmpRoot, 'tasks', 'handoffs', '2026-05-08_bad-frontmatter.md'),
+    path.join(tmpRoot, 'state', 'handoffs', '2026-05-08_bad-frontmatter.md'),
     'This file has no frontmatter block.\n\nJust body text with no --- delimiters.'
   );
 

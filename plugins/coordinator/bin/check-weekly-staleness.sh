@@ -3,7 +3,7 @@
 #
 # Spec backlink: archive/specs/2026-05-04-workweek-cadence-split.md § Trigger Doctrine
 #
-# Purpose: reads tasks/week-changelog/HEADER.md to extract the prior-week reset
+# Purpose: reads state/week-changelog/HEADER.md to extract the prior-week reset
 # SHA and the Week-starting date, then computes two staleness dimensions:
 #   • commit distance: git rev-list --count <sha>..HEAD
 #   • calendar distance: today - "Week starting" date (in days)
@@ -38,7 +38,7 @@ if [[ -z "$REPO_ROOT" ]]; then
   exit 0
 fi
 
-HEADER="$REPO_ROOT/tasks/week-changelog/HEADER.md"
+HEADER="$REPO_ROOT/state/week-changelog/HEADER.md"
 
 if [[ ! -f "$HEADER" ]]; then
   echo "UNKNOWN"

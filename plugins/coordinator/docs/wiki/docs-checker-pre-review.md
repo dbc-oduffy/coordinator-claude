@@ -76,7 +76,7 @@ When project-RAG is absent, in-repo symbol claims are skipped and noted as out-o
 
 ## Sidecar Schema
 
-Each auto-fix is logged as a YAML block in `tasks/review-findings/{timestamp}-docs-checker-edits.md`:
+Each auto-fix is logged as a YAML block in `state/review-findings/{timestamp}-docs-checker-edits.md`:
 
 ```yaml
 - file: <path>
@@ -115,7 +115,7 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 **Why:** A green docs-checker verified "torch.cuda.mem_get_info inflates free VRAM on WDDM" (true) while the plan's highest-leverage chunk (C5) was built to route the VRAM gate through pynvml. A source-reading domain reviewer found the mem_get_info→pynvml migration had already shipped — no live call site existed. C5 collapsed to its one genuinely-missing piece.
 **How to apply:** after docs-checker passes, dispatch a domain reviewer or run a targeted grep (`grep -rn 'mem_get_info'`) to confirm the fix-locus still holds the symbol the plan proposes to replace. docs-checker answers "is the API claim true?"; only a source read answers "is the proposed locus still the current state?".
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L199, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L199, central-promoted 2026-05-28).*
 
 ## Distribution
 
@@ -156,4 +156,4 @@ docs-checker (and prior-art) answer "is this API claim true?" — they do not an
 
 ## Recalibration
 
-The EM Decision Rules table is calibrated against the current Claude model's training distribution. Re-evaluate when the underlying model changes. A note is recorded in `tasks/coordinator-improvement-queue.md` to flag this for the next model upgrade.
+The EM Decision Rules table is calibrated against the current Claude model's training distribution. Re-evaluate when the underlying model changes. A note is recorded in `state/coordinator-improvement-queue.md` to flag this for the next model upgrade.

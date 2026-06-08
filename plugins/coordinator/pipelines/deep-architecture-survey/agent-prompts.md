@@ -614,7 +614,8 @@ No grade or status fields in YAML frontmatter — weekly-architecture-audit adds
 - Flag one-sided connections as potential inventory errors (note in system's atlas page)
 - The cross-system map must show ALL systems, even if they have zero cross-system connections
 - Per-system YAML frontmatter must include all required fields: system, last_mapped,
-  entry_points, cross_system_connections, dependencies
+  last_attested, entry_points, cross_system_connections, dependencies
+- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `grade`, `health_status`); preserve them on rewrite.
 - Do NOT add grade or status to YAML frontmatter — those are weekly-audit domain
 - Do NOT write any code or modify any source files — produce markdown artifacts only
 ```
@@ -701,8 +702,9 @@ Do NOT add or change grade or status fields.
 - Preserve stable system atlas pages verbatim — do not rephrase or reorganize
 - Validate cross-system connections bidirectionally
 - The cross-system map and connectivity matrix must reflect the CURRENT state of ALL systems
-- Per-system YAML frontmatter must include: system, last_mapped, entry_points,
+- Per-system YAML frontmatter must include: system, last_mapped, last_attested, entry_points,
   cross_system_connections, dependencies — NO grade or status fields
+- Atlas frontmatter may carry additional fields owned by `/architecture-audit` (e.g. `grade`, `health_status`); preserve them on rewrite.
 - Do NOT write any code or modify any source files — produce markdown artifacts only
 ```
 

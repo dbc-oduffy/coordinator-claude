@@ -71,7 +71,7 @@ C5 explicitly names a wiki group list followed by "remaining wikis" — this is 
 - **Resolution options:** add to C6 scope | architectural-OOS | oracle-was-wrong
 
 **MISSED-10: `commands/workday-start.md`**
-- Hit: `"durable snapshot at \`tasks/handoff-tracker.md\` (refreshed by \`/session-end\` and \`/handoff\`"` — prose command reference
+- Hit: `"durable snapshot at \`state/handoff-tracker.md\` (refreshed by \`/session-end\` and \`/handoff\`"` — prose command reference
 - C5 lists `commands/workday-complete.md` and `commands/distill.md`. `commands/workday-start.md` is not listed. C5 does not have a "remaining commands" clause.
 - **Resolution options:** add to C5 scope | architectural-OOS | oracle-was-wrong
 
@@ -81,7 +81,7 @@ C5 explicitly names a wiki group list followed by "remaining wikis" — this is 
 - **Resolution options:** add to C5 scope | architectural-OOS | oracle-was-wrong
 
 **MISSED-12: `canonical-structure.yaml`**
-- Hit: `"tasks/review-trail/ — review records written by /session-end and /handoff."` — prose command reference in YAML
+- Hit: `"state/review-trail/ — review records written by /session-end and /handoff."` — prose command reference in YAML
 - Not covered by any chunk.
 - **Resolution options:** add to C5 scope | architectural-OOS | oracle-was-wrong
 

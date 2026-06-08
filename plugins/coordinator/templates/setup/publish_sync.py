@@ -24,6 +24,7 @@ Output (stdout):
 from __future__ import annotations
 
 import argparse
+import filecmp
 import fnmatch
 import os
 import shutil
@@ -100,25 +101,55 @@ def _archived_or_orphan(rel_path: str) -> bool:
 # Copy / compare primitives
 # ---------------------------------------------------------------------------
 def _needs_copy(src: Path, dst: Path) -> bool:
-    """Match rsync default semantics: copy iff dst missing OR size differs OR
-    src mtime > dst mtime. Single os.stat per side, no subprocess."""
+    """Decide whether dst needs (re)copying from src.
+
+    Copy iff: dst missing, OR size differs, OR src mtime > dst mtime, OR
+    (size-equal AND mtime tie-or-older) AND bytes differ.
+
+    The trailing byte-compare is the content-aware fallback for the
+    same-size + not-newer minority — the silent-skip class the prior
+    mtime-only gate missed when a dest `git reset --hard` refreshed dest
+    mtimes and a same-byte-length content change (e.g. version bump
+    `2.5.1` → `2.7.0`) would otherwise be skipped.
+
+    Perf bound on this leg differs from the bash files_differ leg:
+    filecmp.cmp is an in-process read+memcmp with NO per-file subprocess
+    fork, so the 2026-05-20 Cygwin/MSYS heap-fragmentation incident (a
+    fork-storm class) cannot return here regardless of how many files
+    fall through. Cost in the pathological all-mtime-tie case (e.g. after
+    a dest hard-reset) is RAM/IO bound — for the coordinator main mirror
+    (~800 same-size files) that is ~800 in-process memcmps, tolerable.
+    Contrast: bash files_differ DOES fork cmp per file and relies on a
+    leg-size bound (~70 manifest entries) for its perf safety."""
     if not dst.is_file():
         return True
     try:
         s_src = src.stat()
         s_dst = dst.stat()
-    except OSError:
+    except OSError as exc:
+        # Fail-safe to copy; log so a permission error doesn't hide silently
+        # behind a downstream shutil.copy2 error. The forced copy may also
+        # fail at copy2 time — this log is for diagnostic continuity, not
+        # an assertion that recovery will succeed.
+        print(f"WARNING: stat failed on {src} or {dst}: {exc} — forcing copy attempt (may also fail)",
+              file=sys.stderr)
         return True
     if s_src.st_size != s_dst.st_size:
         return True
     if s_src.st_mtime > s_dst.st_mtime:
         return True
-    return False
+    # Size-equal + mtime tie-or-older: bounded byte compare.
+    # Zero-byte short-circuit: two empty files are always byte-equal.
+    if s_src.st_size == 0:
+        return False
+    return not filecmp.cmp(str(src), str(dst), shallow=False)
 
 
 def _walk_files(root: Path) -> Iterable[Path]:
     """Yield every regular file under root, depth-first. Skips symlinked dirs
-    to match bash `find -type f` behaviour."""
+    to match bash `find -type f` behaviour. Symlinked files ARE followed —
+    their dereferenced content is what gets copied (via shutil.copy2 in the
+    caller); symlinks are not preserved as symlinks in the destination."""
     for entry in sorted(root.rglob("*")):
         if entry.is_file():
             yield entry

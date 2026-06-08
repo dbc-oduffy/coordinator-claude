@@ -49,7 +49,7 @@ Sweep this pattern in any skill that gates engineering housekeeping behind a con
 
 - **When a reviewer's recommendation contradicts the PM's stated intuition, surface the conflict — don't ratify either side without full information.** Bring the recommendation with its reasoning and let the PM decide from the complete picture. Performative agreement with the PM when the reviewer's argument is solid is a failure of the EM role, not deference.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L77, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L77, central-promoted 2026-05-28).*
 
 ### PM owns workstream-complete determination
 
@@ -59,7 +59,7 @@ Sweep this pattern in any skill that gates engineering housekeeping behind a con
 
 - **When the PM redirects past an open question without disputing the EM's recommendation, that is implicit consent — but silent assumption is risky.** Name the read explicitly in the next turn: *"Reading your X as implicit consent to Option Y — push back if I read that wrong."* This converts implicit into explicit before code lands and gives the PM an exit if the read is wrong. Pairs with the workstream-complete rule above: the EM does not unilaterally assume authority, but does surface inferred-authority reads aloud so the PM can ratify or correct them.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## Related
 

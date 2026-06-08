@@ -378,7 +378,7 @@ Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. `coordi
 
 **Rule:** `-NonInteractive -NoProfile -WindowStyle Hidden` remains the required preamble for all coordinator `powershell`/`pwsh` invocations on Windows.  The tripwire `verify-no-powershell-flash.sh` greps shell scripts and `hooks.json` to catch bare invocations in coordinator and sibling plugins.
 
-**Empirical source:** `tasks/lessons.md:171` — original fix in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
+**Empirical source:** `state/lessons.md:171` — original fix in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
 
 ### Git Bash on Windows cannot reach 1Password's SSH agent
 

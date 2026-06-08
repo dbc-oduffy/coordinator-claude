@@ -73,7 +73,7 @@ CLAUDE.md loads at every session start across every project — blast radius is 
 - Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a DoE attention flag, not a blocker.
 - If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
 
-EMs proposing CLAUDE.md targets in `tasks/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
+EMs proposing CLAUDE.md targets in `state/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
 
 ### Pointer-pollution bound
 
@@ -178,10 +178,10 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
   into the sibling repo), gated on the central wiki commit SHA landing first. Procedure per
   record:
   1. `cd <sibling-repo> && git pull --ff-only`. If pull is not fast-forward or working tree
-     is dirty in `tasks/lessons.md`, **skip this strip and emit a one-line warning** —
+     is dirty in `state/lessons.md`, **skip this strip and emit a one-line warning** —
      don't fight a concurrent EM; the sibling's local-mode Phase 4.5 age-sweep is the
      defence-in-depth that catches residue.
-  2. Re-Read `tasks/lessons.md` and **match the target entry by body content** against the
+  2. Re-Read `state/lessons.md` and **match the target entry by body content** against the
      extracted record from the Phase 2 extraction (`source:` body), NOT by line number.
      The `<shortname>-L<N>` id reflects the line at extraction time; a concurrent EM
      session may have inserted/removed earlier entries since. Same drift-safe pattern as
@@ -189,7 +189,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
   3. If the content match is unambiguous (single hit), Edit out the entry block.
      If zero hits (entry already removed by a sibling EM) or multiple hits (file got weird),
      skip with a one-line warning.
-  4. Commit with explicit pathspec: `git add -- tasks/lessons.md && git commit -m
+  4. Commit with explicit pathspec: `git add -- state/lessons.md && git commit -m
      "learn-lessons(central): strip <id> — promoted in <central-SHA>"`. Never `git add -A`.
 
   The sibling's local mode is no longer the primary mechanism for retiring promoted
@@ -225,12 +225,12 @@ automatically vs. require PM surfacing.
 
 ## Lesson Scope Classification
 
-Each lesson extracted from `tasks/lessons.md` is classified into one of four scopes:
+Each lesson extracted from `state/lessons.md` is classified into one of four scopes:
 
 | Scope | Meaning | Routing destination |
 |---|---|---|
-| `universal` | Applies across project types — would fire for any project using the coordinator pipeline | `~/.claude/tasks/coordinator-improvement-queue.md` (central); tag `[universal]` in source |
-| `project` | Applies to the originating project's structure or codebase | Local `tasks/improvement-queue.md` |
+| `universal` | Applies across project types — would fire for any project using the coordinator pipeline | `~/.claude/state/coordinator-improvement-queue.md` (central); tag `[universal]` in source |
+| `project` | Applies to the originating project's structure or codebase | Local `state/improvement-queue.md` |
 | `wiki-only` | Lesson whose substance belongs directly in a wiki guide (no queue entry needed) | Append-or-promote to `docs/wiki/<topic>.md` |
 | `discard` | Ephemeral, already covered by existing doctrine, or factually wrong | Archive (Phase 4) then delete |
 
@@ -238,13 +238,13 @@ Each lesson extracted from `tasks/lessons.md` is classified into one of four sco
 
 **Conservative on domain-specific candidates.** `retag-local` is the safer default for entries that look universal-tagged but are really domain (UE / game-dev / web-dev / data-science). When applying `retag-local`: do NOT blind string-replace `[universal]` → `[domain]` — a naive replace corrupts prior retag-history comments and any in-body `[universal]` reference. Edit only the tag on the entry's header line. Note also that `extract-lessons.py` sets `tag_universal` if `[universal]` appears *anywhere* in the block, so a leftover in-body mention keeps an entry classified universal after a header-only retag — strip stray in-body occurrences too.
 
-## Per-Project `tasks/lessons.md` Files Are a Central Mining Surface
+## Per-Project `state/lessons.md` Files Are a Central Mining Surface
 
-**Per-project `tasks/lessons.md` files accumulate war stories specific to that project's domain. The central-mode run is the mechanism for surfacing universal patterns buried in domain-specific language.**
+**Per-project `state/lessons.md` files accumulate war stories specific to that project's domain. The central-mode run is the mechanism for surfacing universal patterns buried in domain-specific language.**
 
 Triage tier:
 - **Tier 1** — pattern applies universally → coordinator structural change (skill/command/agent-prompt/wiki); tag `[universal]`, promote to central queue.
-- **Tier 2** — pattern is project-structural → stays in `tasks/improvement-queue.md` for that repo.
+- **Tier 2** — pattern is project-structural → stays in `state/improvement-queue.md` for that repo.
 - **Tier 3** — already encoded in existing doctrine → `discard`.
 
 The 2026-04-27 holodeck pass illustrates the signal density: 3 lessons became direct pipeline fixes, 12 became universal coordinator promotions across 15 files — from a single project's lessons file. When the central-mode run is overdue, per-project files are the richest underexplored source of universals.
@@ -267,13 +267,13 @@ The routing bias section above governs CLAUDE.md placement. A separate, symmetri
 
 ## Cross-Repo Strip — Content-Signature Matching, Not Line-Number Partition
 
-**When the central run strips promoted universals from sibling-repo `tasks/lessons.md` files, the strip oracle MUST be the extracted-yaml record bodies matched by content, not a fresh partition of the current source state.**
+**When the central run strips promoted universals from sibling-repo `state/lessons.md` files, the strip oracle MUST be the extracted-yaml record bodies matched by content, not a fresh partition of the current source state.**
 
 Source files are in motion. Between extraction at time T and strip at time T+N, concurrent EM sessions may add new universals, prune existing ones, or commit adjacent changes. A partition-based strip (re-derive all `tag_universal: true` blocks from current source at apply time) will archive post-extraction additions that were never centrally promoted — promoting the wrong thing.
 
 **Correct procedure (per `skills/learn-lessons/SKILL.md` § strip-local apply):**
 
-1. Re-read `tasks/lessons.md` at strip time.
+1. Re-read `state/lessons.md` at strip time.
 2. For each promoted body in the central run's extracted-yaml, match against current source by **normalized first-200-char content signature** (not line number).
 3. Strip only entries whose signatures match a promoted body; skip zero-match (already removed) and multi-match (ambiguous) with a warning.
 4. Archive provenance header cites the central SHA + "promoted by" — not "discarded."

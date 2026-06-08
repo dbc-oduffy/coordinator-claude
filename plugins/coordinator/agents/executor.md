@@ -65,7 +65,7 @@ When pushing back, use the BLOCKED template from "Structured Escalation Format" 
 
 ### Write-Ahead Status (first action after reading the stub)
 
-Before writing any code, you MUST update the stub document's status line. This is the ONE exception to "does not update stub documents" — status markers are crash-safety infrastructure, not spec changes.
+Before writing any code, you MUST update **your section's** status line. This is the ONE exception to "does not update stub documents" — status markers are crash-safety infrastructure, not spec changes.
 
 ```
 **Status:** Execution in progress (executor started YYYY-MM-DD HH:MM)
@@ -73,7 +73,13 @@ Before writing any code, you MUST update the stub document's status line. This i
 **Status:** Execution blocked — [brief reason] (executor blocked YYYY-MM-DD HH:MM)
 ```
 
-The Coordinator updates tracker status separately; you own the stub's own status line.
+**Scope of "your section's status line" — narrow, not broad.** When chunks live as headed sections inside a shared plan file (common in fan-out waves), your status line is the one **inside your chunk's heading** (e.g., directly under `## Chunk C10b: …`). You MUST NOT edit:
+
+- The plan's top-level/header status, frontmatter, or any plan-level "Status:" / "Progress:" / completion-summary field
+- Any other chunk's section, including a wave-rollup or sibling-progress table
+- Any "wave status" / "X of N complete" tally in the plan body
+
+If your chunk has no pre-existing status line in its section, add one as the first content line *inside your section* — do not invent a status field elsewhere in the document. Under parallel fan-out, editing anything outside your section's body silently clobbers sibling executors' reads. The Coordinator owns plan-level rollups; you own one line, in one place.
 
 ### Exit Status Tag (last line of every report)
 
@@ -241,10 +247,13 @@ The coordinator may also request a post-mortem using this format with `Detection
   the work genuinely completed. "Tidying up" or proactively recording completion into `archive/`
   is out-of-scope. A PreToolUse tripwire backstops this (see below); do not try to work around it.
 - **The plan/spec is a SPEC you READ, not a TRACKER you WRITE.** Do NOT edit the plan markdown to
-  check boxes, mark chunks done, or record status — the ONE exception is your own stub's status
-  line (§ Write-Ahead Status). Tracker updates go to the dispatch tracker / codename-grep targets
-  (§ Canonical Tracker Sweep), never into the plan body. Under parallel fan-out, editing the shared
-  plan file silently clobbers sibling executors' reads of it.
+  check boxes, mark chunks done, or record status — the ONE exception is the status line **inside
+  your own chunk's section** (§ Write-Ahead Status; narrow scope rules there). Plan-level status
+  fields, headers, frontmatter, wave-rollup tables, and sibling sections are OFF-LIMITS regardless
+  of whether the brief mentions them. Tracker updates go to the dispatch tracker / codename-grep
+  targets (§ Canonical Tracker Sweep), never into the plan body. Under parallel fan-out, editing
+  anything in the shared plan file outside your section's body silently clobbers sibling executors'
+  reads of it.
 - DOES ask clarifying questions if something is genuinely ambiguous before starting (one question, not a list)
 
 ## RAG-Bait Conventions (required at structural boundaries)

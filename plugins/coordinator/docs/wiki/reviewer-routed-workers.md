@@ -57,9 +57,9 @@ Each replay's worker output must (a) surface an issue not in the original review
 
 No overlap.
 
-### Periodic dispatch via recheck markers
+### Periodic dispatch via /workweek-complete (change-aware)
 
-`dep-cve-auditor` runs both periodically and the Staff Engineer-named. First run drops `tasks/cve-recheck-due-YYYY-MM-DD.md` dated +7 days; `/workday-start` Step 1.6 globs `tasks/*-recheck-due-*.md` and surfaces expiring markers.
+`dep-cve-auditor` runs both periodically and the Staff Engineer-named. The periodic cadence is owned by `/workweek-complete` Step 4h — change-aware: it dispatches the auditor only when a tracked dependency manifest (`package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, `go.mod`, or their lock files) actually changed in the last 7 days. Repos with no dep surface (e.g. the `~/.claude` meta-repo's scripts-only `package.json`) skip silently every week. The worker does not schedule its own re-runs and does not drop recheck-marker files — the marker mechanism was retired 2026-06-08 because for low-no-op-cost surfaces it produced ceremony with no signal.
 
 ## Phase 2 (deferred): /merge-to-main 5-step gate
 
@@ -92,7 +92,7 @@ Refines coordinator CLAUDE.md § Reviewer-Routed Workers (distributed-abstention
 **Why:** Two the Staff Engineer architectural review passes on one plan caught 16 findings but missed a bare `-e .` editable-install anchor in a recovery script. The security-audit-worker caught it next pass because the security lens forces the question "what if the runtime invocation is hostile?" the Staff Engineer's correctness-of-design and the specialist's correctness-of-deployment are different lenses.
 **How to apply:** after each post-implementation review, dispatch the specialist roster (security-audit-worker, dep-cve-auditor, doc-link-checker, test-evidence-parser) as a bundle, not just on explicit the Staff Engineer recommendation. The costs are mechanical; the catches are structural.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L153, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L153, central-promoted 2026-05-28).*
 
 ## Reviewer-Recommended Workers Are Real Deliverables — Track and Gate
 
@@ -100,7 +100,7 @@ Refines coordinator CLAUDE.md § Reviewer-Routed Workers (distributed-abstention
 
 The `## Worker Dispatch Recommendations` block in a reviewer's output is the **output of the review** — not a suggestion list. The doctrine says "EM dispatches in follow-up," but the empirical skip rate is high. A skipped worker recommendation is a skipped review lens; the finding it would have surfaced ships instead.
 
-**Rule.** After every review, before writing the marker-trail record, verify that every named worker in the `## Worker Dispatch Recommendations` block has been dispatched and its output integrated. Treat an undispatched recommendation the same as an unaddressed P1 finding. Sessions that end with pending worker recommendations should note them in `tasks/lessons.md` for the next pickup.
+**Rule.** After every review, before writing the marker-trail record, verify that every named worker in the `## Worker Dispatch Recommendations` block has been dispatched and its output integrated. Treat an undispatched recommendation the same as an unaddressed P1 finding. Sessions that end with pending worker recommendations should note them in `state/lessons.md` for the next pickup.
 
 *Note: a workstream-complete checklist gate was proposed (skills/workstream-complete Step 2.9 "reviewer-recommended workers dispatched: y/n"). Pending authoring at that site.*
 

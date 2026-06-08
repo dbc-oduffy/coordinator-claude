@@ -192,7 +192,7 @@ def test_binding_unbound_when_no_registered_source(monkeypatch: pytest.MonkeyPat
     Verifies the fix for code-review Finding 1 (bf96a420): binding.kind was
     structurally always 'bound' because compose_envelope() used project.get("root")
     (cwd-detection) instead of _resolve_bound_project_root() (registry-detection).
-    The "unbound" branch in /project-onboarding and /session-start could never fire.
+    The "unbound" branch in /repo-setup and /session-start could never fire.
 
     SKIP until Task 4 lands envelope.py.
 

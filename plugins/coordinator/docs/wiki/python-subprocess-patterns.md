@@ -230,7 +230,7 @@ Also: a doctrine bullet stating an unverified *conclusion* can mislead for weeks
 
 ## `Path.write_text` on Windows Emits CRLF — Pass `newline='\n'` for Unix Consumers
 
-*Source: project-rag tasks/lessons.md:35, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:35, 2026-05-29. [universal]*
 
 `pathlib.Path.write_text()` (and `open(..., 'w')` without `newline=`) uses the platform's native line ending. On Windows that is `\r\n` (CRLF). Files consumed by bash scripts (`[ -f ]` path lists, `git rm --pathspec-from-file`, `xargs`), by `git`, or by any POSIX tool will mis-parse CRLF-terminated lines: the carriage return appears as part of the last token on the line, turning `path/to/file` into `path/to/file\r` and silently failing every downstream match.
 

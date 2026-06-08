@@ -6,7 +6,7 @@ scope_mode: feature
 status: superseded
 superseded_by: plugins/coordinator/docs/plans/2026-06-01-workstream-rename.md
 workstream: session-complete-rename
-spinoff_source: tasks/handoffs/2026-06-01_125306_session-complete-rename.md
+spinoff_source: state/handoffs/2026-06-01_125306_session-complete-rename.md
 problem_set: handoff body (PM-ratified) — restores the {session,workday,workweek}×{start,complete} ceremony grid
 depends_on:
   - plugins/coordinator/docs/plans/2026-06-01-session-boot-nomenclature.md  # front-half; disjoint file scope, soft seam at CLAUDE.md
@@ -157,7 +157,7 @@ Coupling: C1→C2→C3 are serial (shared skill dir + token caller). C4 (commit 
 - **Test surface:** `grep:` CLAUDE.md has zero `session-end`; CHANGELOG gained the rename entry; README coherent.
 
 ### C8 — Reconcile against the keep-list (after C1–C7)
-- Re-run `grep -rn session-end plugins/coordinator-claude/coordinator`; diff the result against the intentional-keep list (items 1–6 + 2a). Any residual outside the list → fix. Update the stale improvement-queue path ref (`tasks/coordinator-improvement-queue.md` L15 cites `skills/session-end/SKILL.md`) → `skills/session-complete/SKILL.md` if still present. Document the final keep-set in this plan's closeout.
+- Re-run `grep -rn session-end plugins/coordinator-claude/coordinator`; diff the result against the intentional-keep list (items 1–6 + 2a). Any residual outside the list → fix. Update the stale improvement-queue path ref (`state/coordinator-improvement-queue.md` L15 cites `skills/session-end/SKILL.md`) → `skills/session-complete/SKILL.md` if still present. Document the final keep-set in this plan's closeout.
 - **Test surface:** `grep:` every remaining `session-end` maps to a keep-list item; no orphans.
 
 ### C9 — Post-execution closeout (after C8)

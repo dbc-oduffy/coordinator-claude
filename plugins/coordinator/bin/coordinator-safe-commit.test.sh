@@ -2,11 +2,11 @@
 # coordinator-safe-commit.test.sh — Tests for the --blanket foreign-staging pre-check.
 #
 # Covers _blanket_check_foreign_staging() added per the blanket-pre-check queue entry
-# (tasks/coordinator-improvement-queue.md — Cluster 1).
+# (state/coordinator-improvement-queue.md — Cluster 1).
 #
 # Run: bash ~/.claude/plugins/coordinator/bin/coordinator-safe-commit.test.sh
 #
-# Spec backlink: tasks/coordinator-improvement-queue.md — blanket pre-check entry.
+# Spec backlink: state/coordinator-improvement-queue.md — blanket pre-check entry.
 
 set -uo pipefail
 

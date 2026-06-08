@@ -5,7 +5,7 @@
 #
 # Purpose: Replace the 7-file manual read chain in /workday-start Step 4 with
 # a single deterministic script. Emits three priority surfaces to stdout:
-#   1. Head of tasks/coordinator-improvement-queue.md (top 5 entries).
+#   1. Head of state/coordinator-improvement-queue.md (top 5 entries).
 #   2. docs/project-tracker.md rows where status column is Ready or Executing.
 #   3. Open handoffs (filename + line-1 heading), excluding archived/superseded.
 #
@@ -28,7 +28,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 # Section 1: Coordinator improvement queue — top 5 active entries
 # ---------------------------------------------------------------------------
 echo "== Improvement queue (top 5) =="
-QUEUE="$HOME/.claude/tasks/coordinator-improvement-queue.md"
+QUEUE="$HOME/.claude/state/coordinator-improvement-queue.md"
 if [[ -f "$QUEUE" ]]; then
   # Extract bullet list entries (lines starting with "- "), skip headers/blanks
   ENTRIES=$(grep '^- ' "$QUEUE" 2>/dev/null || true)
@@ -87,7 +87,7 @@ echo ""
 # Excludes files where line 1 or frontmatter signals archived/superseded.
 # ---------------------------------------------------------------------------
 echo "== Open handoffs =="
-HANDOFFS_DIR="$REPO_ROOT/tasks/handoffs"
+HANDOFFS_DIR="$REPO_ROOT/state/handoffs"
 if [[ -d "$HANDOFFS_DIR" ]]; then
   HIT=0
   while IFS= read -r f; do
@@ -102,5 +102,5 @@ if [[ -d "$HANDOFFS_DIR" ]]; then
   done < <(find "$HANDOFFS_DIR" -maxdepth 1 -name '*.md' -print 2>/dev/null | sort || true)
   if [[ $HIT -eq 0 ]]; then echo "  (no open handoffs)"; fi
 else
-  echo "  (tasks/handoffs/ not found)"
+  echo "  (state/handoffs/ not found)"
 fi

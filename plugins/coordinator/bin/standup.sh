@@ -94,7 +94,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "== Handoffs touched today =="
 TODAY_ANCHOR=$(date -I 2>/dev/null || date +%Y-%m-%d)
-HANDOFFS_DIR="$REPO_ROOT/tasks/handoffs"
+HANDOFFS_DIR="$REPO_ROOT/state/handoffs"
 if [[ -d "$HANDOFFS_DIR" ]]; then
   _hits="$(find "$HANDOFFS_DIR" -name '*.md' -newermt "${TODAY_ANCHOR} 00:00" -print 2>/dev/null)"
   if [[ -n "$_hits" ]]; then
@@ -107,7 +107,7 @@ if [[ -d "$HANDOFFS_DIR" ]]; then
     echo "  (none modified today)"
   fi
 else
-  echo "  (tasks/handoffs/ not found)"
+  echo "  (state/handoffs/ not found)"
 fi
 echo ""
 
@@ -144,5 +144,5 @@ if [[ -d "$HANDOFFS_DIR" ]]; then
   done < <(find "$HANDOFFS_DIR" -maxdepth 1 -name '*.md' -print 2>/dev/null | sort || true)
   if [[ $HIT -eq 0 ]]; then echo "  (no active handoffs)"; fi
 else
-  echo "  (tasks/handoffs/ not found)"
+  echo "  (state/handoffs/ not found)"
 fi

@@ -152,7 +152,7 @@ Apply at most `max(10, claims_count/3)` edits per artifact. Beyond the cap, rema
 
 ### Required Behavior After Applying Edits
 
-After applying all inline edits, write a sidecar at `tasks/review-findings/{timestamp}-docs-checker-edits.md`. **Stage all edits as a single discrete diff** — the EM will turn this into a git-revertible commit so "undo all docs-checker edits" is one command.
+After applying all inline edits, write a sidecar at `state/review-findings/{timestamp}-docs-checker-edits.md`. **Stage all edits as a single discrete diff** — the EM will turn this into a git-revertible commit so "undo all docs-checker edits" is one command.
 
 Every edit must be logged as a YAML list entry in the sidecar:
 
@@ -184,7 +184,7 @@ If the same line receives more than 2 edit attempts, abort all further edits to 
 **Artifact:** [path or description]
 **Claims checked:** N
 **Verified:** X | **Unverified:** Y | **Incorrect:** Z | **Auto-fixed:** W
-**Edits sidecar:** tasks/review-findings/{timestamp}-docs-checker-edits.md (omit line if no edits were applied)
+**Edits sidecar:** state/review-findings/{timestamp}-docs-checker-edits.md (omit line if no edits were applied)
 
 ### Verification Table
 | # | Claim | Source | Status | Action | Detail |

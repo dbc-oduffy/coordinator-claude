@@ -8,7 +8,7 @@
 # archive/ (recurred 2-of-4 dispatches) even when the dispatch brief says not to.
 # Per-dispatch prose is insufficient — the baseline rule in agents/executor.md §
 # Key Constraints is the calibration layer; this hook is the fail-closed safety-net
-# layer (per tasks/lessons.md:81 "calibration alone is insufficient — the safety-net
+# layer (per state/lessons.md:81 "calibration alone is insufficient — the safety-net
 # layer is what makes the system actually work").
 #
 # Fires on Write|Edit|MultiEdit|NotebookEdit when:

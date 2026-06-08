@@ -80,7 +80,7 @@ digraph brainstorming {
 **If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 <!-- END project-rag-preamble -->
 
-**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`docs/architecture/systems-index.md`), wiki guides (`docs/wiki/DIRECTORY_GUIDE.md` → relevant guides), repo map (`tasks/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
+**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`docs/architecture/systems-index.md`), wiki guides (`docs/wiki/DIRECTORY_GUIDE.md` → relevant guides), repo map (`state/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
 
 **Clarifying questions:**
 - One question per message. Break complex topics into sequential questions.

@@ -10,7 +10,7 @@ related:
   - plugins/coordinator/docs/wiki/prior-art-checker.md
   - plugins/coordinator/docs/wiki/external-pattern-checker.md
   - plugins/coordinator/docs/wiki/ceremony-calibration.md
-  - tasks/lessons.md
+  - state/lessons.md
   - docs/plans/2026-05-18-plan-coverage-checker.md
 ---
 

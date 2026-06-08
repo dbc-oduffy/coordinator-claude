@@ -20,22 +20,22 @@ The tracker does NOT maintain a hand-written markdown table. That would require 
 the file consistent with the source files it describes — the classic scaffolded-index maintenance
 trap documented in coordinator/CLAUDE.md § Live Queries vs. Scaffolded Indices. Instead:
 
-1. `bin/query-records` reads frontmatter from `tasks/handoffs/*.md`, `tasks/handoffs/spinoffs/*.md`,
+1. `bin/query-records` reads frontmatter from `state/handoffs/*.md`, `state/handoffs/spinoffs/*.md`,
    and `cross-repo/*.md` on demand.
 2. `bin/render-handoff-tracker.js` calls the query engine, formats the results as a markdown table,
    and writes a **disposable** file that is regenerated on every invocation.
 
-The rendered file at `tasks/handoff-tracker.md` is a **snapshot, not a source of truth**. Never
+The rendered file at `state/handoff-tracker.md` is a **snapshot, not a source of truth**. Never
 hand-edit it — edits are silently overwritten on the next render.
 
 ### Output paths
 
 | Mode | Output path | Trigger |
 |------|-------------|---------|
-| Per-repo | `<repo-root>/tasks/handoff-tracker.md` | `/workstream-complete`, `/handoff`, `/workday-start` |
-| DoE (all repos) | `~/.claude/tasks/doe-handoff-tracker.md` | `/workstream-start` (coordinator meta-repo), ad-hoc `--all-repos` |
+| Per-repo | `<repo-root>/state/handoff-tracker.md` | `/workstream-complete`, `/handoff`, `/workday-start` |
+| DoE (all repos) | `~/.claude/state/doe-handoff-tracker.md` | `/workstream-start` (coordinator meta-repo), ad-hoc `--all-repos` |
 
-`tasks/handoff-tracker.md` is **lazily created on first render** — no manual scaffolding
+`state/handoff-tracker.md` is **lazily created on first render** — no manual scaffolding
 needed. The renderer ships with the coordinator plugin and creates the file automatically the
 first time any session-boundary skill (workstream-complete, handoff, workday-start) runs.
 
@@ -100,8 +100,8 @@ signal-dense and the weekly view structurally complete.
 
 Queried and rendered by `/workstream-complete`, `/handoff`, `/workday-start`:
 
-- Active `tasks/handoffs/*.md` records (kind: session-handoff, spinoff, spinoff-roadmap, recovery)
-- Active `tasks/handoffs/spinoffs/*.md` records (if the spinoffs directory exists)
+- Active `state/handoffs/*.md` records (kind: session-handoff, spinoff, spinoff-roadmap, recovery)
+- Active `state/handoffs/spinoffs/*.md` records (if the spinoffs directory exists)
 - Inbound `cross-repo/*.md` memos with `status: pending` or `status: active`
 
 The daily view answers: **"what is in flight right now?"**
@@ -132,7 +132,7 @@ signal on what is in flight. Fail-loud parse errors are preferable to silent gap
 `summary` on handoffs that predate the schema extension.
 
 Operating rules:
-- **Active-only by default** — only processes `tasks/handoffs/` (not the archive).
+- **Active-only by default** — only processes `state/handoffs/` (not the archive).
   Archived handoffs are immutable records; backfilling them changes the historical record
   without benefit.
 - **Dry-run is the default** — invoke with `--write` to apply changes. Without `--write`,
@@ -158,13 +158,13 @@ node ~/.claude/plugins/coordinator/bin/normalize-handoff-frontmatter.js \
 ## Running the Renderer Ad-Hoc
 
 ```sh
-# Per-repo (outputs to tasks/handoff-tracker.md in git toplevel):
+# Per-repo (outputs to state/handoff-tracker.md in git toplevel):
 node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js
 
 # Preview to stdout (no file written):
 node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js --stdout
 
-# DoE mode (all repos from machine-local, writes ~/.claude/tasks/doe-handoff-tracker.md):
+# DoE mode (all repos from machine-local, writes ~/.claude/state/doe-handoff-tracker.md):
 node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js --all-repos
 
 # Against a specific repo root:
@@ -182,14 +182,14 @@ edit-resistant — both offer-shaped (overridable by intent), since the next ren
 edit anyway:
 
 - **Agent-side (automatic):** the `block-tracker-edit.sh` PreToolUse hook DENIES Claude's
-  Write/Edit/MultiEdit/NotebookEdit on `tasks/handoff-tracker.md` and `tasks/doe-handoff-tracker.md`,
+  Write/Edit/MultiEdit/NotebookEdit on `state/handoff-tracker.md` and `state/doe-handoff-tracker.md`,
   redirecting to "edit the handoff frontmatter and re-run the renderer." Ships with the plugin;
   no per-project setup. Override: `COORDINATOR_OVERRIDE_TRACKER_EDIT=1`. Registry: `coordinator-tripwires.md`
   (`BLOCK-TRACKER-EDIT`). The renderer's own write is a `node` Bash call, not a Write/Edit tool,
   so it is unaffected.
 - **Editor-side (per-project):** `ensure-vscode-readonly.sh` merges `files.readonlyInclude`
   globs into `.vscode/settings.json`, so VS Code (and forks honoring that key) open the files
-  read-only and refuse to save. Wired into project-onboarding Phase 3f.6; idempotent; skips loudly
+  read-only and refuse to save. Wired into repo-setup Phase 3f.6; idempotent; skips loudly
   if the file is JSONC. Per-file override: VS Code "Set Active Editor Writeable".
 
 To change what the tracker shows, edit the relevant handoff's frontmatter (`category` / `summary`
@@ -200,10 +200,10 @@ To change what the tracker shows, edit the relevant handoff's frontmatter (`cate
 ## Negative-Spec
 
 - The tracker IS committed to its own repo (durable, diffable, pushed as crash-insurance —
-  like `tasks/orientation_cache.md`); `/workstream-complete`, `/handoff`, and `/workday-start` refresh
+  like `state/orientation_cache.md`); `/workstream-complete`, `/handoff`, and `/workday-start` refresh
   and commit it. It is NOT hand-edited — the renderer owns its content (see § Edit-Resistance).
 - The renderer does NOT archive, move, or mutate any handoff or memo file.
 - The renderer does NOT glob handoff files directly — it calls `query-records` to benefit
   from `applyConsumedMarker` logic and correct completion-pruning.
-- `tasks/handoff-tracker.md` and `~/.claude/tasks/doe-handoff-tracker.md` are NOT published
+- `state/handoff-tracker.md` and `~/.claude/state/doe-handoff-tracker.md` are NOT published
   to consumer repos via `setup/publish.sh` — they are per-repo session state.

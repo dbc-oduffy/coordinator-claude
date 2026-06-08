@@ -304,7 +304,7 @@ function loadSchemas(schemasDir) {
 
 /**
  * Find the schema that matches repoRelPath.
- * repoRelPath should use forward slashes (e.g. "tasks/handoffs/foo.md").
+ * repoRelPath should use forward slashes (e.g. "state/handoffs/foo.md").
  * Returns {schemaName, schema} or null.
  */
 function matchSchemaForPath(repoRelPath, schemas) {

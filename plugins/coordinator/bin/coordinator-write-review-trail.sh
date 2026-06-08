@@ -212,11 +212,11 @@ fi
 # Compute target path
 # ---------------------------------------------------------------------------
 
-# Resolve the repo root for writing into tasks/review-trail/
+# Resolve the repo root for writing into state/review-trail/
 # Use the working directory from which we're invoked (git repo context)
 REPO_ROOT_FOR_WRITE=""
 if ! REPO_ROOT_FOR_WRITE=$(git rev-parse --show-toplevel 2>/dev/null); then
-  echo "ERROR: Not inside a git repository; cannot resolve tasks/review-trail/ path" >&2
+  echo "ERROR: Not inside a git repository; cannot resolve state/review-trail/ path" >&2
   exit 1
 fi
 
@@ -236,7 +236,7 @@ else
   TIMESTAMP="${_TS_RAW:0:23}"
 fi
 SESSION_ID_SHORT="${SESSION_ID:0:8}"
-TRAIL_DIR="${REPO_ROOT_FOR_WRITE}/tasks/review-trail"
+TRAIL_DIR="${REPO_ROOT_FOR_WRITE}/state/review-trail"
 TARGET_FILE="${TRAIL_DIR}/${TIMESTAMP}-${SESSION_ID_SHORT}.json"
 
 # Ensure the trail directory exists (created by .gitkeep but may not exist in fresh clones)

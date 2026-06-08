@@ -320,8 +320,8 @@ test('true idempotency — FIXTURE_MISSING_CATEGORY_SUMMARY is idempotent after 
   assert.equal(afterFirst, afterSecond, 'must be byte-identical after two writes');
 });
 
-test('archive dir NEVER read — walkHandoffsDir only globs tasks/handoffs/*.md', () => {
-  // Assert that the glob path used is constrained to tasks/handoffs and not
+test('archive dir NEVER read — walkHandoffsDir only globs state/handoffs/*.md', () => {
+  // Assert that the glob path used is constrained to state/handoffs and not
   // archive/handoffs by inspecting the module source.
   const src = fs.readFileSync(
     path.join(__dirname, 'normalize-handoff-frontmatter.js'),
@@ -330,8 +330,8 @@ test('archive dir NEVER read — walkHandoffsDir only globs tasks/handoffs/*.md'
   // The path must include 'tasks', 'handoffs' and must NOT reference archive.
   assert.ok(
     src.includes("'tasks', 'handoffs'") || src.includes('"tasks", "handoffs"') ||
-    src.includes("path.join(root, 'tasks', 'handoffs')"),
-    'source must construct path using tasks/handoffs',
+    src.includes("path.join(root, 'state', 'handoffs')"),
+    'source must construct path using state/handoffs',
   );
   // The archive dir must never appear in a path.join() or path.resolve() call.
   // We allow the string to appear in comments (negative-spec docs), but not in
@@ -341,7 +341,7 @@ test('archive dir NEVER read — walkHandoffsDir only globs tasks/handoffs/*.md'
     !pathJoinArchive.test(src),
     'source must not use path.join/resolve with "archive" in path construction',
   );
-  // walkHandoffsDir must not recurse into subdirectories (would pick up tasks/handoffs/archive/)
+  // walkHandoffsDir must not recurse into subdirectories (would pick up state/handoffs/archive/)
   // Verify by checking that we use readdirSync (flat) not a recursive walk.
   assert.ok(
     src.includes('readdirSync'),

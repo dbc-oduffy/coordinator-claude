@@ -16,7 +16,7 @@ parent_plan: docs/plans/2026-05-30-onboarding-install-redesign.md
 
 The install-spinoff layer (`docs/wiki/agent-install-contract.md` § Install-spinoff layer,
 shipped 2026-06-01 in `35828787`) governs **install legs**: a downstream repo seeds a
-`kind: spinoff` baton carrying `install_chain_order:` into `~/.claude/tasks/handoffs/`, and the
+`kind: spinoff` baton carrying `install_chain_order:` into `~/.claude/state/handoffs/`, and the
 spine-builder (`templates/handoffs/continue-onboarding-and-installation.md` Step 0) sweeps those
 legs and drives each to conclusion.
 
@@ -58,7 +58,7 @@ session.
    The addon's install-leg baton (or a sibling baton it seeds) simply carries `supersedes:`.
 
 3. **The one genuinely new surface is a spine-builder Step 0 resolution rule.** When a baton present
-   in `tasks/handoffs/` declares `supersedes: <X>`, the spine-builder drops/defers `<X>`'s
+   in `state/handoffs/` declares `supersedes: <X>`, the spine-builder drops/defers `<X>`'s
    orientation from the install-chain spine in favor of the declaring baton's.
 
 4. **Load-bearing semantic seam — conditional+live, NOT unconditional+terminal.** Existing

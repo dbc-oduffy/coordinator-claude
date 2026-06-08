@@ -184,12 +184,12 @@ xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
   2>/dev/null
 ```
 
-**Peer-repo name extension:** if `~/.claude/tasks/repo-registry.md` exists, extract the registered repo names (one regex-quoted alternation). Add to MEDIUM tier as a fourth alternation — peer-repo names should not appear verbatim in publish content unless the publish target IS that repo.
+**Peer-repo name extension:** if `~/.claude/state/repo-registry.md` exists, extract the registered repo names (one regex-quoted alternation). Add to MEDIUM tier as a fourth alternation — peer-repo names should not appear verbatim in publish content unless the publish target IS that repo.
 
 ```bash
-if [[ -f "$HOME/.claude/tasks/repo-registry.md" ]]; then
+if [[ -f "$HOME/.claude/state/repo-registry.md" ]]; then
   # Extract repo names; format depends on registry schema (see docs/wiki/repo-registry.md)
-  PEER_REPOS=$(awk '/^- name:/ {print $3}' "$HOME/.claude/tasks/repo-registry.md" | \
+  PEER_REPOS=$(awk '/^- name:/ {print $3}' "$HOME/.claude/state/repo-registry.md" | \
     grep -v "^$(<target>)$" | paste -sd'|' -)
   if [[ -n "$PEER_REPOS" ]]; then
     xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE "\\b($PEER_REPOS)\\b" 2>/dev/null

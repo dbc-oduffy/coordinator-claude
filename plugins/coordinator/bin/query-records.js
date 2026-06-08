@@ -28,7 +28,7 @@
  *   Use for stale-flag queries like "awaiting_gate items older than 14 days."
  *   Same parser as --since (Nd/Nw/Nm/YYYY-MM-DD).
  *
- * Lesson type is special: parses tasks/lessons.md entries.
+ * Lesson type is special: parses state/lessons.md entries.
  *   --where "tier=universal" matches entries tagged [universal].
  *
  * Inline consumed marker: bodies containing `<!-- consumed: YYYY-MM-DD [notes] -->`
@@ -38,7 +38,7 @@
  * are preserved.
  *
  * handoff-ledger synthetic type: parses `## Session Ledger` markdown table blocks
- * from handoff bodies (both tasks/handoffs/*.md and archive/handoffs/**) and
+ * from handoff bodies (both state/handoffs/*.md and archive/handoffs/**) and
  * returns one synthetic record per block. A handoff with N Session Ledger blocks
  * yields N records, disambiguated by path fragment (#ledger-0, #ledger-1, ...).
  * All standard query expressions (--where, --since, --sort) apply to synthetic
@@ -60,18 +60,18 @@ const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./
 // Schema-to-glob mapping (must match schema applies_to)
 // ---------------------------------------------------------------------------
 const TYPE_TO_GLOB = {
-  handoff:            'tasks/handoffs/*.md',
+  handoff:            'state/handoffs/*.md',
   'handoff-archived': 'archive/handoffs/*.md',  // post-/pickup home; used by /distill enumeration
   decision:           'docs/decisions/*.md',
   plan:               'docs/plans/*.md',
-  review:             'tasks/reviews/*.md',
-  lesson:             'tasks/lessons.md', // special
+  review:             'state/reviews/*.md',
+  lesson:             'state/lessons.md', // special
   completion:         'archive/completed/*/*.md', // per-entry completion log (Phase 1)
   // handoff-ledger: synthetic type — parses ## Session Ledger table blocks from handoff bodies.
   // Globs BOTH live and archived handoff directories; parser runs instead of standard frontmatter path.
   // archive glob: archive/handoffs/**/*.md (added in queryRecords())
   // Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md §Chunk6
-  'handoff-ledger':   'tasks/handoffs/*.md', // primary glob; archive glob added in queryRecords()
+  'handoff-ledger':   'state/handoffs/*.md', // primary glob; archive glob added in queryRecords()
   // cross-repo-memo: glob deliberately differs from schema's applies_to bracket form
   // `cross-repo/inbox/[0-9]*.md` — filePatternToRegex (this file, ~line 350) escapes `[`/`]` as
   // literals so a bracket class matches nothing here (divergent from schema.js globToRegex which
@@ -399,7 +399,7 @@ function applyConsumedMarker(frontmatter, body) {
 // Lesson parser
 // ---------------------------------------------------------------------------
 /**
- * Parse tasks/lessons.md into a list of record objects.
+ * Parse state/lessons.md into a list of record objects.
  * Each entry is a bold-title line followed by body text until the next entry.
  * Returns [{title, tier, body, path}].
  */
@@ -561,14 +561,14 @@ function queryRecords(opts, root) {
   let records;
 
   if (opts.type === 'lesson') {
-    const lessonsPath = path.join(root, 'tasks', 'lessons.md');
+    const lessonsPath = path.join(root, 'state', 'lessons.md');
     const parsed = parseLessonsFile(lessonsPath);
     records = parsed.map(r => ({ path: r.path, frontmatter: r.frontmatter }));
   } else if (opts.type === 'handoff-ledger') {
     // Synthetic type: parse ## Session Ledger blocks from handoff bodies.
-    // Crawl BOTH live handoffs (tasks/handoffs/*.md) and archived handoffs
+    // Crawl BOTH live handoffs (state/handoffs/*.md) and archived handoffs
     // (archive/handoffs/**/*.md) since the query surface spans the full chain.
-    const liveFiles = walkGlob(root, 'tasks/handoffs/*.md');
+    const liveFiles = walkGlob(root, 'state/handoffs/*.md');
     const archiveFiles = walkGlob(root, 'archive/handoffs/**/*.md');
     const allFiles = [...liveFiles, ...archiveFiles];
     records = [];

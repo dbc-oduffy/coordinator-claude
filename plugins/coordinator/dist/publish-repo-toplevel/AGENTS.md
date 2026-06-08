@@ -15,7 +15,7 @@ It tells you:
 - The recommended path (run `setup/install.sh`) and what it does
 - How to validate the result
 - What to tell the user before they restart Claude Code
-- The one command to resume after the restart — `/pickup tasks/handoffs/continue-onboarding-and-installation.md` in a fresh session
+- The one command to resume after the restart — `/pickup state/handoffs/continue-onboarding-and-installation.md` in a fresh session
 
 ## Why this file exists
 
@@ -25,6 +25,6 @@ It tells you:
 
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, bash version checks) that you will get wrong without it.
 - Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
-- Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The playbook stages a continue-onboarding handoff; the post-restart step is `/pickup tasks/handoffs/continue-onboarding-and-installation.md`.
+- Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The playbook stages a continue-onboarding handoff; the post-restart step is `/pickup state/handoffs/continue-onboarding-and-installation.md`.
 
 Follow the playbook. Then report back to the human.

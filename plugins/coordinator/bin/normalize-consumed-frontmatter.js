@@ -44,10 +44,10 @@ const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./
 // paths stay greppably aligned without copy-paste drift.
 
 const TYPE_TO_GLOB = {
-  handoff:  'tasks/handoffs',
+  handoff:  'state/handoffs',
   plan:     'docs/plans',
   decision: 'docs/decisions',
-  review:   'tasks/reviews',
+  review:   'state/reviews',
 };
 
 function parseArgs(argv) {

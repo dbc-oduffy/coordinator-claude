@@ -21,7 +21,7 @@ The "night shift colleague" — reviews today's commits, dispatches a reviewer f
 Determine the scope of commits to review:
 
 1. Check for a last-check timestamp:
-   - Read `tasks/health-ledger.md` header for `Last daily check:` date
+   - Read `state/health-ledger.md` header for `Last daily check:` date
    - If no health ledger exists: this is the first run. Use the last 24 hours of commits as scope.
 2. Get commits since last check:
    ```bash
@@ -63,7 +63,7 @@ If no findings: skip to Step 6.
 
 For any findings not fixed inline:
 
-1. Check for `tasks/debt-backlog.md`. If it doesn't exist, create it from template:
+1. Check for `state/debt-backlog.md`. If it doesn't exist, create it from template:
 
    ```markdown
    # Technical Debt Backlog
@@ -85,7 +85,7 @@ For any findings not fixed inline:
 
 ### Step 6: Update Health Ledger
 
-1. Check for `tasks/health-ledger.md`. If it doesn't exist, create it from template:
+1. Check for `state/health-ledger.md`. If it doesn't exist, create it from template:
 
    ```markdown
    # System Health Ledger
@@ -124,7 +124,7 @@ For any findings not fixed inline:
 
 ### Step 7: Write Health Summary
 
-Write results to `tasks/health-summary.md` — this is what workstream-start reads the next morning:
+Write results to `state/health-summary.md` — this is what workstream-start reads the next morning:
 
 ```markdown
 # Health Summary
@@ -155,7 +155,7 @@ Write results to `tasks/health-summary.md` — this is what workstream-start rea
 ### Step 8: Commit and Update Timestamp
 
 ```bash
-git add tasks/health-ledger.md tasks/health-summary.md tasks/debt-backlog.md
+git add state/health-ledger.md state/health-summary.md state/debt-backlog.md
 git commit -m "daily-code-health: review of commits since [date]"
 ```
 

@@ -369,7 +369,7 @@ integrator thread from that spec, the retrieval recipe is:
 1. Read the trimmed `archive/specs/` version (on disk, indexed by RAG).
 2. For the verbose original: `git show <last_verbose_sha>:<original path>`.
 
-**Distillation log** (`tasks/distillation-log.md`, append-only) carries domain prose in
+**Distillation log** (`state/distillation-log.md`, append-only) carries domain prose in
 `reason` fields. Because the log lives on disk, RAG indexes it. A log row reading "integrator
 triage resolving async-run wrapper conflict in port-patterns FastMCP transport" surfaces on a
 query about that conflict and surfaces the `last_sha` needed to retrieve the verbose original.

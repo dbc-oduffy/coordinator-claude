@@ -1,4 +1,4 @@
-<!-- Seeded into tasks/handoffs/ by the coordinator install (agent-install.md Step 1f) ONLY when the
+<!-- Seeded into state/handoffs/ by the coordinator install (agent-install.md Step 1f) ONLY when the
      operator opts into deep-research at the pre-restart question. That operator choice IS the spinoff
      authorization (see docs/wiki/spinoff-handoffs.md § Install-leg spinoffs). Layer 0 substitutes
      {{DATE}} and {{BRANCH}}. It is a `kind: spinoff` baton in the standard handoff folder — the same
@@ -22,7 +22,7 @@ repo: deep-research-claude
 install_chain_order: 1
 scope:
   - .claude/settings.json
-  - tasks/handoffs/**
+  - state/handoffs/**
 deployment_state: ready_to_fire
 pickup_ready: true
 ---

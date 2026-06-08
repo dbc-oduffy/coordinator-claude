@@ -54,14 +54,14 @@ describe('loadSchemas', () => {
 });
 
 describe('matchSchemaForPath', () => {
-  it('tasks/handoffs/foo.md → handoff schema', () => {
-    const match = matchSchemaForPath('tasks/handoffs/foo.md', SCHEMAS);
+  it('state/handoffs/foo.md → handoff schema', () => {
+    const match = matchSchemaForPath('state/handoffs/foo.md', SCHEMAS);
     assert.ok(match !== null, 'expected a match');
     assert.equal(match.schemaName, 'handoff');
   });
 
-  it('tasks/handoffs/sub/foo.md → no match (single-star glob)', () => {
-    const match = matchSchemaForPath('tasks/handoffs/sub/foo.md', SCHEMAS);
+  it('state/handoffs/sub/foo.md → no match (single-star glob)', () => {
+    const match = matchSchemaForPath('state/handoffs/sub/foo.md', SCHEMAS);
     assert.equal(match, null, 'sub-path should not match single-star glob');
   });
 
@@ -71,8 +71,8 @@ describe('matchSchemaForPath', () => {
     assert.equal(match.schemaName, 'plan');
   });
 
-  it('tasks/reviews/2026-05-01-review.md → review schema', () => {
-    const match = matchSchemaForPath('tasks/reviews/2026-05-01-review.md', SCHEMAS);
+  it('state/reviews/2026-05-01-review.md → review schema', () => {
+    const match = matchSchemaForPath('state/reviews/2026-05-01-review.md', SCHEMAS);
     assert.ok(match !== null);
     assert.equal(match.schemaName, 'review');
   });
@@ -183,7 +183,7 @@ describe('validateFrontmatter — handoff', () => {
       created: '2026-05-01',
       branch: 'work/test',
       status: 'consumed',
-      predecessor: 'tasks/handoffs/2026-04-30-prev.md',
+      predecessor: 'state/handoffs/2026-04-30-prev.md',
     };
     const result = validateFrontmatter(fm, handoffSchema);
     assert.ok(result.ok);
@@ -870,19 +870,19 @@ describe('validateLessonsFile', () => {
 
 describe('_matchGlob', () => {
   it('* matches a single path segment', () => {
-    assert.ok(_matchGlob('tasks/handoffs/*.md', 'tasks/handoffs/foo.md'));
+    assert.ok(_matchGlob('state/handoffs/*.md', 'state/handoffs/foo.md'));
   });
 
   it('* does not match across directories', () => {
-    assert.ok(!_matchGlob('tasks/handoffs/*.md', 'tasks/handoffs/sub/foo.md'));
+    assert.ok(!_matchGlob('state/handoffs/*.md', 'state/handoffs/sub/foo.md'));
   });
 
   it('** matches across directories', () => {
-    assert.ok(_matchGlob('tasks/**/*.md', 'tasks/handoffs/sub/foo.md'));
+    assert.ok(_matchGlob('tasks/**/*.md', 'state/handoffs/sub/foo.md'));
   });
 
   it('exact path matches itself', () => {
-    assert.ok(_matchGlob('tasks/lessons.md', 'tasks/lessons.md'));
+    assert.ok(_matchGlob('state/lessons.md', 'state/lessons.md'));
   });
 
   it('? matches a single non-separator char', () => {
@@ -891,7 +891,7 @@ describe('_matchGlob', () => {
   });
 
   it('Windows backslash paths are normalised', () => {
-    assert.ok(_matchGlob('tasks/handoffs/*.md', 'tasks\\handoffs\\foo.md'));
+    assert.ok(_matchGlob('state/handoffs/*.md', 'tasks\\handoffs\\foo.md'));
   });
 
   // Bracket character-class passthrough tests.
@@ -918,9 +918,9 @@ describe('_matchGlob', () => {
 
 describe('_parseYaml', () => {
   it('parses simple key-value pairs', () => {
-    const result = _parseYaml('schema: handoff\napplies_to: "tasks/handoffs/*.md"\n');
+    const result = _parseYaml('schema: handoff\napplies_to: "state/handoffs/*.md"\n');
     assert.equal(result.schema, 'handoff');
-    assert.equal(result.applies_to, 'tasks/handoffs/*.md');
+    assert.equal(result.applies_to, 'state/handoffs/*.md');
   });
 
   it('parses nested required block', () => {

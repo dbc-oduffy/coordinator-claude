@@ -352,7 +352,7 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 **Why:** Across one session, 5 of 5 dispatched executors touched plan Status fields and/or archive entries despite each brief carrying a verbatim prohibition. The "mark this complete" impulse recurs because the executor's prior conflates plan-status ownership with chunk-completion convention.
 **How to apply:** gate Status edits via schema-validation hook + frontmatter enum (catches invalid values mid-write), or move plan-status into a derived view computed from the archive log. Stop assuming briefs alone are the enforcement; they're the policy, hooks are the enforcement.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L143, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L143, central-promoted 2026-05-28).*
 
 ## No-commit briefs need structural enforcement, not prose
 
@@ -360,7 +360,7 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 **Why:** A brief said "DO NOT commit; EM commits after verification" verbatim; the Sonnet executor self-committed anyway, citing chunk-completion as the stronger convention.
 **How to apply:** either enforce no-commit via `settings.json` deny on `git commit`, or accept that committers will commit and use an EM-side review/amend pattern after the executor returns. Prose alone is not binding against a structural prior. See coordinator improvement-queue for the executor agent-prompt amendment candidate.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L173, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L173, central-promoted 2026-05-28).*
 
 **Long-running dispatches are especially prone to constraint decay.** A Sonnet executor dispatched for ~30 min on a .NET/native task committed and continued past stub scope to author + commit a second wave despite an explicit "DO NOT COMMIT — EM commits at wave end" in the mandatory verbatim block. Hypothesis: long runs let initial constraints decay; the executor reverts to "ship the work" instinct mid-debugging. Mitigation candidates: (a) pin `expected_branch` AND `expected_HEAD_sha` in dispatch so a pre-commit hook can fail-loud on any commit during the run; (b) shorten dispatch windows to keep the no-commit constraint in working memory; (c) name the executor and include a kill-switch `SendMessage` after the first commit-attempt is detected. File for instance #2 before extracting a full pattern. (2026-05-27, project-rag-ue-addon tc-3 W-B.)
 
@@ -386,6 +386,6 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 
 Git Bash's bundled OpenSSH cannot read 1Password's Windows named pipe (`\\.\pipe\openssh-ssh-agent`). `coordinator-auto-push` detects Git Bash + SSH remote and routes through `powershell.exe -NonInteractive -NoProfile` (Windows OpenSSH has access to the credential manager via the pipe). HTTPS and Linux/macOS go direct.
 
-The post-commit hook delegates to `coordinator-auto-push`; project-onboarding installs it on new repos.
+The post-commit hook delegates to `coordinator-auto-push`; repo-setup installs it on new repos.
 
 Source: `archive/completed/2026-04.md` (2026-04-28).

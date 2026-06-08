@@ -1,7 +1,7 @@
 # Pre-Dispatch Verification
 
 **System:** coordinator
-**Provenance:** consolidated 2026-05-14 from `tasks/coordinator-improvement-queue.md` triage (E40, E51, E87, E88, E150, E156).
+**Provenance:** consolidated 2026-05-14 from `state/coordinator-improvement-queue.md` triage (E40, E51, E87, E88, E150, E156).
 
 Plans drafted against unchecked substrate become dispatches that find a different reality on disk. Verify at plan-write time, not after the executor reports back. Companion to `coordinator/CLAUDE.md` § Pre-Dispatch Verification — this wiki carries the longer-form rules and refinements.
 
@@ -15,7 +15,7 @@ Plans drafted against unchecked substrate become dispatches that find a differen
 
 - **Re-extraction as crash recovery is process theater when versioned artifacts already exist.** Across multi-repo splits (host + addon + plugin), a crash mid-extraction tempts the recovery EM to re-run the producer pipeline. Before doing so, survey peer-repo artifacts for the versioned output the producer would have written — if `peer-repo/dist/<artifact>-vN.json` exists with a matching schema/version, the producer succeeded and the crash was downstream. Re-running the producer wastes a session and risks overwriting good output with a fresh run that diverges from what consumers already pinned. Companion rule in CLAUDE.md § Verifying Executor Output. (2026-05-15, project-rag-ue-addon.)
 
-- **A contract reversal must reconcile code + tripwire + doctrine-doc in ONE change, or the stale doc is a re-introduction vector.** When a plan flips a runtime contract (a bake→runtime invariant, an enum's allowed set, a producer's emit shape), enumerate every surface that *encodes* the old contract — the code, any static-grep tripwire that asserts it, AND the doctrine/wiki/CLAUDE.md prose that documents it — and amend all three atomically. A reversal that updates the code but leaves the doc asserting the old contract leaves a live re-introduction vector: the next planner reads the stale doc as ground truth and re-codifies the reversed-away shape. Grep the contract's central noun across `docs/wiki/`, `tasks/lessons.md`, and tripwire scripts before declaring the reversal landed. Source: 2026-05-30 project-rag.
+- **A contract reversal must reconcile code + tripwire + doctrine-doc in ONE change, or the stale doc is a re-introduction vector.** When a plan flips a runtime contract (a bake→runtime invariant, an enum's allowed set, a producer's emit shape), enumerate every surface that *encodes* the old contract — the code, any static-grep tripwire that asserts it, AND the doctrine/wiki/CLAUDE.md prose that documents it — and amend all three atomically. A reversal that updates the code but leaves the doc asserting the old contract leaves a live re-introduction vector: the next planner reads the stale doc as ground truth and re-codifies the reversed-away shape. Grep the contract's central noun across `docs/wiki/`, `state/lessons.md`, and tripwire scripts before declaring the reversal landed. Source: 2026-05-30 project-rag.
 
 - **A "consume/delegate a shared primitive and retire the duplicate" spec can be premised on a duplication that doesn't exist in the shape described — verify the SHAPE of the code you're retiring, not just that the target files exist.** 2026-05-27 host-resilience Q2: the spinoff said `capacity_budget.py` held a "duplicate inline inequality" to delete by delegating to the host primitive. On disk: `capacity_budget.py` was pure constants/floor-division accessors (no inequality to retire); the product invariant was enforced implicitly by floor-division; the plausibility clamps used fleet-specific thresholds the host's generic floor would have *loosened* — violating the spec's own "behaviour IDENTICAL" requirement. Rule: when a consume/delegate spec promises to retire duplication, read the target locus and confirm the duplicate is the shape claimed; the right consumption is often an *additive* verification guard over a primitive that single-sources the *definition*, not a deletion. Source: 2026-05-27 project-rag-ue-addon.
 
@@ -104,7 +104,7 @@ This is a strict extension of the no-fabrication-on-cited-fields rule above: the
 **Why:** A plan said the consumer would "pass the resolved engine root using the dotted `--ue-version`" to a seeder CLI. Reading the seeder's argparser showed it discovers roots autonomously and has NO `--engine-root` flag; `--ue-version` only pins a pointer. The real injection hook was an env var. Delegating just `--ue-version` would have written a dangling pointer for non-canonical operator paths.
 **How to apply:** before writing a cross-repo dispatch step, read the producer CLI's `argparse.add_argument` calls (or equivalent) and quote at least one matching `file:line` citation in the plan body. Flag names stated in prose are hypothesis until the parser source confirms them.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L219, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L219, central-promoted 2026-05-28).*
 
 **A reviewed plan can cite a non-existent CLI flag, and an executor can leave a comment claiming a finding is done while not implementing it — verify tool interfaces and finding-completion against source/git, not the plan or executor narrative.** Full review chains do not catch tool-interface substrate-drift. 2026-05-27 samples-extraction: a the Game Dev Reviewer-F6 note cited `synthesize_engine_compile_commands.py --project-root` (no such flag; real tool is `synthesize_project_compile_commands.py`), and the first executor wired samples to the shared engine cc while leaving a comment asserting "per-sample cc synthesized in the loop below" — false. Both caught only by reading the script's argparse and the actual orchestrator block. Rule: at execution, grep the literal tool interface; verify each load-bearing reviewer-finding by reading the code that claims to satisfy it. Source: 2026-05-27 project-rag-ue-addon.
 
@@ -124,9 +124,9 @@ When a plan asserts "edit file X, section Y", the authoritative source for X's s
 
 When a memo says "you established X in your repo," read the cited wiki/lesson/queue entry yourself before acting. The rule may be (a) already written and the memo is redundant, (b) unwritten and the memo is advocating for something new (in which case it needs authoring, not amendment), or (c) written but in a different form than the memo claims. A memo is the sender's interpretation; the canonical doctrine is what the receiving repo's artifacts actually say.
 
-**How to apply:** for any cross-repo memo that attributes a doctrine to your repo, run `grep -rn "<key noun from memo claim>" docs/wiki/ tasks/lessons.md` before planning a response. The grep result — present or absent — is the ground truth; the memo is framing.
+**How to apply:** for any cross-repo memo that attributes a doctrine to your repo, run `grep -rn "<key noun from memo claim>" docs/wiki/ state/lessons.md` before planning a response. The grep result — present or absent — is the ground truth; the memo is framing.
 
-*Source: 2026-05-27 self (central tasks/lessons.md:571).*
+*Source: 2026-05-27 self (central state/lessons.md:571).*
 
 ## Verdict-Only Investigator Pass Before Fix-Dispatch on Multi-Cluster Borderline Severity
 
@@ -136,7 +136,7 @@ Why: per-cluster investigations in parallel each anchor on their own paraphrase 
 
 **When to apply:** any fix-dispatch where (a) two or more clusters each have ≥1 severity-borderline item, AND (b) the P0/P1 signals came from sweep agents rather than from direct code reads.
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:15); companion to `coordinator/CLAUDE.md` § P0/P1 Verification Gate.*
+*Source: 2026-05-28 project-rag (state/lessons.md:15); companion to `coordinator/CLAUDE.md` § P0/P1 Verification Gate.*
 
 ## Constant/Identity Bump Is a Multi-Writer Change
 
@@ -144,25 +144,25 @@ A constant rename or value bump (schema version, protocol version, magic number)
 
 **How to apply:** at plan-write time, grep the constant's VALUE (not just its name) across the whole repo including `tests/`, `vendor/`, and any `*.json`/`*.yaml` fixture files. Write a grep gate in the plan asserting zero remaining old-value occurrences. The gate is the contract; prose "update all copies" is not.
 
-*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: project-rag `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## Plan-Write Must Verify Fixture Inventory Before Prescribing New Fixtures
 
 Before a plan prescribes a new test fixture (`tests/_*_fixture.py`, `conftest.py`, shared helpers), the plan-author MUST `ls tests/_*_fixture.py` and grep the symptom symbol across existing fixtures. Canonical fixtures frequently ship before the plan that needs them — a plan that authors a duplicate fixture creates import confusion, diverging setups, and redundant maintenance surface. The existence check is cheap; the dedup is free at plan time and expensive after fan-out.
 
-*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: project-rag `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## Post-Heavy-Churn Bug-Sweeps Need a Verify-First Executor Contract
 
 After a period of heavy commits on a shared surface, Sonnet sweep agents anchor on historical code shapes that intervening commits have already fixed. The result: sweepers flag P0/P1 issues against lines that no longer exist, then "fix" code by re-introducing the very shapes the churn removed. **Contract:** every bug-sweep executor dispatched post-heavy-churn must read the CURRENT line at the cited locus before taking any action. If the line already reflects the intended fix, the executor is a no-op for that item. Cite the read-back as evidence in the sweep report. (Complements § Verdict-Only Investigator Pass — that rule covers multi-cluster triage BEFORE fix-dispatch; this rule covers per-item verification DURING fix-dispatch.)
 
-*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: project-rag `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## `git log --name-only` Lists Adds AND Deletes — Verify Against HEAD Before Declaring Uncatalogued
 
 `git log --name-only` (and `--diff-filter` without explicit `A` / `M`) includes deleted files in its output alongside additions. When using git log to enumerate "emergent" or "uncatalogued" files that need architecture-survey treatment, verify each candidate against `HEAD` state before declaring it uncatalogued — a file appearing in `git log --name-only` may have been deleted and no longer exist at HEAD, making it spurious drift inventory. Run `git ls-files -- <path>` or `ls <path>` to confirm HEAD presence before actioning.
 
-*Source: holodeck `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: holodeck `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## Measure Blast Radius Before Framing the Fix Shape
 

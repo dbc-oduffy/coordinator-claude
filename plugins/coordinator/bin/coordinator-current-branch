@@ -14,7 +14,7 @@
 # otherwise call `git push origin "$(git branch --show-current)"` — the unsafe
 # pattern is a Windows-only latent failure waiting for a mixed-case daily-branch.
 #
-# Lesson source: tasks/lessons.md "git branch --show-current returns HEAD's stored
+# Lesson source: state/lessons.md "git branch --show-current returns HEAD's stored
 # case, not the on-disk canonical case" (2026-05-07).
 #
 # Falls back to RAW_BRANCH on lookup failure so we don't regress on Linux/macOS

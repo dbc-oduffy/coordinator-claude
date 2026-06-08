@@ -75,7 +75,7 @@ Present this summary table after Step 0 records the setup-concluded receipt:
 | Non-interactive contract    | ... (`not_invoked` / `applied (skipped: N, defaulted: M, failed: 0)`) |
 | Render template helper      | ... (`ready` / `missing`) |
 | Bootstrap offer             | ... (`offered (N repos)` / `suppressed (--non-interactive\|--check-only)`) |
-| Project scaffolding         | Run `/project-onboarding` — it owns lazy directory creation, lessons file, and tracker |
+| Project scaffolding         | Run `/repo-setup` — it owns lazy directory creation, lessons file, and tracker |
 
 ### Available commands
 
@@ -85,7 +85,7 @@ Present this summary table after Step 0 records the setup-concluded receipt:
 - `/review` (plans) / `/review-code` (diffs) — review skills with inline routing; shared phases in `docs/wiki/reviewer-pipeline.md`
 - `/update-docs` — Refresh project documentation, maintain docs/README.md index
 - `/distill` — Extract knowledge from session artifacts into wiki guides
-- `/project-onboarding` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
-- `/bootstrap-repos` — Scaffold coordinator support into all discovered working repos (express all-at-once or per-repo selection)
+- `/repo-setup` — Full project scaffolding (CLAUDE.md, tracker, docs/README.md, wiki structure)
+- `/repo-setup --batch` — Scaffold coordinator support into all discovered working repos (fleet-level setup; default `/repo-setup` is single-repo deep mode)
 - `/percolate` — Publish to a registered target; first-run setup walks `docs/wiki/percolate-setup.md` automatically
 ```

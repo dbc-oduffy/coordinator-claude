@@ -13,7 +13,7 @@ plan: plugins/coordinator/docs/plans/2026-05-30-fan-out-skill-to-methodology-dem
 **Verdict:** WARN
 **Claims checked:** 15
 **Conflicts:** 2 | **Compatible-but-relevant:** 5 | **Silent:** 8
-**Corpora consulted:** project-wikis (121 files indexed) | global-wikis (same corpus — working directory IS ~/.claude) | lessons.md (not present at coordinator plugin path; global queue consulted) | improvement-queue (~/.claude/tasks/coordinator-improvement-queue.md)
+**Corpora consulted:** project-wikis (121 files indexed) | global-wikis (same corpus — working directory IS ~/.claude) | lessons.md (not present at coordinator plugin path; global queue consulted) | improvement-queue (~/.claude/state/coordinator-improvement-queue.md)
 
 ---
 

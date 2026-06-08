@@ -18,7 +18,7 @@
 set -uo pipefail
 
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
-CONFIG="$CLAUDE_HOME/tasks/learn-lessons-config.md"
+CONFIG="$CLAUDE_HOME/state/learn-lessons-config.md"
 EXTRACT="$CLAUDE_HOME/plugins/coordinator/bin/extract-lessons.py"
 # Python 3 interpreter: python3 on macOS/Linux, python on Windows git-bash.
 PYTHON="$(command -v python3 || command -v python || true)"
@@ -63,7 +63,7 @@ while IFS= read -r root; do
   case "$root_norm" in
     "$home_norm"|*/.claude) continue ;;  # self-exclude (~/.claude is the promotion destination)
   esac
-  lessons="$root/tasks/lessons.md"
+  lessons="$root/state/lessons.md"
   [ -f "$lessons" ] || continue   # unreachable on this machine — skip silently
   out=$("$PYTHON" "$EXTRACT" extract "$lessons" --shortname vol --since "$cutoff" \
         --require-tag universal 2>/dev/null) || continue

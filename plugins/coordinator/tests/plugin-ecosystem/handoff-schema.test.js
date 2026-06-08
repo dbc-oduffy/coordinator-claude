@@ -1,11 +1,11 @@
-// handoff-schema.test.js — unit tests for the reviewed_at_session_end field
+// handoff-schema.test.js — unit tests for the reviewed_at_workstream_complete field
 // added to schemas/handoff.yaml and schemas/handoff-archived.yaml.
 //
 // Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
 //
 // Coverage:
-//   - Handoff WITH reviewed_at_session_end validates clean (field accepted as optional string)
-//   - Handoff WITHOUT reviewed_at_session_end validates clean (field is optional — absence is ok)
+//   - Handoff WITH reviewed_at_workstream_complete validates clean (field accepted as optional string)
+//   - Handoff WITHOUT reviewed_at_workstream_complete validates clean (field is optional — absence is ok)
 //   - handoff-archived schema accepts the same field on archived handoffs
 //
 // What is NOT covered:
@@ -70,7 +70,7 @@ function baseArchivedFm(overrides = {}) {
 
 const schemas = loadSchemas(SCHEMAS_DIR);
 
-describe('handoff schema — reviewed_at_session_end field', () => {
+describe('handoff schema — reviewed_at_workstream_complete field', () => {
   const handoffSchema = schemas['handoff'];
   const archivedSchema = schemas['handoff-archived'];
 
@@ -84,9 +84,9 @@ describe('handoff schema — reviewed_at_session_end field', () => {
     assert.equal(archivedSchema.schema, 'handoff-archived', 'schema name mismatch');
   });
 
-  it('handoff WITH reviewed_at_session_end validates clean', () => {
+  it('handoff WITH reviewed_at_workstream_complete validates clean', () => {
     const fm = baseHandoffFm({
-      reviewed_at_session_end: 'abc123..def456 sonnet 2026-05-08',
+      reviewed_at_workstream_complete: 'abc123..def456 sonnet 2026-05-08',
     });
     const result = validateFrontmatter(fm, handoffSchema);
     assert.ok(
@@ -95,10 +95,10 @@ describe('handoff schema — reviewed_at_session_end field', () => {
     );
   });
 
-  it('handoff WITHOUT reviewed_at_session_end validates clean (field is optional)', () => {
+  it('handoff WITHOUT reviewed_at_workstream_complete validates clean (field is optional)', () => {
     const fm = baseHandoffFm();
     // Ensure the field is truly absent, not just undefined
-    assert.ok(!('reviewed_at_session_end' in fm), 'fixture should not include the field');
+    assert.ok(!('reviewed_at_workstream_complete' in fm), 'fixture should not include the field');
     const result = validateFrontmatter(fm, handoffSchema);
     assert.ok(
       result.ok,
@@ -106,9 +106,9 @@ describe('handoff schema — reviewed_at_session_end field', () => {
     );
   });
 
-  it('handoff-archived WITH reviewed_at_session_end validates clean', () => {
+  it('handoff-archived WITH reviewed_at_workstream_complete validates clean', () => {
     const fm = baseArchivedFm({
-      reviewed_at_session_end: 'def456..ghi789 patrik 2026-05-08',
+      reviewed_at_workstream_complete: 'def456..ghi789 patrik 2026-05-08',
     });
     const result = validateFrontmatter(fm, archivedSchema);
     assert.ok(
@@ -117,9 +117,9 @@ describe('handoff schema — reviewed_at_session_end field', () => {
     );
   });
 
-  it('handoff-archived WITHOUT reviewed_at_session_end validates clean (field is optional)', () => {
+  it('handoff-archived WITHOUT reviewed_at_workstream_complete validates clean (field is optional)', () => {
     const fm = baseArchivedFm();
-    assert.ok(!('reviewed_at_session_end' in fm), 'fixture should not include the field');
+    assert.ok(!('reviewed_at_workstream_complete' in fm), 'fixture should not include the field');
     const result = validateFrontmatter(fm, archivedSchema);
     assert.ok(
       result.ok,
@@ -127,44 +127,44 @@ describe('handoff schema — reviewed_at_session_end field', () => {
     );
   });
 
-  it('reviewed_at_session_end is listed as optional (not required) in handoff schema', () => {
+  it('reviewed_at_workstream_complete is listed as optional (not required) in handoff schema', () => {
     assert.ok(
-      handoffSchema.optional && 'reviewed_at_session_end' in handoffSchema.optional,
-      'reviewed_at_session_end should be in the optional section of handoff schema'
+      handoffSchema.optional && 'reviewed_at_workstream_complete' in handoffSchema.optional,
+      'reviewed_at_workstream_complete should be in the optional section of handoff schema'
     );
     assert.ok(
-      !handoffSchema.required || !('reviewed_at_session_end' in handoffSchema.required),
-      'reviewed_at_session_end must NOT be in the required section of handoff schema'
-    );
-  });
-
-  it('reviewed_at_session_end is listed as optional (not required) in handoff-archived schema', () => {
-    assert.ok(
-      archivedSchema.optional && 'reviewed_at_session_end' in archivedSchema.optional,
-      'reviewed_at_session_end should be in the optional section of handoff-archived schema'
-    );
-    assert.ok(
-      !archivedSchema.required || !('reviewed_at_session_end' in archivedSchema.required),
-      'reviewed_at_session_end must NOT be in the required section of handoff-archived schema'
+      !handoffSchema.required || !('reviewed_at_workstream_complete' in handoffSchema.required),
+      'reviewed_at_workstream_complete must NOT be in the required section of handoff schema'
     );
   });
 
-  it('reviewed_at_session_end value is type-checked as string when present', () => {
+  it('reviewed_at_workstream_complete is listed as optional (not required) in handoff-archived schema', () => {
+    assert.ok(
+      archivedSchema.optional && 'reviewed_at_workstream_complete' in archivedSchema.optional,
+      'reviewed_at_workstream_complete should be in the optional section of handoff-archived schema'
+    );
+    assert.ok(
+      !archivedSchema.required || !('reviewed_at_workstream_complete' in archivedSchema.required),
+      'reviewed_at_workstream_complete must NOT be in the required section of handoff-archived schema'
+    );
+  });
+
+  it('reviewed_at_workstream_complete value is type-checked as string when present', () => {
     // The validator should reject a non-string value for this field
     const fm = baseHandoffFm({
-      reviewed_at_session_end: 12345, // wrong type — should be string
+      reviewed_at_workstream_complete: 12345, // wrong type — should be string
     });
     const result = validateFrontmatter(fm, handoffSchema);
     // Either the field is flagged or not — it depends on the type declared in the schema.
     // Schema declares it as "string", so a number should produce an error.
     assert.ok(
       !result.ok,
-      'Expected type validation failure when reviewed_at_session_end is a number'
+      'Expected type validation failure when reviewed_at_workstream_complete is a number'
     );
-    const fieldError = result.errors.find(e => e.field === 'reviewed_at_session_end');
+    const fieldError = result.errors.find(e => e.field === 'reviewed_at_workstream_complete');
     assert.ok(
       fieldError,
-      `Expected an error for reviewed_at_session_end field, got: ${JSON.stringify(result.errors)}`
+      `Expected an error for reviewed_at_workstream_complete field, got: ${JSON.stringify(result.errors)}`
     );
   });
 });

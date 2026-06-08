@@ -124,7 +124,7 @@ overwrite other operators' configuration on their machines.
 
 ## 3. Render-template primitive
 
-`/coordinator:setup` and `/project-onboarding` both render templates. The shared helper
+`/coordinator:setup` and `/repo-setup` both render templates. The shared helper
 is `render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
 multiple skills consume it).
 
@@ -156,9 +156,9 @@ The helper's contract is deliberately narrow:
 
 ### Why the narrow contract matters
 
-`project-onboarding/templates/CLAUDE.md.template` originally used `{{IF_GLOBAL}}...{{/IF_GLOBAL}}`
+`repo-setup/templates/CLAUDE.md.template` originally used `{{IF_GLOBAL}}...{{/IF_GLOBAL}}`
 conditional blocks. Preserving the narrow contract required flattening those conditionals
-into `project-onboarding/SKILL.md` driver code (C5 in the implementation plan). This
+into `repo-setup/SKILL.md` driver code (C5 in the implementation plan). This
 was the *cost* of keeping the helper scope-minimal — driver code constructs the appropriate
 value strings before calling the helper, rather than the helper growing a conditional engine.
 The narrow contract prevents that growth path and keeps the helper a dumb substituter.
@@ -302,7 +302,7 @@ Structural divergence beyond path substitutions (`coordinator-claude/coordinator
 
 Neither `install.sh` nor `publish.sh` creates or seeds `~/.claude/machine-local/`. The deprecated `publish-targets.sh` fallback activates silently when the directory is absent (no warning). OSS newcomers cannot leverage `machine-local` for coordinator config without a manual bootstrap step. This gap is Medium-severity today; blocking when the deprecated fallback is retired.
 
-Mitigation for now: document the manual step. Long-term fix tracked in `tasks/coordinator-improvement-queue.md`.
+Mitigation for now: document the manual step. Long-term fix tracked in `state/coordinator-improvement-queue.md`.
 
 ### coordinator_whoami package is not installed by any installer path (pre-2026-05-21)
 

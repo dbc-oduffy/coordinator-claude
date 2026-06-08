@@ -19,13 +19,13 @@ Rotate through project systems ensuring complete coverage. Uses a weighted scori
 
 ### Step 1: Calculate Rotation Scores
 
-**Prerequisite check:** If no health ledger exists (`tasks/health-ledger.md`) AND no atlas exists (`docs/architecture/systems-index.md`):
+**Prerequisite check:** If no health ledger exists (`state/health-ledger.md`) AND no atlas exists (`docs/architecture/systems-index.md`):
 
 > _"No baseline exists. Use /architecture-survey first to bootstrap the atlas and health ledger."_
 
 Stop here — the weekly audit needs a baseline to rotate through. If a health ledger exists but no atlas, proceed normally (the audit predates the atlas feature).
 
-Read `tasks/health-ledger.md`. For each system in the index, calculate a rotation score:
+Read `state/health-ledger.md`. For each system in the index, calculate a rotation score:
 
 | Signal | Weight | Rationale |
 |--------|--------|-----------|
@@ -37,13 +37,15 @@ Read `tasks/health-ledger.md`. For each system in the index, calculate a rotatio
 | Significant growth since last audit | +3 | New code = new risk, regardless of current grade |
 | Security-sensitive system | +2 | Higher consequence of missed issues |
 
+**Pre-rotation drift surface (run before accepting the rotation pick):** invoke `bin/check-atlas-watch-drift.sh` and surface any `DRIFT` / `MISSING` / `ERROR` / `MALFORMED` / `STALE` lines for systems that are rotation candidates. Drift on the proposed target system bumps it to the top of the rotation regardless of formula score — a stale baseline invalidates the audit. This is detection-leg coverage for atlases that have decayed mechanically between rotations.
+
 Select the system with the highest score. Report: _"Rotation target: [system] (score: N). Rationale: [top signals]."_
 
 **Note:** These weights are initial estimates — adjust after 4 weeks based on whether rotation targets match intuition.
 
 ### Step 2: Review Existing Debt
 
-Read `tasks/debt-backlog.md` for the target system. If open items exist:
+Read `state/debt-backlog.md` for the target system. If open items exist:
 
 1. **Present them to PM for prioritization first** — before auditing for new issues
 2. Prioritized debt items go through the full pipeline: plan → review → execute
@@ -97,29 +99,47 @@ Spinoff candidates surface as PM-gated `Candidate spinoff: <slug> — <topic>. A
 
 ### Step 5: (retired — no auto-debt-backlog write)
 
-**D5 (PM 2026-05-24):** the audit no longer writes `tasks/debt-backlog.md` entries. The disposition ladder (Step 4) + spinoff-candidate pattern is the dedicated home for audit findings. `debt-backlog.md` remains only for items the EM/PM explicitly choose to **defer with a reason** (architectural OOS) — not the default sink for audit findings. The Step 4 guardrail keeps structural findings recorded as spinoff candidates so nothing goes dark.
+**D5 (PM 2026-05-24):** the audit no longer writes `state/debt-backlog.md` entries. The disposition ladder (Step 4) + spinoff-candidate pattern is the dedicated home for audit findings. `debt-backlog.md` remains only for items the EM/PM explicitly choose to **defer with a reason** (architectural OOS) — not the default sink for audit findings. The Step 4 guardrail keeps structural findings recorded as spinoff candidates so nothing goes dark.
 
 ### Step 6: Update Health Ledger
 
 1. Update the system's row: new grade, status, audit date, open issue counts
 2. Update the **`Last targeted audit`** date in the header — this rotational audit writes the targeted clock, NOT `Last full audit` (only `/architecture-survey` writes that; `check-arch-audit-staleness.sh` reads `Last targeted audit`).
 3. Calculate the next rotation target and update `Next rotation target` in the header
-4. Commit (health-ledger only — no debt-backlog write, no code edits):
+4. **Stage** the health-ledger update — do NOT commit yet. The health-ledger commit is **deferred until Step 6.5 gate PASSes**. On gate FAIL the ledger commit does NOT land — this prevents `Last targeted audit` from advancing on an audit that closed against a stale atlas. The bundled close-out commit (atlas + ledger together, or sequenced atlas-then-ledger) lands after Step 6.5 gate PASS. Two-clock doctrine preserved: `Last targeted audit` only is touched; `Last full audit` is untouched (only `/architecture-survey` writes that clock).
    ```bash
-   git add tasks/health-ledger.md
-   git commit -m "arch-audit: [system] audited, grade [X]→[Y]; Last targeted audit bumped"
+   # Stage only — do NOT commit until after Step 6.5 gate PASS.
+   git add state/health-ledger.md
    ```
 
-### Step 6.5: Update Atlas Page
+### Step 6.5: Update Atlas Page (Pre-Commit Gate)
 
-If `docs/architecture/systems/{target-system}.md` exists, the coordinator (not the reviewer) reads the reviewer's findings and mechanically patches the atlas page:
+If `docs/architecture/systems/{target-system}.md` does not exist, skip this step entirely. Otherwise the atlas page MUST satisfy one of two branches before close-out commits land. The gate runs **before** `git commit` — it reads staged content and the intended commit message, NOT HEAD.
 
-1. Add/remove functions mentioned in review findings
-2. Update boundary entries if cross-system connections changed
-3. Bump the `last_mapped` date in the YAML frontmatter
-4. Add `grade: [A-F]` and `health_status: [HEALTHY|WATCH|ACTION|CRITICAL]` fields to the YAML frontmatter, after the `dependencies` field.
+**Branch A (refresh inline):** if reviewer findings warrant changes:
+1. Edit the atlas page body — add/remove functions mentioned in findings, update boundary entries if cross-system connections changed.
+2. Bump `last_mapped` to the audit date in the YAML frontmatter.
+3. Add/update `grade: [A-F]` and `health_status: [HEALTHY|WATCH|ACTION|CRITICAL]` fields in the YAML frontmatter, after the `dependencies` field.
+4. Stage the atlas page alongside the health-ledger update from Step 6.
 
-This is incremental maintenance, not a full re-mapping. Keep it lightweight — only update what the review explicitly found changed. If no atlas page exists for the system, skip this step.
+**Branch B (assert current):** if the atlas is already accurate and no body changes are warranted:
+1. Bump `last_mapped` to the audit date only (no body diff).
+2. Stage the atlas page alongside the health-ledger update.
+3. Prepare a close-out commit message containing the literal token `atlas-current-as-of: <YYYY-MM-DD>` (the audit date).
+
+**Run the gate (before `git commit`):**
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/bin/verify-arch-audit-atlas-refresh.sh <AUDIT_DATE> <TARGET_SYSTEM> [<COMMIT_MSG_FILE>]
+```
+
+- On `PASS branch=A` or `PASS branch=B` → proceed to `git commit` (atlas + ledger together, or sequenced atlas-then-ledger).
+- On `FAIL` → do NOT commit. Amend the working tree (Branch A: add the body diff that was missing) or the intended commit message (Branch B: add the `atlas-current-as-of:<date>` token), re-stage, and re-run the helper. The commit does NOT land until the gate returns PASS.
+
+**Anti-scope (this gate ONLY):**
+- The gate does NOT extend to `/architecture-survey` — `Last full audit` is exclusively that command's clock and this gate never touches it.
+- The gate is NOT per-system hot-configurable (no per-system staleness window for the closeout gate).
+- The gate does NOT opportunistically refresh non-target atlas pages — the weekly walk (`/workweek-complete` invocation of `check-atlas-watch-drift.sh`) surfaces drift on other pages; refresh of those is per-rotation EM judgment, not an inline side-effect of this audit.
 
 ### Step 6.75: Triage Scratch Files
 
@@ -131,14 +151,21 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 
 ### Step 7: Report
 
+**Precondition:** `bin/verify-arch-audit-atlas-refresh.sh` returned `PASS branch=A` or `PASS branch=B` on the last attempt. If it returned `FAIL`, do NOT proceed to Step 7 — fix per Branch A or Branch B in Step 6.5 and re-attempt. The verbatim failure message is the iron-law signal:
+
+```
+FAIL: /architecture-audit Step 6.5 atlas-refresh gate not satisfied for <TARGET_SYSTEM>.
+Either (a) refresh docs/architecture/systems/<TARGET_SYSTEM>.md inline before closing,
+or (b) declare atlas-current-as-of:<YYYY-MM-DD> in the closeout commit message.
+```
+
 ```markdown
 ## Weekly Architecture Audit Complete
 
 **System:** [name]
 **Reviewer(s):** [name] at High effort [+ second-angle reviewer: [name] — angle: [reason], or "none — single angle sufficed"]
 **Previous grade:** [X] | **New grade:** [Y]
-**Findings:** N total (X applied inline, Y added to debt backlog)
-**Debt backlog:** [N] open items [⚠️ exceeds 20 — recommend /debt-triage]
+**Findings:** N total — [X → immediate executor (trivial+non-structural), Y → spinoff candidate(s) surfaced to PM, Z → escalated to /plan]
 **Next rotation target:** [system] (score: N)
 ```
 

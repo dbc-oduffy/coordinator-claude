@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Age-archive aged [universal] entries out of a repo's tasks/lessons.md.
+"""Age-archive aged [universal] entries out of a repo's state/lessons.md.
 
 WHY THIS EXISTS
 ---------------
-`tasks/lessons.md` is read in full by `/learn-lessons` itself, by the central-mode
+`state/lessons.md` is read in full by `/learn-lessons` itself, by the central-mode
 strip-local pull-pass, and by the PM-invoked `/workstream-start` ceremony (it is NOT
 a Tier-0 boot read; see coordinator/CLAUDE.md § Session Orientation). It is an
 append log: local-mode `/learn-lessons` folds recent lessons to wikis but
@@ -70,7 +70,7 @@ def _load_extractor():
 
 
 def _resolve_lessons_path(arg: Path) -> Path:
-    """Accept either a repo root (…/tasks/lessons.md appended) or a direct file."""
+    """Accept either a repo root (…/state/lessons.md appended) or a direct file."""
     if arg.is_file():
         return arg
     cand = arg / "tasks" / "lessons.md"
@@ -123,7 +123,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("path", type=Path, help="repo root or path to tasks/lessons.md")
+    ap.add_argument("path", type=Path, help="repo root or path to state/lessons.md")
     # Cutoff is REQUIRED — there is no safe silent default. At observed capture rates
     # (~15 entries/day) a fixed age window is far too porous (a 30-day window retains
     # ~450 entries). The safe cutoff is event-based: the last completed central run
@@ -211,7 +211,7 @@ def main(argv: list[str]) -> int:
         return 3
 
     now = datetime.now(timezone.utc)  # one clock for filename, stamp, and cutoff fallback
-    # Derive repo root for the archive dir: <repo>/tasks/lessons.md -> <repo>.
+    # Derive repo root for the archive dir: <repo>/state/lessons.md -> <repo>.
     repo_root = lessons.resolve().parent.parent
     adir = args.archive_dir or (repo_root / "archive" / "lessons-archived")
     adir.mkdir(parents=True, exist_ok=True)
@@ -222,7 +222,7 @@ def main(argv: list[str]) -> int:
         buf.append(f"# Archived lessons — {now.strftime('%Y-%m')}\n")
     for (ln, date, body) in archive_entries:
         buf.append(
-            f"\n# Age-swept by /learn-lessons on {stamp} from tasks/lessons.md:{ln} "
+            f"\n# Age-swept by /learn-lessons on {stamp} from state/lessons.md:{ln} "
             f"(dated {date}, pre-{cutoff} [universal]; canonical home: central wikis)\n"
         )
         buf.append(body + "\n")

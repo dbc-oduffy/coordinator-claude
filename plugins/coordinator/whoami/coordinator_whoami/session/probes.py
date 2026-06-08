@@ -3,7 +3,7 @@
 Three probes for daemon-independent orientation health:
 
   git_state        — branch, dirty flag, ahead/behind origin/main counts.
-  orientation_cache — presence and staleness of tasks/orientation_cache.md
+  orientation_cache — presence and staleness of state/orientation_cache.md
                      (compares stored git_head_at_generation vs live HEAD).
   handoff_counts   — ready_to_fire / awaiting_gate counts via bin/query-records.
 
@@ -146,12 +146,12 @@ def _current_git_head() -> str | None:
 def probe_orientation_cache() -> dict[str, Any]:
     """Report orientation cache presence and HEAD-staleness.
 
-    Reads tasks/orientation_cache.md frontmatter field 'git_head_at_generation'
+    Reads state/orientation_cache.md frontmatter field 'git_head_at_generation'
     and compares to the current git HEAD. Verdict is computed live at call time —
     never persisted.
 
     Returns:
-        present: bool — whether tasks/orientation_cache.md exists
+        present: bool — whether state/orientation_cache.md exists
         stale:   bool | None — True if stored HEAD != live HEAD; None if
                  present=False or HEAD unavailable
         stored_head: str | None — the frontmatter value
@@ -252,7 +252,7 @@ def probe_handoff_counts() -> dict[str, Any]:
     Invokes bin/query-records.js via node at an absolute path
     (mirrors session-init.sh:172 resolution — NOT cwd-relative).
     Degrades to null counts on any error (node absent, qr script absent,
-    no tasks/handoffs directory, parse failure).
+    no state/handoffs directory, parse failure).
     """
     result: dict[str, Any] = {
         "ready_to_fire": None,

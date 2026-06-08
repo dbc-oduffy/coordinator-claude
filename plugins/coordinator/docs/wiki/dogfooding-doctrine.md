@@ -34,7 +34,7 @@ Running at the source-of-truth surface (the actual invocation, not a simulation 
 
 Dogfooding is **binary**: either the capability converges (works end-to-end) or the session switches gears (surfaces a replan ask to PM). There is no third outcome.
 
-The forbidden middle ground is **file-and-defer**: the dogfood run surfaces a bug, the bug gets logged to `tasks/bug-backlog.md` or a note in the handoff, and the session moves on. This pattern means:
+The forbidden middle ground is **file-and-defer**: the dogfood run surfaces a bug, the bug gets logged to `state/bug-backlog.md` or a note in the handoff, and the session moves on. This pattern means:
 
 - The capability has not been proven. The lesson it was meant to validate remains a hypothesis.
 - The bug is now disconnected from the context in which it was found. Future sessions that pick it up from the backlog have lost the reproduction environment and the fix-cone.
@@ -103,7 +103,7 @@ Three real bugs surfaced and shipped in the same session:
 
 The convergence signal was concrete: **Probe 9 status mtime advanced from FAIL to PASS in 0.9 seconds** after W7 landed. That transition was the observable that proved the capability worked end-to-end.
 
-Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `tasks/bug-backlog.md`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
+Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `state/bug-backlog.md`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
 
 Canonical archived plan: `archive/specs/2026-05-06-agentic-install-hardening.md`.
 

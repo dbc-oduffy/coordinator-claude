@@ -1,3 +1,6 @@
+# portability-allowlist: provenance-citation — module-top docstring below
+# carries an X:/ literal as documented provenance (Lifted verbatim-on-contract)
+# per the `provenance_citations` allowlist category (see portability-guard wiki).
 """coordinator/bin/check-install-divergence.py
 
 Three-way blob-SHA install-divergence classifier. Shared primitive for

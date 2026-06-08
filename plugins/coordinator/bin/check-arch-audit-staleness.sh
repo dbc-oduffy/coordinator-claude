@@ -7,7 +7,7 @@
 # Purpose: /workweek-complete reads this to decide whether to auto-fold a
 # targeted-on-diff architecture audit. Mirrors check-weekly-staleness.sh in shape.
 #
-# Reads tasks/health-ledger.md, extracts:
+# Reads state/health-ledger.md, extracts:
 #   **Last targeted audit:** YYYY-MM-DD
 # and emits one line to stdout:
 #   STALE    — > 10 days since the last targeted audit (auto-fold the audit)
@@ -48,7 +48,7 @@ if [[ -z "$REPO_ROOT" ]]; then
   exit 0
 fi
 
-LEDGER="$REPO_ROOT/tasks/health-ledger.md"
+LEDGER="$REPO_ROOT/state/health-ledger.md"
 
 if [[ ! -f "$LEDGER" ]]; then
   echo "UNKNOWN"

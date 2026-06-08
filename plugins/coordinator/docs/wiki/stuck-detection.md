@@ -4,7 +4,6 @@ system: stuck-detection
 status: distilled
 distilled_from:
   - archive/specs/2026-03-16-tier1-repomap-stuckdetect.md
-  - plugins/coordinator/skills/stuck-detection/SKILL.md
 distilled_at: 2026-05-06
 distilled_run: 2026-05-06-13h00
 ---
