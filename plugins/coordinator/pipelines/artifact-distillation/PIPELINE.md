@@ -52,7 +52,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
    **Filename-stem overlap check (Phase 0 gate, added 2026-05-28):** Before Phase 3c proposes any new `DIRECTORY_GUIDE.md` entry (and before any synthesizer emits a new guide filename), compare the proposed guide name stem against all existing `docs/wiki/` filenames after normalization (strip `-shape`, `-design`, `-v2`, date prefixes, pluralization; prefix/substring rule fires only when shorter stem ≥8 chars). Near-duplicate collisions are surfaced at the Phase 4 PM gate — NOT auto-created and NOT auto-skipped. The coordinator decides at Phase 4, not the synthesizer at Phase 2. Rationale: synthesizers propose guide names from their topic cluster without seeing the full wiki inventory; the Phase 0 stem check is the mechanical gate that catches near-duplicates before they become disk collisions. (DR-146, 2026-05-27.)
 4. **Read distillation log** (`docs/wiki/.distill-log.md`) if it exists — use as a hint for the reality check, but do NOT rely on it as the sole exclusion mechanism. The log can be stale or incomplete.
-5. **Read `tasks/handoffs/`** for active context (read-only, never deleted)
+5. **Read `state/handoffs/`** for active context (read-only, never deleted)
 6. **Reality check (Haiku scout):** Dispatch a single Haiku agent with the candidate file list + existing guide headings. The scout reads each candidate file and classifies it:
    - **NEW** — contains knowledge not yet captured in existing guides or decision records
    - **ALREADY_CAPTURED** — knowledge is already in the wiki (compare against guide headings/content)
@@ -72,7 +72,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **<20 NEW artifacts:** **Lightweight mode.** Dispatch a single Sonnet agent that reads all NEW files and produces guide deltas + decision records + deletion manifest in one pass. No Haiku scanning, no clustering, no Opus assembly. Jump directly to Phase 4 (PM gate).
    - **20-50 NEW artifacts:** **Standard mode.** 2-3 Haiku batches, skip QG (Phase 1.5), coordinator does clustering inline, 2-3 Sonnet synthesizers, coordinator assembles (skip Phase 3a — run 3b/3c/3d only).
    - **50+ NEW artifacts:** **Full pipeline** as designed below.
-8. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `tasks/scratch/artifact-distillation/{run-id}/`
+8. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `state/scratch/artifact-distillation/{run-id}/`
 9. **Sort artifacts chronologically** within each source directory (temporal ordering preserved through pipeline — critical for detecting superseded decisions)
 10. **Group artifacts into 4-8 batches** of ~20-50 files each (by source dir + chronological window)
 11. **Output:** batch table (with format hints), existing wiki inventory, scout classification, **selected pipeline tier**
@@ -108,7 +108,7 @@ One Haiku agent per batch. Each agent reads every artifact in its batch and extr
 - `[BATCH_DESCRIPTION]` — brief description of the batch (source dir + date window)
 - `[BATCH_FILES]` — full list of file paths in this batch
 - `[FORMAT_HINTS]` — format notes from Phase 0 (e.g., "frontmatter-bearing markdown", "plain markdown")
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/batch-{N}-phase1-haiku.md`
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/batch-{N}-phase1-haiku.md`
 
 Instruct each agent in its prompt to use Read, Write, and Glob. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
@@ -136,7 +136,7 @@ One Haiku agent per batch verifying Phase 1 output.
 - `[BATCH_NUMBER]` — batch number
 - `[BATCH_FILES]` — the original file list from Phase 0's batch table (ground truth for coverage check)
 - `[PHASE1_SCRATCH_PATH]` — path to the Phase 1 scratch file for this batch
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/batch-{N}-phase1.5-qg.md`
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/batch-{N}-phase1.5-qg.md`
 
 Instruct each agent in its prompt to use Read, Write, and Glob (Glob for path verification spot-checks). (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
@@ -184,17 +184,17 @@ Decision records: any `[DECISION]` nugget (not `[SUPERSEDED]`) → draft in stan
 - `[SYSTEM_TAG]` — system name for this guide
 - `[NUGGETS]` — all nuggets for this system from the clustering table
 - `[EXISTING_GUIDE_CONTENT]` — current guide content, or "NEW GUIDE"
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/topic-{name}-phase2-sonnet.md`
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/topic-{name}-phase2-sonnet.md`
 
 Instruct each agent in its prompt to use Read and Write. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
 **Phase 2 scratch output schema:** Each Phase 2 scratch file opens with a `dispositions:` YAML frontmatter block listing every assigned nugget ID with its operation and target. Full schema: `agent-prompts/phase-2.md` § Disposition Manifest.
 
-**Ownership boundary:** Synthesizers own their scratch files. They write to `tasks/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
+**Ownership boundary:** Synthesizers own their scratch files. They write to `state/scratch/artifact-distillation/{run-id}/` only — never to `docs/wiki/` or `docs/decisions/`. Production guides are coordinator-only territory (applied in Phase 5).
 
 **Scratch verification:** Verify all expected topic files exist before proceeding to Phase 3a.
 
-**CRITICAL: Checkpoint scratch files before Phase 3a.** `git add tasks/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3a/3b/3d are the highest-risk steps (largest context load, longest runtime). If any fail, the checkpoint allows re-running without re-doing Phases 1-2.
+**CRITICAL: Checkpoint scratch files before Phase 3a.** `git add state/scratch/artifact-distillation/ && git commit -m "distill: checkpoint Phase 1-2 scratch"`. Phase 3a/3b/3d are the highest-risk steps (largest context load, longest runtime). If any fail, the checkpoint allows re-running without re-doing Phases 1-2.
 
 ---
 
@@ -225,7 +225,7 @@ Phase 2.7-QG is a mechanical coverage gate. For each Phase 2 cluster output, it 
 **DISPATCH:** Open `agent-prompts/phase-2-7-qg.md`. Copy the **Phase 2.7-QG Prompt** verbatim. Fill in:
 - `[PHASE2_SCRATCH_PATH]` — path to the Phase 2 scratch file for this cluster
 - `[ASSIGNED_NUGGET_IDS]` — nugget IDs assigned to this cluster from the Clustering output
-- `[VERDICT_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase2-7-qg-{cluster-tag}.yaml`
+- `[VERDICT_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase2-7-qg-{cluster-tag}.yaml`
 
 Full prompt and verdict schema: `agent-prompts/phase-2-7-qg.md`.
 
@@ -247,7 +247,7 @@ Full prompt and verdict schema: `agent-prompts/phase-2-7-qg.md`.
 - `[CLUSTER_TAG]` — the cluster label from Phase 2.5 clustering
 - `[TOPIC_PAIR_LIST]` — all topic pairs in this cluster
 - `[LIST_OF_PHASE2_SCRATCH_PATHS_FOR_CLUSTER]` — Phase 2 scratch files for the topics in this cluster
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3a-contradictions-{cluster-tag}.md`
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3a-contradictions-{cluster-tag}.md`
 
 Instruct each agent in its prompt to use Read and Write. Dispatch with `run_in_background: true`.
 
@@ -273,7 +273,7 @@ After the cross-cluster check, the coordinator reads the `unresolvable_contradic
 **Opus escalation dispatch — fill in:**
 - `[LIST_OF_3A_SCRATCH_FILES_WITH_UNRESOLVABLE_CONTRADICTIONS]` — only the 3a files with `unresolvable_contradictions > 0`, plus any cross-cluster candidates
 - `[LIST_OF_PHASE2_SCRATCHES_FOR_FLAGGED_TOPICS]` — ONLY the Phase 2 scratch files for the topics cited in the flagged `contradiction_refs` (bounded input — not the full Phase 2 set)
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md`
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md`
 
 Full prompt (Opus resolution + Sonnet fidelity-check): `agent-prompts/phase-3-esc.md`.
 
@@ -289,9 +289,9 @@ Full prompt (Opus resolution + Sonnet fidelity-check): `agent-prompts/phase-3-es
 
 **DISPATCH:** Open `agent-prompts/phase-3b.md`. Copy the **Phase 3b: Sonnet Decision-Record Dedup Prompt** verbatim. Fill in:
 - `[LIST_OF_PHASE2_SCRATCH_PATHS]` — all Phase 2 scratch file paths
-- `[JUDGMENT_PROPOSALS_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`
-- `[PHASE3_ESC_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3b checks existence before reading)
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3b-dedup.md`
+- `[JUDGMENT_PROPOSALS_PATH]` — `state/scratch/artifact-distillation/{run-id}/judgment-proposals.md`
+- `[PHASE3_ESC_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3b checks existence before reading)
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3b-dedup.md`
 
 Instruct the agent in its prompt to use Read and Write.
 
@@ -325,7 +325,7 @@ The coordinator reads Phase 2 scratch frontmatter + Phase 0 wiki inventory and w
 
 **Fuzzy-name overlap check on NEW-guide proposals.** For every new guide name in the Phase 2 frontmatter, compare its filename stem against every existing `docs/wiki/` / `docs/decisions/` filename stem. Flag a **near-duplicate collision** when stems match after normalizing (strip `-shape`, `-design`, `-v2`, date prefixes, and pluralization; case-insensitive; or one stem is a prefix/substring of the other with ≤4 trailing chars difference — **but apply the prefix/substring rule only when the shorter stem is ≥8 characters**, so short distinct stems like `auth` vs `author`/`oauth` do not trip a false collision, while `coordinator-installer` vs `coordinator-installer-shape` still does). Example: proposed `coordinator-installer.md` collides with existing `coordinator-installer-shape.md`. For each flagged collision, do NOT silently create the new guide — surface it in the Phase 3c preview under a `## New-guide collisions (PM decision)` heading with both names and a one-line recommendation (merge into existing guide vs. confirm genuinely distinct). The PM resolves at the **existing Phase 4 gate — this does not add a new halt or block auto-proceed; it adds a decision item to the gate that already waits for explicit approval.** This is the duplicate-guide gate — detect-then-surface, never detect-then-silently-create (coordinator/`CLAUDE.md` § Implementation Standards — "detect-then-silently-pick is a footgun").
 
-**Output manifest:** The coordinator writes a `directory_entries:` YAML manifest alongside the preview, at `tasks/scratch/artifact-distillation/{run-id}/phase3c-manifest.yaml`. Schema:
+**Output manifest:** The coordinator writes a `directory_entries:` YAML manifest alongside the preview, at `state/scratch/artifact-distillation/{run-id}/phase3c-manifest.yaml`. Schema:
 
 ```yaml
 schema_version: 1
@@ -338,7 +338,7 @@ directory_entries:
 
 `status` values: `new` (guide created this run), `updated` (existing guide with new sections), `existing` (unchanged entry carried forward). The manifest is the machine-readable source-of-truth for Phase 5 Apply-Agent B's bookkeeping slice. The prose preview at `phase3c-directory-guide-preview.md` is generated FROM the manifest for PM review at Phase 4 — the manifest is authoritative; the preview is the human-readable derived view.
 
-**Output:** Updated `DIRECTORY_GUIDE.md` preview written to `tasks/scratch/artifact-distillation/{run-id}/phase3c-directory-guide-preview.md`. This is coordinator-written — presented at Phase 4 PM gate for review before any production write.
+**Output:** Updated `DIRECTORY_GUIDE.md` preview written to `state/scratch/artifact-distillation/{run-id}/phase3c-directory-guide-preview.md`. This is coordinator-written — presented at Phase 4 PM gate for review before any production write.
 
 ---
 
@@ -352,8 +352,8 @@ directory_entries:
 - `[LIST_OF_PHASE1_SCRATCH_PATHS]` — all Phase 1 (Haiku scanner) scratch file paths
 - `[LIST_OF_PHASE1_5_SCRATCH_PATHS]` — all Phase 1.5 (QG verdict) scratch file paths
 - `[LIST_OF_PHASE2_SCRATCH_PATHS]` — all Phase 2 scratch file paths
-- `[PHASE3_ESC_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3d checks existence before reading)
-- `[SCRATCH_PATH]` — `tasks/scratch/artifact-distillation/{run-id}/phase3d-deletion-manifest.md`
+- `[PHASE3_ESC_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3-esc-resolution.md` (3d checks existence before reading)
+- `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/phase3d-deletion-manifest.md`
 
 Instruct the agent in its prompt to use Read and Write.
 
@@ -437,7 +437,7 @@ Present to PM:
 
 8. **Amend log update** into the deletion commit
 
-9. **Clean scratch:** `rm -rf tasks/scratch/artifact-distillation/{run-id}/`
+9. **Clean scratch:** `rm -rf state/scratch/artifact-distillation/{run-id}/`
 
 **Two separate commits** (additions vs deletions) so wiki content survives even if deletion needs reverting.
 
@@ -465,7 +465,7 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Writing custom dispatch prompts | Templates in `agent-prompts/` are tested infrastructure. Copy verbatim from the relevant per-phase fragment, fill blanks. |
 | Haiku synthesizing instead of cataloging | "Completeness matters more than analysis" instruction is in the Phase 1 template. Don't remove it. |
 | Delta operation references non-existent heading | Phase 3a flags these as contradictions in its scratch output — surface for coordinator review |
-| Deleting active handoff references | Phase 0 reads `tasks/handoffs/` for active context — those files are read-only, never batched |
+| Deleting active handoff references | Phase 0 reads `state/handoffs/` for active context — those files are read-only, never batched |
 | Guide drift across runs | Delta format for existing guides — only changed sections included, not full rewrites. Coordinator applies deltas mechanically in Phase 5; Phase 3 agents do not expand them. |
 | Phase 2.5 promotes mechanical findings | Agent prompt explicitly excludes mechanical / docs-checker-class findings; only architectural reviewer findings are eligible. Review `agent-prompts/phase-2-5.md` if false positives appear. |
 | Phase 2.5 counts multiple findings from same plan as N convergences | Each plan contributes at most one count toward convergence, regardless of how many findings from that plan shape-match. One plan = one count. |

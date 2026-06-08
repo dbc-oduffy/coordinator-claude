@@ -108,7 +108,7 @@ Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK.
 <!-- BEGIN docs-checker-consumption (synced from snippets/docs-checker-consumption.md) -->
 ## Docs Checker Integration
 
-If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths (typically `tasks/review-findings/{timestamp}-docs-checker-edits.md` and a verification report), the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
+If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths (typically `state/review-findings/{timestamp}-docs-checker-edits.md` and a verification report), the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
 
 **Claim statuses:**
 - **VERIFIED** — docs-checker confirmed the API claim against authoritative sources. Trust it. Do not re-verify.
@@ -130,7 +130,7 @@ If the dispatch did not include a docs-checker pre-flight and the artifact conta
 <!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->
 ## Prior-Art Check Integration
 
-If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
+If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `state/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
 
 **Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield." It is a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended — the integrator lands edits on whichever surface(s) you (and the EM) name. Treating prior art as immutable freezes the corpus; treating it as advisory keeps it honest.
 

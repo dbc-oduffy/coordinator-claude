@@ -132,7 +132,7 @@ When a threshold is computed at arming time and stored (e.g. in config, a regist
 **Why:** Replacing an N-branch dispatcher with a registry lookup (each handler reading its own payload directly) eliminated an entire class of per-handler empty-default bugs in one move — no targeted per-symptom patch was needed. The same shape recurs whenever a switch/if-else cascade hardcodes shared defaults: the structural fix collapses the bug cluster, the per-symptom patches treat instances.
 **How to apply:** before writing a per-symptom patch, ask whether the symptom cluster is rooted in an architectural seam the codebase already needs to fix; when yes, the structural fix is the cheaper path. The test: would the same refactor close ≥3 of the open bugs in that area? If yes, do the refactor.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L11, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L11, central-promoted 2026-05-28).*
 
 ## Hardening bloat signals wrong layer
 
@@ -140,7 +140,7 @@ When a threshold is computed at arming time and stored (e.g. in config, a regist
 **Why:** A security audit found 7 inherent quoting issues in a 12-line embedded-command block; restructuring to a committed shell script that receives positional args collapsed the issues to standard shell-quoting discipline.
 **How to apply:** any time you add a third+ inline guard to make a call safe (quoting, escaping, encoding), stop and ask whether the call site should be a committed artifact the lint/shell pipeline can see.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L129, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L129, central-promoted 2026-05-28).*
 
 ## Deprecation cycle by consumer count
 
@@ -148,7 +148,7 @@ When a threshold is computed at arming time and stored (e.g. in config, a regist
 **Why:** Deprecation windows, opt-in flags, and gradual-rollout machinery assume thousands of consumers; at two consumers the same machinery is ceremony that delays a clean fix.
 **How to apply:** ask "how many consumers?" before asking "what's the right posture?" At ≤2, update both call sites in the same commit and ship directly.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L151, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L151, central-promoted 2026-05-28).*
 
 ## Mirror discipline, not topology
 
@@ -156,7 +156,7 @@ When a threshold is computed at arming time and stored (e.g. in config, a regist
 **Why:** A "mirrors host" plan label caused an executor to hunt for a phantom manifest→registry generator; the peer's manifest GENERATES its registry artifact, but the consumer's registry holds live callables that are not TOML-serializable — an inverted topology.
 **How to apply:** before labeling a design "mirrors X", read X's actual code to confirm the topology (source-of-record direction, generation vs. validation, serializable vs. live) matches your substrate. The transferable part is discipline (committed derived artifact, single source of truth); the topology must be independently confirmed.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L211, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L211, central-promoted 2026-05-28).*
 
 ## Structural-Guard Allowlist Keying — Qualname Over Line Number
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify-orientation-cache-sync.sh — Schema verifier for tasks/orientation_cache.md.
+# verify-orientation-cache-sync.sh — Schema verifier for state/orientation_cache.md.
 #
 # Spec backlink: docs/plans/2026-05-18-orientation-cache-authoring-discipline.md
 # Schema:       plugins/coordinator/pipelines/workday-start-internals.md § 5.5
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-CACHE_FILE="$REPO_ROOT/tasks/orientation_cache.md"
+CACHE_FILE="$REPO_ROOT/state/orientation_cache.md"
 
 if [[ "${1:-}" == "--list" ]]; then
     echo "$CACHE_FILE"

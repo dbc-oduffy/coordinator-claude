@@ -216,7 +216,20 @@ parse_pipe_row() {
         # trim leading/trailing whitespace
         cell="${cell#"${cell%%[![:space:]]*}"}"
         cell="${cell%"${cell##*[![:space:]]}"}"
-        # strip markdown backtick wrappers: `value` → value
+        # strip markdown backtick wrappers around the typed prefix:
+        # `grep:` `pattern`@path → grep:`pattern`@path
+        # Plan authors commonly backtick-wrap just the prefix for code-formatting
+        # in the rendered table; the parser tolerates that shape.
+        # Note: only matches when BOTH backticks are present (`prefix:`). `prefix: ` (no
+        # closing backtick) is intentionally NOT stripped — the resulting 'unknown typed
+        # prefix' error is diagnostic.
+        # Review: code-reviewer F7 — [a-z0-9_]+ covers future node18/py3-style prefixes at no cost today
+        if [[ "$cell" =~ ^\`([a-z0-9_]+):\`(.*)$ ]]; then
+            # Review: code-reviewer F2 — strip leading space from group 2 BEFORE join (not after),
+            # because cell# on the joined string strips position 0 not the space after the colon.
+            cell="${BASH_REMATCH[1]}:${BASH_REMATCH[2]# }"
+        fi
+        # Backstop: whole-cell backtick wrappers: `value` → value
         if [[ "$cell" == \`*\` ]]; then
             cell="${cell#\`}"
             cell="${cell%\`}"

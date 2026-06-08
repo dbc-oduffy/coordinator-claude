@@ -1,11 +1,11 @@
 ---
-name: project-onboarding
-description: "Use when starting in a new project repo, when /update-docs reports tracker_missing, or on first coordinator-plugin run."
+name: repo-setup
+description: "First-time repo setup (default: single-repo), or `--batch` for fleet setup over working-repos.yaml. Consolidates /project-onboarding and /bootstrap-repos into one surface."
 description-budget: 175
 version: 1.0.0
 ---
 
-# Project Onboarding
+# Repo Setup
 
 ## When to Use
 
@@ -13,6 +13,41 @@ version: 1.0.0
 - `/update-docs` reports `tracker_missing` — the project lacks coordination infrastructure
 - PM asks to set up project tracking in an existing repo
 - **Marketplace first-run** — new coordinator plugin user setting up their first project
+
+## Flag contract
+
+- **Default (no flag) — single-repo interactive.** Runs from inside one repo's cwd. PM-present; asks the 3 cold questions when needed; full Phase 1 → Phase 4 flow as documented below.
+- **`--batch` — fleet non-interactive.** Reads `~/.claude/working-repos.yaml` and loops the single-repo flow per repo. Phase-2 cold-asks substituted by detected defaults (Phase 1 marker scan + Phase 1.5 substrate) OR skipped via lazy-creation discipline when the target artifact already exists. See § Batch Mode below.
+- **`--check-only` and `--non-interactive` are batch-mode-only.** If passed to the default single-repo mode (without `--batch`), the skill exits with the one-line remediation: `"--check-only and --non-interactive are only valid with --batch; for non-interactive single-repo setup, set coordinator.local.md first and re-run /repo-setup."` This is the AC12 binding from `docs/plans/2026-06-08-repo-setup-consolidation.md`. Per `docs/wiki/coordinator-tripwires.md` § Detect-then-fail-loud — never silently pick a meaning for an ambiguous flag combination.
+
+## Batch Mode (--batch)
+
+Batch mode runs fleet-wide setup non-interactively. Intended for PM use from `~/.claude` against all repos in the fleet.
+
+**Driver:** delegates to `lib/bootstrap-orchestrate.sh` for the per-repo loop (repointed to drive this consolidated skill in non-interactive mode — see C3a commit).
+
+**Per-repo flow:**
+
+1. Reads `~/.claude/working-repos.yaml`, normalizes paths, filters to repos on disk (repos not on disk are counted as `not-on-disk` in the summary table and skipped).
+2. For each on-disk repo: dispatches the single-repo phases (Phase 1, 1.5, 3, 3g, 4) in non-interactive mode.
+3. **SKIPS Phase 2 cold-asks.** Cold-asks are substituted by detected defaults from Phase 1's marker scan + Phase 1.5 substrate profile. When the target artifact already exists (e.g. `CLAUDE.md` present), lazy-creation discipline applies — no overwrite, no re-ask.
+
+**Idempotency:** a re-run on a fully-bootstrapped fleet (all repos have `docs/coordinator-currency.yaml` matching current schema) exits 0 with per-repo "already current" rows and zero writes. The currency stamp is the load-bearing idempotency primitive — already-current stamps short-circuit Phase 3/3g for that repo.
+
+**Hook-respect:** target-repo commit hooks run normally (no `--no-verify`); a hook failure surfaces the repo as failed and the overall run exits non-zero.
+
+**Summary table** printed at end of run (columns: repo path / status / writes):
+
+| Repo | Status | Notes |
+|------|--------|-------|
+| `/x/some-repo` | succeeded | currency stamp updated |
+| `/x/other-repo` | already current | 0 writes |
+| `/x/missing-repo` | not-on-disk | skipped |
+| `/x/hook-fail-repo` | failed | post-commit hook exited non-zero |
+
+Overall exit code: 0 if all on-disk repos succeeded or were already current; non-zero if any failed.
+
+AC4, AC6, AC10 bind this section. AC9 binds the lib/detect-onboarding-offer.sh emitting `/repo-setup` (single-repo form, no flags) — never `/repo-setup --batch` in the per-repo offer (batch mode is PM-from-~/.claude, not per-repo), and never with a `--refresh` flag (the command is idempotent; re-running `/repo-setup` on a stale repo re-stamps currency).
 
 ## Prerequisites
 
@@ -35,9 +70,9 @@ Check for each of these and record status (exists / missing / incomplete):
 ├── docs/wiki/DIRECTORY_GUIDE.md        — guide index with decision record mapping
 ├── docs/plans/                         — implementation plans (LAZY — created when first plan is copied from ~/.claude/plans/)
 ├── docs/research/                      — research outputs (LAZY — created by deep-research:research on first run)
-├── tasks/lessons.md                    — engineering patterns (LAZY — created by coordinator:workstream-complete on first lesson)
+├── state/lessons.md                    — engineering patterns (LAZY — created by coordinator:workstream-complete on first lesson)
 ├── archive/completed/                  — completion archive (LAZY — created by coordinator:workstream-complete on first completion)
-├── tasks/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
+├── state/handoffs/                     — session continuity (LAZY — created by coordinator:handoff on first handoff)
 ├── CONTEXT.md                          — domain glossary (LAZY — never scaffold; produced when first term is resolved)
 ├── DIRECTORY.md                        — source index
 └── .gitignore                          — check for .claude/settings.local.json entry
@@ -47,7 +82,7 @@ Check for each of these and record status (exists / missing / incomplete):
 
 **Global detection:** Check if `~/.claude/CLAUDE.md` exists. If yes, the generated CLAUDE.md will include an "extends global" reference. If not, the template is fully self-contained — no dependency on global config.
 
-**Repo classification (PM ask):** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `tasks/handoffs/`). Capture this as a hint string — do not make a decision from it:
+**Repo classification (PM ask):** Check if `.gitignore` excludes session infrastructure directories (`tasks/`, `archive/`, `state/handoffs/`). Capture this as a hint string — do not make a decision from it:
 
 - 2+ of these are gitignored → hint = `_(detected: 2+ of 3 session dirs gitignored — looks like a distribution repo)_`
 - Fewer or none gitignored → hint = `_(detected: standard working-tree layout)_`
@@ -104,7 +139,7 @@ Capture these as part of the Phase 1 profile. If `coordinator.local.md` already 
 
 Skip when Phase 1 found a genuinely empty repo (no README, no CONTRIBUTING, no top-level manifest).
 
-**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold: `README.md`, `CLAUDE.md`, `tasks/lessons.md`, `tasks/improvement-queue.md` if present (1.5a); most-recent 5 handoffs for stack/tooling clues if `tasks/handoffs/` exists (1.5b); sibling `CLAUDE.md` files for stack-shared conventions via `~/.claude/tasks/repo-registry.md` `stack_tags` (1.5c). Output: a 5–10 line substrate snapshot. Cold-ask is the fallback when substrate is empty.
+**Substrate-first onboarding.** Read the project's accumulated institutional memory before asking the PM cold: `README.md`, `CLAUDE.md`, `state/lessons.md`, `state/improvement-queue.md` if present (1.5a); most-recent 5 handoffs for stack/tooling clues if `state/handoffs/` exists (1.5b); sibling `CLAUDE.md` files for stack-shared conventions via `~/.claude/state/repo-registry.md` `stack_tags` (1.5c). Output: a 5–10 line substrate snapshot. Cold-ask is the fallback when substrate is empty.
 
 **Roadmap orientation (run immediately after the substrate snapshot):** Query the completed archive for recent roadmap items — especially valuable when joining cold.
 
@@ -184,14 +219,14 @@ Only scaffold files that have **meaningful day-1 content**. A placeholder header
 | `.gitignore` entry | EAGER | Prevents accidental credential commits from first commit onwards |
 | Post-commit hook | EAGER | Auto-push crash insurance is needed from the very first commit |
 | `cross-repo/` dir | EAGER (contract-bearing) | Inbound cross-repo memo channel — sibling EMs address this repo's `cross-repo/` by name; must exist before any memo arrives. Scaffolded with `README.md` (real content, not `.gitkeep`) by `scaffold-canonical-structure.sh`. Schema: `cross-repo-memo`. Source of truth: `canonical-structure.yaml`; plan: `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Lazy-vs-eager reconciliation`. |
-| `tasks/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
-| `tasks/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
-| `tasks/handoff-tracker.md` | LAZY (render) | Per-repo handoff tracker. **Never scaffold manually** — lazily created on first render by `bin/render-handoff-tracker.js`. Edit-resistance: two layers (agent hook + editor guard, both wired automatically). → `docs/wiki/handoff-tracker-system.md` § Edit-Resistance |
+| `state/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
+| `state/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
+| `state/handoff-tracker.md` | LAZY (render) | Per-repo handoff tracker. **Never scaffold manually** — lazily created on first render by `bin/render-handoff-tracker.js`. Edit-resistance: two layers (agent hook + editor guard, both wired automatically). → `docs/wiki/handoff-tracker-system.md` § Edit-Resistance |
 | `archive/completed/` dir | LAZY | No completed work until first work item ships |
 | `docs/wiki/` dir | LAZY | Wiki guides come from `/distill` after artifacts accumulate |
 | `docs/plans/` dir | LAZY | Plans come from plan mode; none exist on day 1 |
 | `docs/research/` dir | LAZY | Research outputs come from `/deep-research` pipelines |
-| `tasks/review-trail/` dir | LAZY | Review records written by `/workstream-complete` and `/handoff` |
+| `state/review-trail/` dir | LAZY | Review records written by `/workstream-complete` and `/handoff` |
 
 LAZY items are NOT created here. Each has a designated "create on first use" owner noted in its section below.
 
@@ -200,7 +235,7 @@ LAZY items are NOT created here. Each has a designated "create on first use" own
 Use `templates/CLAUDE.md.template` via `render-template.sh`. Construct three substitution values before calling the helper:
 
 1. **`GLOBAL_EXTENDS_LINE`** — `Extends global \`~/.claude/CLAUDE.md\`.` if that file exists; else `""`.
-2. **`PROJECT_TYPE_BLOCK`** — concatenated per-type convention section bodies (one per selected type, blank line between). Full block bodies for `game-dev`, `web-dev`, `data-science`, and multi-type rules: → [`docs/wiki/project-onboarding-claude-md-render.md`](../../docs/wiki/project-onboarding-claude-md-render.md). `general` type: empty string.
+2. **`PROJECT_TYPE_BLOCK`** — concatenated per-type convention section bodies (one per selected type, blank line between). Full block bodies for `game-dev`, `web-dev`, `data-science`, and multi-type rules: → [`docs/wiki/repo-setup-claude-md-render.md`](../../docs/wiki/repo-setup-claude-md-render.md). `general` type: empty string.
 3. **Render helper call + runtime conventions population:** → same wiki § Render Helper Call and § Runtime Conventions Section.
 
 Use absolute `$HOME`-anchored paths. Leave `<!-- Fill in -->` comments as-is.
@@ -231,7 +266,7 @@ If PM said "stubs": create one placeholder workstream:
 - [ ] _PM: Define initial workstreams and deliverables_
 ```
 
-#### 3c. tasks/lessons.md — SKIP (lazy)
+#### 3c. state/lessons.md — SKIP (lazy)
 
 Do NOT create this file during onboarding — no meaningful day-1 content. Created by `coordinator:workstream-complete` on first lesson capture.
 
@@ -279,10 +314,9 @@ Only create directories with real day-1 content or referenced by files being wri
 
 ```bash
 mkdir -p docs   # for project-tracker.md (3b) and README.md (3d)
-mkdir -p tasks  # for feature work; lessons.md is lazy (see 3c)
 ```
 
-**Scaffold contract-bearing directories** by invoking `scaffold-canonical-structure.sh`. This is idempotent — safe to re-run; never clobbers existing content:
+**Scaffold contract-bearing directories and the full `state/` skeleton** by invoking `scaffold-canonical-structure.sh`. This is idempotent — safe to re-run; never clobbers existing content:
 
 ```bash
 # Resolve scaffold script from the coordinator plugin location, not cwd.
@@ -291,9 +325,37 @@ _scaffold_script="$HOME/.claude/plugins/coordinator/bin/scaffold-canonical-struc
 bash "$_scaffold_script" --root "$(pwd)"
 ```
 
-The script reads `canonical-structure.yaml` and creates every `creation: eager` directory entry with a `README.md` (not a `.gitkeep`). Currently that means `cross-repo/` with its schema-documenting README — the file an inbound sender's EM looks for before writing a memo.
+The script reads `canonical-structure.yaml` and for every `creation: eager` directory entry either:
+- Creates the directory with a `README.md` (for contract-bearing dirs with `readme:` content, e.g. `cross-repo/inbox/`)
+- Creates the directory with a `.gitkeep` sentinel (for `gitkeep: true` dirs — the full `state/` subdirectory skeleton and `tasks/`)
 
-**Do NOT pre-create the LAZY directories above** (`tasks/handoffs/`, `archive/completed/`, `docs/wiki/`, `docs/plans/`, `docs/research/`, `tasks/review-trail/`) **with `.gitkeep` files** — they are created by the skill that first writes to them (see table above). Contract-bearing dirs (`cross-repo/`) are scaffolded with READMEs by `scaffold-canonical-structure.sh`.
+The full skeleton produced on a fresh repo:
+
+```
+state/
+  handoffs/.gitkeep
+  review-trail/.gitkeep
+  week-changelog/.gitkeep
+  memos/.gitkeep
+  cross-repo-declarations/.gitkeep
+  cross-repo-outbound/.gitkeep
+  reviews/.gitkeep
+  review-findings/.gitkeep
+  roadmap/.gitkeep
+  audits/.gitkeep
+  recovery/.gitkeep
+  scratch/deep-architecture-survey/.gitkeep
+  scratch/bug-blitz/.gitkeep
+  scratch/artifact-distillation/.gitkeep
+tasks/
+  .gitkeep
+cross-repo/
+  inbox/README.md   (schema-documenting; inbound memo channel)
+```
+
+**Idempotence:** re-running on a repo where these directories already have populated content is a no-op — the `.gitkeep` check skips dirs that contain any real files.
+
+**Tracker files are NOT pre-created** (`state/lessons.md`, `state/orientation_cache.md`, `state/handoff-tracker.md`, etc.) — they are written lazily by their owning skills on first use (see table above). Pre-creating empty tracker files trains agents to ignore the directory; empty scaffolding has zero signal value.
 
 #### 3f. .gitignore handling
 
@@ -367,8 +429,8 @@ bash "$HOME/.claude/plugins/coordinator/bin/ensure-vscode-readonly.sh" --root "$
 
 The helper skips loudly if `jq` is absent or `.vscode/settings.json` is JSONC
 (comments/trailing commas) — in that case the report should note the two keys to
-add by hand (`files.readonlyInclude` → `"**/tasks/handoff-tracker.md": true`,
-`"**/tasks/doe-handoff-tracker.md": true`). Offer-shaped, not a hard lock: a user
+add by hand (`files.readonlyInclude` → `"**/state/handoff-tracker.md": true`,
+`"**/state/doe-handoff-tracker.md": true`). Offer-shaped, not a hard lock: a user
 can still override per-file via VS Code's "Set Active Editor Writeable".
 
 #### 3g. DIRECTORY.md
@@ -460,7 +522,7 @@ The documentation index is live at `docs/README.md`. Subdirectories are created 
 
 When a new project is onboarded, surface these convention introductions so the EM has them at hand from day one. These are one-line pointers; the canonical docs hold the full mechanics.
 
-- **Acceptance oracle (outer-loop):** Non-trivial reviewed plans declare bindable acceptance criteria gated at `/merging-to-main`. See `docs/wiki/writing-plans.md` § Acceptance Oracle.
+- **Acceptance oracle (outer-loop):** Non-trivial reviewed plans declare bindable acceptance criteria gated at `/workstream-complete` Step 3.8. See `docs/wiki/writing-plans.md` § Acceptance Oracle.
 
 ## Onboarding Bug Fixes — Three-Layer Rule
 
@@ -485,5 +547,5 @@ Layer 2 recovery: doctor probe P-5 in [coordinator-doctor.md](../../docs/wiki/co
 ## Notes
 
 - This skill creates the **skeleton**; `/update-docs` handles ongoing tracker maintenance. Tracker format matches the tracker-maintenance skill for consistency.
-- Handoffs live at `tasks/handoffs/` (git-tracked); `settings.local.json` in `.gitignore`.
+- Handoffs live at `state/handoffs/` (git-tracked); `settings.local.json` in `.gitignore`.
 - **Template architecture:** One base CLAUDE.md template with conditional blocks per project type — NOT 4 separate files (stays under 12-file ceiling). Works standalone for marketplace users; DETECT phase adds "extends global" reference if `~/.claude/CLAUDE.md` exists.

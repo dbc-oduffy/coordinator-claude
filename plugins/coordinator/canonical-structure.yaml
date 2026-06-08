@@ -1,6 +1,6 @@
 # canonical-structure.yaml — single source of truth for the document-structure scaffold.
 #
-# Purpose: consumed by scaffold-canonical-structure.sh, project-onboarding, coordinator:setup,
+# Purpose: consumed by scaffold-canonical-structure.sh, repo-setup, coordinator:setup,
 # and the doctor probe to define EVERY canonical directory (and key file) in a coordinator-managed
 # repo. No parallel dir lists in four places — one manifest, many consumers.
 #
@@ -18,7 +18,7 @@
 # LAZY entries: purely-accumulative local dirs with no addressability requirement and no
 # inbound writer. Created by their producing skill on first use.
 #
-# Source table: skills/project-onboarding/SKILL.md lines 195–208 (EAGER/LAZY audit verdict).
+# Source table: skills/repo-setup/SKILL.md lines 195–208 (EAGER/LAZY audit verdict).
 # The ONLY new EAGER directory beyond that table is cross-repo/ (added by this plan).
 # archive/cross-repo/ is LAZY — optional housekeeping destination, not required lifecycle.
 # ---------------------------------------------------------------------------
@@ -115,11 +115,131 @@ entries:
   # LAZY — created on first use by their producing skill
   # ---------------------------------------------------------------------------
 
-  # tasks/handoffs/ — no handoffs until first session ends via /handoff.
-  - path: tasks/handoffs/
-    creation: lazy
+  # ---------------------------------------------------------------------------
+  # EAGER (gitkeep) — state/ subdirectories scaffolded empty from day 1.
+  # These are always-on load-bearing surfaces: session-continuity dirs, cross-repo
+  # memo store, review infrastructure. They must exist before the first write so that
+  # skills and CLIs referencing them don't fail on a missing directory.
+  # Scaffold with .gitkeep (not README) — content accumulates organically; day-1
+  # placeholder READMEs add noise without signal.
+  #
+  # Spec backlink: docs/plans/2026-06-08-tasks-state-folder-split.md § C4
+  # ---------------------------------------------------------------------------
+
+  # state/handoffs/ — session-continuity artifacts written by coordinator:handoff.
+  - path: state/handoffs/
+    creation: eager
     schema: handoff
+    gitkeep: true
     readme: null
+
+  # state/review-trail/ — review records written by /workstream-complete and /handoff.
+  - path: state/review-trail/
+    creation: eager
+    schema: review
+    gitkeep: true
+    readme: null
+
+  # state/week-changelog/ — weekly changelog entries appended by /workday-complete.
+  - path: state/week-changelog/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/memos/ — cross-repo memo store (outbound + in-flight tracking).
+  # Load-bearing: bin/cross-repo-memo CLI references this path; must exist on all repos.
+  - path: state/memos/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/cross-repo-declarations/ — peer-repo relationship declarations.
+  # Load-bearing: cross-repo-memo CLI; must exist before any memo is dispatched.
+  - path: state/cross-repo-declarations/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/cross-repo-outbound/ — outbound memo staging area.
+  # Load-bearing: cross-repo-memo CLI; must exist before any memo is dispatched.
+  - path: state/cross-repo-outbound/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/reviews/ — review artifacts collected during workstream-complete.
+  - path: state/reviews/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/review-findings/ — per-workstream review findings written by code-reviewer.
+  - path: state/review-findings/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/roadmap/ — roadmap-planning artifacts (spinoff-roadmap handoffs, planning notes).
+  - path: state/roadmap/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/audits/ — periodic audit outputs (security, deps, test-evidence sweeps).
+  - path: state/audits/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/recovery/ — recovery artifacts from crashed or incomplete workstreams.
+  - path: state/recovery/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/deep-architecture-survey/ — managed-namespace scratch: sustained architecture survey work.
+  # Protected from /distill aggression (managed namespace, not loose ephemera).
+  - path: state/scratch/deep-architecture-survey/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/bug-blitz/ — managed-namespace scratch: coordinated bug-investigation sessions.
+  - path: state/scratch/bug-blitz/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # state/scratch/artifact-distillation/ — managed-namespace scratch: distillation working area.
+  - path: state/scratch/artifact-distillation/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # tasks/ — Tasks-API UUID flight-recorder dirs, dated reports, loose scratch.
+  # Kept as a top-level dir with .gitkeep so the directory is always present even
+  # when no active flight recorders exist.
+  - path: tasks/
+    creation: eager
+    schema: null
+    gitkeep: true
+    readme: null
+
+  # ---------------------------------------------------------------------------
+  # LAZY — created on first use by their producing skill
+  # ---------------------------------------------------------------------------
 
   # archive/completed/ — no completed work until first work item ships.
   - path: archive/completed/
@@ -145,14 +265,8 @@ entries:
     schema: null
     readme: null
 
-  # tasks/review-trail/ — review records written by /workstream-complete and /handoff.
-  - path: tasks/review-trail/
-    creation: lazy
-    schema: review
-    readme: null
-
-  # tasks/lessons.md — header + comment only; no lessons exist until first session runs.
-  - path: tasks/lessons.md
+  # state/lessons.md — header + comment only; no lessons exist until first session runs.
+  - path: state/lessons.md
     creation: lazy
     schema: lesson-entry
     readme: null

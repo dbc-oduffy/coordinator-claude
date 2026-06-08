@@ -145,35 +145,8 @@ describe('coordinator-safe-commit', () => {
     }
   });
 
-  it('CLAUDE_INVOKING_COMMAND=session-start + --blanket stages everything (exit 0)', () => {
-    // regression test for blanket-staging boundary — ceremonial bypass must work
-    if (!bashAvailable) return;
-    const subRepo = mkTempRepo();
-    const bSid = `test-blanket-${process.pid}`;
-    try {
-      const filePath = path.join(subRepo, 'blanketfile.md');
-      fs.writeFileSync(filePath, 'blanket content');
-      execSync('git add blanketfile.md', { cwd: subRepo, stdio: 'pipe' });
-      makeSession(subRepo, bSid);
-
-      const r = runBash(SAFE_COMMIT, ['--blanket', 'test: blanket'], {
-        cwd: subRepo,
-        env: {
-          ...process.env,
-          CLAUDE_SESSION_ID: bSid,
-          CLAUDE_CODE_SESSION_ID: bSid,
-          CLAUDE_INVOKING_COMMAND: 'session-start',
-          HOME: os.homedir(),
-        },
-      });
-      assert.equal(r.status, 0, `Expected exit 0 for blanket+session-start. stderr: ${r.stderr}`);
-    } finally {
-      cleanupTempRepo(subRepo);
-    }
-  });
-
   it('CLAUDE_INVOKING_COMMAND=workstream-start + --blanket stages everything (exit 0)', () => {
-    // additive: workstream-start is the new ceremony token alongside session-start
+    // workstream-start is the ceremony token (session-start was removed — closed transition window)
     if (!bashAvailable) return;
     const subRepo = mkTempRepo();
     const bSid = `test-blanket-ws-${process.pid}`;
@@ -263,7 +236,7 @@ describe('coordinator-safe-commit', () => {
       fs.writeFileSync(scopedFile, 'scoped content');
       fs.writeFileSync(outOfScopeFile, 'out of scope');
 
-      const handoffDir = path.join(subRepo, 'tasks', 'handoffs');
+      const handoffDir = path.join(subRepo, 'state', 'handoffs');
       fs.mkdirSync(handoffDir, { recursive: true });
       const handoffPath = path.join(handoffDir, 'handoff.md');
       fs.writeFileSync(handoffPath, [
@@ -281,7 +254,7 @@ describe('coordinator-safe-commit', () => {
       // scope; the helper now fails-closed on those by default. Pass
       // --allow-out-of-scope-dirty to proceed (doctrine: "flagged loud, not silently dropped").
       const r = runBash(SAFE_COMMIT, [
-        '--scope-from', 'tasks/handoffs/handoff.md',
+        '--scope-from', 'state/handoffs/handoff.md',
         '--allow-out-of-scope-dirty',
         'test: scope-from',
       ], {

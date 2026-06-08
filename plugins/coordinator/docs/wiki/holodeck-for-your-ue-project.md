@@ -35,4 +35,4 @@ void DoThingRequiringSomeHeader();
 
 **When reviewing plugin PRs:** add this to the review checklist for any PR that introduces a conditional include in a `.cpp`. The compiler won't catch the asymmetry until link time on a configuration that lacks the optional include.
 
-**Empirical source:** `tasks/lessons.md:195`, 2026-04-28.
+**Empirical source:** `state/lessons.md:195`, 2026-04-28.

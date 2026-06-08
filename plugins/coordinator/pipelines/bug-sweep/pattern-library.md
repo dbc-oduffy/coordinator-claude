@@ -61,7 +61,7 @@ Code smells are bugs waiting to happen. Fix them alongside functional bugs:
 | Fix introduces regression | Post-fix test suite run; revert and defer if new failures. |
 | Sonnet over-reports low-confidence issues | Verify and either fix or drop — LOW confidence is not a reason to backlog; it's a reason to verify. |
 | Coordinator skips code smells as "informational" | Smells are always fixable. Agents must use P0/P1/P2 only — no P3/info/defer. Coordinator must fix all P2s, not just P0/P1. |
-| Pattern library misses project-specific bugs | Phase 0 reads `tasks/lessons.md` for known gotchas. |
+| Pattern library misses project-specific bugs | Phase 0 reads `state/lessons.md` for known gotchas. |
 | Executor fix uses hallucinated API | Phase 3.5 docs-checker catches it before commit; reverted finding goes to backlog. |
 | holodeck-docs server unavailable during Track C | Docs-checker marks claims UNVERIFIED, sweep continues; report notes degraded API verification. |
 | Test suite doesn't exist | Report the gap, sweep code-only. |

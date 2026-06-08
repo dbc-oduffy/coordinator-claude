@@ -73,7 +73,7 @@ plan: plugins/coordinator/docs/plans/2026-06-01-session-complete-rename.md
 
 - **Claim #8 — improvement-queue entry references `skills/{session-end,handoff}/SKILL.md` as a contact point:** The coordinator improvement queue contains an entry naming `skills/{session-end,handoff}/SKILL.md` as a target file for a future dirty-tree gate extraction.
   - **Plan covers:** Not in scope — the improvement queue is not a sweep target in this plan.
-  - **Prior art (`tasks/coordinator-improvement-queue.md` L15):** `"- 2026-05-27 | self | skills/{session-end,handoff}/SKILL.md + commands/workday-complete.md | Dirty-tree pre-terminate gate now replicated INLINE across 3 terminators..."` — this queue entry names `skills/session-end/SKILL.md` as the fix target.
+  - **Prior art (`state/coordinator-improvement-queue.md` L15):** `"- 2026-05-27 | self | skills/{session-end,handoff}/SKILL.md + commands/workday-complete.md | Dirty-tree pre-terminate gate now replicated INLINE across 3 terminators..."` — this queue entry names `skills/session-end/SKILL.md` as the fix target.
   - **Subtype:** `cite`
   - **Suggested action:** After the rename lands, the improvement-queue entry's cited path becomes stale (the path still exists as the stub, but the canonical target is `skills/session-complete/SKILL.md`). This is low-urgency — the stub file remains a valid path — but the next `/learn-lessons` or `/workday-complete` queue triage should update this path. No plan change needed; informational for the EM.
 

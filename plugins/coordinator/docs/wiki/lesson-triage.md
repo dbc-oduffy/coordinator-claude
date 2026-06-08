@@ -19,8 +19,8 @@ tags: [lesson-triage, improvement-queue, coordinator-sweep]
 
 This guide consolidates three closely-coupled processes that together form the EM's loop for converting per-session war-stories into greppable doctrine:
 
-1. **`lesson-triage`** — the unified skill that processes `tasks/lessons.md` files (project-local maintenance + cross-project promotion + cadence rechecks).
-2. **Improvement-queue triage** — the daily/weekly cadence over `~/.claude/tasks/coordinator-improvement-queue.md`.
+1. **`lesson-triage`** — the unified skill that processes `state/lessons.md` files (project-local maintenance + cross-project promotion + cadence rechecks).
+2. **Improvement-queue triage** — the daily/weekly cadence over `~/.claude/state/coordinator-improvement-queue.md`.
 3. **Coordinator-sweep pattern** — the dispatch/verification shape used when promoting universal patterns into multiple files at once.
 
 Treat the three as one workflow seen from different time horizons (in-session → daily/weekly → multi-repo).
@@ -33,7 +33,7 @@ Treat the three as one workflow seen from different time horizons (in-session �
 
 | Mode | Trigger | Authority | Output |
 |---|---|---|---|
-| **local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `tasks/lessons.md`, append-only wiki edits |
+| **local** | `/update-docs` Phase 6 OR direct invoke from project root | Auto-applies bounded items; surfaces structural changes to PM | Trimmed `state/lessons.md`, append-only wiki edits |
 | **central** | PM-invoked from `~/.claude` central root | PM gate on every apply (even auto-apply class) | Routing manifest grouped by destination repo + change_kind |
 | **recheck** | `tasks/lesson-triage-recheck-*.md` marker via `/workday-start` | Auto-extends cadence if delta ≤5 new universals; otherwise dispatches central | Updated marker or central dispatch |
 
@@ -43,9 +43,9 @@ Treat the three as one workflow seen from different time horizons (in-session �
 
 ### Queue routing — universal vs project-specific
 
-Every entry in `tasks/coordinator-improvement-queue.md` should route to one of:
-- **universal** — applies to any coordinator user / any project type → keep in global `~/.claude/tasks/coordinator-improvement-queue.md`
-- **project-specific** — rooted in a specific project's codebase → route to `tasks/improvement-queue.md` in that repo
+Every entry in `state/coordinator-improvement-queue.md` should route to one of:
+- **universal** — applies to any coordinator user / any project type → keep in global `~/.claude/state/coordinator-improvement-queue.md`
+- **project-specific** — rooted in a specific project's codebase → route to `state/improvement-queue.md` in that repo
 - **delete (resolved/dropped)** — already applied/marked resolved/promoted; no signal left in keeping it
 - **delete (dup)** — crossed out by sentinels in-file
 
@@ -127,7 +127,7 @@ escalation_reason: ""                   # one-line; only meaningful if doe_escal
 
 ## Central-mode six-phase pipeline
 
-- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/tasks/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
+- **Phase 0 — Configuration:** read the sentinel block in `~/.claude/state/learn-lessons-config.md` (roots between `<!-- BEGIN learn-lessons-roots -->` and `<!-- END learn-lessons-roots -->`). The skill auto-populates the running repo's path via `learn-lessons-config-update.sh`. Stale-entry pruning in central mode only. Never hardcode `X:/`. (Superseded the prior `lesson_triage:` block in `coordinator.local.md`.)
 - **Phase 1 — Discovery:** glob configured roots, count tagged universals.
 - **Phase 2 — Fan-out scouts:** one per repo, parallel `general-purpose` Sonnet, two-pass extraction (tagged + untagged candidates), themes section, DONE protocol.
 - **Phase 3 — Synthesis:** EM directly produces the four-section A/B/C/D structure (see below).
@@ -148,7 +148,7 @@ Phase 5 strips need `git pull --rebase` + scoped pathspec + clean-state check be
 
 ## Capturing lessons that should promote
 
-When writing a `[universal]` lesson in a project's `tasks/lessons.md`, also append to `~/.claude/tasks/coordinator-improvement-queue.md`:
+When writing a `[universal]` lesson in a project's `state/lessons.md`, also append to `~/.claude/state/coordinator-improvement-queue.md`:
 
 ```
 - YYYY-MM-DD | <source-repo> | <source-file>:<line> | <one-line summary> | proposed target: <coordinator file>
@@ -161,7 +161,7 @@ Test: "If a different project type also used the coordinator pipeline, would thi
 Two distinct cadences operate on the same queue file:
 
 - **Daily (`/workday-complete`)** — emits a depth nudge only. ≥5 new entries → notice, no action. The daily ceremony does not consume the queue; it surfaces volume.
-- **Weekly (`/workweek-complete`) Step 4** — triggers triage action. Apply tradeoff-free items, dispatch executors, move to Processed block. Recheck mode fires from `tasks/lesson-triage-recheck-due-*.md` markers.
+- **Weekly (`/workweek-complete`) Step 4** — triggers triage action. Apply tradeoff-free items, dispatch executors, move to Processed block. Recheck mode fires from `state/lesson-triage-recheck-due-*.md` markers.
 
 This split enforces "don't theatre the queue daily" — entries either get acted on at weekly cadence or they're explicitly deferred. Promoting through the queue solely for symmetry is theater (see [DR-007](#dr-007)).
 
@@ -297,11 +297,11 @@ This sets expectations for fan-out budget: 4 parallel scouts, ~5 minutes each, �
 
 ### Neutralise reverted lessons in-place, do not delete
 
-**When a lesson in `tasks/lessons.md` turns out to have an inverted rule (postmortem-revealed or PM-overridden), neutralise the entry in-place — do not delete it.**
+**When a lesson in `state/lessons.md` turns out to have an inverted rule (postmortem-revealed or PM-overridden), neutralise the entry in-place — do not delete it.**
 **Why:** Deletion loses the "why" of the inversion and invites future re-derivation of the same wrong rule. Greppable in-file history shows both the original and the corrected version.
 **How to apply:** replace the lesson body with a `Neutralised YYYY-MM-DD — superseded by entry at <location>` note that preserves the original text in audit-trail framing. Append the corrected lesson at EOF. This composes with the delete-on-resolution rule for queue entries (queue entries are discarded once resolved; lesson entries carry a correction note that stays visible).
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L131, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L131, central-promoted 2026-05-28).*
 
 ### Local vs. Central Concurrent Run — Strip Only the Pre-Window Subset
 
@@ -321,13 +321,13 @@ Local mode extracts the full file (no `--since`) and counts every uncovered univ
 
 ### After Age-Sweep: Retained-Count ≠ Universals-Count Signals Untagged Entries
 
-*Source: project-rag tasks/lessons.md:60, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:60, 2026-05-29. [universal]*
 
 After a local-mode age-sweep prunes expired entries, if the retained entry count does not equal the `[universal]`-tagged entry count, the delta is untagged entries that may carry universal-shape substance. Before writing a central-promotion memo, cross-check: count entries, count `[universal]` tags, and audit the gap. An entry shaped like a universal pattern but lacking the `[universal]` tag will be missed by the central-run's Phase 1 discovery step and silently accumulates without promotion. Tag first, then promote.
 
 ### `[universal]` Tag Is NOT a Stop-Sign for Local-Mode Wiki Folds
 
-*Source: holodeck tasks/lessons.md:9, 2026-05-29. [universal]*
+*Source: holodeck state/lessons.md:9, 2026-05-29. [universal]*
 
 A `[universal]`-tagged lesson is a promotion candidate for the central queue — it is NOT a block on local-mode wiki folding. **Substance and proposed-target are independent of the tag.** If a `[universal]` lesson has a clear proposed-target wiki and the substance belongs there, fold it locally in the same `/update-docs` pass. The tag means "this should also propagate centrally"; it does not mean "wait for central mode before touching the destination wiki." Delaying a local fold until the next central run leaves the wiki stale for sessions running between cadences.
 

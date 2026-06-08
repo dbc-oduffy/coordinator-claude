@@ -9,7 +9,7 @@
 # Throttled to one network check per 3 days per plugin via a per-plugin sentinel.
 #
 # Spec backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C3
-#   + spinoff tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md
+#   + spinoff state/handoffs/2026-06-01_122922_deep-research-currency-notification.md
 #     (Leg 1: deep-research loop entry; Leg 2 option (a): per-plugin honest action).
 #
 # Output contract (SessionStart hook — stdout IS the additionalContext):

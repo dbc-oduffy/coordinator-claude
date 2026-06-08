@@ -379,7 +379,7 @@ The four authoring flows:
 1. Copy the edited file from the publish repo back into the appropriate `coordinator/dist/publish-repo-*/` source directory. Manual `cp` is correct here — back-percolation is the genuine exception to "publish.sh is the authority," which governs the source → publish-repo direction only.
 2. Commit in Claude Central with a `back-percolate:` subject prefix.
 3. Re-run `bash setup/publish.sh <target>` to verify the source-of-truth now drives the publish-repo state.
-4. Surface the incident in `tasks/lessons.md` if the edit was substantive, so the doctrine compounds.
+4. Surface the incident in `state/lessons.md` if the edit was substantive, so the doctrine compounds.
 
 **Per-target `.percolate-ignore`.** Publish-repo-owned infra files (e.g. `.gitignore`, `.python-version`, the publish repo's own `CLAUDE.md`) are protected via `dist/publish-repo-toplevel/.percolate-ignore`. These files remain owned by the publish repo by design; back-percolating them is a separate, per-file decision, not an automatic consequence of this doctrine.
 

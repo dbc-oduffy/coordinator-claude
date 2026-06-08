@@ -92,4 +92,4 @@ automatically; until then, the EM does it by hand and the doctor probe
 
 - `CLAUDE.md` Appendix F — the EM-facing routing table
 - `project-rag-ue-addon/eval/bank_ue.yaml` — every UE-flavored tool exercised at least once per run (ported from `scripts/dogfood_mcp/bank_legacy_ue.yaml` in Wave 2b phase-1I)
-- `tasks/improvement-queue.md` — `project_cvar` etc. land items
+- `state/improvement-queue.md` — `project_cvar` etc. land items

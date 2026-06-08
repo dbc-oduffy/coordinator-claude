@@ -12,8 +12,8 @@
 # Spec backlink: docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md
 # § Chunk 5 — bin/aggregate-chain-loe.sh chain-walk + aggregator (plan lines 190–232).
 #
-# Concurrency posture: read-only against handoff files in tasks/handoffs/ and
-#   tasks/handoffs/archive/**/. Handoff files are append-only (new Session Ledger
+# Concurrency posture: read-only against handoff files in state/handoffs/ and
+#   state/handoffs/archive/**/. Handoff files are append-only (new Session Ledger
 #   blocks are appended, never overwritten). Safe under concurrent reads; no locking
 #   required. Chain-walk is deterministic once the predecessor links are stable.
 # Idempotency posture: deterministic given a fixed terminal-handoff and fixed handoff
@@ -73,13 +73,13 @@ Output yaml-frontmatter example:
   chain_sessions: 6
   chain_sessions_with_ledger: 6 of 6
   chain_span_days: 14
-  chain_starting_handoff: tasks/handoffs/2026-05-05_141200_chain-root.md
+  chain_starting_handoff: state/handoffs/2026-05-05_141200_chain-root.md
 
 Output json example:
   {"loe": {"agent_dispatches": 87, ...}, "chain_sessions": 6, ...}
 
 Termination signals (recorded as chain_walk_terminated_early):
-  missing-link  — predecessor path not found in tasks/handoffs/ or archive
+  missing-link  — predecessor path not found in state/handoffs/ or archive
   cycle-detected — predecessor path already visited
 
 Exit codes:
@@ -105,13 +105,13 @@ GIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "Error: not inside a git repo" >&2; exit 1
 }
 
-HANDOFFS_DIR="${GIT_ROOT}/tasks/handoffs"
+HANDOFFS_DIR="${GIT_ROOT}/state/handoffs"
 ARCHIVE_DIR="${HANDOFFS_DIR}/archive"
 
 # ---------------------------------------------------------------------------
 # Resolve a predecessor path to an absolute file path.
-# Searches: 1) as-is (absolute or relative to cwd), 2) under tasks/handoffs/,
-#           3) recursively under tasks/handoffs/archive/**/.
+# Searches: 1) as-is (absolute or relative to cwd), 2) under state/handoffs/,
+#           3) recursively under state/handoffs/archive/**/.
 # Returns the resolved absolute path via stdout, or empty string if not found.
 # ---------------------------------------------------------------------------
 
@@ -139,7 +139,7 @@ resolve_handoff_path() {
     return 0
   fi
 
-  # 3. Basename under tasks/handoffs/
+  # 3. Basename under state/handoffs/
   local basename; basename="$(basename "$raw")"
   local in_handoffs="${HANDOFFS_DIR}/${basename}"
   if [[ -f "$in_handoffs" ]]; then
@@ -147,7 +147,7 @@ resolve_handoff_path() {
     return 0
   fi
 
-  # 4. Recursive search under tasks/handoffs/archive/**/
+  # 4. Recursive search under state/handoffs/archive/**/
   if [[ -d "$ARCHIVE_DIR" ]]; then
     local found
     found=$(find "$ARCHIVE_DIR" -name "$basename" -type f 2>/dev/null | head -1)
@@ -156,7 +156,7 @@ resolve_handoff_path() {
       return 0
     fi
     # Also try full path suffix match (in case predecessor field is a relative path
-    # like tasks/handoffs/archive/2026-05/foo.md).
+    # like state/handoffs/archive/2026-05/foo.md).
     local suffix_match
     suffix_match=$(find "$ARCHIVE_DIR" -name "*.md" -type f 2>/dev/null | while read -r f; do
       if [[ "$f" == *"$raw" ]] || [[ "$f" == *"$(basename "$raw")" ]]; then

@@ -13,7 +13,7 @@
 #
 # Negative-spec:
 #   - deep-research-claude URL is NOT defined here — it belongs to the spinoff
-#     (tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md).
+#     (state/handoffs/2026-06-01_122922_deep-research-currency-notification.md).
 #   - This file is SOURCED ONLY — it must not produce any output or side-effects.
 #   - No `set -euo pipefail` at file scope — this is a sourced constants file.
 

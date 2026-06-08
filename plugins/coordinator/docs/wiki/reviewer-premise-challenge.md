@@ -18,7 +18,7 @@ distilled_run: 2026-05-06-13h00
 
 ### Five intervention points (cheapest first)
 
-1. **W1 — Negative-search rule** in the `writing-plans` SKILL (plan author).
+1. **W1 — Negative-search rule** in the `coordinator:plan` skill (Branch B) (plan author).
 2. **W2 — Counter-evidence pass** in `repo-specialist` (research stage).
 3. **W3 — the Staff Engineer Pass 0** premise review (reviewer stage).
 4. **W4 — Reversal-verb suggested staff-session escalation** (PM-discretion).
@@ -28,9 +28,9 @@ distilled_run: 2026-05-06-13h00
 
 **Re-verify reviewer premises against artifacts that land AFTER the review.** When a reviewer finding directs a rename/refactor whose feasibility depends on a downstream artifact (schema, contract doc, ecosystem constant), and that artifact lands or changes between review and execution, re-verify the premise against the landed artifact before acting. Example: a finding directed renaming `accept_hallucination_risk` → `accept_corpus_poisoning_risk`; the schema then landed with `additionalProperties: false` pinning the original key. Resolution: honor the finding's intent (clearer naming) in CLI flag values and banner text without forking the schema key. (Source: project-rag-ue-addon L13)
 
-### W1 — Negative-search rule (writing-plans SKILL)
+### W1 — Negative-search rule (coordinator:plan, Branch B)
 
-Identify central nouns/abstractions in the prescription. Run `bin/query-records` + Grep against `tasks/lessons.md` and `docs/wiki/` for those nouns paired with prohibition vocabulary: `do not | never | tear down | deprecated | forbidden | removed | do NOT`.
+Identify central nouns/abstractions in the prescription. Run `bin/query-records` + Grep against `state/lessons.md` and `docs/wiki/` for those nouns paired with prohibition vocabulary: `do not | never | tear down | deprecated | forbidden | removed | do NOT`.
 
 If a prohibition is found:
 - (a) Acknowledge in §1 Objective + justify the reversal, **engaging with the original argument**, or
@@ -41,7 +41,7 @@ If a prohibition is found:
 ### W2 — repo-specialist counter-evidence pass
 
 After the positive analysis, search for prior-decision artifacts arguing AGAINST the hypothesis. Targets:
-- `tasks/lessons.md` (always — hard rule, regardless of scout-passed inputs)
+- `state/lessons.md` (always — hard rule, regardless of scout-passed inputs)
 - `docs/wiki/`
 - `docs/decisions/`
 - Archived plans whose successors superseded them

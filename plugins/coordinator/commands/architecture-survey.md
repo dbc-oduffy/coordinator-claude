@@ -37,7 +37,7 @@ Announce: "I'm running `/architecture-survey` to [bootstrap / refresh] the archi
 
 ## Atlas Directory Structure
 
-**Location: `docs/architecture/`** — the atlas is an evergreen reference artifact (narrative system descriptions, dependency matrices, connectivity diagrams), not work-in-flight. It belongs alongside `docs/wiki/` and `docs/decisions/`, not under `tasks/` (which holds handoffs, backlogs, scratch). Audit run scratch DOES live under `tasks/scratch/deep-architecture-survey/{run-id}/` — that's transient pipeline state, distinct from the persistent atlas output.
+**Location: `docs/architecture/`** — the atlas is an evergreen reference artifact (narrative system descriptions, dependency matrices, connectivity diagrams), not work-in-flight. It belongs alongside `docs/wiki/` and `docs/decisions/`, not under `tasks/` (which holds handoffs, backlogs, scratch). Audit run scratch DOES live under `state/scratch/deep-architecture-survey/{run-id}/` — that's transient pipeline state, distinct from the persistent atlas output.
 
 ```
 docs/architecture/
@@ -59,7 +59,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 ## Phase 0: Scope and Chunking (~5 min, YOU do this)
 
-1. **Read orientation artifacts:** `tasks/repomap.md` and `DIRECTORY.md`
+1. **Read orientation artifacts:** `state/repomap.md` and `DIRECTORY.md`
 
 2. **Detect mode:**
    - Check for `docs/architecture/systems-index.md`
@@ -87,7 +87,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
    - Each file assigned to exactly ONE system. No overlaps.
    - Sub-chunk systems with >12 files into 8-12 file groups by concern. Label: `{system}-A`, `{system}-B`, etc.
    - Write focus questions for each chunk
-   - **Generate run ID** — `YYYY-MM-DD-HHhMM`. Create: `tasks/scratch/deep-architecture-survey/{run-id}/`
+   - **Generate run ID** — `YYYY-MM-DD-HHhMM`. Create: `state/scratch/deep-architecture-survey/{run-id}/`
    - **Output:** Chunk table (system, sub-chunks, file count, mode: full, focus questions)
 
 4. **Refresh — identify churned systems:**
@@ -120,7 +120,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
      Fire the chunk-K pass when **either** condition holds:
      - `emergent.txt` is non-empty (there exist changed files outside every catalogued system), **OR**
-     - total churned files (`wc -l < churned-all.txt`) exceed 50% of the current catalogued file count (`wc -l < catalogued.txt`) — a refresh on a tree this churned is a partial bootstrap, not a delta. **Note the time windows:** the numerator (churn) is measured since the *oldest* system's Last-mapped date, while the denominator (catalogued file count) is the *current* catalogued total — so this threshold measures accumulated churn across the whole mapping-age spread, not churn since the last full audit. See the OPEN QUESTION in § Integration escalations; if the EM elects the "since last full audit" semantics, replace `<oldest-last-mapped-date>` with the `Last full audit` clock from `tasks/health-ledger.md`.
+     - total churned files (`wc -l < churned-all.txt`) exceed 50% of the current catalogued file count (`wc -l < catalogued.txt`) — a refresh on a tree this churned is a partial bootstrap, not a delta. **Note the time windows:** the numerator (churn) is measured since the *oldest* system's Last-mapped date, while the denominator (catalogued file count) is the *current* catalogued total — so this threshold measures accumulated churn across the whole mapping-age spread, not churn since the last full audit. See the OPEN QUESTION in § Integration escalations; if the EM elects the "since last full audit" semantics, replace `<oldest-last-mapped-date>` with the `Last full audit` clock from `state/health-ledger.md`.
 
      When fired, add a synthetic **chunk K** ("emergent / uncatalogued") to the Phase 1 fan-out: sub-chunk it like a first-run system (8–12 files per Haiku) and **dispatch it with the first-run Phase 1 (full-inventory) Haiku template from agent-prompts.md, NOT the Phase 1R delta template** — emergent files have no prior atlas entry to delta against, so the 1R delta template would mis-handle them. The Opus synthesizer in Phase 3 then assigns these files to existing systems or proposes new system boundaries. Do NOT silently drop the emergent set — emergent files left uninventoried are the partial-bootstrap failure this guard exists to prevent.
    - **Generate run ID** and create scratch directory
@@ -136,7 +136,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 **Do NOT write a custom prompt** — the template's guardrails prevent Haiku from confabulating relationships.
 
-**Scratch path:** `tasks/scratch/deep-architecture-survey/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
+**Scratch path:** `state/scratch/deep-architecture-survey/{run-id}/{chunk-letter}{sub-chunk}-phase1-haiku.md`
 
 **Scratch verification — disk-poll, not reply-trust.** Before Phase 2, verify all expected scratch files exist on disk. Do NOT rely on agent "DONE" replies — empirically ~30% of Haikus on heavy parallel dispatch hallucinate a "TEXT ONLY constraint" and either (a) reply DONE without writing, or (b) write the file but reply with meta-commentary that obscures progress. Disk is the only reliable signal.
 
@@ -162,7 +162,7 @@ Skip sub-chunk on second failure (after Sonnet retry also misses).
 
 **No grading in Phase 2.** Observations only.
 
-**Scratch path:** `tasks/scratch/deep-architecture-survey/{run-id}/{chunk-letter}-phase2-sonnet.md`
+**Scratch path:** `state/scratch/deep-architecture-survey/{run-id}/{chunk-letter}-phase2-sonnet.md`
 
 **Scratch verification:** Verify all Phase 2/2R files exist on disk before Phase 3 (use the polling pattern above). The TEXT-ONLY hallucination affects Sonnet too at lower rate — apply the same recovery preamble on retry. Skip system on second failure.
 
@@ -219,7 +219,7 @@ The Opus agent produces all atlas artifacts:
 3. **Quarterly narrative-drift reminder (per the Data Science Reviewer F7):**
    - Check each system's `last_mapped` date in `systems-index.md`. For any system >90 days since last mapped, note it in the report: "Narrative drift risk: [system] mapped [date]. Recommend a re-read sweep — narrative atlases drift silently when systems reorganize."
 
-4. **Write the `Last full audit` clock (full-pass only):** A genuine full survey pass (first run / `--refresh`) is the ONLY surface that writes `Last full audit` in `tasks/health-ledger.md`. Update (or add) the header line:
+4. **Write the `Last full audit` clock (full-pass only):** A genuine full survey pass (first run / `--refresh`) is the ONLY surface that writes `Last full audit` in `state/health-ledger.md`. Update (or add) the header line:
    ```
    **Last full audit:** YYYY-MM-DD
    ```
@@ -227,7 +227,7 @@ The Opus agent produces all atlas artifacts:
 
 5. **Atomic commit:**
    ```bash
-   git add docs/architecture/ tasks/health-ledger.md
+   git add docs/architecture/ state/health-ledger.md
    git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped"
    ```
 
@@ -257,7 +257,7 @@ The Opus agent produces all atlas artifacts:
    **Atlas location:** docs/architecture/
    ```
 
-8. **Clean scratch:** `rm -rf tasks/scratch/deep-architecture-survey/{run-id}/`
+8. **Clean scratch:** `rm -rf state/scratch/deep-architecture-survey/{run-id}/`
    Only delete after commit succeeds. On Phase 2/3 failure, scratch contains earlier phases for recovery.
 
 ## Cost Profile

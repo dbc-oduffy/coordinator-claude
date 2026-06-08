@@ -178,6 +178,17 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-foreground-agent-dispatch.sh",
+            "timeout": 3,
+            "async": false
+          }
+        ]
+      },
+      {
         "matcher": "WebSearch|WebFetch",
         "hooks": [
           {
@@ -293,13 +304,19 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.sh",
             "timeout": 5,
-            "async": true
+            "async": false
           },
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.sh",
             "timeout": 5,
-            "async": true
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
           }
         ]
       },
@@ -309,7 +326,14 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-advisory.sh",
-            "timeout": 5
+            "timeout": 5,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-advisory.sh",
+            "timeout": 5,
+            "async": false
           }
         ]
       }

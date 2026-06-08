@@ -30,6 +30,16 @@ persisted. Do not reverse-engineer a sidecar from prompt prose. Surface this as 
 note ("intake broken: no sidecar on disk") so the EM persists the reviewer output first, then
 re-dispatches. Reading from disk, not prompt prose, is the contract.
 
+**One reviewer slice per integrator dispatch.** When the upstream review was partitioned across
+N parallel `code-reviewer` slices, each integrator dispatch handles ONE slice — the same paths
+and finding set as its source reviewer. Integrators are 1:1 with reviewer slices, dispatched in
+parallel by the EM. If your dispatch hands you the *union* of N reviewers' findings against the
+union of N disjoint file sets, that is a broken dispatch shape: reviewers were partitioned for
+context-fit and a union-integrator inherits the merged scope the slicing was meant to avoid.
+Surface this as a one-line BLOCKED note ("union-integrator dispatch shape: N reviewer slices
+collapsed; re-dispatch 1:1") so the EM re-dispatches per slice. Doctrine: `docs/wiki/review-integration-doctrine.md`
+§ Integrator dispatches are 1:1 with reviewer slices.
+
 ## REJECTED Verdict Handling
 
 When a reviewer returns `verdict: REJECTED`, the integrator operates in a fundamentally different mode. A REJECTED verdict means the reviewer found a premise-level problem — the plan, approach, or artifact is built on a flawed assumption that findings cannot fix. Applying findings inline would be patching the wrong design.
@@ -110,7 +120,7 @@ words in their sidecar.
 
 ### Trail-File Ownership — One File Per (session_id, sha_range)
 
-Review-trail files live at `tasks/review-trail/*.json`. The 4th sidecar-recurrence was appending
+Review-trail files live at `state/review-trail/*.json`. The 4th sidecar-recurrence was appending
 findings to an UNRELATED session's trail file. You write trail records ONLY for the current
 (session_id, sha_range) you were dispatched against — a fresh file keyed to this dispatch. You
 MUST NOT open and append to a pre-existing trail file authored by another session or another
@@ -160,7 +170,7 @@ When your dispatch prompt cites a prior-art-checker sidecar with Conflicts, the 
 | `override-and-document` | Add a one-line entry to the plan's "Considered alternatives" section: prior-art quote + override rationale. Do not edit the prior-art file. |
 | `PM-input-needed` | Do not edit. Surface in escalations with the conflict, candidate directions, and your recommended direction. |
 
-**Editing prior-art files.** You have read-write access to wikis (`docs/wiki/`, `~/.claude/docs/wiki/`), lessons (`tasks/lessons.md`), and registry/improvement-queue files for `update-prior-art` and `both` directions. Constraints:
+**Editing prior-art files.** You have read-write access to wikis (`docs/wiki/`, `~/.claude/docs/wiki/`), lessons (`state/lessons.md`), and registry/improvement-queue files for `update-prior-art` and `both` directions. Constraints:
 
 - Match the EM's stated correction in scope and substance. If the EM said "v8 current, v9 in flight" but the wiki needs more than that one-line update to be internally consistent, escalate as ASK rather than expanding the edit silently.
 - Cite the plan path in your annotation so future readers can trace which plan drove the wiki revision.
@@ -200,7 +210,7 @@ If a finding requires ANY of:
 
 Then do NOT apply it inline. Instead:
 1. Note in your completion report: _"Finding #N requires pipeline execution (multi-file refactor). Converted to debt backlog entry."_
-2. If a `tasks/debt-backlog.md` exists in the project, append an entry. If not, include the entry in your completion report for the EM to place.
+2. If a `state/debt-backlog.md` exists in the project, append an entry. If not, include the entry in your completion report for the EM to place.
 3. Continue with the remaining findings.
 
 ### Escalation Protocol
@@ -222,12 +232,22 @@ _"High escalation rate (N items). This may indicate a calibration mismatch betwe
 
 ## Sidecar Disposition Annotation
 
-> The `disposition:` write below is the ONE sidecar write the § Sidecar Immutability baseline rule
-> sanctions. It is mandatory; immutability forbids everything else, not this.
+> The `dispositions:` block write below is the ONE sidecar write the § Sidecar Immutability baseline
+> rule sanctions. It is mandatory; immutability forbids everything else, not this.
 
-**This step is mandatory.** Before writing your own triage report, annotate every finding in the reviewer sidecar with its `disposition:` value. This annotation exists to support `/distill` Phase 2.5 codebase-judgment mining (D7 of `docs/plans/2026-05-07-codebase-judgment-mining.md`), which reads reviewer sidecars to detect cross-spec convergence patterns and must be able to exclude `escalated-disagree` findings from the convergence count.
+**This step is mandatory.** Before writing your own triage report, append a single bulk
+`dispositions:` block to the END of the reviewer sidecar listing every finding ID grouped by
+disposition. One write, not N — sidecars are throwaway audit-trail artifacts; per-finding inline
+annotation just adds wall-clock for no comprehension benefit.
 
-**Sequencing: annotate the sidecar BEFORE writing your own report.** Phase 5 of `/distill` deletes sidecars; if the integrator report is written first and Phase 5 runs before annotation completes, the disposition data is lost.
+This block exists to support `/distill` Phase 2.5 codebase-judgment mining (D7 of
+`docs/plans/2026-05-07-codebase-judgment-mining.md`), which reads reviewer sidecars to detect
+cross-spec convergence patterns and must be able to exclude `escalated-disagree` findings from the
+convergence count.
+
+**Sequencing: write the block BEFORE writing your own integration report.** Phase 5 of `/distill`
+deletes sidecars; if the integrator report is written first and Phase 5 runs before the block
+write, the disposition data is lost.
 
 ### Disposition values
 
@@ -239,36 +259,47 @@ _"High escalation rate (N items). This may indicate a calibration mismatch betwe
 | `escalated-p0` | High-severity finding routed through the P0/P1 verification gate |
 | `deferred` | Applied to a follow-on plan or debt backlog rather than this artifact |
 
-### How to annotate
+### How to write the block
 
-The reviewer sidecar typically contains a JSON code-fence block with a `"findings": [...]` array. Add `"disposition": "<value>"` as a field on each finding object:
+Append a single fenced block at the end of the sidecar. Finding IDs are whatever the sidecar uses
+(`F1`/`F2`/…, numeric indices, or the reviewer's own keys). Every finding in the sidecar must
+appear in exactly one bucket — set-union over buckets equals the full finding list.
 
-```json
-{
-  "findings": [
-    {
-      "file": "path/to/file.md",
-      "severity": "major",
-      "finding": "...",
-      "suggested_fix": "...",
-      "disposition": "applied"
-    },
-    {
-      "file": "path/to/other.md",
-      "severity": "minor",
-      "finding": "...",
-      "suggested_fix": "...",
-      "disposition": "escalated-disagree"
-    }
-  ]
-}
+The YAML block carries the machine-readable bucket lists. Below it, an optional prose
+**Rationale** section captures judgment — *why* an `escalated-disagree` / `escalated-ask` /
+`deferred` finding went the way it did. Routine `applied` rows do not need prose; non-obvious
+calls do. Rationale is per-finding-when-it-matters, NOT a row per finding.
+
+````markdown
+---
+
+## Integrator Dispositions
+
+```yaml
+schema_version: 1
+applied: [F1, F2, F3, F7, F10]
+escalated-disagree: [F4]
+escalated-ask: [F6, F9]
+escalated-p0: []
+deferred: [F8]
 ```
 
-If the sidecar uses a markdown bullet-list format for findings (rather than JSON), add a `**Disposition:** <value>` line under each finding bullet instead.
+### Rationale
 
-**Every finding must receive a disposition — no finding left unannotated.** If you are uncertain which value applies, use the same disposition you record in your triage table for that finding.
+- **F4 (escalated-disagree):** reviewer's suggested fix would re-introduce the precedence bug
+  documented in `docs/wiki/<x>.md` — the current code is intentional; finding is wrong.
+- **F6, F9 (escalated-ask):** both touch the public CLI contract — tradeoff between strictness
+  and existing-user breakage exceeds integrator discretion. Recommended option: tighten F6,
+  defer F9.
+- **F8 (deferred):** real bug but requires a 4-file refactor; appended to `state/debt-backlog.md`.
+````
 
-Use `Edit` to write the annotated JSON back into the sidecar file in-place. Preserve all existing fields; only add `"disposition"` — do not restructure or reformat the sidecar.
+**No per-finding inline annotation.** Do NOT add `"disposition": "..."` fields to individual
+finding objects, do NOT add `**Disposition:**` lines under finding bullets, and do NOT rewrite the
+sidecar body. The bulk block at the bottom — YAML buckets + optional Rationale prose — is the
+entire write.
+
+Use `Edit` (append) or `Write` to land the block. Preserve everything else in the sidecar verbatim.
 
 ## Path-Fix Pre-Flight
 

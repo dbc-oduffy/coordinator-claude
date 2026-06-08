@@ -189,7 +189,7 @@ The `examples:` keyword in JSON Schema draft 2020-12 is **annotation-only** — 
 **DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or workstream-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
 
 - **Missing install:** run `/coordinator:setup` (installs the `coordinator_whoami` package via pip in Phase 3 Step 6).
-- **Unbound envelope:** run `/project-onboarding` or `/project-rag:setup` to bind the project.
+- **Unbound envelope:** run `/repo-setup` or `/project-rag:setup` to bind the project.
 
 Do NOT reach for grep, `git status`, or hand-rolled binding checks as a substitute. Those produce inconsistent output that diverges from the contract surface over time; the contract surface exists precisely to give one authoritative introspection path.
 
@@ -233,12 +233,12 @@ Operators — as distinct from plugin authors implementing the contract — cons
 The workstream-start Context Load emits exactly one line per session, branching on import state. Session orientation routes through `coordinator_whoami.session` (probe **P-6s**), not through any plugin adopter. The session adopter has binary binding (`bound` / `unbound` only — no `degraded` binding kind); the freshness/reconcile gradient is carried on `status.state` instead.
 
 1. **Import fails:** `whoami: not installed (run /coordinator:setup to install the introspection package)`
-2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /project-onboarding to onboard this repo as a coordinator workspace)`
+2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /repo-setup to onboard this repo as a coordinator workspace)`
 3. **Import succeeds, `binding.kind == "bound"`:** `whoami: bound → <binding.target> (<status.state>)` — `status.state` carries the orientation-health gradient (`healthy` / `degraded` / `error`); `status.reason` names what's stale when degraded.
 
 Plugin whoamis (project-rag, holodeck-control, etc.) may appear as optional sub-lines after the session line, but they are not the spine. A session that emits `whoami: bound → (healthy)` is oriented regardless of whether any MCP plugin is currently reachable.
 
-Note: workstream-start does NOT surface bound-but-target-mismatched as a separate state — that is `/project-onboarding`'s responsibility. Surfacing mismatch at workstream-start generates false positives for operators in a folder that is not the bound project root.
+Note: workstream-start does NOT surface bound-but-target-mismatched as a separate state — that is `/repo-setup`'s responsibility. Surfacing mismatch at workstream-start generates false positives for operators in a folder that is not the bound project root.
 
 Auto-repair on import failure is explicitly out of scope. The loud nudge (branch 1) is the correct primitive — surfacing with remediation path, not mutating on the operator's behalf.
 
@@ -248,8 +248,8 @@ The cross-plugin whoami contract is wired into operator-facing pipelines at thre
 
 1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`. Default CLI output is compact single-line JSON (no flag needed); --human pretty-prints for human reading. Status vocabulary for this step: `ready` (importable — whether freshly installed or re-used), `would write` (--check-only mode against an absent package), `failed` (non-zero pip exit — reason logged to stderr; chain continues without hard-stopping). These are the three states the coordinator-installer status schema records for the `coordinator_whoami` identifier row.
    **Why-not for the session adopter:** no new install step is needed. The `coordinator_whoami.session` subpackage ships inside the same `coordinator_whoami` package the existing step installs. Adding a separate install step would be redundant.
-2. **`/project-onboarding` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/project-onboarding/SKILL.md`.
-   **Why-not for the session adopter:** `/project-onboarding`'s concern is "is this project registered as a project-rag source" (project-registration). That question is answered by project-rag's binding semantics. The session adopter answers a different question ("am I in a coordinator-onboarded repo / oriented") and does not replace the project-onboarding branch. Step 4 stays on project-rag's binding.
+2. **`/repo-setup` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/repo-setup/SKILL.md`.
+   **Why-not for the session adopter:** `/repo-setup`'s concern is "is this project registered as a project-rag source" (project-registration). That question is answered by project-rag's binding semantics. The session adopter answers a different question ("am I in a coordinator-onboarded repo / oriented") and does not replace the repo-setup branch. Step 4 stays on project-rag's binding.
 3. **`/workstream-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/workstream-start/SKILL.md`. **Rewired to the session adopter** (`python -m coordinator_whoami.session`, probe P-6s in [`coordinator-doctor.md`](coordinator-doctor.md)). This is the contact point that moves when a new session adopter is added.
 
 The canonical why-not detail for each contact point also lives in [`coordinator-doctor.md`](coordinator-doctor.md) §Probe Catalog (P-6s entry). Cross-reference rather than duplicate if the two surfaces diverge.

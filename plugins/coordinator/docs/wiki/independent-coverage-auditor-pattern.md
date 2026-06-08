@@ -115,7 +115,7 @@ and the downstream checks should run on the amended body.
 
 Its audit question is structural: "does the plan address canonical coverage areas (rollback,
 migration, observability, security boundary, error paths, test surface, concurrency, docs impact)?"
-Output sidecar at `tasks/review-findings/{timestamp}-comprehensiveness.md`. Non-empty Silent column
+Output sidecar at `state/review-findings/{timestamp}-comprehensiveness.md`. Non-empty Silent column
 blocks downstream reviewer dispatch until the EM fills or annotates N/A.
 
 ## Shared doctrine; disjoint implementations

@@ -24,16 +24,43 @@
 #     the read path sentinel-independent (helper enumerates .agents/* and
 #     matches against the candidate em-sid set built from cs_live_session_ids).
 #   - Record shape (tab-delimited, newline-terminated):
-#       <agentId>\t<model>\t<subagent_type>
+#       <agentId>\t<model>\t<subagent_type>\t<dispatched-at>
+#     where <dispatched-at> is Unix epoch seconds at write time ($(date +%s)).
+#     Legacy 3-column records (no 4th column) still parse: readers treat
+#     missing dispatched-at column as 0 (sentinel meaning "unknown start time").
 #     Legacy 1-column records (bare agentId, no tabs) still parse: Chunk 2's
 #     read helper treats missing model column as "unknown" (Sonnet for LoE
 #     purposes — conservative default per plan line 79).
+#
+#     Spec backlink: docs/plans/2026-06-08-runtime-tripwire-background-executors.md
+#     § C3a — extends record shape with dispatched-at column for runtime-tripwire hooks.
 #   - Dedup guard compares column 1 only (cut -f1 | grep -qxF) so both legacy
 #     bare-agentId lines AND new tab-delimited lines are deduped uniformly.
 #     (the Staff Engineer F1/F11: old grep -qxF on full line always mismatched tab-
 #     delimited records, causing unbounded re-append.)
 #   - Atomic temp+rename for the back-pointer (the Staff Engineer v2 finding 3).
 #   - Always exits 0 — advisory bookkeeping, never blocks tool calls.
+#
+# Architectural note — PostToolUse fires at Agent RETURN time, not dispatch time:
+#   This hook fires on PostToolUse: Agent, meaning it runs when the Agent tool
+#   returns to the EM — which is RETURN time, not the moment the dispatch was
+#   issued. The `dispatched-at` timestamp recorded is therefore the Agent-tool
+#   return time.
+#
+#   For BACKGROUND dispatches (run_in_background: true): the Agent tool returns
+#   immediately at dispatch time (background agents are fire-and-forget from the
+#   tool's perspective). In this case `dispatched-at` is the actual dispatch
+#   time, and the runtime-tripwire elapsed-time math is correct.
+#
+#   For FOREGROUND dispatches (blocking): the Agent tool returns only after the
+#   subagent completes, so `dispatched-at` records the agent-completion time —
+#   not the dispatch time. However, for a foreground dispatch the EM is blocked
+#   on the call and cannot act on a runtime nudge anyway, making the timing
+#   inaccuracy irrelevant in practice.
+#
+#   Conclusion: the system is correctly designed for the background-dispatch use
+#   case, which is the primary use case for the runtime-tripwire. Foreground
+#   dispatches degrade gracefully (no false alarm; EM couldn't act anyway).
 
 if command -v timeout &>/dev/null; then
   INPUT=$(timeout 2 cat 2>/dev/null || true)
@@ -136,5 +163,5 @@ fi
 if cut -f1 "$DISPATCHED" 2>/dev/null | grep -qxF "$AGENT_ID"; then
   exit 0
 fi
-printf '%s\t%s\t%s\n' "$AGENT_ID" "$MODEL" "$SUBAGENT_TYPE" >> "$DISPATCHED"
+printf '%s\t%s\t%s\t%s\n' "$AGENT_ID" "$MODEL" "$SUBAGENT_TYPE" "$(date +%s)" >> "$DISPATCHED"
 exit 0

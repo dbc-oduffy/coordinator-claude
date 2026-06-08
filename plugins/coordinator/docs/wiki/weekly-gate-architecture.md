@@ -24,7 +24,7 @@ Before invoking `parallel-code-review`, the EM computes the narrowed **code-sema
 
 ### Trail helper contract
 
-`bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"` — fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`.
+`bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"` — fail-loud; reads `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, writes `state/review-trail/.weekly-reviewer-scopes.json`.
 
 The helper parses `Week starting:` from HEADER.md, filters trail records to the current week by filename date-prefix, then computes:
 
@@ -39,7 +39,7 @@ Output JSON shape: `{ "patrik": [sha...], "patrik_seam_files": [path...], "mecha
 
 The `parallel-code-review` skill dispatches **N Sonnet `code-reviewer-weekly` chunks + 3 mechanical workers** (security-audit-worker + dep-cve-auditor + test-evidence-parser) in parallel into a no-rewrite synthesizer. It emits a structured `BLOCKED | WARN | OK` verdict.
 
-**the Staff Engineer is NOT in this gate** — he runs a separate architecture pass in Step 7.5 (DECISION D3). The step-7 gate is the only hard merge block. The brief references `tasks/review-trail/.weekly-reviewer-scopes.json` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
+**the Staff Engineer is NOT in this gate** — he runs a separate architecture pass in Step 7.5 (DECISION D3). The step-7 gate is the only hard merge block. The brief references `state/review-trail/.weekly-reviewer-scopes.json` so the synthesizer narrates 'code-semantics chunks scoped to gap+seams; mechanical workers full diff' in the verdict.
 
 ### Verdict handling
 
@@ -68,11 +68,11 @@ The Staff Engineer comes off the diff-level gate (Step 7) and runs at architectu
 
 When the run condition is met, dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with five inputs:
 
-1. **Changelog digest** — the week's `tasks/week-changelog/*.md` daily summaries (what shipped, at a glance).
+1. **Changelog digest** — the week's `state/week-changelog/*.md` daily summaries (what shipped, at a glance).
 2. **`arch_tier_candidates`** — from `$FINDINGS_DIR/synthesis.json`; the findings the Sonnet chunk reviewers flagged `escalate_to_architecture: true`. This is the explicit "a Sonnet thought this needed Opus judgment" feed.
 3. **`convergent_findings`** — from `synthesis.json`; issues independently flagged by ≥2 lenses. Convergence is a cross-cutting signal N independently-scoped Sonnets cannot self-produce.
-4. **Seam-file set** — `patrik_seam_files` from `tasks/review-trail/.weekly-reviewer-scopes.json` (the actual cross-segment integration surface computed by `workweek-trail-scope.sh`). The integration surface is exactly where multi-session erosion lives.
-5. **Daily strategic-observer trail** — the week's accumulated daily paper trail authored *for* this pass: the `## Strategic Review (Sonnet daily observer)` sections across `archive/daily-summaries/*.md` and the `tasks/debt-backlog.md` DSR rows tagged `for-weekly-arch-review`. The daily Sonnet observer (workday-complete Step 4c) flags candidates; this is where future-the Staff Engineer adjudicates them. A flag here is signal a single day's Sonnet thought worth an Opus look — treat it like input #2, but accumulated across the week rather than from the chunk reviewers.
+4. **Seam-file set** — `patrik_seam_files` from `state/review-trail/.weekly-reviewer-scopes.json` (the actual cross-segment integration surface computed by `workweek-trail-scope.sh`). The integration surface is exactly where multi-session erosion lives.
+5. **Daily strategic-observer trail** — the week's accumulated daily paper trail authored *for* this pass: the `## Strategic Review (Sonnet daily observer)` sections across `archive/daily-summaries/*.md` and the `state/debt-backlog.md` DSR rows tagged `for-weekly-arch-review`. The daily Sonnet observer (workday-complete Step 4c) flags candidates; this is where future-the Staff Engineer adjudicates them. A flag here is signal a single day's Sonnet thought worth an Opus look — treat it like input #2, but accumulated across the week rather than from the chunk reviewers.
 
 ### Output and disposition ladder
 
@@ -99,7 +99,7 @@ Any boundary-touching finding (module move, interface change, cross-system surfa
 
 The rotational architecture audit (`/architecture-audit`) is easy for the PM to forget. Step 7.6 makes it self-enforcing on two triggers:
 
-**Hard floor (automatic):** `bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"` reads the `Last targeted audit` clock from `tasks/health-ledger.md`:
+**Hard floor (automatic):** `bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"` reads the `Last targeted audit` clock from `state/health-ledger.md`:
 - `STALE` (>10 days, or never targeted-audited with a ledger present) → auto-fold a **targeted-on-diff** audit this cycle.
 - `FRESH` → no fold.
 - `UNKNOWN` (no ledger / unparseable) → do NOT auto-fold; note it and move on.

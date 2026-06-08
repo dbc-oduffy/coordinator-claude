@@ -16,7 +16,7 @@ done
 
 # RAM cache check — prefer compact cache over raw docs
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
-CACHE="${REPO_ROOT:-.}/tasks/orientation_cache.md"
+CACHE="${REPO_ROOT:-.}/state/orientation_cache.md"
 
 if [ -f "$CACHE" ]; then
     # Extract git HEAD from YAML frontmatter (portable across GNU/BSD sed)
@@ -95,7 +95,7 @@ pointer_doc() {
 found=0
 
 # Repo map — pointer with staleness note
-REPOMAP="tasks/repomap.md"
+REPOMAP="state/repomap.md"
 if [ -f "$REPOMAP" ]; then
     if [[ "$OSTYPE" == "darwin"* ]]; then
         file_epoch=$(stat -f %m "$REPOMAP" 2>/dev/null)
@@ -134,7 +134,7 @@ if [ -n "$BRANCH" ]; then
 fi
 
 # Code statistics (scc) — cached by git HEAD to avoid rescanning on every session
-SCC_CACHE="${REPO_ROOT:-.}/tasks/.scc-cache"
+SCC_CACHE="${REPO_ROOT:-.}/state/.scc-cache"
 SCC_CACHE_HEAD=""
 if [ -f "$SCC_CACHE" ]; then
     SCC_CACHE_HEAD=$(head -1 "$SCC_CACHE")
@@ -176,16 +176,16 @@ if [ -n "$PLANS" ]; then
 fi
 
 # Pending handoffs
-HANDOFFS=$(ls "${REPO_ROOT:-.}"/tasks/handoffs/*.md 2>/dev/null)
+HANDOFFS=$(ls "${REPO_ROOT:-.}"/state/handoffs/*.md 2>/dev/null)
 if [ -n "$HANDOFFS" ]; then
     echo "  Pending handoffs:"
     echo "$HANDOFFS" | while read -r h; do echo "    $h"; done
 fi
 
 # Lessons file freshness
-if [ -f "${REPO_ROOT:-.}/tasks/lessons.md" ]; then
-    LESSON_LINES=$(wc -l < "${REPO_ROOT:-.}/tasks/lessons.md" | tr -d ' ')
-    echo "  Lessons: ${REPO_ROOT:-.}/tasks/lessons.md (${LESSON_LINES} lines)"
+if [ -f "${REPO_ROOT:-.}/state/lessons.md" ]; then
+    LESSON_LINES=$(wc -l < "${REPO_ROOT:-.}/state/lessons.md" | tr -d ' ')
+    echo "  Lessons: ${REPO_ROOT:-.}/state/lessons.md (${LESSON_LINES} lines)"
 fi
 
 echo ""

@@ -141,7 +141,7 @@ Required structured entry format per skip:
 { "category": "pm-product | externality | architectural-rework", "evidence": "<link-or-pointer-to-rationale>" }
 ```
 
-Entries land in `tasks/dogfood-<target>-<date>/surface-and-skip.md`, NOT in `tasks/bug-backlog.md`. Routing surface-and-skip into the bug-backlog blurs the boundary with `/bug-blitz` (which works backlog) and undermines the "dogfood does not file remainder" rule.
+Entries land in `tasks/dogfood-<target>-<date>/surface-and-skip.md`, NOT in `state/bug-backlog.md`. Routing surface-and-skip into the bug-backlog blurs the boundary with `/bug-blitz` (which works backlog) and undermines the "dogfood does not file remainder" rule.
 
 **Skip-ratio threshold:** if skip-ratio exceeds **40% over the session**, OR **>2 consecutive skips occur without an interleaved fix-now**, the EM surfaces "is this dogfood the wrong shape?" to PM. These thresholds signal the session has lost fix-through character and should be re-evaluated against switch-gears.
 
@@ -225,7 +225,7 @@ All per-session artifacts land in `tasks/dogfood-<target>-<date>/`:
 | `surface-and-skip.md` | Structured skip entries with category+evidence |
 | `coverage-matrix.md` | (`--shakedown` only) Declared matrix + check-off state |
 
-Do NOT route surface-and-skip findings to `tasks/bug-backlog.md`. If PM later decides any item belongs in the backlog, that is a deliberate hand-off, not automatic spillover.
+Do NOT route surface-and-skip findings to `state/bug-backlog.md`. If PM later decides any item belongs in the backlog, that is a deliberate hand-off, not automatic spillover.
 
 ## Autonomous-Mode Compatibility
 
@@ -242,11 +242,11 @@ Do NOT route surface-and-skip findings to `tasks/bug-backlog.md`. If PM later de
 
 | Sibling | Boundary |
 |---------|----------|
-| `/bug-blitz` | Works `tasks/bug-backlog.md`. `/dogfood` does NOT file remainder there — if `/dogfood` exits via switch-gears, the output is a replan, not a backlog dump. |
+| `/bug-blitz` | Works `state/bug-backlog.md`. `/dogfood` does NOT file remainder there — if `/dogfood` exits via switch-gears, the output is a replan, not a backlog dump. |
 | `/bug-sweep` | Searches the repo for latent bugs (repo-driven). `/dogfood` invokes a specific thing (invocation-driven). A sweep finds bugs that exist; a dogfood finds bugs that the new thing causes when used. |
 | `coordinator:validate` | Static repo-state pre-flight. Appropriate before the first smoke pass and after the loop ends. Does not substitute for dynamic invocation. |
 | `/workstream-complete` | `/dogfood` exit emits a workstream-complete-shaped summary (bugs surfaced + commits shipped + filed skips + verdict), but does not invoke `/workstream-complete`. PM may chain. |
-| `/learn-lessons` | Surfaced doctrine drift is filed to `tasks/lessons.md` for `/learn-lessons` triage — out-of-loop, by design. |
+| `/learn-lessons` | Surfaced doctrine drift is filed to `state/lessons.md` for `/learn-lessons` triage — out-of-loop, by design. |
 
 ## Final Status Report Format
 

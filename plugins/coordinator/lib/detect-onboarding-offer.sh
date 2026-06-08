@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # lib/detect-onboarding-offer.sh — Session-preflight onboarding currency detector.
 #
-# Purpose: detect whether the cwd repo needs /project-onboarding (unonboarded) or
-# /project-onboarding --refresh (stale against current coordinator schema), and emit
-# an offer line if action is warranted.  Consumed by /workday-start Step 1.10 at
+# Purpose: detect whether the cwd repo needs /repo-setup — either because it is
+# unonboarded, or because its coordinator-currency stamp is stale against the current
+# schema. /repo-setup is idempotent: lazy-creation skips already-present artifacts and
+# re-stamps currency. Emit an offer line if action is warranted. Consumed by /workday-start Step 1.10 at
 # session-preflight cadence (NOT a PreToolUse hook — per-repo-stable fact, not
 # per-command hot path).
 #
@@ -17,9 +18,9 @@
 #   5. Stale (probe returns drift/unstamped) → emit OFFER line (stale)
 #   6. Current                     → silent (healthy)
 #
-# Distribution repo detection (mirrors skills/project-onboarding/SKILL.md:50-53):
+# Distribution repo detection (mirrors skills/repo-setup/SKILL.md:50-53):
 #   2+ of these dirs in .gitignore → treat as distribution repo:
-#   tasks/, archive/, tasks/handoffs/
+#   tasks/, archive/, state/handoffs/
 #
 # Dismissal sentinel: <repo>/.git/coordinator-onboarding-dismissed
 #   (inside .git/ — gitignore-additive, never shows in `git status`, per-repo)
@@ -65,7 +66,7 @@ _doi_count_ignored_session_dirs() {
     if grep -qE '^(archive/?|/archive/?)$' "$gitignore" 2>/dev/null; then
         count=$((count + 1))
     fi
-    if grep -qE '^(tasks/handoffs/?|/tasks/handoffs/?)$' "$gitignore" 2>/dev/null; then
+    if grep -qE '^(state/handoffs/?|/state/handoffs/?)$' "$gitignore" 2>/dev/null; then
         count=$((count + 1))
     fi
     echo "$count"
@@ -141,7 +142,7 @@ detect_onboarding_offer() {
 
     # Rule 4: unonboarded → offer
     if ! _doi_is_onboarded "$repo_root"; then
-        printf '[onboarding] This repo is not yet onboarded — run /project-onboarding to get coordinator scaffolding, currency tracking, and a project tracker. (Dismiss: %s)\n' "$dismiss_cmd"
+        printf '[onboarding] This repo is not yet onboarded — run /repo-setup to get coordinator scaffolding, currency tracking, and a project tracker. (Dismiss: %s)\n' "$dismiss_cmd"
         return 0
     fi
 
@@ -158,11 +159,11 @@ detect_onboarding_offer() {
                 return 0
                 ;;
             drift*)
-                printf '[onboarding] This repo was onboarded against an older coordinator (%s) — run /project-onboarding --refresh to bring it current. (Dismiss: %s)\n' "$probe_status" "$dismiss_cmd"
+                printf '[onboarding] This repo was onboarded against an older coordinator (%s) — run /repo-setup to bring it current. (Dismiss: %s)\n' "$probe_status" "$dismiss_cmd"
                 return 0
                 ;;
             unstamped*)
-                printf '[onboarding] This repo was onboarded but has no currency stamp — run /project-onboarding --refresh to bring it current. (Dismiss: %s)\n' "$dismiss_cmd"
+                printf '[onboarding] This repo was onboarded but has no currency stamp — run /repo-setup to bring it current. (Dismiss: %s)\n' "$dismiss_cmd"
                 return 0
                 ;;
             inconclusive*)
@@ -201,7 +202,7 @@ detect_onboarding_offer() {
                 return 0
                 ;;
             drift*|unstamped*)
-                printf '[onboarding] This repo was onboarded against an older coordinator (%s) — run /project-onboarding --refresh to bring it current. (Dismiss: %s)\n' "$probe_result" "$dismiss_cmd"
+                printf '[onboarding] This repo was onboarded against an older coordinator (%s) — run /repo-setup to bring it current. (Dismiss: %s)\n' "$probe_result" "$dismiss_cmd"
                 return 0
                 ;;
             *)

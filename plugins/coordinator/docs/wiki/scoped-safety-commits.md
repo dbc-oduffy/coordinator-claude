@@ -107,12 +107,12 @@ During rollout: warn-only. Strict (blocking) mode is activated via `COORDINATOR_
 `/handoff` and `/pickup` are workstream-specific. At pickup time the resuming session hasn't touched anything yet, so the touch list is empty. Solution: handoff docs declare scope in frontmatter using **git pathspec syntax** — the same syntax `git add` understands.
 
 ```yaml
-# tasks/handoffs/<workstream>/handoff.md frontmatter
+# state/handoffs/<workstream>/handoff.md frontmatter
 workstream: scoped-safety-commits
 scope:
   - plugins/coordinator-claude/**
   - docs/plans/scoped-safety-commits.md
-  - tasks/handoffs/scoped-safety-commits/**
+  - state/handoffs/scoped-safety-commits/**
 ```
 
 The `scope:` values are `git pathspec` expressions (supports `**` globstar, `!negation`, `:(glob)` prefix). The helper validates pathspecs at parse time and rejects malformed expressions before attempting staging.
@@ -177,7 +177,7 @@ The original `--scope-from` mode silently subtracted other active sessions' touc
 
 The agent-id linkage introduced by Issue A (`archive/specs/2026-05-05-issue-a-agent-id-linkage.md`) unions executor-edited files into the dispatching session's scope, but **only in default mode**. In `--scope-from` mode the declared `scope:` block is exhaustive per the Issue C contract (`archive/specs/2026-05-05-session-misidentification-fix.md`): executor-edited files that fall outside the declared scope are deliberately excluded, even when the back-pointer linkage is fully wired. This is intentional, not a bug — see SC-DR-005.
 
-When an executor produces files whose paths weren't predictable at handoff-write time (e.g., dynamically-named outputs), use `--allow-out-of-scope-dirty` to proceed with a warning, or `--include-orphans <pathspec>...` for a structured one-shot claim. A "silently extend declared scope to include executor-claimed files" mode was considered and rejected: the auditability value of exhaustive declared scope outweighs the ergonomic friction. If a workflow consistently hits this wall, the correct fix is either a richer handoff with broader `scope:` globs, or a fresh plan revisiting the Issue C contract — not a silent expansion. (Observed case: `tasks/handoffs/2026-05-06_223721_safe-commit-session-touch-tracker-orphan-files.triage.md`.)
+When an executor produces files whose paths weren't predictable at handoff-write time (e.g., dynamically-named outputs), use `--allow-out-of-scope-dirty` to proceed with a warning, or `--include-orphans <pathspec>...` for a structured one-shot claim. A "silently extend declared scope to include executor-claimed files" mode was considered and rejected: the auditability value of exhaustive declared scope outweighs the ergonomic friction. If a workflow consistently hits this wall, the correct fix is either a richer handoff with broader `scope:` globs, or a fresh plan revisiting the Issue C contract — not a silent expansion. (Observed case: `state/handoffs/2026-05-06_223721_safe-commit-session-touch-tracker-orphan-files.triage.md`.)
 
 ---
 
@@ -207,7 +207,7 @@ Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `workd
 ### Workstream-anchored (handoff/pickup)
 
 ```bash
-coordinator-safe-commit --scope-from tasks/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"
+coordinator-safe-commit --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"
 ```
 
 Pulls pathspecs from the handoff frontmatter's `scope:` field. Both bookends (handoff prep, pickup safety commit) use the same declared scope — honest and consistent.
@@ -471,7 +471,7 @@ Discovering >100 LOC of unstaged changes in a shared plugin/skill/doctrine file 
 
 If you run `git stash push` and git reports "No local changes to save" (a no-op), the stash stack is unchanged. A subsequent `git stash pop` will apply whatever the most-recent stash entry is — which may be an unrelated stash from a prior workstream, silently polluting your working tree. **Never pop blind.** Alternatives: (a) check `git stash list` before any pop; (b) use `git checkout <commit>^ -- <path>` to isolate a committed change cleanly instead of stash-and-pop; (c) name stashes with `git stash push -m "<description>"` so the content is identifiable before popping.
 
-*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: project-rag `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### EM hand-editing a file a dispatched agent is concurrently editing — the two-writer race on one file
 
@@ -483,13 +483,13 @@ The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharin
 
 **Verify before committing any file an agent touched concurrently.** Run a uniqueness grep (duplicate IDs, duplicate rows, duplicate frontmatter keys) on the file before staging it. A self-dispatched agent's edits and the EM's edits both landing in one commit is the signature; the uniqueness grep is the cheap catch the luck-dependent visual read should not be relied on to replace.
 
-*Source: sibling-repo `tasks/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
+*Source: sibling-repo `state/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
 
 ### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
 
 Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
 
-*Source: self `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: self `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -503,9 +503,9 @@ Trailer example:
 
 ```
 Substrate-changes-attribution:
-  mcp/project_rag_server.py: handoff tasks/handoffs/2026-05-15_multi-src.md
+  mcp/project_rag_server.py: handoff state/handoffs/2026-05-15_multi-src.md
   cli.py: unattributed
-  scripts/download-*: handoff tasks/handoffs/2026-05-15_addon-pickup.md
+  scripts/download-*: handoff state/handoffs/2026-05-15_addon-pickup.md
 ```
 
 (Surfaced 2026-05-15 `572a548b` post-mortem.)

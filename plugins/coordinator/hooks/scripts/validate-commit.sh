@@ -342,7 +342,7 @@ fi
 # This hook handles commit-content validation only (Checks 1-5 above).
 
 # --- Check 8: Plan/handoff frontmatter mutation needs commit-subject discipline ---
-# When a staged file is under tasks/plans/, tasks/handoffs/, or docs/plans/ AND
+# When a staged file is under tasks/plans/, state/handoffs/, or docs/plans/ AND
 # the diff modifies frontmatter (lines between the first two `---` delimiters,
 # specifically `status:` / `deployment_state:` / `consumed_by:` / `shipped_in:` keys),
 # the commit subject MUST name at least one of:
@@ -353,9 +353,9 @@ fi
 # Doctrine: coordinator/CLAUDE.md:206-209 — deployment_state and status enums are
 # load-bearing for /workstream-start, /workday-start, query-driven surfacing. A
 # frontmatter mutation without a subject-line audit trail makes
-# `git log -- tasks/handoffs/<file>` opaque.
+# `git log -- state/handoffs/<file>` opaque.
 
-FRONTMATTER_FILES=$(echo "$STAGED" | grep -E '^(tasks/plans|tasks/handoffs|docs/plans)/.*\.md$' || true)
+FRONTMATTER_FILES=$(echo "$STAGED" | grep -E '^(tasks/plans|state/handoffs|docs/plans)/.*\.md$' || true)
 FRONTMATTER_MUTATIONS=""
 
 if [[ -n "$FRONTMATTER_FILES" ]]; then

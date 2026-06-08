@@ -559,7 +559,7 @@ print_summary() {
 #   Warn on stderr when --blanket is about to commit files claimed by sibling
 #   sessions.  Advisory only: does NOT block the commit.
 #
-# Spec backlink: tasks/coordinator-improvement-queue.md — blanket pre-check entry.
+# Spec backlink: state/coordinator-improvement-queue.md — blanket pre-check entry.
 #
 # Algorithm:
 #   1. Collect touched.txt paths from every live sibling session → $foreign_paths
@@ -724,7 +724,7 @@ ERR
   # ≥3 files with deletion-heavy diffs AND no plan/handoff/PR/lessons/queue ref in subject.
   # Override: COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 silences the warning.
   # Strict (fail-loud): COORDINATOR_BLANKET_SHAPE_STRICT=1.
-  # Spec backlink: tasks/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry).
+  # Spec backlink: state/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry).
   # Note: _blanket_check_destructive_shape is defined nested inside do_blanket
   # for locality with its single caller. `exit 3` inside the nested function
   # terminates the calling script (do_blanket → main), not just the function —

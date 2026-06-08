@@ -246,7 +246,7 @@ Empirical timing tests are belt-and-suspenders, not the primary contract. If bot
 
 **Generalizes:** for any property best stated structurally — no sync call inside async, no allocation in a hot loop, no global state in a pure function — the source-level grep IS the primary regression net. When you find yourself writing a timing-based or sampling-based probe to enforce a structural invariant, stop and ask whether a static grep on the production source would enforce the same invariant deterministically.
 
-*Source: project-rag-ue-addon/tasks/lessons.md:116, 2026-05-16.*
+*Source: project-rag-ue-addon/state/lessons.md:116, 2026-05-16.*
 
 ## 28. Awk `\b` Word-Boundary is Not POSIX-Portable — Silent Literal-Match Failure
 
@@ -360,7 +360,7 @@ A test verdict may be correct while the evidence file's prose explanation of *wh
 
 **Rule:** evidence-file prose must separate the observed signal (what an instrument measured) from the inferred mechanism (why you believe that happened). When the inference is uncertain, say so. A confident-sounding mechanism with no observed anchor is a wishful-thinking trap.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L147, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L147, central-promoted 2026-05-28).*
 
 ## 53. Hung-Run Failure Counts — Never Quote From an Incomplete Session
 

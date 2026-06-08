@@ -27,9 +27,15 @@ schema = 1
 # feasible. See docs/wiki/machine-local-registry.md for the preference order.
 # ---------------------------------------------------------------------------
 "repos.coordinator_claude"     = ""
+"repos.dronesim"               = ""
 "repos.project_rag"            = ""
 "repos.project_rag_ue_addon"   = ""
 "repos.claude_unreal_holodeck" = ""
+# Additional sibling repos per CLAUDE.local.md § Sibling repos (declare what
+# you use; leave others empty if you don't have them on this machine):
+"repos.geneva_mvp"             = ""
+"repos.fifa_stats"             = ""
+"repos.experiments"            = ""
 
 # ---------------------------------------------------------------------------
 # Vendor / engine roots — place here ONLY if no concern file is loaded.

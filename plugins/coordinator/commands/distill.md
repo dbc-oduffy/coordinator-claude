@@ -81,7 +81,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 1.5** | Haiku (parallel) | Quality gate — verify Phase 1 coverage, template compliance, and path spot-checks |
 | **Clustering** | Coordinator or Haiku | Regroup nuggets from input-batch ordering to output-topic ordering |
 | **Phase 2** | Sonnet (parallel) | One agent per guide topic — synthesize nuggets into guide content and decision records; emits `dispositions:` YAML frontmatter covering all assigned nugget IDs (schema: `agent-prompts/phase-2.md`) |
-| **Phase 2.5** | Sonnet (parallel) | Mine reviewer sidecars for cross-spec convergence patterns; emit promotion proposals to scratch (`tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md`). Full contract: `PIPELINE.md § Phase 2.5`. |
+| **Phase 2.5** | Sonnet (parallel) | Mine reviewer sidecars for cross-spec convergence patterns; emit promotion proposals to scratch (`state/scratch/artifact-distillation/{run-id}/judgment-proposals.md`). Full contract: `PIPELINE.md § Phase 2.5`. |
 | **Phase 2.7-QG** | Haiku (parallel by cluster) | Coverage gate — set-diff of `dispositions:` nugget IDs vs. assigned nugget IDs; PASS continues pipeline; FAIL triggers Phase 2 re-run (retry cap: 2 per cluster) |
 | **Phase 3a** | Sonnet (parallel by cluster) | Contradiction detection — one agent per topic cluster; coordinator cross-cluster check post-3a; Opus escalation if unresolvable contradictions found, followed by Sonnet fidelity-check verifying all source nugget IDs cited |
 | **Phase 3b** | Sonnet (single) | Decision-record dedup — collect all Phase 2 DRs, produce deduplicated canonical set + `dr_dedup:` YAML manifest (schema: `agent-prompts/phase-3b.md`) |
@@ -282,7 +282,7 @@ provenance:
 
 ### 5c. Distillation Log — Schema-Pinned, Append-Only
 
-Path: `tasks/distillation-log.md` (per-project). Created on first distill run; populated with new rows on every subsequent run.
+Path: `state/distillation-log.md` (per-project). Created on first distill run; populated with new rows on every subsequent run.
 
 **Schema header — executor MUST preserve verbatim when writing to the log:**
 
@@ -304,7 +304,7 @@ Path: `tasks/distillation-log.md` (per-project). Created on first distill run; p
 
 **Why prose-shaped reason fields:** The log itself becomes index-bait. RAG indexes the on-disk filesystem; a log row reading "scaffolding" is invisible to retrieval, but a row reading "integrator triage resolving async-run wrapper conflict in port-patterns FastMCP transport" surfaces on a query about that conflict and gives the future EM a `last_sha` to retrieve the verbose original. The log carries history forward into the retrieval surface — cheapest mitigation for the "git history is out-of-band for RAG" recall hole.
 
-**Vocabulary discipline AC (per the Data Science Reviewer F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `tasks/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
+**Vocabulary discipline AC (per the Data Science Reviewer F2):** On a CONTEXT.md-bearing repo, the manual-review log section of `state/distillation-log.md` must either flag ≥1 vocabulary-drift hit in sampled executor output OR explicitly attest zero drift after sampling N≥3 modules. Without this, vocabulary discipline is aspirational rather than validated.
 
 ---
 
@@ -324,13 +324,31 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 **Anchor the link-heal regex around path boundaries.** Sed-style rewrites over-rewrite `original_path:` and other frontmatter fields where the literal old path is semantically correct; anchor the pattern or restore frontmatter post-sweep.
 <!-- Review: the Staff Engineer R3 — F4: plain --multiline does not make . match newlines; --multiline-dotall required for cross-line patterns -->
 
-**Heal-log:** Under a `## Manual Review` section in `tasks/distillation-log.md`, write EVERY unmatched-but-suspicious hit — anything containing `docs/plans/`, `tasks/<feature>/stubs/`, or the deleted-path basenames — for EM eyeball. The EM reviews the Manual Review section before declaring the run complete.
+**Heal-log:** Under a `## Manual Review` section in `state/distillation-log.md`, write EVERY unmatched-but-suspicious hit — anything containing `docs/plans/`, `tasks/<feature>/stubs/`, or the deleted-path basenames — for EM eyeball. The EM reviews the Manual Review section before declaring the run complete.
+
+---
+
+## tasks/ vs state/ — aggressive sweep boundary
+
+Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
+
+**`state/`** — load-bearing session substrate (queues, trackers, ledgers, handoffs, review-trail, recheck markers, etc.). **Never swept by `/distill`.** Surgical edits only, each named per-surface (e.g. `coordinator:learn-lessons` writes `state/lessons.md`; no archival by this command). If a path begins with `state/`, it is out of scope — full stop.
+
+**`tasks/`** — Tasks-API UUID flight-recorder dirs, dated reports, dated topic dirs, and loose scratch. `/distill` sweeps here aggressively:
+
+- **Dated reports** (`*-YYYY-MM-DD*.md`) older than 14 days → eligible for deletion after the Phase 3d manifest confirms no live cross-references (per active-reference check in § 5d).
+- **Dated topic directories** (`<topic>-YYYY-MM-DD/`) with no git activity in the last 14 days → eligible for deletion after active-reference check.
+- **Loose scratch files** (`tasks/scratch/*.{py,log,txt,sh}`) older than 7 days → delete (no active-reference check required; scratch files are not cited by name in authoritative surfaces).
+- **UUID flight-recorder dirs** — managed by the Tasks API; `/distill` does **NOT** touch them. UUID-shaped directory names (36-char hex with dashes) are excluded from all sweep passes by pattern.
+- **Frontmatter `status: superseded` or `status: archived`** on any `tasks/*.md` → archive immediately regardless of age (no 14-day wait).
+
+**Hard constraint — `state/scratch/<managed-namespace>/`** (deep-architecture-survey, bug-blitz, artifact-distillation): these roots live under `state/` precisely because they are sustained cross-session work products, not ephemera. `/distill` MUST NEVER touch them. Only loose `tasks/scratch/*` files are fair game for aggressive sweep; the managed-namespace roots under `state/scratch/` are categorically protected by the `state/` no-touch rule above.
 
 ---
 
 ## Post-Ship Cleanup
 
-After canonical outputs are committed, delete the working-notes scratch directory (`tasks/scratch/artifact-distillation/<date>-pass<N>/`). Optionally write a one-line breadcrumb at `tasks/scratch/artifact-distillation/<date>-receipt.txt` referencing the canonical commit SHA. Working notes leaking post-ship as untracked files is noise; commit-then-delete is a two-step waste.
+After canonical outputs are committed, delete the working-notes scratch directory (`state/scratch/artifact-distillation/<date>-pass<N>/`). Optionally write a one-line breadcrumb at `state/scratch/artifact-distillation/<date>-receipt.txt` referencing the canonical commit SHA. Working notes leaking post-ship as untracked files is noise; commit-then-delete is a two-step waste.
 
 ---
 
@@ -366,7 +384,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - Post-distill `rg -F '<old-spec-path>'` returns zero hits across the entire repo.
 - **Negative AC (silent-loss guard):** dry-run emits a content-drop diff. Halt-condition is set-diff, not raw match: an AC-shaped token line (`MUST`, `SHALL`, `AC:`, `Decision:`, `Constraint:`) in the drop-list halts dry-run only if no semantically-equivalent line exists in the re-homed additions OR in surviving ALLOWLIST sections. Cheap implementation: normalize whitespace + lowercase the token-bearing lines, set-diff drop-tokens vs kept-tokens, halt on non-empty difference. This prevents the muscle-memory bypass where every distill halts and operators default to `--allow-drop`. Word-order-permuted equivalent lines may trigger false halts; use `--allow-drop` after EM eyeballs the diff and confirms no semantic loss (see set-diff section). **`## Deviations` exemption:** AC-shaped token lines inside a `## Deviations` section are excluded from the set-diff scan by section-heading classifier — the `deviation` annotation has a kept equivalent in the corrected ALLOWLIST section's `SHIPPED: X (was: Y)` annotation; the `reason` and `commit` columns are intentionally non-crystallized audit, exempt from the halt scan.
 - **Validation prerequisite:** rubric is dry-run tested against `docs/plans/2026-04-29-port-patterns-implementation.md` (verbose, real-world) before declaring distill production-ready.
-- Distillation log `tasks/distillation-log.md` row count is monotonically non-decreasing; strictly increases on any run that deletes scaffolding or archives a spec; schema header preserved verbatim; reason fields are domain-prose (≥8 words; ≥1 CONTEXT.md term when CONTEXT.md exists).
+- Distillation log `state/distillation-log.md` row count is monotonically non-decreasing; strictly increases on any run that deletes scaffolding or archives a spec; schema header preserved verbatim; reason fields are domain-prose (≥8 words; ≥1 CONTEXT.md term when CONTEXT.md exists).
 - Wiki provenance frontmatter includes `archived_spec`, `original_path`, `last_verbose_sha`, `distilled`.
 - `## Decision Rationale` section present in archived spec (or sibling rationale file) for every spec that had DENYLIST content; rationale covers alternatives-considered + why this won per reviewer finding.
 - Link-heal pass rewrites all three target types; `## Manual Review` section in distillation log captures unmatched-but-suspicious hits.
@@ -375,7 +393,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - **Convergence threshold enforced:** Phase 2.5 emits a judgment proposal only when `convergence_count >= MIN_CONVERGENCE` across distinct plans (one finding per plan). The `--min-convergence=N` argument gates promotion; it is not advisory. Zero proposals when threshold not reached is correct behaviour, not a failure.
 - **Update path is topic-key join, no re-`git show`:** when an existing `docs/wiki/codebase-judgment/<topic>.md` entry is present, Phase 2.5 matches new live findings against the existing topic key only — it does NOT re-`git show` prior `source_findings[*].sha` refs. The topic key is the stable join identifier. Full contract: `PIPELINE.md § D8`.
 - **`judgment_provenance:` frontmatter on promoted entries:** every new `docs/wiki/codebase-judgment/<topic>.md` carries a `judgment_provenance:` frontmatter block (NOT `provenance:` — that key is taken by Phase 5b's archived-spec schema). Schema includes `kind`, `convergence_count`, `source_findings` (sidecar path + plan + reviewer + finding ID + SHA), `promoted`, `last_refreshed`. Full schema: `PIPELINE.md § Phase 2.5 — Frontmatter schema`.
-- **Negative AC — `escalated-disagree` findings excluded:** a reviewer-sidecar finding annotated `disposition: escalated-disagree` by the review-integrator does NOT count toward convergence. Phase 2.5 reads the `disposition:` field written inline into the sidecar (per review-integrator amendment) before Phase 5 deletes it. Validated via fixture where one of three matching findings carries `disposition: escalated-disagree`; convergence count must be 2, no promotion.
+- **Negative AC — `escalated-disagree` findings excluded:** a finding listed in the sidecar's appended `## Integrator Dispositions` bulk block under the `escalated-disagree:` bucket does NOT count toward convergence. Phase 2.5 reads the YAML `dispositions:` block at the END of the sidecar (per review-integrator agent prompt § Sidecar Disposition Annotation — single bulk block, not per-finding inline annotation) before Phase 5 deletes it. Validated via fixture where one of three matching findings is listed under `escalated-disagree:`; convergence count must be 2, no promotion.
 - **Prior-art-checker dogfood:** dispatching prior-art-checker on a synthetic plan whose claim-shape matches a seeded judgment entry must produce a sidecar containing a Compatible-but-relevant or Conflict bucket entry referencing the `docs/wiki/codebase-judgment/` file by path. This is the end-to-end behaviour test confirming cached Opus-tier judgment surfaces to future plan authors.
 - **AC11 — schema_version: 1 on every manifest:** every `dispositions:` (Phase 2), `dr_dedup:` (Phase 3b), `directory_entries:` (Phase 3c), `deletions:` (Phase 3d), and Phase 2.7-QG verdict file carries `schema_version: 1` as its first key. Consumers must fail-loud on unknown forward versions, per DR-5 in `docs/plans/2026-05-28-distill-structured-manifests.md`.
 

@@ -164,7 +164,7 @@ the classifier's contract.
 ### 2. Plugin-Spawned State on Consumer Disk
 
 **What byte-divergence misses.** The coordinator's skills actively write to the consumer's disk
-during normal operation: `tasks/`, `tasks/handoffs/`, `docs/plans/`, `tasks/lessons.md`, memory
+during normal operation: `tasks/`, `state/handoffs/`, `docs/plans/`, `state/lessons.md`, memory
 entries under `projects/`, fragments added to `settings.json`. None of this surface is tracked in
 the byte-divergence baseline — none of it comes from `setup/publish.sh`. A reinstall that
 "cleanly wipes and replaces" the source tree poses no threat to these paths. But a hypothetical

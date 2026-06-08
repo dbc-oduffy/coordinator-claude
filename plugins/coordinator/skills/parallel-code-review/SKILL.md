@@ -117,7 +117,7 @@ Freeze the diff and current HEAD before dispatching any reviewers. This is the "
 
 ```bash
 TS=$(date -u +%Y%m%dT%H%M%SZ)
-FINDINGS_DIR="tasks/review-findings/$TS"
+FINDINGS_DIR="state/review-findings/$TS"
 mkdir -p "$FINDINGS_DIR"
 git diff origin/main...HEAD > "$FINDINGS_DIR/diff.patch"
 git rev-parse HEAD > "$FINDINGS_DIR/head.sha"

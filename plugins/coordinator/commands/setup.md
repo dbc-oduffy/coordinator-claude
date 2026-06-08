@@ -50,7 +50,7 @@ If `$ARGUMENTS` contains `--check-only`: report environment state without making
 
 Each prompt site is annotated: `skip-with-note` (skip, surface in status table), `default-with-warning` (apply safe default, surface value), or `fail-loud` (exit non-zero with remediation; no safe default). Unannotated sites default to `fail-loud`. `--check-only` prevents all mutation; `--non-interactive` controls only prompt fallback. Both are orthogonal and may be combined.
 
-**Scope distinction:** This command sets up the coordinator *environment* (plugins, env vars, tools). For per-project scaffolding (CLAUDE.md, tracker, workstreams), use `/project-onboarding` after this.
+**Scope distinction:** This command sets up the coordinator *environment* (plugins, env vars, tools). For per-project scaffolding (CLAUDE.md, tracker, workstreams), use `/repo-setup` after this.
 
 ## Phase 1 — Environment
 
@@ -99,7 +99,7 @@ Harden **this repo's** git config with two concurrent-EM mitigations (root-cause
 "$HOME/.claude/plugins/coordinator/bin/coordinator-configure-git"
 ```
 
-Idempotent. `gc.autoDetach` is scoped per-repo (not global — would change auto-gc in unrelated repos); spread via `/project-onboarding` § 3f.5 and `session-init.sh`. `core.checkStat minimal` is benign on all platforms — also set machine-wide:
+Idempotent. `gc.autoDetach` is scoped per-repo (not global — would change auto-gc in unrelated repos); spread via `/repo-setup` § 3f.5 and `session-init.sh`. `core.checkStat minimal` is benign on all platforms — also set machine-wide:
 
 ```bash
 git config --global core.checkStat minimal
@@ -472,7 +472,7 @@ Skip under `--check-only`. After the status table, offer: *"Want a guided tour? 
 bash "${CLAUDE_PLUGIN_ROOT}/bin/coordinator-setup-state.sh" record orientation_started
 ```
 
-End with: _"`/setup` is environment-only. Run `/project-onboarding` to scaffold a new project, then `/workstream-start` to begin work."_ If `--check-only`, show the table but note what *would* be created/configured without the flag.
+End with: _"`/setup` is environment-only. Run `/repo-setup` to scaffold a new project, then `/workstream-start` to begin work."_ If `--check-only`, show the table but note what *would* be created/configured without the flag.
 
 **Refinement target close.** Include verbatim in every next-steps block (not under `--check-only`):
 
@@ -483,12 +483,12 @@ End with: _"`/setup` is environment-only. Run `/project-onboarding` to scaffold 
 <!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 4 / AC8 -->
 <!-- D4 annotation: skip-with-note — elective offer; suppressed under --non-interactive and --check-only. -->
 
-**Suppressed under `--non-interactive` or `--check-only`.** Status row: `bootstrap_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/bootstrap-repos` invocation, no offer text.
+**Suppressed under `--non-interactive` or `--check-only`.** Status row: `repo_setup_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/repo-setup --batch` invocation, no offer text.
 
 Under interactive (after the status table has been shown), read `~/.claude/working-repos.yaml` to get the discovered repo count (N). If N > 0, offer:
 
-> Discovered **N** working repo(s) in `working-repos.yaml`. Want to bootstrap coordinator scaffolding into them? Run `/bootstrap-repos` — Express mode applies to all, Custom mode lets you pick per-repo. 0% destructive; every change is git-revertible.
+> Discovered **N** working repo(s) in `working-repos.yaml`. Want to bootstrap coordinator scaffolding into them? Run `/repo-setup --batch` — Express mode applies to all, Custom mode lets you pick per-repo. 0% destructive; every change is git-revertible.
 
-If accepted, instruct them to run `/bootstrap-repos` (do NOT inline scaffolding here — `/setup` is environment-only). If declined or N = 0, skip silently.
+If accepted, instruct them to run `/repo-setup --batch` (do NOT inline scaffolding here — `/setup` is environment-only). If declined or N = 0, skip silently.
 
 Status row: `bootstrap_offer: offered (N repos)` (after offer shown) / `suppressed (--non-interactive|--check-only)` / `skipped (0 repos discovered)`.

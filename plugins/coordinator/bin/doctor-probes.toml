@@ -211,7 +211,7 @@ fix = "none"
 symptom_keywords = ["onboarding drift", "schema version stale", "coordinator-currency", "currency stamp", "unstamped legacy", "onboarding currency"]
 triage = true
 severity_if_fail = "degraded"
-remediation = "Re-run /project-onboarding to stamp this repo with the current coordinator schema version"
+remediation = "Re-run /repo-setup to stamp this repo with the current coordinator schema version"
 
 # ---------------------------------------------------------------------------
 # Cluster: ue-overrides — UE override path verifier (OPTIONAL — silent skip if absent)

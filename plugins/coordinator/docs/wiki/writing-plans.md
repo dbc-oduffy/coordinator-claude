@@ -36,7 +36,7 @@ If the spec covers multiple independent subsystems, it should have been broken i
 
 **Shape:** The master plan body is a ≤40-line orchestration brief (cross-workstream invariants, integration checks, sequencing rationale) plus links to the N sub-plans. Each sub-plan is a normal plan body following all the standard plan conventions in this wiki. Order of dispatch is declared in the master plan — it is not a freestyle EM decision made at execution time.
 
-**Source:** `tasks/lessons.md` 2026-05-17 (project-rag).
+**Source:** `state/lessons.md` 2026-05-17 (project-rag).
 
 ## Scope Mode (required header field)
 
@@ -138,7 +138,7 @@ Before defining the file structure, check what's already been documented about t
 
 1. `docs/architecture/systems-index.md` → relevant system pages in `docs/architecture/systems/`
 2. `docs/wiki/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/wiki/`
-3. `tasks/repomap.md` (or task-scoped variant)
+3. `state/repomap.md` (or task-scoped variant)
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
 
@@ -169,7 +169,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 1. **Identify the central nouns/abstractions** the prescription introduces or restores (e.g., a pattern name, an architectural layer, a specific tool or verb).
 
-2. **Search for those nouns paired with prohibition vocabulary.** Grep `tasks/lessons.md` and `docs/wiki/` for each noun alongside: `do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`, `do NOT`. `bin/query-records` is also useful here for frontmatter-indexed records.
+2. **Search for those nouns paired with prohibition vocabulary.** Grep `state/lessons.md` and `docs/wiki/` for each noun alongside: `do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`, `do NOT`. `bin/query-records` is also useful here for frontmatter-indexed records.
 
 3. **If a prohibition exists, the plan must do one of two things:**
    - **(a)** Acknowledge the prior decision in §1 Objective and explicitly justify the reversal — with reasoning that engages the original argument, not merely reasserts the new direction.
@@ -191,7 +191,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Grep existing test fixtures before prescribing new ones.** Plan-write substrate verification must `ls tests/_*_fixture.py` and `grep -l "<symptom symbol>" tests/conftest.py tests/_*_fixture.py` before prescribing a NEW fixture. Canonical fixtures frequently ship before the plan that needs them — a plan that authors a duplicate fixture wastes executor time and creates a drift surface between two near-identical helpers. Rule: if a match exists, cite it as the canonical fixture; if absent, scaffold a new one. The fixture search is the same no-fabrication / no-duplicate check applied to the test layer.
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:5).*
+*Source: 2026-05-28 project-rag (state/lessons.md:5).*
 
 **Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
 
@@ -267,7 +267,7 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 
 **14-minute single-executor run signals under-decomposition.** When an executor's observed wall-clock time approaches or exceeds 14 minutes, that is a structural signal — the chunk spans multiple distinct surfaces or concerns and should have been split further. The target per-executor budget is ~5–10 minutes on ONE coherent surface (15-minute hard ceiling). If a plan chunk would exceed this in practice: split before dispatch, not after the executor stalls. Empirical: a 14-min run on project-rag indexing + fixture authoring + CLI wiring = three surfaces welded into one chunk; splitting each surface separately cut the longest executor to 8 minutes. Companion to `coordinator/CLAUDE.md` § Subagent Dispatch HARD RULE ("small-remit-and-many beats large-remit-and-one, every time").
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:1395).*
+*Source: 2026-05-28 project-rag (state/lessons.md:1395).*
 
 **Scaffolded config files must self-disclose their supported subset.** A scaffolded config in a familiar format (`.gitignore`-shaped, JSON-schema-like, INI) must declare which subset of the format is actually honored in a header comment — OR the plan must instruct the executor to implement the full format. Catch at plan-time by walking the proposed default body through the matcher implementation. (Surfaced by `/percolate`'s `.percolate-ignore` shipping `**/scratch/` as dead code — the bash `[[ ]]` matcher didn't handle `**/`.)
 
@@ -356,7 +356,10 @@ Adding a new language runner requires only a new prefix branch in the gate dispa
 
 **`grep:` multi-path semantics.** A `grep:pattern@path1,path2` cell requires the pattern to match in **every** listed path (all-must-match). A criterion asserting a fact across N files binds to a test that fails if any one file is missing it — closing the single-file-grep-passes-while-half-the-criterion-unmet hole.
 
-**Path convention.** Test-cell paths resolve from the gate's invocation cwd, which is the **project root** for the normal `coordinator:merging-to-main` Step 0a invocation. Use repo-root-relative paths in Test cells (e.g. `plugins/foo/docs/wiki/X.md`, not `docs/wiki/X.md`, when the file lives inside a plugin). Surfaced empirically by the 2026-05-24 dogfood — 9 of 9 gate-bound ACs went red on the first run because the plan used plugin-relative paths; updated Test cells to repo-root and the gate flipped to all-green in one iteration.
+**Path convention.** Test-cell paths resolve from the gate's invocation cwd, which is the **project root** for the normal `coordinator:workstream-complete` Step 3.8 invocation. Use repo-root-relative paths in Test cells (e.g. `plugins/foo/docs/wiki/X.md`, not `docs/wiki/X.md`, when the file lives inside a plugin). Surfaced empirically by the 2026-05-24 dogfood — 9 of 9 gate-bound ACs went red on the first run because the plan used plugin-relative paths; updated Test cells to repo-root and the gate flipped to all-green in one iteration.
+
+**Backtick-wrapped typed prefixes are tolerated.** Plan authors often format the typed prefix as inline code in markdown — `` `grep:` `pattern`@path `` reads naturally as a rendered table cell. The parser strips backticks around both the whole cell (`` `grep:pattern@path` ``) and just the typed prefix (`` `grep:` `` + remainder); either shape parses to the same dispatcher path. Bare `grep:pattern@path` also continues to work. Drift family captured at `state/lessons.md:6`; parser fix shipped 2026-06-08 in `bin/check-acceptance-oracle.sh::parse_pipe_row()` with regression tests at `bin/tests/test-check-acceptance-oracle.sh`. <!-- Review: code-reviewer F6 — rewritten to clearly distinguish warned-against inner backticks from markdown formatting backticks -->
+**Authoring note:** do not backtick-wrap *inside* the typed argument — a cell containing literal text `` `grep:` `` followed by `` `pattern`@path `` (with inner backticks around `pattern`) leaves those inner backticks in the grep pattern, where they almost certainly won't match. Wrap the whole cell OR just the prefix; never the middle.
 
 **`cited:` validation.** A `cited:` cell is NOT a free-text bypass. The gate validates that the cited ref resolves: a commit SHA must exist in the local git history, or a run-log path must exist on disk. If the ref does not resolve, the gate treats the row as red. Successful citation is logged loudly in the verdict ("AC-N satisfied by citation `<ref>` — NOT re-run on this host"), enabling human inspection. Prefer the citation be present at plan-review time so the reviewer saw it.
 
@@ -369,7 +372,7 @@ Dispatch-graph doctrine: at `coordinator:execute-plan` Phase 1.5, the EM decides
 
 ### Green-gate seam topology
 
-The acceptance-oracle gate runs as **authoritative** at `coordinator:merging-to-main` Step 0 — the merge choke point: oracle-bearing plans with red/missing gate-bound tests hard-block the merge via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the merge boundary). `/workstream-complete` and `/workday-complete` emit offer-shaped notices, never hard blocks (they are not merges). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the merge-boundary skill is the choke; CI is a separate infrastructure concern.
+The acceptance-oracle gate runs as **authoritative** at `coordinator:workstream-complete` Step 3.8 — the seam where one plan = one AC table is in frame: oracle-bearing plans with red/unresolved gate-bound tests hard-block workstream completion via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the workstream boundary). `/workday-complete` emits offer-shaped notices, never hard blocks. `/merge-to-main` is **NOT gated** — branches aggregate workstreams + doctrine + sweeps, so no single AC table governs the union; the merge surface trusts the upstream workstream-complete marker (relocated 2026-06-02). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the workstream-completion skill is the choke; CI is a separate infrastructure concern.
 
 Gate mechanism: `check-acceptance-oracle.sh <plan-path>`. Override: `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` skips the gate (exceptional use; `cited:` is the routine accommodation). Registered in `docs/wiki/coordinator-tripwires.md`.
 
@@ -659,7 +662,7 @@ Tag: `[universal]` — applies to any project_type using the coordinator pipelin
 
 ## Doctrinal Contradiction — Surface as Open Question, Don't Pre-Resolve
 
-*Source: project-rag tasks/lessons.md:30, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:30, 2026-05-29. [universal]*
 
 When plan-body research surfaces a contradiction between two pieces of existing doctrine — the plan cites source A, prior-art-checker surfaces source B that conflicts — do **not** pre-resolve the contradiction inline. Surface it as an explicit §-numbered open question addressed to the reviewer: *"§Q-N: Source A says X; Source B says Y. Which doctrine prevails here?"* The reviewer reads both citations in context and rules; the plan author's job is to expose the tension, not dissolve it before anyone else can see it.
 
@@ -667,13 +670,13 @@ When plan-body research surfaces a contradiction between two pieces of existing 
 
 ## Architecture-Survey Chunk-K Guard — Doc-Heavy Repos
 
-*Source: project-rag tasks/lessons.md:91, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:91, 2026-05-29. [universal]*
 
 The architecture-survey's chunk-K guard that detects "uncatalogued architecture" by counting recently-changed files overshoots on doc-heavy repos: `tasks/`, `docs/`, and `archive/` churn (lesson captures, plan edits, handoff updates) is not uncatalogued architecture. Before triggering the guard's escalation path, cut the emergent-drift candidate list against catalogued SOURCE directories only — exclude `tasks/`, `docs/`, `archive/`, and similar doc-tree paths. A guard that fires on lesson-capture churn produces false-positive escalations that crowd out real structural drift.
 
 ## Architecture-Audit Rotation — Formula Bias and Feature-Shaped Targets
 
-*Source: project-rag tasks/lessons.md:107 and rag-ue-addon tasks/lessons.md:23, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:107 and rag-ue-addon state/lessons.md:23, 2026-05-29. [universal]*
 
 **Rotation formula over-weights freshly-audited systems.** The open-P1 signal in the rotation formula inflates exactly the systems most recently reviewed — a just-audited system with open P1 findings scores high enough to re-target immediately, starving unreviewed systems of audit cycles. Decay the open-P1 weight for systems audited within N days (suggested: linear decay to 0 over 14 days) so the formula drives breadth rather than anchoring on the freshest finding cluster.
 
@@ -681,7 +684,7 @@ The architecture-survey's chunk-K guard that detects "uncatalogued architecture"
 
 ## Defer B.0 Doubt-Check Recommendations on a Peer-Doctrine Axis
 
-*Source: rag-ue-addon tasks/lessons.md:19, 2026-05-29. [universal]*
+*Source: rag-ue-addon state/lessons.md:19, 2026-05-29. [universal]*
 
 The Branch B doubt-check in `coordinator:plan` can surface recommendations that depend on peer-doctrine substrate — a pattern or convention that lives in another repo's CLAUDE.md or wiki, not yet on disk in the current repo. When a B.0 doubt-check recommendation references peer-doctrine that hasn't been mirrored locally yet, **defer it** rather than pre-resolving against the peer's in-flight doctrine. Acting on peer-doctrine recommendations before the substrate is confirmed on disk risks implementing against a stale or mis-remembered version. Flag it explicitly: *"B.0 rec deferred — peer-doctrine substrate not yet confirmed on disk."*
 
@@ -746,7 +749,7 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 
 A fallback to static analysis is often correct given substrate constraints (commandlet mode skips certain initializers, hardware ceiling doesn't bind in CI), but the asymmetry must be named. The successor stub's scope becomes clear from the gap: what would prove the other half?
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L33, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L33, central-promoted 2026-05-28).*
 
 ## Asymmetric-defaults framing produces sharper decision documents
 
@@ -754,7 +757,7 @@ A fallback to static analysis is often correct given substrate constraints (comm
 **Why:** A LightRAG synthesis reached "PORT-PATTERNS, single track" cleanly because a DISQUALIFYING verdict tripped a pre-declared override condition. A balanced frame would have produced a "both have merit" table.
 **How to apply:** before dispatching research or architecture specialists, write the scope document as `KEEP <default> UNLESS <override condition>`. Asymmetry forces evidence to do work; symmetry invites hedge-anchored synthesis.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L115, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L115, central-promoted 2026-05-28).*
 
 ## Post-review plan edits need a body sweep, not just a patch
 
@@ -762,7 +765,7 @@ A fallback to static analysis is often correct given substrate constraints (comm
 **Why:** A the Staff Engineer sequencing finding was applied to the Sequencing block, but the plan body still said "phase 1 / phase 2" — the enricher inherited the phase split from body text and surfaced it as an open question, requiring the EM to fold a step back in mid-stub.
 **How to apply:** after applying any structural reviewer finding (sequencing, scoping, decomposition, rename), grep the plan body for the old terminology and sweep — the integrator's brief is "apply this finding," not "audit the plan for residual implications."
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L155, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L155, central-promoted 2026-05-28).*
 
 ## Durability Assertions Must Cover ALL Writers of a File
 

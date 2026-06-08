@@ -211,6 +211,16 @@ For each `ready_to_fire` handoff, check whether the work it describes appears as
 
 _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {G} awaiting_gate (of which {M} >6 days) [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
 
+### Step 1.48: Refresh DoE handoff-tracker aggregate
+
+`state/doe-handoff-tracker.md` is the cross-repo DoE roll-up of every reachable sibling repo's handoffs/spinoffs/memos. Unlike the per-repo `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff` inside each repo), no per-repo ceremony reaches across the DoE — so without a daily render hook the aggregate goes stale silently. Run it here unconditionally; the script is a pure render (idempotent, ~100ms) and silently skips repos not present on this machine:
+
+```bash
+node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js --all-repos 2>&1 | tail -3
+```
+
+No surfacing required — the file's freshness is the signal. Errors (machine-local CLI missing, no roots configured) → one-line note in the Morning Briefing under `### Handoffs` ("DoE tracker refresh skipped: <reason>"); do not block.
+
 ## Step 1.45: Outstanding Cross-Repo Memos
 
 Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surface.sh`. Non-empty → surface verbatim under `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.45`.
@@ -228,19 +238,19 @@ Render under `#### Recent roadmap (last 90d, top-10 by size)` inside `### Handof
 
 ## Step 1.6: Coordinator-Improvement Queue Check
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries carrying `[recurring: ≥3]` on the main line (DR-056 amended 2026-05-17 — main-line-only schema).
+Read `~/.claude/state/coordinator-improvement-queue.md` (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries carrying `[recurring: ≥3]` on the main line (DR-056 amended 2026-05-17 — main-line-only schema).
 
-Also read `tasks/improvement-queue.md` (if present in current repo). Count its `## Active queue` entries.
+Also read `state/improvement-queue.md` (if present in current repo). Count its `## Active queue` entries.
 
 Surface in the Morning Briefing when notable: central ≥ 5 entries, oldest >14 days, any `[recurring: ≥3]`, or local ≥ 1. EM advocates based on depth — judgment, not a threshold trigger. Skip silently when both queues are empty or absent.
 
 ## Step 1.65: Bug Backlog Depth Check
 
-Read `tasks/bug-backlog.md` (if it exists). Count P1+P2 data rows (stop before `## Resolved`; exclude headers and separators). Surface in the Morning Briefing when ≥ 10: moderate (10–19) → `/bug-blitz` suggestion; heavy (≥ 20) → stronger nudge. Skip silently if absent or <10.
+Read `state/bug-backlog.md` (if it exists). Count P1+P2 data rows (stop before `## Resolved`; exclude headers and separators). Surface in the Morning Briefing when ≥ 10: moderate (10–19) → `/bug-blitz` suggestion; heavy (≥ 20) → stronger nudge. Skip silently if absent or <10.
 
 ## Step 1.7: Scheduled Rechecks
 
-Glob `tasks/cookbook-recheck-due-*.md`, `tasks/inspiration-recheck-due-*.md`, `tasks/lesson-triage-recheck-due-*.md`, and `tasks/recheck-due-*.md`. Each filename ends in `-YYYY-MM-DD.md`. For each:
+Glob `tasks/cookbook-recheck-due-*.md`, `state/inspiration-recheck-due-*.md`, `state/lesson-triage-recheck-due-*.md`, and `tasks/recheck-due-*.md`. Each filename ends in `-YYYY-MM-DD.md`. For each:
 - **today ≥ due date** → surface in Priority Suggestions: _"Scheduled recheck due: `<filename>` (due {YYYY-MM-DD}). Procedure inside the file."_
 - **due within 7 days** → heads-up: _"Scheduled recheck upcoming: `<filename>` (due {YYYY-MM-DD}, in {N} days)."_
 - **Otherwise** → skip silently.
@@ -378,7 +388,7 @@ Advisory only — never blocks.
 
 Check if a bug sweep should be suggested — based on **code churn since last sweep**, not just calendar time:
 
-1. Read `tasks/bug-backlog.md` header for `Last sweep:` date and `Commit at sweep:` hash. Header format (written by `/bug-sweep`): `> Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)`
+1. Read `state/bug-backlog.md` header for `Last sweep:` date and `Commit at sweep:` hash. Header format (written by `/bug-sweep`): `> Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)`
 2. If no backlog exists: count source files (`find . \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" \) | grep -v node_modules | grep -v __pycache__ | wc -l`). If >50: _"No bug sweep has ever run ([N] source files). Recommend running bug-sweep."_ If <50, skip silently.
 3. If backlog exists: count commits since anchor (`git rev-list --count <sweep-commit>..HEAD`).
 4. **Suggest sweep if:** >50 commits AND >7 days since last sweep (churn + time floor prevents sprint-mode nagging), OR >14 days AND >20 commits (moderate churn + time). Message: _"Bug sweep last ran [date] ([N] commits ago). Recommend running bug-sweep before new feature work."_
@@ -456,7 +466,7 @@ Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint f
   _(Omit this bullet if no spinoffs exist.)_
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
-- **Tracker:** durable snapshot at `tasks/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). DoE aggregate across all repos: `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos` → `tasks/doe-handoff-tracker.md`.
+- **Tracker:** durable snapshot at `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). **DoE aggregate `state/doe-handoff-tracker.md` is refreshed daily by `/workday-start` Step 1.48** (`--all-repos`); ad-hoc: same command with `--all-repos`.
 
 #### Recent roadmap (last 90d, top-10 by size)
 _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
@@ -476,11 +486,11 @@ Pull from the active state: bugs (top severity first), stale sweep, stale tests,
 [Surface tracker Ready items, handoff action items, and PM-facing options]
 ```
 
-**Set marker:** Write `tasks/.workday-start-marker` with today's date (single line). Workstream-start checks this one file.
+**Set marker:** Write `state/.workday-start-marker` with today's date (single line). Workstream-start checks this one file.
 
 ## Step 5.5: Write Orientation Cache
 
-Generate `tasks/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects instead of raw repomap/DIRECTORY content. Skip if `tasks/` doesn't exist. Health Snapshot includes a Step-1 mirrored split: one line for continuation handoffs, a separate line for spinoffs (omitted if N=0).
+Generate `state/orientation_cache.md` — a compact 40-60 line summary the SessionStart hook injects instead of raw repomap/DIRECTORY content. Skip if `tasks/` doesn't exist. Health Snapshot includes a Step-1 mirrored split: one line for continuation handoffs, a separate line for spinoffs (omitted if N=0).
 
 **Full content derivation per section:** see `pipelines/workday-start-internals.md` § Step 5.5.
 
@@ -490,6 +500,6 @@ Run bug-sweep / daily-code-health / deep-architecture-survey / update-docs (dedi
 
 ## Relationship & Concurrent Safety
 
-`workday-start` runs once/day; `/workstream-start` runs per-session and skips redundant checks when the marker is fresh. `/workday-complete` is the evening counterpart. `/update-docs` and `/bug-sweep` are recommended (not dispatched) when state warrants. Read-only for all tracking files; writes only `tasks/.workday-start-marker`. Failure mode to avoid: acting on stale handoff items a concurrent session shipped — Step 1.3's git reconciliation is the prevention.
+`workday-start` runs once/day; `/workstream-start` runs per-session and skips redundant checks when the marker is fresh. `/workday-complete` is the evening counterpart. `/update-docs` and `/bug-sweep` are recommended (not dispatched) when state warrants. Read-only for all tracking files; writes only `state/.workday-start-marker`. Failure mode to avoid: acting on stale handoff items a concurrent session shipped — Step 1.3's git reconciliation is the prevention.
 
 If `$ARGUMENTS` is provided, include as a focus hint: _"Requested focus: {arguments}"_

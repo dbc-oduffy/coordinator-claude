@@ -53,9 +53,9 @@ Once read, classify by **path + frontmatter shape**:
 
 | Signal | Classification | Route |
 | --- | --- | --- |
-| File is in `tasks/handoffs/` AND frontmatter carries `status: active\|consumed` and `deployment_state:` | **Handoff** | Continue to Step 2 (handoff flow, unchanged) |
+| File is in `state/handoffs/` AND frontmatter carries `status: active\|consumed` and `deployment_state:` | **Handoff** | Continue to Step 2 (handoff flow, unchanged) |
 | File is in `cross-repo/inbox/` OR frontmatter carries `from:` + `to:` + `status: open\|actioned` | **Memo** | Jump to [Memo Branch](#memo-branch) below |
-| File is in `tasks/handoffs/` AND frontmatter has `kind: spinoff` | **Spinoff** | Continue to Step 2 + spinoff banner in Step 3.5 |
+| File is in `state/handoffs/` AND frontmatter has `kind: spinoff` | **Spinoff** | Continue to Step 2 + spinoff banner in Step 3.5 |
 | Ambiguous (file exists but frontmatter is missing or malformed) | **Surface to PM** | Do not guess; report the ambiguity and stop |
 
 **Negative-spec:** do not apply the handoff schema mutation (`status: active → consumed`, `deployment_state`) on the memo path. Those are Step 5 handoff mechanics and do not apply to memos. The memo lifecycle is `open → actioned` only.
@@ -70,10 +70,10 @@ The PM has pointed you at a specific handoff. Read it immediately and proceed to
 
 **If `$ARGUMENTS` is empty:**
 
-1. Check `tasks/handoffs/` for `.md` files.
+1. Check `state/handoffs/` for `.md` files.
 
 2. **If no handoffs exist:**
-   _"No active handoffs in `tasks/handoffs/`. Nothing to pick up — use `/workstream-start` for general orientation."_
+   _"No active handoffs in `state/handoffs/`. Nothing to pick up — use `/workstream-start` for general orientation."_
    **Stop here.**
 
 3. **If exactly one handoff exists:**
@@ -99,14 +99,14 @@ The PM has pointed you at a specific handoff. Read it immediately and proceed to
 After reading the handoff, extract the handoff's date from its filename (`YYYY-MM-DD-*.md`) or its header.
 
 - **Same day (handoff date == today):** straight baton pass — skip this step entirely.
-- **Prior day (handoff date < today):** glob `tasks/week-changelog/*.md`, excluding `HEADER.md`. Filter to daily files whose filename date is strictly after the handoff date. For each matching file, emit one line:
+- **Prior day (handoff date < today):** glob `state/week-changelog/*.md`, excluding `HEADER.md`. Filter to daily files whose filename date is strictly after the handoff date. For each matching file, emit one line:
 
   ```
   <date> (<hostname>): <Scope field value> — <Plans touched: implemented entries, if any>
   ```
 
   Cap the surface at ~10 lines. If more files exist than the cap:
-  > "(N more days — see `tasks/week-changelog/` for the full record)"
+  > "(N more days — see `state/week-changelog/` for the full record)"
 
   If no daily files exist since the handoff (changelog not yet in use), skip silently.
 
@@ -120,7 +120,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
 1. **Load referenced files:** Read any files the handoff's "In-Progress Work," "Recommended Next Steps," or "Files Modified" sections reference that aren't already in context.
 
-2. **Load lessons:** Read `tasks/lessons.md` if it exists. Quick context, no recitation needed.
+2. **Load lessons:** Read `state/lessons.md` if it exists. Quick context, no recitation needed.
 
 3. **Check the handoff's branch:** If the handoff specifies a `Branch:` in its "Current State" section AND it differs from your current branch, check out that branch (unless it's already been merged to main).
 
@@ -186,13 +186,13 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
       ```bash
       source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
-      cs_claim_handoff "$(basename tasks/handoffs/<file>)"
+      cs_claim_handoff "$(basename state/handoffs/<file>)"
       ```
    4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
       _"⚠ handoff `<basename>` lacks `pickup_ready: true` — proceeding anyway. (Author may not have explicitly authorized pickup; verify the workstream is yours to resume.)"_
       Do NOT prompt. Do NOT block. Continue to mutation.
 
-   ### Frontmatter mutation (in place at `tasks/handoffs/<file>`)
+   ### Frontmatter mutation (in place at `state/handoffs/<file>`)
 
    - `status: active` → `status: consumed`
    - `deployment_state: <whatever>` → `deployment_state: in_flight`
@@ -203,10 +203,10 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    Single explicit-path commit of the mutation only — **no `git mv`** (SC-DR-008):
    ```bash
-   git add -- tasks/handoffs/<file> && git commit -m "pickup: <workstream> — frontmatter mutation" -- tasks/handoffs/<file>
+   git add -- state/handoffs/<file> && git commit -m "pickup: <workstream> — frontmatter mutation" -- state/handoffs/<file>
    ```
 
-   The handoff remains in `tasks/handoffs/`. Archival happens at one of two successor moments:
+   The handoff remains in `state/handoffs/`. Archival happens at one of two successor moments:
    - **`/handoff` chain-archival** — when this session writes a successor handoff, the explicit predecessor is moved to `archive/handoffs/`.
    - **`/workstream-complete` Step 2.7** — when this session ends without a successor handoff, Step 2.7 archives any handoff whose `consumed_by:` matches this session.
 
@@ -313,7 +313,7 @@ Then, having calibrated:
 2. **Wait for PM response before writing any frontmatter.** Do not mark `actioned` until the PM has decided.
 3. Once decided, write `status: actioned` + the chosen `decision:` + `decision_note:`.
 
-**There is no fourth disposition — queuing the ask is the laundering anti-pattern, not a disposition.** Accept / Decline / Surface-to-PM are the *only* exits. Filing the inbound ask into `tasks/improvement-queue.md` (or `~/.claude/tasks/coordinator-improvement-queue.md`, or re-framing it as "a separate plan for later") is NOT a way to handle a memo — it moves the baton from one staging ground to another, adds zero value, and silently makes a *prioritization* call (deciding this ask is not-now) that belongs to the PM, not the EM. The reflex feels productive because the inbox row clears; it is not. If you cannot Accept the work this session, the honest exits are: **Decline** with an architectural rationale (the ask is wrong for this repo's consumers / already done / superseded), or **Surface-to-PM** (you'd action it but it's competing for priority — that's a PM call, so ask, don't queue around them). "Annoying to do right now" is not an architectural rationale; presume action and do it. → coordinator CLAUDE.md § Improvement Queue (admission rule); `docs/wiki/cross-repo-communication.md` § Picking up a memo.
+**There is no fourth disposition — queuing the ask is the laundering anti-pattern, not a disposition.** Accept / Decline / Surface-to-PM are the *only* exits. Filing the inbound ask into `state/improvement-queue.md` (or `~/.claude/state/coordinator-improvement-queue.md`, or re-framing it as "a separate plan for later") is NOT a way to handle a memo — it moves the baton from one staging ground to another, adds zero value, and silently makes a *prioritization* call (deciding this ask is not-now) that belongs to the PM, not the EM. The reflex feels productive because the inbox row clears; it is not. If you cannot Accept the work this session, the honest exits are: **Decline** with an architectural rationale (the ask is wrong for this repo's consumers / already done / superseded), or **Surface-to-PM** (you'd action it but it's competing for priority — that's a PM call, so ask, don't queue around them). "Annoying to do right now" is not an architectural rationale; presume action and do it. → coordinator CLAUDE.md § Improvement Queue (admission rule); `docs/wiki/cross-repo-communication.md` § Picking up a memo.
 
 **Critical negative-spec:** write `status: actioned` (the terminal state). NEVER write `status: action_taken` — that is a grandfathered-only schema value whose cross-field rule (`bin/lib/schema.js:664-671`) requires both `action_taken_at` AND `decision`. The `decision:` field on `actioned` is an audit choice, not a schema requirement.
 
@@ -410,5 +410,5 @@ Done. No return memo sent.
 - If the handoff references a plan doc (`tasks/<feature>/todo.md`), read it — but only because the handoff pointed to it, not as a general survey.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
 - **`git mv` after Edit stages only the rename, not the content change.** If a future revision of this skill (or a sibling skill) ever needs to both rename AND edit a file, the correct order is: `git mv src dst` FIRST, THEN Edit `dst`, THEN `git add -- dst`, THEN commit. Edit-then-`git mv` stages only the rename and silently drops the content delta.
-- **Archiving:** `/pickup` mutates frontmatter in place at `tasks/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/workstream-complete` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
+- **Archiving:** `/pickup` mutates frontmatter in place at `state/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/workstream-complete` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
 - **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

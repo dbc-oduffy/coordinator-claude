@@ -101,7 +101,7 @@ multiple callers).
 ## Audit Log (update-docs Phase 10b)
 
 When `/update-docs` generates repomap as a RAG-fallback (`RAG_STATE` is `stale` or `unknown`),
-it appends an audit log entry to `tasks/repomap-audit.log`:
+it appends an audit log entry to `state/repomap-audit.log`:
 
 ```
 <ISO-date> | rag_state=<state> | generated=yes | unique_value=<yes|no|unknown>

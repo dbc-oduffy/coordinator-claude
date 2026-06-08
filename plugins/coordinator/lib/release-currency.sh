@@ -17,7 +17,7 @@
 # → docs/wiki/release-cadence-and-currency-notification.md
 #
 # Spec backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C2;
-#   alignment: tasks/handoffs/2026-06-01_152220_currency-mechanism-git-tag-alignment.md
+#   alignment: state/handoffs/2026-06-01_152220_currency-mechanism-git-tag-alignment.md
 #
 # Compose-vs-invent decision (recorded here per spec): lib/coordinator-currency.sh handles
 # the SCHEMA-INTEGER onboarding-currency axis (per-repo stamp vs coordinator-schema-version).

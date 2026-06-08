@@ -45,7 +45,7 @@ mkdir -p tasks/scratch/staff-session/{run-id}
 
 Set output path based on mode:
 - **Plan mode:** `docs/plans/YYYY-MM-DD-{topic-slug}.md` (canonical output for `/enrich-and-review`)
-- **Review mode:** `tasks/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`
+- **Review mode:** `state/review-findings/YYYY-MM-DD-{topic-slug}-staff-review.md`
 
 Set advisory path: `{scratch-dir}/advisory.md`
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # coordinator/lib/bootstrap-orchestrate.sh — Discovery-to-per-repo orchestration for
-# coordinator:bootstrap-repos (/bootstrap-repos command).
+# coordinator:repo-setup (/repo-setup --batch command, consolidated 2026-06-08 from
+# the former /bootstrap-repos). Script filename kept for git-mv history continuity;
+# the implementation logic and execution path are unchanged from its bootstrap-repos origin; only user-visible command names (in printf strings, summary headers, and error messages) were updated.
 #
 # Purpose: reads ~/.claude/working-repos.yaml, resolves the repo list, presents
 # the EXPRESS/CUSTOM two-choice surface, then delegates each selected repo to the
@@ -124,7 +126,7 @@ if [[ ! -f "$WORKING_REPOS_YAML" ]]; then
     echo "" >&2
     echo "bootstrap-orchestrate.sh: ~/.claude/working-repos.yaml not found." >&2
     echo "" >&2
-    echo "  /bootstrap-repos requires the working-repos list produced by /setup Phase 2 Step 4." >&2
+    echo "  /repo-setup --batch requires the working-repos list produced by /setup Phase 2 Step 4." >&2
     echo "  Run /setup first (or /coordinator:setup) to discover and record your working repos." >&2
     echo "" >&2
     exit 2
@@ -261,7 +263,7 @@ fi
 
 if [[ $CHECK_ONLY -eq 1 ]]; then
     echo ""
-    echo "=== /bootstrap-repos --check-only: per-repo action list ==="
+    echo "=== /repo-setup --batch --check-only: per-repo action list ==="
     echo ""
     echo "Repos that WOULD be bootstrapped (${#EXISTING_REPOS[@]}):"
     for _repo in "${EXISTING_REPOS[@]}"; do
@@ -304,11 +306,11 @@ SELECTED_REPOS=()
 
 if [[ $NON_INTERACTIVE -eq 1 ]]; then
     echo ""
-    echo "bootstrap-repos: --non-interactive — selecting EXPRESS path (bootstrap all ${#EXISTING_REPOS[@]} repo(s))."
+    echo "repo-setup: --non-interactive — selecting EXPRESS path (bootstrap all ${#EXISTING_REPOS[@]} repo(s))."
     SELECTED_REPOS=("${EXISTING_REPOS[@]}")
 else
     echo ""
-    echo "=== /bootstrap-repos — Coordinator Bootstrap ==="
+    echo "=== /repo-setup --batch — Coordinator Bootstrap ==="
     echo ""
     echo "  Repos discovered in ~/.claude/working-repos.yaml (${#EXISTING_REPOS[@]} on disk):"
     for _r in "${EXISTING_REPOS[@]}"; do
@@ -354,7 +356,7 @@ fi
 
 if [[ ${#SELECTED_REPOS[@]} -eq 0 ]]; then
     echo ""
-    echo "bootstrap-repos: no repos selected. Nothing to do."
+    echo "repo-setup: no repos selected. Nothing to do."
     exit 0
 fi
 
@@ -418,7 +420,7 @@ for _repo in "${SELECTED_REPOS[@]}"; do
                             2>&1 || _stamp_commit_exit=$?
                         if [[ $_stamp_commit_exit -ne 0 ]]; then
                             echo "  currency: FAILED — target repo hook rejected currency-stamp commit (exit $_stamp_commit_exit)"
-                            echo "  currency: resolve the hook failure in '$_repo' and re-run /bootstrap-repos."
+                            echo "  currency: resolve the hook failure in '$_repo' and re-run /repo-setup --batch."
                             FAILED+=("$_repo")
                             continue
                         fi
@@ -452,7 +454,7 @@ done
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== /bootstrap-repos summary ==="
+echo "=== /repo-setup --batch summary ==="
 echo ""
 echo "  Succeeded:  ${#SUCCEEDED[@]}"
 echo "  Failed:     ${#FAILED[@]}"
@@ -488,7 +490,7 @@ if [[ ${#FAILED[@]} -gt 0 ]]; then
     exit 3
 fi
 
-echo "  /bootstrap-repos complete."
+echo "  /repo-setup --batch complete."
 echo "  Revert any bootstrap commit: git -C <repo> revert HEAD"
 # All bootstraps succeeded, but a malformed path was skipped during parsing —
 # signal partial success rather than a clean 0.

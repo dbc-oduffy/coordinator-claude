@@ -16,45 +16,11 @@ Merge a work or feature branch to main via PR with CI gating.
 
 ## The Process
 
-### Step 0: Acceptance-Oracle Gate + Test Suite Gate
+### Step 0: Test Suite Gate
 
-#### Step 0a: Acceptance-Oracle Gate (AUTHORITATIVE)
-
-<!-- spec-backlink: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.3 — authoritative gate seam topology -->
-
-Before any test-suite or PR work, run the acceptance-oracle gate for the branch's plan.
-
-**Plan-path discovery (try in order):**
-1. Frontmatter `plan:` field on the branch's most-recent plan document.
-2. Explicit `--plan <path>` flag in `$ARGUMENTS`.
-3. If neither yields a path → **skip-with-offer**: _"No plan path found — acceptance oracle can be validated manually with `bash check-acceptance-oracle.sh <plan-path>` if a plan exists for this branch."_ Continue to Step 0b.
-
-**If `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` is set:**
-Skip the gate entirely. Log: _"Acceptance-oracle gate bypassed via COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 — exceptional use only."_ Continue to Step 0b.
-
-**If plan path resolved AND the plan contains a bindable `## Acceptance Criteria` table** (columns: `ID | Criterion | Test | Binding-Class | Status`):
-
-```bash
-bash check-acceptance-oracle.sh <plan-path>
-```
-
-- **Exit 0 (all gate-bound rows green or cited-resolved):** Log the verdict and continue to Step 0b. _"Acceptance oracle: all gate-bound tests pass."_
-- **Non-zero exit (any gate-bound row red or missing):** Hard-block the merge:
-  ```
-  Merge blocked: acceptance oracle has red or unresolved gate-bound tests.
-  
-  <verdict from check-acceptance-oracle.sh>
-  
-  Fix the failing tests and re-run /merge-to-main, or set
-  COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 to bypass (exceptional use only —
-  the accepted accommodation for environment-bound tests is cited: rows, not this override).
-  ```
-  Stop. Do NOT proceed to PR creation.
-
-**If plan path resolved but no bindable `## Acceptance Criteria` table** (old-form plan):
-Skip-with-offer: _"Plan found but no bindable acceptance-criteria table — oracle gate skipped. Consider upgrading (`docs/wiki/writing-plans.md` § Acceptance Oracle)."_ Continue to Step 0b.
-
-#### Step 0b: Test Suite Gate
+> **Acceptance oracle is NOT re-gated here.** The authoritative gate lives at `coordinator:workstream-complete` Step 3.8 — one workstream = one plan = one AC table in frame. By the time a workstream's commits reach `/merge-to-main`, its oracle verdict has already been stamped (or refused) upstream. `/merge-to-main` operates per-branch, and branches routinely aggregate multiple workstreams (daily-rollup shape) plus doctrine edits, archive sweeps, and memo actions — no single AC table governs the union, so a per-branch oracle re-run is either ceremony evasion (skip-with-offer noise) or a false-positive on multi-plan branches. Trust the upstream marker; daily-rollups merge cleanly.
+>
+> **Belt-and-braces re-run is available** but never load-bearing: `bash check-acceptance-oracle.sh <plan-path>` on demand. Override env var `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` is retired at this surface — there is no gate to override.
 
 1. **Run the coordinator hook test suite first:**
    ```bash
@@ -67,7 +33,7 @@ Skip-with-offer: _"Plan found but no bindable acceptance-criteria table — orac
 
 3. **Run the project test suite.** Pass → proceed to Step 1. Fail → halt: _"Test suite failed. Fix first, or use `/merge-to-main --force` to bypass for hotfixes."_ Do NOT proceed to PR creation.
 
-4. **`--force` escape hatch:** Skips Step 0b only — acceptance-oracle gate (Step 0a) is NOT bypassed; use `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` for that. Log: _"Force-merge requested — test suite gate bypassed."_ Proceed to Step 1.
+4. **`--force` escape hatch:** Skips Step 0 entirely. Log: _"Force-merge requested — test suite gate bypassed."_ Proceed to Step 1. (Acceptance-oracle is not gated at this surface — see preamble above.)
 
 5. **First Officer Doctrine:** EM may refuse to merge and alert the PM if the branch has known issues.
 
@@ -138,7 +104,7 @@ EM stages one line; PM confirms or overrides. Don't merge on `hold`/`split` with
 **Part 2 — Release Notes (every merge)**
 
 ```bash
-PENDING_RELEASE=$(ls tasks/week-changelog/*-pending-release.md 2>/dev/null | sort | tail -1)
+PENDING_RELEASE=$(ls state/week-changelog/*-pending-release.md 2>/dev/null | sort | tail -1)
 ```
 
 - **`$PENDING_RELEASE` set (normal path):** Use as primary; skip steps 1–5, go to step 6. Set `PENDING_RELEASE_FILE="$PENDING_RELEASE"` (retain for Step 5.5).
@@ -301,10 +267,28 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 | **Plugin version matrix touched?** | Path globs: `control/plugin/**`, `control/server/**`, `.github/workflows/build-plugin-*.yml` (any path match triggers the check) | Verify CI matrix run for all 5 UE versions (5.3–5.7) is green; flag if the diff post-dates the last green CI run |
 | **Structural-index schema bumped?** | Path globs: `mcp_server/structural_index/*.py`, `project-rag/cli.py`, `scripts/download-structural-index.sh`. Content-grep patterns: `MIN_SUPPORTED_SCHEMA`, `authority_version`, `manifest_version` (any path or grep match triggers the check) | Dispatch `schema-migration-auditor` to enumerate downstream readers; require the Staff Engineer review of the audit before merge |
 | **Customer-facing install path touched?** | Path globs: `scripts/install-*.{sh,ps1}`, `scripts/lib/install-shell-utils.{sh,ps1}`, `marketplace.json`, `docs/wiki/holodeck-for-your-ue-project.md` | Verify customer-deployment doc parity (no hardcoded local drive paths to peer repos, no internal-PC assumptions); replay install-shell-utils tests in `tests/install/` |
-| **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `tasks/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1` (same escape hatch as Step 0c). A pending record WITH a resolved sibling passes silently. |
+| **UBT gate** | `bin/check-ubt-build-fresh.sh` exists in cwd | Scan `state/review-trail/` for any `*.ubt-compile.pending.json` records without a corresponding `*.ubt-compile.resolved.json` sibling. If found, halt with remediation: run `/workday-complete` to resolve the pending records, or override with `COORDINATOR_OVERRIDE_UBT_GATE=1`. A pending record WITH a resolved sibling passes silently. |
 | **Reverse-drift gate** | `bin/check-reverse-drift.sh` is executable in cwd | Run it. On non-zero exit (a `copy_install` live install hand-edited since last install — the case forward-SHA `check-plugin-drift.sh` is blind to), halt with the script's remediation: run `holodeck_recover --step reverse-drift` to back-propagate live→source, or override with `COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`. No script present → passes silently. Mirrors `/workweek-complete` Step 4g. |
 
 Otherwise skip.
+
+### Step 1.7: Portability Check (optional, on by default)
+
+Run `portability-sweep <repo-root> --diff-only origin/main..HEAD --report-format md`.
+
+- If report is empty → continue silently.
+- If report has findings → surface the count to the PM with one-line summary
+  (e.g. `Portability sweep: 3 migration opportunities in this branch.`).
+  PM dispositions each finding before merge:
+    - **fix-now** — EM applies inline or via `--apply-safe` (sibling category only).
+    - **allowlist-with-reason** — add to `portability-allowlist.toml` with rationale.
+    - **accept-and-track** — note in PR description; merge proceeds.
+
+NOT a merge blocker. PM can override the entire step with
+`COORDINATOR_OVERRIDE_PORTABILITY=1` for a one-off skip.
+
+Tripwire registration: register `COORDINATOR_OVERRIDE_PORTABILITY` in
+`docs/wiki/coordinator-tripwires.md` in the same commit that lands this step.
 
 ### Step 2: Create PR
 

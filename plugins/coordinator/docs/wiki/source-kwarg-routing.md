@@ -145,7 +145,7 @@ for `source=None` is retired.
 The per-band backend (explicit `source=<band>` routing) remains deferred: calls with an
 explicit `source=<band>` still return `not_supported` for any band whose query execution
 has not been separately wired. That gap closes in the fusion-pipeline-n-lane spinoff
-(`tasks/handoffs/2026-05-18_235457_fusion-pipeline-n-lane.md`).
+(`state/handoffs/2026-05-18_235457_fusion-pipeline-n-lane.md`).
 
 ## 7. `project_whoami` — self-discovery
 

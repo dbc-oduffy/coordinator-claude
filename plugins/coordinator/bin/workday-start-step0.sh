@@ -122,14 +122,42 @@ if [[ -z "$START_DATE" ]]; then
   echo "ERROR: cs_parse_branch_span returned empty start_date for branch '$OLD'" >&2
   exit 1
 fi
-NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
 
-# Concurrent-rename race guard
+# Choose the rename target. A "start-to-today" span (e.g. 2026-06-01to02) is
+# only honest when this branch carries UNMERGED work across the day boundary;
+# when COMMITS_AHEAD == 0 the history has all merged (or main moved ahead) and a
+# span name would misleadingly advertise WIP that no longer exists — so the
+# target collapses to today-only and the reconcile leg ff's us onto origin/main.
+# Selection logic lives in cs_rename_target (unit-tested without a repo).
+# Doctrine 2026-06-02: refines "reconcile not rotate". → daily-branch-discipline.md.
+NEW=$(cs_rename_target "$MACHINE" "$START_DATE" "$TODAY" "$COMMITS_AHEAD")
+
+# Concurrent-rename race guard: a sibling session on this shared-bus branch may
+# have already rotated it to cover today during the Check 2→4 window. Match BOTH
+# forms cs_rename_target can produce — the *toDD span AND the single-date today
+# name (the 0-ahead form). TODAY_DD derives from the UTC $TODAY (line 41), NOT a
+# fresh `date +%d` (which omits -u and diverges from $TODAY across the UTC
+# midnight boundary when local time is behind UTC). [code-reviewer F1, F4]
 CURRENT_RECHECK=$(git branch --show-current)
-TODAY_DD=$(date +%d)
-if [[ "$CURRENT_RECHECK" == *"to${TODAY_DD}" ]]; then
+TODAY_DD="${TODAY##*-}"
+if [[ "$CURRENT_RECHECK" == *"to${TODAY_DD}" ]] || [[ "$CURRENT_RECHECK" == *"/${TODAY}" ]]; then
   echo "IN-SPAN branch=$CURRENT_RECHECK note=concurrent-rename"
   exit 0
+fi
+
+# Collision guard: the target name may already exist (a recovery cut, or a
+# concurrent session that already rotated to today). Never `git branch -m` onto
+# an existing ref — append a numeric suffix, mirroring the Check 3 fresh-cut path.
+if [[ "$NEW" != "$OLD" ]] && git show-ref --verify --quiet "refs/heads/${NEW}"; then
+  n=2
+  while git show-ref --verify --quiet "refs/heads/${NEW}-${n}"; do
+    n=$(( n + 1 ))
+    if [[ "$n" -gt 9 ]]; then
+      echo "ERROR: cannot find unused rename target for '$NEW' (tried -2 through -9)" >&2
+      exit 1
+    fi
+  done
+  NEW="${NEW}-${n}"
 fi
 
 COORDINATOR_OVERRIDE_BRANCH=1 \

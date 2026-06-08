@@ -35,19 +35,19 @@ The maintainer can:
 
 ### Step 1: Read Current State
 
-1. Read `tasks/debt-backlog.md`
+1. Read `state/debt-backlog.md`
 2. Summarize: total open items, breakdown by severity (P0/P1/P2), breakdown by system
 3. Identify the oldest open items (stalest debt)
 
 ### Step 1b: Cross-reference bug backlog
 
-Also read `tasks/bug-backlog.md` (if it exists). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `Cross-ref` field on both entries (e.g., `Cross-ref: BS-2026-03-18-1` on the debt item, `Cross-ref: WAA-2026-03-19-1` on the bug item). Present overlaps to PM for deduplication decision.
+Also read `state/bug-backlog.md` (if it exists). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `Cross-ref` field on both entries (e.g., `Cross-ref: BS-2026-03-18-1` on the debt item, `Cross-ref: WAA-2026-03-19-1` on the bug item). Present overlaps to PM for deduplication decision.
 
 ### Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
 
 Before dispatching any Haiku verification agents, do a quick staleness pre-check on the full item list.
 
-For each item in `tasks/debt-backlog.md`, note its cited file path and the date it was logged. Items where `git log --since="<finding-date>" -- <file-path>` shows relevant commits are candidates for `already-fixed` status and should be confirmed first.
+For each item in `state/debt-backlog.md`, note its cited file path and the date it was logged. Items where `git log --since="<finding-date>" -- <file-path>` shows relevant commits are candidates for `already-fixed` status and should be confirmed first.
 
 This pre-check prevents dispatching agents to verify debt that has already been resolved. In one measured run, 11 of 20 backlog items were already fixed before dispatch — the same failure mode applies to debt backlogs that drift behind active development.
 
@@ -171,7 +171,7 @@ After PM decisions:
 
 6. Commit:
    ```bash
-   git add tasks/debt-backlog.md tasks/out-of-scope/
+   git add state/debt-backlog.md tasks/out-of-scope/
    git commit -m "debt-triage: reviewed N items, closed M, N remain open"
    ```
 

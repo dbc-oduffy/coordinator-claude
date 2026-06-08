@@ -45,7 +45,7 @@ The auditor runs BEFORE docs-checker and prior-art-checker because gap findings 
 | Concurrency | Plan touches shared state, files appended by multiple actors, async dispatch | Section addresses lock/order/idempotency strategy |
 | Docs impact | Plan changes user-visible behavior or operator-visible interface | Section names doc files to update OR notes none-needed |
 
-**Output sidecar:** `tasks/review-findings/{timestamp}-comprehensiveness.md` with a Silent / Addressed / N/A verdict per area + evidence quote (file:line within plan). Empty Silent column = green light. Non-empty Silent column blocks dispatch of downstream reviewers until EM either fills the gaps or annotates each as N/A with rationale.
+**Output sidecar:** `state/review-findings/{timestamp}-comprehensiveness.md` with a Silent / Addressed / N/A verdict per area + evidence quote (file:line within plan). Empty Silent column = green light. Non-empty Silent column blocks dispatch of downstream reviewers until EM either fills the gaps or annotates each as N/A with rationale.
 
 **Failure modes to watch for** (when this phase ships, calibrate against these):
 
@@ -59,7 +59,7 @@ The auditor runs BEFORE docs-checker and prior-art-checker because gap findings 
 - Should Silent areas auto-amend the plan body with `## TODO: <area> coverage` stubs, or just emit the sidecar and let the EM author? Default proposal: sidecar-only, EM authors — auto-amend invites ceremony.
 - Cumulative-effect: this adds a 4th pre-flight to the plan→review pipeline. Combined with docs-check + prior-art + external-pattern, the pre-review chain is now ~2-3 minutes of Sonnet dispatch. Acceptable cost vs. expected Opus-reviewer savings? Empirical calibration after first 10 dispatches.
 
-Lesson source: `project-rag/tasks/lessons.md` (2026-05-18, comprehensiveness-auditor between plan-draft and prior-art-check).
+Lesson source: `project-rag/state/lessons.md` (2026-05-18, comprehensiveness-auditor between plan-draft and prior-art-check).
 
 ---
 
@@ -104,7 +104,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 **Dispatch:**
 1. Dispatch `docs-checker` agent with the artifact path
 2. docs-checker applies AUTO-FIX-class corrections inline and writes all edits as a single git-revertible commit
-3. docs-checker emits `tasks/review-findings/{timestamp}-docs-checker-edits.md` (changelog sidecar) and `tasks/review-findings/{timestamp}-docs-checker.md` (verification report)
+3. docs-checker emits `state/review-findings/{timestamp}-docs-checker-edits.md` (changelog sidecar) and `state/review-findings/{timestamp}-docs-checker.md` (verification report)
 4. EM reads the edits sidecar (if any) and includes the following verbatim in the Opus reviewer's dispatch prompt:
 
    > A docs-checker pre-flight ran on this artifact. AUTO-FIX corrections were applied inline — see [edits sidecar path] for the changelog. UNVERIFIED claims are listed in [report path] for your verification. VERIFIED claims do not need re-checking; focus your review on architecture, approach, and design.
@@ -121,7 +121,7 @@ _Last calibrated: 2026-05-03 against Claude Opus 4.7 (1M context) training distr
 
 **The prior-art-checker is a recall pre-flight, not a reviewer. It does not participate in the sequential-review HARD RULE — it runs once before any reviewer is dispatched and its output is consumed by all downstream reviewers.**
 
-Before dispatching expensive Opus reviewers, decide whether to run the **prior-art-checker** agent (Sonnet) as a suggested pre-flight. While docs-checker verifies factual claims about external APIs, prior-art-checker cross-references the plan's claims against **what we've already learned** — project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Reviewers receive a sidecar showing where the plan conflicts with prior art, where it should cite established patterns, and where it touches unprecedented ground.
+Before dispatching expensive Opus reviewers, decide whether to run the **prior-art-checker** agent (Sonnet) as a suggested pre-flight. While docs-checker verifies factual claims about external APIs, prior-art-checker cross-references the plan's claims against **what we've already learned** — project wikis, global wikis, `state/lessons.md`, and the central improvement queue. Reviewers receive a sidecar showing where the plan conflicts with prior art, where it should cite established patterns, and where it touches unprecedented ground.
 
 **EM Decision Step — when to run:**
 
@@ -204,7 +204,7 @@ Before dispatching expensive Opus reviewers, decide whether to run the **externa
 | Condition | Requirement |
 |---|---|
 | **A** | prior-art-checker returned `Silent` on ≥ 1 **architecturally-loaded** claim — meaning the claim involves a new abstraction, protocol, or doctrine surface (not a constant bump, test fix, or rename) |
-| **B** | The plan is `scope_mode: architecture` or `scope_mode: feature` AND the topic is one the project has struggled with, evidenced by ≥ 2 entries in `tasks/lessons.md` or `coordinator-improvement-queue.md` sharing a noun-phrase from the plan's central abstractions, OR ≥ 1 archived handoff in `archive/handoffs/` whose body matches the same noun-phrase AND contains "reverted" / "abandoned" / "rolled back" |
+| **B** | The plan is `scope_mode: architecture` or `scope_mode: feature` AND the topic is one the project has struggled with, evidenced by ≥ 2 entries in `state/lessons.md` or `coordinator-improvement-queue.md` sharing a noun-phrase from the plan's central abstractions, OR ≥ 1 archived handoff in `archive/handoffs/` whose body matches the same noun-phrase AND contains "reverted" / "abandoned" / "rolled back" |
 
 **Both A and B must hold.** If either condition is absent, skip this phase silently — no flag, no justification. PM can also authorize a direct invocation ("run external-pattern-check on this plan") which bypasses the gate.
 
@@ -268,8 +268,8 @@ After each reviewer completes:
      |---|------|-------|----------|----------|---------|
      | 0 | path/to/file.ts | 42-48 | critical | correctness | Description |
      ```
-   - Write raw JSON to disk at: `tasks/review-findings/{timestamp}-{reviewer}.json`
-     Create `tasks/review-findings/` directory if it doesn't exist.
+   - Write raw JSON to disk at: `state/review-findings/{timestamp}-{reviewer}.json`
+     Create `state/review-findings/` directory if it doesn't exist.
    - Report: "Structured output parsed: N findings (X critical, Y major, Z minor, W nitpick)"
 
 3. **If valid JSON but with field drift, normalize before rendering:**
@@ -360,7 +360,7 @@ The numbered phases above describe a single review pass. For substrate-blind spe
 
 For major surface additions where the spec author was substrate-blind (no on-disk grep, no per-file Read), a single Opus reviewer is not enough — orthogonal lenses catch different error classes. The full topology:
 
-1. **Plan-author negative-search** (W1, `writing-plans` SKILL). Prohibitions and prior reversals surfaced before reviewer dispatch.
+1. **Plan-author negative-search** (W1, `coordinator:plan` skill (pre-flight negative-search is Branch B)). Prohibitions and prior reversals surfaced before reviewer dispatch.
 2. **docs-checker pre-flight** (Phase 2.7). External-API claim verification, AUTO-FIX inline.
 3a. **prior-art-checker pre-flight** (Phase 2.7b). Doctrine-recall against wikis + lessons + queue.
 3b. **plan-coverage-checker pre-flight** (Phase 2.7d). Oracle-vs-slate completeness, hedge detection, in-repo substrate drift. Skill-internal trigger — runs unconditionally on plans with oracle tables. Runs in parallel with layer 3a (prior-art-checker).
@@ -415,9 +415,9 @@ integration occurs between reviewers, so parallel-blind + synthesizer is the cor
 
 ### Dispatch graph (as of 2026-05-23)
 
-**Step A (sequential):** Snapshot diff to `tasks/review-findings/<timestamp>/diff.patch`.
+**Step A (sequential):** Snapshot diff to `state/review-findings/<timestamp>/diff.patch`.
 Run Step 7 prelude (external to skill body) to compute seam-first chunks and write
-`tasks/review-trail/.weekly-reviewer-scopes.json`.
+`state/review-trail/.weekly-reviewer-scopes.json`.
 
 **Step B (parallel — single Agent batch):**
 - N × `code-reviewer-weekly` (Sonnet variant, Write-capable for findings files only):
@@ -567,4 +567,4 @@ Every layer was load-bearing on a plan that had already passed EM confidence + e
 **Why:** A plan that survives the Staff Engineer's architectural review can still hide (a) duplication of an existing project pattern the Staff Engineer can't see from the diff (the Game Dev Reviewer territory), and (b) callsite-level multi-tenancy bugs that look correct in spec but break adjacent functionality (enricher territory). In one case, a CRITICAL spec bug (multi-tenancy) and a design-duplication smell (existing registry pattern) both survived two the Staff Engineer passes.
 **How to apply:** for architecturally-loaded stubs with real stakes, run the full chain — the Staff Engineer → integrator → the Game Dev Reviewer → integrator → enricher → integrator → the Staff Engineer. Each layer targets a qualitatively different class of defect; skipping any layer leaves that class uncovered.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L117, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L117, central-promoted 2026-05-28).*

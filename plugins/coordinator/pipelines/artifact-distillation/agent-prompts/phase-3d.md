@@ -18,7 +18,7 @@ artifact in the distillation run.
 
 **Escalation resolution file (if present):**
 [PHASE3_ESC_PATH]
-(Path: `tasks/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
+(Path: `state/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
 Check whether this file exists before reading. If it exists, use it as additional
 context for disposition decisions — contradictions that were resolved here are fully
 extracted; if absent, proceed normally.
@@ -129,7 +129,7 @@ reviews these before Phase 4.
   - Pipeline C structured outputs (files containing `manifest_version:`)
 - A failed Phase 1.5 QG batch means the scanner may have missed nuggets — mark all
   artifacts in that batch as SKIP.
-- Active handoff files (`tasks/handoffs/`) are always SKIP — never batched for deletion.
+- Active handoff files (`state/handoffs/`) are always SKIP — never batched for deletion.
 - In-progress specs (Phase 0 classified SKIP) remain SKIP here.
 
 ## Rules

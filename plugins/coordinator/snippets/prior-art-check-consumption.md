@@ -2,7 +2,7 @@
 
 ## Prior-Art Check Integration
 
-If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `tasks/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
+If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `state/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
 
 **Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield." It is a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended — the integrator lands edits on whichever surface(s) you (and the EM) name. Treating prior art as immutable freezes the corpus; treating it as advisory keeps it honest.
 

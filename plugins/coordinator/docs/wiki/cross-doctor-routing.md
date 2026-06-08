@@ -77,7 +77,7 @@ The cascade is the primitive; the per-peer dict is the configuration. New peers 
 
 ## Source
 
-Pattern formalized 2026-05-21 in addon-doctor-host-routing-pointers-cascade work (project-rag-ue-addon). Canonical implementation: `resolve_peer_repo_pointers()` in the addon's doctor. Lesson promoted from `X:/project-rag-ue-addon/tasks/lessons.md:356` via `/learn-lessons --mode=central` 2026-05-24.
+Pattern formalized 2026-05-21 in addon-doctor-host-routing-pointers-cascade work (project-rag-ue-addon). Canonical implementation: `resolve_peer_repo_pointers()` in the addon's doctor. Lesson promoted from `X:/project-rag-ue-addon/state/lessons.md:356` via `/learn-lessons --mode=central` 2026-05-24.
 
 ## Related
 

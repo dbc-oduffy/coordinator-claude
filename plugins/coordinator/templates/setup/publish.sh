@@ -319,36 +319,15 @@ is_ignored() {
 }
 
 # ---------------------------------------------------------------------------
-# files_differ — fast bash-builtin check: does dst need to be (re)copied from src?
+# Copy-gate primitives — files_differ + bytes_differ
 # ---------------------------------------------------------------------------
-# Returns 0 (true: needs copy) when dst is missing OR src is newer than dst.
-# Returns 1 (false: skip) when dst exists and is at least as new as src.
-# Matches rsync's default --update semantics; replaces `diff -q "$src" "$dst"`
-# which forks per file and triggered Cygwin/MSYS heap fragmentation under
-# the ~500-file coordinator-claude mirror sync (2026-05-20 incident).
-files_differ() {
-  [[ ! -f "$2" ]] && return 0
-  [[ "$1" -nt "$2" ]] && return 0
-  return 1
-}
-
-# ---------------------------------------------------------------------------
-# bytes_differ — true (0) iff $1 and $2 differ byte-for-byte.
-# ---------------------------------------------------------------------------
-# Used ONLY to decide whether an overwrite warning fires — NOT as a sync gate
-# (that stays mtime-based via files_differ for the perf reason in the 2026-05-20
-# incident note above). Called only on the already-selected sync subset (the
-# handful of mtime-newer files), so the per-file cmp fork is bounded — it does
-# NOT re-introduce the whole-mirror diff-q storm.
-#
-# Rationale (PM 2026-05-28): a publish that overwrites a destination whose bytes
-# diverge from the incoming file is exactly the silent-clobber the 2026-05-20
-# ban exists to prevent. mtime-newer alone does not prove content changed (a
-# touch bumps mtime with identical bytes). Warn loudly on real content
-# replacement so the operator sees what they are about to overwrite.
-bytes_differ() {
-  ! cmp -s "$1" "$2"
-}
+# Sourced from setup/lib/percolate-gate.sh so the regression test
+# (setup/tests/test_needs_copy_content_aware.sh) and production share one
+# definition. Replaces the prior 4-line inline replica + grep guardrail
+# pattern that risked silent test/production drift (the Staff Engineer 2026-06-08).
+# Doctrine: docstrings + caller contracts live in the lib file.
+# shellcheck source=lib/percolate-gate.sh
+source "$SCRIPT_DIR/lib/percolate-gate.sh"
 
 # ---------------------------------------------------------------------------
 # Hook registry — convention-based discovery of pre/post-rsync hooks

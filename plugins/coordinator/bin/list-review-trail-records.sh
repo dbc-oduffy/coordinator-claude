@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # list-review-trail-records.sh — Emit the union of live and archived review-trail records.
 #
-# Purpose: canonical reader for tasks/review-trail/**/*.json AND
+# Purpose: canonical reader for state/review-trail/**/*.json AND
 # archive/review-trail/**/*.json, sorted by basename (ascending =
 # chronological, since basenames are YYYY-MM-DD-HHMMSS-{sid}.json prefixed).
 # Absent directories are silently skipped (fresh-install case).
@@ -33,7 +33,7 @@ set -uo pipefail
 # matching the writer pattern in coordinator-write-review-trail.sh:185-207.
 # COORDINATOR_ROOT is an explicit override for tests.
 # Rationale: the script lives in ~/.claude/plugins/coordinator/bin/
-# but the records live in the CONSUMER repo's tasks/review-trail/ and
+# but the records live in the CONSUMER repo's state/review-trail/ and
 # archive/review-trail/. A SCRIPT_DIR-derived default would read from the plugin
 # directory (which contains no records) and silently return zero records on every
 # non-meta-repo invocation. Use git toplevel of cwd.
@@ -42,7 +42,7 @@ set -uo pipefail
 if [[ -z "${COORDINATOR_ROOT:-}" ]]; then
   COORDINATOR_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [[ -z "${COORDINATOR_ROOT}" ]]; then
-    echo "list-review-trail-records.sh: cwd is not a git repo and COORDINATOR_ROOT is not set — cannot resolve tasks/review-trail/" >&2
+    echo "list-review-trail-records.sh: cwd is not a git repo and COORDINATOR_ROOT is not set — cannot resolve state/review-trail/" >&2
     exit 1
   fi
 fi
@@ -82,7 +82,7 @@ done
 # Directory locations (relative to coordinator root)
 # ---------------------------------------------------------------------------
 
-LIVE_DIR="${COORDINATOR_ROOT}/tasks/review-trail"
+LIVE_DIR="${COORDINATOR_ROOT}/state/review-trail"
 ARCHIVE_DIR="${COORDINATOR_ROOT}/archive/review-trail"
 
 # ---------------------------------------------------------------------------

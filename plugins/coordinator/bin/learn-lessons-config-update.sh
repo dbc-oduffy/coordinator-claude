@@ -3,7 +3,7 @@
 # Normalization: absolute path, lowercase on Windows (msys/cygwin), strip trailing slash, POSIX separators.
 # Idempotent — silent no-op if already present.
 set -e
-CONFIG="$HOME/.claude/tasks/learn-lessons-config.md"
+CONFIG="$HOME/.claude/state/learn-lessons-config.md"
 [[ -f "$CONFIG" ]] || { echo "config missing: $CONFIG" >&2; exit 1; }
 
 # Normalize

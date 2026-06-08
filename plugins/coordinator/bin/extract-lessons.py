@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic structured extraction of `tasks/lessons.md` entries.
+"""Deterministic structured extraction of `state/lessons.md` entries.
 
 Replaces the LLM "scout extraction" step in `coordinator:learn-lessons` Phase 2.
 Faithful extraction of source text is a *parse*, not a judgment call — so this
@@ -172,7 +172,7 @@ _TITLE_OVERLAP_MIN = 25  # min chars of title that must appear verbatim in routi
 
 
 def _line_from_source(source: str) -> int | None:
-    """Extract the trailing :N from a source string like 'C:/repo/tasks/lessons.md:42'.
+    """Extract the trailing :N from a source string like 'C:/repo/state/lessons.md:42'.
 
     Use rpartition (not a non-greedy regex on the whole string) so Windows paths whose
     drive prefix is `C:` don't capture the wrong colon. The Staff Engineer review F1."""
@@ -452,7 +452,7 @@ def main(argv: list[str]) -> int:
     if not args.file.exists():
         print(f"error: {args.file} does not exist", file=sys.stderr)
         return 2
-    # Shortname default: parent-of-tasks dir name (`<repo>/tasks/lessons.md` layout).
+    # Shortname default: parent-of-tasks dir name (`<repo>/state/lessons.md` layout).
     # Fail loud rather than silently pick a garbage shortname when the heuristic doesn't
     # hold — detect-then-silently-pick is the documented footgun (the Staff Engineer F3).
     if args.shortname:

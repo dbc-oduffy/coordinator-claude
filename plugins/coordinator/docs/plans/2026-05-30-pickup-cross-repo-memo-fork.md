@@ -23,7 +23,7 @@ Outstanding cross-repo memos AND `/workday-start` Step 1.45, both via
 `workday-start-cross-repo-memo-surface.sh`), with a real lifecycle (`open → actioned`,
 `decision:` enum). But `/pickup` — the natural "read-this-baton-and-act" verb — is **100%
 handoff-shaped** and has zero awareness of memos. A memo path handed to `/pickup` today is
-misread as a handoff (Step 2 globs `tasks/handoffs/`; Step 3 mutates handoff schema
+misread as a handoff (Step 2 globs `state/handoffs/`; Step 3 mutates handoff schema
 `status: active → consumed`, `deployment_state`).
 
 Four sub-problems:
@@ -145,11 +145,11 @@ contract (not write-overlap), so they fan out in parallel; C6 verifies the round
 - New **Step 1.5 (Classify the artifact)** before the existing handoff flow: read the artifact
   *first* (read-before-reasoning, stated explicitly as the anti-confabulation gate), then classify
   by **path + frontmatter shape** (both reliable signals already on disk):
-  - `tasks/handoffs/` + handoff schema (`status: active|consumed`, `deployment_state`) → existing
+  - `state/handoffs/` + handoff schema (`status: active|consumed`, `deployment_state`) → existing
     handoff flow (Steps 2–6 unchanged).
   - `cross-repo/inbox/` (or any file with memo frontmatter: `from:` + `to:` + `status: open|actioned`)
     → **new memo branch** (below).
-  - `kind: spinoff` in `tasks/handoffs/` → existing spinoff banner.
+  - `kind: spinoff` in `state/handoffs/` → existing spinoff banner.
 - **Memo branch** (new subsection):
   1. **Read the whole memo before any other action.** Explicit STOP: do not summarize-to-PM, do
      not act, do not edit until read. (Directly targets the observed failure.)

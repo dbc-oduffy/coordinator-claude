@@ -56,8 +56,8 @@ The following rules are quoted verbatim and apply throughout this skill's execut
 
 This skill explicitly does NOT:
 
-- Modify your project scaffolding or session-continuity surface: `tasks/`, `tasks/handoffs/`,
-  memory entries under `projects/`, `tasks/lessons.md`, `.claude/settings.json`. These paths are
+- Modify your project scaffolding or session-continuity surface: `tasks/`, `state/handoffs/`,
+  memory entries under `projects/`, `state/lessons.md`, `.claude/settings.json`. These paths are
   agent-owned, not installer-owned. No install ceremony may write into them.
 - Touch `consumer_added` files — files you added to your install tree that have no upstream source.
   These are entirely yours and are never offered for overwrite or modification.

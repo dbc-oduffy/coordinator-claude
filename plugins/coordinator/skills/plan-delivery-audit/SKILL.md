@@ -95,14 +95,14 @@ any record with a sufficiently old start SHA would appear to "cover" any commit 
 **The `!` negation in front of the second `git merge-base` is load-bearing — omitting it inverts the
 test from "after the window start" to "before the window start" and silently breaks the audit.**
 
-**Trail records live at BOTH `tasks/review-trail/**/*.json` AND `archive/review-trail/**/*.json`.**
+**Trail records live at BOTH `state/review-trail/**/*.json` AND `archive/review-trail/**/*.json`.**
 Read via:
 
 ```bash
 list-review-trail-records.sh
 ```
 
-**DO NOT glob `tasks/review-trail/` alone.** The `/workweek-complete` Step 13 archival moves
+**DO NOT glob `state/review-trail/` alone.** The `/workweek-complete` Step 13 archival moves
 all current-week records into `archive/review-trail/<week-starting>/` on every weekly reset.
 A live-only read systematically under-counts coverage for anything older than the current week.
 This is the exact failure mode that prompted this skill — the 2026-05-27 holodeck audit found
@@ -162,7 +162,7 @@ Follow the table with:
 4. **Method notes** — flag any plan with unverifiable Oracle 2 (no typed-prefix ACs) or
    missing delivery commits.
 
-Save to `tasks/audits/YYYY-MM-DD-plan-delivery-audit.md`. Create the `tasks/audits/` directory
+Save to `state/audits/YYYY-MM-DD-plan-delivery-audit.md`. Create the `state/audits/` directory
 if absent.
 
 ## Worked example — 2026-05-27 holodeck audit
@@ -176,8 +176,8 @@ if absent.
 
 | Plan | Oracle 1 (claim) | Oracle 2 (code) | Oracle 3 (review) | Bucket |
 |------|-----------------|-----------------|-------------------|--------|
-| `2026-05-24-patch-and-send-back-contribution-invite.md` | `status: implemented`; cites commits `d67f7371b`, `d368b6269`, `a92447c17`, `b5b824d47`; 10 ACs | 9/10 ACs verified at disk; AC3 (URL liveness) inherently manual — remaining 9 pass grep/cited checks | **COVERED (archive-aware).** `archive/review-trail/2026-05-21/2026-05-24-115430145738-08b5c444.json` — range `977a40b29..cc4c936d6`; all 4 delivery commits satisfy `is-ancestor C cc4c936d6 && ! is-ancestor C 977a40b29`. _A live-only Oracle 3 (`tasks/review-trail/` glob without `archive/review-trail/**`) would mis-classify this plan as DELIVERED-UNREVIEWED — see Key finding below._ | **DELIVERED+REVIEWED** (under archive-aware Oracle 3) — **would have been DELIVERED-UNREVIEWED** under live-only Oracle 3 |
-| `2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` | `status: implemented`; 9 delivery commits; 13 ACs; `reviewed: patrik 2026-05-26; code-reviewer 2026-05-26` | 12/13 ACs fully in-repo; AC7 realized as external coordinator dependency (landed) | **COVERED.** Live record `tasks/review-trail/2026-05-26-131032300171-1afa35ae.json` — range `609399fcc..HEAD`; all 9 delivery commits fall inside range | **DELIVERED+REVIEWED** |
+| `2026-05-24-patch-and-send-back-contribution-invite.md` | `status: implemented`; cites commits `d67f7371b`, `d368b6269`, `a92447c17`, `b5b824d47`; 10 ACs | 9/10 ACs verified at disk; AC3 (URL liveness) inherently manual — remaining 9 pass grep/cited checks | **COVERED (archive-aware).** `archive/review-trail/2026-05-21/2026-05-24-115430145738-08b5c444.json` — range `977a40b29..cc4c936d6`; all 4 delivery commits satisfy `is-ancestor C cc4c936d6 && ! is-ancestor C 977a40b29`. _A live-only Oracle 3 (`state/review-trail/` glob without `archive/review-trail/**`) would mis-classify this plan as DELIVERED-UNREVIEWED — see Key finding below._ | **DELIVERED+REVIEWED** (under archive-aware Oracle 3) — **would have been DELIVERED-UNREVIEWED** under live-only Oracle 3 |
+| `2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` | `status: implemented`; 9 delivery commits; 13 ACs; `reviewed: patrik 2026-05-26; code-reviewer 2026-05-26` | 12/13 ACs fully in-repo; AC7 realized as external coordinator dependency (landed) | **COVERED.** Live record `state/review-trail/2026-05-26-131032300171-1afa35ae.json` — range `609399fcc..HEAD`; all 9 delivery commits fall inside range | **DELIVERED+REVIEWED** |
 | `2026-05-26-headless-extractor-seam-buildout.md` | `status: draft`; active workstream with recovery handoff `2026-05-27_084305_e40956a9.md` ("review-complete, ZERO C++ authored; resume by dispatching Phase 1 H-2 resolver") | Not run — no terminal close; Oracle 2 does not apply to in-flight work | Not applicable — delivery not claimed | **IN-FLIGHT** |
 | `2026-05-19-headless-extraction-buildout.md` | `status: draft`; `kind: roadmap-lite`; explicitly superseded by the 05-26 seam plan | Not run — no delivery expected | Not applicable — abandoned by supersession | **ABANDONED** |
 
@@ -193,7 +193,7 @@ if absent.
 
 4. **headless-extraction-buildout (05-19):** Oracle 1 = `draft` with explicit supersession pointer → bucket resolves at Oracle 1. No delivery expected or claimed. Bucket: **ABANDONED**. ✓ (Audit recommends a frontmatter flip to `status: superseded` + `superseded_by:` for hygiene — the current `draft` falsely signals "resumable" to pickup candidates.)
 
-**Key finding from this audit:** The handoff's alarm — *"only 4 review-trail records, most shipped work unreviewed"* — was **an archival artifact, not a coverage gap**. The `/workweek-complete` run on 2026-05-24 (commit `db151655e`) moved 22 review-trail records into `archive/review-trail/2026-05-21/`. A live-only read of `tasks/review-trail/` saw only the current week's 4 records and missed them. Oracle 3 reading ONLY the live dir would have mis-classified the 05-24 plan as **DELIVERED-UNREVIEWED** — a false verdict. The archive-aware read via `list-review-trail-records.sh` is load-bearing, not optional.
+**Key finding from this audit:** The handoff's alarm — *"only 4 review-trail records, most shipped work unreviewed"* — was **an archival artifact, not a coverage gap**. The `/workweek-complete` run on 2026-05-24 (commit `db151655e`) moved 22 review-trail records into `archive/review-trail/2026-05-21/`. A live-only read of `state/review-trail/` saw only the current week's 4 records and missed them. Oracle 3 reading ONLY the live dir would have mis-classified the 05-24 plan as **DELIVERED-UNREVIEWED** — a false verdict. The archive-aware read via `list-review-trail-records.sh` is load-bearing, not optional.
 
 ## Why a skill, not a one-shot
 
@@ -241,6 +241,6 @@ list-review-trail-records.sh   # get all live + archived records
 **Phase 3 — Synthesise and write output (~3 min)**
 
 Apply the bucket decision tree to each plan. Write the output table + summary to
-`tasks/audits/YYYY-MM-DD-plan-delivery-audit.md`. Surface any DELIVERED-UNREVIEWED plans
+`state/audits/YYYY-MM-DD-plan-delivery-audit.md`. Surface any DELIVERED-UNREVIEWED plans
 to the PM with a `code-reviewer` dispatch recommendation — do not dispatch autonomously,
 as the PM may choose to defer.

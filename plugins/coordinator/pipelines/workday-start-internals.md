@@ -74,6 +74,10 @@ If `$CURRENT` is non-main, `cs_parse_branch_span "$CURRENT"` returns non-zero (n
 **Check 4 — Midnight-rename (runs last):**
 Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0. This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
 
+**Rename target depends on `COMMITS_AHEAD` (origin/main..HEAD):**
+- **`COMMITS_AHEAD > 0`** — genuine unmerged work crossing the day boundary → span suffix `work/{machine}/{start}to{today-DD}` (e.g. `work/striker/2026-06-01to02`). The span is honest: it advertises real multi-day WIP.
+- **`COMMITS_AHEAD == 0`** — the branch's historical work has all merged to origin/main (or main has moved ahead and we are strictly behind). A span name here would be **misleading**: it claims multi-day WIP that no longer exists. Rename to **today-only** `work/{machine}/{today}` instead; the reconcile leg (Step 0.4.5) then fast-forwards onto origin/main. Doctrine 2026-06-02 — this is *reconciliation with an honest name*, not rotation: 0-ahead means there is no ongoing work to abandon, so "reconcile not rotate" is satisfied, not violated.
+
 Run the rename procedure below silently (no prompt — engineering housekeeping, not a product call). Emit a one-line notice in the Morning Briefing:
 ```
 Renamed $OLD → $NEW (crossed midnight)
@@ -85,7 +89,13 @@ PM can revert via `git branch -m` if they object.
 ```bash
 OLD=$(git branch --show-current)
 START_DATE=$(cs_parse_branch_span "$OLD" | awk '{print $1}')
-NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
+# 0-ahead → today-only (the span would be a misleading "past-to-present" name);
+# >0 ahead → span suffix carrying the genuine multi-day WIP forward.
+if [[ "$COMMITS_AHEAD" -eq 0 ]]; then
+  NEW="work/${MACHINE}/${TODAY}"
+else
+  NEW="work/${MACHINE}/$(cs_format_span_suffix "$START_DATE" "$TODAY")"
+fi
 
 # Concurrent-rename race guard (plan Risk #3):
 # Another session on this machine may have already renamed while we prompted.
@@ -223,11 +233,11 @@ c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as toda
 
 **Partial-completion claims:** before surfacing handoff items described as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. The handoff's status is a hypothesis, not ground truth.
 
-**Durable tracker complement.** `tasks/handoff-tracker.md` is the pre-rendered artifact from the last `/workstream-complete` or `/handoff` — a quick reference for the current queue state without re-running the queries above. It is a convenience artifact, not the source of truth (the Step 1 queries above are); use it for a fast glance, then verify actionable items via the live query before acting. When cwd is `~/.claude`, the DoE aggregate across all registered repos is available at `tasks/doe-handoff-tracker.md` (generated via `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos`). The tracker does NOT replace Step 1 — Step 1 reconciles against live git and detects items that shipped since the tracker was last written.
+**Durable tracker complement.** `state/handoff-tracker.md` is the pre-rendered artifact from the last `/workstream-complete` or `/handoff` — a quick reference for the current queue state without re-running the queries above. It is a convenience artifact, not the source of truth (the Step 1 queries above are); use it for a fast glance, then verify actionable items via the live query before acting. When cwd is `~/.claude`, the DoE aggregate across all registered repos is available at `state/doe-handoff-tracker.md` (generated via `node plugins/coordinator/bin/render-handoff-tracker.js --all-repos`). The tracker does NOT replace Step 1 — Step 1 reconciles against live git and detects items that shipped since the tracker was last written.
 
 ## Step 5.5 — Orientation Cache Content Derivation
 
-Generate `tasks/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
+Generate `state/orientation_cache.md` — a compact, schema-conformant summary the SessionStart hook injects at every boot. **This step does not author the cache directly.** It invokes the shared regeneration routine:
 
 ```bash
 bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker workday-start

@@ -30,7 +30,7 @@ def compose_envelope() -> dict[str, Any]:
     # Uses _resolve_bound_project_root() — the registry-aware primitive in cli.py — rather
     # than project.get("root") (which is cwd-detection, not registration-detection).
     # Without this, binding.kind is structurally always "bound" because cwd is always
-    # non-empty; the "unbound" branch in downstream consumers (project-onboarding,
+    # non-empty; the "unbound" branch in downstream consumers (repo-setup,
     # session-start) never fires. See 2026-05-21-whoami-first-class-substrate session-end
     # code review Finding 1.
     bound_root = _resolve_bound_project_root()

@@ -31,7 +31,7 @@ Run the acceptance oracle as early advisory feedback before presenting options.
   bash check-acceptance-oracle.sh <plan-path>
   ```
   - **Exit 0:** Log _"Acceptance oracle: all gate-bound tests pass."_ Continue to Step 1b.
-  - **Non-zero exit:** Log the verdict (the script names which rows are red). This is advisory — do NOT block here. Continue to Step 1b and note: _"You have red acceptance tests — consider iterating before merging, since the authoritative gate at /merging-to-main Step 0a will hard-block on these."_
+  - **Non-zero exit:** Log the verdict (the script names which rows are red). This is advisory — do NOT block here. Continue to Step 1b and note: _"You have red acceptance tests — consider iterating before /workstream-complete Step 3.8, where the authoritative gate will hard-block on these."_
   - **Script not found:** Skip silently and continue to Step 1b.
 
 - **No plan path available (standalone invocation):**

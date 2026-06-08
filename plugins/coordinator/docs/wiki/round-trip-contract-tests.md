@@ -138,6 +138,6 @@ A mock pins the call shape at one boundary. Moving the boundary — routing reso
 
 **Rule.** When a refactor *moves* a resolution seam, the test mocks must move with it — **re-mock at the new boundary**, don't trust green-on-old-mocks. The regression-net-before-refactor principle (test-design §5) assumes the net is wired to the seam under test; when the refactor moves the seam, the net is now wired to nothing. Greppable trigger: a refactor that changes what a downstream mock keys on (`cmd[0]`, a resolved path, a normalized identifier) → grep every mock of that boundary and verify it still matches the new call shape. Composes with test-design §10 (mock at the helper boundary, not the stdlib boundary) — both are "the mock doesn't intercept what the code actually calls."
 
-## Reference Pattern: `writing-plans` Skill Checklist
+## Reference Pattern: `coordinator:plan` skill Checklist
 
 When drafting a plan that introduces a new producer or consumer to an existing on-disk-artifact pipeline, the plan must name the round-trip contract test explicitly — not as a follow-up. If it isn't named in the plan, executors won't add it, and CI green will keep lying.

@@ -7,7 +7,7 @@ argument-hint: ""
 
 # Workweek Start — Weekly Strategic Orient
 
-PM-facing weekly bookend. Sets the week's context, surfaces carryover, and writes priorities into `tasks/week-changelog/HEADER.md`. The workstream-boundary ceremony for the week — and by definition also the day's first orient, so this command chains into `/workday-start` at the end (Step 7).
+PM-facing weekly bookend. Sets the week's context, surfaces carryover, and writes priorities into `state/week-changelog/HEADER.md`. The workstream-boundary ceremony for the week — and by definition also the day's first orient, so this command chains into `/workday-start` at the end (Step 7).
 
 **Design contract:** handoffs are the atom; HEADER.md is the weekly index header. This command reads existing artifacts (changelog, tracker, handoffs) — it does not reconstruct or re-author them.
 
@@ -15,13 +15,13 @@ PM-facing weekly bookend. Sets the week's context, surfaces carryover, and write
 
 ## Step 0: Bootstrap HEADER.md (first-run only)
 
-If `tasks/week-changelog/HEADER.md` does not exist, create it with the seed template below before proceeding. This lets the command run on a fresh project without manual setup.
+If `state/week-changelog/HEADER.md` does not exist, create it with the seed template below before proceeding. This lets the command run on a fresh project without manual setup.
 
 ```markdown
 # Week Changelog
 
 <!-- Directory convention:
-     tasks/week-changelog/ holds the current week's changelog state.
+     state/week-changelog/ holds the current week's changelog state.
      HEADER.md (this file) is written by /workweek-complete on reset and by
      /workweek-start on re-run. It is the only shared file in this directory
      — all other files are per-machine daily blocks (YYYY-MM-DD-{hostname}.md)
@@ -55,7 +55,7 @@ If the file already exists, skip this step silently — do not overwrite an exis
 
 ## Step 1: Read Week-Changelog (prior week)
 
-Glob `tasks/week-changelog/*.md` excluding HEADER.md. Sort by filename (date-then-hostname order). Read each daily file.
+Glob `state/week-changelog/*.md` excluding HEADER.md. Sort by filename (date-then-hostname order). Read each daily file.
 
 Surface a brief prior-week digest:
 - **Days covered:** count unique dates across daily files.
@@ -109,13 +109,13 @@ Present the digest from Steps 1–4, then ask:
 
 > "Given last week's results and current state, what are 1–3 priorities for this week?"
 
-**Wait for the PM's response.** Write the answer verbatim (as a checklist) to `tasks/week-changelog/HEADER.md` in the `Priorities` section. Mirror to `docs/project-tracker.md` if it exists (append under a `## Week of YYYY-MM-DD` heading or update an existing one). HEADER.md is canonical; the tracker copy is for visibility.
+**Wait for the PM's response.** Write the answer verbatim (as a checklist) to `state/week-changelog/HEADER.md` in the `Priorities` section. Mirror to `docs/project-tracker.md` if it exists (append under a `## Week of YYYY-MM-DD` heading or update an existing one). HEADER.md is canonical; the tracker copy is for visibility.
 
 ---
 
 ## Step 6: Reset-or-Update Decision
 
-This is the critical branch in the command. Read `tasks/week-changelog/HEADER.md`:
+This is the critical branch in the command. Read `state/week-changelog/HEADER.md`:
 
 ```
 **Last /workweek-start:** YYYY-MM-DD  (or "(none)")
@@ -128,7 +128,7 @@ If `Last /workweek-start:` is `(none)` OR `Prior week released:` commit is newer
 
 → **Full reset:**
 1. Read `Week starting:` from HEADER.md to get the prior week's start date for the archive path.
-2. Create `archive/week-changelogs/<prior-week-start>/` and move all daily files (`tasks/week-changelog/YYYY-MM-DD-*.md`) there. Do NOT move HEADER.md.
+2. Create `archive/week-changelogs/<prior-week-start>/` and move all daily files (`state/week-changelog/YYYY-MM-DD-*.md`) there. Do NOT move HEADER.md.
 3. Write a fresh HEADER.md:
    ```markdown
    # Week Changelog
@@ -151,14 +151,14 @@ If `Last /workweek-start:` is set AND no `/workweek-complete` has occurred since
 
 **In both cases,** commit the HEADER.md change:
 ```bash
-git add -- tasks/week-changelog/HEADER.md
+git add -- state/week-changelog/HEADER.md
 git commit -m "chore(workweek-start): set week priorities $(date +%Y-%m-%d)"
 git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
 
 If a full reset moved daily files, include them in the same commit:
 ```bash
-git add -- tasks/week-changelog/ archive/week-changelogs/<prior-week-start>/
+git add -- state/week-changelog/ archive/week-changelogs/<prior-week-start>/
 git commit -m "chore(workweek-start): archive prior week, reset changelog $(date +%Y-%m-%d)"
 git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```
@@ -169,7 +169,7 @@ git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 
 A new workweek's first session is also a new workday — the daily orient (session reaper, branch reconcile, handoff triage, staleness surfacing, orientation cache refresh) still has to happen. Invoke it now via `Skill(coordinator:workday-start)` so the PM gets a single chained briefing rather than having to re-invoke manually.
 
-If `/workday-start` has already run today (check `tasks/.workday-start-marker` or equivalent freshness signal it maintains), the skill itself will short-circuit — no special handling needed here. Just invoke unconditionally.
+If `/workday-start` has already run today (check `state/.workday-start-marker` or equivalent freshness signal it maintains), the skill itself will short-circuit — no special handling needed here. Just invoke unconditionally.
 
 After the chained `/workday-start` returns, emit the combined Workweek Start + Workday Start summary below.
 

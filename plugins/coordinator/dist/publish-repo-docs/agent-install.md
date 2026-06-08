@@ -163,7 +163,7 @@ leg (each becomes an install *spinoff* the post-restart session picks up; see St
   install spinoff in Step 1f.
 - **Other downstream repos** — if the human came here to install something further down a chain
   (e.g. a private/proprietary product that lists coordinator as a prerequisite), that product's own
-  installer seeds its `kind: spinoff` baton into `~/.claude/tasks/handoffs/`. You do not need to know
+  installer seeds its `kind: spinoff` baton into `~/.claude/state/handoffs/`. You do not need to know
   what those are — just be aware the post-restart session will find and sequence whatever is there.
 - **Dev tooling worth having present** — recommend (don't force) **Python 3** and **Node 18+ /
   TypeScript** if absent: Claude reaches for them when solving problems, and a missing runtime turns
@@ -200,7 +200,7 @@ can identify it.
 Copy the handoff template and substitute its tokens:
 
 ```bash
-HANDOFF_DEST="${HOME}/.claude/tasks/handoffs/continue-onboarding-and-installation.md"
+HANDOFF_DEST="${HOME}/.claude/state/handoffs/continue-onboarding-and-installation.md"
 # install.sh (Step 1d) has already copied the plugin into ~/.claude — resolve the
 # template from the installed location, NOT $0/cwd (this playbook is run as ad-hoc
 # snippets by an agent, so $0 is the shell, not the clone path).
@@ -219,12 +219,12 @@ Confirm the file exists and the tokens are substituted before moving to Step 2.
 
 **If the human opted into deep-research (Step 1c-i), also seed its install spinoff** so the
 post-restart session picks it up as a tracked leg. It is a `kind: spinoff` baton in the standard
-handoff folder (`tasks/handoffs/`) — the same place `/spinoff` writes — so `/pickup` and
+handoff folder (`state/handoffs/`) — the same place `/spinoff` writes — so `/pickup` and
 `/workday-start` handle it with no special wiring. Seed via `cp` (NOT the Write tool — a Write into
-`tasks/handoffs/` without an authoring skill trips the unauthorized-handoff nudge; `cp` does not):
+`state/handoffs/` without an authoring skill trips the unauthorized-handoff nudge; `cp` does not):
 
 ```bash
-DR_SPINOFF_DEST="${HOME}/.claude/tasks/handoffs/install-deep-research.md"
+DR_SPINOFF_DEST="${HOME}/.claude/state/handoffs/install-deep-research.md"
 DR_TEMPLATE="${HOME}/.claude/plugins/coordinator/templates/handoffs/install-deep-research.md"
 mkdir -p "$(dirname "$DR_SPINOFF_DEST")"
 cp "$DR_TEMPLATE" "$DR_SPINOFF_DEST"
@@ -232,7 +232,7 @@ sed -i.bak "s/{{DATE}}/${TODAY}/g; s/{{BRANCH}}/${BRANCH}/g" "$DR_SPINOFF_DEST" 
 ```
 
 Any *other* downstream repos the human named install their own `kind: spinoff` batons into
-`~/.claude/tasks/handoffs/` via their own installers — not from here. The post-restart session's
+`~/.claude/state/handoffs/` via their own installers — not from here. The post-restart session's
 Step 0 sweep finds whatever is present and lays out the chain; you do not enumerate them.
 
 ### 1g. Pre-write the install state record
@@ -254,7 +254,7 @@ Tell the human exactly this — verbatim matters:
 
 > **Start a fresh Claude Code session and paste:**
 >
-> `/pickup tasks/handoffs/continue-onboarding-and-installation.md`
+> `/pickup state/handoffs/continue-onboarding-and-installation.md`
 >
 > Why a fresh session? The Agent Teams capability (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) that
 > the deep-research pipeline depends on is an environment variable that Claude Code reads at
@@ -269,7 +269,7 @@ is the resumption mechanism; make sure they write it down or can copy it.
 
 ## Step 3 — Layer 2: what the fresh session does
 
-The fresh session resumes via `/pickup tasks/handoffs/continue-onboarding-and-installation.md`.
+The fresh session resumes via `/pickup state/handoffs/continue-onboarding-and-installation.md`.
 That handoff carries everything the new session needs. You (this cold agent) do not need to
 describe the fresh session's work in detail here — that work is specified in the handoff body.
 

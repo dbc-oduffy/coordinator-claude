@@ -1,7 +1,7 @@
 #!/bin/bash
 # audit-enabled-plugins.sh — drift-check this repo's enabledPlugins against project_type / stack_tags.
 #
-# Lesson source: tasks/lessons.md:302 (claude-central, 2026-05-14) — project-scoped
+# Lesson source: state/lessons.md:302 (claude-central, 2026-05-14) — project-scoped
 # `enabledPlugins: true` entries drift silently across repos. Plugin installs write
 # a `true` line into the active project's settings.json and never review it;
 # cross-contamination compounds over months. This advisory is wired into

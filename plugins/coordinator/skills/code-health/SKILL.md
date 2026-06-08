@@ -33,7 +33,7 @@ Determine the scope of surfaces to review from today's completion log, not from 
    ```
    Substitute today's date for `<YYYY-MM-DD>`.
 2. Extract the file paths or subsystem names mentioned in the entries' `title`, `description`, and any `files` fields.
-3. **If no entries for today:** Read `tasks/health-ledger.md` header for the `Last daily check:` date and fall back to:
+3. **If no entries for today:** Read `state/health-ledger.md` header for the `Last daily check:` date and fall back to:
    ```bash
    git log --since="<last-check-date>" --oneline --stat
    ```
@@ -96,7 +96,7 @@ If no findings: skip to Step 6.
 
 For any findings not fixed inline:
 
-1. Check for `tasks/debt-backlog.md`. If it doesn't exist, create it from this template:
+1. Check for `state/debt-backlog.md`. If it doesn't exist, create it from this template:
 
    ```markdown
    # Technical Debt Backlog
@@ -120,7 +120,7 @@ For any findings not fixed inline:
 
 ## Step 6: Update Health Ledger
 
-1. Check for `tasks/health-ledger.md`. If it doesn't exist, create it from this template:
+1. Check for `state/health-ledger.md`. If it doesn't exist, create it from this template:
 
    ```markdown
    # System Health Ledger
@@ -167,7 +167,7 @@ For any findings not fixed inline:
 
 ## Step 7: Write Health Summary
 
-Write results to `tasks/health-summary.md` — this is what workstream-start reads the next morning:
+Write results to `state/health-summary.md` — this is what workstream-start reads the next morning:
 
 ```markdown
 # Health Summary
@@ -199,7 +199,7 @@ Write results to `tasks/health-summary.md` — this is what workstream-start rea
 ## Step 8: Commit and Update Timestamp
 
 ```bash
-git add tasks/health-ledger.md tasks/health-summary.md tasks/debt-backlog.md
+git add state/health-ledger.md state/health-summary.md state/debt-backlog.md
 git commit -m "daily-code-health: review of surfaces from completion entries [date]"
 ```
 
@@ -232,6 +232,6 @@ The post-commit hook pushes automatically.
 ## Relationship to Other Commands
 
 - **`/workday-complete`** — primary trigger for this command; runs code-health as part of its end-of-day health survey phase. The normal path is to let `/workday-complete` invoke this, not to run it standalone.
-- **`/workstream-start`** — reads `tasks/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
+- **`/workstream-start`** — reads `state/health-summary.md` (the artifact this command writes) to surface overnight findings at the top of the next session.
 - **`/review-code`** — this command dispatches a reviewer directly with `--problems-only` for targeted code health assessment; it does not go through the full `/review-code` feature-review workflow. Don't substitute one for the other.
 - **`pipelines/daily-code-health/PIPELINE.md`** — the pipeline definition this command executes. If you need to customize routing or scope, read it directly.

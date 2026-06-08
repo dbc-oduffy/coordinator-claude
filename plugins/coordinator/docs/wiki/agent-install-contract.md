@@ -394,16 +394,16 @@ it; the script merely materializes a choice the human already made. (Full carve-
 ### The rendezvous: the standard handoff folder
 
 ```
-~/.claude/tasks/handoffs/
+~/.claude/state/handoffs/
 ```
 
 Install legs are ordinary `/pickup`-valid **spinoffs** (`kind: spinoff`, `predecessor: none`) dropped
 into the **standard handoff folder** — the *same* place `/spinoff` and `coordinator:roadmap-planning`
 already write spinoffs. This is the load-bearing reason for the spinoff frame: `query-records --type
-handoff` globs `tasks/handoffs/*.md`, `/pickup` Step 1.5 classifies a `kind: spinoff` file there as a
+handoff` globs `state/handoffs/*.md`, `/pickup` Step 1.5 classifies a `kind: spinoff` file there as a
 spinoff, and `/workday-start` surfaces it under "spinoffs awaiting pickup" — all unchanged. There is
 **no new folder and no new convention**: a downstream repo's whole obligation is "drop a `kind:
-spinoff` baton (carrying `install_chain_order:`) into `~/.claude/tasks/handoffs/`." The
+spinoff` baton (carrying `install_chain_order:`) into `~/.claude/state/handoffs/`." The
 `install_chain_order:` tag is what distinguishes an install leg from the coordinator onboarding
 handoff in the same folder. They do not linger as stale batons because coordinator's Step 0 builds an
 install-chain spine that drives every leg to conclusion before the install workstream is completed
@@ -411,7 +411,7 @@ install-chain spine that drives every leg to conclusion before the install works
 
 > Do **not** invent a `tasks/spinoffs/` (or `tasks/install-chain/`) directory: no coordinator
 > machinery scans it, so a baton dropped there is invisible to `/pickup`, `query-records`, and
-> `/workday-start`. The standard `tasks/handoffs/` folder is the only surface all three already read.
+> `/workday-start`. The standard `state/handoffs/` folder is the only surface all three already read.
 
 ### Spinoff frontmatter contract
 
@@ -434,17 +434,17 @@ ready_to_fire`, `pickup_ready: true`, `scope:`. See
 ### The two roles
 
 - **Downstream repos SEED.** A conforming repo's installer drops its `kind: spinoff` baton into
-  `~/.claude/tasks/handoffs/`. Seeding is a cheap `cp`/`sed`/`curl`, not a heavy install — it can run
+  `~/.claude/state/handoffs/`. Seeding is a cheap `cp`/`sed`/`curl`, not a heavy install — it can run
   for every chosen leg *before* the coordinator reboot (per the pre-restart question in
   `agent-install.md`), so the durable session sees the whole chain at once. Idempotent
-  (overwrite-on-reseed). Seed via `cp`/`sed`, **not the Write tool** — a Write into `tasks/handoffs/`
+  (overwrite-on-reseed). Seed via `cp`/`sed`, **not the Write tool** — a Write into `state/handoffs/`
   without an active authoring skill trips the unauthorized-handoff nudge; `cp` does not.
   `deep-research` is the exception that proves the rule: it ships in the coordinator bundle, so
   coordinator seeds *its* spinoff from a shipped template
   (`templates/handoffs/install-deep-research.md`) rather than the DR repo seeding it — but the drop
   target and contract are identical.
 - **Coordinator STITCHES + DRIVES.** Post-reboot, `continue-onboarding-and-installation.md` Step 0
-  greps `tasks/handoffs/` for `install_chain_order:` legs, writes a lightweight install-chain spine
+  greps `state/handoffs/` for `install_chain_order:` legs, writes a lightweight install-chain spine
   listing every leg found, and drives each to conclusion via `/pickup`. This is the durability a
   vanilla session lacked — and it is agnostic: it tracks whatever spinoffs are present, asserting no
   fixed set.
@@ -455,7 +455,7 @@ This is the "teach the other side in a wiki, don't code their ceremony" half of 
 `cross-repo-communication.md` § When lifting a cross-repo primitive). To align:
 
 1. Add a **seed step** to your standalone setup script that writes a `kind: spinoff` baton (with
-   `repo`, `install_chain_order`, `authoring_session`) into `~/.claude/tasks/handoffs/` via `cp`/`sed`
+   `repo`, `install_chain_order`, `authoring_session`) into `~/.claude/state/handoffs/` via `cp`/`sed`
    (not the Write tool). Idempotent. If coordinator is not yet installed, drop the spinoff first, then
    run the coordinator install — so it is waiting when the durable session starts.
 2. If your leg needs a plan, write it to your `docs/plans/` and name it via the spinoff's `plan:`
@@ -496,7 +496,7 @@ no new folder, no new sweep.
 marked `status: superseded`, and there is **no** `superseded_by:` back-pointer written to it.
 The superseded orientation remains the correct default when the declaring baton is absent. Supersession
 is **resolved at spine-build time** (Step 0 of `coordinator/templates/handoffs/continue-onboarding-and-installation.md`)
-by the presence or absence of the declaring baton in `tasks/handoffs/` — not by a status flip, not by
+by the presence or absence of the declaring baton in `state/handoffs/` — not by a status flip, not by
 a pointer, not by a registry entry. Contrast this with the existing memo/handoff `status: superseded`,
 which is a terminal mutation: the superseded artifact is dead and stays dead. Orientation-supersession
 is different: it is live and conditional on baton presence. Removing or not seeding the baton restores

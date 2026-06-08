@@ -110,7 +110,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Allow: valid handoff Write content passes
   // -------------------------------------------------------------------------
   test('Allow — valid handoff Write', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-valid.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'test-valid.md');
     const content = [
       '---',
       'title: Test Handoff',
@@ -131,7 +131,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Block (Write): missing required field 'branch'
   // -------------------------------------------------------------------------
   test('Block (Write) — handoff missing branch field', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-missing-branch.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'test-missing-branch.md');
     const content = [
       '---',
       'title: Test Handoff',
@@ -202,7 +202,7 @@ describe('validate-frontmatter-schema hook', () => {
     // Point at a non-existent handoff file under CLAUDE_ROOT so path matching picks up
     // the handoff schema. Since the file doesn't exist, current content is '', and
     // old_string won't match '' → fall-through silent (let Edit fail on its own merits).
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'nonexistent-mismatch.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'nonexistent-mismatch.md');
     const payload = editPayload(
       filePath,
       'THIS STRING DOES NOT EXIST IN ANY FILE',
@@ -219,7 +219,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Block: missing frontmatter on a schema'd file
   // -------------------------------------------------------------------------
   test('Block — missing frontmatter on schema\'d handoff path', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-no-fm.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'test-no-fm.md');
     const content = '# No frontmatter here at all\n\nJust regular markdown.';
 
     const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
@@ -409,10 +409,10 @@ describe('validate-frontmatter-schema hook', () => {
   // =========================================================================
 
   // -------------------------------------------------------------------------
-  // Offer (path-based): Write to tasks/memos/ → CLI offer emitted
+  // Offer (path-based): Write to state/memos/ → CLI offer emitted
   // -------------------------------------------------------------------------
-  test('Offer — Write to tasks/memos/ emits cross-repo-memo CLI offer', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'memos', '2026-05-23-holodeck-to-addon.md');
+  test('Offer — Write to state/memos/ emits cross-repo-memo CLI offer', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'memos', '2026-05-23-holodeck-to-addon.md');
     const content = [
       '# Memo: holodeck to addon',
       '',
@@ -437,10 +437,10 @@ describe('validate-frontmatter-schema hook', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Offer (path-based, strict mode): Write to tasks/memos/ → deny in strict mode
+  // Offer (path-based, strict mode): Write to state/memos/ → deny in strict mode
   // -------------------------------------------------------------------------
-  test('Offer — Write to tasks/memos/ emits deny in COORDINATOR_SCHEMA_STRICT=1 mode', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'memos', '2026-05-23-test.md');
+  test('Offer — Write to state/memos/ emits deny in COORDINATOR_SCHEMA_STRICT=1 mode', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'memos', '2026-05-23-test.md');
     const content = '# Hand-rolled memo\n\nSome content.';
 
     const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
@@ -461,7 +461,7 @@ describe('validate-frontmatter-schema hook', () => {
   // -------------------------------------------------------------------------
   test('Offer — Write with free-form To:/From: header emits cross-repo-memo CLI offer', async () => {
     // A file that doesn't match the /memos/ path heuristic but has a hand-rolled header
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'accidentally-a-memo.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'accidentally-a-memo.md');
     const content = [
       'To: project-rag-ue-addon-em',
       'From: holodeck-em',
@@ -906,12 +906,12 @@ describe('validate-frontmatter-schema hook', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Offer (hand-rolled path): tasks/memos/ with capitalized To:/From: headers → offer.
+  // Offer (hand-rolled path): state/memos/ with capitalized To:/From: headers → offer.
   // Signal (b): hasFreeFormMemoHeader() + memo-shaped path. Existing /memos/ path trigger
   // already confirmed by earlier test; this confirms it still fires in G's branch.
   // -------------------------------------------------------------------------
-  test('Routing-mismatch (Chunk G) — tasks/memos/ with hand-rolled To:/From: headers → offer', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'memos', '2026-05-23-holodeck-reply.md');
+  test('Routing-mismatch (Chunk G) — state/memos/ with hand-rolled To:/From: headers → offer', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'memos', '2026-05-23-holodeck-reply.md');
     const content = [
       'To: claude-central-em',
       'From: holodeck-em',
@@ -922,7 +922,7 @@ describe('validate-frontmatter-schema hook', () => {
 
     const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
     assert.equal(exitCode, 0, 'should exit 0');
-    assert.ok(stdout.length > 0, 'tasks/memos/ with hand-rolled headers must emit offer');
+    assert.ok(stdout.length > 0, 'state/memos/ with hand-rolled headers must emit offer');
     const parsed = JSON.parse(stdout);
     // Path-based isMemoPathMislocated fires first; either way an offer is emitted.
     const output = parsed.hookSpecificOutput;
@@ -1168,12 +1168,12 @@ describe('validate-frontmatter-schema hook', () => {
     }
   });
 
-  // AC-9(b): Write to tasks/handoffs/2026-05-23-test.md with standard handoff
+  // AC-9(b): Write to state/handoffs/2026-05-23-test.md with standard handoff
   // frontmatter (no `to:` field) → SILENT.
   // A canonical handoff has no `to:` YAML field — yamlToValue returns null →
   // isThisAMemo is false → routing check does not fire.
-  test('AC-9(b) (Chunk G) — tasks/handoffs/ Write with standard handoff frontmatter (no to:) → SILENT', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', '2026-05-23-test.md');
+  test('AC-9(b) (Chunk G) — state/handoffs/ Write with standard handoff frontmatter (no to:) → SILENT', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', '2026-05-23-test.md');
     const content = [
       '---',
       'title: "Handoff 2026-05-23"',
@@ -1339,7 +1339,7 @@ describe('validate-frontmatter-schema hook', () => {
   // a string. Pre-strip in parseYamlLines handles the `[a, b]  # comment` shape
   // that endsWith(']') would otherwise miss.
   test('Regression — inline list with trailing # comment parses as list-of-string', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'handoffs', 'test-inline-list-comment.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'handoffs', 'test-inline-list-comment.md');
     const content = [
       '---',
       'title: t',

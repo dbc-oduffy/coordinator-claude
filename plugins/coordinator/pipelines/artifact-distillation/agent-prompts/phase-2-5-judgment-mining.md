@@ -51,7 +51,7 @@ When `docs/wiki/codebase-judgment/<topic>.md` exists:
 
 ## Output
 
-**Path:** `tasks/scratch/artifact-distillation/{run-id}/judgment-proposals.md` (all agents append; coordinator merges).
+**Path:** `state/scratch/artifact-distillation/{run-id}/judgment-proposals.md` (all agents append; coordinator merges).
 
 **Format per proposal:**
 

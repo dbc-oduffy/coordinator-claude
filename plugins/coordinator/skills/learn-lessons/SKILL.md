@@ -1,6 +1,6 @@
 ---
 name: learn-lessons
-description: "Processes tasks/lessons.md as doctrine change-requests. 3 modes: local, central, recheck. Triggers on triage/trim/process lessons, promote universals."
+description: "Processes state/lessons.md as doctrine change-requests. 3 modes: local, central, recheck. Triggers on triage/trim/process lessons, promote universals."
 version: 1.0.0
 ---
 
@@ -8,7 +8,7 @@ version: 1.0.0
 
 ## Overview
 
-`learn-lessons` processes `tasks/lessons.md` files as change-requests against doctrine, agent prompts,
+`learn-lessons` processes `state/lessons.md` files as change-requests against doctrine, agent prompts,
 hooks, scripts, wiki guides, and improvement queues. Each lesson routes to one destination with an
 explicit change-kind. The skill tracks recurrence across runs, archives discards rather than deleting
 them, and surfaces queue depth to inform backlog prioritization.
@@ -47,7 +47,7 @@ reasons to defer wiki promotions — the wiki promotion is the work.
 |---|---|---|---|
 | `local` | `/update-docs` Phase 6 OR direct invoke from a project repo | **Auto-apply** discard/wiki-append/retag/dedupe within bounds + Phase 4.5 age-sweep; surface structural changes to PM | In-place edits, archive appends, queue appends, age-sweep, PM summary |
 | `central` | PM-invoked from `~/.claude` central (cross-repo extraction) | **PM gate** per apply; scouts read only, don't mutate remote lessons files | Routing manifest + review doc; apply runs plan → review → executor |
-| `recheck` | `tasks/lesson-triage-recheck-due-*.md` marker fires via `/workday-start` | Auto-extend if delta small; otherwise dispatch central mode | New marker (no work) or full central run |
+| `recheck` | `state/lesson-triage-recheck-due-*.md` marker fires via `/workday-start` | Auto-extend if delta small; otherwise dispatch central mode | New marker (no work) or full central run |
 
 **Mode default detection.** `/learn-lessons` without `--mode` arg detects cwd: running from `~/.claude`
 central → default `central`; else default `local`. Always log the detected mode in the announce-at-start
@@ -70,12 +70,12 @@ Shape — split → synth → check → DoE-review → EM-prune:
 RESIDUAL is **not** sprint material — singletons don't consolidate. Surface the residual disposition to the PM as an explicit decision; do not silently re-queue (defer-chain anti-pattern). Disposition by sub-tag:
 
 - `singleton` → individual wiki folds, or defer to next central run (PM's call).
-- `code-fix` → `tasks/bug-backlog.md` (self/central-owned) — actionable code, wrong surface for the doctrine-promotion queue.
+- `code-fix` → `state/bug-backlog.md` (self/central-owned) — actionable code, wrong surface for the doctrine-promotion queue.
 - `project-specific` → the **owning repo's** live backlog.
 - `already-shipped` → discard-archive.
 
 **HARD — re-home before you prune; a removed entry must land in a live, actionable home, not only an archive file.** Before `git rm`-ing any residual entry, classify whether it still has a live home:
-- **Has a live home** (sourced from the owning repo's `tasks/lessons.md`, which that repo's own local `/learn-lessons` re-surfaces; or already tracked in a sibling queue/backlog) → safe to prune from central; the central line was a redundant pointer.
+- **Has a live home** (sourced from the owning repo's `state/lessons.md`, which that repo's own local `/learn-lessons` re-surfaces; or already tracked in a sibling queue/backlog) → safe to prune from central; the central line was a redundant pointer.
 - **No live home** (sourced from a code file, plan doc, or review-findings artifact — the central queue line was the *only* live tracker) → **route it to its owning repo's backlog/inbox BEFORE pruning.** For a sibling repo, deliver via `cross-repo-memo` (or hand-write the single-delivery inbox memo if the CLI is down) and hand the PM the receiver path. Pruning a no-live-home entry into only the run-dir archive snapshot is **data loss disguised as cleanup** — the archive file is provenance, not an actionable home, and nobody triages it. The 2026-05-27 dogfood hit exactly this: 3 of 7 sibling entries (code/plan-sourced) had no `lessons.md` home and were bare-pruned; caught on PM review, re-homed via hand-written inbox memos. Make the live-home classification a per-entry gate, not an afterthought.
 
 ## When to Trigger / Don't Trigger
@@ -83,8 +83,8 @@ RESIDUAL is **not** sprint material — singletons don't consolidate. Surface th
 **Trigger:**
 - Per-project periodic maintenance via `/update-docs` Phase 6 (local mode)
 - PM names "learn lessons", "lesson triage", "promote universals" (central mode)
-- A `tasks/lesson-triage-recheck-due-*.md` marker fires (recheck mode)
-- A project's `tasks/lessons.md` exceeds ~50 entries or ~175 lines (local mode)
+- A `state/lesson-triage-recheck-due-*.md` marker fires (recheck mode)
+- A project's `state/lessons.md` exceeds ~50 entries or ~175 lines (local mode)
 
 **Don't trigger:**
 - Reading lessons for context — that's a Read tool call, not a learn-lessons invocation
@@ -93,7 +93,7 @@ RESIDUAL is **not** sprint material — singletons don't consolidate. Surface th
 
 ## Phase 0 — Configuration
 
-Config file: `~/.claude/tasks/learn-lessons-config.md`.
+Config file: `~/.claude/state/learn-lessons-config.md`.
 
 **Self-population via helper script.** Before any other Phase 0 work, invoke `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-config-update.sh` to ensure the current cwd is registered in the config. The script is idempotent — silent no-op if the path is already present. Normalization is handled by the script (absolute path, lowercase on Windows, trailing slash stripped, POSIX separators).
 
@@ -121,7 +121,7 @@ So `X:/foo`, `X:\foo`, `x:/foo/`, and `X:/foo` all normalize to the same entry `
 
 ### Fallback chain
 
-1. **Config file** `~/.claude/tasks/learn-lessons-config.md` sentinel block
+1. **Config file** `~/.claude/state/learn-lessons-config.md` sentinel block
    (`<!-- BEGIN learn-lessons-roots -->` … `<!-- END learn-lessons-roots -->`).
 2. **Default:** `~/.claude` only (if config file absent or empty).
 
@@ -150,7 +150,7 @@ Glob the configured roots (from config sentinel block). For each `lessons.md` fo
 
 Apply skip threshold: skip repos with zero universals AND fewer than 30 entries — diminishing returns.
 
-Log skipped repos with a one-line reason each. Apply self-exclusion for `~/.claude/tasks/lessons.md`
+Log skipped repos with a one-line reason each. Apply self-exclusion for `~/.claude/state/lessons.md`
 in central mode (central is the doctrine target, not a promotion source).
 
 ## Phase 2 — Routing
@@ -166,11 +166,11 @@ For each surviving repo, produce **two** extractions — a full one (the verify 
 
 ```bash
 # Full extraction — the verify-gate oracle. Always run, no --since.
-bin/extract-lessons.py extract <repo>/tasks/lessons.md --shortname <shortname> \
+bin/extract-lessons.py extract <repo>/state/lessons.md --shortname <shortname> \
   -o ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-full.yaml
 
 # Delta extraction — the router input, filtered to the window since the last central run.
-bin/extract-lessons.py extract <repo>/tasks/lessons.md --shortname <shortname> \
+bin/extract-lessons.py extract <repo>/state/lessons.md --shortname <shortname> \
   --since <last-central-run-date> \
   -o ~/.claude/tasks/learn-lessons-YYYY-MM-DD/<shortname>-extracted-delta.yaml
 ```
@@ -197,7 +197,7 @@ If a Haiku/Sonnet router is dispatched, the dispatch prompt MUST include the ver
 Same two layers, scoped to one repo:
 
 ```bash
-bin/extract-lessons.py extract tasks/lessons.md --shortname <repo> \
+bin/extract-lessons.py extract state/lessons.md --shortname <repo> \
   -o tasks/learn-lessons-YYYY-MM-DD/extracted.yaml
 ```
 
@@ -229,7 +229,7 @@ same lesson (semantic match on the rule statement, not exact string).
 
 ## Phase 4 — Discard Archive
 
-Before removing any entry from `tasks/lessons.md`, append it to the per-repo archive file.
+Before removing any entry from `state/lessons.md`, append it to the per-repo archive file.
 
 **Archive path:** `archive/lessons-archived/YYYY-MM.md` within each repo where local mode runs.
 - `~/.claude/archive/lessons-archived/2026-05.md` for runs in May 2026.
@@ -238,7 +238,7 @@ Before removing any entry from `tasks/lessons.md`, append it to the per-repo arc
 
 **Provenance header per entry (write this line immediately before the entry body):**
 ```
-# Discarded by /learn-lessons on YYYY-MM-DD HH:MM from tasks/lessons.md:LINE
+# Discarded by /learn-lessons on YYYY-MM-DD HH:MM from state/lessons.md:LINE
 ```
 
 EM judges discard inline — no PM confirmation gate. Archive is recoverable (grep by date/source/line) but not surfaced by default.
@@ -253,7 +253,7 @@ Place the blockquote directly under the lesson body. Deletion reserved for lesso
 
 ## Phase 4.5 — Local-Mode Age-Sweep (Bound the File)
 
-**Local mode only.** `tasks/lessons.md` is read by `/learn-lessons`, the central-mode strip-local
+**Local mode only.** `state/lessons.md` is read by `/learn-lessons`, the central-mode strip-local
 pull-pass, and `/workstream-start` — NOT at normal session open (it's a capture queue, not Tier 0).
 Without this sweep, local repos accumulate 200–350 KB in a month of high-volume capture
 (empirical: three sibling repos at 193/266/107 entries after a month). `[universal]` entries
@@ -290,7 +290,7 @@ within the window — may not be promoted yet).
 **Cutoff is event-based, not age-based.** `--days N` is the wrong tool for high-volume repos (a month of entries in a month = `--days 30` no-ops). The safe cutoff = "had a central run" = last completed central run date. `--days N` exists only as a fallback when no central-run history is reachable; prefer `--before <last-central-run-date>`.
 
 **Auto-apply in local mode** (reversible — archive file + git history are the recovery net). Run on a
-clean tree; commit with an explicit pathspec (`git add -- tasks/lessons.md archive/lessons-archived/<month>.md`)
+clean tree; commit with an explicit pathspec (`git add -- state/lessons.md archive/lessons-archived/<month>.md`)
 — never `git add -A` (concurrent-EM safety). Report the archived count in the Phase 8 summary.
 
 **Do NOT run the bulk age-sweep against a sibling repo from a central-mode run.** Bulk-sweeping
@@ -359,7 +359,7 @@ Before applying any queue entry, re-Read the queue from disk to catch concurrent
 Present review doc to the PM. Per record, PM authorizes:
 - **(a) apply now** — proceed to apply cycle (plan → reviewer → executor)
 - **(b) defer to improvement queue** — append a main-line-only entry to
-  `~/.claude/tasks/coordinator-improvement-queue.md` (DR-056 amended 2026-05-17 —
+  `~/.claude/state/coordinator-improvement-queue.md` (DR-056 amended 2026-05-17 —
   no `recurring:` / `resolution:` sub-lines)
 - **(c) reject** — drop with reason captured in review doc
 
@@ -382,7 +382,7 @@ Batch authorization is OK ("apply all of A, defer all of B-MEDIUM, reject B-LOW"
 
 ## Phase 6 — Per-Project Improvement Queue
 
-**Create-if-absent.** If `tasks/improvement-queue.md` does not exist in the current project repo,
+**Create-if-absent.** If `state/improvement-queue.md` does not exist in the current project repo,
 create it with the template content below. Never overwrite an existing file.
 
 ```markdown
@@ -404,12 +404,12 @@ Project-structural improvements queued by `/learn-lessons`. Consumed by `/workwe
 
 ## Phase 7 — Recheck Marker
 
-Drop `tasks/lesson-triage-recheck-due-<today + recheck_cadence_days>.md`. Single line:
+Drop `state/lesson-triage-recheck-due-<today + recheck_cadence_days>.md`. Single line:
 ```
 Next learn-lessons cadence due YYYY-MM-DD. Run /learn-lessons from ~/.claude (central mode).
 ```
 
-Default cadence: 21 days. `/workday-start` Step 1.7 globs `tasks/lesson-triage-recheck-due-*.md`.
+Default cadence: 21 days. `/workday-start` Step 1.7 globs `state/lesson-triage-recheck-due-*.md`.
 
 **Volume trigger (companion to the date cadence).** A fixed date cadence under-runs in busy weeks —
 exactly when the sibling `lessons.md` boot-surface floor (bounded by Phase 4.5 at `rate × days-since-last-central-run`)
@@ -424,7 +424,7 @@ are the sibling local-mode's fold-to-wiki / discard concern, not the central run
 
 1. Run Phase 1 discovery across all configured roots.
 2. Compute delta: new `[universal]`-tagged entries since prior cadence (git log on each root's
-   `tasks/lessons.md`).
+   `state/lessons.md`).
 3. **Structural-enforcement verification** (for each pending lesson naming a tripwire, wiki, or script artifact): check whether a completion entry citing the artifact exists since the lesson's capture date:
    ```bash
    "$HOME/.claude/plugins/coordinator/bin/query-records.sh" --type completion --where "title~<tripwire-name>" --since "<lesson-date>"
@@ -473,7 +473,7 @@ land — it certifies "every universal up to this date had its promotion opportu
 ## Anti-Patterns
 
 - **Auto-applying central promotions.** PM gates every apply in central mode.
-- **Generalizing beyond `tasks/lessons.md`.** Targeted skill. Future generic doc-promotion is separate.
+- **Generalizing beyond `state/lessons.md`.** Targeted skill. Future generic doc-promotion is separate.
 - **Bespoke extra parameters.** Modes are the parameter surface; resist additional flags.
 - **Auto-emitting spinoff handoffs.** Section D of the review doc is advisory only.
 - **Stripping local before central commit SHA exists.** Phase 5 apply order is load-bearing.
@@ -490,8 +490,8 @@ land — it certifies "every universal up to this date had its promotion opportu
 ## Related
 
 - `coordinator/CLAUDE.md` "Self-Improvement Loop" — references this skill for cadence + capture.
-- `~/.claude/tasks/coordinator-improvement-queue.md` — central queue; destination for deferred items.
-- `~/.claude/tasks/learn-lessons-config.md` — configured project roots; self-populates on each run.
+- `~/.claude/state/coordinator-improvement-queue.md` — central queue; destination for deferred items.
+- `~/.claude/state/learn-lessons-config.md` — configured project roots; self-populates on each run.
 - `snippets/text-only-recovery-preamble.md` — synced snippet consumed in Phase 2 scout dispatches.
 - `archive/lessons-archived/YYYY-MM.md` — per-repo discard + age-sweep archive; append-only, per-month.
 - `bin/age-sweep-lessons.py` — Phase 4.5 mechanism; reuses `extract-lessons.py`'s parser; archives aged `[universal]` entries to bound `lessons.md`. Requires an explicit cutoff (`--before <last-central-run>`).

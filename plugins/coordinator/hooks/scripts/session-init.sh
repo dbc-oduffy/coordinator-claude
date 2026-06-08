@@ -159,7 +159,7 @@ fi
 # Under the split-pickup-archival lifecycle, /pickup mutates frontmatter only
 # (status: consumed, deployment_state: in_flight, consumed_by: <sid>). Archival
 # to archive/handoffs/ happens at the terminal event: /handoff chain-archival or
-# /workstream-complete Step 2.7. A handoff in tasks/handoffs/ with status: consumed is
+# /workstream-complete Step 2.7. A handoff in state/handoffs/ with status: consumed is
 # therefore an orphan — the picking-up session died before its terminal event.
 #
 # Recovery: for each such file, check if the consuming session is still alive. If
@@ -204,8 +204,8 @@ case "$INIT_BRANCH" in
 esac
 
 QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
-if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
-  # Find all consumed handoffs still in tasks/handoffs/
+if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
+  # Find all consumed handoffs still in state/handoffs/
   consumed_paths=$(node "$QR" --type handoff --where "status=consumed" --format paths --root "$GIT_ROOT" 2>/dev/null || true)
   if [ -n "$consumed_paths" ]; then
     archive_dir="${GIT_ROOT}/archive/handoffs"
@@ -302,7 +302,7 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
 
       # Quietly archive (git mv stages both the rename and the in-place sed edit above)
       fname=$(basename "$fpath")
-      git -C "$GIT_ROOT" mv "tasks/handoffs/${fname}" "archive/handoffs/${fname}" 2>/dev/null || true
+      git -C "$GIT_ROOT" mv "state/handoffs/${fname}" "archive/handoffs/${fname}" 2>/dev/null || true
       # Ensure the content modification at the new path is staged
       # (git mv stages the rename; modified content may need an explicit add)
       git -C "$GIT_ROOT" add "archive/handoffs/${fname}" 2>/dev/null || true
@@ -310,7 +310,7 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/tasks/handoffs" ] && [ -f "$QR
       # Per-archive WARN marker — workday-start Step 0.8 consumes this list to
       # surface stale-executing plans whose driving handoff was archived without
       # ceremony. The marker is append-only; workday-start rotates it after read.
-      # Spec backlink: tasks/coordinator-improvement-queue.md (2026-05-16, session-init
+      # Spec backlink: state/coordinator-improvement-queue.md (2026-05-16, session-init
       # orphan-sweep workstream-end ceremony).
       marker_dir="${GIT_ROOT}/tasks"
       mkdir -p "$marker_dir" 2>/dev/null || true

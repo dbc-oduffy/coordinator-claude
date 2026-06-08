@@ -5,7 +5,7 @@
 **Scope mode:** `feature` (introduces a vocabulary convention — "session boot" — that must be defined once and applied consistently)
 **Status:** SUPERSEDED (2026-06-01) — do NOT execute.
 
-> **Superseded by:** the unified `workstream-*` rename, master brief at `tasks/handoffs/2026-06-01_132000_05c3317c.md`. The PM pivoted: rather than coin "session boot" for the machinery, rename the skills off the word "session" entirely (`/session-start → /workstream-start`, `/session-end → /workstream-complete`) and adhere to platform vocabulary (`SessionStart` is the platform hook; "session boot" coinage is reverted). The "session boot" front-half shipped in `cadb320b` is to be reverted by the successor. This plan and its sidecars are retained as audit trail only.
+> **Superseded by:** the unified `workstream-*` rename, master brief at `state/handoffs/2026-06-01_132000_05c3317c.md`. The PM pivoted: rather than coin "session boot" for the machinery, rename the skills off the word "session" entirely (`/session-start → /workstream-start`, `/session-end → /workstream-complete`) and adhere to platform vocabulary (`SessionStart` is the platform hook; "session boot" coinage is reverted). The "session boot" front-half shipped in `cadb320b` is to be reverted by the successor. This plan and its sidecars are retained as audit trail only.
 
 ## Problem (falsifiable restatement)
 
@@ -40,7 +40,7 @@ The literal hook key in `hooks.json` is `SessionStart` — a **Claude Code platf
 
 ## Out of scope (separate, spun-off workstream)
 
-The `/session-end → /session-complete` rename is **NOT** in this plan. It is a 321-occurrence / 90-file identifier rename with runtime-token + stored-data couplings, forked to `tasks/handoffs/2026-06-01_125306_session-complete-rename.md` (workstream `session-complete-rename`). This plan touches **disjoint files** from that one (no `session-end` edits here).
+The `/session-end → /session-complete` rename is **NOT** in this plan. It is a 321-occurrence / 90-file identifier rename with runtime-token + stored-data couplings, forked to `state/handoffs/2026-06-01_125306_session-complete-rename.md` (workstream `session-complete-rename`). This plan touches **disjoint files** from that one (no `session-end` edits here).
 
 ## Cross-plan coordination
 

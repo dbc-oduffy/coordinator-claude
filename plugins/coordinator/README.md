@@ -14,7 +14,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - `/handoff` — Snapshot session state to disk before context pressure hits. Includes goal, decisions, tried-and-abandoned, next steps.
 - `/pickup` — Resume from a handoff with full orientation before continuing. Never cold-start.
 - `/workstream-start` — Full session orientation: triage handoffs, surface staleness, choose work. PM-invoked when they want help picking what to do; the EM does not auto-invoke it.
-- `tasks/lessons.md` + `coordinator:learn-lessons` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Processed via `/update-docs` Phase 6.
+- `state/lessons.md` + `coordinator:learn-lessons` skill — Persistent pattern capture. Lessons promote to wiki when they generalize. Processed via `/update-docs` Phase 6.
 - `/workday-start` / `/workday-complete` — Full-day framing: morning triage and evening consolidation.
 
 ---
@@ -81,7 +81,7 @@ This plugin addresses six failure modes that compound silently in sustained AI-a
 - Systematic debugging — see `docs/wiki/systematic-debugging.md`. Root-cause debugging process. Diagnose before proposing fixes. Feedback-loop-first framing across four phases.
 - Test-driven development — see `docs/wiki/test-driven-development.md`. RED-GREEN-REFACTOR cycle, strictly enforced. Tests verify real behavior, not mock behavior.
 - `/bug-sweep` — Systematic codebase bug hunt: fix AI-fixable bugs, defer blocked ones to backlog.
-- `/bug-blitz` — Autonomous bug-backlog grinder: verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items to handoffs; pair with `/bug-sweep` (which builds `tasks/bug-backlog.md`).
+- `/bug-blitz` — Autonomous bug-backlog grinder: verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items to handoffs; pair with `/bug-sweep` (which builds `state/bug-backlog.md`).
 - Verification before completion — see `docs/wiki/verification-before-completion.md`. Prove it works before claiming done. Catches the "it should work" class of failures.
 - Stuck detection — see `docs/wiki/stuck-detection.md`. Self-monitoring protocol. Repetition, oscillation, analysis paralysis detection. Prevents thrashing on hard bugs from consuming session context.
 - P0/P1 verification gate (coordinator CLAUDE.md) — High-severity sweep findings require EM or verifier to read cited code against current source before acting. High-confidence framing inverts the hit rate.
@@ -123,7 +123,7 @@ Full component inventory for the record. The failure-mode sections above are the
 | `/architecture-audit` | Run the weekly architecture audit rotation — score, audit, apply, update ledger |
 | `/code-health` | Night-shift code health review — scan commits, dispatch reviewer, apply findings |
 | `/bug-sweep` | Systematic codebase bug hunt — fix AI-fixable bugs, defer blocked ones to backlog |
-| `/bug-blitz` | Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`) |
+| `/bug-blitz` | Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `state/bug-backlog.md` (built by `/bug-sweep`) |
 | `/distill` | Distill accumulated artifacts into wiki guides + decision records, then delete source material |
 | `/autonomous` | Toggle autonomous execution mode — suppresses `/handoff` nudges from context pressure hook |
 | `/setup` | Set up the coordinator plugin — check prerequisites, verify environment, configure project |
@@ -165,8 +165,8 @@ Full component inventory for the record. The failure-mode sections above are the
 - `debt-triage` — Review and prioritize the technical debt backlog. EM-PM conversation, not dispatched agent.
 - `mise-en-place` — Autonomous backlog execution in a single run.
 - `bug-sweep` — Systematic codebase sweep for bug patterns — fix AI-fixable, defer rest to backlog.
-- `bug-blitz` — Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `tasks/bug-backlog.md` (built by `/bug-sweep`).
-- `project-onboarding` — Bootstrap project tracking infrastructure — tracker, tasks, archive, handoffs.
+- `bug-blitz` — Autonomous bug-backlog grinder — verifies each item still applies, fixes small items in file-disjoint waves, auto-spinoffs big items; operates exclusively on `state/bug-backlog.md` (built by `/bug-sweep`).
+- `repo-setup` — First-time setup of one repo (default) or `--batch` over `working-repos.yaml` for fleet setup. Scaffolds tracker, CLAUDE.md, hooks, currency stamp. Consolidated 2026-06-08 from /project-onboarding + /bootstrap-repos.
 
 ### Hooks
 

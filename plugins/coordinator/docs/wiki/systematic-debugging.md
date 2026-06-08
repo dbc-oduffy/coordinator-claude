@@ -133,7 +133,7 @@ All of these mean: STOP. Return to Phase 1.
 **Why:** A plan drafted against a wrong premise (e.g., "VRAM saturation") becomes debt the moment real evidence lands. One session produced ~290 lines of "host-level VRAM guardrail" plan before a kernel-level event named a non-GPU Python process consuming 217 GB virtual — the plan was discarded unbuilt rather than retrofitted on wrong premises.
 **How to apply:** run WMI / log / kernel-event diagnostics first → identify the actual offender → THEN design the fix. Premature mitigation plans mislead future readers and waste reviewer cycles on a plan the facts already contradict.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L135, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L135, central-promoted 2026-05-28).*
 
 ## Common Rationalizations
 
@@ -214,7 +214,7 @@ Subprocess exit codes (and the structured-report fields they correspond to: `ret
 
 A subprocess that exits with code `4294967295` (0xFFFFFFFF) is reporting a signed –1 reinterpreted as an unsigned 32-bit value — not an SEH exception or native crash. Before concluding that a large unsigned exit code signals an unhandled structured exception, grep the subprocess's stdout/stderr logs for the real error: a Python traceback, a structured error message, or a logged exception will name the actual failure class. The OS surface (`returncode = 4294967295`) is accurate; the *interpretation* (crash vs. deliberate non-zero exit) requires the logs. Concrete example: UE Commandlet processes return `Commandlet->Main()` exit –1 as their error path; project-rag's F-NEW-5 was misclassified as an SEH crash for two release cycles before a debug-capture run surfaced a `TypeError` traceback at the Python layer.
 
-*Source: DroneSim `tasks/lessons.md` (L8, central-promoted 2026-05-29).*
+*Source: DroneSim `state/lessons.md` (L8, central-promoted 2026-05-29).*
 
 ### No live diagnostic tracers that harm the host
 
@@ -505,7 +505,7 @@ Patching one column without auditing siblings leaves live consumer join paths si
 
 **How to apply:** before submitting any path-resolution fix for review, run `grep -nE '(^\./|^bin/|^scripts/)' <new-file>` (or equivalent) to enumerate relative path references in the replacement. Each hit is a candidate for the same bug. This self-audit is fastest and cheapest before a reviewer catches it.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## Reference
 

@@ -8,7 +8,7 @@ related:
   - ~/.claude/CLAUDE.md  (§ Implementation Standards — Extensions, § First Officer Doctrine ¶ Engagement Modes)
   - docs/plans/2026-05-19-machine-local-registry.md
   - docs/plans/2026-05-20-eager-agent-calibration.md
-  - tasks/lessons.md  (friction-as-warning, 2026-05-17)
+  - state/lessons.md  (friction-as-warning, 2026-05-17)
 ---
 
 # Eager-Agent Calibration
@@ -98,7 +98,7 @@ These are two valid, distinct intervention shapes for agent behavior. They answe
 
 **Offer-shape (this wiki's domain).** Apply when the agent is eager and the failure is *misdirection* — the agent would do the right thing if the right thing were the obvious thing. The intervention is: make the right path the easy path. Lead with the better alternative. Do not block, nag, or warn. Example: the executor preamble and ergonomic substrate helpers. An executor that would type a hardcoded path instead reaches for `repos.project_rag` — not because it was blocked from the wrong path, but because the right path was handed to it.
 
-**Friction-as-warning with typed override (2026-05-17 lesson, `tasks/lessons.md`).** Apply when the agent has a *strong incentive to reach for a wrong surface* and we genuinely want that surface to be hard to reach — not just less convenient, but actively resisted. The correct shape there is block-with-typed-justification: require the caller to name why the wrong surface is the right choice in this case. Warn-only is insufficient (agents override soft warnings automatically); silent toggle is worse (no audit trail). Example: a guardrail that blocks a destructive operation unless the caller provides a typed override string.
+**Friction-as-warning with typed override (2026-05-17 lesson, `state/lessons.md`).** Apply when the agent has a *strong incentive to reach for a wrong surface* and we genuinely want that surface to be hard to reach — not just less convenient, but actively resisted. The correct shape there is block-with-typed-justification: require the caller to name why the wrong surface is the right choice in this case. Warn-only is insufficient (agents override soft warnings automatically); silent toggle is worse (no audit trail). Example: a guardrail that blocks a destructive operation unless the caller provides a typed override string.
 
 The fork: offer-shape applies when the agent is eager but misdirected; friction-as-warning applies when the agent has a genuine incentive to take a wrong path and we need an explicit override checkpoint. Both shapes are valid; picking the wrong one produces the wrong outcome — offer-shape on a genuinely-wrong-path surface gives no protection; friction-on-misdirection fights eagerness without redirecting it.
 
@@ -112,6 +112,6 @@ When an agent-facing safety script is silent on the clean state and emits only o
 
 ## Follow-Up Work (Deferred)
 
-**Portability-guard spinoff.** `tasks/handoffs/2026-05-20_212935_portability-guard-system.md` (`deployment_state: ready_to_fire`) is a PM-authorized spinoff that adds a safety-net layer *over* the substrate this wiki describes. That plan layers edit-time or commit-time detection on top of the ergonomic helpers. It is explicitly deferred until after this plan's surfaces are dogfooded — by design (offer-shape first, friction-as-warning second if needed). **Dogfood (2026-05-20) confirmed AC10(b) fails without enforcement — the spinoff is necessary, not redundant.** Pick up as a separate workstream. → DR-061.
+**Portability-guard spinoff.** `state/handoffs/2026-05-20_212935_portability-guard-system.md` (`deployment_state: ready_to_fire`) is a PM-authorized spinoff that adds a safety-net layer *over* the substrate this wiki describes. That plan layers edit-time or commit-time detection on top of the ergonomic helpers. It is explicitly deferred until after this plan's surfaces are dogfooded — by design (offer-shape first, friction-as-warning second if needed). **Dogfood (2026-05-20) confirmed AC10(b) fails without enforcement — the spinoff is necessary, not redundant.** Pick up as a separate workstream. → DR-061.
 
 **Preamble extension to other write-capable agents.** The meta-ask preamble ships first in `agents/executor.md`. Future work extends it to `agents/enricher.md`, `agents/review-integrator.md`, and the holodeck/web-dev/data-science executor analogues. Deferred to allow dogfood on the `executor.md` instance first — phrasing issues discovered there should be fixed once, not propagated to N places before the first run.

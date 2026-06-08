@@ -2,7 +2,7 @@
 
 ## Docs Checker Integration
 
-If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths (typically `tasks/review-findings/{timestamp}-docs-checker-edits.md` and a verification report), the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
+If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths (typically `state/review-findings/{timestamp}-docs-checker-edits.md` and a verification report), the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
 
 **Claim statuses:**
 - **VERIFIED** — docs-checker confirmed the API claim against authoritative sources. Trust it. Do not re-verify.

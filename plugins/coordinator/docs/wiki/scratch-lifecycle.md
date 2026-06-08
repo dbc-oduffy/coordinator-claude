@@ -1,6 +1,6 @@
 # Scratch Lifecycle for Skill-Emitted Working Notes
 
-> Skills that emit working-notes scratch (`/distill` → `tasks/scratch/artifact-distillation/<date>-pass<N>/`, `/bug-blitz` → `tasks/scratch/bug-sweep/<date>-<time>/`, etc.) must self-clean on success. Post-ship dirty files in `tasks/scratch/<skill>/` show up as untracked in the next session and read as noise to a fresh EM. Tracking them in git is a two-step (commit-then-delete) anti-pattern.
+> Skills that emit working-notes scratch (`/distill` → `state/scratch/artifact-distillation/<date>-pass<N>/`, `/bug-blitz` → `tasks/scratch/bug-sweep/<date>-<time>/`, etc.) must self-clean on success. Post-ship dirty files in `tasks/scratch/<skill>/` show up as untracked in the next session and read as noise to a fresh EM. Tracking them in git is a two-step (commit-then-delete) anti-pattern.
 
 *Lesson surface: 2026-05-16, claude-unreal-holodeck — 14 distill-pass-23 working files surfaced as untracked after the real outputs (6 archived specs, 22 deleted scaffolds, 6 wiki updates) had already shipped. Bug-sweep had the same shape: files got tracked, then deleted one commit later as obvious post-hoc noise. PM call: scratch artifacts are not useful post-ship.*
 
@@ -45,7 +45,7 @@ Anything that is neither of those is post-ship noise.
 
 ## Where this surfaces in this codebase
 
-- `tasks/scratch/artifact-distillation/<date>-pass<N>/` — `/distill` working notes.
+- `state/scratch/artifact-distillation/<date>-pass<N>/` — `/distill` working notes.
 - `tasks/scratch/bug-sweep/<date>-<time>/` — `/bug-blitz` and `/bug-sweep` working notes.
 - `tasks/learn-lessons-<date>/` — `/learn-lessons` routing artifacts. (Borderline: the routing manifest is sometimes useful as audit trail for a central-mode run; the per-repo scout records are pure scratch.)
 

@@ -49,8 +49,8 @@ A dispatch-moment advisory hook was considered and deferred (2026-05-27, PM-deci
 
 ### Empirical antecedents (prior-art-checker, fold-in)
 
-- `tasks/lessons.md` 2026-05-20 — *"Many agents often beat one [universal]"* — direct antecedent; cite in Chunk 3.
-- Central improvement-queue entry `2026-05-20 | project-rag-ue-addon | tasks/lessons.md:285 | Single-sequential executor wrong shape for chunked-mechanical work — fan out or EM-direct`. This plan's Chunk 2a landing **closes** that entry — the EM git-rm's the line in Chunk 2's work commit, with the commit subject naming the closed entry (per CLAUDE.md § Improvement Queue). Never marked resolved inline. <!-- the Staff Engineer R1 (Finding #7): bind queue closure to specific chunk + commit discipline; "integrator deletes" was ambiguous and violated the git-rm-the-line canon. -->
+- `state/lessons.md` 2026-05-20 — *"Many agents often beat one [universal]"* — direct antecedent; cite in Chunk 3.
+- Central improvement-queue entry `2026-05-20 | project-rag-ue-addon | state/lessons.md:285 | Single-sequential executor wrong shape for chunked-mechanical work — fan out or EM-direct`. This plan's Chunk 2a landing **closes** that entry — the EM git-rm's the line in Chunk 2's work commit, with the commit subject naming the closed entry (per CLAUDE.md § Improvement Queue). Never marked resolved inline. <!-- the Staff Engineer R1 (Finding #7): bind queue closure to specific chunk + commit discipline; "integrator deletes" was ambiguous and violated the git-rm-the-line canon. -->
 
 ### Problem-set restatement (doubt-check, scope_mode=feature)
 
@@ -167,7 +167,7 @@ Pairwise intersection of Wave-1 chunks (2,3,4,5) = ∅. Wave 1 parallelizes. Onl
 - Rewrite the § Heuristic and § The Economics framing so the table presents token/worktree overhead as **subordinate to wall-clock**, not co-equal. The decision rule becomes: *"Default to dispatch for any non-trivial job; fan out when the job decomposes. EM-inline is the carve-out, not the default — reserved for sub-60s mechanical fixes on a known locus where worktree creation alone exceeds the work."*
 - **Keep** § When to EM-Inline verbatim in substance (the sub-60s / known-locus / ≤3-file / already-loaded-context cases are correct).
 - The line-50 "overhead theater" smell test is ALREADY correctly scoped to the sub-60s case — KEEP it verbatim. The over-application to re-anchor is (a) the § Overview line *"This is a real economic call, not a default-to-delegate rule"* and (b) the § The Economics table (lines ~20-27) presenting token/worktree overhead as co-equal with wall-clock. Re-anchor those two surfaces to wall-clock-first; do NOT touch the line-50 smell test. (AC5) <!-- the Staff Engineer R1 (Finding #3 / Disposition 3): retargeted — the smell test at line-50 is already correctly scoped; over-application is in § Overview and § The Economics table framing only. Preserves the valid carve-out verbatim per prior-art Claim #3. -->
-- Cite the `tasks/lessons.md` 2026-05-20 *"Many agents often beat one [universal]"* antecedent as the empirical basis for the wall-clock-first reframing.
+- Cite the `state/lessons.md` 2026-05-20 *"Many agents often beat one [universal]"* antecedent as the empirical basis for the wall-clock-first reframing.
 - Add a one-line cross-reference to the new helper, the `coordinator:fan-out` skill, and the anti-monolith HARD RULE.
 
 **Reviewer rationale discrimination:** the rewrite must read differently than the original — if a reviewer couldn't tell the rewrite from the original by its bias, the edit is non-load-bearing. Test: the original answers "should I dispatch?" with "it depends, count the tokens"; the rewrite answers "fan out unless it's a sub-60s mechanical fix."

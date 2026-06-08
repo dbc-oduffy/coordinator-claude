@@ -438,10 +438,10 @@ if is_active "P-13"; then
         : # expected-unstamped — silent skip, not AMBER
         ;;
       unstamped*)
-        note_amber "P-13" "repo predates onboarding currency feature — run /project-onboarding to stamp"
+        note_amber "P-13" "repo predates onboarding currency feature — run /repo-setup to stamp"
         ;;
       drift*)
-        note_amber "P-13" "onboarding stamp is stale: ${_p13_out} — re-run /project-onboarding to refresh"
+        note_amber "P-13" "onboarding stamp is stale: ${_p13_out} — re-run /repo-setup to refresh"
         ;;
       inconclusive*)
         note_amber "P-13" "onboarding currency check inconclusive: ${_p13_out}"

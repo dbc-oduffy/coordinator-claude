@@ -8,7 +8,7 @@
 # Output: tab-separated `shortname<TAB>candidate-path<TAB>encoded-dir-name`, deduped on shortname.
 # Empty/garbled entries (e.g., `tmp`, `--Users--<user>--.claude`) are dropped.
 #
-# Used by /update-docs Phase 14 to seed the candidates block in ~/.claude/tasks/repo-registry.md.
+# Used by /update-docs Phase 14 to seed the candidates block in ~/.claude/state/repo-registry.md.
 
 set -euo pipefail
 

@@ -97,6 +97,6 @@ echo "${PRE_SIZE}" > "/tmp/compaction-occurred-${SESSION_ID}" || \
 
     echo ""
     echo "## Handoffs"
-    ls "${GIT_ROOT}/tasks/handoffs/"*.md 2>/dev/null | head -5 || echo "(none)"
+    ls "${GIT_ROOT}/state/handoffs/"*.md 2>/dev/null | head -5 || echo "(none)"
   } | head -100 > "$STATE_FILE"
 ) 2>/dev/null || true

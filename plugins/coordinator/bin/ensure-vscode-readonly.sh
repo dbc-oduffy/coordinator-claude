@@ -4,7 +4,7 @@
 #
 # Spec backlink: docs/plans/2026-05-29-handoff-tracker-system.md (edit-resistance follow-up)
 #
-# The handoff tracker (tasks/handoff-tracker.md, tasks/doe-handoff-tracker.md) is
+# The handoff tracker (state/handoff-tracker.md, state/doe-handoff-tracker.md) is
 # a disposable render of handoff frontmatter. This is the EDITOR-side guard
 # (layer 1): VS Code opens the files read-only and refuses to save, so a human
 # does not accidentally hand-edit a render. It complements the agent-side guard
@@ -46,7 +46,7 @@ NODE_BIN=""
 if command -v node &>/dev/null; then NODE_BIN="node"
 elif command -v nodejs &>/dev/null; then NODE_BIN="nodejs"
 else
-  echo "[coordinator] ensure-vscode-readonly: node not on PATH — skipped (cannot safely merge JSON). Add by hand: files.readonlyInclude → \"**/tasks/handoff-tracker.md\": true, \"**/tasks/doe-handoff-tracker.md\": true" >&2
+  echo "[coordinator] ensure-vscode-readonly: node not on PATH — skipped (cannot safely merge JSON). Add by hand: files.readonlyInclude → \"**/state/handoff-tracker.md\": true, \"**/state/doe-handoff-tracker.md\": true" >&2
   exit 0
 fi
 
@@ -61,8 +61,8 @@ SETTINGS="$SETTINGS" "$NODE_BIN" <<'NODE'
 const fs = require('fs');
 const settingsPath = process.env.SETTINGS;
 const KEYS = {
-  "**/tasks/handoff-tracker.md": true,
-  "**/tasks/doe-handoff-tracker.md": true,
+  "**/state/handoff-tracker.md": true,
+  "**/state/doe-handoff-tracker.md": true,
 };
 
 // Strip // and /* */ comments that fall OUTSIDE string literals, then drop
@@ -101,8 +101,8 @@ if (raw !== null && raw.trim() !== "") {
     } catch {
       process.stderr.write("[coordinator] ensure-vscode-readonly: " + settingsPath +
         " could not be parsed even after comment-strip — skipped to avoid clobbering. " +
-        "Add by hand: files.readonlyInclude → \"**/tasks/handoff-tracker.md\": true, " +
-        "\"**/tasks/doe-handoff-tracker.md\": true\n");
+        "Add by hand: files.readonlyInclude → \"**/state/handoff-tracker.md\": true, " +
+        "\"**/state/doe-handoff-tracker.md\": true\n");
       process.exit(0);
     }
   }

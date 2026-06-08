@@ -1,6 +1,6 @@
 <!-- Pre-made template. The post-restart EM copies this to tasks/<feature>/install-chain.md and edits
      the leg table to match the install spinoffs (kind: spinoff + install_chain_order) present in
-     tasks/handoffs/. Purpose:
+     state/handoffs/. Purpose:
      guarantee every install leg the operator queued is followed to conclusion before the workstream
      is completed — nothing silently dropped when context turns over. Referenced by
      templates/handoffs/continue-onboarding-and-installation.md Step 0. This is the spine; each
@@ -17,11 +17,11 @@
 ## How to fill this in
 
 1. List coordinator onboarding (this handoff) as leg 0, then every install **spinoff** currently in
-   `tasks/handoffs/` — they carry `kind: spinoff` + `install_chain_order:` (run the Step 0 sweep:
-   `grep -l 'install_chain_order:' tasks/handoffs/*.md`).
+   `state/handoffs/` — they carry `kind: spinoff` + `install_chain_order:` (run the Step 0 sweep:
+   `grep -l 'install_chain_order:' state/handoffs/*.md`).
 2. Order the spinoffs by each one's `install_chain_order:` frontmatter if present; otherwise by
    discovered order. Lower order = installed earlier (closer to the trunk).
-3. Work the legs top-to-bottom. Pick up each spinoff (`/pickup tasks/handoffs/<file>`), advance its
+3. Work the legs top-to-bottom. Pick up each spinoff (`/pickup state/handoffs/<file>`), advance its
    three sub-axes (installed → provisioned → oriented) as each completes, and flip the roll-up
    `status` to `done` only when all three are satisfied (a leg with no separate provision step uses
    `n/a` there). A leg may sit at `installed=yes, provisioned=provisioning(...)` for a while —
@@ -39,7 +39,7 @@ so the spine shows where every leg actually stands at a glance. Marks: `yes` / `
 (coordinator onboarding has no separate provision step), or `provisioning (ETA …)` while a slow
 background step runs. `status` is the roll-up (`pending` / `in_progress` / `done`).
 
-| order | repo / leg | spinoff file (tasks/handoffs/) | plan (if any) | installed | provisioned | oriented | status |
+| order | repo / leg | spinoff file (state/handoffs/) | plan (if any) | installed | provisioned | oriented | status |
 |-------|-----------|--------------------------------|---------------|-----------|-------------|----------|--------|
 | 0 | coordinator onboarding | continue-onboarding-and-installation.md (this handoff) | — | yes | n/a | no | in_progress |
 | <!-- 1 --> | <!-- deep-research --> | <!-- install-deep-research.md --> | <!-- — --> | <!-- yes --> | <!-- n/a --> | <!-- no --> | <!-- pending --> |

@@ -5,7 +5,7 @@ slug: workstream-rename
 scope_mode: feature
 status: draft
 workstream: workstream-rename
-picked_up_from: tasks/handoffs/2026-06-01_132000_05c3317c.md
+picked_up_from: state/handoffs/2026-06-01_132000_05c3317c.md
 supersedes:
   - plugins/coordinator/docs/plans/2026-06-01-session-boot-nomenclature.md  # front-half; coinage now reverted
   - plugins/coordinator/docs/plans/2026-06-01-session-complete-rename.md     # back-half; retargeted to workstream-complete

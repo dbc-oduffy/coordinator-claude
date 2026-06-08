@@ -28,7 +28,7 @@ agents. Your context is deliberately bounded.
 ## Output Location
 
 **IMPORTANT:** Write your complete output to: [SCRATCH_PATH]
-(Path: `tasks/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
+(Path: `state/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
 
 Use the Write tool to save your output to this file. Then return a brief summary
 (3-5 lines) to the coordinator confirming:
@@ -150,14 +150,14 @@ Opus output file or any Phase 3a scratch files. Your only Write is the verdict f
 
 **Phase 3-Esc Opus output file:**
 [PHASE_3_ESC_OUTPUT_PATH]
-(Path: `tasks/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
+(Path: `state/scratch/artifact-distillation/[RUN_ID]/phase3-esc-resolution.md`)
 
 **Phase 3a scratch files that triggered this escalation (contradiction source):**
 [LIST_OF_3A_SCRATCH_FILES_WITH_UNRESOLVABLE_CONTRADICTIONS]
 
 **Verdict output path:**
 [VERDICT_PATH]
-(Path: `tasks/scratch/artifact-distillation/[RUN_ID]/phase3-esc-fidelity-verdict.yaml`)
+(Path: `state/scratch/artifact-distillation/[RUN_ID]/phase3-esc-fidelity-verdict.yaml`)
 
 ## Your Task
 

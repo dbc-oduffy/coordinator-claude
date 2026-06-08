@@ -5,7 +5,7 @@
  *
  * Spec backlink: docs/plans/2026-05-29-handoff-tracker-renderer.md § Chunk 5
  *
- * Operates exclusively on `tasks/handoffs/*.md` in the repo root (NEVER
+ * Operates exclusively on `state/handoffs/*.md` in the repo root (NEVER
  * `archive/handoffs/` — archived files are immutable history).
  *
  * Normalizations applied:
@@ -252,8 +252,8 @@ function detectRoot(specified) {
 }
 
 function walkHandoffsDir(absDir) {
-  // CONSTRAINT: active handoffs only — tasks/handoffs/*.md, NOT archive/handoffs/.
-  // Flat glob only: no recursion into subdirectories, so tasks/handoffs/archive/
+  // CONSTRAINT: active handoffs only — state/handoffs/*.md, NOT archive/handoffs/.
+  // Flat glob only: no recursion into subdirectories, so state/handoffs/archive/
   // (the holodeck legacy pattern) is also excluded.
   if (!fs.existsSync(absDir)) return [];
   const stat = fs.statSync(absDir);
@@ -270,7 +270,7 @@ function walkHandoffsDir(absDir) {
 function main() {
   const opts = parseArgs(process.argv);
   const root = detectRoot(opts.root);
-  const handoffsDir = path.join(root, 'tasks', 'handoffs');
+  const handoffsDir = path.join(root, 'state', 'handoffs');
 
   const files = walkHandoffsDir(handoffsDir);
   const results = [];

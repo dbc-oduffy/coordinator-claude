@@ -86,14 +86,14 @@ fi
 # ---------------------------------------------------------------------------
 echo "Assertion 4: §2 out-of-scope path list (agent-owned session-continuity surface)"
 PATHS_OK=true
-for required_path in "tasks/" "tasks/handoffs/" "lessons.md" "settings.json" "consumer_added"; do
+for required_path in "tasks/" "state/handoffs/" "lessons.md" "settings.json" "consumer_added"; do
   if ! grep -q "$required_path" "$SKILL_MD"; then
     fail "out-of-scope list missing entry: '${required_path}'"
     PATHS_OK=false
   fi
 done
 if $PATHS_OK; then
-  pass "out-of-scope path list covers tasks/, tasks/handoffs/, lessons.md, settings.json, consumer_added"
+  pass "out-of-scope path list covers tasks/, state/handoffs/, lessons.md, settings.json, consumer_added"
 fi
 
 # ---------------------------------------------------------------------------

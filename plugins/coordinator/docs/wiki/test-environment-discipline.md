@@ -191,7 +191,7 @@ Fixture-substitution test isolation can mask production-state drift: a fixture t
 
 ## 8. Partner-Tool Integration Tests: Ship the Mixed-Result Data, Don't Try to Make It Green
 
-*Source: DroneSim `tasks/lessons.md` (L12, central-promoted 2026-05-29). [universal]*
+*Source: DroneSim `state/lessons.md` (L12, central-promoted 2026-05-29). [universal]*
 
 When running an integration test against a partner team's or upstream tool's release, **producer/consumer failures are the deliverable** — they are the reason the test run exists. Workarounds that make the test appear to pass (installing a missing tool on the fly, editing a config to skip a failing producer, commenting out broken consumers) hide the exact bugs the test was designed to surface.
 
@@ -201,7 +201,7 @@ When running an integration test against a partner team's or upstream tool's rel
 
 ## 9. Don't Combine "Purge Cache" with "First Untested Run"
 
-*Source: DroneSim `tasks/lessons.md` (L14, central-promoted 2026-05-29). [universal]*
+*Source: DroneSim `state/lessons.md` (L14, central-promoted 2026-05-29). [universal]*
 
 A clean-state flag that wipes downstream artifacts (vector store, collection, derived data cache, build intermediates) **before** a producer/consumer chain has been verified to rebuild correctly turns any pipeline failure into a net regression: the previously-working state is gone, and the new state was never proven. This is the test-environment analog of the "don't destroy your backup before the restore is verified" principle.
 

@@ -4,7 +4,7 @@
 
 ## Session Orientation
 
-- **Quick orient (always):** Silently read `tasks/orientation_cache.md` before your first tool call. Don't announce. Do **NOT** read `tasks/lessons.md` at session start — it's a capture queue for `/learn-lessons`, not a memo; load-bearing lessons live in `docs/wiki/` and surface on demand via the `coordinator:plan` prior-art-checker. (The `/workstream-start` skill surveys `lessons.md` deliberately; the SessionStart hooks do not read it.)
+- **Quick orient (always):** Silently read `state/orientation_cache.md` before your first tool call. Don't announce. Do **NOT** read `state/lessons.md` at session start — it's a capture queue for `/learn-lessons`, not a memo; load-bearing lessons live in `docs/wiki/` and surface on demand via the `coordinator:plan` prior-art-checker. (The `/workstream-start` skill surveys `lessons.md` deliberately; the SessionStart hooks do not read it.)
 - **`/workstream-start` is PM-invoked, not EM-judged.** Don't auto-invoke on vague openers — answer from quick-orient context.
 
 ## Codebase Investigation
@@ -35,12 +35,20 @@ Subagents see only their dispatch prompt — CLAUDE.md is invisible. Rules gover
 
 ## Adding a Convention to the Coordinator System
 
-Conventions decay unless greppable from surfaces agents touch. For each, enumerate contact-points: `/project-onboarding`, `/workstream-start`, `/workstream-complete`, relevant hook, ≥1 canonical artifact. **Tripwires → register in `docs/wiki/coordinator-tripwires.md` AND update the relevant agent/hook/skill in the same commit;** static-grep tripwires enumerate every call shape (literal, array, kwarg-split, here-doc). Snippet-sync: edit `snippets/<name>.md` → `bin/verify-<name>-sync.sh --fix` → commit together.
+Conventions decay unless greppable from surfaces agents touch. For each, enumerate contact-points: `/repo-setup`, `/workstream-start`, `/workstream-complete`, relevant hook, ≥1 canonical artifact. **Tripwires → register in `docs/wiki/coordinator-tripwires.md` AND update the relevant agent/hook/skill in the same commit;** static-grep tripwires enumerate every call shape (literal, array, kwarg-split, here-doc). Snippet-sync: edit `snippets/<name>.md` → `bin/verify-<name>-sync.sh --fix` → commit together.
+
+## state/ vs tasks/ — load-bearing substrate vs ephemera
+
+**`state/`** holds always-on session substrate (orientation_cache, lessons, handoffs/, trackers, queues, ledgers, recheck markers, memos/, review-trail/, week-changelog/, audits/, recovery/, scratch/{deep-architecture-survey,bug-blitz,artifact-distillation}/). Never archived by `/distill` or `/update-docs`; sweeps are surgical and named.
+
+**`tasks/`** holds UUID flight-recorder dirs + dated reports + loose scratch. `/distill` and `/update-docs` sweep here aggressively. Writing a load-bearing surface (any allowlist name) under `tasks/` is a tripwire — see `docs/wiki/coordinator-tripwires.md` § tasks-state-folder-split.
+
+<!-- Spec backlink: docs/plans/2026-06-08-tasks-state-folder-split.md § C3 -->
 
 ## Subagent Dispatch
 
 - **Self-contained prompts, read-only by default.** Investigation dispatches require a verbatim out-of-scope block ("Do NOT modify files, commit, or push. Read-only."); all write-capable autonomous dispatches carry a destructive-action prohibition (Tripwires § Destructive-action + inline "Out-of-scope actions"). Subagents do NOT expand slash commands — inline the procedure or Read the skill first.
-- **HARD RULE — small-remit-and-many beats large-remit-and-one, every time.** Size each executor ~5-10 min on one coherent surface (15 min hard ceiling; split before dispatch). Prefer parallel; when gates forbid it, *more small executors for sub-chunks in sequence* — never one agent grinding chunk after chunk. Fan out via `fan-out-dispatch.sh`. → `em-operating-model.md` § HARD RULES; `dispatching-parallel-agents.md`.
+- **HARD RULE — small-remit-and-many beats large-remit-and-one, every time.** Size each executor ~5-10 min on one coherent surface (15 min hard ceiling; split before dispatch). Prefer parallel; when gates forbid it, *more small executors for sub-chunks in sequence* — never one agent grinding chunk after chunk. Fan out via `fan-out-dispatch.sh` (runtime-tripwire actuates this ceiling — see [docs/wiki/runtime-tripwire.md](docs/wiki/runtime-tripwire.md)). → `em-operating-model.md` § HARD RULES; `dispatching-parallel-agents.md`.
 - **Numbered skill steps are not all gates.** Many touch disjoint surfaces — batch/parallelize independent ones. `## Execution Shape` blocks name gates; absent that, scan READ/WRITE per step. → `skill-step-parallelization.md`.
 - **1M-context billing:** Haiku bypasses the gates that block Sonnet/Opus subagent dispatch; dispatched subagents inherit the parent's 1M flag regardless of model override.
 - **Executor dispatch mode:** pass `mode: "acceptEdits"` to executor / review-integrator / enricher, else the subagent runs in `default` and auto-denies its own Edit/Write. Executor 'Open/Outstanding questions' are same-session blocking gaps — they gate completion alongside failing tests.
@@ -112,7 +120,7 @@ Plans against unchecked substrate find a different reality on disk. Verify at pl
 
 ## Self-Improvement Loop
 
-- **`tasks/lessons.md` records patterns** (bold title + 1-2 sentences, max 3 lines). **Lessons are change-requests, not file-bloat** — each routes to a doctrine/prompt/hook/wiki edit, structural change, retag, or discard via `coordinator:learn-lessons`. Null-result audits fold the rule into the producer skill, not just the report.
+- **`state/lessons.md` records patterns** (bold title + 1-2 sentences, max 3 lines). **Lessons are change-requests, not file-bloat** — each routes to a doctrine/prompt/hook/wiki edit, structural change, retag, or discard via `coordinator:learn-lessons`. Null-result audits fold the rule into the producer skill, not just the report.
 - **Classify scope on capture:** universal / project / wiki-only. If `universal`, tag `[universal]` and append to the central queue. Test: "would this apply if a different project type used the coordinator pipeline?"
 - **External-review proposals: cumulative-effect + duplication audit before adopting** — challenge the proposed location (proposers frame fixes from where they noticed the problem).
 - **Codify a stable pattern before running new instances under it** — wait for instance #3 before extracting a skill; demote-don't-retire (→ `ceremony-calibration.md`).
@@ -121,11 +129,11 @@ Plans against unchecked substrate find a different reality on disk. Verify at pl
 
 ### Triage cadence
 
-`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (`/update-docs` Phase 6, bounded auto-apply); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence); **`recheck`** (fires from `tasks/lesson-triage-recheck-due-*.md` via `/workday-start`). Taxonomy in `skills/learn-lessons/SKILL.md`.
+`coordinator:learn-lessons` is the unified surface. Modes: **`local`** (`/update-docs` Phase 6, bounded auto-apply); **`central`** (PM-invoked from `~/.claude`, ~21-day cadence); **`recheck`** (fires from `state/lesson-triage-recheck-due-*.md` via `/workday-start`). Taxonomy in `skills/learn-lessons/SKILL.md`.
 
 ### Improvement Queue
 
-Two-tier — **Central:** `~/.claude/tasks/coordinator-improvement-queue.md` (universal patterns); **Per-project:** `tasks/improvement-queue.md`. Schema, pruning ceremony (`/update-docs` Phase 11i strips trivial sub-lines and `## Closed`/`## History`-style sections on every run), `[recurring: N]` bumps, and resolution-by-`git rm`-the-line → `backlog-prune-discipline.md`. **Never** mark an entry resolved/done inline — the pruner strips it; the commit subject + `git log -- <queue-file>` is the audit trail. Surfacing: `/workstream-start` offers backlog; `/workday-complete` depth-nudges (≥5); `/workweek-complete` Step 4 triages.
+Two-tier — **Central:** `~/.claude/state/coordinator-improvement-queue.md` (universal patterns); **Per-project:** `state/improvement-queue.md`. Schema, pruning ceremony (`/update-docs` Phase 11i strips trivial sub-lines and `## Closed`/`## History`-style sections on every run), `[recurring: N]` bumps, and resolution-by-`git rm`-the-line → `backlog-prune-discipline.md`. **Never** mark an entry resolved/done inline — the pruner strips it; the commit subject + `git log -- <queue-file>` is the audit trail. Surfacing: `/workstream-start` offers backlog; `/workday-complete` depth-nudges (≥5); `/workweek-complete` Step 4 triages.
 
 **Queue is not a closure mechanism.** Current-workstream failures don't close by being queued or re-framed as "separate plan." Defer only with (a) architectural reason and (b) in-session PM auth.
 
@@ -138,7 +146,7 @@ Predecessor is **whatever handoff this session was opened with — period** (the
 - **Handoffs are checkpoints, not workstream-endings** — mid-workstream save or a spinoff/recovery start point, not a "tidy stopping point." If the session can act, act. Shipped work ends via `/workday-complete`, `/merge-to-main`, or commit-and-stop. Claude Code restart is a session boundary — hand off before restart. Commit message beats handoff for checkpoint state.
 - **`/handoff` and `/workstream-complete` are mutually exclusive** — `/workstream-complete` caps a done workstream, `/handoff` passes an in-flight one. Two workstreams: close each separately, naming which is which.
 - **Pair status bullets with "why this matters" per workstream;** orphan-promotion handoffs function as live specs (body authoritative until git catches up). Mandate absorbed by a concurrent peer = no-pickup; stand down.
-- **Frontmatter `status`: `active | consumed | superseded`** (`shipped` rejected — use `consumed` + `shipped_in:`). **`deployment_state`: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`** — only `ready_to_fire` surfaces in start ceremonies; `awaiting_gate` requires `gate_dependency:`. `/pickup` flips to `in_flight`, mutates frontmatter in place at `tasks/handoffs/` (archival deferred to terminal `/handoff` chain-archival or `/workstream-complete` Step 2.7; `session-init.sh` boot-sweeps orphans).
+- **Frontmatter `status`: `active | consumed | superseded`** (`shipped` rejected — use `consumed` + `shipped_in:`). **`deployment_state`: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`** — only `ready_to_fire` surfaces in start ceremonies; `awaiting_gate` requires `gate_dependency:`. `/pickup` flips to `in_flight`, mutates frontmatter in place at `state/handoffs/` (archival deferred to terminal `/handoff` chain-archival or `/workstream-complete` Step 2.7; `session-init.sh` boot-sweeps orphans).
 - **Spinoffs are forks, not continuations, and PM-authorized only.** Frontmatter `kind: spinoff`/`spinoff-roadmap`, `predecessor: none`; author via `/spinoff <slug>` or `coordinator:roadmap-planning`. EM candidates surface as `Candidate spinoff: <slug> — <topic>. Authorize?` and block.
 - **Concurrent `/pickup` is fail-loud** — `cs_claim_handoff` EEXIST (single-machine) or `consumed_by:` populated after `git fetch` (cross-machine).
 
@@ -181,7 +189,7 @@ For sibling-repo paths and per-machine values use the registry helpers (Python `
 - **Pre-flight sidecars are not sequential reviewers** — docs-checker / prior-art-checker / external-pattern-checker write sidecars consumed alongside the plan (no integrator pass before the first reviewer). docs-checker AUTO-FIX lands inline; prior-art sidecars travel with the artifact and integrate in the post-reviewer pass. → `review-integrator.md`.
 - **After every review, dispatch the review-integrator — do not integrate manually.** EM reviews the escalation list, spot-checks the diff; exceptions need PM input or genuine disagreement. Cross-session reviews converge on one canonical artifact (dispatch integrator with loser's findings + winner-target).
 - **If a diff edits a reviewer's own prompt, dispatch that reviewer with a recursion preamble. Every new reviewer ships with an upstream pre-flight in the producer skill. Parallel enrichment needs a unified seam review** (→ `parallel-enrichment-seam-review.md`). **Two-pipeline review on shared artifacts** combines per-stub depth (the Staff Engineer per stub) with per-cohort coherence (one reviewer across the cohort) plus docs-check.
-- **Workstream-complete / weekly marker trail.** `/workstream-complete` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit (large diffs partition across parallel dispatches); records at `tasks/review-trail/*.json`. `/workweek-complete` Step 7 merge-gate = N `code-reviewer-weekly` chunk reviewers + 3 mechanical workers (security, deps, test-evidence) → no-rewrite synthesizer; the Staff Engineer runs an advisory arch pass at Step 7.5, NOT the gate. → `workstream-complete-review.md`.
+- **Workstream-complete / weekly marker trail.** `/workstream-complete` and `/handoff` run `code-reviewer` (Sonnet) on the diff before commit (large diffs partition across parallel dispatches); records at `state/review-trail/*.json`. `/workweek-complete` Step 7 merge-gate = N `code-reviewer-weekly` chunk reviewers + 3 mechanical workers (security, deps, test-evidence) → no-rewrite synthesizer; the Staff Engineer runs an advisory arch pass at Step 7.5, NOT the gate. → `workstream-complete-review.md`.
 
 ## Synthesis Discipline
 
@@ -229,7 +237,7 @@ P0/P1 severity claims from sweep agents have a poor track record. Before acting,
 
 Multiple EM sessions share a working tree. **The active workstream branch is a shared bus** — sibling commits and dirty files are normal. → `daily-branch-discipline.md`, `scoped-safety-commits.md`.
 
-- **One active workstream branch per machine** — `work/{machine}/{date-or-span}` or a PM-authorized named long-lived workstream (`migration/…`, `release/…`, `feature/<name>`, created via `COORDINATOR_OVERRIDE_BRANCH=1`). Read-only `main` fine; no worktrees. Daily ritual: reconcile with origin/main (`/workday-start` Step 0.4.5) — don't abandon ongoing work to cut a fresh daily.
+- **One active workstream branch per machine** — `work/{machine}/{date-or-span}` or a PM-authorized named long-lived workstream (`migration/…`, `release/…`, `feature/<name>`, created via `COORDINATOR_OVERRIDE_BRANCH=1`). Read-only `main` fine; no worktrees. Daily ritual: reconcile with origin/main (`/workday-start` Step 0.4.5) — don't abandon ongoing work to cut a fresh daily. Midnight-rename: 0-ahead → today-only name + ff-to-main (a span would lie); >0-ahead keeps the span. `/merge-to-main` deletes the merged branch. → `daily-branch-discipline.md`.
 - **Commits are quick-saves** (diff size is not a gate; the branch IS the review buffer). **Never `--no-verify` / `--no-gpg-sign`** unless PM-authorized (`COORDINATOR_OVERRIDE_NO_VERIFY=1`).
 - **Scoped commits default to plain `git add -- <paths> && git commit -m "<subject>" -- <paths>`. Never `git add -A` / `git add .`** — `coordinator-safe-commit` is reserved for authorized sweep ceremonies (`--blanket`) and `agents/executor.md` (`--expected-branch`).
 - **Dispatching a committer?** Pin branch via `expected_branch:` → executor passes `--expected-branch`; `--include-orphans` MUST combine with `--scope-from`. After every executor-ending dispatch, follow with an EM-side explicit-path commit (`--scope-from` excludes executor-edited files). Parallel executors must NOT each call a touched-files-aware commit helper — EM-serial commits with plain git after fan-out.

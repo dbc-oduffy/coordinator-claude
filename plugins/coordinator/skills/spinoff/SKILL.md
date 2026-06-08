@@ -24,7 +24,7 @@ Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) M
 **When to use this vs. its neighbors:**
 
 - Use `/handoff` when ending the *current* session's *current* work — predecessor links to whatever you're continuing.
-- Use `/spinoff` mid-session when a topic comes up that deserves its own session and you don't want to context-switch into it now. The current session keeps its own work; the fork lives at `tasks/handoffs/` for someone else (or future-you) to pick up.
+- Use `/spinoff` mid-session when a topic comes up that deserves its own session and you don't want to context-switch into it now. The current session keeps its own work; the fork lives at `state/handoffs/` for someone else (or future-you) to pick up.
 - Use the improvement queue (one-line entry) for half-formed ideas. A spinoff is the same level of detail as a real handoff: load-bearing context, references, acceptance criteria, anti-scope.
 
 ## Trigger phrases
@@ -41,7 +41,7 @@ The PM gives you `$ARGUMENTS` of shape `<slug> [optional title]`. The slug becom
 
 **Do NOT add interactive AskUserQuestion ceremony.** The EM (you) writes the body from current session context. The PM has just told you what the spinoff covers; you have everything you need. A skill that auto-fills the body from heuristics will produce shallow spinoffs the picking-up EM can't act on.
 
-Path: `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_{slug}.md`
+Path: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_{slug}.md`
 
 Frontmatter (all fields literal — do not paraphrase keys):
 

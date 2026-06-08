@@ -27,11 +27,11 @@ argument-hint: "<input-corpus-path> [--run-id <slug>]"
 
 ### Step 1.1 — Inventory inputs
 
-Read every file in `<input-corpus-path>`. List title + one-line summary. Group by source repo / topic / authoring date. Output: `tasks/roadmap/<run-id>/inventory.md`.
+Read every file in `<input-corpus-path>`. List title + one-line summary. Group by source repo / topic / authoring date. Output: `state/roadmap/<run-id>/inventory.md`.
 
 ### Step 1.2 — Topic clustering
 
-Cluster the inputs into 20–60 topics. Cluster boundary rule: a cluster is what one stub could plausibly cover (~one wave of work). Output: `tasks/roadmap/<run-id>/clusters.md` with shape:
+Cluster the inputs into 20–60 topics. Cluster boundary rule: a cluster is what one stub could plausibly cover (~one wave of work). Output: `state/roadmap/<run-id>/clusters.md` with shape:
 
 ```
 ## Cluster N: <one-line topic>
@@ -50,13 +50,13 @@ Every cluster gets exactly one verdict — no exceptions.
 - **DROP** — discard outright (record one-line reason for the audit trail).
 - **MOVE** — belongs to a different system (different repo / different roadmap); name the destination.
 
-Verdict assignment is a forcing function — it kills "we'll see" entries. Output: `tasks/roadmap/<run-id>/reconciliation.md`.
+Verdict assignment is a forcing function — it kills "we'll see" entries. Output: `state/roadmap/<run-id>/reconciliation.md`.
 
 **Coverage AC:** verdict counts (MERGE+DEFER+KEEP+DROP+MOVE) must equal cluster count.
 
 ### Step 1.4 — Coordinator-resolutions document
 
-When clusters conflict (two clusters propose contradictory architecture, or a MERGE creates a stub whose scope is ambiguous), create `tasks/roadmap/<run-id>/COORDINATOR-RESOLUTIONS.md`. One section per conflict; each has the form:
+When clusters conflict (two clusters propose contradictory architecture, or a MERGE creates a stub whose scope is ambiguous), create `state/roadmap/<run-id>/COORDINATOR-RESOLUTIONS.md`. One section per conflict; each has the form:
 
 ```
 ## Resolution N: <one-line>
@@ -111,7 +111,7 @@ Before dispatching the default parallel Sonnet scouts in Step 1.5.1, the EM asse
 
 `/research` is PM-gated (per the skill description — "PM-GATED: ask first; never from subagent"). EM never auto-invokes it; the recommendation is the gate. PM may authorize (a) full deep-research replacing solo scouts, (b) deep-research on a subset + solo scouts on the rest, or (c) decline and stay with solo scouts.
 
-**When authorized:** dispatch `/research` per its skill contract; output lands under `tasks/roadmap/<run-id>/research-corpus/deep-research/<topic-slug>/`. OVERVIEW.md citations in Step 1.5.2 point at the deep-research artifacts (claims.json + summary.md + executive-summary.md) instead of (or in addition to) solo-scout files. Update the Phase 1.5 exit gate's "research-corpus exists" check to accept either shape. **When declined or not triggered:** proceed to Step 1.5.1 with solo Sonnet scouts. This step forces the EM to surface the depth call so the PM authorizes it — the doctrinal fix is not "always deep-research" (too expensive for routine roadmaps).
+**When authorized:** dispatch `/research` per its skill contract; output lands under `state/roadmap/<run-id>/research-corpus/deep-research/<topic-slug>/`. OVERVIEW.md citations in Step 1.5.2 point at the deep-research artifacts (claims.json + summary.md + executive-summary.md) instead of (or in addition to) solo-scout files. Update the Phase 1.5 exit gate's "research-corpus exists" check to accept either shape. **When declined or not triggered:** proceed to Step 1.5.1 with solo Sonnet scouts. This step forces the EM to surface the depth call so the PM authorizes it — the doctrinal fix is not "always deep-research" (too expensive for routine roadmaps).
 
 ### Step 1.5.1 — Research corpus (parallel Sonnet scouts)
 
@@ -121,7 +121,7 @@ For each KEEP cluster (and each MERGE-target cluster that absorbs a KEEP), dispa
 
 Plus topic-specific framing:
 - Cluster topic + scope (one paragraph the EM authors from `clusters.md`).
-- Output path: `tasks/roadmap/<run-id>/research-corpus/<topic-slug>.md`.
+- Output path: `state/roadmap/<run-id>/research-corpus/<topic-slug>.md`.
 - Required sections: `## Primary sources`, `## Key findings`, `## Open questions`, `## How peer projects have done this` (if applicable).
 - Disk-first verification preamble per coordinator CLAUDE.md § Scouts and Disk-First Verification.
 
@@ -131,7 +131,7 @@ EM verifies each file exists and is non-trivial (≥2KB) before proceeding. Inli
 
 ### Step 1.5.2 — OVERVIEW.md draft
 
-EM authors `tasks/roadmap/<run-id>/OVERVIEW.md`. One section per KEEP cluster. Each section MUST:
+EM authors `state/roadmap/<run-id>/OVERVIEW.md`. One section per KEEP cluster. Each section MUST:
 
 - Cite its `research-corpus/<topic-slug>.md` by path.
 - Name the proposed architecture in one paragraph (not pseudocode — shape and seams).
@@ -154,7 +154,7 @@ final_approved_at:
 
 ### Step 1.5.3 — peer-team-asks.md
 
-`tasks/roadmap/<run-id>/peer-team-asks.md`. Enumerates everything the roadmap needs from peer teams that we cannot deliver ourselves. Motivating case: holodeck engine team — items "behind the wall" (headless extraction at scale/speed, engine-side RAG ingestion hooks, etc.) require their cooperation. Empty file is permitted (must be present) — single bullet `- None identified at authoring time.`
+`state/roadmap/<run-id>/peer-team-asks.md`. Enumerates everything the roadmap needs from peer teams that we cannot deliver ourselves. Motivating case: holodeck engine team — items "behind the wall" (headless extraction at scale/speed, engine-side RAG ingestion hooks, etc.) require their cooperation. Empty file is permitted (must be present) — single bullet `- None identified at authoring time.`
 
 Per-ask shape:
 
@@ -175,7 +175,7 @@ Stubs whose `blocked_by` includes a peer-team ask carry `awaiting_gate` + `gate_
 
 Before reviewers run, surface OVERVIEW.md + peer-team-asks.md to the PM with the framing:
 
-> Phase 1.5 round 1 — shape approval. Reviewers haven't run yet. This is the cheap point to re-direct: if the architectural shape or the set of peer-team asks is wrong, redirecting now costs one EM pass instead of two reviewer integrations + a stub-authoring fan-out. Outputs: `tasks/roadmap/<run-id>/OVERVIEW.md`, `tasks/roadmap/<run-id>/peer-team-asks.md`, `tasks/roadmap/<run-id>/research-corpus/`. Approve to proceed to reviewer dispatch, or redirect.
+> Phase 1.5 round 1 — shape approval. Reviewers haven't run yet. This is the cheap point to re-direct: if the architectural shape or the set of peer-team asks is wrong, redirecting now costs one EM pass instead of two reviewer integrations + a stub-authoring fan-out. Outputs: `state/roadmap/<run-id>/OVERVIEW.md`, `state/roadmap/<run-id>/peer-team-asks.md`, `state/roadmap/<run-id>/research-corpus/`. Approve to proceed to reviewer dispatch, or redirect.
 
 On PM approval, write `shape_approved_by: PM` and `shape_approved_at: <YYYY-MM-DD>` to OVERVIEW frontmatter and set `status: shape-approved`. On redirect, iterate the OVERVIEW (and re-dispatch any research-corpus topics whose scope changed) and re-surface.
 
@@ -183,14 +183,14 @@ On PM approval, write `shape_approved_by: PM` and `shape_approved_at: <YYYY-MM-D
 
 Sequential, not parallel (per § Review Sequencing — plan/stub/doc carve-out applies).
 
-1. Dispatch the Staff Engineer against `tasks/roadmap/<run-id>/` (full dir: OVERVIEW + research-corpus + peer-team-asks + Phase 1 artifacts). Brief: architectural soundness of OVERVIEW; contested-decisions completeness; peer-team-asks scope-appropriateness; whether research-corpus citations actually support the OVERVIEW claims (the citation-load-bearing check). Read-only.
+1. Dispatch the Staff Engineer against `state/roadmap/<run-id>/` (full dir: OVERVIEW + research-corpus + peer-team-asks + Phase 1 artifacts). Brief: architectural soundness of OVERVIEW; contested-decisions completeness; peer-team-asks scope-appropriateness; whether research-corpus citations actually support the OVERVIEW claims (the citation-load-bearing check). Read-only.
 2. Integrate via `coordinator:review-integrator` (mode: acceptEdits).
 3. Dispatch domain reviewer — the Game Dev Reviewer if game-dev / UE-flavored, the Data Science Reviewer if data-science / ML-flavored, the Front-End Reviewer if web-front-end flavored. EM picks based on roadmap shape; default the Data Science Reviewer if mixed/unclear (data shapes appear in most roadmaps). Brief: domain coherence, edge cases the OVERVIEW silently elides, premise gaps in research-corpus.
 4. Integrate via `coordinator:review-integrator`.
 
 ### Step 1.5.6 — PM round 2: final approval
 
-Surface the post-reviewer OVERVIEW + peer-team-asks to the PM with diff summary against the shape-approved version (`git diff <shape-approved-sha> -- tasks/roadmap/<run-id>/OVERVIEW.md tasks/roadmap/<run-id>/peer-team-asks.md`). Framing:
+Surface the post-reviewer OVERVIEW + peer-team-asks to the PM with diff summary against the shape-approved version (`git diff <shape-approved-sha> -- state/roadmap/<run-id>/OVERVIEW.md state/roadmap/<run-id>/peer-team-asks.md`). Framing:
 
 > Phase 1.5 round 2 — final approval. Reviewers integrated (the Staff Engineer + <domain>). This sign-off authorizes Phase 2 stub authoring; stubs will cite this OVERVIEW as ground truth. Diff summary attached. Approve to proceed to stub authoring, or surface remaining concerns.
 
@@ -211,7 +211,7 @@ Before Phase 2, verify:
 
 ## Phase 2 — Plan: stubs + STUB-INDEX + constraint graph + PM-gates + reviews
 
-**Goal:** every KEEP cluster becomes a `kind: spinoff-roadmap` stub. Stubs are spinoffs by construction (per the lifecycle plan B+H) — they live in `tasks/handoffs/`, queryable via `bin/query-records --type handoff`.
+**Goal:** every KEEP cluster becomes a `kind: spinoff-roadmap` stub. Stubs are spinoffs by construction (per the lifecycle plan B+H) — they live in `state/handoffs/`, queryable via `bin/query-records --type handoff`.
 
 ### Step 2.1 — Stub frontmatter (canonical template)
 
@@ -225,7 +225,7 @@ branch: <current-branch>
 status: active
 kind: spinoff-roadmap
 predecessor: none                 # load-bearing for spinoffs (per docs/wiki/spinoff-handoffs.md)
-authoring_session: tasks/roadmap/<run-id>/   # path-shaped audit trail back to the roadmap run dir; /pickup can Read this deterministically
+authoring_session: state/roadmap/<run-id>/   # path-shaped audit trail back to the roadmap run dir; /pickup can Read this deterministically
 workstream: <slug>
 roadmap_id: <run-id>              # groups all stubs from one roadmap-planning invocation
 tc_id: tc-<N>                     # roadmap-local identifier; unique within roadmap_id
@@ -242,7 +242,7 @@ scope:
 ---
 ```
 
-`authoring_session` is path-shaped (`tasks/roadmap/<run-id>/`) so `/pickup` can deterministically `Read` origin context. The wiki schema describes this field as a one-line description; for roadmap stubs we narrow it to a directory path (roadmap-specific narrowing; wiki amends if the convention broadens).
+`authoring_session` is path-shaped (`state/roadmap/<run-id>/`) so `/pickup` can deterministically `Read` origin context. The wiki schema describes this field as a one-line description; for roadmap stubs we narrow it to a directory path (roadmap-specific narrowing; wiki amends if the convention broadens).
 
 **Two schema fields NOT in the template** — they're populated by lifecycle events, not by `roadmap-planning`:
 
@@ -251,7 +251,7 @@ scope:
 
 <!-- Review: the Staff Engineer — authoring_session must be path-shaped so /pickup can Read the origin context deterministically (P1-2); pickup_ready and shipped_in are lifecycle fields not authored here (P2-5) -->
 
-Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` so they appear alongside ad-hoc spinoffs in query-records output but cluster by `roadmap_id` for `/workday-start` reporting (per `commands/workday-start.md` Step 1.1 routing).
+Stubs are written to `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` so they appear alongside ad-hoc spinoffs in query-records output but cluster by `roadmap_id` for `/workday-start` reporting (per `commands/workday-start.md` Step 1.1 routing).
 
 **Field semantics — clarifications:**
 
@@ -269,7 +269,7 @@ Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{
 - `# <title>`
 - One-paragraph "why this exists as its own session"
 - `## What this covers` — origin context, scope.
-- `## Reference materials (read first)` — file paths. **MUST cite `tasks/roadmap/<run-id>/OVERVIEW.md § <cluster-section>`** as the architectural ground truth, AND **MUST cite the relevant `tasks/roadmap/<run-id>/research-corpus/<topic-slug>.md` files** that the stub's scope leans on. Stubs that introduce architecture not present in OVERVIEW.md are caught in Step 2.8 review as drift — the OVERVIEW is doctrine, the stub is implementation of doctrine.
+- `## Reference materials (read first)` — file paths. **MUST cite `state/roadmap/<run-id>/OVERVIEW.md § <cluster-section>`** as the architectural ground truth, AND **MUST cite the relevant `state/roadmap/<run-id>/research-corpus/<topic-slug>.md` files** that the stub's scope leans on. Stubs that introduce architecture not present in OVERVIEW.md are caught in Step 2.8 review as drift — the OVERVIEW is doctrine, the stub is implementation of doctrine.
 - `## Specification` — concrete enough that a context-less EM can act.
 - `## Acceptance criteria` — binary checklist.
 - `## Recommended next steps for the picking-up EM` — 3–7 numbered, each verifiable.
@@ -279,7 +279,7 @@ Stubs are written to `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{
 
 ### Step 2.3 — STUB-INDEX as a query callout
 
-Write `tasks/roadmap/<run-id>/STUB-INDEX.md`:
+Write `state/roadmap/<run-id>/STUB-INDEX.md`:
 
 ```markdown
 # STUB-INDEX — <run-id>
@@ -315,7 +315,7 @@ Confirm: (1) every stub's `blocks`/`blocked_by` edges reference tc-ids that exis
 
 ### Step 2.5 — `pm-gates.md` enumeration (brief recommendation E)
 
-Phase 2 forces explicit enumeration of every product-coupled question. Write `tasks/roadmap/<run-id>/pm-gates.md`:
+Phase 2 forces explicit enumeration of every product-coupled question. Write `state/roadmap/<run-id>/pm-gates.md`:
 
 ```markdown
 # PM Gates — <run-id>
@@ -334,7 +334,7 @@ Phase 2 forces explicit enumeration of every product-coupled question. Write `ta
 Cross-check at Phase 2 close:
 
 ```
-count(MERGE + KEEP verdicts in reconciliation.md)  ==  count(stubs on disk in tasks/handoffs/ with this run's roadmap_id)
+count(MERGE + KEEP verdicts in reconciliation.md)  ==  count(stubs on disk in state/handoffs/ with this run's roadmap_id)
 ```
 
 (DROP / DEFER / MOVE verdicts do NOT produce stubs by definition; only MERGE + KEEP do.)
@@ -361,7 +361,7 @@ Prevents the brief's "siblings, not subsets" failure mode — stubs cannot exist
 **Sequential, not parallel** (merge-gate parallel carve-out explicitly excludes plan/stub/doc review — a roadmap stub set is plan/stub/doc-shaped).
 
 Sequence:
-1. Dispatch the Staff Engineer with the full `tasks/roadmap/<run-id>/` directory + all stubs. Brief: schema/architecture/sequencing review of the stub set; flag P0 conflicts, missing AC surface, scope errors, sequencing bugs in the constraint graph. Read-only.
+1. Dispatch the Staff Engineer with the full `state/roadmap/<run-id>/` directory + all stubs. Brief: schema/architecture/sequencing review of the stub set; flag P0 conflicts, missing AC surface, scope errors, sequencing bugs in the constraint graph. Read-only.
 2. Integrate the Staff Engineer's findings via `coordinator:review-integrator` (mode: acceptEdits). EM spot-checks the diff.
 3. Dispatch the Data Science Reviewer with the same directory. Brief: domain coherence + data shapes; flag clusters whose stubs would compose poorly, premise gaps, edge cases the stub set silently elides. Read-only.
 4. Integrate the Data Science Reviewer's findings via `coordinator:review-integrator`.
@@ -371,7 +371,7 @@ The latency cost is acceptable: fires once per roadmap, the Data Science Reviewe
 ### Phase 2 entry gate (NEW — gates on Phase 1.5)
 
 Before Phase 2 begins:
-- [ ] `tasks/roadmap/<run-id>/OVERVIEW.md` frontmatter shows `status: final-approved` with both `shape_approved_by: PM` and `final_approved_by: PM` populated.
+- [ ] `state/roadmap/<run-id>/OVERVIEW.md` frontmatter shows `status: final-approved` with both `shape_approved_by: PM` and `final_approved_by: PM` populated.
 - [ ] Phase 1.5 exit gate fully checked.
 
 If either fails: STOP and return to Phase 1.5. Authoring stubs against an unapproved OVERVIEW is exactly the failure mode this skill version (1.1.0) was introduced to close.
@@ -408,7 +408,7 @@ For each sprint in `sprint` order:
 
 Implementation surface: `/handoff` and `/workstream-complete` fire the audit when they would write `deployment_state: ready_to_fire` over an existing `awaiting_gate` value. NOT from `/pickup` — pickup transitions to `in_flight`, not `ready_to_fire`. The audit hooks the *unblock* event.
 
-**Detection:** read prior frontmatter from git (`git show HEAD:tasks/handoffs/<file>`); if the prior `deployment_state` was `awaiting_gate` and the new value is `ready_to_fire`, emit:
+**Detection:** read prior frontmatter from git (`git show HEAD:state/handoffs/<file>`); if the prior `deployment_state` was `awaiting_gate` and the new value is `ready_to_fire`, emit:
 
 ```
 The gate that blocked this stub was:
@@ -437,16 +437,16 @@ After all sprints complete, dispatch ONE Sonnet review across the whole roadmap 
 
 By the end of a roadmap-planning run:
 
-- `tasks/roadmap/<run-id>/inventory.md` — Phase 1 input listing
-- `tasks/roadmap/<run-id>/clusters.md` — Phase 1 cluster grid
-- `tasks/roadmap/<run-id>/reconciliation.md` — Phase 1 verdicts
-- `tasks/roadmap/<run-id>/COORDINATOR-RESOLUTIONS.md` — Phase 1 conflict resolutions (if any)
-- `tasks/roadmap/<run-id>/research-corpus/<topic-slug>.md` × N — Phase 1.5 primary-research scout output (one per KEEP cluster)
-- `tasks/roadmap/<run-id>/OVERVIEW.md` — Phase 1.5 architectural overview (PM double-approved: shape + final)
-- `tasks/roadmap/<run-id>/peer-team-asks.md` — Phase 1.5 enumeration of cross-team dependencies
-- `tasks/roadmap/<run-id>/STUB-INDEX.md` — Phase 2 query callout (regenerated by `/update-docs`)
-- `tasks/roadmap/<run-id>/pm-gates.md` — Phase 2 PM-gate enumeration
-- `tasks/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` × N — Phase 2 stubs (one per KEEP / MERGE-target cluster)
+- `state/roadmap/<run-id>/inventory.md` — Phase 1 input listing
+- `state/roadmap/<run-id>/clusters.md` — Phase 1 cluster grid
+- `state/roadmap/<run-id>/reconciliation.md` — Phase 1 verdicts
+- `state/roadmap/<run-id>/COORDINATOR-RESOLUTIONS.md` — Phase 1 conflict resolutions (if any)
+- `state/roadmap/<run-id>/research-corpus/<topic-slug>.md` × N — Phase 1.5 primary-research scout output (one per KEEP cluster)
+- `state/roadmap/<run-id>/OVERVIEW.md` — Phase 1.5 architectural overview (PM double-approved: shape + final)
+- `state/roadmap/<run-id>/peer-team-asks.md` — Phase 1.5 enumeration of cross-team dependencies
+- `state/roadmap/<run-id>/STUB-INDEX.md` — Phase 2 query callout (regenerated by `/update-docs`)
+- `state/roadmap/<run-id>/pm-gates.md` — Phase 2 PM-gate enumeration
+- `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_roadmap-{run-id}-tc-{N}.md` × N — Phase 2 stubs (one per KEEP / MERGE-target cluster)
 
 Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` clusters them. `/workstream-start`, `/workday-start`, `/pickup` light up automatically — no second-class artifact.
 
@@ -454,11 +454,11 @@ Stubs live alongside ad-hoc spinoffs and continuation handoffs; `roadmap_id:` cl
 
 ## Contact-points checklist
 
-- **`/handoff` and `/spinoff` durability rules apply with extra force to roadmap stubs.** `gate_dependency:` MUST be subsystem-named (e.g., `consumer_runner retry telemetry policy`), never file-pathed (e.g., `tasks/handoffs/2026-05-08_foo.md ships`). Step 3.2's gate-meaningfulness audit reads this text from git history via `git show HEAD:<file>`; a file-pathed dependency goes stale on archive-to-`archive/handoffs/` and breaks the audit prompt by displaying a dangling reference. The picking-up EM editing a roadmap stub's frontmatter must respect this; a v1 lint extension catches `gate_dependency:` text containing path-fragments (e.g., `tasks/`, `archive/`, `*.md`) and warns.
+- **`/handoff` and `/spinoff` durability rules apply with extra force to roadmap stubs.** `gate_dependency:` MUST be subsystem-named (e.g., `consumer_runner retry telemetry policy`), never file-pathed (e.g., `state/handoffs/2026-05-08_foo.md ships`). Step 3.2's gate-meaningfulness audit reads this text from git history via `git show HEAD:<file>`; a file-pathed dependency goes stale on archive-to-`archive/handoffs/` and breaks the audit prompt by displaying a dangling reference. The picking-up EM editing a roadmap stub's frontmatter must respect this; a v1 lint extension catches `gate_dependency:` text containing path-fragments (e.g., `tasks/`, `archive/`, `*.md`) and warns.
 
 <!-- Review: the Staff Engineer — gate_dependency text durability is more load-bearing for roadmap stubs because Step 3.2 reads it from git history; file-pathed values go stale on archive-move (P2-7) -->
 
-- **`/project-onboarding`** — verify roadmap-planning is mentioned in the orientation flow when the project tracker contains roadmap entries.
+- **`/repo-setup`** — verify roadmap-planning is mentioned in the orientation flow when the project tracker contains roadmap entries.
 - **`/workstream-start`** — query callout already covers `kind: spinoff-roadmap` via the universal `deployment_state=ready_to_fire` filter.
 - **`/workstream-complete`** — verifies workstream-complete's plan-doc update step covers roadmap stubs (no special-case logic; they're spinoffs).
 - **`/workday-start`** — Step 1.1 routing groups `kind: spinoff-roadmap` with spinoffs and clusters by `roadmap_id` when count > 3 per group.

@@ -162,7 +162,7 @@ inline code fixes.
    (SOLID, coupling, extensibility).
 
 5. **Debt backlog entries:** For any finding that warrants tracking, add a row to
-   `tasks/debt-backlog.md` (create from template if it doesn't exist):
+   `state/debt-backlog.md` (create from template if it doesn't exist):
    - ID: `DSR-{date}-{N}` (Daily Strategic Review prefix)
    - Source: `workday-complete/step4/sonnet-observer/{date}`
    - Status: `open`
@@ -173,7 +173,7 @@ inline code fixes.
 
 ## Health Ledger Entry Schema
 
-After the reviewer agent completes, update `tasks/health-ledger.md`:
+After the reviewer agent completes, update `state/health-ledger.md`:
 
 1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
    the schema established by the 2026-05-23 weekly-gate/arch-survey restructure; do **not**
@@ -193,7 +193,7 @@ After the reviewer agent completes, update `tasks/health-ledger.md`:
 
 3. Do **NOT** update grades or the two audit clocks from the daily wrap. `Last full audit` is written
    only by a PM-invoked `/architecture-survey`; `Last targeted audit` only by `/architecture-audit`.
-   The daily Sonnet observer renders no grades — it flags candidates as `tasks/debt-backlog.md` DSR
+   The daily Sonnet observer renders no grades — it flags candidates as `state/debt-backlog.md` DSR
    rows (`for-weekly-arch-review`) for the weekly the Staff Engineer arch pass to adjudicate. Grade changes are
    an audit output, never a daily-wrap side effect.
 
@@ -209,7 +209,7 @@ DSR-{YYYY-MM-DD}-{N}
 
 Where `{N}` is a 1-based sequential integer for that day (DSR-2026-05-09-1, DSR-2026-05-09-2, …).
 
-Full row schema for `tasks/debt-backlog.md`:
+Full row schema for `state/debt-backlog.md`:
 
 ```markdown
 | DSR-{date}-{N} | {one-line description} | workday-complete/step4/{reviewer}/{date} | open |

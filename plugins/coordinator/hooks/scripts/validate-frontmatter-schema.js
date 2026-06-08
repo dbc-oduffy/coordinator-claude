@@ -131,7 +131,7 @@ function applyEdit(content, oldString, newString) {
 
 /**
  * Detect whether a repo-relative path looks like a mislocated cross-repo memo.
- * Returns true when the path contains a /memos/ segment (e.g. tasks/memos/foo.md)
+ * Returns true when the path contains a /memos/ segment (e.g. state/memos/foo.md)
  * — these are the non-canonical locations EMs hand-roll into instead of using the
  * cross-repo-memo CLI.
  *
@@ -407,7 +407,7 @@ async function main() {
   // ---------------------------------------------------------------------------
   // Design-as-offers: hand-rolling catch (Chunk 5)
   // Check for memo-shaped writes to non-canonical locations BEFORE schema lookup.
-  // This fires even when no schema matches the path (tasks/memos/ has no schema).
+  // This fires even when no schema matches the path (state/memos/ has no schema).
   // Canonical cross-repo/[0-9]*.md writes pass through to normal schema validation.
   // ---------------------------------------------------------------------------
   if (toolName === 'Write' || toolName === 'Edit' || toolName === 'MultiEdit') {

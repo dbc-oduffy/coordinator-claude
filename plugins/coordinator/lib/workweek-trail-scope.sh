@@ -10,19 +10,19 @@
 # Cross-segment seams are file paths touched by ≥2 distinct segments —
 # computed by intersecting the files-touched sets pairwise.
 #
-# Output: writes tasks/review-trail/.weekly-reviewer-scopes.json with shape:
+# Output: writes state/review-trail/.weekly-reviewer-scopes.json with shape:
 #   { "patrik": [sha...], "patrik_seam_files": [path...], "mechanical_workers": "full" }
 #
 # MUST be executed as a subprocess, never sourced. Fail-loud on any error.
 #
 # Env:
-#   HEADER_FILE — path to tasks/week-changelog/HEADER.md (required)
+#   HEADER_FILE — path to state/week-changelog/HEADER.md (required)
 #
 # Spec backlink: coordinator/commands/workweek-complete.md § Step 7 prelude
 
 set -euo pipefail
 
-HEADER_FILE="${HEADER_FILE:-tasks/week-changelog/HEADER.md}"
+HEADER_FILE="${HEADER_FILE:-state/week-changelog/HEADER.md}"
 
 if [[ ! -f "$HEADER_FILE" ]]; then
   echo "ERROR: $HEADER_FILE not found — run /workweek-start to initialise." >&2
@@ -40,7 +40,7 @@ fi
 TODAY=$(date -u +%Y-%m-%d)
 export WEEK_START TODAY
 
-TRAIL_FILES=$(find tasks/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
+TRAIL_FILES=$(find state/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
 export TRAIL_FILES
 
 # Resolve Python interpreter — same portable pattern as coordinator-session.sh.
@@ -168,7 +168,7 @@ for k, fset in enumerate(segment_files):
 patrik_shas = sorted(unreviewed_set | seam_shas)
 seam_files  = sorted(cross_segment_seams)
 
-scope_path = "tasks/review-trail/.weekly-reviewer-scopes.json"
+scope_path = "state/review-trail/.weekly-reviewer-scopes.json"
 scope_obj  = {
     "patrik":            patrik_shas,
     "patrik_seam_files": seam_files,

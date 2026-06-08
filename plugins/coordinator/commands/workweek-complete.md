@@ -15,7 +15,7 @@ PM-invoked, release-grade close. Reads the week-changelog as the canonical recor
 
 ## Step 1: Read Week-Changelog — PM Confirmation Gate
 
-Glob `tasks/week-changelog/*.md` (daily files, sorted by filename). Read HEADER.md and all daily files.
+Glob `state/week-changelog/*.md` (daily files, sorted by filename). Read HEADER.md and all daily files.
 
 Surface to PM:
 
@@ -87,7 +87,7 @@ Wait for completion before proceeding.
 
 ## Step 4: Improvement-Queue Triage
 
-Read `~/.claude/tasks/coordinator-improvement-queue.md`. Note oldest entry date and total active count.
+Read `~/.claude/state/coordinator-improvement-queue.md`. Note oldest entry date and total active count.
 
 **Triage triggers (any):** ≥5 active entries; oldest >14 days ago; any `[recurring: ≥3]`.
 
@@ -99,7 +99,12 @@ If not triggered: note _"Improvement queue: K entries, oldest YYYY-MM-DD — no 
 
 **Prior-art sidecar scan (judgment-based):** Scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times is a revision candidate — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution".
 
-**Bug-backlog depth check:** Read `tasks/bug-backlog.md` if it exists. Count open P1/P2 items. If ≥10 open, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If absent: skip silently.
+**Bug-backlog depth check:** Read `state/bug-backlog.md` if it exists. Count open P1/P2 items. If ≥10 open, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If absent: skip silently.
+
+- **Portability sweep on the week's diff.** Run
+  `portability-sweep <repo-root> --diff-only $(week-start-sha)..HEAD --report-format md`.
+  Surface findings to the weekly triage list. Treat the same as the merge-time
+  step: PM dispositions; never a workweek-complete blocker.
 
 ---
 
@@ -121,10 +126,10 @@ Informational when fresh; **blocking gate** only when the test runs and fails.
 
 ## Step 4c: UBT Pending-Record Merge Gate (UE plugin work only)
 
-Scan for `*.ubt-compile.pending.json` records in `tasks/review-trail/` with no `.resolved.json` sibling:
+Scan for `*.ubt-compile.pending.json` records in `state/review-trail/` with no `.resolved.json` sibling:
 
 ```bash
-UNRESOLVED=$(find tasks/review-trail -maxdepth 1 -name "*.ubt-compile.pending.json" -type f 2>/dev/null | while read -r f; do
+UNRESOLVED=$(find state/review-trail -maxdepth 1 -name "*.ubt-compile.pending.json" -type f 2>/dev/null | while read -r f; do
   base="${f%.pending.json}"; [[ ! -f "${base}.resolved.json" ]] && echo "$f"
 done)
 ```
@@ -165,7 +170,7 @@ Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `
 
 ## Step 4f: enabledPlugins Drift Audit Advisory
 
-Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from repo-root `coordinator.local.md` or `~/.claude/tasks/repo-registry.md`.
+Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from repo-root `coordinator.local.md` or `~/.claude/state/repo-registry.md`.
 
 ```bash
 set +e
@@ -232,6 +237,44 @@ Do NOT proceed to Step 5 until the gate passes or PM grants override. Note `reve
 
 ---
 
+## Step 4h: CVE Recheck (change-aware)
+
+Weekly dependency-CVE audit. **Change-aware:** dispatch the auditor only when a tracked manifest has changed in the last week — otherwise skip silently with a one-line note.
+
+```bash
+# Tracked manifest globs (subset of dep-cve-auditor's detection table).
+_MANIFESTS=(package.json package-lock.json yarn.lock pnpm-lock.yaml \
+            requirements.txt pyproject.toml uv.lock \
+            Cargo.toml Cargo.lock go.mod go.sum)
+
+# Any tracked manifest present at all? If none, the repo has no dep surface — skip.
+_PRESENT=$(git ls-files -- "${_MANIFESTS[@]}" 2>/dev/null | head -1)
+if [[ -z "$_PRESENT" ]]; then
+  echo "CVE recheck: no tracked dependency manifests in this repo — skipped."
+else
+  # Did any change in the last two weeks? (14-day window — covers slipped workweeks;
+  # double-audit is a cheap no-op report, missed-audit is a silently-unscanned CVE.)
+  _CHANGED=$(git log --since="14 days ago" --name-only --pretty=format: -- \
+             "${_MANIFESTS[@]}" 2>/dev/null | sort -u | grep -v '^$' || true)
+  if [[ -z "$_CHANGED" ]]; then
+    echo "CVE recheck: dependency manifests unchanged in the last 14 days — skipped."
+  else
+    echo "CVE recheck: manifests changed this week — dispatching dep-cve-auditor:"
+    echo "$_CHANGED" | sed 's/^/  - /'
+    # EM dispatches dep-cve-auditor with output path state/review-findings/<week>-cve/deps.md
+  fi
+fi
+```
+
+- **Skip cases** (no dispatch, one-line note in summary): no tracked manifests present, OR manifests present but none changed in the last 14 days.
+- **Dispatch case:** at least one manifest changed → dispatch `dep-cve-auditor` (Sonnet worker) with output path `state/review-findings/<week-starting>-cve/deps.md`. Surface its verdict alongside Step 7's gate verdict in Step 9 release notes if any findings warrant it.
+
+Advisory step — does NOT block merge. The change-aware gate is what makes this cheap: ~/.claude meta-repo (scripts-only `package.json`) skips silently every week; a repo with active dep churn audits when there's something new to audit.
+
+<!-- spec: change-aware-cve-recheck — see commit history; replaces the dropped tasks/cve-recheck-due-*.md marker mechanism (2026-06-08) -->
+
+---
+
 ## Step 5: scc Snapshot
 
 If `scc` is available (`which scc` or `~/bin/scc`):
@@ -239,7 +282,7 @@ If `scc` is available (`which scc` or `~/bin/scc`):
 scc --no-complexity --no-cocomo --no-duplicates --sort code
 ```
 
-Record the compact summary (total lines, top 5 languages) in `tasks/code-stats-history.md` under a `## YYYY-MM-DD` heading (append; create the file if it doesn't exist). Weekly trend is the signal; daily delta is noise.
+Record the compact summary (total lines, top 5 languages) in `state/code-stats-history.md` under a `## YYYY-MM-DD` heading (append; create the file if it doesn't exist). Weekly trend is the signal; daily delta is noise.
 
 If `scc` is not installed: note in summary — _"scc not available — install for weekly code stats."_
 
@@ -287,13 +330,13 @@ fi
 
 > Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7`.
 
-**Compute scope.** Run the trail helper (fail-loud; reads `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`):
+**Compute scope.** Run the trail helper (fail-loud; reads `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, writes `state/review-trail/.weekly-reviewer-scopes.json`):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
 ```
 
-**Run gate.** After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The brief references `tasks/review-trail/.weekly-reviewer-scopes.json`. The Staff Engineer is NOT in this gate — see Step 7.5.
+**Run gate.** After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The brief references `state/review-trail/.weekly-reviewer-scopes.json`. The Staff Engineer is NOT in this gate — see Step 7.5.
 
 - **BLOCKED:** halt before Step 8 and Step 9; surface verdict line + findings-dir path to PM. Do not proceed until fixed or `--force` granted.
 - **WARN:** include verdict line in release-notes draft (Step 9); proceed.
@@ -309,7 +352,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
 
 **Run condition:** skip (note "no arch-tier signal this week") if ALL of: `arch_tier_candidates` empty AND `convergent_findings` empty AND seam-file set empty AND daily strategic-observer trail carries no `for-weekly-arch-review` flags.
 
-**Otherwise** dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with five inputs: (1) changelog digest, (2) `arch_tier_candidates` from `$FINDINGS_DIR/synthesis.json`, (3) `convergent_findings` from `synthesis.json`, (4) `patrik_seam_files` from `tasks/review-trail/.weekly-reviewer-scopes.json`, (5) daily strategic-observer trail (`archive/daily-summaries/*.md` DSR rows tagged `for-weekly-arch-review`).
+**Otherwise** dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with five inputs: (1) changelog digest, (2) `arch_tier_candidates` from `$FINDINGS_DIR/synthesis.json`, (3) `convergent_findings` from `synthesis.json`, (4) `patrik_seam_files` from `state/review-trail/.weekly-reviewer-scopes.json`, (5) daily strategic-observer trail (`archive/daily-summaries/*.md` DSR rows tagged `for-weekly-arch-review`).
 
 The Staff Engineer produces candidates only — never auto-authors spinoffs. EM routes candidates down the disposition ladder (trivial+non-structural → immediate executor; mid-size cluster → bundled spinoff candidate; large/structural → standalone spinoff or `/plan`).
 
@@ -333,6 +376,26 @@ bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"
 The folded audit never edits code — packages findings as spinoff candidates; writes only `Last targeted audit` clock + atlas metadata. Surface candidates alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9). Does NOT block merge.
 
 If skipped (FRESH and no EM churn trigger): note _"Architecture audit: fresh (Last targeted audit within 10d) — no fold."_ in the summary.
+
+---
+
+## Step 7.7: Weekly Atlas Drift Walk
+
+> Complement to Step 7.6 — Step 7.6 reads the rotation clock (`Last targeted audit`); this sub-step walks the per-system `<name>.watch.sh` scripts and the atlas `last_mapped` frontmatter to surface decay between rotations.
+
+**Run the drift walk** (STALE walk default-on at 30 days):
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/check-atlas-watch-drift.sh"
+```
+
+Surface in the weekly report:
+
+- Any `DRIFT` / `MISSING` line → structural finding; folds into the weekly architecture-audit pipeline (Step 7.6) alongside the Staff Engineer's Step 7.5 candidates.
+- Any `ERROR` / `MALFORMED` line → helper-script issue requiring author attention (the `<name>.watch.sh` broke or its stdout is garbage; never silently treated as FRESH).
+- Any `STALE` line (atlas `last_mapped` >30d) → EM-judgment surface: either ratify the atlas as still-current (commit-message `atlas-current-as-of:<date>` token on a no-op `last_mapped` bump per the Step 6.5 closeout gate) or schedule a refresh pass via `/architecture-audit`.
+
+Does NOT block merge; does NOT auto-dispatch refresh executors — the surface IS the gate. Note in the weekly summary: _"Atlas drift walk: N DRIFT, N STALE, N ERROR — [folded into Step 7.6 / surfaced for EM judgment]."_
 
 ---
 
@@ -380,7 +443,7 @@ No PM gate required — informational surfacing only. PM may promote an XL entry
 ### 9.0 Ensure output directory exists
 
 ```bash
-mkdir -p tasks/week-changelog/
+mkdir -p state/week-changelog/
 ```
 
 ### 9.1 Query the week's completion entries
@@ -393,7 +456,7 @@ Zero entries → skip to Step 9.4 with an empty-week note.
 
 ### 9.2 Dispatch Sonnet editorial worker
 
-Dispatch a Sonnet worker with the entry corpus. Worker assigns each entry to one bucket, writes `tasks/week-changelog/YYYY-MM-DD-pending-release.md`.
+Dispatch a Sonnet worker with the entry corpus. Worker assigns each entry to one bucket, writes `state/week-changelog/YYYY-MM-DD-pending-release.md`.
 
 **Default bucket rules** (primary key: `nature`; refined by `loe.tshirt` when present):
 
@@ -509,7 +572,7 @@ gh release create "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude \
   --latest
 ```
 
-**Scope:** coordinator-claude only on this plan. Deep-research-claude release publishing is owned by the deep-research-currency-notification spinoff (`tasks/handoffs/2026-06-01_122922_deep-research-currency-notification.md`). **Claude Prime (`source_is_live`) is never tagged** — skip silently when the active repo is the `~/.claude` meta-repo.
+**Scope:** coordinator-claude only on this plan. Deep-research-claude release publishing is owned by the deep-research-currency-notification spinoff (`state/handoffs/2026-06-01_122922_deep-research-currency-notification.md`). **Claude Prime (`source_is_live`) is never tagged** — skip silently when the active repo is the `~/.claude` meta-repo.
 
 Surface to PM: _"Release $VERSION_TAG published on coordinator-claude (or already published — no action)."_
 
@@ -523,7 +586,7 @@ Invoke `/merge-to-main` only after PM has confirmed release notes (Step 9) and v
 
 ## Step 12: Health Survey
 
-Run the full health survey if available (e.g., `/health` or equivalent). Record output in `tasks/health-ledger.md` under today's date.
+Run the full health survey if available (e.g., `/health` or equivalent). Record output in `state/health-ledger.md` under today's date.
 
 ---
 
@@ -533,8 +596,8 @@ Archive and reset the week's state:
 
 1. Determine the current `Week starting:` date from HEADER.md — this is the archive path key.
 2. Create `archive/week-changelogs/<week-starting>/`.
-3. Move all daily files (`tasks/week-changelog/YYYY-MM-DD-*.md`) to the archive path. HEADER.md is NOT moved — it gets rewritten in place.
-4. Create `archive/review-trail/<week-starting>/` and move `tasks/review-trail/*.json` (excluding `.gitkeep` and `.weekly-reviewer-scopes.json`) into it. `.gitkeep` stays so the dir remains tracked; transient `.weekly-reviewer-scopes.json` is deleted, not archived. **Archival ordering matters:** must run AFTER Step 7 consumes the trail (Step 13 is correctly downstream).
+3. Move all daily files (`state/week-changelog/YYYY-MM-DD-*.md`) to the archive path. HEADER.md is NOT moved — it gets rewritten in place.
+4. Create `archive/review-trail/<week-starting>/` and move `state/review-trail/*.json` (excluding `.gitkeep` and `.weekly-reviewer-scopes.json`) into it. `.gitkeep` stays so the dir remains tracked; transient `.weekly-reviewer-scopes.json` is deleted, not archived. **Archival ordering matters:** must run AFTER Step 7 consumes the trail (Step 13 is correctly downstream).
 
 5. Write a fresh HEADER.md with the released version and a cleared `Last /workweek-start:` line:
 
@@ -552,8 +615,8 @@ Archive and reset the week's state:
 
 6. Commit everything:
 ```bash
-git add -- tasks/week-changelog/ archive/week-changelogs/<week-starting>/ \
-           tasks/review-trail/ archive/review-trail/<week-starting>/
+git add -- state/week-changelog/ archive/week-changelogs/<week-starting>/ \
+           state/review-trail/ archive/review-trail/<week-starting>/
 git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog + review-trail vX.Y.Z"
 git push origin $(~/.claude/plugins/coordinator/bin/coordinator-current-branch)
 ```

@@ -1,6 +1,6 @@
 ---
 name: handoff-archival
-description: "Archive superseded handoffs (chain-aware) and PM-directed handoffs from tasks/handoffs/ to archive/handoffs/. Defense-in-depth 24h mtime backstop only. Consumed-handoff archival is handled by /handoff chain-archival, /workstream-complete Step 2.7, and session-init.sh boot sweep."
+description: "Archive superseded handoffs (chain-aware) and PM-directed handoffs from state/handoffs/ to archive/handoffs/. Defense-in-depth 24h mtime backstop only. Consumed-handoff archival is handled by /handoff chain-archival, /workstream-complete Step 2.7, and session-init.sh boot sweep."
 version: 3.0.0
 ---
 
@@ -24,7 +24,7 @@ Consumed-handoff archival is no longer this pipeline's responsibility. The three
 
 Both directories are git-tracked:
 
-- **Active handoffs:** `tasks/handoffs/*.md` — available for `/workstream-start` and `/pickup`
+- **Active handoffs:** `state/handoffs/*.md` — available for `/workstream-start` and `/pickup`
 - **Archived handoffs:** `archive/handoffs/*.md` — post-pickup or post-supersession; paper trail
 
 **Skip entirely if no handoff files exist.**
@@ -40,7 +40,7 @@ The two paths this pipeline handles:
 
 ## Steps
 
-1. Check `tasks/handoffs/` for `.md` files
+1. Check `state/handoffs/` for `.md` files
 
 2. **Chain-aware archival (supersession pass):** Before archiving any handoff, apply the defense-in-depth mtime veto below.
 
@@ -50,11 +50,11 @@ The two paths this pipeline handles:
    ```
    If the file is less than 86400 seconds old (24 hours), **skip it entirely** — do not archive, do not surface to PM. Log the skip: `"Skipped <file> — mtime < 24h (mechanical veto)."` This veto is unconditional and cannot be overridden by frontmatter or instruction. **Rationale:** defends against non-pickup paths (concurrent sessions, scripted moves, future skills) that might otherwise silently archive a fresh handoff. This backstop catches the paths that bypass the primary archival surfaces (`/handoff`, `/workstream-complete`, `session-init.sh`).
 
-   After the veto passes, scan all active handoffs for `Continuing from` references (look for the pattern `_Continuing from [filename]:` or `Continuing from [filename]` in the `## What Was Accomplished` section). If the referenced predecessor file is still in `tasks/handoffs/`, archive it — the successor has absorbed both the predecessor's context (via the preamble) and its unresolved obligations (via the `## Carried Forward` section). The predecessor is fully superseded.
+   After the veto passes, scan all active handoffs for `Continuing from` references (look for the pattern `_Continuing from [filename]:` or `Continuing from [filename]` in the `## What Was Accomplished` section). If the referenced predecessor file is still in `state/handoffs/`, archive it — the successor has absorbed both the predecessor's context (via the preamble) and its unresolved obligations (via the `## Carried Forward` section). The predecessor is fully superseded.
 
    **Single-predecessor rule.** A successor names exactly one predecessor — the one it explicitly continues from. If you find a successor that names no predecessor, it has none; do not guess one for it from timestamp adjacency. If a `Continuing from` reference points at a handoff that is itself an active sibling rather than a true ancestor (e.g., concurrent workstream, different machine, no actual hand-off occurred), STOP and surface to the PM rather than archiving — adjacency is not ancestry. Combining two predecessors into one successor only happens by explicit PM direction at session start, and shows up as a successor that names *both* predecessors with the merge intent in its preamble.
 
-3. **Report remaining handoffs:** List any handoffs still in `tasks/handoffs/` with their age and heading. Do not archive them — they remain active until consumed via `/pickup`, superseded, or the PM directs otherwise.
+3. **Report remaining handoffs:** List any handoffs still in `state/handoffs/` with their age and heading. Do not archive them — they remain active until consumed via `/pickup`, superseded, or the PM directs otherwise.
 
 4. Do NOT delete archived handoffs — they are the paper trail. Deletion is `/distill`'s responsibility (Phase 4 of the lifecycle plan), gated by extraction-artifact guards.
 

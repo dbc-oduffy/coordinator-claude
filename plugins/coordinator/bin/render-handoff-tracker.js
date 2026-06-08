@@ -5,8 +5,8 @@
  * tracker markdown from frontmatter-indexed records.
  *
  * Spec backlink: docs/plans/2026-05-29-handoff-tracker-renderer.md
- * Purpose: Render a durable markdown tracker (tasks/handoff-tracker.md per repo,
- *   ~/.claude/tasks/doe-handoff-tracker.md for DoE aggregation) by querying the
+ * Purpose: Render a durable markdown tracker (state/handoff-tracker.md per repo,
+ *   ~/.claude/state/doe-handoff-tracker.md for DoE aggregation) by querying the
  *   query-records.js engine for active handoffs, spinoffs, and cross-repo memos.
  *
  * Negative-spec: does NOT glob handoff files directly — that bypasses applyConsumedMarker
@@ -23,12 +23,12 @@
  *   --root <path>   Repo root to query (default: git toplevel / cwd). Per-repo mode.
  *   --stdout        Print instead of writing tracker file (dry-run / ad-hoc).
  *   --all-repos     DoE mode: read all repos.* from machine-local, concatenate under
- *                   ## <shortname> headings, write to ~/.claude/tasks/doe-handoff-tracker.md.
+ *                   ## <shortname> headings, write to ~/.claude/state/doe-handoff-tracker.md.
  *                   Repos absent on disk are skipped with a note.
  *
  * Output paths:
- *   Per-repo: <root>/tasks/handoff-tracker.md
- *   DoE:      ~/.claude/tasks/doe-handoff-tracker.md
+ *   Per-repo: <root>/state/handoff-tracker.md
+ *   DoE:      ~/.claude/state/doe-handoff-tracker.md
  *
  * Run with: node bin/render-handoff-tracker.js [flags]
  */
@@ -511,7 +511,7 @@ function main() {
     if (opts.stdout) {
       process.stdout.write(output + '\n');
     } else {
-      const outPath = path.join(os.homedir(), '.claude', 'tasks', 'doe-handoff-tracker.md');
+      const outPath = path.join(os.homedir(), '.claude', 'state', 'doe-handoff-tracker.md');
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       fs.writeFileSync(outPath, output + '\n', 'utf8');
       process.stdout.write(`Wrote DoE tracker → ${outPath}\n`);
@@ -534,7 +534,7 @@ function main() {
     if (opts.stdout) {
       process.stdout.write(output + '\n');
     } else {
-      const outPath = path.join(root, 'tasks', 'handoff-tracker.md');
+      const outPath = path.join(root, 'state', 'handoff-tracker.md');
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       fs.writeFileSync(outPath, output + '\n', 'utf8');
       process.stdout.write(`Wrote tracker → ${outPath}\n`);
