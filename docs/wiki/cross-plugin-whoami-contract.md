@@ -16,7 +16,7 @@ This wiki defines the shared introspection envelope that every **adopter** in th
 - **MCP-plugin adopters** — plugins that expose a live MCP tool (e.g. `project_whoami` for project-rag, `holodeck_whoami` for holodeck-control). Each plugin implements a conformant MCP tool in its own repo and test suite.
 - **Coordinator-session adopter** (`plugin_name: "coordinator-session"`, `extras_key: "coordinator_session"`) — a non-MCP adopter computed live from git and filesystem at query time. It is the canonical orientation-health surface for the coordinator session itself. It is always `source_kind: "live"` (computed at query time, never cached or persisted). It ships inside the `coordinator_whoami` package as a sibling subpackage (`coordinator_whoami.session`).
 
-**Orientation's canonical health surface is the session adopter.** MCP-plugin whoamis are optional ribs — they answer "is this plugin's binding healthy?" — but they do not constitute the spine of session orientation. `/session-start` routes through `coordinator_whoami.session`, not through any plugin adopter.
+**Orientation's canonical health surface is the session adopter.** MCP-plugin whoamis are optional ribs — they answer "is this plugin's binding healthy?" — but they do not constitute the spine of session orientation. `/workstream-start` routes through `coordinator_whoami.session`, not through any plugin adopter.
 
 Coordinator-claude owns the envelope schema; each adopter (MCP-plugin or session) implements a conformant surface.
 
@@ -158,6 +158,19 @@ The two halves of the invariant compose: producers serve live envelopes (or hone
 
 This is the core decay-discipline rule from [plugin-identity-and-health-sentinels.md](plugin-identity-and-health-sentinels.md): identity has a live source; persisting it turns "stale = signal" into "stale = active lie". The contract enforces this at the spec level for both producers and consumers — implementations must not add any caching layer to the whoami tool, and consumers reading persisted snapshots for binding-health are out-of-contract. Cross-reference: the same rule is restated in operator-facing form in [`coordinator-doctor.md`](coordinator-doctor.md) §5 (binding-health probes MUST cite P-6 live, not P-7 config-presence).
 
+### Non-sensitivity guarantee
+
+**The envelope is contract-bound to carry no sensitive material.** Consumers (CI logs, doctor recordings, terminal echoes, install-script diagnostic prints) MAY record the full envelope verbatim without per-field redaction. The guarantee rests on three structural facts and one closed editorial rule:
+
+1. **Closed top-level namespace.** The schema sets `additionalProperties: false` on the root object. Only `contract_version`, `plugin_name`, `plugin_version`, `source_kind`, `binding`, `status`, and `extras` may appear. Adding a new top-level field requires a schema bump and a contract-version increment — there is no silent surface for a sensitive field to land.
+2. **Closed enums on `binding.kind` / `status.state`.** Both are restricted to small enumerated string sets. They cannot carry tokens, fingerprints, or operator-identifying material by construction.
+3. **`binding.target` and `status.reason` are operator-facing diagnostic strings.** `binding.target` is a path-like resource identifier (project root, `.uproject` path) — the same identifier already echoed by `pwd`, IDE title bars, and `/workstream-start`. `status.reason` is required to be actionable human-readable prose; it MUST NOT carry secrets, auth tokens, machine identifiers, or environment-variable values. Plugin authors writing free-form reason strings are bound by this rule.
+4. **Identity material lives in a separate, deliberately non-conformant surface.** Host identity (hostname, machine_id), GPU inventory, disk capacity, and similar machine-state fields are surfaced by `coordinator_whoami.machine` — see [`machine.py`](../../whoami/coordinator_whoami/machine.py) module docstring, which explicitly disclaims envelope conformance. The 2026-05-27 host-capacity work made this split structural, not stylistic: machine identity is reachable as a *separate* JSON probe (`python -m coordinator_whoami.machine`), never via the envelope. Plugins MUST NOT smuggle identity-class fields into `extras[<plugin>]` to work around this — extras vocabularies are reviewed for the same guarantee.
+
+**Implication for downstream consumers.** A `WHOAMI_JSON=<raw envelope>` print (or equivalent recording surface) in CI, installer, or doctor output is contract-conformant and forward-safe. Security audits flagging the envelope for hypothetical future sensitivity should close as not-applicable: a future schema change adding sensitive material would itself violate this guarantee and would not land. Adopters relying on this in tests (e.g. `project-rag`'s `TestWhoamiPreflightStateA::test_cmd_preflight_whoami_envelope_recorded`) are correctly relying on a contractual non-sensitivity invariant.
+
+**Implication for envelope evolution.** Any proposed schema change that would add a field carrying auth tokens, machine fingerprints, environment variable values, or secrets MUST be rejected at contract-review. If a downstream need for identity-class material arises, the resolution is to extend `coordinator_whoami.machine` (the diagnostic surface) or author a sibling probe — never to broaden the envelope. This guarantee is load-bearing and not overridable without an explicit PM-authorized contract-version-bumping decision.
+
 ---
 
 ## Validation discipline
@@ -186,10 +199,10 @@ The `examples:` keyword in JSON Schema draft 2020-12 is **annotation-only** — 
 
 ## Tripwires and failure recovery
 
-**DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or session-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
+**DIY-on-whoami is the failure mode this contract exists to prevent.** When an EM (or workstream-start) encounters `ModuleNotFoundError: No module named 'coordinator_whoami'` or an unbound envelope, the answer is:
 
 - **Missing install:** run `/coordinator:setup` (installs the `coordinator_whoami` package via pip in Phase 3 Step 6).
-- **Unbound envelope:** run `/project-onboarding` or `/project-rag:setup` to bind the project.
+- **Unbound envelope:** run `/repo-setup` or `/project-rag:setup` to bind the project.
 
 Do NOT reach for grep, `git status`, or hand-rolled binding checks as a substitute. Those produce inconsistent output that diverges from the contract surface over time; the contract surface exists precisely to give one authoritative introspection path.
 
@@ -228,17 +241,17 @@ Operators — as distinct from plugin authors implementing the contract — cons
 
 4. **Live-call rule.** Operators and consumers wanting current binding health MUST call live `*_whoami` MCP, NOT read persisted snapshots. This is the Live-not-receipt invariant from **§ Error semantics** above, and it is also the binding-health rule named in [`coordinator-doctor.md`](coordinator-doctor.md) §5. Any file on disk labelled "whoami snapshot" is by definition stale — it was conformant at write time, not now.
 
-### Session-start three-branch surfacing spec
+### Workstream-start three-branch surfacing spec
 
-The session-start Context Load emits exactly one line per session, branching on import state. Session orientation routes through `coordinator_whoami.session` (probe **P-6s**), not through any plugin adopter. The session adopter has binary binding (`bound` / `unbound` only — no `degraded` binding kind); the freshness/reconcile gradient is carried on `status.state` instead.
+The workstream-start Context Load emits exactly one line per session, branching on import state. Session orientation routes through `coordinator_whoami.session` (probe **P-6s**), not through any plugin adopter. The session adopter has binary binding (`bound` / `unbound` only — no `degraded` binding kind); the freshness/reconcile gradient is carried on `status.state` instead.
 
 1. **Import fails:** `whoami: not installed (run /coordinator:setup to install the introspection package)`
-2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /project-onboarding to onboard this repo as a coordinator workspace)`
+2. **Import succeeds, `binding.kind == "unbound"`:** `whoami: unbound (run /repo-setup to onboard this repo as a coordinator workspace)`
 3. **Import succeeds, `binding.kind == "bound"`:** `whoami: bound → <binding.target> (<status.state>)` — `status.state` carries the orientation-health gradient (`healthy` / `degraded` / `error`); `status.reason` names what's stale when degraded.
 
 Plugin whoamis (project-rag, holodeck-control, etc.) may appear as optional sub-lines after the session line, but they are not the spine. A session that emits `whoami: bound → (healthy)` is oriented regardless of whether any MCP plugin is currently reachable.
 
-Note: session-start does NOT surface bound-but-target-mismatched as a separate state — that is `/project-onboarding`'s responsibility. Surfacing mismatch at session-start generates false positives for operators in a folder that is not the bound project root.
+Note: workstream-start does NOT surface bound-but-target-mismatched as a separate state — that is `/repo-setup`'s responsibility. Surfacing mismatch at workstream-start generates false positives for operators in a folder that is not the bound project root.
 
 Auto-repair on import failure is explicitly out of scope. The loud nudge (branch 1) is the correct primitive — surfacing with remediation path, not mutating on the operator's behalf.
 
@@ -248,9 +261,9 @@ The cross-plugin whoami contract is wired into operator-facing pipelines at thre
 
 1. **`/coordinator:setup` Phase 3 Step 6** — pip installs the `coordinator_whoami` package on every coordinator setup run. Idempotent. → `commands/setup.md`. Default CLI output is compact single-line JSON (no flag needed); --human pretty-prints for human reading. Status vocabulary for this step: `ready` (importable — whether freshly installed or re-used), `would write` (--check-only mode against an absent package), `failed` (non-zero pip exit — reason logged to stderr; chain continues without hard-stopping). These are the three states the coordinator-installer status schema records for the `coordinator_whoami` identifier row.
    **Why-not for the session adopter:** no new install step is needed. The `coordinator_whoami.session` subpackage ships inside the same `coordinator_whoami` package the existing step installs. Adding a separate install step would be redundant.
-2. **`/project-onboarding` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/project-onboarding/SKILL.md`.
-   **Why-not for the session adopter:** `/project-onboarding`'s concern is "is this project registered as a project-rag source" (project-registration). That question is answered by project-rag's binding semantics. The session adopter answers a different question ("am I in a coordinator-onboarded repo / oriented") and does not replace the project-onboarding branch. Step 4 stays on project-rag's binding.
-3. **`/session-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/session-start/SKILL.md`. **Rewired to the session adopter** (`python -m coordinator_whoami.session`, probe P-6s in [`coordinator-doctor.md`](coordinator-doctor.md)). This is the contact point that moves when a new session adopter is added.
+2. **`/repo-setup` Next-Steps step 4** — branches on the live envelope's `binding.kind` to surface confirmation, mismatch, or remediation per project. → `skills/repo-setup/SKILL.md`.
+   **Why-not for the session adopter:** `/repo-setup`'s concern is "is this project registered as a project-rag source" (project-registration). That question is answered by project-rag's binding semantics. The session adopter answers a different question ("am I in a coordinator-onboarded repo / oriented") and does not replace the repo-setup branch. Step 4 stays on project-rag's binding.
+3. **`/workstream-start` Context Load** — emits a one-line whoami state per session, loud-when-actionable (no silent skip on missing install). → `skills/workstream-start/SKILL.md`. **Rewired to the session adopter** (`python -m coordinator_whoami.session`, probe P-6s in [`coordinator-doctor.md`](coordinator-doctor.md)). This is the contact point that moves when a new session adopter is added.
 
 The canonical why-not detail for each contact point also lives in [`coordinator-doctor.md`](coordinator-doctor.md) §Probe Catalog (P-6s entry). Cross-reference rather than duplicate if the two surfaces diverge.
 
@@ -408,9 +421,9 @@ The contract emerged from a DoE-altitude consult on 2026-05-19:
 
 2. **Spinoff** `archive/handoffs/2026-05-19_175021_coordinator-whoami-contract.md` — workstream handoff carrying the implementation mandate (archived post-pickup).
 
-3. **Plan** `docs/plans/2026-05-19-cross-plugin-whoami-contract.md` — full architecture plan including the spec-first delivery decision (markdown + JSON Schema, no Python module in coordinator-claude), the namespace disambiguation rationale, and the Zolí review integration that landed `contract_version` naming and the `^[a-z_][a-z0-9_]*$` extras-key constraint.
+3. **Plan** `docs/plans/2026-05-19-cross-plugin-whoami-contract.md` — full architecture plan including the spec-first delivery decision (markdown + JSON Schema, no Python module in coordinator-claude), the namespace disambiguation rationale, and the Director of Engineering review integration that landed `contract_version` naming and the `^[a-z_][a-z0-9_]*$` extras-key constraint.
 
-**Authorship.** The contract shape was produced by the 2026-05-19 authoring session (coordinator EM + PM Dónal O'Duffy). Zolí (cross-team/cross-repo reviewer, Opus-altitude) ratified the spec-first delivery shape, the namespace disentanglement, and the extras-key regex in the same session.
+**Authorship.** The contract shape was produced by the 2026-05-19 authoring session (coordinator EM + PM the PM O'Duffy). The Director of Engineering (cross-team/cross-repo reviewer, Opus-altitude) ratified the spec-first delivery shape, the namespace disentanglement, and the extras-key regex in the same session.
 
 ---
 
@@ -436,7 +449,7 @@ Don't re-litigate coordinator-vs-host ownership without PM authorization (PM mad
 
 <!-- Spec backlink: docs/plans/2026-05-19-whoami-substrate-migration.md § Task 9 (R1 subpackage layout) -->
 
-The reference implementation lives at `plugins/coordinator-claude/coordinator/whoami/coordinator_whoami/` in the meta-repo (this Claude Central tree); the OSS distribution at the publish target (`X:/coordinator-claude`) carries the same package at the equivalent plugin path.
+The reference implementation lives at `plugins/coordinator/whoami/coordinator_whoami/` in the meta-repo (this Claude Central tree); the OSS distribution at the publish target (`X:/coordinator-claude`) carries the same package at the equivalent plugin path.
 
 ### Two-layer package structure (R1 subpackage layout)
 

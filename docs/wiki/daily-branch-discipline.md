@@ -5,6 +5,8 @@
 > 2. **Named long-lived workstream** — `migration/...`, `release/...`, `feature/<name>`, etc., created via inline `COORDINATOR_OVERRIDE_BRANCH=1` when the PM authorizes a multi-day bus that's structurally separate from generic dailies. Once it exists with commits ahead of main, workday-start treats it as a legitimate workstream bus and reconciles it with origin/main daily, the same as a canonical branch.
 >
 > The hook polices branch *shape* at create-time, not branch *date* at workday-start — commit-time date-enforcement (Check 6) was decommissioned 2026-05-07 per PM call. The daily ritual is **reconcile with origin/main** (`/workday-start` Step 0.4.5), not branch-rotation. Cutting a fresh daily off main when an active workstream exists would abandon ongoing work; doctrine 2026-05-13 explicitly prohibits this.
+>
+> **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that no longer exists. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merge-to-main` *deletes* the merged branch; rename preserves it.)
 
 > **The shape.** An active workstream branch (canonical or named) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
 
@@ -39,7 +41,7 @@ Both modes are caught by `orphan-branch-sweep.sh` with three severity tiers:
 
 Flags: `--format json|text`, `--severity-min ok|warning|critical`, `--include-remote`, `--max-age-days N` (default 30).
 
-The companion `sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per Patrik F5). `--strict` makes the >50-commits-behind warning a hard error.
+The companion `sync-main.sh` enforces the invariant `local main == origin/main` before any branch creation. On `main`: `git fetch origin main && git pull --ff-only`. On non-main: `git fetch origin main:main` (refspec form updates local main without checkout — load-bearing per the Staff Engineer F5). `--strict` makes the >50-commits-behind warning a hard error.
 
 ### `/workday-start` Step 0 — Branch Reconciliation Decision (A/B/C)
 
@@ -225,11 +227,11 @@ The bus is shared, so a sibling EM may be co-driving — detection is read-side 
 - **Before authoring an overlapping code fix**, run a `git log --oneline -- <target-paths>` peer check — a sibling may have already landed it; grep sibling plans before reverting apparent "out-of-scope drift" as contamination.
 - Pickup- and plan-time concurrent-work surfacing is catalogued in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) § "Detecting Concurrent Work at Pickup / Plan-Time".
 
-## Session-end chain-diff scoping on long-lived shared branches
+## Workstream-complete chain-diff scoping on long-lived shared branches
 
-**`merge-base origin/main..HEAD` sweeps the ENTIRE shared daily branch, not just the current session's commits.** On a long-lived span branch (`work/<machine>/2026-05-26to27`) that carries multiple sessions' worth of commits, a session-end diff using this range surfaces all prior sessions' work — making the review meaningless (too broad) and the commit subject misleading.
+**`merge-base origin/main..HEAD` sweeps the ENTIRE shared daily branch, not just the current session's commits.** On a long-lived span branch (`work/<machine>/2026-05-26to27`) that carries multiple sessions' worth of commits, a workstream-complete diff using this range surfaces all prior sessions' work — making the review meaningless (too broad) and the commit subject misleading.
 
-Scope the session-end review to the session's own commits instead:
+Scope the workstream-complete review to the session's own commits instead:
 
 ```bash
 # Commits authored during this session only:
@@ -237,7 +239,7 @@ git log --oneline <session-start-sha>..HEAD
 git diff <session-start-sha>..HEAD
 ```
 
-This is especially important for **spinoffs** (`predecessor: none`) — a spinoff operates on the same shared branch but represents a distinct workstream fork. Its chain-diff must not silently include the parent chain's commits. Record `session-start-sha` at `/pickup` time (or session boot) to make the scoping mechanical.
+This is especially important for **spinoffs** (`predecessor: none`) — a spinoff operates on the same shared branch but represents a distinct workstream fork. Its chain-diff must not silently include the parent chain's commits. Record `session-start-sha` at `/pickup` time (or session open) to make the scoping mechanical.
 
 ## See also
 

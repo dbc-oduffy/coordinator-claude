@@ -256,6 +256,10 @@ When replying to inline review comments on GitHub, reply in the comment thread (
 
 ## The Bottom Line
 
+## A code-review nit is a hypothesis — verify premise AND fix direction before applying
+
+A code-review nit is a hypothesis, not a directive. Reviewer nits can rest on misreads of the code or can worsen the code if applied naively. Before applying a nit: (1) verify the premise (does the code actually have the issue?), (2) verify the fix direction (does the proposed fix actually improve it, or does it introduce a different problem?). Reject-with-reason is the correct response when the premise is wrong or the fix would worsen things. Apply: never auto-apply a nit without reading the cited code and confirming both the premise and the fix direction.
+
 **External feedback = suggestions to evaluate, not orders to follow.**
 
 Verify. Question. Then implement.

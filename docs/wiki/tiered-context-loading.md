@@ -30,9 +30,9 @@ The behavioral lever is the **tier-4 rationale rule**: every Agent dispatch for 
 
 **`lessons.md` is NOT Tier 0.** It is a capture queue processed by `/learn-lessons` (queue → wiki promotion); load-bearing lessons live in `docs/wiki/` and are surfaced on demand by the prior-art-checker pre-flight when relevant to a plan. Reading the queue on every boot is wasteful — most entries are future work for `/learn-lessons`, not in-the-moment guidance. The EM does NOT read `lessons.md` directly as a Tier-2 lookup either; the prior-art-checker is the mechanism. If you find yourself reaching for `lessons.md` during planning, run prior-art-checker (which reads it for you and surfaces relevant entries) — or invoke `/learn-lessons`, the only skill that consumes the raw file end-to-end.
 
-Files Tier-0-loaded at every session boot (orientation_cache, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context.
+Files Tier-0-loaded at every session start (orientation_cache, MEMORY.md) MUST be bounded. Unbounded accumulators silently inflate boot context.
 
-- **`orientation_cache.md`** is regenerated from a fixed schema (`pipelines/workday-start-internals.md` § 5.5) by `regenerate-orientation-cache.sh` and verified by `verify-orientation-cache-sync.sh`. **Hard ceiling: 35 lines.** The schema permits only seven sections (`Project`, `Trust caveats`, `Counters`, `Active workstreams`, `Rechecks due ≤7 days`, `Branch`, `Pinboard`); all are either static, derived-from-disk, or absent. **No free-form prose anywhere.** Schema drift fails the verifier at `/update-docs` Phase 11b. Writer tiers: ceremony writers (`/workday-start`, `/update-docs`) own full regen; mid-session writers (`/session-end`, `/handoff`) may only write a single line to `## Pinboard` (one-slot, overwrite-or-omit, auto-cleared on next ceremony). The `## Trust caveats` section is filesystem-detector-driven (e.g. presence of any `*.uproject` in repo triggers a UE training-data-trust warning instructing the EM and its delegates to verify via `mcp__project-rag__*` or dispatch Sid) — content is owned by the routine, not the writer.
+- **`orientation_cache.md`** is regenerated from a fixed schema (`pipelines/workday-start-internals.md` § 5.5) by `regenerate-orientation-cache.sh` and verified by `verify-orientation-cache-sync.sh`. **Hard ceiling: 35 lines.** The schema permits only seven sections (`Project`, `Trust caveats`, `Counters`, `Active workstreams`, `Rechecks due ≤7 days`, `Branch`, `Pinboard`); all are either static, derived-from-disk, or absent. **No free-form prose anywhere.** Schema drift fails the verifier at `/update-docs` Phase 11b. Writer tiers: ceremony writers (`/workday-start`, `/update-docs`) own full regen; mid-session writers (`/workstream-complete`, `/handoff`) may only write a single line to `## Pinboard` (one-slot, overwrite-or-omit, auto-cleared on next ceremony). The `## Trust caveats` section is filesystem-detector-driven (e.g. presence of any `*.uproject` in repo triggers a UE training-data-trust warning instructing the EM and its delegates to verify via `mcp__project-rag__*` or dispatch the Game Dev Reviewer) — content is owned by the routine, not the writer.
 - **MEMORY.md** trims via auto-memory consolidation.
 
 Quarterly verify file sizes.
@@ -132,7 +132,7 @@ Tier 1-3 attempted: atlas has no page for the payments subsystem, RAG returned n
 Tier 1-3 attempted: wiki guide covers auth at a high level, RAG symbol search returned AuthManager:line 42, Read confirmed it's a thin wrapper; insufficient because the actual auth logic is in the middleware chain and the atlas doesn't map it.
 ```
 
-The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that Patrik and the review-integrator can flag if the rationale is implausible.
+The rationale preamble does three things: it forces the EM to verify that tiers 1–3 were actually tried (not assumed to return nothing), it gives the scout useful negative context (what was already checked), and it produces a visible artifact that the Staff Engineer and the review-integrator can flag if the rationale is implausible.
 
 The rationale preamble is a writing discipline, not an enforced gate — no hook blocks dispatch when it is missing. The earlier telemetry attempt (removed 2026-05-18) tried to measure compliance via regex on dispatch prompts and conflated investigation scouts with the rest of the `Agent` tool surface; the final report at `docs/research/2026-05-18-tier-usage-telemetry-final-report.md` walks through why the measurement was wrong-shaped. Future enforcement should either block dispatch on a missing preamble or not exist as compliance theater.
 
@@ -173,6 +173,10 @@ Before drafting a plan that adds a diagnostic probe / log line / counter to inve
 **Heuristic:** when the question is "why did X happen / what value did Y take / which path was taken at branch Z," check `Saved/Logs/`, `target/debug-logs/`, `.cache/`, `~/.config/<tool>/logs/`, or the equivalent for the tooling in play *before* planning instrumentation. Rebuilds-for-instrumentation are time-expensive (UE TS rebuilds crash the live editor per the holodeck doctrine; native builds churn caches); the log-grep alternative is free. Add the rebuild path only after the existing logs are confirmed silent on the question.
 
 ---
+
+## Procedural-Overrides-Declarative Comprehension Trap
+
+In agent comprehension, procedural-overrides-declarative when the two disagree — declarative doctrine (CLAUDE.md, wiki rule) loses to procedural surface context (a step-by-step script, a skill body) in practice. Verify procedural surfaces against declarative doctrine before trusting what the procedural surface narrates. Apply: when a procedural surface (skill step, hook script, install procedure) conflicts with declarative doctrine (CLAUDE.md rule, wiki principle), treat the procedural surface as drift and resolve it explicitly — don't silently adopt the procedural behavior. (doe_escalation: DoE should assess whether procedural-surface validation belongs as a tip in CLAUDE.md § Verification Before Done.)
 
 ## 11. `~/.claude/projects/` is the canonical per-folder activity record
 

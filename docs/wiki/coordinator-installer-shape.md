@@ -52,7 +52,7 @@ audience you are shapes which flags and flows are operative.
 
 ### Meta-repo operator dogfooding
 
-**Who:** The meta-repo operator (Dónal O'Duffy, or any future operator running
+**Who:** The meta-repo operator (the PM O'Duffy, or any future operator running
 `~/.claude` as their personal coordinator tree) re-running `/coordinator:setup` after
 a percolation cycle that updates plugin content.
 
@@ -78,7 +78,7 @@ a percolation cycle that updates plugin content.
 This file is **operator-local**. It is written by `/coordinator:setup` at runtime and
 read by downstream skills that need the operator's display name. It is **never** a
 publish-target — do not add it to `setup/publish-targets.sh`. (The publishable artifact
-is `plugins/coordinator-claude/coordinator/templates/CLAUDE.local.md.tmpl`; the rendered
+is `plugins/coordinator/templates/CLAUDE.local.md.tmpl`; the rendered
 `~/.claude/CLAUDE.local.md` is the local output.)
 
 ### Schema
@@ -124,7 +124,7 @@ overwrite other operators' configuration on their machines.
 
 ## 3. Render-template primitive
 
-`/coordinator:setup` and `/project-onboarding` both render templates. The shared helper
+`/coordinator:setup` and `/repo-setup` both render templates. The shared helper
 is `render-template.sh` (top-level coordinator `bin/`, not nested under a skill, since
 multiple skills consume it).
 
@@ -156,9 +156,9 @@ The helper's contract is deliberately narrow:
 
 ### Why the narrow contract matters
 
-`project-onboarding/templates/CLAUDE.md.template` originally used `{{IF_GLOBAL}}...{{/IF_GLOBAL}}`
+`repo-setup/templates/CLAUDE.md.template` originally used `{{IF_GLOBAL}}...{{/IF_GLOBAL}}`
 conditional blocks. Preserving the narrow contract required flattening those conditionals
-into `project-onboarding/SKILL.md` driver code (C5 in the implementation plan). This
+into `repo-setup/SKILL.md` driver code (C5 in the implementation plan). This
 was the *cost* of keeping the helper scope-minimal — driver code constructs the appropriate
 value strings before calling the helper, rather than the helper growing a conditional engine.
 The narrow contract prevents that growth path and keeps the helper a dumb substituter.
@@ -220,11 +220,11 @@ trail:
 
 - **Architecture parent:** `2026-05-19-coordinator-installer-redesign.md` (lives in meta-repo
   `docs/plans/`; not bundled with the plugin) — four decisions (D1 installer shape, D2 operator
-  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; Zolí
+  identity, D3 render-template primitive, D4 non-interactive contract); PM ratifications; the Director of Engineering
   review (APPROVED_WITH_NOTES).
 - **Implementation plan:** `2026-05-19-coordinator-installer-redesign-implementation.md` (lives
   in meta-repo `docs/plans/`; not bundled with the plugin) — seven chunks (C1–C7), file-overlap
-  analysis, sequential gate order. Patrik review integrated prior to execution.
+  analysis, sequential gate order. The Staff Engineer review integrated prior to execution.
 
 <!-- Review: code-reviewer — spec_backlink paths were path-shaped but the plans live in meta-repo docs/plans/, not the plugin tree; converted to prose-shaped strings -->
 - **Wiki amendments shipped 2026-05-19 (commit `9527128d`):**
@@ -302,13 +302,13 @@ Structural divergence beyond path substitutions (`coordinator-claude/coordinator
 
 Neither `install.sh` nor `publish.sh` creates or seeds `~/.claude/machine-local/`. The deprecated `publish-targets.sh` fallback activates silently when the directory is absent (no warning). OSS newcomers cannot leverage `machine-local` for coordinator config without a manual bootstrap step. This gap is Medium-severity today; blocking when the deprecated fallback is retired.
 
-Mitigation for now: document the manual step. Long-term fix tracked in `tasks/coordinator-improvement-queue.md`.
+Mitigation for now: document the manual step. Long-term fix tracked in `state/coordinator-improvement-queue.md`.
 
 ### coordinator_whoami package is not installed by any installer path (pre-2026-05-21)
 
-`coordinator_whoami` (Python package under `whoami/`) was completely absent from all operator-facing health-check prose and installer status schema as of the 2026-05-20 audit. Three independent wiring failures: (1) setup didn't install, (2) onboarding was passive, (3) session-start silently skipped on import failure. The gap is closed by `/coordinator:setup Phase 3 Step 6` installing it — but verify this step exists in your version before assuming it runs.
+`coordinator_whoami` (Python package under `whoami/`) was completely absent from all operator-facing health-check prose and installer status schema as of the 2026-05-20 audit. Three independent wiring failures: (1) setup didn't install, (2) onboarding was passive, (3) workstream-start silently skipped on import failure. The gap is closed by `/coordinator:setup Phase 3 Step 6` installing it — but verify this step exists in your version before assuming it runs.
 
-`/session-start` must emit a loud one-line nudge (not silent skip) when `coordinator_whoami` is not importable.
+`/workstream-start` must emit a loud one-line nudge (not silent skip) when `coordinator_whoami` is not importable.
 
 ### Holodeck repo discovery uses wrong env var as primary
 
@@ -318,9 +318,9 @@ CRITICAL audit finding (2026-05-20): `/holodeck:doctor` repo-discovery routing u
 
 HIGH finding: `project-rag:doctor` Step 1 hardcodes `"X:/project-rag"`. Violates "build for someone else's machine." Fix: `$(machine-local get repos.project_rag --default "")`.
 
-### session-start --red-only is vacuous-pass eligible on fresh installs
+### workstream-start --red-only is vacuous-pass eligible on fresh installs
 
-`scan-addon-health.sh --red-only` (session-start) is silent when no sentinel files exist. Fresh-install machine sees the health check pass with no signal that their install has never been doctor'd. `/workday-start` uses `--red-and-stale` (correct for daily triage); the asymmetry is intentional but means fresh-install gaps only surface at daily cadence.
+`scan-addon-health.sh --red-only` (workstream-start) is silent when no sentinel files exist. Fresh-install machine sees the health check pass with no signal that their install has never been doctor'd. `/workday-start` uses `--red-and-stale` (correct for daily triage); the asymmetry is intentional but means fresh-install gaps only surface at daily cadence.
 
 ### Cross-plugin coupling via ~/.claude.json parsing
 

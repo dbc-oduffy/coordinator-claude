@@ -191,7 +191,7 @@ Fixture-substitution test isolation can mask production-state drift: a fixture t
 
 ## 8. Partner-Tool Integration Tests: Ship the Mixed-Result Data, Don't Try to Make It Green
 
-*Source: DroneSim `tasks/lessons.md` (L12, central-promoted 2026-05-29). [universal]*
+*Source: DroneSim `state/lessons.md` (L12, central-promoted 2026-05-29). [universal]*
 
 When running an integration test against a partner team's or upstream tool's release, **producer/consumer failures are the deliverable** — they are the reason the test run exists. Workarounds that make the test appear to pass (installing a missing tool on the fly, editing a config to skip a failing producer, commenting out broken consumers) hide the exact bugs the test was designed to surface.
 
@@ -201,7 +201,7 @@ When running an integration test against a partner team's or upstream tool's rel
 
 ## 9. Don't Combine "Purge Cache" with "First Untested Run"
 
-*Source: DroneSim `tasks/lessons.md` (L14, central-promoted 2026-05-29). [universal]*
+*Source: DroneSim `state/lessons.md` (L14, central-promoted 2026-05-29). [universal]*
 
 A clean-state flag that wipes downstream artifacts (vector store, collection, derived data cache, build intermediates) **before** a producer/consumer chain has been verified to rebuild correctly turns any pipeline failure into a net regression: the previously-working state is gone, and the new state was never proven. This is the test-environment analog of the "don't destroy your backup before the restore is verified" principle.
 
@@ -218,6 +218,14 @@ When a long-lived shared branch suddenly shows a large red residual (100+ failin
 **Sampling two reds and extrapolating mislabels the whole bucket.** Two stale-patch-target reds make the residual look like "concurrent session broke everything"; two genuine-bug reds make it look "all live work." Neither sample is representative of a heterogeneous residual.
 
 **Rule.** Before fixing a large red residual on a refactor-heavy shared branch, **triage by attribution, not by sampling.** Dispatch read-only triage workers to classify *each* red into a bucket — `{stale-patch-target / stale-path / stale-fixture / hygiene-gap / concurrent-active / genuine-bug}` — with a fix-locus and a `safe-now` flag per entry. Then fix only the safe slice and commit per-wave; surface `genuine-bug` and `concurrent-active` separately rather than folding them into the bulk sweep. *Empirical anchor (2026-05-30):* a "97 concurrent reds" first impression triaged to ~91 fixable stale-debt entries + 6 not-ours — the bulk was landed-refactor lag, not the concurrent session's live work. Composes with test-design §26 ("pre-existing failure" is provisional — a recently-landed refactor can have created it), §43 (collection errors + slow-marking mask large populations — fix collection first, then attribute), and §56 (source-migrate without test-migrate leaves an import wall — a major stale-path source).
+
+## scope="session" autouse fixture bleeds global state into every later file
+
+A `scope="session"` autouse fixture that mutates global state (`sys.modules`, `os.environ`) restores only at session END — it bleeds into every later file in the session. A later test then trips on the leaked state. Use `scope="module"` for global-state mutators. Also: a test driving real lifespan must pin ALL env knobs via monkeypatch, not inherit ambient state. Apply: audit `scope="session"` fixtures that mutate global state and downgrade to `scope="module"`.
+
+## repro Windows daemon spawn bugs under production parent context (nohup/detached) not foreground bash
+
+Test-environment console does not equal production-environment console for child-process spawn flags. A Windows daemon bug that only manifests in production (hidden console, no stdin) may not reproduce in a foreground bash test. Always repro Windows daemon spawn bugs under production parent context: use `nohup`, `START /B`, or a fully-detached spawn wrapper to replicate the real launch conditions. Apply: any Windows daemon spawn-flag bug investigation must include a repro under production parent context before concluding the fix works.
 
 ## Related
 

@@ -9,7 +9,7 @@ argument-hint: "[optional context]"
 
 Close out a finished vein of work: capture lessons and update documentation to reflect completion. No handoff — this is for work that's *done*, not being passed forward.
 
-> **`/workstream-complete` and `/handoff` are mutually exclusive — never combined.** `/workstream-complete` caps a workstream; `/handoff` passes one on. A session terminates via exactly one of them (or via `/workday-complete` / `/merge-to-main` / commit-and-stop). If the work is in-flight and needs a successor, STOP — invoke `/handoff` instead and do not run this skill. If you are tempted to run both ("end the session AND write a handoff"), the underlying state is two workstreams: end the finished one here, hand off the in-flight one separately with `/handoff`, framing which is which.
+> **`/workstream-complete` and `/handoff` are mutually exclusive.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP and invoke `/handoff` instead. Two workstreams (one done, one in-flight) → end each separately, naming which is which. → coordinator CLAUDE.md § Handoff Lineage.
 
 ## Instructions
 
@@ -255,14 +255,7 @@ loe:
 <One paragraph prose summary: what shipped, key decisions, anything notable.>
 ```
 
-Frontmatter field semantics:
-- `nature_inferred: true` when AUTO-INFER Sonnet path was used; `false` when `COMPLETION_NATURE` env var was set.
-- `chain_terminal: true` when opened via `/pickup` and ending via `/workstream-complete`; `false` for single-session work.
-- `authored_by:` is `$em_sid` if resolvable; `null` otherwise.
-- `status: pending-release` for all new entries.
-- `loe:` populated from Step 2.6.5a; chain-terminal sessions carry aggregate values + chain-summary fields from `aggregate-chain-loe.sh`; single-session entries carry only the four base fields. `loe.tshirt` null = script unavailable.
-
-**No separate collision handling needed** — `<sid6>` ensures uniqueness by construction.
+Frontmatter semantics: `nature_inferred` true on AUTO-INFER, false on `COMPLETION_NATURE` env override; `chain_terminal` true on `/pickup`→`/workstream-complete`; `authored_by` = `$em_sid` or null; `status: pending-release` always; `loe` from Step 2.6.5a (chain-terminal adds aggregate + chain-summary fields; `loe.tshirt: null` = script unavailable). `<sid6>` ensures uniqueness — no collision handling needed.
 
 #### Step 2.6.7 — Judgment filter
 
@@ -285,13 +278,7 @@ When the session's work resolves a cross-repo memo in **this repo's** `cross-rep
 
 ### Step 2.66: Sender-side — do NOT re-surface already-sent memos
 
-**Counterpart to Step 2.65, sender-side.** If this session (or any earlier session in the chain) ran `cross-repo-memo` or made a doctrine-seeding direct write into a sibling repo, **do NOT list those memos / seeds as "pending PM-relay" or "pending your action" in the Final Summary, in any `Flag to PM:` block, or in a follow-on `/handoff` body.** The PM was handed the receiver path once at send time — that is the relay. The receiving repo's `/workday-start` Step 1.45 inbox surfacing is the canonical channel; staleness is already flagged there.
-
-**Why:** sender-side knowledge of memo status decays fast; the receiver's inbox maintains it authoritatively. Trust the channel.
-
-Banned phrasings: *"PM-relays pending your action"*, *"Cross-repo memo X awaiting relay"*, *"doctrine-seed Y pending sibling-EM action."* The only legitimate sender-side mention is at the moment the CLI runs; after that turn, the memo is the receiver's surface.
-
-→ `docs/wiki/cross-repo-communication.md` § Don't re-nag the PM about already-sent memos.
+If this session sent a `cross-repo-memo` or doctrine-seeded a sibling repo, **do NOT list it as "pending PM-relay" or "pending your action" in the Final Summary, `Flag to PM:`, or any follow-on `/handoff`.** The receiver's inbox is the canonical channel; sender-side status knowledge decays. Banned phrasings: *"PM-relays pending your action"*, *"Cross-repo memo X awaiting relay"*, *"doctrine-seed Y pending sibling-EM action."* → `docs/wiki/cross-repo-communication.md` § Don't re-nag the PM about already-sent memos.
 
 ### Step 2.7: Archive Predecessor Handoff (if applicable)
 
@@ -308,7 +295,7 @@ When this session was opened with `/pickup`, the consumed handoff still lives in
 After Step 2.7, regenerate `state/handoff-tracker.md`:
 
 ```bash
-node plugins/coordinator/bin/render-handoff-tracker.js
+node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js
 ```
 
 Skip silently if the script is absent or fails. Stage `state/handoff-tracker.md` in Step 3's scoped commit.
@@ -322,7 +309,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule (the only cache mutation permitted here):** if this session surfaced something the next session start MUST see, and it would otherwise be lost (a transient surface gotcha; a critical blocker context; an environment-specific caveat that fooled this session and will fool the next), write exactly one line to `## Pinboard` via the routine:
 
    ```bash
-   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+   bash ~/.claude/plugins/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker workstream-complete \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
@@ -348,7 +335,7 @@ Assess whether this session's diff warrants a code review pass before committing
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
-| **Big-diff brightline** (any one of: ≥500 gross LOC (insertions+deletions), OR ≥8 files changed, OR ≥3 distinct surfaces — e.g. bash + JSON + tests + doctrine; ≥5 commits is a corroborating signal, not a trigger on its own) | **Partitioned `code-reviewer` dispatches — mandatory, not chain-end-gated.** See § Partitioning large surfaces |
+| **Big-diff brightline** (any one of: ≥500 gross LOC (insertions+deletions), OR ≥5 commits, OR ≥4 distinct surfaces — e.g. bash + JSON + tests + doctrine. File count is reported for context but is NOT a gate; mass-renames touch many files at zero review-cost.) | **Partitioned `code-reviewer` dispatches — mandatory, not chain-end-gated.** See § Partitioning large surfaces |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
 | Chain-end AND chain diff exceeds the big-diff brightline above | **Partitioned `code-reviewer` dispatches**. Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at workstream-complete |
 
@@ -356,12 +343,12 @@ Assess whether this session's diff warrants a code review pass before committing
 
 **Brightline gate — mechanical, before picking a row.** Run `bin/review-brightline-gate.sh [<range>]`; verdict `PARTITION-MANDATORY` overrides row choice. Single-reviewer above the brightline is a doctrine violation — wiki § Worked counterexample.
 
-**Anchored-ranges note:** the small-side anchor (50 LOC) is calibration — shape can adjust. **Big-side brightlines (≥500 gross LOC / ≥8 files / ≥3 surfaces) are hard floors.**
+**Anchored-ranges note:** the small-side anchor (50 LOC) is calibration — shape can adjust. **Big-side brightlines (≥500 gross LOC / ≥5 commits / ≥4 surfaces) are hard floors.** (Recalibrated 2026-06-09 — files count dropped as a gate, commits added, surfaces bumped 3→4. Rationale: file count is blunt — mass-renames touch many files at zero review-cost — while commit count tracks independent logical slices, which is what slicing operates on; 3 surfaces fired on routine hook-fixes (shell+test+wiki), 4 demands genuine breadth.)
 
 **Partitioning large surfaces across multiple `code-reviewer` dispatches (rows 4 and 6 — the two partition-mandatory rows):**
 Fan out into parallel `code-reviewer` dispatches over coherent slices (by package boundary, concern, or directory cluster) — no lens-orthogonality manifest or synthesizer required. Mechanics:
 1. Each `code-reviewer` prompt names its slice explicitly (paths or commit subset) and an "out of scope: the rest of the chain diff" line.
-2. **Dispatch in parallel; integrators are 1:1 with reviewer slices — one `coordinator:review-integrator` per `code-reviewer` slice, dispatched in parallel, each scoped to the same slice paths as its source reviewer.** No collation into a single union-integrator. The reasoning is structural: reviewers were partitioned because one Sonnet couldn't fit the whole surface; the same context-fit constraint binds the integrator. A union-integrator inherits N reviewers' findings against N disjoint file sets and the merged scope is exactly what the slicing avoided — see `docs/wiki/review-integration-doctrine.md` § Integrator dispatches are 1:1 with reviewer slices.
+2. **Dispatch in parallel; integrators are 1:1 with reviewer slices — one `coordinator:review-integrator` per `code-reviewer` slice, dispatched in parallel, each scoped to the same slice paths as its source reviewer.** No collation into a single union-integrator. **Mechanism:** `bin/fan-out-integrator.sh` (input: TSV of `<slice-id>TAB<reviewer-sidecar-path>TAB<scope-files>`; output: N parallel `coordinator:review-integrator` dispatch blocks). Manual N-prompt construction is permitted only when the script is unavailable — collation is never permitted. The reasoning is structural: reviewers were partitioned because one Sonnet couldn't fit the whole surface; the same context-fit constraint binds the integrator. A union-integrator inherits N reviewers' findings against N disjoint file sets and the merged scope is exactly what the slicing avoided — see `docs/wiki/review-integration-doctrine.md` § Integrator dispatches are 1:1 with reviewer slices.
 3. Trail write uses `--reviewer code-reviewer`; record partition shape in the wrap-up sentence.
 4. Post-review the Staff Engineer-escalation criteria apply to the **combined** finding set. No upper bound on partition count — the constraint is per-reviewer context fit, which (per item 2) is also the constraint on per-integrator scope.
 
@@ -369,8 +356,7 @@ Fan out into parallel `code-reviewer` dispatches over coherent slices (by packag
 
 The weekly `/workweek-complete` Step 7 merge-gate is a separate, independent ceremony — do not skip workstream-complete review and "surface to PM for workweek."
 
-**Anti-ceremony-bias tripwire (`code-reviewer` floor — both directions):**
-> "Plan-time and post-implementation review catch different defect classes — complementary, not substitutional. If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run it. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on. If you're drafting a waiving-with-rationale sentence on a row-3+ session, the rationale is the tell. EM keeps waive authority on genuinely shallow row-3 diffs; the test is the diff shape, not the row number. → `docs/wiki/workstream-complete-review.md` § why-post-implementation-review-is-not-redundant."
+**Anti-ceremony-bias tripwire:** `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on. Drafting a "waive with rationale" sentence on a row-3+ session is the tell — run the review. EM keeps waive authority on genuinely shallow row-3 diffs; the test is diff shape, not row number. → `docs/wiki/workstream-complete-review.md` § Why post-implementation review is not redundant with plan-time review.
 
 **Chain-end detection:**
 - Resolve session-id: `$CLAUDE_CODE_SESSION_ID` env var first (platform-injected, unclobberable); `.git/coordinator-sessions/.current-session-id` sentinel fallback only when the env var is empty.
@@ -388,10 +374,9 @@ When work is governed by a spec/plan/stub, name the spec path in the `code-revie
 
 Negative-spec: if no spec governs this session, omit the spec section from the brief — do not invent one. No spec named ⇒ reviewer skips the lens entirely.
 
-**Findings disposition — fix everything, including nitpicks:**
-> "If a finding is worth surfacing, it is worth fixing now. The diff is fresh, the EM has context, and the cost to fix at workstream-complete is a fraction of what it costs three weeks later in a debugging session. A reviewer verdict of `OK` with three 'below blocking threshold' observations is NOT a license to commit and move on — those observations are the review output, and they get fixed in this session before commit. This applies symmetrically across severities: P0/P1/P2/nitpick/observation/note/'consider' — all fold in via `coordinator:review-integrator` before the marker-trail write. The only legitimate skip path is a real tradeoff (cost/value, scope/polish, architectural direction) that escalates to PM per § Reviewer findings — apply, don't ratify in `coordinator/CLAUDE.md`. 'Recorded below blocking threshold' in the EM's wrap-up sentence is the tell that this rule was skipped. Re-open the diff, fold the findings, then write the marker."
+**Findings disposition — fix everything, including nitpicks.** Every severity (P0/P1/P2/nitpick/observation/'consider') folds in via `coordinator:review-integrator` before the marker-trail write. "Recorded below blocking threshold" in the wrap-up is the tell that this rule was skipped — re-open and fold. Only legitimate skip: real tradeoff → escalate to PM (coordinator CLAUDE.md § Reviewer findings — apply, don't ratify).
 
-After integration, the trail's `--verdict` field still records the reviewer's original verdict (`ok` / `warn` / `blocked`) — verdict tracks what the reviewer found on the pre-fix diff, not what shipped. Downstream load-shedding consumes the verdict; the trail is not a fix-completion log.
+The trail's `--verdict` field records the reviewer's pre-fix verdict (`ok`/`warn`/`blocked`), not what shipped — downstream load-shedding consumes the verdict; the trail is not a fix-completion log.
 
 **Marker write:** after review integration completes, invoke:
 ```bash
@@ -417,15 +402,15 @@ After integration, the trail's `--verdict` field still records the reviewer's or
 
 **Fires on big workstreams** — same trigger as Step 2.9 rows 3/4/5/6. Skip silently on row-1/row-2 trivial sessions.
 
-Step 2.9 is the *line-level* lens; these are the *cross-cutting* lenses. Run as a quick self-check (not a reviewer dispatch unless a lens surfaces something needing depth):
+Step 2.9 is the *line-level* lens; these are *cross-cutting*. Quick self-check (not a reviewer dispatch unless depth needed):
 
-1. **Install-surface completeness.** Did this session write state outside source code (`machine-local/`, installer scripts, sentinel files, registry entries, env config)? If yes, confirm the clean-install path reproduces it — local green tests are not evidence a fresh machine installs the work. → global CLAUDE.md § Install-surface completeness; `docs/wiki/install-surface-completeness.md`.
-2. **Contact-point / convention drift.** Did this session add a convention, tripwire, hook, or agent-facing surface? Confirm every contact-point was updated in the same workstream (onboarding / workstream-start / workstream-complete / hook / canonical artifact). → CLAUDE.md § Adding a Convention to the Coordinator System.
-3. **Doc + wiki alignment.** Big changes age `docs/README.md`, `docs/wiki/`, and any Atlas/narrative index. Confirm stale references are repointed (not duplicated). → CLAUDE.md § Documentation and Knowledge System.
-4. **Lessons + queue capture.** Did the session surface a pattern worth promoting? Capture per Step 1/1.2; route universal lessons to the central queue. (Reinforces, does not duplicate, Step 1.)
-5. **Security / secret-exposure lens.** Did the diff touch auth, secrets, external API calls, or new dependencies? If yes, surface to the `security-audit-worker` / `dep-cve-auditor` reviewer-routed workers per CLAUDE.md § Reviewer-Routed Workers (fuller routing protocol: `docs/wiki/reviewer-routed-workers.md`) — do not self-assess novel auth/secret surfaces.
+1. **Install-surface completeness** — wrote state outside source (`machine-local/`, installer scripts, sentinels, env)? Confirm clean-install reproduces it. → `docs/wiki/install-surface-completeness.md`.
+2. **Contact-point / convention drift** — added a convention, tripwire, hook, or agent-facing surface? Every contact-point updated in this workstream. → CLAUDE.md § Adding a Convention.
+3. **Doc + wiki alignment** — big changes age `docs/README.md`, wiki, atlas; repoint stale refs (don't duplicate).
+4. **Lessons + queue capture** — pattern worth promoting? Per Step 1/1.2; universals to central queue.
+5. **Security / secret-exposure** — touched auth, secrets, external APIs, new deps? Route to `security-audit-worker` / `dep-cve-auditor` (CLAUDE.md § Reviewer-Routed Workers; `docs/wiki/reviewer-routed-workers.md`) — don't self-assess.
 
-**Output shape:** a short checklist in the Step 4 Final Summary — one line per lens, `clear` / `<one-line finding + disposition>`. Findings that are tradeoff-free corrections fold in this session (per CLAUDE.md § Reviewer findings — apply, don't ratify); real tradeoffs surface to PM. The lenses are an *offer-shaped self-audit*, not a blocking gate — but on a big workstream, "all clear" must be an affirmative statement, not a silent skip.
+**Output:** one-line-per-lens checklist in Step 4 summary (`clear` / `<finding + disposition>`). Tradeoff-free corrections fold in; real tradeoffs surface to PM. "All clear" must be affirmative, not silent.
 
 ### Step 3: Commit + Verify Remote
 
@@ -440,9 +425,7 @@ Step 2.9 is the *line-level* lens; these are the *cross-cutting* lenses. Run as 
   2. **Stash-with-provenance** if it is incoherent or risky to commit: `git stash push -u -m "orphaned-WT <YYYY-MM-DD> workstream-complete: <path> — left by unknown session" -- <path>`. Name the stash so the next session can find and adjudicate it (per CLAUDE.md "Probe edits in `git stash push -u` / `pop`").
   3. **Explicit "leave it owned by X"** only when you can now name the owner — record a one-line note (in the handoff body / session summary) stating which session/workstream owns it, converting it from case (c) to case (b).
 
-The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are a special case (Edit-tool atomic-write crash, per CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash them blind.
-
-**Note:** This gate is inline (not a snippet) across all three session terminators (workstream-complete, handoff, workday-complete) because the per-surface variation (`<terminating action>`) is intentional — snippet-sync is for byte-identical text. → `ceremony-calibration.md`.
+The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files = Edit-tool atomic-write crash (CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash blind.
 
 1. **Stage only paths this session touched — never `git add -A`.** Name each path explicitly: `git add <path1> <path2> ...`. Typical set: `state/lessons.md`, `docs/plans/<feature>.md` (if Step 2.4 ran), `archive/completed/YYYY-MM/<entry>.md`, `docs/project-tracker.md`, action-items, `docs/README.md`, `state/handoff-tracker.md` (if Step 2.75 ran). Unfamiliar dirty files → Step 3.0 gate first; "leave alone" is only correct for case (b) named-owner files.
 2. Commit with a lightweight message: `"workstream-complete quick-save"`. (The post-commit hook will auto-push on work/feature branches.)
@@ -485,24 +468,13 @@ bash check-acceptance-oracle.sh <plan-path>
 ```
 
 - **Exit 0 (all gate-bound rows green or cited-resolved):** Log the verdict. _"Acceptance oracle: all gate-bound tests pass — workstream may complete."_ Continue to Step 4.
-- **Non-zero exit (any gate-bound row red or unresolved):** Hard-block workstream completion:
-  ```
-  Workstream-complete blocked: acceptance oracle has red or unresolved gate-bound tests.
+- **Non-zero exit (any gate-bound row red or unresolved):** Hard-block. Print: _"Workstream-complete blocked: acceptance oracle has red/unresolved gate-bound tests."_ + the script verdict. Remediation: fix tests and re-run, OR mark deviations via `## Deviations` + `Status → shipped-differently` with a `cited:` row, OR set `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` (exceptional — `cited:` rows are the routine accommodation). Stop. Downstream `/merge-to-main` trusts this seam.
 
-  <verdict from check-acceptance-oracle.sh>
+**If plan path resolved but no bindable `## Acceptance Criteria` table** (old-form plan): skip-with-offer: _"Plan found but no bindable acceptance-criteria table — oracle gate skipped. Consider upgrading (`docs/wiki/writing-plans.md` § Acceptance Oracle)."_
 
-  Fix the failing tests and re-run /workstream-complete, mark deviations via the
-  ## Deviations table + Status → shipped-differently with a cited: row, or set
-  COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1 to bypass (exceptional use only — the
-  routine accommodation is cited: rows, not this override).
-  ```
-  Stop. Do NOT mark the workstream complete; downstream `/merge-to-main` will trust this seam.
+**If no oracle-bearing plan was involved** (doctrine/sweep/memo-action without a reviewed plan): skip silently. Daily-rollups and non-plan workstreams have nothing to gate on.
 
-**If plan path resolved but no bindable `## Acceptance Criteria` table** (old-form plan): skip-with-offer: _"Plan found but no bindable acceptance-criteria table — oracle gate skipped. Consider upgrading (`docs/wiki/writing-plans.md` § Acceptance Oracle)."_ Continue to Step 4.
-
-**If no oracle-bearing plan was involved** (sessions where work was doctrine/sweep/memo-action without a reviewed plan in frame): skip silently. Daily-rollup branches and non-plan workstreams have nothing to gate on.
-
-**Why this is the authoritative surface:** `/merge-to-main` operates per-branch, and branches aggregate workstreams + doctrine edits + archive sweeps — no single AC table governs the union. The oracle is load-bearing where one plan is in frame; that's here.
+**Why authoritative here, not at merge:** `/merge-to-main` aggregates workstreams + doctrine edits + sweeps — no single AC table governs that union. The oracle is load-bearing where one plan is in frame.
 
 ### Step 4: Final Summary
 

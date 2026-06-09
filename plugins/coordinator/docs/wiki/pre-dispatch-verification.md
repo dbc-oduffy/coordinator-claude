@@ -46,7 +46,7 @@ A filter, predicate, or invariant applied at *one* writer of a shared store sile
 
 **Concrete failure (`graph.db.classes`, 2026-05-26 project-rag):** a Python/TS language-isolation filter was applied to the main `extract_cpp` INSERT and the `_legacy_sqlite_path` mirror, but a sibling writer `ingest_native_classes` (reached via `extract_cross_layer_edges`, a different call path) kept stamping `.py` rows as `language='cpp'`. The classes table has ≥4 independent writers; the fix covered two. Code-review caught the reintroduced leak.
 
-**Rule:** before codifying a predicate on any shared store, `grep -rn "INTO <table>"` (or the write-API equivalent) across every producer/consumer/mirror module and fix **every** writer. This is the concrete instance of `coordinator/CLAUDE.md` § Codebase Investigation "grep every writer of a path before codifying its role." Off-the-main-wave writers (cross-layer passes, legacy mirrors, background ingest) are the ones a single-producer mental model misses.
+**Rule:** before codifying a predicate on any shared store, `grep -rn "INTO <table>"` (or the write-API equivalent) across every producer/consumer/mirror module and fix **every** writer. Also: pre-delete import-graph verification catches inventory mis-classification that plan-review misses — grep every importer of a module before classifying it as "not used." Retiring an installed subsystem exposes orphaned tests, docs, and recovery-mappings that a `grep-zero + --collect-only` gate surfaces. This is the concrete instance of `coordinator/CLAUDE.md` § Codebase Investigation "grep every writer of a path before codifying its role." Off-the-main-wave writers (cross-layer passes, legacy mirrors, background ingest) are the ones a single-producer mental model misses.
 
 ## Enumerate the Full Caller Graph BEFORE Agreeing a Delete-Sweep Scope with a Peer EM
 
@@ -72,7 +72,7 @@ A single-pattern grep catches **<80%** of a rename's references — recurring ac
 
 Substrate-grep must check the **exact literal** as it appears on the asserting line — not a paraphrase, not the human-readable concept name. A false claim that grepped against a paraphrase sailed through three pre-flights and one staff reviewer (2026-05-19) because every check matched the *idea* and none matched the *string*.
 
-**Substrate citations require direct file read, not scout characterization.** "Scaffolding is present" is not the same as "specific hookspec X is declared." Propagating scout-level framing ("the registration scaffold exists") into specific-name claims (`project_rag_register_schema`, `CorpusProvider`, `SCHEMA_VERSION`) without grepping the cited file is the recurring failure: all three of those names were absent from their cited files, caught by the Staff Engineer at review rather than at plan-write. Rule: every hookspec name, constant name, and file:line citation in a plan gets `grep`-verified against the cited file before the plan ships to review. Source: 2026-05-27 project-rag-ue-addon.
+**Substrate citations require direct file read, not scout characterization.** "Scaffolding is present" is not the same as "specific hookspec X is declared." Also: command-spec / doc markdown can be test-pinned SSOT — grep the tests before trimming any spec-shaped prose, gate on the contract suite after; MOVE-VERBATIM and DO-NOT-HAND-EDIT blocks are untouchable. Propagating scout-level framing ("the registration scaffold exists") into specific-name claims (`project_rag_register_schema`, `CorpusProvider`, `SCHEMA_VERSION`) without grepping the cited file is the recurring failure: all three of those names were absent from their cited files, caught by the Staff Engineer at review rather than at plan-write. Rule: every hookspec name, constant name, and file:line citation in a plan gets `grep`-verified against the cited file before the plan ships to review. Source: 2026-05-27 project-rag-ue-addon.
 
 **Corollaries:**
 
@@ -179,6 +179,22 @@ Prior-art-checker conflicts, wiki citations, and peer-reviewer findings are fram
 *Source: ~/.claude, 2026-05-30. [universal]*
 
 ## Related
+
+## vendored-fork line refs are not upstream line refs
+
+Vendored-fork line refs are not upstream line refs — grep HEAD by symbol before dispatching the executor. When a memo or plan cites `path/to/file.py:123`, that line number may belong to a vendored or forked copy whose line numbers diverged from upstream. Grep by symbol name (function, class, constant) against the repo's actual HEAD to find the real location before writing the executor brief.
+
+## coverage-gate tests must be named in every executor brief that adds the gated artifact
+
+Coverage-gate tests (ALLOW_LIST checks, registry-sync tests, count-parity tests) must be explicitly named in every executor brief that adds the gated artifact. If the brief doesn't name the coverage gate, the executor may satisfy its local done-criteria while leaving the coverage test red. Apply: before dispatching, grep for `ALLOW_LIST`, `registry_sync`, and count-constant tests; list any that gate the artifact being added in the `done-criteria` block of the brief.
+
+## Bundle plans at high-concurrency moments get pre-empted — verify before dispatching
+
+Bundle plans authored during high-concurrency moments (multiple concurrent EMs on the shared bus) can be organically pre-empted by concurrent landings before the bundle is dispatched. At `/execute-plan` Phase 1, `git log` recent commits against the bundle's named items and remove already-completed items before dispatching. Apply: always run `git log --oneline -20` and `ls docs/plans/<today's-date>*` before dispatching an execute-plan wave.
+
+## fix-spec's "preferred mechanism" is hypothesis — verify on disk before coding
+
+A fix-spec's "preferred mechanism" is a hypothesis about the fix shape — verify it against the actual on-disk code before coding. The real cause may reshape the fix significantly. When a synthetic fixture cannot reproduce the real trigger, extract the logic into a testable helper that accepts the real-world input. Apply: grep the cited fix locus and read 30 lines of context before treating the spec's fix shape as authoritative.
 
 - `coordinator/CLAUDE.md` § Pre-Dispatch Verification — the canonical bullet list.
 - `docs/wiki/tiered-context-loading.md` — what to read before dispatching.

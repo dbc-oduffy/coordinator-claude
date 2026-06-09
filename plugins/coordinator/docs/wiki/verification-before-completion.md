@@ -330,6 +330,18 @@ Separately: a harness that *runs* is not a harness that *answers*. Before trusti
 
 ## The Bottom Line
 
+## verify executor output on disk even when report claims already-present
+
+Verify executor output on disk even when the report says "no work needed / already present." Executor self-reports are unreliable — an executor that detects existing content may misidentify it or may have stale context. `git diff --stat` and `ls -la <expected-path>` are the authoritative checks. Apply: after every executor return, regardless of the executor's narrative, verify at least one expected artifact exists on disk before treating the executor's work as done.
+
+## blocked classification means indeterminate — oracle never ran
+
+A `blocked` classification from a fail-loud build/verify gate means the oracle never ran — not that the build failed. `blocked` is indeterminate; `failed` is a verdict. Also: UBT "up to date" in ~1s after an edit means the file's mtime was not changed — `touch` the file to force real recompile. Apply: before treating a `blocked` classification as a failure, check whether the oracle actually executed; re-run with forced inputs if needed.
+
+## Green-but-SKIPPED is not verified — run the integration the skip masks
+
+Green-but-SKIPPED test runs are not verified — they confirm the skip condition fired, not that the implementation works. Run the integration the skip masks, especially on the producer's own platform. Apply: before declaring a workstream done, grep for `pytest.mark.skipif` and `@pytest.mark.skip` in the test suite; run any that were skipped due to platform or environment conditions in the actual target environment.
+
 **No shortcuts for verification.**
 
 Run the command. Read the output. THEN claim the result.

@@ -63,6 +63,10 @@ It does NOT apply when subagents write to entirely separate files with no inter-
    no orphaned references."
 5. Integrate seam reviewer's findings before shipping.
 
+## Multiple parallel integrators on different file-chunks — file-scope hard-fences required
+
+Multiple parallel review-integrators on different file-chunks work cleanly IF integrator briefs name explicit file ownership AND forward overlapping findings rather than touching out-of-scope files. File-scope hard-fences in each integrator brief eliminate cross-integrator stomp; overlapping findings (a finding in chunk A that also affects chunk B) must escalate to EM-side fold rather than the integrator writing out-of-scope files. Apply: for any parallel integrator dispatch, include a "Files this integrator owns: ..." block and a "Forward out-of-scope overlapping findings to EM" instruction.
+
 ## Related
 
 - `coordinator/CLAUDE.md` § Review Sequencing — pointer to this wiki

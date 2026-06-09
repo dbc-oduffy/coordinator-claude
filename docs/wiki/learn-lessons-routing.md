@@ -18,7 +18,7 @@ pointer. The default destination for a captured lesson is **a wiki guide** — e
 one (`wiki-append`) or a new one (`wiki-new`). CLAUDE.md and pointer-only additions are the
 exceptions, not the rule.
 
-**Why.** CLAUDE.md is load-bearing at every session boot. It is not a knowledge base. Every
+**Why.** CLAUDE.md is load-bearing at every session start. It is not a knowledge base. Every
 addition — even a one-line pointer — competes for finite boot-time attention. A plethora of
 pointers is the same anti-pattern as a plethora of inline rules: both turn CLAUDE.md into an
 index of indexes that nobody reads carefully.
@@ -61,19 +61,19 @@ The EM/consolidator treats any record arriving with either change-kind as a rout
 and downgrades it to the corresponding `wiki-*` before the record reaches PM surfacing.
 DoE-authored exceptions (a separate downstream plan, not lifted from worker output) require
 all four justification checks answered inline. **Do NOT auto-apply `doctrine-edit` or
-`memory-pointer` records, regardless of mode** — they always require DoE authoring, Patrik
+`memory-pointer` records, regardless of mode** — they always require DoE authoring, the Staff Engineer
 review, and PM surface.
 
 ### DoE-only adjudication on CLAUDE.md edits
 
-CLAUDE.md loads at every session boot across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
+CLAUDE.md loads at every session start across every project — blast radius is maximum. The receive-side gate must match that asymmetry.
 
-**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (Zolí or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
+**Workers / scouts MUST NOT propose `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** These are reserved for the DoE (the Director of Engineering or the EM at Claude Central with explicit DoE authority). Worker records using either change-kind are downgraded by the consolidator before PM surfacing:
 
 - Worker sets `doe_escalation: true` on a `wiki-append`/`wiki-new` record with a one-line `escalation_reason:`. The wiki edit lands regardless — escalation is a DoE attention flag, not a blocker.
-- If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by Patrik, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
+- If the DoE accepts the escalation, they author a separate `doctrine-edit` plan (NOT lifted from worker output), reviewed by the Staff Engineer, gated on the four-check justification gate + char-budget pre-flight. Many gates before any CLAUDE.md byte changes.
 
-EMs proposing CLAUDE.md targets in `tasks/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
+EMs proposing CLAUDE.md targets in `state/lessons.md` is expected and inevitable — the load-bearing gate is on the receive side, not at capture time. The four-check justification gate still applies to DoE-authored proposals; the DoE does not bypass it.
 
 ### Pointer-pollution bound
 
@@ -114,7 +114,7 @@ and downgraded by the consolidator.
 
 | Kind | Meaning | Apply mechanism |
 |---|---|---|
-| `doctrine-edit` | **DoE-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for DoE authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | DoE-authored plan → Patrik review → executor; PM surface mandatory |
+| `doctrine-edit` | **DoE-ONLY** — edit a CLAUDE.md at a named section. Workers MUST NOT propose; reserved for DoE authoring after escalation review. Must clear the four-check justification gate AND char-budget pre-flight (§ Routing Bias). | DoE-authored plan → the Staff Engineer review → executor; PM surface mandatory |
 | `agent-prompt-edit` | Edit a specific agent's prompt file | Plan → reviewer → executor |
 | `hook-edit` | Edit a hook script | Plan → reviewer → executor |
 | `script-edit` | Edit a helper script in `bin/` | Plan → reviewer → executor |
@@ -158,7 +158,7 @@ After the justification gate clears, before dispatching a `doctrine-edit` whose 
 | 38,001 – 40,000 | **Gate: identify a demote target first.** The plan must name a specific section to compress to a wiki pointer (or an existing wiki to extend) and include the demote in the same plan. No PM ratification needed if the demote is mechanical (existing wiki carries the topic); surface to PM if creating a new wiki. |
 | > 40,000 | **Hard refuse.** The pre-commit hook (`validate-commit.sh` Check 7) will block the commit anyway. Surface to PM with current size, proposed addition size, and the top-3 demote candidates ranked by char savings. |
 
-The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator-claude/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
+The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coordinator/CLAUDE.md`, or any project-level `CLAUDE.md` — the 40K limit is per-file, set by Claude Code's perf warning.
 
 **Rationale.** The two trims in 2026-05-06/07 both held; doctrine creep refilled the budget through ~25 small additions. The hook catches the symptom; this gate catches the cause at the only step where coordinator-doctrine additions are routed (`doctrine-edit` is the closed-enum kind for CLAUDE.md edits per Phase 0 taxonomy).
 
@@ -168,20 +168,20 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
   worker records arriving with either change-kind are downgraded to `wiki-*` +
   `doe_escalation: true` at consolidation. Only DoE-authored plans (drafted after reviewing
   the escalation bucket, clearing the four-check justification gate, and clearing the
-  char-budget pre-flight) reach this dispatch step. Plan → Patrik review → integrator →
+  char-budget pre-flight) reach this dispatch step. Plan → the Staff Engineer review → integrator →
   executor.
 - `wiki-new`, `agent-prompt-edit`, `hook-edit`, `script-edit` → write focused plan, dispatch
-  Patrik for review, integrator on findings, executor.
+  the Staff Engineer for review, integrator on findings, executor.
 - `snippet-sync-update` → edit snippet, run `bin/verify-<snippet>-sync.sh --fix`, commit all touched.
 - `wiki-append`, `retag-local`, `discard` → direct executor or EM edit.
 - `strip-local` → **DoE-applied in the same central run** (cross-repo write from `~/.claude`
   into the sibling repo), gated on the central wiki commit SHA landing first. Procedure per
   record:
   1. `cd <sibling-repo> && git pull --ff-only`. If pull is not fast-forward or working tree
-     is dirty in `tasks/lessons.md`, **skip this strip and emit a one-line warning** —
+     is dirty in `state/lessons.md`, **skip this strip and emit a one-line warning** —
      don't fight a concurrent EM; the sibling's local-mode Phase 4.5 age-sweep is the
      defence-in-depth that catches residue.
-  2. Re-Read `tasks/lessons.md` and **match the target entry by body content** against the
+  2. Re-Read `state/lessons.md` and **match the target entry by body content** against the
      extracted record from the Phase 2 extraction (`source:` body), NOT by line number.
      The `<shortname>-L<N>` id reflects the line at extraction time; a concurrent EM
      session may have inserted/removed earlier entries since. Same drift-safe pattern as
@@ -189,7 +189,7 @@ The same gate applies whether the target is `~/.claude/CLAUDE.md`, `plugins/coor
   3. If the content match is unambiguous (single hit), Edit out the entry block.
      If zero hits (entry already removed by a sibling EM) or multiple hits (file got weird),
      skip with a one-line warning.
-  4. Commit with explicit pathspec: `git add -- tasks/lessons.md && git commit -m
+  4. Commit with explicit pathspec: `git add -- state/lessons.md && git commit -m
      "learn-lessons(central): strip <id> — promoted in <central-SHA>"`. Never `git add -A`.
 
   The sibling's local mode is no longer the primary mechanism for retiring promoted
@@ -219,18 +219,18 @@ automatically vs. require PM surfacing.
 - `agent-prompt-edit`, `hook-edit`, `script-edit`, `snippet-sync-update`
 - `project-structural` outside the same repo
 
-`strip-local` is **NOT** in the PM-surface bucket — it auto-applies as the second half of the central promotion chain (see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md`). Surfacing a strip-local to the PM is process theater: the PM has already authorized the central promotion that obsoletes the source-repo entry, and every day the entry remains in source bloats `lessons.md` for `/learn-lessons`, the central strip-pass, and `/session-start` (sibling files have hit 200–350 KB in roughly a month of high-volume capture).
+`strip-local` is **NOT** in the PM-surface bucket — it auto-applies as the second half of the central promotion chain (see Phase 5 § Apply order in `skills/learn-lessons/SKILL.md`). Surfacing a strip-local to the PM is process theater: the PM has already authorized the central promotion that obsoletes the source-repo entry, and every day the entry remains in source bloats `lessons.md` for `/learn-lessons`, the central strip-pass, and `/workstream-start` (sibling files have hit 200–350 KB in roughly a month of high-volume capture).
 
 **Universals-pending escalation.** If ≥ 20 unactioned `[universal]`-tagged entries have accumulated since the last central-mode commit, surface the count to the PM: *"Backlog of N universals — invoke central mode now?"* — and wait. Do not launder the backlog into another "next pass" notice. Emit a one-screen PM summary with surfaced records and a "run /learn-lessons --mode=central" pointer.
 
 ## Lesson Scope Classification
 
-Each lesson extracted from `tasks/lessons.md` is classified into one of four scopes:
+Each lesson extracted from `state/lessons.md` is classified into one of four scopes:
 
 | Scope | Meaning | Routing destination |
 |---|---|---|
-| `universal` | Applies across project types — would fire for any project using the coordinator pipeline | `~/.claude/tasks/coordinator-improvement-queue.md` (central); tag `[universal]` in source |
-| `project` | Applies to the originating project's structure or codebase | Local `tasks/improvement-queue.md` |
+| `universal` | Applies across project types — would fire for any project using the coordinator pipeline | `~/.claude/state/coordinator-improvement-queue.md` (central); tag `[universal]` in source |
+| `project` | Applies to the originating project's structure or codebase | Local `state/improvement-queue.md` |
 | `wiki-only` | Lesson whose substance belongs directly in a wiki guide (no queue entry needed) | Append-or-promote to `docs/wiki/<topic>.md` |
 | `discard` | Ephemeral, already covered by existing doctrine, or factually wrong | Archive (Phase 4) then delete |
 
@@ -238,13 +238,13 @@ Each lesson extracted from `tasks/lessons.md` is classified into one of four sco
 
 **Conservative on domain-specific candidates.** `retag-local` is the safer default for entries that look universal-tagged but are really domain (UE / game-dev / web-dev / data-science). When applying `retag-local`: do NOT blind string-replace `[universal]` → `[domain]` — a naive replace corrupts prior retag-history comments and any in-body `[universal]` reference. Edit only the tag on the entry's header line. Note also that `extract-lessons.py` sets `tag_universal` if `[universal]` appears *anywhere* in the block, so a leftover in-body mention keeps an entry classified universal after a header-only retag — strip stray in-body occurrences too.
 
-## Per-Project `tasks/lessons.md` Files Are a Central Mining Surface
+## Per-Project `state/lessons.md` Files Are a Central Mining Surface
 
-**Per-project `tasks/lessons.md` files accumulate war stories specific to that project's domain. The central-mode run is the mechanism for surfacing universal patterns buried in domain-specific language.**
+**Per-project `state/lessons.md` files accumulate war stories specific to that project's domain. The central-mode run is the mechanism for surfacing universal patterns buried in domain-specific language.**
 
 Triage tier:
 - **Tier 1** — pattern applies universally → coordinator structural change (skill/command/agent-prompt/wiki); tag `[universal]`, promote to central queue.
-- **Tier 2** — pattern is project-structural → stays in `tasks/improvement-queue.md` for that repo.
+- **Tier 2** — pattern is project-structural → stays in `state/improvement-queue.md` for that repo.
 - **Tier 3** — already encoded in existing doctrine → `discard`.
 
 The 2026-04-27 holodeck pass illustrates the signal density: 3 lessons became direct pipeline fixes, 12 became universal coordinator promotions across 15 files — from a single project's lessons file. When the central-mode run is overdue, per-project files are the richest underexplored source of universals.
@@ -267,13 +267,13 @@ The routing bias section above governs CLAUDE.md placement. A separate, symmetri
 
 ## Cross-Repo Strip — Content-Signature Matching, Not Line-Number Partition
 
-**When the central run strips promoted universals from sibling-repo `tasks/lessons.md` files, the strip oracle MUST be the extracted-yaml record bodies matched by content, not a fresh partition of the current source state.**
+**When the central run strips promoted universals from sibling-repo `state/lessons.md` files, the strip oracle MUST be the extracted-yaml record bodies matched by content, not a fresh partition of the current source state.**
 
 Source files are in motion. Between extraction at time T and strip at time T+N, concurrent EM sessions may add new universals, prune existing ones, or commit adjacent changes. A partition-based strip (re-derive all `tag_universal: true` blocks from current source at apply time) will archive post-extraction additions that were never centrally promoted — promoting the wrong thing.
 
 **Correct procedure (per `skills/learn-lessons/SKILL.md` § strip-local apply):**
 
-1. Re-read `tasks/lessons.md` at strip time.
+1. Re-read `state/lessons.md` at strip time.
 2. For each promoted body in the central run's extracted-yaml, match against current source by **normalized first-200-char content signature** (not line number).
 3. Strip only entries whose signatures match a promoted body; skip zero-match (already removed) and multi-match (ambiguous) with a warning.
 4. Archive provenance header cites the central SHA + "promoted by" — not "discarded."

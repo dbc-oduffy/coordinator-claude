@@ -94,6 +94,10 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 
 ---
 
+## Anti-Pattern: Carried-Forward Priorities Need HEAD-Verification Before Re-Stamping
+
+`/workday-start` week-priorities carry shipped items indefinitely when the week-priorities section is re-stamped without re-deriving against current state. A "(carried N weeks)" item may have shipped last week and should be removed from the surface. Apply: before re-stamping any priority with a new generation timestamp, grep the git log and decisions dir for the priority's key term; if it shipped, remove it from the surface rather than carrying it forward.
+
 ## Related
 
 - → `docs/wiki/tiered-context-loading.md` (boot-time orientation budget and tier discipline)

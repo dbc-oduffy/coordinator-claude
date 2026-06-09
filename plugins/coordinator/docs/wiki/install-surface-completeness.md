@@ -269,6 +269,14 @@ Sibling EMs in all repos may amend this wiki on receipt — doctrine-seeding und
 
 *2026-05-24, claude-unreal-holodeck.* When validation requires hardware the local box doesn't have (GPU for CUDA, specific UE version, a physical device), validate **at the level the local box supports** and architecturally OOS the rest **with the gate named explicitly**. The named gate is the difference between honest partial-validation and silent under-validation: "validated CPU path; GPU path OOS — requires CUDA host, gated on `<flag/host>`" tells the next operator exactly what was and wasn't proven. An unnamed skip reads as full validation and ships unverified behavior. Composes with the § three-check completeness test (b/doctor surface) — the gate name is what the doctor or next operator keys on to know the GPU path is unproven, not broken.
 
+## OS-level autostart registration is unsolicited by default
+
+Installers that register OS-level autostart (scheduled tasks, Windows `Startup` LNK files, systemd user units, login items) are unsolicited by default — the user did not ask for the process to run at every session. Gate autostart registration on consumer-session presence (e.g., verify the consuming tool is actually running), or replace with lazy-boot on `SessionStart` hook. Never register autostart silently as a convenience. Apply: any installer that writes to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, `~/.config/systemd/user/`, or `~/Library/LaunchAgents/` must carry a `--autostart` explicit opt-in flag.
+
+## Unit-test the WRAPPER/integration path, not just the self-contained helper
+
+Green helper tests mask integration-layer guards. At least one test must drive the real operator entry point (the wrapper script, the CLI surface, the skill phase-dispatch path) end-to-end, not just the inner function. Apply: for every install surface with a wrapper/CLI, add one test that calls the wrapper and verifies the guard fires — not a test of the helper the wrapper calls.
+
 ## Chronically Dirty Tree = Git-Tracked Tooling Outputs — Untrack, Don't Flux-Commit
 
 *2026-05-27, coordinator-claude.* A working tree that is *always* dirty after routine tooling runs (doctor sentinels, last-run JSON, generated mirror metadata) is a signal that **tooling outputs are git-tracked when they shouldn't be**. The fix is to **untrack** them (`git rm --cached` + `.gitignore`), not to flux-commit the churn every session — flux-commits bury real diffs in noise and make `git status` useless as a change signal.

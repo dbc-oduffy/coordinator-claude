@@ -207,6 +207,17 @@ Default (no config): core-only (the Staff Engineer + Zoli).
 
 ## Recent Changes
 
+### v1.5.0 (June 2026) — Executor Flight-Recorder Sidecars
+
+Replaces the executor's in-plan status-stamping with a structured sidecar model, and closes the archive-write carve-out. Root cause: agent-prompts-fighting-the-executor — brief text loses to agent-prompt MUST. Fix is structural (hook + sidecar), not advisory.
+
+- **Executor:** § Write-Ahead Status retired. Executors no longer stamp `**Status:**` into plan bodies. Per-chunk in-flight state moves to a sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md` (EM-created at dispatch, executor-updated). State machine: `dispatched → in_flight → complete | blocked | thrashing`.
+- **Hook:** new PreToolUse tripwire `block-subagent-plan-body-write.sh` denies subagent Edit/Write on `docs/plans/**/*.md` (carve-out for sidecar path). Plan bodies are mechanically immutable to executors.
+- **Hook:** `block-subagent-archive-write.sh` carve-out for `archive/completed/YYYY-MM/<entry>.md` was removed — executors no longer have a sanctioned archive-write path. Daily-summaries carve-out preserved.
+- **EM-phase preserved:** EM-authored plan-header `Status:` for review/enrichment/execution phase transitions is unchanged. Disambiguation: plan-body `**Status:**` is EM-owned phase state; sidecar frontmatter `status:` is executor-owned lifecycle state.
+- **Source:** cross-repo memo from `project-rag-ue-addon-em` (67% plan-stamp creep + 33% archive/ creep across 6 dispatches). Diagnosis: agent-prompts-fighting-the-executor — brief text loses to agent-prompt MUST. Fix: structural enforcement via hook + sidecar.
+- **Plan:** `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`.
+
 ### v1.4.0 (April 2026) — Pipeline C v2.1: Structured Research Upgrade
 
 Brings Pipeline C (structured research) to v2.1 parity with Pipeline A and B. Fixes a synthesizer prose-slippage bug and adds adversarial peer dynamics.
@@ -246,7 +257,7 @@ Transforms the coordinator from a delivery-only pipeline into a full engineering
 All pipeline phases now mark documents *before* starting work, not just on completion. This eliminates ambiguous "not started" state after crashes — a recurring source of expensive triage.
 
 - **Enricher:** New write-ahead protocol — marks stub as "Enrichment in progress" before research, "Enriched — pending review" on completion. Includes crash recovery guidance.
-- **Executor:** New write-ahead protocol — marks stub as "Execution in progress" before implementation. This is the one exception to "does not update stub documents" — status markers are infrastructure, not spec changes.
+- **Executor:** New write-ahead protocol — marks stub as "Execution in progress" before implementation. This is the one exception to "does not update stub documents" — status markers are infrastructure, not spec changes. _(Superseded in v1.5.0 — executor now uses a sidecar; see above.)_
 - **Enrich-and-review:** New Phase 2.5 (pre-enrichment status) and Phase 4.5 (pre-review status) — coordinator updates tracker and commits before dispatching agents.
 - **Delegate-execution:** New Phase 1.5 — coordinator marks tracker as "Execution in progress" and commits before dispatching executors.
 - **Review-dispatch:** New Phase 2.5 — marks artifact with reviewer name before dispatching.

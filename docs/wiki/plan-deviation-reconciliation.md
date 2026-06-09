@@ -5,7 +5,7 @@
 A plan document is a **forecast**. `/distill` crystallizes ALLOWLIST sections of that forecast
 into evergreen wiki entries. Without reconciliation, a deprecated forecast shape — a function
 signature that changed, a decision that was reversed, an API contract that shipped differently —
-becomes the canonical record when distill runs. `/session-end` Step 2.4 closes this gap by
+becomes the canonical record when distill runs. `/workstream-complete` Step 2.4 closes this gap by
 reconciling forecast→reality **at the source**, upstream of distill, so the shipped shape
 crystallizes and the deprecated forecast does not.
 
@@ -15,12 +15,12 @@ crystallizes and the deprecated forecast does not.
 
 | Step | Role |
 |------|------|
-| `/session-end` Step 2.4 | **Writer** — corrects the plan doc in place and appends `## Deviations` |
+| `/workstream-complete` Step 2.4 | **Writer** — corrects the plan doc in place and appends `## Deviations` |
 | `/distill` Phase 5a | **Consumer** — drops `## Deviations` as `[EPHEMERAL]`; corrected ALLOWLIST sections crystallize normally |
 
 These are the only two contact points. `/handoff` does not reconcile (mid-flight: the deviation
 set is not final). `/merge-to-main` and `/workday-complete` do not reconcile (downstream of the
-seam that already reconciled at session-end).
+seam that already reconciled at workstream-complete).
 
 ---
 
@@ -72,7 +72,7 @@ the narrative record; the AC table carries only the status signal.
 
 ## `## Deviations` Section Format
 
-`/session-end` Step 2.4 appends this section to the plan doc verbatim when deviations exist.
+`/workstream-complete` Step 2.4 appends this section to the plan doc verbatim when deviations exist.
 **Do not hand-author this section** — it is written by Step 2.4 at session completion.
 
 **Heading:** exactly `## Deviations` (no variants).
@@ -132,7 +132,7 @@ get a reconciliation write-back; organic fix/doc-touch sessions see no added cer
 
 ## Companion Doctrine
 
-- `/session-end` Step 2.4 — the writer; see `skills/session-end/SKILL.md`
+- `/workstream-complete` Step 2.4 — the writer; see `skills/workstream-complete/SKILL.md`
 - `/distill` Phase 5a — the consumer; see `commands/distill.md`
 - `docs/wiki/writing-plans.md` § Plan Document Lifecycle — plan authors: expect the `## Deviations` section; do not hand-author it
 - `docs/wiki/ceremony-calibration.md` — proportionality calibration

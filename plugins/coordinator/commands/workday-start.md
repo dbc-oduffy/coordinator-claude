@@ -308,7 +308,15 @@ fi
 
 ## Step 1.10: Addon Health Sentinels
 
-**First**, refresh the coordinator-claude sentinel:
+**First**, heal canonical-structure drift at `~/.claude` before the doctor fires. The scaffold is idempotent and additive-only (`mkdir -p` + `.gitkeep`; never overwrites READMEs or existing content). Running it here turns manifest-extension drift into a self-healing event instead of a recurring P-12 AMBER nag across every repo's daily health snapshot:
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/scaffold-canonical-structure.sh --root "$HOME/.claude"
+```
+
+Silent on no-op (already-scaffolded). Brief on creation (new dirs introduced by manifest evolution). Always safe to re-run. P-12 stays as the detector for *actual* brokenness (scaffold script error, manifest unreadable) — not for "manifest grew and your install hasn't caught up." See `docs/wiki/install-surface-completeness.md`.
+
+**Then**, refresh the coordinator-claude sentinel:
 
 ```bash
 bash ~/.claude/plugins/coordinator/bin/coordinator-doctor-sentinel.sh --full
@@ -371,6 +379,22 @@ Repos with paired cross-repo writers ship a `bin/check-fixture-sync.sh` that byt
 
 Advisory only — never blocks.
 
+## Step 1.11: Cruft Sweep Advisory
+
+Surface filesystem-cruft reclaim opportunities when they cross threshold. Layer 1 floor only — Layer 2 (`/cruft-sweep`) is PM-actioned.
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/cruft-sweep.sh --class all --dry-run --quiet
+```
+
+Surface one-line `Cruft sweep candidates: <N reclaimable>, last sweep <YYYY-MM-DD>` in the Morning Briefing when EITHER:
+- Reclaimable size > 1 GB (read from the dry-run grand-total banner on stderr), OR
+- Staleness > 14d (read the most recent row timestamp from `~/.claude/state/cruft-sweep-log.md` using `tail -1 ~/.claude/state/cruft-sweep-log.md | awk -F'|' '{gsub(/ /, "", $2); print $2}'`; if the file does not exist, treat as stale). <!-- Review: Slice C reviewer F5 — use row-parse not file mtime; log is pipe-delimited, field 2 is the timestamp -->
+
+PM-actioned only — DO NOT auto-invoke `/cruft-sweep` or `cruft-sweep.sh --apply` from this advisory. The Layer 1 script can be invoked with `--apply --quiet` separately on a higher threshold (cron / scheduler), per `docs/wiki/cruft-sweep-cadence.md` § Cadence.
+
+Silent when below both thresholds.
+
 ## Step 2: Doc Freshness
 
 1. Find last update-docs run: `git log --oneline --grep="update-docs\|workday-complete" --since="7 days ago" -1`
@@ -421,7 +445,7 @@ When present:
 ## Step 4: Priority Alignment
 
 ```bash
-bash plugins/coordinator/bin/whats-next.sh
+bash ~/.claude/plugins/coordinator/bin/whats-next.sh
 ```
 
 Emits: improvement-queue head (top 5), `docs/project-tracker.md` Ready/Executing rows, open handoffs. Use as-is for § Priority Suggestions; do not reconstruct from prose.
@@ -466,7 +490,7 @@ Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint f
   _(Omit this bullet if no spinoffs exist.)_
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
-- **Tracker:** durable snapshot at `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `node plugins/coordinator/bin/render-handoff-tracker.js`). **DoE aggregate `state/doe-handoff-tracker.md` is refreshed daily by `/workday-start` Step 1.48** (`--all-repos`); ad-hoc: same command with `--all-repos`.
+- **Tracker:** durable snapshot at `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js`). **DoE aggregate `state/doe-handoff-tracker.md` is refreshed daily by `/workday-start` Step 1.48** (`--all-repos`); ad-hoc: same command with `--all-repos`.
 
 #### Recent roadmap (last 90d, top-10 by size)
 _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_

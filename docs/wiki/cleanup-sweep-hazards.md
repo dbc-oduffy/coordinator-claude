@@ -142,7 +142,7 @@ When a scout produces a recommendation table — `| path | reason | action |` �
 
 1. Parse table columns by markdown column index or convert to JSON/YAML before consumption — never regex-extract from the rendered prose.
 2. Fail closed: the deletion sweep refuses to act on any path not in a fully-parsed `path` column.
-3. Wiki-guide protection: any deletion sweep that reads from a scout report MUST hard-exclude `docs/wiki/`, `CLAUDE.md`, `archive/`, and `tasks/lessons.md` regardless of column origin — these are never legitimate sweep targets and the protection is cheap insurance against parser bugs.
+3. Wiki-guide protection: any deletion sweep that reads from a scout report MUST hard-exclude `docs/wiki/`, `CLAUDE.md`, `archive/`, and `state/lessons.md` regardless of column origin — these are never legitimate sweep targets and the protection is cheap insurance against parser bugs.
 
 **Scout delete-candidate lists need EM-side grep before `rm` fires (L754, claude-unreal-holodeck).** A scout's delete-candidate list is a *recommendation*, not an authorization. Before the `rm` executes, the EM must grep each candidate for live consumer surfaces (imports, `#include`, doc citations, agent-prompt embeddings) across the repo and named siblings — the scout's "unused" verdict is scoped to what it grepped, and it routinely misses cross-file or cross-repo consumers. This is the same hazard family as §11 (grep imports before celebrating an excision); applied to scout-driven sweeps, the grep is the EM's gate, not the scout's.
 
@@ -170,9 +170,9 @@ Refactors that fix or close a bug-backlog entry by side effect (without naming i
 
 **Defense:**
 
-1. Any sweep refactor or cleanup pass should grep `tasks/bug-backlog.md` (and project-equivalents) for paths/symbols it touches, and close matching entries in the same commit.
+1. Any sweep refactor or cleanup pass should grep `state/bug-backlog.md` (and project-equivalents) for paths/symbols it touches, and close matching entries in the same commit.
 2. Consumer-side: bug-blitz's pickup phase must verify each entry against current `HEAD` (not against the entry's authoring date) before dispatching a fix — entries that no longer reproduce get deleted, not "investigated."
-3. The commit subject names the closed backlog entry; `git log -- tasks/bug-backlog.md` becomes the audit trail.
+3. The commit subject names the closed backlog entry; `git log -- state/bug-backlog.md` becomes the audit trail.
 
 ## 20. Doctrine Flips: Audit Test Infra AND Write-Sites
 
@@ -358,7 +358,7 @@ Migrating a source module without co-migrating its test suite produces `ImportEr
 When a workstream pivots or is abandoned mid-flight, the code and spec artifacts are the obvious targets for cleanup. But the highest-risk residue lives in **STATE artifacts**: sentinel files, status JSON blobs, partial migration records, half-updated registry entries, and in-progress handoff bodies that reference the abandoned approach. These state artifacts can mislead future sessions into treating abandoned-work state as current operational state.
 
 **Rule.** When auditing a pivoted or abandoned workstream for residue, explicitly scan:
-1. `tasks/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
+1. `state/handoffs/` and `archive/handoffs/` — any handoff body that describes the abandoned approach as in-flight.
 2. `machine-local/` registry entries, sentinel files (`*-sentinel.json`, `addon-health-*`), and status JSONs written by the abandoned path.
 3. Any migration helper or partial-apply record that reflects an abandoned schema/path shape.
 
@@ -374,6 +374,37 @@ A distill / cleanup dry-run that classifies plan-scaffolding for deletion emits 
 
 **Rule.** Before deleting any plan-scaffolding deletion set, **re-derive each parent's live `status:` from the file on disk** (`grep '^status:' <parent-plan>`), not from the classifier's manifest column. **HOLD** any parent whose disk status is non-terminal (`draft` / `executing` / `reviewed`) — only `archived` / `shipped` / `consumed` / `superseded` clears a parent's scaffolding for deletion. Pair this with the active-reference guard (§1 / §22): terminal-status AND zero active-reference grep hits is the conjoint bar; either alone is insufficient. The audit is a pre-commit gate, not a post-hoc link-heal that happens to catch the dangling reference. Composes with §15 (scout delete-candidate lists need EM-side grep before `rm`) and §37 (state artifacts from abandoned work mislead — frontmatter `status:` is itself a state artifact that the classifier can misread).
 
+## 39. `large-producer | grep -q` Under `set -o pipefail` Silently Fails Open
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+`tail -N file | grep -q PAT` on a multi-MB input: `grep -q` matches early and closes the read end of the pipe; `tail` (still writing) receives SIGPIPE (exit 141); `pipefail` propagates that 141 as the pipeline status — so `if tail … | grep -q …` evaluates **FALSE** despite a match. The bug only manifests past the ~64 KB pipe buffer, so small-fixture tests pass and the hazard is invisible in unit testing.
+
+**Concrete failure (2026-05-30):** both nudge hooks' skill-suppression branch was dead on every real-sized transcript (>64 KB), causing the `/handoff` nudge to fire 100% of the time — caught only in production.
+
+**Rule.** Read into a variable, match via here-string:
+```bash
+content=$(tail -N "$file")
+if grep -qE "PAT" <<< "$content"; then ...
+```
+Keep the early-exiting `grep -q` reader out of the pipeline. Test with a real-sized fixture, not a 3-line one.
+
+## 40. Fleet-Wide Worktree EOL Strip Assumes an Autocrlf-Normalized LF Index
+
+*Source: ~/.claude, 2026-05-31. [universal]*
+
+Bulk CRLF→LF worktree stripping kills the Git-for-Windows autocrlf nag only where the index is already pure LF. A mixed/CRLF index (LFS-heavy or older repo) shows thousands of files "modified" post-strip and needs `git add --renormalize`, not just a strip.
+
+## blanket ruff F401 --fix destroys implicit re-exports and fixture imports
+
+Blanket `ruff --select F401 --fix` is destructive in repos with: (1) implicit re-exports (modules that import then re-export without `__all__`), (2) pytest fixture-argument imports (fixtures injected by name, invisible to static analysis), (3) monkeypatch-target module imports (imports that exist only so the monkeypatch can find the symbol). These are invisible to ruff's static analysis. Apply: never auto-fix F401 blindly in a repo you haven't audited; run `--select F401` in report-only mode first, then apply fixes one-by-one with manual review.
+
+## Post-Extraction Residue Is an Orphan, Not a Conflict
+
+Post-extraction residue (leftover wiring in a consumer after a subsystem is extracted) is an ORPHAN of the old key, not a CONFLICT with the new owner. The consumer's leftover import/reference targets the OLD deleted module; disposition is REMOVE (delete the wiring), not REPOINT (redirect to the new module). Apply: before "fixing" post-extraction residue, verify which module the leftover targets — if it targets the deleted module, remove; if it targets a still-existing module, investigate whether it should repoint.
+
+**Before any fleet-wide strip:** survey per-repo index EOL with `git ls-files --eol` and watch for `i/mixed` or `i/crlf` index attributes. The committed `.gitattributes` `* text=auto eol=lf` is the durable fix (survives a fresh clone under system `autocrlf=true`); a worktree-only strip without an index renormalization is belt-only and may not survive the next checkout.
+
 ## Skill Checklist Reference
 
-`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria.
+`/distill` and `/update-docs` should reference items 1, 2, and 3 in their dispatch prompts so the agent enforces these checks during sweep operations, not just the EM after the fact. `/bug-blitz` consumers reference item 19 for backlog-currency verification. `/coordinator:plan` Branch B references item 20 when the plan body flips a doctrine value-class. `/coordinator:plan` and `/bug-sweep` reference items 27–30 when the work is a class-scoped sweep — enumerate the construct class, build a class-catching lint (not a site list), and test the guard against an unseen class member. Items 33–34 apply to any cross-repo excision or directory-rename plan — add consumer-grep and variable-indirection grep to the done-criteria. Items 39–40 apply to any shell pipeline using `grep -q` on large inputs or any fleet-wide EOL sweep.

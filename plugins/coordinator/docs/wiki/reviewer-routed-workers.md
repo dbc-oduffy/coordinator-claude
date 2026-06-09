@@ -114,6 +114,10 @@ This sharpens the § Gotchas bullet "Validate worker findings independently — 
 
 **Why.** *2026-04-29 reviewer-routed-workers Phase 1:* the `test-evidence-parser` worker, run independently against a representative target, surfaced 13 failures that the Staff Engineer's focused (correctly-scoped) review never named — the Staff Engineer's suppression was right for the diff, and the worker still found real signal the review lens missed. Suppression-correct and worker-valuable were both true at once.
 
+## security-audit-worker — test-contract blind spot
+
+`security-audit-worker` greps production code paths. Test suites are also consumers of emitted tokens and intermediate values — a "no consumer" finding used to justify deletion can be wrong if tests exercise the surface. Before closing a no-consumer finding by deleting code, cross-check `tests/` for imports or assertions targeting the same symbol. Apply: any security audit finding that recommends deletion due to "no consumer" must include a `grep tests/` step before the recommendation is treated as actionable.
+
 ## Reference
 
 - Related: [reviewer-premise-challenge](reviewer-premise-challenge.md)

@@ -358,6 +358,189 @@ At top-level invocation start, delete `chain-walk-*.json` files older than 1 hou
 
 ---
 
+## Install-spinoff layer — durable multi-repo install under coordinator
+
+> Added 2026-06-01. The §Skill chain-walker model dispatches recursive subagents within a single
+> session. That holds for a short walk, but installing several repos in one vanilla session overruns
+> its context — the first real field failure was exactly this: a session asked to install a whole
+> chain lost the thread and looped. The install-spinoff layer makes a multi-leg install **durable**
+> by handing the work to a coordinator-ified session that has a flight recorder, the Tasks API, and
+> saved-to-disk handoffs/spinoffs. The recursive walker and this layer are not alternatives — the
+> walker is how a single repo locates and probes its direct deps; this layer is how *several legs*
+> are sequenced across the load-bearing coordinator reboot without losing state.
+
+**The shape is one spine, N spinoffs** — exactly what `coordinator:roadmap-planning` produces.
+Coordinator onboarding (`continue-onboarding-and-installation.md`) is the **handoff**: the genuine
+continuation across the reboot, same workstream. Each *other* repo the operator queued is a
+**spinoff**: a fork of a different install topic, `predecessor: none`. Continuation vs. fork — each
+in its proper folder, each with its native semantics (no lineage exception to explain).
+
+**Coordinator is standalone-first and chain-agnostic.** It installs and runs on its own; it is the
+root that other repos *can* build on, not part of any mandatory chain. Coordinator knows exactly one
+downstream by name — `deep-research`, its own bundled OSS add-on. Every other leg is whatever the
+operator queued. Nothing in the coordinator surface hardcodes a particular chain, order, or leaf
+repo — that knowledge lives in each downstream repo and arrives only as the spinoff that repo seeds.
+
+### Authorization — the pre-restart question is the spinoff gate
+
+Spinoffs are normally PM-authorized and keyword-gated (`/spinoff`); EM-initiated spinoffs are
+forbidden (`docs/wiki/spinoff-handoffs.md`). Install-leg spinoffs are the **one sanctioned
+non-`/spinoff` creation path**, and they do not erode that gate: the authorization is captured at the
+install's **pre-restart question** ("what else do you want to install?"). The operator selecting a
+leg there *is* the human authorizing that fork — the same authorization `/spinoff` captures, captured
+at a different but equally explicit moment. A leg never appears as a spinoff unless the operator chose
+it; the script merely materializes a choice the human already made. (Full carve-out: `spinoff-handoffs.md`.)
+
+### The rendezvous: the standard handoff folder
+
+```
+~/.claude/state/handoffs/
+```
+
+Install legs are ordinary `/pickup`-valid **spinoffs** (`kind: spinoff`, `predecessor: none`) dropped
+into the **standard handoff folder** — the *same* place `/spinoff` and `coordinator:roadmap-planning`
+already write spinoffs. This is the load-bearing reason for the spinoff frame: `query-records --type
+handoff` globs `state/handoffs/*.md`, `/pickup` Step 1.5 classifies a `kind: spinoff` file there as a
+spinoff, and `/workday-start` surfaces it under "spinoffs awaiting pickup" — all unchanged. There is
+**no new folder and no new convention**: a downstream repo's whole obligation is "drop a `kind:
+spinoff` baton (carrying `install_chain_order:`) into `~/.claude/state/handoffs/`." The
+`install_chain_order:` tag is what distinguishes an install leg from the coordinator onboarding
+handoff in the same folder. They do not linger as stale batons because coordinator's Step 0 builds an
+install-chain spine that drives every leg to conclusion before the install workstream is completed
+(see `coordinator/templates/plans/install-chain-tracking.md`).
+
+> Do **not** invent a `tasks/spinoffs/` (or `tasks/install-chain/`) directory: no coordinator
+> machinery scans it, so a baton dropped there is invisible to `/pickup`, `query-records`, and
+> `/workday-start`. The standard `state/handoffs/` folder is the only surface all three already read.
+
+### Spinoff frontmatter contract
+
+Each conforming repo seeds ONE spinoff per install leg, with `/pickup`-valid spinoff frontmatter plus
+two install-chain fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `repo` | `string` | yes | The leg's `repo_id` (matches the manifest). The spine key for the leg. |
+| `install_chain_order` | `integer` | no | Relative install position (lower = installed earlier; coordinator = 0). The coordinator EM sorts the spine by this; **absent → discovered order**. Also the tag the Step 0 sweep greps to distinguish install legs from the onboarding handoff, so include it. |
+| `plan` | `string` | no | Relative path to a leg plan file, when the leg warrants one. Plans live in the seeding repo's `docs/plans/`; the spinoff names the path. |
+
+Base spinoff fields are required per the canonical spinoff schema (`spinoff-handoffs.md` § Frontmatter
+schema): `title`, `created`, `kind: spinoff`, `status: active`, `predecessor: none`,
+`authoring_session:` (the audit trail back to origin that replaces the predecessor link — for an
+install leg, name the install + the operator's opt-in), `workstream:`, plus `deployment_state:
+ready_to_fire`, `pickup_ready: true`, `scope:`. See
+`coordinator/templates/handoffs/install-deep-research.md` for the reference shape.
+
+### The two roles
+
+- **Downstream repos SEED.** A conforming repo's installer drops its `kind: spinoff` baton into
+  `~/.claude/state/handoffs/`. Seeding is a cheap `cp`/`sed`/`curl`, not a heavy install — it can run
+  for every chosen leg *before* the coordinator reboot (per the pre-restart question in
+  `agent-install.md`), so the durable session sees the whole chain at once. Idempotent
+  (overwrite-on-reseed). Seed via `cp`/`sed`, **not the Write tool** — a Write into `state/handoffs/`
+  without an active authoring skill trips the unauthorized-handoff nudge; `cp` does not.
+  `deep-research` is the exception that proves the rule: it ships in the coordinator bundle, so
+  coordinator seeds *its* spinoff from a shipped template
+  (`templates/handoffs/install-deep-research.md`) rather than the DR repo seeding it — but the drop
+  target and contract are identical.
+- **Coordinator STITCHES + DRIVES.** Post-reboot, `continue-onboarding-and-installation.md` Step 0
+  greps `state/handoffs/` for `install_chain_order:` legs, writes a lightweight install-chain spine
+  listing every leg found, and drives each to conclusion via `/pickup`. This is the durability a
+  vanilla session lacked — and it is agnostic: it tracks whatever spinoffs are present, asserting no
+  fixed set.
+
+### Guidance for conforming (downstream) repos
+
+This is the "teach the other side in a wiki, don't code their ceremony" half of the contract (per
+`cross-repo-communication.md` § When lifting a cross-repo primitive). To align:
+
+1. Add a **seed step** to your standalone setup script that writes a `kind: spinoff` baton (with
+   `repo`, `install_chain_order`, `authoring_session`) into `~/.claude/state/handoffs/` via `cp`/`sed`
+   (not the Write tool). Idempotent. If coordinator is not yet installed, drop the spinoff first, then
+   run the coordinator install — so it is waiting when the durable session starts.
+2. If your leg needs a plan, write it to your `docs/plans/` and name it via the spinoff's `plan:`
+   field.
+3. Adopt the **coordinator-lite-before-reboot** pattern: verify a minimal coordinator surface (all
+   pre-reboot dependencies present) before instructing the operator to restart, so the durable
+   session can follow the coordinator-style pickup flow.
+4. If your addon wants to supersede another repo's orientation, add `supersedes: <orientation-id>` to
+   the spinoff baton you seed in step 1. Use the same `cp`/`sed` seeding discipline — **not the Write
+   tool** — and seed before the coordinator reboot (same gate as step 1) so the baton is present when
+   Step 0 builds the spine. Publish your own orientation as a normal spinoff leg. The superseded repo's
+   orientation file is not modified; it remains the correct default when your baton is absent. Neither
+   side codes the other's ceremony: your addon seeds the `supersedes:` assertion; coordinator's
+   spine-builder resolves it at Step 0.
+
+Coordinator owns only the agnostic stitch (sweep + spine + drive); each downstream repo owns its own
+seeded spinoff and its own install steps. Neither side codes the other's ceremony.
+
+### Orientation-supersession
+
+An addon-seeded `kind: spinoff` baton MAY carry a `supersedes:` field to assert that its orientation
+should be preferred over another repo's orientation **when that baton is present at spine-build time**.
+
+```yaml
+supersedes: <repo>-orientation   # e.g. project-rag-orientation
+```
+
+The value is an **orientation identifier** — an opaque id the superseded repo publishes. The
+conventional form is `<repo>-orientation` (for example, `project-rag-orientation`), but that example
+is illustrative; the coordinator treats the value as an opaque string and asserts no canonical form.
+This keeps coordinator agnostic: no single consumer id reads as the reference shape.
+
+**No new `kind`.** Orientation-supersession rides the existing `kind: spinoff` frame. The
+`supersedes:` field is additive frontmatter on a normal install-leg spinoff. No new baton type,
+no new folder, no new sweep.
+
+**Conditional and live — this is the load-bearing semantic.** The superseded orientation is **never**
+marked `status: superseded`, and there is **no** `superseded_by:` back-pointer written to it.
+The superseded orientation remains the correct default when the declaring baton is absent. Supersession
+is **resolved at spine-build time** (Step 0 of `coordinator/templates/handoffs/continue-onboarding-and-installation.md`)
+by the presence or absence of the declaring baton in `state/handoffs/` — not by a status flip, not by
+a pointer, not by a registry entry. Contrast this with the existing memo/handoff `status: superseded`,
+which is a terminal mutation: the superseded artifact is dead and stays dead. Orientation-supersession
+is different: it is live and conditional on baton presence. Removing or not seeding the baton restores
+the default orientation exactly as if the field had never existed.
+
+**Seed-before-reboot discipline.** A conforming repo that wants its baton to be in effect MUST seed it
+**before** the coordinator reboot — the same pre-reboot seeding discipline already required for install
+legs (§ Guidance for conforming repos, step 1). The install-chain spine is built once at Step 0 of the
+durable session; a baton that arrives after Step 0 is not visible to the spine for that session.
+
+**Legibility convention — `summary:` field.** Orientation legs SHOULD include the word "orientation"
+in their `summary:` frontmatter field so the spine is human-readable at a glance (e.g.,
+`summary: "project-rag orientation"`). The `supersedes:` field already carries the supersession
+MECHANISM — this `summary:` note is legibility only. It is NOT a new mechanism and NOT a new `kind`.
+
+### Provision sub-axis
+
+Install, provision, and orient are three distinct sub-steps, not one monolithic phase:
+
+- **Install** — the synchronous chain: fetch, wire, validate. Completes in one session. Gate-bound:
+  the spine will not advance past an install leg that hasn't reached `status: complete`.
+- **Provision** — long-running background work triggered by install (example: project-rag's
+  ~1-hour index build). A slow provision step runs in the **background** and does **not** block
+  the synchronous install chain. The spine does not wait on it; install completes, the session
+  continues, and provision catches up asynchronously.
+- **Orient** — the coordinator's first durable session after install; it **opens with co-writing
+  `CLAUDE.md` together** (the first customization of the contract), then walks the operator through
+  what was installed. See `continue-onboarding-and-installation.md` for the install → reload → orient
+  flow.
+
+**Per-leg state the spine tracks** reflects this three-step structure. A leg that has been installed
+but whose background provision has not yet finished is in a distinct intermediate state:
+
+| State | Meaning |
+|---|---|
+| `installed` | Synchronous chain complete; no background work pending |
+| `installed / provisioning (ETA ~Xm)` | Synchronous chain complete; background provision in flight |
+| `not-yet-oriented` | Install and provision complete; first-orient session not yet run |
+
+The long-lived state a human-readable spine entry carries is one of these three — not the generic
+"in progress" of the install phase. Conforming repos that trigger a slow provision step SHOULD
+write their install-leg baton with an estimated ETA in the `provision_eta:` frontmatter field so
+the spine can surface a human-readable estimate.
+
 ## Runtime vs. test-time validation
 
 **Runtime** (Phase 0 manifest read in the standalone script): uses stdlib Python `json` module only. Validates structure shape minimally — presence of required top-level fields. No `jsonschema` import at runtime; `jsonschema` is NOT a runtime dependency.
@@ -395,8 +578,8 @@ The reader-widen-first step is the install-surface-completeness trap if skipped 
 This contract was first authored and implemented in `claude-unreal-holodeck` (the chain leaf), bilaterally co-developed with `project-rag-ue-addon`, and migrated to `coordinator-claude` (the chain root) on **2026-05-23** as the ecosystem-wide canonical home. Prior to that date, the doc lived in `claude-unreal-holodeck/docs/wiki/agent-install-contract.md`.
 
 Post-migration:
-- This file at `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/agent-install-contract.md` (published outward via `setup/publish.sh` to consumer projects) is the single canonical source.
+- This file at `~/.claude/plugins/coordinator/docs/wiki/agent-install-contract.md` (published outward via `setup/publish.sh` to consumer projects) is the single canonical source.
 - `claude-unreal-holodeck/docs/wiki/agent-install-contract.md` becomes a one-line pointer redirect to this file.
 - `project-rag-ue-addon` and other consumers (`project-rag`, `deep-research-claude`) cite this file rather than mirroring it.
 - Per-repo `docs/install/agent-install-manifest.schema.json` files **stay in each repo** — the schema is the per-repo implementation of this contract; this doc is the contract spec. Moving schemas would change every `$id` URL and is deferred until a third consumer makes the duplication pressure obvious (current state: holodeck + addon are the only two repos with schemas).
-- Doctrine for cross-repo doc moves of this shape: `~/.claude/plugins/coordinator-claude/coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change.
+- Doctrine for cross-repo doc moves of this shape: `~/.claude/plugins/coordinator/docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface change.

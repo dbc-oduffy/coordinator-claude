@@ -29,9 +29,11 @@ Key finding from the 2026-05-06 audit: **many skills had zero invocations over 3
 
 ## Utilization Audit Findings (2026-05-06, 30-day window)
 
-**Heavy (≥25 invocations/30d):** coordinator:pickup (602), coordinator:handoff (425), coordinator:session-end (366), coordinator:update-docs (66), coordinator:merging-to-main (53), coordinator:workday-start (44), coordinator:mise-en-place (31)
+**Heavy (≥25 invocations/30d):** coordinator:pickup (602), coordinator:handoff (425), coordinator:workstream-complete (366), coordinator:update-docs (66), coordinator:merging-to-main (53), coordinator:workday-start (44), coordinator:mise-en-place (31)
 
 **Zero invocations (methodology skills — passive doctrine burden):** requesting-code-review, receiving-code-review, dispatching-parallel-agents, verification-before-completion, test-driven-development, stuck-detection, systematic-debugging, skill-discovery
+
+(Note: as of 2026-06-04, requesting-code-review and skill-discovery have been deleted; only systematic-debugging remains as an active passive-doctrine skill.)
 
 Caveat: cross-machine sessions undercounted 30-50%; passive-doctrine skills may be referenced by agents without explicit invocation.
 

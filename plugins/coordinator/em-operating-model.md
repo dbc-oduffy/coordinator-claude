@@ -68,7 +68,20 @@ An EM who opens a file and starts editing code has left the bridge unmanned. It 
 
 ## Write-Ahead Status Protocol
 
-Every plan/stub document has a `**Status:**` field. Update it *before* starting a phase, not just on completion. This prevents ambiguous "not started" state after crashes. Mark "in progress" before dispatch, "complete" after verification. See `ARCHITECTURE.md` § "The Write-Ahead Status Protocol" for the state machine and two-layer (tracker + document) breadcrumb model.
+Two surfaces track execution state; they serve different audiences and have different writers.
+
+**Executor layer — flight-recorder sidecar (executor writes, EM reads).**
+Each executor writes exclusively to its own sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`, never to the plan body. The EM creates the sidecar at dispatch time and passes `sidecar_path:` in the brief. State machine: `dispatched → in_flight → complete | blocked | thrashing`, expressed as the sidecar's `status:` frontmatter. Sibling clobber is mechanically impossible — one sidecar per chunk, one owner. A crashed executor leaves a stamped sidecar recording what it was doing; that is the crash-safety signal. See `agents/executor.md § Flight-Recorder Sidecar` for the write protocol and `ARCHITECTURE.md § The Write-Ahead Status Protocol` for the structural rationale.
+
+**EM layer — dispatch ledger (EM writes, readers consult).**
+The `## Dispatch Ledger` table inside the plan body (`skills/execute-plan/SKILL.md` Phase 1.6) is the canonical EM-side in-plan surface. Readers asking "is chunk N done?" read the ledger row. The EM updates ledger rows at dispatch and on executor return; executors do not touch it.
+
+**Plan-header `Status:` field (EM writes at phase transitions).**
+The plan document's top-level `Status:` field remains valid for EM-authored phase transitions — draft → enriched → reviewed → executing → complete. This is an EM-altitude field, written at review/enrichment/execution phase boundaries, not by executors. It is preserved and unchanged by this doctrine.
+
+See `ARCHITECTURE.md § The Write-Ahead Status Protocol` for the full state machine.
+
+> **Disambiguation:** Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference.
 
 ## EM Remit — Delegation Emphasis
 

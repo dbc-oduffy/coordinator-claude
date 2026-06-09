@@ -108,6 +108,8 @@ For each file, produce:
   completeness matters more than analysis
 - Do NOT analyze design quality, suggest improvements, or evaluate architecture —
   just inventory what exists
+- **Produce ONLY your deliverable: the inventory file at `[SCRATCH_PATH]`.** Do NOT write intermediate working files — no extraction scripts, no raw line-range/source dumps, no `.txt`/`.ps1`/`.py` scratch. Use the **Read** tool to read your assigned ranges and hold the content in context; the only file you create is the `[SCRATCH_PATH]` inventory. Writing source slices or helper scripts to disk litters the audited repo with untracked orphans.
+- **Scratch paths only.** Write only to `[SCRATCH_PATH]` as substituted by the dispatcher (repo-relative or under the run-id scratch dir). Never improvise a bare `X:`-style drive path — Windows mangles `:` in filenames into a fullwidth-colon literal that lands in the audited repo's root as an unattributable orphan.
 ```
 
 ---
@@ -194,6 +196,8 @@ Read each changed file and produce a delta inventory:
 - Reference the existing atlas entry to identify what is new vs. what already existed
 - Completeness of the delta matters more than analysis
 - Do NOT analyze design quality or suggest improvements — just inventory what changed
+- **Produce ONLY your deliverable: the delta inventory file at `[SCRATCH_PATH]`.** Do NOT write intermediate working files — no extraction scripts, no raw line-range/source dumps, no `.txt`/`.ps1`/`.py` scratch. Use the **Read** tool to read changed files and hold the content in context; the only file you create is the `[SCRATCH_PATH]` inventory. Writing source slices or helper scripts to disk litters the audited repo with untracked orphans.
+- **Scratch paths only.** Write only to `[SCRATCH_PATH]` as substituted by the dispatcher (repo-relative or under the run-id scratch dir). Never improvise a bare `X:`-style drive path — Windows mangles `:` in filenames into a fullwidth-colon literal that lands in the audited repo's root as an unattributable orphan.
 ```
 
 ---
@@ -296,6 +300,8 @@ Top 3-5 most notable aspects of this system, ranked by architectural significanc
   Phase 1 must appear here
 - Do not soften findings. If something is problematic, say so directly.
 - Do NOT produce a grade or health status — that comes from weekly-architecture-audit
+- **Produce ONLY your deliverable: the system analysis file at `[SCRATCH_PATH]`.** Do NOT write intermediate working files — no extraction scripts, no raw line-range/source dumps, no `.txt`/`.ps1`/`.py` scratch. Use the **Read** tool to read source files and hold the content in context; the only file you create is the `[SCRATCH_PATH]` analysis. Writing source slices or helper scripts to disk litters the audited repo with untracked orphans.
+- **Scratch paths only.** Write only to `[SCRATCH_PATH]` as substituted by the dispatcher (repo-relative or under the run-id scratch dir). Never improvise a bare `X:`-style drive path — Windows mangles `:` in filenames into a fullwidth-colon literal that lands in the audited repo's root as an unattributable orphan.
 ```
 
 ---
@@ -408,6 +414,8 @@ Top 3-5 most notable aspects of this system, ranked by architectural significanc
 - The boundary catalog must be exhaustive — every [ENTRY] and [BOUNDARY] marker from
   Phase 1 must appear here
 - Do not soften findings. If something is problematic, say so directly.
+- **Produce ONLY your deliverable: the graded assessment file at `[SCRATCH_PATH]`.** Do NOT write intermediate working files — no extraction scripts, no raw line-range/source dumps, no `.txt`/`.ps1`/`.py` scratch. Use the **Read** tool to read source files and hold the content in context; the only file you create is the `[SCRATCH_PATH]` assessment. Writing source slices or helper scripts to disk litters the audited repo with untracked orphans.
+- **Scratch paths only.** Write only to `[SCRATCH_PATH]` as substituted by the dispatcher (repo-relative or under the run-id scratch dir). Never improvise a bare `X:`-style drive path — Windows mangles `:` in filenames into a fullwidth-colon literal that lands in the audited repo's root as an unattributable orphan.
 ```
 
 ---
@@ -503,6 +511,8 @@ Key Architectural Observations, and Summary.
 - The ASCII diagram must not exceed 100 characters wide
 - The boundary catalog must remain exhaustive after updates
 - Do NOT produce a grade or health status — that comes from weekly-architecture-audit
+- **Produce ONLY your deliverable: the refreshed system analysis file at `[SCRATCH_PATH]`.** Do NOT write intermediate working files — no extraction scripts, no raw line-range/source dumps, no `.txt`/`.ps1`/`.py` scratch. Use the **Read** tool to read source files and hold the content in context; the only file you create is the `[SCRATCH_PATH]` analysis. Writing source slices or helper scripts to disk litters the audited repo with untracked orphans.
+- **Scratch paths only.** Write only to `[SCRATCH_PATH]` as substituted by the dispatcher (repo-relative or under the run-id scratch dir). Never improvise a bare `X:`-style drive path — Windows mangles `:` in filenames into a fullwidth-colon literal that lands in the audited repo's root as an unattributable orphan.
 ```
 
 ---

@@ -5,8 +5,8 @@ type: doctrine
 related:
   - docs/wiki/prior-art-checker.md
   - docs/wiki/docs-checker-pre-review.md
-  - plugins/coordinator-claude/coordinator/agents/external-pattern-checker.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator/agents/external-pattern-checker.md
+  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
 ---
 
 <!-- Spec backlink: ~/.claude/plans/external-pattern-checker.md Phase 2 -->
@@ -52,7 +52,7 @@ The EM may invoke external-pattern-checker during the reviewer pipeline Phase 2.
 **Condition A:** prior-art-checker returned `Silent` on architecturally-loaded claims — where "architecturally-loaded" means the claim involves a new abstraction, protocol, or doctrine surface (not a constant bump, test fix, or rename).
 
 **Condition B:** The plan is in `scope_mode` `architecture` or `feature` AND the topic is one the project has struggled with empirically, evidenced by **either**:
-- ≥ 2 entries in `tasks/lessons.md` or `coordinator-improvement-queue.md` sharing a noun-phrase from the plan's central abstractions, **or**
+- ≥ 2 entries in `state/lessons.md` or `coordinator-improvement-queue.md` sharing a noun-phrase from the plan's central abstractions, **or**
 - ≥ 1 archived handoff in `archive/handoffs/` whose body matches the same noun-phrase AND contains "reverted" / "abandoned" / "rolled back".
 
 **PM can also invoke it directly.** When the PM says "run external-pattern-check on this plan," the two-condition gate is bypassed — PM authorization is sufficient.

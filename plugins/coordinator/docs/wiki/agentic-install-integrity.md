@@ -4,7 +4,9 @@ created: 2026-05-28
 author: coordinator-em
 status: current
 kind: wiki
-spec-backlink: docs/plans/2026-05-28-shared-install-divergence-primitive-lift.md § C4
+spec-backlink:
+  - docs/plans/2026-05-28-shared-install-divergence-primitive-lift.md § C4
+  - docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C4
 related:
   - coordinator/bin/check-install-divergence.py
   - coordinator/bin/install-sentinel-write
@@ -274,6 +276,95 @@ are adjacent prior art: `check-plugin-drift.sh` now performs content-equivalence
 `sentinel != source HEAD`, so the sentinel-write primitive in this plan feeds a reader that can
 already distinguish "git-propagated current content with stale sentinel" from "genuinely stale
 install." Our writer feeds an already-richer reader.
+
+---
+
+## Polarity disambiguation in `consumer_modified`
+
+<!-- Spec backlink: docs/plans/2026-06-09-classifier-polarity-disambiguation.md § Mechanism / § Chunks/C4 -->
+
+The `consumer_modified` bucket indicates that both the live install and the incoming source have
+diverged from the baseline — but it does not by itself say *which side moved*. This matters for
+recovery: if the consumer's live tree moved (hand-edits to a shipped file), the correct recovery
+direction is `live → source` (back-propagate). If both sides moved independently, automatic
+recovery is wrong — operator decision is required. The classifier closes this gap by attaching a
+`polarity` field to every `consumer_modified` entry.
+
+### The three-value polarity enum
+
+`polarity` takes one of three values: **`live-modified`** | **`ambiguous`** | **`unknown`**.
+
+`source-moved-forward` is **not** in the enum. The existing `forward_safe` bucket already
+captures the `live == baseline AND incoming != baseline` case via `_consumer_in_sync`
+(`check-install-divergence.py:306-331`) — those files never reach `consumer_modified`. Re-engineering
+bucket precedence to widen `consumer_modified` to include them would change install-gate behavior
+with consumer impact (every install of a moved-forward source would trip the divergence gate), so
+the existing precedence is accepted and the polarity surface is kept to three values. The
+2026-06-02 holodeck `rc2` footgun that motivated this disambiguation was a genuine `ambiguous`
+case — the operator's "polarity opposite of the bucket label" reading was content-semantic
+reasoning that the classifier, working from blob SHAs alone, cannot reproduce. The three-value
+enum plus explicit `ambiguous` classification fully closes the footgun: operators see
+`[polarity: ambiguous]` per file and know to inspect rather than defaulting to `live → source`.
+
+### Truth table: live / baseline / incoming → polarity
+
+| Condition | Polarity | Recovery direction |
+| --- | --- | --- |
+| `live != baseline` AND `baseline == incoming` | `live-modified` | `live → source` (back-propagate) |
+| `live != baseline` AND `baseline != incoming` AND `live != incoming` | `ambiguous` | operator decision required |
+| no baseline (`version.txt` absent/malformed) | `unknown` | n/a (two-way mode) |
+| `live=ABSENT_LIVE`, `baseline=real`, `incoming=real` (consumer deleted shipped file) | `live-modified` | `live → source` (back-propagate the deletion intent OR restore — operator routing) |
+| `live=real`, `baseline=ABSENT_BASELINE`, `incoming=real` (consumer created file now also in source with different content) | `ambiguous` | operator decision required |
+| `live=ABSENT_LIVE`, `baseline=ABSENT_BASELINE`, `incoming=real` (forward-ADD; NOT consumer_modified) | n/a | sanity-check row only — never enters consumer_modified per `_consumer_in_sync` |
+
+**Absent-file rationale.** Consumer-delete-shipped-file routes to `live-modified` because the
+consumer's deletion is the divergence — restoring it from source is the `live → source` direction.
+Consumer-create-collision routes to `ambiguous` because both sides intentionally diverged:
+consumer created independently, source then added a different file at the same path — no automatic
+direction is correct.
+
+### Recovery-direction routing
+
+Consumer recovery scripts (e.g. `holodeck_recover.sh --step reverse-drift`, and future
+sibling-repo equivalents) MUST key on the `polarity` enum value, NOT on the `consumer_modified`
+bucket label. The routing rule:
+
+- `live-modified` → `live → source` (back-propagate via existing reverse-drift logic).
+- `ambiguous` → halt and surface to operator (no automatic direction — both sides intentionally diverged).
+- `unknown` → halt and surface to operator (no baseline; two-way mode means the script lacks the data to choose).
+
+**Negative-spec (load-bearing).** Defaulting to `live → source` based on the `consumer_modified`
+bucket label alone was the 2026-06-02 footgun this disambiguation closes. Consumer scripts that
+fail to read the `polarity` field and route by bucket label alone re-introduce the footgun.
+
+### Contract versioning and additivity convention
+
+Surface changes to the contract fixture (`setup/tests/contract/install_divergence_contract.json`)
+— new keys in `top_level_keys`, `item_keys`, or nested enumerations — require a `contract_version`
+bump per the fixture's own churn-discipline rule (description field, line 3: "surfaces in this
+file MUST NOT churn without a contract_version bump"). The polarity extension bumped the fixture
+from `contract_version: 1` to `contract_version: 2`.
+
+**The `contract_version` bump IS the additivity record.** v1 consumers binding the prior version
+see the prior fields unchanged — all existing keys are preserved verbatim; the polarity field
+and `consumer_modified_by_polarity` counts are additive. An optional `additive_since: <YYYY-MM-DD>`
+provenance annotation MAY be added to individual fixture entries when fine-grained provenance
+is wanted within a single version, but the version bump is the primary mechanism. The inline
+`additive_since: "2026-06-09"` annotations on the v2 enumeration entries in
+`setup/tests/contract/install_divergence_contract.json` serve as per-entry provenance supplements,
+not as substitutes for the version bump.
+
+### Round-trip coverage
+
+The producer-side round-trip test (`setup/tests/test_install_divergence_lift.py::test_polarity_per_entry_and_counts`
+and sibling tests) exercises the real classifier end-to-end against synthesized git trees — that
+satisfies the producer half of the round-trip-contract-tests rule
+(`docs/wiki/round-trip-contract-tests.md`). The consumer-side leg (a real consumer recovery
+script exercising the polarity routing rule) lives in the holodeck repo and is gated by
+holodeck-em's adoption of the polarity routing rule per the 2026-06-09 `kind: ask` memo.
+Adoption status: pending (memo just sent; receiver disposition open).
+
+Spec backlink: `docs/plans/2026-06-09-classifier-polarity-disambiguation.md` § Mechanism / § Chunks/C4.
 
 ---
 

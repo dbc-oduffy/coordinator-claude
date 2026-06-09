@@ -211,7 +211,7 @@ Most values belong in the core `registry.toml`. A concern file (`unreal.toml`, `
 
 When a concern file is listed in `registry.toml`'s `concerns` array, that concern's namespace (`unreal.*`, `cuda.*`) is **resolved exclusively from the concern file**. Keys with that prefix in `registry.toml` are ignored and emit a warning — the concern file wins. Put `unreal.*` keys EITHER in the core registry OR in `unreal.toml`, never both. This is a read-resolution rule (avoids silent shadowing for operators), not an ownership/permission rule — see §5a for the schema-authorship-vs-value-writing distinction.
 
-**Extension path (per Zolí review, F7).** If a future need for per-repo metadata (kind, role, version, consumer-set) emerges, the extension path is a new concern file (e.g., `repos_meta.toml`), not restructuring the flat `repos.*` namespace. The flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). YAGNI: add the concern file if and when the need is concrete; this note just records that the extension path exists so a future contributor does not feel forced to restructure the baseline.
+**Extension path (per the Director of Engineering review, F7).** If a future need for per-repo metadata (kind, role, version, consumer-set) emerges, the extension path is a new concern file (e.g., `repos_meta.toml`), not restructuring the flat `repos.*` namespace. The flat namespace is correct for the current consumer set (sibling-repo roots are strings, not structured objects). YAGNI: add the concern file if and when the need is concrete; this note just records that the extension path exists so a future contributor does not feel forced to restructure the baseline.
 
 **When the "wait for instance #3" rule applies vs. when it doesn't.** Per `docs/wiki/ceremony-calibration.md`, conventions wait for the third instance before being extracted into a shared abstraction — single instances of a pattern are routinely premature to generalize. The machine-local registry itself appears to break that rule (four EM reinventions surfaced in the triggering plan's §1.2). It does not, because the rule's exception is precisely the case it surfaced: the rule prevents premature abstraction when you have *one* instance and might invent a *second* speculatively; it does NOT prevent abstraction when you already have *N≥2* instances and one of them is in active wrong-shape arrangement because the abstraction never existed. The four-reinvention pattern + the wrong-shape `wiring.env`-style accumulation was the empirical signal; the rule held perfectly. Document this distinction when proposing similar substrate-gap-driven extractions.
 
@@ -256,7 +256,7 @@ Exports `$REPO_<NAME>` for every declared `repos.*` key (note: prefix is singula
 
 Same contract; OS-detects between `machine-local.cmd` (Windows) and the bash wrapper elsewhere.
 
-Templates at `~/.claude/plugins/coordinator-claude/coordinator/templates/bin/` are byte-identical mirrors of these — they publish to consumer projects via `setup/publish.sh` alongside the reader.
+Templates at `~/.claude/plugins/coordinator/templates/bin/` are byte-identical mirrors of these — they publish to consumer projects via `setup/publish.sh` alongside the reader.
 
 ## 8. Anti-patterns
 
@@ -319,7 +319,7 @@ Machine-local handles operator-set config (key-value, TOML, reader-mediated). Th
 
 | Namespace | Owner | Contents | Notes |
 |---|---|---|---|
-| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/tasks/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` (grandfathered pre-cutoff memo) |
+| `~/.claude/holodeck/` | claude-unreal-holodeck | install-status.json, install-logs/, setup-state.json; **imminent:** watchdog/status.json, chain-walk-*.json (migrating from `~/.holodeck/`) | Migration in flight 2026-05-19; collapses the dual-namespace split (`~/.holodeck/` + `~/.claude/holodeck/`) into the canonical root. See `claude-unreal-holodeck/state/memos/2026-05-19-doe-question-holodeck-namespace-collapse.md` (grandfathered pre-cutoff memo) |
 | `~/.claude/project-rag/` | project-rag host | host runtime state | Existing; predates this doctrine |
 | `~/.claude/machine-local/` | coordinator | TOML registry — see §1–10 above | The config substrate, not a project state dir |
 | `~/.claude/plugins/<plugin>/data/` | each plugin | addon-owned on-disk state | Plugin-addressed; orthogonal to top-level project dirs |
@@ -444,6 +444,19 @@ Because the value is shell-evaluated once by `bash -c`, operators **MUST single-
 `registry.local.toml` (the registration example above does). The reader is referenced by its
 authoritative absolute path in Step 4g; a cwd-relative path would silently no-op when
 `/workweek-complete` runs from the meta-repo cwd — the exact bug DR-146 fixed.
+
+**Per-repo scoping (`--scope-repo`).** Step 4g passes the releasing repo's root
+(`git rev-parse --show-toplevel`) as `--scope-repo`, so the gate is scoped to that repo, **not**
+machine-global. The **meta-repo** (`${HOME}/.claude`, the coordinator home) is the explicit check-all
+case — releasing it covers every `copy_install` plugin on the machine. Any **consumer repo** (project-rag,
+dronesim, geneva-mvp, …) checks only `copy_install` plugins whose `source_path` IS that repo — usually
+none, so a clean no-op. This prevents a consumer-repo release from gating on a *sibling* plugin's
+live-install drift, which would violate the dependency-direction invariant (a host must never be forced
+to sync with a consumer's state). Path forms are normalized before comparison (Windows `X:/` vs MSYS
+`/x/` vs `$HOME`-derived `/c/`), so the meta-repo and `source_path` matches survive cross-platform path
+representations. Omitting `--scope-repo` (direct callers, tests) retains the legacy emit-all behavior.
+The scope filter runs **before** the `copy_install`-seen counter, so a consumer repo that legitimately
+sources none of the registered plugins exits `0` (clean), not `3` (misconfig).
 
 **Distinct from `refresh_cmd` on rollback.** `refresh_cmd` runs inside `refresh-plugin-live-install.sh`,
 which wraps it with snapshot + REPLACE-semantics rollback (it *mutates* the live install). `reverse_drift_cmd`

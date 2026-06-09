@@ -101,6 +101,25 @@ Severity definitions for the **Severity** field:
 
 A diff with five P2s is not the same as a diff with five nits — make sure your severities are calibrated. Use **nit** liberally; that is what the obsessive framing is for.
 
+## Partitioned-dispatch hand-off note
+
+**Applies only when this review is one slice of a partitioned dispatch. Skip this section for single-reviewer dispatches.**
+
+When this review is one slice of a partitioned `code-reviewer` dispatch (per
+`skills/workstream-complete/SKILL.md` § Partitioning large surfaces), the EM
+receiving your report MUST dispatch the integrator for your slice in **parallel**
+with peer-slice integrators — not after waiting for all slices to return.
+
+Mechanism: `bin/fan-out-integrator.sh` (input: TSV of `<slice-id>TAB<your-sidecar-path>TAB<your-scope-files>`,
+one row per slice; output: N parallel `coordinator:review-integrator` dispatch
+blocks). Collating N reviewers' findings into one union-integrator is the doctrine
+violation this row exists to prevent — the partition was applied because one
+Sonnet couldn't fit the whole surface; the same constraint binds the integrator.
+
+This note is a reminder to the EM reading your output, not an instruction to you.
+You do not dispatch anything. See `docs/wiki/review-integration-doctrine.md` §
+Integrator dispatches are 1:1 with reviewer slices for full rationale.
+
 ## Spec completion lens (when the EM provides a spec)
 
 If the dispatch brief names a spec, plan, or design doc (e.g. `docs/plans/YYYY-MM-DD-<feature>.md`, an RFC, a stub spec, or a handoff body), read it before reading the diff and add a **Spec completion** section to your report.
@@ -182,6 +201,15 @@ Coordinator ships shell to consumers' machines; **macOS is P0** (stock bash **3.
 - **GNU-only coreutils**: `grep -P`, `realpath`, `readlink -f`, `sed -i`, `date -d`, `date +%s%N`. Plus **CRLF**, and **`#!/bin/bash`** (prefer `#!/usr/bin/env bash`).
 
 **P1** in an auto-firing `hooks/hooks.json` hook (breaks boot on a clean Mac — bootstrap trap); **P2** elsewhere. **Not a finding:** a bash-4 construct guarded by `if (( BASH_VERSINFO[0] < 4 ))` — *except* a **4.3+** construct (nameref / negative index / `wait -n`) needs the **4.3-form** guard (`(( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) ))`); a 4.3+ construct guarded only at `< 4` is still a finding (breaks on 4.0–4.2). Also not a finding: bare `mktemp`; `grep -E`/`-oE`; plain `date +%s`; `sed` w/o `-i`; a safe `realpath || readlink -f || echo` chain; comment/heredoc hits. Construct→fix table + bash-version policy (DR-148): `docs/wiki/cross-platform-shell-portability.md`. Silent when no shell touched.
+
+## Hot-path-safe initialization lens (always-on)
+
+1. **Hot-path init without caching (P1 if present).** Any diff that introduces or modifies a function called from a request handler / per-`CallToolRequest` path / per-`semantic_search` path must justify cache-or-no-cache in the PR description if the function calls any of: pluggy `PluginManager()` allocation, `importlib.metadata.entry_points()` scan, addon `setup()` invocation, schema-table DDL, chroma collection open, torch model load.
+2. **Justification absent from PR description (P2).** When a hot-path-touching diff adds or modifies a function calling one of the six expensive-seam patterns above, the PR description must contain an explicit cache strategy or a stated reason why caching is unsafe (e.g. content-addressed by mutable input). Missing justification when the seam is present is a finding.
+
+`Empirical: 2026-06-09 project-rag daemon crash-loop on Windows exit 0xFFFFFFFF — missing memoization on core/addon_discovery.py::discover_addons() killed the daemon at ~14 min uptime / 119 addon-discovery cycles. Root-cause fix: commit c4a7dcf1. See docs/wiki/hot-path-safe-initialization.md.`
+
+Silent when no diff touches `core/*` or `priming/*`.
 
 ## Scope boundaries
 

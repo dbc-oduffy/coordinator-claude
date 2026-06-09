@@ -50,11 +50,11 @@ Any workstream that diagnoses a failure, validates a fix, writes an acceptance-c
 **Why:** Two AUTO-FIX corrections in one stub were traceable to muscle-memory EM commands without a verification step: one would have silently installed the CPU build of a GPU library (ignoring the lockfile's `[tool.uv.sources]` pin), and one used a probe position number that collided with pre-existing label drift. Both were caught by the downstream reviewer, not the EM.
 **How to apply:** before writing a concrete EM resolution ("use pip install X", "register at probe position N"), grep for the lock-file pin, grep for the existing label, or do the prior-art lookup in the sibling repo. "EM resolved" is not a verification stamp. The muscle-memory command that worked last week may be wrong today.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L149, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L149, central-promoted 2026-05-28).*
 
 ## Verifier Paraphrase Is Still Paraphrase — P0/P1 Gate Recurses Into Phase 2
 
-*Source: project-rag tasks/lessons.md:102, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:102, 2026-05-29. [universal]*
 
 A fix-executor that reads the source code directly can find that a verifier's "production risk" was phantom — the cited code was already fixed, or the risk was mis-stated in the verifier's summary. **Verifier paraphrase is still paraphrase.** The P0/P1 verification gate (CLAUDE.md § P0/P1 Verification Gate: read the cited code, confirm against current source) applies recursively: when a Phase 1 verifier returns a P0/P1 finding, the EM or a Phase 2 reader must still read the cited code line-by-line before dispatching a fix. A verifier that summarizes a finding in confident terms provides *another layer of paraphrase*, not primary source confirmation.
 
@@ -103,14 +103,40 @@ A handoff's diagnosis, an audit's locus, a roadmap stub's AC, a scout's finding,
 A crash boundary is *exactly* where work exists on disk but not in the git index. Reconstruction accounts for **where work landed**, not whether process gates closed.
 
 - **A "zero implementation" forensic claim built on `git grep` / `git log` is tracked-only** — it cannot see a crashed session's uncommitted work. Run `git status -uall` + disk `ls` of the expected scope BEFORE accepting a "nothing was built" premise. Crashed sessions routinely leave substantial untracked implementation; dispatched executors then "find the files already present." A recovery handoff's "zero implementation" conclusion is tracked-only by construction — the recovery author used `git grep`, which is blind to everything the crashed session left unindexed. Source: 2026-05-27 project-rag-ue-addon (tc-12 pickup).
-- **A dense burst of `session-end quick-save` / `pickup` commits in minutes is a crash signature, not clean closure.** A terminal commit proves a file was written — not that ACs were met, code was reviewed, or `/session-end` ran. After a crash, treat a single scout's reconstruction as HYPOTHESIS, then verify per-thread from primary sources (code on disk, `git show`, `tasks/review-trail/*.json`, completion records, handoff frontmatter), and **dispatch real code review at any "complete" thread whose review-trail record is absent** (2 of 7 "shipped-clean" threads had no review and no completion record in the observed case).
+- **A dense burst of `workstream-complete quick-save` / `pickup` commits in minutes is a crash signature, not clean closure.** A terminal commit proves a file was written — not that ACs were met, code was reviewed, or `/workstream-complete` ran. After a crash, treat a single scout's reconstruction as HYPOTHESIS, then verify per-thread from primary sources (code on disk, `git show`, `state/review-trail/*.json`, completion records, handoff frontmatter), and **dispatch real code review at any "complete" thread whose review-trail record is absent** (2 of 7 "shipped-clean" threads had no review and no completion record in the observed case).
 - **Run a second gate-keyed pass after any crash recovery** — the first pass establishes what landed; the second checks each thread's process gates (review-trail + completion-record presence) independently.
 - **Predecessor-session background executors can finish mid-pickup** — emitting results inline and writing to disk *after* the picking-up EM has committed. At pickup, reconcile against late-arriving disk writes, not just the pre-pickup commit set. Pickup-reconcile catches pre-pickup commits, not during-investigation ones; peer EMs can close your workstream out from under you.
 - **Review-trail coverage audits must glob `archive/review-trail/**`,** not just the live dir — `/workweek-complete` relocates records on weekly reset, so a live-dir-only audit under-reports coverage.
 
+## Verification Must Not Reuse the Fix's Own Assumption — Use an Independent Oracle
+
+A `sed` substitution that silently missed the backtick-wrapped form, and a follow-up `grep` that used the **same backtick-omitting pattern**, falsely confirmed "none remain" — the stale refs shipped and were caught only by a downstream reviewer. When a verification check shares the substitution/assumption of the thing it verifies, a true-negative is indistinguishable from success.
+
+**Rule.** Verify with an independent oracle: anchor existence, a differently-shaped grep, or a count — never the fix's own pattern. The oracle's query must be structurally independent from the transformation it verifies. (Source: ~/.claude, 2026-05-30.)
+
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).
+## test baseline run-window overlapping in-flight commit produces transient ImportErrors
+
+A test baseline whose run-window overlaps your own in-flight commit reports transient `ImportError`s, not real failures. The in-progress commit may leave the module in a partially-written state during the baseline run. Sequence the baseline run before your commit series starts, or after it completes cleanly. Apply: if a baseline shows unexpected `ImportError`s, check whether a concurrent commit was in flight during the baseline run before treating the errors as real.
+
+## green local fast-tier is not green CI; rename sweeps must include .github/workflows/
+
+A green local fast-tier is NOT a green CI — the merge gate only counts if it actually executes. Rename and path-change sweeps MUST include `.github/workflows/` YAML files; CI workflow files that reference the old path will fail silently on the next PR. Apply: any `git mv`, module rename, or path-change plan must include a `grep -r <old-name> .github/` step in done-criteria.
+
+## red CI in seconds = billing/quota gate not code failure — triage by duration
+
+A CI job that "fails" in seconds without ever starting is a billing/quota gate, not a test failure. Distinguish by run-duration and annotation: billing/quota failures typically show a flat-line graph with a quota or billing error annotation, not a test-runner traceback. Apply: before chasing a red CI job in code, check the job duration — sub-5-second failure is a quota signal, not a code signal.
+
+## A-vs-B diff requires same-conditions control — never a pre-existing artifact
+
+To attribute an A-vs-B diff to ONE variable, hold every other variable constant — diff against a same-conditions control, never a pre-existing artifact built under different conditions. Cross-condition artifact diffs produce phantom deltas. A clean go/no-go null result (no diff under same conditions) is a success confirming the diff IS the variable. Apply: whenever testing "did X change the output," produce a fresh control run under the same conditions and diff against that.
+
+## CI precedent borrowing requires asymmetry-load-bearing audit
+
+Before invoking a CI precedent from another workflow step, audit whether the precedent is symmetric in failure-mode load-bearing. A silent-pass on an optional dependency does not equal a silent-pass on a substrate the contract pins to. Apply: when copy-pasting a CI pattern, explicitly verify that the failure mode of the borrowed pattern matches the failure mode you need to handle.
+
 - CLAUDE.md § Verifying Handoff Premises, § Verifying Executor Output After a Crash or Timeout — boot-context tripwires this section expands.
 - `verification-before-completion.md` § Runtime Readiness vs. Green Tests — the daemon/editable-install/e2e-symptom half of this bucket.
 - `cleanup-sweep-hazards.md` — sweep operations, auto-discovery globs, scaffolding-deletion checks.

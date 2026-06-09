@@ -76,6 +76,8 @@ Two recurring failure patterns:
 
 `coordinator:plan` Branch C rejects any chunk that authors a handoff, spinoff, or workstream-complete artifact. Plans that pre-authorize "Chunk N: write a spinoff to <topic>" launder the PM gate through plan approval — by execution time the EM treats it as a checklist item and the spinoff's Step 0 PM-gate never fires. Cross-EM coordination chunks should read "surface cross-repo brief to PM via `cross-repo-memo`" with the path handed to the PM for relay.
 
+**Producer/consumer contract-field parity** — when a plan introduces or modifies a contract value (metadata field, identity constant, schema version, protocol enum) that crosses a repo boundary between a producer and a consumer, the prior-art check surfaces [`cross-repo-contract-parity`](cross-repo-contract-parity.md). Two conventions apply: consumer publishes its own read surface as a citable constant (Convention A), and shared identity pins are vendored both sides with a producer-side parity test (Convention B). Drift guard lives producer-side in both cases.
+
 ## Hook tripwire
 
 > **Reworked block → nudge 2026-05-29.** `hooks/scripts/nudge-unauthorized-handoff.sh` is a PostToolUse(Write) hook on `state/handoffs/` and `tasks/spinoffs/` that **warns without blocking** when a new file is written there without an authoring skill active. It replaces the deleted PreToolUse `block-unauthorized-handoff.sh`, which twice false-blocked a PM-authorized `/spinoff` (2026-05-28): its transcript-scrape could not see a skill invoked via the `Skill` tool, and a *block* gated on that unreliable signal fails closed (denies authorized work). The rework keeps the same best-effort scrape but uses it to SUPPRESS a non-blocking nudge (fails open — at worst one extra nudge the EM proceeds past). Mechanism: PostToolUse `exit 2` feeds the offer-shaped nudge into the model's next turn without blocking (PreToolUse `exit 2` would block; `exit 0`+stderr fails silent — see `hook-best-practices.md` § Friction-as-warning). Silence in autonomous runs: `COORDINATOR_HANDOFF_NUDGE_OFF=1`. The handoff-vs-spinoff routing doctrine in this wiki is also enforced by the skill Step-0 gates (`skills/spinoff` Step 0, `skills/handoff` Step 0); the hook is defense-in-depth. Full entry: `docs/wiki/coordinator-tripwires.md` § `NUDGE-UNAUTHORIZED-HANDOFF`.
@@ -164,7 +166,7 @@ Otherwise: verify in-session, ship both producer and consumer halves under one w
 
 2. **Receiver** sees the dirty file in `git status` at their next session. They read it, act, flip `status: open → actioned` in-place (optionally adding `decision:` and a note), then commit it into their repo. That commit is the terminal state.
 
-3. **No move, no second side — and no `sent/`.** The memo is created in `cross-repo/inbox/` and lives there as the primary record. Once actioned, the receiver MAY sweep it to `cross-repo/archive/` for housekeeping (co-located with the inbox — the whole channel is under `cross-repo/`). `cross-repo/archive/` is the canonical closed-memo destination; `archive/cross-repo/` (the old top-level path) is removed. **There is deliberately no `sent/` subfolder** — an EM looking to file an outbound copy finds no home for it, and the absence is the signal: the sender keeps no copy; the memo lives in the *recipient's* inbox.
+3. **No move, no second side — and no `sent/`.** The memo is created in `cross-repo/inbox/` and lives there as the primary record. **Return memos carrying portable findings are legitimate; ack-of-ack is not.** The test is "does new information travel?" — a return memo summarizing portable template/methodology findings discovered during receipt is legitimate; a pure acknowledgment of receiving an acknowledgment is not. Once actioned, the receiver MAY sweep it to `cross-repo/archive/` for housekeeping (co-located with the inbox — the whole channel is under `cross-repo/`). `cross-repo/archive/` is the canonical closed-memo destination; `archive/cross-repo/` (the old top-level path) is removed. **There is deliberately no `sent/` subfolder** — an EM looking to file an outbound copy finds no home for it, and the absence is the signal: the sender keeps no copy; the memo lives in the *recipient's* inbox.
 
 **`/workstream-complete` Step 2.65 — lifecycle sweep.** At workstream end, before the final commit, `/workstream-complete` runs a cross-repo memo lifecycle sweep: it scans this repo's `cross-repo/inbox/*.md` for memos whose underlying work was completed during the session (i.e., the issue they described has been resolved), and flips their `status: open → actioned` inline with a `decision:` note. This prevents the inbox from drifting from reality — memos where the work is done should not stay `open` and surface again at the next `/workday-start` Step 1.45.
 
@@ -256,6 +258,10 @@ When an inbound memo describes a situation, proposes an action, or asks a questi
 ### Picking up a memo — the adjudicate-and-own gate
 
 <!-- Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C5 -->
+
+**"Migrate X to the sibling" is a hypothesis — verify before treating as a move.** HEAD-verify the sibling's adoption commit exists before deleting your local copy. Trace the full import graph before pruning "migrated" files. Routine investigation frequently inverts the framing: the sibling already owns the content, it was never migrated, or the copy is legitimately shared.
+
+
 
 When `/pickup` routes to the memo branch, two existing sections in this wiki constitute the contract it invokes:
 
@@ -662,6 +668,26 @@ On a shared concurrent-EM branch with cross-repo coupling, an inbox memo is a li
 **How to apply:** before `cross-repo-memo --to <receiver> --topic <slug>`, run a glob/grep of `<receiver-repo>/cross-repo/inbox/*<slug>*.md` and `<receiver-repo>/cross-repo/archive/*<slug>*.md` for the topic. If a same-topic memo exists: read it. If it is correct and current, do not duplicate — the receiver already has the signal. If it is *wrong* (mis-framed, contradicts a PM decision, supersedes-worthy), supersede it explicitly (`--supersedes <old-path>` or an in-place correction the receiver can see), don't silently stack a second directive. Verify sibling-repo channel state, not just local git log, before composing.
 
 ## See also
+
+## memo ask receipt — drive the named surface not an adjacent equivalent
+
+When a memo `ask` names a specific verification surface (e.g. "add a round-trip test at `tests/test_wire.py`"), the receipt must drive THAT wire — adjacent unit tests covering "the same logic" in a different file or at a different layer are not interchangeable. The named surface was chosen deliberately; substituting an adjacent test silently fails the sender's verification intent. Apply: before closing a memo `ask`, confirm the exact surface named is exercised.
+
+## sweep inbox before locking conforming artifact shape
+
+A cross-repo convention may be ratified (or inverted) in your own inbox while you are mid-designing your conforming half. Action the inbox before finalizing the shape of a conforming artifact. Skipping the inbox check can result in building against a superseded spec and needing to re-work immediately after. Apply: `bin/surface-cross-repo-memos.sh` before any design decision that depends on a cross-repo agreement.
+
+## Cross-repo "migrate X to the sibling" usually inverts to "the sibling already owns X"
+
+A migration memo that says "take everything from here and move it to the sibling" is a hypothesis — verify against the sibling's HEAD before treating it as a move. Routine investigation pattern: scout byte-identity, check whether the sibling's adoption commit already landed, trace the full import graph before pruning "migrated" files. Apply: `git log --all -- <path>` on the sibling's tree; confirm the commit that adopted the artifact before deleting the local copy.
+
+## memo surface script keys on inbox location not frontmatter status — actioned memos must be archived
+
+The cross-repo memo surface script flags memos as STALE if they remain in `cross-repo/inbox/`, regardless of `status: actioned` in frontmatter. Actioned memos must be archived (moved to `cross-repo/archive/`) after action; leaving them in inbox will cause the surface script to surface them as outstanding on every workday-start. Apply: after accepting and acting on a memo, run `bin/archive-cross-repo-memo.sh <file>` or manually move to `cross-repo/archive/`.
+
+## Return memos with portable findings are legitimate; ack-of-ack is not
+
+Return memos carrying portable template or methodology findings discovered during receipt are legitimate outbound memos — "does new information travel?" is the test. A pure ack-of-ack (confirming you received the ack of your ack) is not. Apply: before sending a return memo, verify it contains at least one piece of information the sender cannot derive from their own repo.
 
 - `skills/handoff/SKILL.md` Step 0 — handoff trigger gate (YES-tests / NO-tests)
 - `skills/spinoff/SKILL.md` Step 0 — PM-authorization gate

@@ -147,6 +147,7 @@ Rescue only genuinely-unique content (e.g. an uncommitted lesson), then `git sta
 - **Before:** `git diff --cached --name-only` (full staged set).
 - **After:** `git show --stat HEAD` (confirm the file list matches intent).
 - **After high-concurrency fan-out (N>5):** `git log -p --since="<dispatch-start>"` audit before merge — look for diffs exceeding their subject's scope and ghost commits with no clear attribution.
+- **Verify your commit landed with `git log -N | grep <subject>`, never `git log -1`.** On a shared branch, `git log -1` may show a sibling's commit; grep recent log for your own subject line to confirm your commit actually landed.
 
 ### H11 — `git checkout --ours` and mtime pitfalls
 
@@ -164,7 +165,7 @@ Rescue only genuinely-unique content (e.g. an uncommitted lesson), then `git sta
 
 **Trap.** Same-repo sibling sessions are not addressable. Touching their dirty file is the H1/H4 collision; you have no channel to ask them to commit first.
 
-**Rule.** **Split at the concurrency seam.** Commit the clean part of your fix; write a dated `archive/YYYY-MM-DD-<topic>.md` memo with the exact atomic change + file links; leave their dirty file untouched. The receiving session reads the memo and lands it. Distinct from a cross-repo memo (PM-relay, different repo) and from Agent Teams `SendMessage` (same team context). → [`cross-repo-communication.md`](./cross-repo-communication.md) § same-repo concurrent sessions. If you discover >100 LOC of unstaged changes in a shared file you didn't edit, an active peer is on that surface — surface to PM, edit unrelated files only, resume after they commit ([`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Large unstaged diff in shared files").
+**Rule.** **Split at the concurrency seam.** Commit the clean part of your fix; write a dated `archive/YYYY-MM-DD-<topic>.md` memo. Also: a `consumed`/`in_flight` handoff stamp is a collision signal — grep the shared branch before building on a handoff that shows this status. with the exact atomic change + file links; leave their dirty file untouched. The receiving session reads the memo and lands it. Distinct from a cross-repo memo (PM-relay, different repo) and from Agent Teams `SendMessage` (same team context). → [`cross-repo-communication.md`](./cross-repo-communication.md) § same-repo concurrent sessions. If you discover >100 LOC of unstaged changes in a shared file you didn't edit, an active peer is on that surface — surface to PM, edit unrelated files only, resume after they commit ([`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Large unstaged diff in shared files").
 
 ### H13 — Scope process-kills to your own invocation, not the runtime class
 
@@ -317,6 +318,30 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 **Rule — `coordinator-renormalize-index`.** Because each phantom's content already renormalizes-equal to the index/HEAD, a plain `git add <path>` refreshes only the stat-cache and stages **nothing committable** — no commit needed. The tool refreshes ONLY the phantom set, computed as `(git ls-files -m) MINUS (git diff --name-only) MINUS deleted-in-worktree` = stat-modified minus real worktree-vs-index content diffs minus deletions. This excludes every genuine worktree edit AND any path a sibling has staged (index≠HEAD with a differing worktree). **Residual race (honest scope, not "by construction impossible"):** the set is a snapshot and the `git add` fires later, so a sibling overwriting a phantom path in that window could be staged; we shrink the window to near-zero by re-confirming against a fresh `git diff` immediately before staging, and the worst case is bounded — the sweep only ever `git add`s, never commits, so an absorbed edit sits merely *staged* (visible, recoverable) and is caught downstream by `coordinator-safe-commit`'s touched-files filter before it can enter a commit. **Safe on a live shared tree at any time.** Hardening: a real `git diff` *failure* (not empty) aborts loudly rather than treating all paths as phantoms; deleted-in-worktree paths are excluded (a `git add` there would stage a deletion); `--ignore-errors` keeps one poison path from sinking the batch; and the write is deferred if a live `index.lock` is present (no added contention vs § H21). Requires bash 4+ (associative arrays) — `#!/usr/bin/env bash` prefers a modern bash, and it no-ops cleanly on older shells (e.g. macOS stock /bin/bash 3.2), where the NTFS phantom does not arise anyway. It is packaged as a **silent, idempotent SessionStart hook**: `session-init.sh` runs it at every session start in every repo, alongside `coordinator-reap-stale-locks` and `coordinator-configure-git` — a no-op (no index write) when the tree is clean, so it adds no noise. This is preferred over per-ceremony prose steps (which depend on an agent executing them and fire on the wrong cadence); the session terminators' dirty-tree gates only carry a one-line *recognition* clause treating a content-equal ` M` file as benign (never a case-(c) orphan) as a backstop for phantoms that appear mid-session. Also invokable on demand; `--check` reports the phantom count without writing the index. The heavier repo-wide cure — `git add --renormalize . && commit` — fixes it for *all* clones at once but must run on a quiet tree (no live sibling edits); prevention is a consistent `.gitattributes` (`* text=auto`) so the index never re-acquires an EOL-stale blob.
 
 ## See also
+
+## verify HEAD before pausing release or spinoff on broken-today claim
+
+Before pausing a release or authoring a spinoff based on a "broken today" claim, run `git log --oneline -- <cited-paths>` for concurrent-session work on that exact surface FIRST. Broken-today claims age in hours under concurrent EMs; the fix may have already landed. Apply: verify-before-act, not verify-after; never pause a release ceremony or open a spinoff stub on a broken-today premise without a HEAD check.
+
+## concurrent rename + scoped commit can land delete-half without add-half
+
+Concurrent rename plus your scoped commit can land the delete-half without the add-half, silently. When a sibling EM runs `git mv old-path new-path` concurrently, your explicit-path `git add -- old-path` will stage the deletion (because old-path is gone) but NOT stage the add (because new-path is a different path). Result: committed tree is missing the file. Apply: after a scoped commit on a shared branch, `git show --stat HEAD` to verify the expected add landed, not just the delete.
+
+## H15 — Orientation-cache "in-flight concurrent" flag must be verified against live branch before building
+
+Before planning or executing a ticket the orientation cache flags as "in flight under a concurrent session," grep the live branch for that ticket's commits FIRST. The in-flight flag is a STOP-and-check signal — parallel duplicate work is the failure mode. Apply: `git log --oneline --grep="<ticket-id>" origin/<branch>` before starting any work flagged as concurrent-in-flight.
+
+## stash-pop conflict silently rolls back disk state in multi-agent sessions
+
+Multi-agent stash-pop conflicts silently roll back disk state — the final reviewer reads a stale tree. In multi-agent sessions where multiple sessions may stash independently, stash-pop conflicts abort silently (no error message on stdout), leaving the file as it was before the pop. Use a WIP commit instead of `git stash` in multi-agent contexts. Apply: in any concurrent-EM session, replace `git stash push` / `git stash pop` with `git commit -m "wip: <context>"` / `git reset HEAD~1`.
+
+## consumed/in_flight handoff means concurrent session already owns it
+
+A `consumed` or `in_flight` handoff frontmatter status means a concurrent session already owns it. The `consumed_at`/`consumed_by` stamp is a collision signal; grep the shared branch and decisions dir before building on a handoff that shows this status. Apply: `git fetch && git log --oneline -- state/handoffs/<file>` before picking up any handoff; if consumed_by is populated, stand down and surface to PM.
+
+## Gate failure during long ceremony may be stale code — re-run before treating as real
+
+A gate failure during a long ceremony (workweek-complete, parallel fan-out) may be stale checked-out code that a concurrent EM is actively fixing. Re-run the gate after sibling commits land before treating it as a real failure. Also: capture shared-file appends (week-changelog, orientation-cache) via commit message or a scoped append, not full-file Write, when a sibling may be doing full-file Writes concurrently.
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — the commit-content enforcement surface (`coordinator-safe-commit`, touch-tracker, hunk-scoping, the full atomic-gesture / blanket-race / reflog-probe treatments). This page is the symptom catalog; that page is the machinery.
 - [`daily-branch-discipline.md`](./daily-branch-discipline.md) — the commit-location enforcement surface (branch-shape hook, shared-bus framing, plumbing-reword).

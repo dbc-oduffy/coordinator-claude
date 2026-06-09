@@ -145,6 +145,10 @@ If the code being lifted verbatim has a real bug (e.g., a counting error in `_cl
 
 *Source: 2026-05-28 install-divergence lift; code-reviewer (F1) surfaced a counting bug verbatim in both repos; flagged via cross-repo-memo rather than patching unilaterally.*
 
+## version constants symbolic — parity test is the structural drift defense
+
+Version constants are symbolic — pinning a version integer is not the same as defending against drift. The load-bearing tripwire is a parity test that asserts the constant matches reality at test time (e.g., `assert SCHEMA_VERSION == get_live_schema_version()`). Don't call drift defended after pinning a constant without a parity test that cross-checks it against the actual runtime state.
+
 ## Cross-references
 
 - [`cross-repo-communication.md`](./cross-repo-communication.md) — memo framing (fix-locus, fix-shape, field ownership) is hypothesis; the inbound-memo analogue of the our-own-stub rule above.

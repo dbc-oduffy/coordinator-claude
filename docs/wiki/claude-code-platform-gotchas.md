@@ -20,7 +20,7 @@ case "$model" in
 esac
 ```
 
-Source: `plugins/coordinator-claude/coordinator/hooks/scripts/context-pressure-advisory.sh`.
+Source: `plugins/coordinator/hooks/scripts/context-pressure-advisory.sh`.
 
 ### PreCompact fires without real shrink on subagent-result integration
 
@@ -218,8 +218,8 @@ The Claude Code harness prepends every installed plugin's `bin/` dir to PATH for
 - **Invokable scripts** — executable `.sh` and extensionless-executable commands (`fan-out-dispatch.sh`, `check-plugin-drift.sh`, `machine-local`, `cross-repo-memo`) → **cite by bare name**. They resolve on PATH exactly as written; the script's own `Usage:` line is the source of truth and already uses bare name. (2026-05-29: the invokable-script citations across coordinator doctrine were swept from `bin/X` to bare `X`.)
 - **Non-bare-invokable tools** — interpreter scripts run via a launcher (`bin/render-handoff-tracker.js` → `node …`, `bin/extract-lessons.py` → `python …`), data files (`bin/doctor-probes.toml`), and tools cited without a uniquely-resolvable name (`bin/query-records` ships both `.sh` and `.js`) → **the `bin/X` shorthand stays only as a prose label, never in a runnable block.** Distinguish two usages:
   - **Label usage** (prose: "prefer `bin/query-records` over static lists", a Tier-2 table cell, a "this is the query engine" reference) → `bin/X` shorthand is correct. It names the namespace tool, not a file; bare `X` would not run, so `bin/X` is the readable label. Still PATH-namespace, still never cwd-relative.
-  - **Executable usage** (inside a ```bash block, or any inline command an EM will copy-paste-run verbatim) → **cite the full launcher path: `"$HOME/.claude/plugins/coordinator-claude/coordinator/bin/query-records.sh"`** (matching how every other coordinator bin tool is cited in runnable blocks — `render-template.sh`, `coordinator-auto-push`, etc.). The bare `bin/query-records` shorthand **fails `command not found`** even though `bin/` *is* on PATH (harness-provided, per the invariant above — verified 2026-05-30: `command -v query-records.sh` and `command -v fan-out-dispatch.sh` both resolve). The reason is the **extensionless citation**: `query-records` ships only as `query-records.sh` and `query-records.js`, so there is no file named `query-records` for the bare name to resolve to — `command -v query-records` returns MISSING with `bin/` fully on PATH. (This is the trap in the earlier "bin not on PATH" diagnosis: `command -v query-records` empty does **not** prove `bin/` is off PATH; it proves only that no *extensionless* `query-records` exists. The right probe is `command -v query-records.sh`.) The failure is silent because callers wrap the call in `2>/dev/null`, so command-not-found stderr is swallowed and empty stdout reads as "no records" — a false-negative that masked 5 `ready_to_fire` handoffs in a project-rag workday-start briefing (2026-05-30). A runnable bare-`bin/query-records` (or bare extensionless `query-completions`) block is the bug; reach for the full launcher path. The bare-`.sh` form (`query-records.sh`) also resolves on PATH and is equally correct — option B (full launcher path) is the chosen citation because it carries zero PATH dependency.
-- **Filesystem location** ("the hook lives at X", a path you'd `cat`/edit) → full repo-relative path from the plugin root: `plugins/coordinator-claude/coordinator/bin/X`, or the `~/.claude/plugins/.../bin/X` absolute form. Here the prefix is correct because you're naming a file, not a command.
+  - **Executable usage** (inside a ```bash block, or any inline command an EM will copy-paste-run verbatim) → **cite the full launcher path: `"$HOME/.claude/plugins/coordinator/bin/query-records.sh"`** (matching how every other coordinator bin tool is cited in runnable blocks — `render-template.sh`, `coordinator-auto-push`, etc.). The bare `bin/query-records` shorthand **fails `command not found`** even though `bin/` *is* on PATH (harness-provided, per the invariant above — verified 2026-05-30: `command -v query-records.sh` and `command -v fan-out-dispatch.sh` both resolve). The reason is the **extensionless citation**: `query-records` ships only as `query-records.sh` and `query-records.js`, so there is no file named `query-records` for the bare name to resolve to — `command -v query-records` returns MISSING with `bin/` fully on PATH. (This is the trap in the earlier "bin not on PATH" diagnosis: `command -v query-records` empty does **not** prove `bin/` is off PATH; it proves only that no *extensionless* `query-records` exists. The right probe is `command -v query-records.sh`.) The failure is silent because callers wrap the call in `2>/dev/null`, so command-not-found stderr is swallowed and empty stdout reads as "no records" — a false-negative that masked 5 `ready_to_fire` handoffs in a project-rag workday-start briefing (2026-05-30). A runnable bare-`bin/query-records` (or bare extensionless `query-completions`) block is the bug; reach for the full launcher path. The bare-`.sh` form (`query-records.sh`) also resolves on PATH and is equally correct — option B (full launcher path) is the chosen citation because it carries zero PATH dependency.
+- **Filesystem location** ("the hook lives at X", a path you'd `cat`/edit) → full repo-relative path from the plugin root: `plugins/coordinator/bin/X`, or the `~/.claude/plugins/.../bin/X` absolute form. Here the prefix is correct because you're naming a file, not a command.
 
 **Windows caveat (extensionless scripts).** Bare-name citation is safe for `.sh`-suffixed scripts. Extensionless coordinator commands (`machine-local`, `cross-repo-memo`) can trip the ShellExecute Open-With picker when launched via Windows API rather than a shell — their `.cmd` shim story (above, and `windows-cmd-shims.md`) is what makes bare invocation safe; don't drop it.
 
@@ -336,7 +336,7 @@ Instructions in the EM's CLAUDE.md are invisible to subagents — they only read
 
 ### Built-in `Plan` and `feature-dev:code-architect` ship read-only
 
-`Agent(...)` calls without a `subagent_type` default to `Plan`, which excludes Write/Edit/NotebookEdit — planners return plan text for the EM to write out instead of persisting it. Override at `~/.claude/agents/Plan.md` with Write/Edit added to enable disk persistence. The coordinator plugin ships its own `code-architect` agent at `plugins/coordinator-claude/coordinator/agents/code-architect.md` with Write/Edit enabled.
+`Agent(...)` calls without a `subagent_type` default to `Plan`, which excludes Write/Edit/NotebookEdit — planners return plan text for the EM to write out instead of persisting it. Override at `~/.claude/agents/Plan.md` with Write/Edit added to enable disk persistence. The coordinator plugin ships its own `code-architect` agent at `plugins/coordinator/agents/code-architect.md` with Write/Edit enabled.
 
 ### Agent Teams 7-teammate limit requires phased spawning for extra pipeline steps
 
@@ -378,7 +378,7 @@ Any `powershell.exe` or `pwsh` call that fires on every hook event (e.g. `coordi
 
 **Rule:** `-NonInteractive -NoProfile -WindowStyle Hidden` remains the required preamble for all coordinator `powershell`/`pwsh` invocations on Windows.  The tripwire `verify-no-powershell-flash.sh` greps shell scripts and `hooks.json` to catch bare invocations in coordinator and sibling plugins.
 
-**Empirical source:** `tasks/lessons.md:171` — original fix in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
+**Empirical source:** `state/lessons.md:171` — original fix in commits 2b762da (install side) + 45fbf63 (coordinator-claude), 2026-05-07.  Mechanism correction verified 2026-05-29 against Node/Python/Win32 docs (issue #15572).
 
 ### Git Bash on Windows cannot reach 1Password's SSH agent
 
@@ -607,9 +607,23 @@ Either emit with `\n` line endings from the Python side (open stdout in binary o
 
 ### Dead MCP server in a subagent allowlist breaks ALL its MCP tool resolution — diff LIVE install against source first
 
-*2026-05-26, claude-unreal-holodeck.* A peer session reported Sid (`game-dev:staff-game-dev`) getting zero project-rag tools as a subagent ("banner present, tools absent"), even for validly-granted `project_semantic_search`. Hypotheses ranged over allowlist-vs-wildcard and platform/Agent-Teams plumbing. Real root: the **live install** carried a stale `holodeck-docs`-era definition with the retired `mcp__holodeck-docs__*` (dead server) in its allowlist; the **source** was already clean. A dead MCP server in a subagent allowlist breaks resolution of every MCP tool in that session.
+*2026-05-26, claude-unreal-holodeck.* A peer session reported the Game Dev Reviewer (`game-dev:staff-game-dev`) getting zero project-rag tools as a subagent ("banner present, tools absent"), even for validly-granted `project_semantic_search`. Hypotheses ranged over allowlist-vs-wildcard and platform/Agent-Teams plumbing. Real root: the **live install** carried a stale `holodeck-docs`-era definition with the retired `mcp__holodeck-docs__*` (dead server) in its allowlist; the **source** was already clean. A dead MCP server in a subagent allowlist breaks resolution of every MCP tool in that session.
 
 **How to apply:** when a subagent can't see MCP tools its source frontmatter grants, FIRST diff the live install (`~/.claude/plugins/.../agents/<agent>.md`) against source and check for dead/retired `mcp__<server>__*` entries — don't reach for platform/dispatch-mode hypotheses until the live copy is confirmed in-sync. `refresh-plugin-live-install.sh` (clears the dead ref + stale plugin cache) is the fix. This is source↔install drift; the forward-SHA drift check (`version.txt`) + refresh discipline is the prevention.
+
+### Self-inflicted regressions hide behind "platform problem" framing — bisect your own config history first
+
+*2026-05-30, ~/.claude.* A recurring Windows blue-`powershell.exe` flash was assumed upstream/Claude-Code-owned and treated as belt-only ("can't fully fix this"). Root cause was our own `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` added months earlier via `git log -S <setting> -- settings.json`.
+
+## Bash tool cwd persists across calls — never cd without cd-ing back
+
+The Bash tool's cwd persists across calls in the same session. Issuing `cd <worktree>` for inspection then forgetting to `cd` back causes subsequent `git commit` calls to land on the wrong branch. Prefer `Read`/`Glob`/`Grep` tools for inspection (they don't change cwd), or use `git -C <path>` for compound git ops without changing shell cwd. Apply: any `cd` in the Bash tool must be followed by `cd -` or an absolute `cd <original-path>` before the next git operation.
+
+## GPU Validation Must Not Be Bundled Into Executor Done-Criteria
+
+Dispatched executors must NOT bundle GPU validation (model loading, CUDA smoke tests) into their own done-criteria. Executor context + a spawned GPU smoke-test combined can lock up the system (GPU contention, OOM). GPU validation must be a separate EM-issued Bash call under PM observation of the GPU meter. Apply: any executor brief that includes model loading or CUDA validation must have that step removed and flagged as "EM-gated post-executor step."
+
+**Rule.** When a symptom "appeared at some point" and you're tempted to blame the platform, bisect your own config history BEFORE theorizing about upstream. The PM's "we didn't always have this" is the tell. `git log -S <setting_name> -- settings.json ~/.mcp*.json` takes 3 seconds and eliminates half the hypothesis space.
 
 ### WMI hangs on a thrashed Windows host — use kernel APIs for crash forensics
 

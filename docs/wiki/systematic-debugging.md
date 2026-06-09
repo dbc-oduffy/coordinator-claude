@@ -3,10 +3,10 @@ title: Systematic Debugging
 system: systematic-debugging
 status: distilled
 distilled_from:
-  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/SKILL.md
-  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/root-cause-tracing.md
-  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/defense-in-depth.md
-  - plugins/coordinator-claude/coordinator/skills/systematic-debugging/condition-based-waiting.md
+  - plugins/coordinator/skills/systematic-debugging/SKILL.md
+  - plugins/coordinator/skills/systematic-debugging/root-cause-tracing.md
+  - plugins/coordinator/skills/systematic-debugging/defense-in-depth.md
+  - plugins/coordinator/skills/systematic-debugging/condition-based-waiting.md
 distilled_at: 2026-05-06
 ---
 
@@ -133,7 +133,7 @@ All of these mean: STOP. Return to Phase 1.
 **Why:** A plan drafted against a wrong premise (e.g., "VRAM saturation") becomes debt the moment real evidence lands. One session produced ~290 lines of "host-level VRAM guardrail" plan before a kernel-level event named a non-GPU Python process consuming 217 GB virtual — the plan was discarded unbuilt rather than retrofitted on wrong premises.
 **How to apply:** run WMI / log / kernel-event diagnostics first → identify the actual offender → THEN design the fix. Premature mitigation plans mislead future readers and waste reviewer cycles on a plan the facts already contradict.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L135, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L135, central-promoted 2026-05-28).*
 
 ## Common Rationalizations
 
@@ -214,7 +214,7 @@ Subprocess exit codes (and the structured-report fields they correspond to: `ret
 
 A subprocess that exits with code `4294967295` (0xFFFFFFFF) is reporting a signed –1 reinterpreted as an unsigned 32-bit value — not an SEH exception or native crash. Before concluding that a large unsigned exit code signals an unhandled structured exception, grep the subprocess's stdout/stderr logs for the real error: a Python traceback, a structured error message, or a logged exception will name the actual failure class. The OS surface (`returncode = 4294967295`) is accurate; the *interpretation* (crash vs. deliberate non-zero exit) requires the logs. Concrete example: UE Commandlet processes return `Commandlet->Main()` exit –1 as their error path; project-rag's F-NEW-5 was misclassified as an SEH crash for two release cycles before a debug-capture run surfaced a `TypeError` traceback at the Python layer.
 
-*Source: DroneSim `tasks/lessons.md` (L8, central-promoted 2026-05-29).*
+*Source: DroneSim `state/lessons.md` (L8, central-promoted 2026-05-29).*
 
 ### No live diagnostic tracers that harm the host
 
@@ -292,7 +292,7 @@ Analyze stack traces by looking for test file names, finding the line number tri
 If something appears during tests but you don't know which test, use the bisection script `find-polluter.sh`:
 
 ```bash
-~/.claude/plugins/coordinator-claude/coordinator/bin/find-polluter.sh '.git' 'src/**/*.test.ts'
+~/.claude/plugins/coordinator/bin/find-polluter.sh '.git' 'src/**/*.test.ts'
 ```
 
 Runs tests one-by-one, stops at first polluter. See the script for usage.
@@ -456,7 +456,7 @@ async function waitFor<T>(
 }
 ```
 
-See `~/.claude/plugins/coordinator-claude/coordinator/examples/condition-based-waiting-example.ts` for a complete implementation with domain-specific helpers (`waitForEvent`, `waitForEventCount`, `waitForEventMatch`) from an actual debugging session. The example uses generic, self-contained types (`Event`, `EventType`, `EventManager`) with no external imports — copy it directly into any project and substitute your own event type values.
+See `~/.claude/plugins/coordinator/examples/condition-based-waiting-example.ts` for a complete implementation with domain-specific helpers (`waitForEvent`, `waitForEventCount`, `waitForEventMatch`) from an actual debugging session. The example uses generic, self-contained types (`Event`, `EventType`, `EventManager`) with no external imports — copy it directly into any project and substitute your own event type values.
 
 #### Common Mistakes
 
@@ -505,10 +505,14 @@ Patching one column without auditing siblings leaves live consumer join paths si
 
 **How to apply:** before submitting any path-resolution fix for review, run `grep -nE '(^\./|^bin/|^scripts/)' <new-file>` (or equivalent) to enumerate relative path references in the replacement. Each hit is a candidate for the same bug. This self-audit is fastest and cheapest before a reviewer catches it.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
+
+## flaky process crash resisting code-layer fixes — rate-measure then fix at gate layer
+
+A flaky test-PROCESS crash (hard abort, no traceback) that resists code-layer fixes is upstream of the code — it is a gate-layer problem (process isolation, spawn flags, resource limits). Before escalating to architectural changes: measure the crash rate (N/M runs) before AND after each candidate fix. If the rate does not improve after 3 code-layer candidates, the locus is the gate layer (spawn flags, isolation wrapper, OS resource limit). Apply: quantify the crash rate first; treat "rate unchanged after code fix" as evidence of wrong locus.
 
 ## Reference
 
-- **Aux script:** `~/.claude/plugins/coordinator-claude/coordinator/bin/find-polluter.sh` — bisection-based test polluter finder.
-- **Aux example:** `~/.claude/plugins/coordinator-claude/coordinator/examples/condition-based-waiting-example.ts` — concrete `waitFor` helpers from a real debugging session.
+- **Aux script:** `~/.claude/plugins/coordinator/bin/find-polluter.sh` — bisection-based test polluter finder.
+- **Aux example:** `~/.claude/plugins/coordinator/examples/condition-based-waiting-example.ts` — concrete `waitFor` helpers from a real debugging session.
 - **Related doctrine:** [test-driven-development](test-driven-development.md), [verification-before-completion](verification-before-completion.md), [stuck-detection](stuck-detection.md).

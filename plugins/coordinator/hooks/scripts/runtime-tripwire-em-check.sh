@@ -43,7 +43,7 @@ set -uo pipefail
 if command -v timeout >/dev/null 2>&1; then
   HOOK_INPUT=$(timeout 2 cat 2>/dev/null || true)
 else
-  HOOK_INPUT=$(cat)
+  HOOK_INPUT=$(cat 2>/dev/null || true)
 fi
 
 # --- Extract session_id from HOOK_INPUT (prefer jq, fall back to sed) ---
@@ -94,13 +94,15 @@ if [[ -f "$THROTTLE_SENTINEL" ]]; then
     exit 0
   fi
 fi
-# Review: code-reviewer — throttle tradeoff: written unconditionally even on a
-# below-threshold pass. This introduces up to a 5-minute delay after a dispatch
-# crosses threshold (the next above-threshold check is suppressed until the
-# throttle expires), in exchange for suppressing repeated below-threshold scans.
-# The original 'check was the work' framing was misleading; the real cost is
-# the delay-on-crossing.
-touch "$THROTTLE_SENTINEL"
+# Throttle sentinel is written AFTER the dispatch loop, only if at least one
+# nudge fired this pass (see end of file). Below-threshold passes do NOT
+# consume the throttle, so the first threshold-crossing fires immediately
+# instead of being delayed up to 5 min. This matters for Haiku (threshold 10
+# vs HARD-RULE ceiling 15 = 5-min wrap buffer) and Sonnet (12 vs 15 = 3-min
+# buffer) — the buffer is what gives the wrap-shape time to land before
+# doctrine. Earlier versions of this hook wrote the sentinel unconditionally
+# here; that consumed the buffer on every below-threshold scan.
+# Recovered 2026-06-09 after Sonnet review F5 on commit fc1196e8.
 
 # --- Source shared thresholds lib ---
 LIB_DIR="$(dirname "${BASH_SOURCE[0]}")/lib"
@@ -119,6 +121,24 @@ FIRST_FIRE_LIST=""
 RESTAGE_LIST=""
 RESTAGE_SECONDS="${RUNTIME_TRIPWIRE_RESTAGE_SECONDS:-300}"  # +5 min after first fire — single re-nudge, then silence (PM disposition 2026-06-08). Env-var override exists for testing.
 
+# Max-age cap: dispatched-agents.txt is append-only with agentId-dedup but never
+# ages out, so a dispatch whose completion record predates a skip-cross-ref
+# schema fix (or whose audit-log entry was lost) lingers forever. Past
+# MAX_TRACK_MINUTES, the dispatch has either completed (the common case) or
+# hung long enough that the EM has already decided — either way, further
+# nudges are noise.
+#
+# Why 90 min: the LAST scheduled nudge for any model fires at threshold +
+# restage. The longest-lived case is Opus (25 + 5 = 30 min). 90 min thus sits
+# 60 min past Opus's last fire, well clear of any legitimate tracking window.
+# Sonnet (12 + 5 = 17) and Haiku (10 + 5 = 15) are even more conservative.
+# Env-var override exists for testing.
+#
+# Empirical trigger 2026-06-09: pre-fix C1-C7 executors stayed visible in the
+# tracker for hours after landing commits, because their completion-log
+# entries predated the agentId-field fix (commit c268fb0f).
+MAX_TRACK_MINUTES="${RUNTIME_TRIPWIRE_MAX_TRACK_MIN:-90}"
+
 while IFS=$'\t' read -r agentId model subagent_type dispatched_at; do
   # Skip blank lines or lines with no agentId.
   [[ -z "$agentId" ]] && continue
@@ -131,8 +151,21 @@ while IFS=$'\t' read -r agentId model subagent_type dispatched_at; do
   fi
 
   # Skip-if-completed: cross-reference against agent-audit.jsonl (best-effort).
-  # Presence of a completion log entry means the agent already returned.
-  if [[ -f "$COMPLETION_LOG" ]] && grep -q "\"name\":[[:space:]]*\"$agentId\"" "$COMPLETION_LOG" 2>/dev/null; then
+  # Presence of a completion log entry keyed by agentId means the agent already
+  # returned. agent-completion-log.sh writes agentId from .tool_response.agentId
+  # at PostToolUse time — i.e. when the Agent tool returns, which IS completion.
+  # (Earlier versions grepped for "name", which is .tool_input.name — the
+  # optional addressable-teammate name, almost never set — so this skip never
+  # matched and the hook re-fired on completed agents indefinitely. Fixed
+  # 2026-06-09 after empirical false-positive on em-side-restage records.)
+  #
+  # Pattern requires BOTH quotes around the value: opener after the colon AND
+  # closer after the agentId. Without the trailing quote, a shorter agentId
+  # that is a prefix of a longer one would false-match. Pattern deliberately
+  # does NOT match "agentId":null — agent-completion-log.sh emits null when
+  # tool_response.agentId is absent (legacy/malformed responses); those are
+  # NOT confirmed completions and should not trigger the skip.
+  if [[ -f "$COMPLETION_LOG" ]] && grep -q "\"agentId\":[[:space:]]*\"${agentId}\"" "$COMPLETION_LOG" 2>/dev/null; then
     continue
   fi
 
@@ -143,6 +176,13 @@ while IFS=$'\t' read -r agentId model subagent_type dispatched_at; do
 
   # Per-model threshold check.
   ELAPSED_MIN=$(( (NOW - dispatched_at) / 60 ))
+
+  # Max-age cap (skip-if-too-old): safety backstop against append-only
+  # dispatched-agents.txt + skip-if-completed false-negatives (lost or
+  # schema-mismatched audit-log entries). See MAX_TRACK_MINUTES rationale
+  # above. Skip silently — no fire-log entry, no nudge.
+  [[ "$ELAPSED_MIN" -ge "$MAX_TRACK_MINUTES" ]] && continue
+
   THRESHOLD_MIN=$(runtime_threshold_minutes "$model")
   [[ "$ELAPSED_MIN" -lt "$THRESHOLD_MIN" ]] && continue
 
@@ -195,6 +235,14 @@ while IFS=$'\t' read -r agentId model subagent_type dispatched_at; do
   fi
 
 done < "$DISPATCH_FILE"
+
+# Throttle sentinel — write only if at least one nudge fired this pass.
+# A below-threshold pass leaves the sentinel untouched so the next pass
+# (when threshold is crossed) fires immediately. See the comment above the
+# 5-min throttle gate at the top of the file for the wrap-buffer rationale.
+if [[ -n "$FIRST_FIRE_LIST" || -n "$RESTAGE_LIST" ]]; then
+  touch "$THROTTLE_SENTINEL"
+fi
 
 # Nothing to report — exit cleanly without emitting JSON.
 [[ -z "$FIRST_FIRE_LIST" && -z "$RESTAGE_LIST" ]] && exit 0

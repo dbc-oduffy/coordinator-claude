@@ -18,7 +18,7 @@ Extension rule: if a new corpus type does not fit any of the three classes above
 extend the `Literal` return type of `corpus_class_for` (in `core/structural_schema.py`)
 and add a row here. Do NOT overload an existing class for a semantically distinct
 corpus type — that is the root cause of the "engine vs example" confusion that
-motivated the original split (Camelia memo 2026-05-16). Vendored-parity rule
+motivated the original split (the Data Science Reviewer memo 2026-05-16). Vendored-parity rule
 applies: extend all three vendored sites (`gate_structural_index.py:KNOWN_GOOD_PAIRS`,
 addon read mirror, `core/structural_schema.py:_CORPUS_KNOWN_GOOD_PAIRS`) in one
 commit and run `tests/test_schema_constant_parity.py`.
@@ -43,7 +43,7 @@ Engine source and sample projects are physically similar (both are "not your pro
 - A "find a reference implementation" query should *prefer* sample-project rows over engine internals.
 - Future sample corpora beyond Lyra (CitySample, community demos) need to fit without code edits — they share the `reference` authority and join the existing class automatically.
 
-Camelia's rationale memo: `X:/project-rag-ue-addon/tasks/camelia-engine-examples-split-2026-05-16.md`.
+The Data Science Reviewer's rationale memo: `X:/project-rag-ue-addon/tasks/camelia-engine-examples-split-2026-05-16.md`.
 
 ## Three-site vendored parity
 
@@ -59,7 +59,7 @@ Parity is enforced by `tests/test_schema_constant_parity.py` (set-equality on al
 
 ## No caching on the getter
 
-`get_corpus_class_sources(cls)` recomputes from the pair set on every call. No `functools.cache`. Reasons (Patrik P2-2, 2026-05-16):
+`get_corpus_class_sources(cls)` recomputes from the pair set on every call. No `functools.cache`. Reasons (the Staff Engineer P2-2, 2026-05-16):
 
 - Hot-reload safety during development (pair-set edits take effect immediately).
 - Test isolation — no per-process cache to invalidate between cases.

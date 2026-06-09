@@ -118,6 +118,10 @@ function sampleRss() {
 On Unix, `/usr/bin/time -v` reports "Maximum resident set size" at process exit — reliable for
 single-process tests, but does not capture sub-process peak in a fan-out.
 
+## Classify Timeout Shape from Process-Tree Before Trusting Error Message
+
+Classify a timeout from the process-tree timeline before trusting the test's own failure message. Process-tree sampling (subprocess count + RSS shape over time) identifies three patterns: (1) churn — high subproc count + rising RSS = real work happening, increase timeout; (2) flat-idle — low subproc count + flat RSS = wedged/deadlocked, investigate blocking; (3) heavy-work + sudden drop = OOM kill. Apply: before treating a timeout as a test bug, sample `ps aux --sort=rss` at 5s intervals for 30s and classify the shape.
+
 ## Related
 
 - `docs/wiki/round-trip-contract-tests.md` — broader contract-test doctrine

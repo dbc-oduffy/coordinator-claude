@@ -14,13 +14,11 @@ related:
   - docs/plans/2026-05-18-plan-coverage-checker.md
 ---
 
-<!-- spec-backlink: docs/plans/2026-05-18-plan-coverage-checker.md § Three Lenses, § Trigger Heuristic, § Sidecar Contract -->
-
 # plan-coverage-checker Pre-Review Doctrine
 
 ## What is plan-coverage-checker?
 
-plan-coverage-checker is a Sonnet-tier agent that verifies a plan artifact's internal consistency before the artifact reaches an Opus reviewer. It answers a question none of the other pre-flights answer: **does the plan's own fix slate cover the plan's own audit list, with no appetite-based hedges and no substrate citations that drift from disk?**
+plan-coverage-checker is a Sonnet-tier agent that verifies a plan artifact's internal consistency before the artifact reaches an Opus reviewer. It answers questions none of the other pre-flights answer: **does the plan's own fix slate cover the plan's own audit list, with no appetite-based hedges and no substrate citations that drift from disk?**
 
 The agent runs three mechanical lenses — coverage (slate-vs-oracle cross-reference), hedge detection (appetite-based deferral patterns), and substrate drift (in-repo path/symbol/constant verification) — and writes a sidecar at `<plan-path>.plan-coverage-check.md` with five finding buckets: Missed, Ambiguous, Weak-OOS, Hedges, and Substrate-drift.
 
@@ -78,14 +76,17 @@ Scope boundary: Lens 3 checks in-repo paths and symbols only. External API signa
 
 For extraction heuristics, verification procedure, and scope boundary, see the agent body: `agents/plan-coverage-checker.md § Phase 4`.
 
+**AC Test-cell grammar moved to PreToolUse hook `validate-ac-grammar.js` 2026-06-09.** The hook offers corrections at write-time (WARN by default, `COORDINATOR_AC_GRAMMAR_STRICT=1` upgrades to deny); the runtime gate at `check-acceptance-oracle.sh` (workstream-complete Step 3.8) enforces. The plan-coverage-checker no longer carries a grammar lens — its remit is now coverage (Lens 1), hedge detection (Lens 2), and substrate drift (Lens 3) only.
+
 ## Trigger heuristic — skill-internal, not EM-judged
 
-**The EM does not decide whether the agent runs.** The skill (`skills/review/SKILL.md` Phase 2.7d) runs the agent unconditionally on any plan with an oracle table. There is no EM opt-out in v1.
+**The EM does not decide whether the agent runs.** The skill (`skills/review/SKILL.md` Phase 2.7d) runs the agent unconditionally on any plan with an oracle table OR a bindable `## Acceptance Criteria` table. There is no EM opt-out in v1.
 
 | Plan shape | plan-coverage-checker? |
 |---|---|
 | Plan has a `problem_set:` frontmatter key → ratified external file (or inline ratified block) | **Run** — the problem-set is the primary oracle (highest priority). |
 | Plan contains an audit/findings/issues table (any size) | **Run.** |
+| Plan contains a bindable `## Acceptance Criteria` table but NO oracle | `SCOPE-MISMATCH` — no oracle to check; `validate-ac-grammar.js` is the authoring-time grammar enforcer. |
 | Plan is greenfield design with no found-facts oracle | Skip silently — agent emits `SCOPE-MISMATCH` (+ advisory nudge for feature/architecture/spike). |
 | Plan is single-file mechanical fix (no design content) | Skip silently. |
 | Plan is doc redesign / wiki rewrite | Skip silently. |
@@ -106,9 +107,9 @@ Five finding sections:
 
 Five verdicts:
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift. AMBIGUOUS does not gate.
-- **INCOMPLETE** — one or more gating findings. EM folds before reviewer dispatch.
-- **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items MISSED (MISSED count alone, not MISSED+AMBIGUOUS) OR ≥3 substrate-drift findings.
-- **SCOPE-MISMATCH** — no oracle found (no audit table and no ratified problem_set:). Agent writes a sidecar carrying the SCOPE-MISMATCH verdict; for feature/architecture/spike plans lacking a ratified problem-set, the sidecar also carries the advisory nudge. Review proceeds normally — no coverage lens ran. <!-- code-reviewer F1: wiki "Five verdicts" SCOPE-MISMATCH row was inconsistent with agent body; agent writes sidecar on this path, wiki now reflects that -->
+- **INCOMPLETE** — one or more gating findings. EM folds before reviewer dispatch. When the verdict is INCOMPLETE, the sidecar's verdict line gains a per-lens sub-label: `INCOMPLETE — Mechanical: N, Judgment: M` where Mechanical = Substrate-drift bucket count (Lens 3 — typically auto-foldable) and Judgment = Missed + Weak-OOS + Hedges bucket counts (Lens 1 + Lens 2 — needs EM decision). The sub-label is a cost estimate: Mechanical findings are usually a rewrite away; Judgment findings require an EM decision (add-to-slate / architectural-OOS / oracle-was-wrong / promote-OOS-to-slate). Verdict enum values are unchanged — back-compat preserved.
+- **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items MISSED (MISSED count alone, not MISSED+AMBIGUOUS), OR ≥3 substrate-drift findings.
+- **SCOPE-MISMATCH** — no oracle table found. Agent writes a sidecar carrying the SCOPE-MISMATCH verdict; for feature/architecture/spike plans lacking a ratified problem-set, the sidecar also carries the advisory nudge. Review proceeds normally — no lens ran.
 - **DEGRADED** — agent ran with incomplete coverage. No signal; review proceeds as if lens did not run.
 
 Prior sidecars are never deleted. On re-run, the agent renames the existing sidecar to `<plan-path>.plan-coverage-check.<UTC-mtime>.md` before writing the new one. This preserves the re-run history for feedback-loop analysis.
@@ -150,10 +151,12 @@ Operational hook: during `/workweek-complete`, as part of the weekly retrospecti
 The reviewer-side consumption block (`snippets/plan-coverage-check-consumption.md`) is synced via `verify-plan-coverage-sync.sh --fix` to all Opus reviewer prompts that may receive plans with oracle tables:
 
 - `agents/staff-eng.md` (the Staff Engineer)
-- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
 - `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
 - `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
 - `agents/eng-director.md` (the Director of Engineering — reviews plans at DoE altitude)
+- holodeck sibling repo `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — holodeck-resolved via machine-local registry key `repos.claude_unreal_holodeck`; skipped when holodeck repo is absent locally; `game-dev` retired from OSS coordinator-claude distribution 2026-05-26)
+
+<!-- Review: code-reviewer — removed direct staff-game-dev.md bullet (game-dev retired from OSS coordinator-claude 2026-05-26); replaced with holodeck-resolved entry note to match the live verifier behaviour -->
 
 **Excluded intentionally:** `agents/code-reviewer.md` (Sonnet code-shaped review, not plan-shaped) and `agents/staff-ux.md` (the UX Reviewer — UX flow review rarely has audit/slate structure). These exclusions are the same as for the sibling consumption snippets.
 

@@ -119,6 +119,18 @@ PowerShell `& $py - @"…"@` passes the here-string as an *argument* (argv[1]), 
 
 Any PowerShell script matching this pattern should be audited.
 
+## Start-Process -WindowStyle Hidden with redirect silently allocates console
+
+`Start-Process -WindowStyle Hidden` combined with `-RedirectStandardOutput`/`-RedirectStandardError` on a console-subsystem `python.exe` does NOT reliably hide the window — it allocates a persistent console. The distinction is `SW_HIDE` (hides after creation) vs. `CREATE_NO_WINDOW` (never creates). For reliable headless spawning, use `pythonw.exe` (GUI subsystem) or pass `creationflags=CREATE_NO_WINDOW` (0x08000000) in Python's `subprocess.Popen`. Defense-in-depth audit: grep for `Start-Process.*-WindowStyle Hidden` across all scripts — second occurrence (project-rag-L42): found 10+ sites in the holodeck/project-rag install surface.
+
+## console-popup triage — lifecycle scripts dominate, not tests
+
+Console-popup complaints on Windows usually originate in session-lifecycle scripts (startup, health-check, install runners), not the test runner itself. Triage heuristic: audit parallel-launch lifecycle scripts (e.g., `session-init.sh`, `coordinator-auto-push`, MCP start scripts) before chasing pytest internals. Apply: reproduce by running the lifecycle script path in isolation before adding `CREATE_NO_WINDOW` flags inside tests.
+
+## PowerShell 5.1 ConvertTo-Json empty array serializes as null
+
+PowerShell 5.1 `ConvertTo-Json` serializes an empty `@()` value inside a hashtable as `null`, not `[]`. This breaks any downstream consumer that distinguishes null from empty array. Fix: use `@(,@())` for a forced-array or `[System.Collections.Generic.List[object]]::new()`, then pipe through `ConvertTo-Json`; or post-process with `-replace '"value": null', '"value": []'` where field semantics are known. Audit: any PS5.1 script serializing potentially-empty arrays to JSON needs this guard.
+
 ## Why we can't have integration tests for picker-fire
 
 The picker is a GUI dialog. There is no programmatic signal that an assertion can read (no stderr, no exit code, no log entry). The closest we can do is assert at `/setup` time that the orphan-stub and Store-alias-on-PATH configurations are absent after the health check runs — that's an acceptance test on the health check, not on the runtime scripts. Document this expectation rather than chase a test we can't write.

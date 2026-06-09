@@ -21,7 +21,7 @@ Earlier readers of this wiki could assume `~/.claude/setup/publish.sh` already e
 - `setup/install.sh` (publish-repo fresh-install entry point) AND `/coordinator:setup` Phase 3 (ongoing maintenance, via `install-substrate.sh`) install `publish.sh`, `publish_sync.py`, and `publish-targets.example.sh` into `~/.claude/setup/`.
 - Operator then registers targets (see Step 1a/1b/1c below — machine-local is preferred, `publish-targets.sh` is legacy).
 - Operator authors `~/.claude/setup/.percolate-identity` from `.percolate-identity.example` with their own identity tokens.
-- If org-slug rewrites are needed, operator copies `~/.claude/plugins/coordinator-claude/coordinator/bin/depersonalize-identity.sh.example` to `depersonalize-identity.sh` and edits it.
+- If org-slug rewrites are needed, operator copies `~/.claude/plugins/coordinator/bin/depersonalize-identity.sh.example` to `depersonalize-identity.sh` and edits it.
 
 Spec backlinks:
 - `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 5` — `source_is_live` propagation model.
@@ -47,7 +47,7 @@ Spec backlinks:
 
 ## Structural-vs-Content Split
 
-`.percolate-ignore` filters **structural leaks** — categories of paths (`__pycache__/`, `_archived/`, `tasks/handoffs/`, peer-runtime dirs). It cannot catch **content leaks** that accumulate during normal authoring: a name slipping into a wiki body, a peer-repo reference embedded in a snippet, a machine name in a code comment, a token pasted into an example.
+`.percolate-ignore` filters **structural leaks** — categories of paths (`__pycache__/`, `_archived/`, `state/handoffs/`, peer-runtime dirs). It cannot catch **content leaks** that accumulate during normal authoring: a name slipping into a wiki body, a peer-repo reference embedded in a snippet, a machine name in a code comment, a token pasted into an example.
 
 Content leaks are caught at publish time by `/percolate` Step 2c (content-leakage scan — regex sweep over the about-to-publish file set, three severity tiers, panel surfaces to PM gate). Do NOT try to encode content scans here — they belong in `/percolate` because authoring drift is continuous and the static ignore file ages out of sync.
 
@@ -237,7 +237,7 @@ For every observed top-level path (and any second-level path that's load-bearing
 - **PUBLISH** — canonical plugin payload that USERS need: skills, commands, agents, hooks, bin, lib, schemas, pipelines, snippets, README, CLAUDE.md (the plugin's), routing tables, capability catalogs, plugin-bundled `docs/wiki/`. Reference: `docs/wiki/plugin-extraction-and-distribution.md`.
 - **IGNORE** — authoring/state/personal content that MUST NOT leak. Sub-buckets:
   - *personal-docs:* private wikis, internal-only notes
-  - *session-state:* `tasks/handoffs/`, `tasks/lessons.md`, `tasks/distillation-log.md`, `tasks/review-trail/`, project trackers, daily-review logs, improvement queues, archived specs
+  - *session-state:* `state/handoffs/`, `state/lessons.md`, `state/distillation-log.md`, `state/review-trail/`, project trackers, daily-review logs, improvement queues, archived specs
   - *install-state:* `install-profile.json`, `install-status.json`, `.last-cleanup`, similar machine-local state
   - *machine-config:* `settings.json`, `settings.local.json`, `.mcp.json` containing secrets/tokens, environment-specific configs
   - *scratch:* `scratch/`, `_archived/`, `*.bak`, `*.tmp`, orphan `.tmp.<pid>.<nanos>` files
@@ -399,8 +399,8 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 
 **`/percolate` dry-run file-count is inflated by the depersonalization-delta — not a signal of real changes.** A dry-run may report 200+ "UPDATE" files when the real run syncs only 2-3 genuinely-changed files and re-depersonalizes the rest (the dest is already depersonalized; the source is not, so every file reads as "changed" in a naive diff). Judge percolate scope by `git status` in the dest repo after the real run, not the dry-run UPDATE count. The content-leakage scan result (0 hits) is the real safety signal.
 
-*Note on depersonalize scope:* the depersonalize hook strips identity tokens (Dónal/oduffy/paths) but does NOT convert reviewer-persona display names (Patrik/Sid/Camelia/Palí/Fru/Zolí) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
+*Note on depersonalize scope:* the depersonalize hook strips identity tokens (the PM/oduffy/paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 **One-way mirror percolate silently reverts direct edits in publish repo** (2026-05-16 self). The mirror step overwrites publish-repo content from source without checking whether the publish repo has received direct edits (e.g., a hotfix applied while the source repo was out of reach). Any commit in the publish repo that post-dates the last percolate run is silently deleted by the next mirror pass. Detection step: before running the mirror, run `git log --since=<last-percolate-sha> -- <synced-paths>` in the publish repo; if non-empty, surface to PM before proceeding. Implementation: add this check to `/percolate` before the mirror/rsync step fires.

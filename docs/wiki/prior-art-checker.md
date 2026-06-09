@@ -3,20 +3,20 @@ title: prior-art-checker pre-review doctrine
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/agents/prior-art-checker.md
-  - plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
-  - plugins/coordinator-claude/coordinator/skills/learn-lessons/SKILL.md
+  - plugins/coordinator/agents/prior-art-checker.md
+  - plugins/coordinator/snippets/prior-art-check-consumption.md
+  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator/skills/learn-lessons/SKILL.md
   - docs/wiki/docs-checker-pre-review.md
   - docs/wiki/lesson-triage.md
-  - tasks/handoffs/2026-05-06_165124_wired-in-wikis-lesson-checker.md
+  - state/handoffs/2026-05-06_165124_wired-in-wikis-lesson-checker.md
 ---
 
 # prior-art-checker Pre-Review Doctrine
 
 ## What is prior-art-checker?
 
-prior-art-checker is a Sonnet-tier agent that cross-references a plan artifact against the coordinator's accumulated prior art before the artifact reaches an Opus reviewer. It reads the plan, enumerates its claim surface, then searches four corpora — project wikis (`docs/wiki/` recursively, including subdirectories `marketplace/`, `opensource/`, `competitors/`, and `codebase-judgment/`), global wikis (`~/.claude/docs/wiki/`), `tasks/lessons.md`, and the central improvement queue — and reports each claim as **Conflict**, **Compatible-but-relevant**, or **Silent**.
+prior-art-checker is a Sonnet-tier agent that cross-references a plan artifact against the coordinator's accumulated prior art before the artifact reaches an Opus reviewer. It reads the plan, enumerates its claim surface, then searches four corpora — project wikis (`docs/wiki/` recursively, including subdirectories `marketplace/`, `opensource/`, `competitors/`, and `codebase-judgment/`), global wikis (`~/.claude/docs/wiki/`), `state/lessons.md`, and the central improvement queue — and reports each claim as **Conflict**, **Compatible-but-relevant**, or **Silent**.
 
 The output is a sidecar at `<plan-path>.prior-art-check.md`. The agent makes no judgments and applies no fixes; it surfaces matches with verbatim quotes for the EM to disposition.
 
@@ -24,7 +24,7 @@ The result: Opus reviewers receive a plan that has already been cross-referenced
 
 ## Why this exists — the capture-recall loop
 
-The coordinator system captures lessons via `tasks/lessons.md` → `learn-lessons` → `docs/wiki/` and the central improvement queue. **Capture is mature; recall was broken.**
+The coordinator system captures lessons via `state/lessons.md` → `learn-lessons` → `docs/wiki/` and the central improvement queue. **Capture is mature; recall was broken.**
 
 Wikis sat in `docs/wiki/` without being part of any EM's default context. The EM rarely read them at plan time. Lessons promoted to wikis silently decayed because nothing in the workflow reached for them. The fix was not more wikis — it was a process loop that consults them automatically.
 
@@ -81,7 +81,7 @@ The verdict is advisory. The agent never auto-blocks; only the EM/PM may halt a 
 
 ## Prior-art mutability — DoE-reviewer override path
 
-*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (Zolí, or Patrik elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
+*2026-05-17, project-rag.* Prior art is not immutable doctrine. When a PM-authorized DoE-tier reviewer (the Director of Engineering, or the Staff Engineer elevated by PM brief) finds that a captured wiki/lesson is outdated, vague, or wrong, they have explicit authority to override the prior-art-checker's conflict finding and direct the integrator to update the prior art rather than the plan. The integrator records the override decision and edits the wiki/lesson/queue as a first-class deliverable of the review pass — same commit, same review trail.
 
 **When the override applies:**
 
@@ -116,7 +116,7 @@ The two pre-flights answer different questions:
 | | docs-checker | prior-art-checker |
 |---|---|---|
 | **Question** | Are these external API claims factually correct? | Have we already established something relevant about this? |
-| **Corpus** | Context7, LSP, project-RAG, cppreference | Project wikis, global wikis, `tasks/lessons.md`, central improvement queue |
+| **Corpus** | Context7, LSP, project-RAG, cppreference | Project wikis, global wikis, `state/lessons.md`, central improvement queue |
 | **Output** | Per-claim verification table (VERIFIED / UNVERIFIED / INCORRECT) | Three-bucket sidecar (Conflict / Compatible-but-relevant / Silent) |
 | **Authority** | AUTO-FIX allowlist for tradeoff-free corrections | REPORT-ONLY — EM dispositions all findings |
 | **Surface** | reviewer pipeline Phase 2.7 (`docs/wiki/reviewer-pipeline.md`) | reviewer pipeline Phase 2.7b (`docs/wiki/reviewer-pipeline.md`) |
@@ -129,14 +129,14 @@ Sidecars use `kind:` rather than `type:` in their frontmatter to distinguish mac
 
 ## Distribution
 
-The reviewer-side consumption block is synced via `plugins/coordinator-claude/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator-claude/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
+The reviewer-side consumption block is synced via `plugins/coordinator/bin/verify-prior-art-sync.sh --fix` from `plugins/coordinator/snippets/prior-art-check-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (Zolí)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
+- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 The sync verifier is auto-discovered by `/update-docs` Phase 11b. See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section.
 
@@ -181,7 +181,7 @@ The prior-art-checker surfaces a Conflict; the EM responds with a disposition di
 
 **How to apply:** before writing an `update-prior-art` or `override-and-document` disposition that relies on a non-existence or existence claim about your codebase, run `grep -rn "<claimed identifier>" src/ tests/ plugins/ commands/` and quote a file:line result (or the zero-result) in the disposition. The sidecar body carries the rationale; the rationale is only load-bearing when it's grounded.
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:5), companion to this wiki's § Bidirectional resolution.*
+*Source: 2026-05-28 project-rag (state/lessons.md:5), companion to this wiki's § Bidirectional resolution.*
 
 ## Audit-side closure must cross-check pre-existing test signal
 

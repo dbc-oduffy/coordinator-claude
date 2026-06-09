@@ -65,6 +65,9 @@ The analogous doctrine for EM-PM dialogue (how the EM engages the PM) landed in 
 
 **Applied example (2026-05-21).** When `probe-cwd-project-rag-relevance.sh` was designed to surface MCP availability at session start, the default implementation instinct was a warning-shape tripwire ("project-rag is available but MCP not configured"). The PM reframe: "take this MCP system!" not "Danger Will Robinson!" The final probe leads with the capability framing — "you have this equipment" — and names restoration as unlocking value, not as remediation of a failure. This is the design-as-offers shape applied to a concrete tool-author decision. The distinction is: what does the agent see first — an asset, or a gap?
 
+- **2026-06-09 — `validate-ac-grammar.js` PreToolUse hook** — offers S1 bare grammar rewrites (`prefix:value` with no backticks) for malformed AC Test cells. Authors typically wrap in single backticks for markdown code-formatting (which the runtime gate accepts as S3 whole-cell wrap); both forms parse cleanly. The hook is offer-shape (additionalContext WARN) because AC grammar is *misdirection* — authors write prose by default, not strong-incentive-to-do-wrong — refusing friction-as-warning per the offer-vs-friction-as-warning fork. Plan: `docs/plans/2026-06-09-plan-coverage-rework-burden-reduction.md`.
+<!-- Review: code-reviewer — rewrote entry to be precise about S1 bare suggestion form vs S3 whole-cell wrap that authors produce; resolved S1-vs-S3 doctrinal tension (C3 canonical form is S3; hook suggests S1 bare) -->
+
 ## What This Replaces
 
 Nothing. This is a net-new doctrine surface. There was no prior doctrine for executor-calibration or ergonomic-substrate design on this stack.

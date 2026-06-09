@@ -202,6 +202,10 @@ To change what the tracker shows, edit the relevant handoff's frontmatter (`cate
 - The tracker IS committed to its own repo (durable, diffable, pushed as crash-insurance —
   like `state/orientation_cache.md`); `/workstream-complete`, `/handoff`, and `/workday-start` refresh
   and commit it. It is NOT hand-edited — the renderer owns its content (see § Edit-Resistance).
+## Edit-Resistance — the tracker is a render, not a source
+
+Generated trackers render source frontmatter faithfully — reconcile the frontmatter, then re-render; never hand-edit the generated tracker file. The tracker is a pure function of handoff frontmatter: fix shipped deps in `blocked_by` at the source handoff file, clear `gate_dependency` before setting `ready_to_fire`, then re-render with `bin/render-handoff-tracker.sh`. Apply: if the tracker shows wrong state, read the source handoff file frontmatter first; the tracker accurately reflects what is there.
+
 - The renderer does NOT archive, move, or mutate any handoff or memo file.
 - The renderer does NOT glob handoff files directly — it calls `query-records` to benefit
   from `applyConsumedMarker` logic and correct completion-pruning.

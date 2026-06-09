@@ -31,17 +31,25 @@ PEER_SCOPE_SNIPPET="${PLUGIN_ROOT}/snippets/peer-scope-block.md"
 TEXT_ONLY_SNIPPET="${PLUGIN_ROOT}/snippets/text-only-recovery-preamble.md"
 
 SPEC_FILE=""
+PLAN_PATH=""
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 _usage() {
     cat >&2 <<'USAGE'
-Usage: fan-out-dispatch.sh [--spec <file>]
-       printf 'id\tbrief\tfile1,file2\n' | fan-out-dispatch.sh
+Usage: fan-out-dispatch.sh [--spec <file>] [--plan <path>]
+       printf 'id\tbrief\tfile1,file2\n' | fan-out-dispatch.sh [--plan <path>]
 
 Input: TSV on stdin or --spec <file>, one row per chunk:
   <chunk-id>TAB<brief-one-liner-or-@filepath>TAB<comma-separated-file-paths>
+
+Options:
+  --plan <path>   Path to the plan document driving this wave. When provided,
+                  fan-out-dispatch.sh creates a per-chunk flight-recorder sidecar
+                  at tasks/<plan-slug>/flight/<chunk-id>.md and emits
+                  sidecar_path: in each executor brief.
+                  # Plan filename should follow YYYY-MM-DD-<slug>.md convention; the date prefix is auto-stripped. Non-dated filenames are accepted verbatim as the slug.
 
 Output: N paste-ready executor dispatch prompts to stdout.
         EM reminders (concurrency cap, commit discipline) to stderr.
@@ -60,6 +68,14 @@ while [[ $# -gt 0 ]]; do
                 exit 2
             fi
             SPEC_FILE="$2"
+            shift 2
+            ;;
+        --plan)
+            if [[ -z "${2:-}" ]]; then
+                echo "fan-out-dispatch.sh: --plan requires a file argument" >&2
+                exit 2
+            fi
+            PLAN_PATH="$2"
             shift 2
             ;;
         *)
@@ -238,9 +254,13 @@ done
 OVERLAP_FOUND=0
 OVERLAP_REPORT=""
 
+# Review: code-reviewer — declare -a hoisted out of nested loop; re-declare inside a loop is legal bash but redundant and can mask scoping intent; plain reassignment inside loop body is cleaner.
+declare -a files_i=()
+declare -a files_j=()
+
 for i in "${!CHUNK_IDS[@]}"; do
     id_i="${CHUNK_IDS[$i]}"
-    declare -a files_i=()
+    files_i=()
     while IFS= read -r f; do
         [[ -n "$f" ]] && files_i+=("$f")
     done <<< "${CHUNK_FILES_LISTS[$i]}"
@@ -249,7 +269,7 @@ for i in "${!CHUNK_IDS[@]}"; do
         [[ "$j" -le "$i" ]] && continue
 
         id_j="${CHUNK_IDS[$j]}"
-        declare -a files_j=()
+        files_j=()
         while IFS= read -r f; do
             [[ -n "$f" ]] && files_j+=("$f")
         done <<< "${CHUNK_FILES_LISTS[$j]}"
@@ -275,6 +295,41 @@ if [[ "$OVERLAP_FOUND" -ne 0 ]]; then
     echo "  (serial dispatch with EM verification between). Never silently pick." >&2
     echo "  No output emitted." >&2
     exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Derive plan-slug + create per-chunk flight-recorder sidecars (when --plan provided)
+# Spec backlink: docs/plans/2026-06-09-executor-sidecar-flight-recorder.md §Sidecar shape
+# Plan-slug: strip YYYY-MM-DD- prefix and .md suffix from the plan filename.
+# Sidecar path: tasks/<plan-slug>/flight/<chunk-id>.md (relative to repo root).
+# ---------------------------------------------------------------------------
+PLAN_SLUG=""
+if [[ -n "$PLAN_PATH" ]]; then
+    plan_basename="$(basename -- "$PLAN_PATH")"
+    # Strip leading YYYY-MM-DD- prefix (8 digits + dash)
+    plan_slug_tmp="${plan_basename#[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-}"
+    # Strip trailing .md suffix
+    PLAN_SLUG="${plan_slug_tmp%.md}"
+    if [[ -z "$PLAN_SLUG" ]]; then
+        echo "fan-out-dispatch.sh: ERROR — could not derive plan-slug from: ${PLAN_PATH}" >&2
+        exit 2
+    fi
+
+    # date -u +%Y-%m-%dT%H:%M:%SZ is BSD-portable (distinct from date -d and date +%s%N which are not — see docs/wiki/cross-platform-shell-portability.md).
+    DISPATCH_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    DISPATCH_BY="${CLAUDE_CODE_SESSION_ID:-em-unknown}"
+
+    for i in "${!CHUNK_IDS[@]}"; do
+        cid="${CHUNK_IDS[$i]}"
+        sidecar_dir="tasks/${PLAN_SLUG}/flight"
+        sidecar_path="${sidecar_dir}/${cid}.md"
+        mkdir -p "${sidecar_dir}"
+        # Idempotent: skip if sidecar already exists (executor-updated mid-flight, or prior run). Caller is responsible for clearing stale sidecars before re-running on a renamed chunk set — silent skip is by design.
+        if [[ ! -f "$sidecar_path" ]]; then
+            printf -- '---\nplan: %s\nchunk: %s\ndispatched_at: %s\ndispatched_by: %s\nstatus: dispatched\ncommits: []\nsidecar_schema: v1\n---\n' \
+                "$PLAN_PATH" "$cid" "$DISPATCH_TS" "$DISPATCH_BY" > "$sidecar_path"
+        fi
+    done
 fi
 
 # ---------------------------------------------------------------------------
@@ -534,6 +589,9 @@ print(body.replace('{{peer_chunks}}', repl), end='')
     echo "${TEXT_ONLY_PREAMBLE}"
     echo ""
     echo "expected_branch: ${EXPECTED_BRANCH}"
+    if [[ -n "$PLAN_SLUG" ]]; then
+        echo "sidecar_path: tasks/${PLAN_SLUG}/flight/${chunk_id}.md"
+    fi
     echo '```'
     echo "# ===== END BLOCK: ${chunk_id} ====="
     echo ""

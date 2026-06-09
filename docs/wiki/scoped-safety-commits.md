@@ -13,7 +13,7 @@
 
 | Invocation | Sites | Flag |
 |---|---|---|
-| `--blanket` | `/session-start`, `/workday-complete`, `/update-docs` (Phase 0 `:51`, Phase 8b `:53`+`:71`, Phase 9 `:212`), `pipelines/relay-protocol.md:160`, `pipelines/artifact-distillation/PIPELINE.md:358` | `--blanket` with matching `CLAUDE_INVOKING_COMMAND={session-start, workday-complete, update-docs, relay-protocol, distillation}` |
+| `--blanket` | `/workstream-start`, `/workday-complete`, `/update-docs` (Phase 0 `:51`, Phase 8b `:53`+`:71`, Phase 9 `:212`), `pipelines/relay-protocol.md:160`, `pipelines/artifact-distillation/PIPELINE.md:358` | `--blanket` with matching `CLAUDE_INVOKING_COMMAND={workstream-start, workday-complete, update-docs, relay-protocol, distillation}` |
 | `--expected-branch` | `agents/executor.md` only | `--expected-branch <name>` per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic |
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is **deprecated**.
@@ -22,10 +22,10 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is **deprecated**.
 
 Prior framing from the PM (now expanded by SC-DR-008 — the original rule named only the two ceremonies that existed at the time; the current allow-list is five, plus the executor `--expected-branch` carve-out):
 
-> "**Default for scoped commits in this repo: plain `git add <paths> && git commit -m '...' -- <paths>`.** The trailing `-- <paths>` scopes the commit to those paths only, regardless of index state. **Use coordinator-safe-commit only for the two explicit ceremonies it's designed for:** `/session-start` and `/workday-complete`."
+> "**Default for scoped commits in this repo: plain `git add <paths> && git commit -m '...' -- <paths>`.** The trailing `-- <paths>` scopes the commit to those paths only, regardless of index state. **Use coordinator-safe-commit only for the two explicit ceremonies it's designed for:** `/workstream-start` and `/workday-complete`."
 > — `projects/X--claude-unreal-holodeck/memory/feedback_safe_commit_unreliable.md` (PM, 2026-05-04)
 
-Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
+Three rounds of patching the helper (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3) did not converge on session-detection correctness under concurrency. Empirical failures driving the inversion:
 
 - `lessons.md:207` (2026-05-06) — parallel-executor concurrent-commit absorption (`/bug-blitz` wave 1 bundled 4-of-6 commits into one, swept 46 unrelated files).
 - `lessons.md:43` (2026-05-08) — `--scope-from` fallback widened the race window; concurrent session swept a 14-file index.
@@ -73,7 +73,7 @@ At commit time, the helper includes any currently dirty file whose mtime is afte
 Replaces `git add -A && git commit -m "..."` patterns. Located at:
 
 ```
-~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit
+~/.claude/plugins/coordinator/bin/coordinator-safe-commit
 ```
 
 **Scope computation:**
@@ -88,7 +88,7 @@ The helper:
 - **Orphan policy:** A file is dirty, no session claims it, mtime > `started_at` → warn: "orphan dirty paths: X, Y — not staged; commit explicitly if yours." Does NOT auto-stage orphans.
 - If paths are claimed by another active session's `touched.txt`, logs "skipping X — owned by session B" and continues.
 
-**`--blanket` enforcement:** The `--blanket` flag is accepted only when `$CLAUDE_INVOKING_COMMAND` is one of: `session-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation`. Any other caller gets:
+**`--blanket` enforcement:** The `--blanket` flag is accepted only when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation`. Any other caller gets:
 
 > "`--blanket` is only valid from the authorized sweep ceremonies. Use plain `git add -- <paths> && git commit -m \"...\" -- <paths>` for scoped commits, or `COORDINATOR_OVERRIDE_SCOPE=1` for emergencies."
 
@@ -107,12 +107,12 @@ During rollout: warn-only. Strict (blocking) mode is activated via `COORDINATOR_
 `/handoff` and `/pickup` are workstream-specific. At pickup time the resuming session hasn't touched anything yet, so the touch list is empty. Solution: handoff docs declare scope in frontmatter using **git pathspec syntax** — the same syntax `git add` understands.
 
 ```yaml
-# tasks/handoffs/<workstream>/handoff.md frontmatter
+# state/handoffs/<workstream>/handoff.md frontmatter
 workstream: scoped-safety-commits
 scope:
   - plugins/coordinator-claude/**
   - docs/plans/scoped-safety-commits.md
-  - tasks/handoffs/scoped-safety-commits/**
+  - state/handoffs/scoped-safety-commits/**
 ```
 
 The `scope:` values are `git pathspec` expressions (supports `**` globstar, `!negation`, `:(glob)` prefix). The helper validates pathspecs at parse time and rejects malformed expressions before attempting staging.
@@ -144,9 +144,9 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 **Reaper.** `cs_reap_agents` runs alongside `cs_reap_stale`: any `.agents/<agentId>/` whose `touched.txt` mtime is older than 24h is archived to `${base}/.archive/.agents-<aid>-<date>`. Bounds index growth.
 
-**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (Patrik v2 F1).
+**Namespace.** `.agents/` (leading dot), not `_agents/` — 4 of 6 `${base}/*/` iterators already skip `.archive` via the existing leading-dot convention, so `.agents/` inherits 4 skips for free (the Staff Engineer v2 F1).
 
-**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (Patrik F9 — replaces the fuzzy "one verification session" wording).
+**Burn-in ledger.** `tasks/issue-a-burn-in.md` carries one row per successful default-mode dispatch+commit cycle: `| cycle | commit-sha | date | dispatched-agent-count | notes |`. Doctrine strike on the troubleshooting "helper misidentified your session" note requires 5 cycles (the Staff Engineer F9 — replaces the fuzzy "one verification session" wording).
 
 ### 8. `--expected-branch` Gate (Issue B — shipped 2026-05-06)
 
@@ -162,7 +162,7 @@ The helper aborts before staging on mismatch, prints reflog entries for both cur
 
 > Resolution: 'git checkout $EXPECTED_BRANCH' or correct dispatch prompt.
 
-**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (Patrik F3 carried forward).
+**EM dispatch-prompt convention.** EM captures `git branch --show-current` at dispatch time, includes `expected_branch: <current>` in the prompt. Executor passes `--expected-branch <name>` to every `coordinator-safe-commit` call. Doctrine-only / Standing-Order / dispatch-prompt convention alone was rejected — executors are LLM agents, not deterministic processes; only the bash helper fails closed (the Staff Engineer F3 carried forward).
 
 ### 9. Issue C — `--scope-from` is Exhaustive
 
@@ -177,7 +177,7 @@ The original `--scope-from` mode silently subtracted other active sessions' touc
 
 The agent-id linkage introduced by Issue A (`archive/specs/2026-05-05-issue-a-agent-id-linkage.md`) unions executor-edited files into the dispatching session's scope, but **only in default mode**. In `--scope-from` mode the declared `scope:` block is exhaustive per the Issue C contract (`archive/specs/2026-05-05-session-misidentification-fix.md`): executor-edited files that fall outside the declared scope are deliberately excluded, even when the back-pointer linkage is fully wired. This is intentional, not a bug — see SC-DR-005.
 
-When an executor produces files whose paths weren't predictable at handoff-write time (e.g., dynamically-named outputs), use `--allow-out-of-scope-dirty` to proceed with a warning, or `--include-orphans <pathspec>...` for a structured one-shot claim. A "silently extend declared scope to include executor-claimed files" mode was considered and rejected: the auditability value of exhaustive declared scope outweighs the ergonomic friction. If a workflow consistently hits this wall, the correct fix is either a richer handoff with broader `scope:` globs, or a fresh plan revisiting the Issue C contract — not a silent expansion. (Observed case: `tasks/handoffs/2026-05-06_223721_safe-commit-session-touch-tracker-orphan-files.triage.md`.)
+When an executor produces files whose paths weren't predictable at handoff-write time (e.g., dynamically-named outputs), use `--allow-out-of-scope-dirty` to proceed with a warning, or `--include-orphans <pathspec>...` for a structured one-shot claim. A "silently extend declared scope to include executor-claimed files" mode was considered and rejected: the auditability value of exhaustive declared scope outweighs the ergonomic friction. If a workflow consistently hits this wall, the correct fix is either a richer handoff with broader `scope:` globs, or a fresh plan revisiting the Issue C contract — not a silent expansion. (Observed case: `state/handoffs/2026-05-06_223721_safe-commit-session-touch-tracker-orphan-files.triage.md`.)
 
 ---
 
@@ -197,17 +197,17 @@ The trailing `-- <paths>` scopes the commit to those paths regardless of index s
 ### Sweep ceremonies (`--blanket`)
 
 ```bash
-CLAUDE_INVOKING_COMMAND=session-start \
-  ~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit \
-  --blanket "chore: session-start sweep — pre-orientation capture"
+CLAUDE_INVOKING_COMMAND=workstream-start \
+  ~/.claude/plugins/coordinator/bin/coordinator-safe-commit \
+  --blanket "chore: workstream-start sweep — pre-orientation capture"
 ```
 
-Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `session-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers.
+Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `workday-complete`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers.
 
 ### Workstream-anchored (handoff/pickup)
 
 ```bash
-coordinator-safe-commit --scope-from tasks/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"
+coordinator-safe-commit --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"
 ```
 
 Pulls pathspecs from the handoff frontmatter's `scope:` field. Both bookends (handoff prep, pickup safety commit) use the same declared scope — honest and consistent.
@@ -234,7 +234,7 @@ Bypasses scope guard. Logged to `.git/coordinator-sessions/<id>/overrides.log` f
 
 Exactly two ceremonies use blanket staging by design:
 
-**`/session-start`** — irregular, user-initiated, often invoked when the EM doesn't yet know what workstream it's in. A blanket commit is a deliberate "capture whatever loose state exists before orienting" act. The subject (`"chore: session-start sweep — pre-orientation capture"`) is honest about this. Concurrent-sweep risk is structurally low: the user just initiated the session, and any concurrent session is incidental rather than coordinated.
+**`/workstream-start`** — irregular, user-initiated, often invoked when the EM doesn't yet know what workstream it's in. A blanket commit is a deliberate "capture whatever loose state exists before orienting" act. The subject (`"chore: workstream-start sweep — pre-orientation capture"`) is honest about this. Concurrent-sweep risk is structurally low: the user just initiated the session, and any concurrent session is incidental rather than coordinated.
 
 **`/workday-complete`** — end-of-day close-out. Blanket staging is the point of the ceremony. The subject reflects that (`"chore: workday-complete — close out YYYY-MM-DD"`).
 
@@ -270,9 +270,9 @@ The Bash-PreToolUse scope guard starts in warn-only mode. Every warning is logge
 | `scope-soak-enable` | Writes the soak-clock sentinel (records when warn-only mode began) |
 | `scope-warning-resolve` | Updates warn-log resolutions (mark a warn as FP or TP after EM decides) |
 
-All three at: `~/.claude/plugins/coordinator-claude/coordinator/bin/`
+All three at: `~/.claude/plugins/coordinator/bin/`
 
-**Pre-flip verification:** Before setting `COORDINATOR_SCOPE_STRICT=1`, empirically confirm the Claude Code PreToolUse deny contract — that a non-zero exit code from the hook is recognized as a deny and surfaces a usable message to the EM. See `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md`. Do not flip strict mode without this verification.
+**Pre-flip verification:** Before setting `COORDINATOR_SCOPE_STRICT=1`, empirically confirm the Claude Code PreToolUse deny contract — that a non-zero exit code from the hook is recognized as a deny and surfaces a usable message to the EM. See `~/.claude/plugins/coordinator/docs/pretooluse-deny-contract.md`. Do not flip strict mode without this verification.
 
 **Strict mode activation:**
 ```bash
@@ -471,7 +471,7 @@ Discovering >100 LOC of unstaged changes in a shared plugin/skill/doctrine file 
 
 If you run `git stash push` and git reports "No local changes to save" (a no-op), the stash stack is unchanged. A subsequent `git stash pop` will apply whatever the most-recent stash entry is — which may be an unrelated stash from a prior workstream, silently polluting your working tree. **Never pop blind.** Alternatives: (a) check `git stash list` before any pop; (b) use `git checkout <commit>^ -- <path>` to isolate a committed change cleanly instead of stash-and-pop; (c) name stashes with `git stash push -m "<description>"` so the content is identifiable before popping.
 
-*Source: project-rag `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: project-rag `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### EM hand-editing a file a dispatched agent is concurrently editing — the two-writer race on one file
 
@@ -483,13 +483,13 @@ The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharin
 
 **Verify before committing any file an agent touched concurrently.** Run a uniqueness grep (duplicate IDs, duplicate rows, duplicate frontmatter keys) on the file before staging it. A self-dispatched agent's edits and the EM's edits both landing in one commit is the signature; the uniqueness grep is the cheap catch the luck-dependent visual read should not be relied on to replace.
 
-*Source: sibling-repo `tasks/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
+*Source: sibling-repo `state/lessons.md` (central-promoted 2026-05-30). Distinct from § Concurrent-EM Git Operations (EM-vs-EM commits) — this is the EM-vs-agent two-writer race on a single file.*
 
 ### Edit-out/commit/edit-back to scope a sibling's uncommitted change is unsafe
 
 Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
 
-*Source: self `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: self `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -503,9 +503,9 @@ Trailer example:
 
 ```
 Substrate-changes-attribution:
-  mcp/project_rag_server.py: handoff tasks/handoffs/2026-05-15_multi-src.md
+  mcp/project_rag_server.py: handoff state/handoffs/2026-05-15_multi-src.md
   cli.py: unattributed
-  scripts/download-*: handoff tasks/handoffs/2026-05-15_addon-pickup.md
+  scripts/download-*: handoff state/handoffs/2026-05-15_addon-pickup.md
 ```
 
 (Surfaced 2026-05-15 `572a548b` post-mortem.)
@@ -527,13 +527,13 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 | Artifact | Path |
 |----------|------|
 | Plan | `~/.claude/plans/scoped-safety-commits.md` |
-| Patrik review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
+| the Staff Engineer review | `~/.claude/plans/review-scoped-safety-commits-patrik.md` |
 | Ceremony audit | `~/.claude/plans/audit-ceremony-commit-prescriptions.md` |
 | Agent audit | `~/.claude/plans/audit-agent-commit-prescriptions.md` |
-| Deny-contract doc | `~/.claude/plugins/coordinator-claude/coordinator/docs/pretooluse-deny-contract.md` |
-| Touch-tracker hook | `~/.claude/plugins/coordinator-claude/coordinator/hooks/scripts/track-touched-files.sh` |
-| Commit helper | `~/.claude/plugins/coordinator-claude/coordinator/bin/coordinator-safe-commit` |
-| Session lib | `~/.claude/plugins/coordinator-claude/coordinator/lib/coordinator-session.sh` |
+| Deny-contract doc | `~/.claude/plugins/coordinator/docs/pretooluse-deny-contract.md` |
+| Touch-tracker hook | `~/.claude/plugins/coordinator/hooks/scripts/track-touched-files.sh` |
+| Commit helper | `~/.claude/plugins/coordinator/bin/coordinator-safe-commit` |
+| Session lib | `~/.claude/plugins/coordinator/lib/coordinator-session.sh` |
 | Sibling: branch discipline | [`daily-branch-discipline.md`](./daily-branch-discipline.md) — enforces commit *location* (branch); this page enforces commit *content* (files). Both hooks share the PreToolUse Bash matcher. |
 
 ---
@@ -546,7 +546,7 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
 
-*Alternatives considered:* Bash-write heuristic regex (rejected — Patrik P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
+*Alternatives considered:* Bash-write heuristic regex (rejected — the Staff Engineer P0-3; too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
 **SC-DR-002 — `/handoff` and `/pickup` are not carve-outs**
 
@@ -584,17 +584,17 @@ The upstream plugin source lives at `X:/coordinator-claude/`. All structural fil
 
 *Decision:* Add `--expected-branch <name>` as a hard gate inside `coordinator-safe-commit`. Helper aborts before staging on mismatch.
 
-*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (Patrik F3).
+*Alternatives considered:* Standing-order convention in agent prompts — rejected, executors are LLM agents and forget. Pre-dispatch verification by EM only — rejected, trust the deterministic surface, not the cooperative one (the Staff Engineer F3).
 
 **SC-DR-007 — Doctrine strike requires 5 burn-in cycles**
 
 *Problem:* When can the troubleshooting note about "helper misidentified your session" be removed from the wiki?
 
-*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (Patrik F9). Replaces the original fuzzy "one verification session" wording.
+*Decision:* After 5 successful default-mode dispatch+commit cycles logged to `tasks/issue-a-burn-in.md` (the Staff Engineer F9). Replaces the original fuzzy "one verification session" wording.
 
 **SC-DR-008 — Default/fallback inversion: plain git is the default, helper is for sweep ceremonies + executor branch-gate (2026-05-13)**
 
-*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, Patrik r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
+*Problem:* Three rounds of patching `coordinator-safe-commit` (`plans/safe-commit-fixes.md`, `safe-commit-fixes-5-and-6.md`, the Staff Engineer r1–r3, SC-DR-001…007) did not converge. New failure modes appeared within weeks of each round:
 
 - 2026-05-04 — session-detection inversion: helper attributed Session A's explicitly-staged files to a concurrent session B and absorbed two of B's orphan files into A's commit (`feedback_safe_commit_unreliable.md`).
 - 2026-05-06 — parallel-executor concurrent-commit absorption (`lessons.md:207`, commits `54ca925`, `945bb4d`): 4 of 6 simultaneous `coordinator-safe-commit` calls bundled into one commit; 46 unrelated dirty files from concurrent workstreams swept under one bug-fix message.
@@ -605,7 +605,7 @@ The PM-accepted empirical rule (`feedback_safe_commit_unreliable.md`, 2026-05-04
 
 *Decision:* Invert the default. **Plain `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the doctrinal default for scoped commits.** `coordinator-safe-commit` is reserved for:
 
-1. **Sweep ceremonies (`--blanket`):** `/session-start`, `/workday-complete`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `CLAUDE_INVOKING_COMMAND ∈ {session-start, workday-complete, update-docs, relay-protocol, distillation}`.
+1. **Sweep ceremonies (`--blanket`):** `/workstream-start`, `/workday-complete`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `CLAUDE_INVOKING_COMMAND ∈ {workstream-start, workday-complete, update-docs, relay-protocol, distillation}`.
 2. **Executor branch-gate (`--expected-branch`):** `agents/executor.md` only, preserved per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic and cannot enforce branch gating via doctrine alone.
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
@@ -643,9 +643,21 @@ Incident: tc-34 commit `526ba4705` was the first to land four chunker-spec regis
 
 Fix-forward when you find absorbed registrations: commit the referenced impls+tests too (if complete and green on disk) — turn the latent break into a real landing, don't revert the registration. This is the *committing-EM-as-victim-of-absorption* direction; the inverse (a sibling's session-end absorbing YOUR edit) is covered in [`concurrent-em-hazards.md`](./concurrent-em-hazards.md) H4. (Source: 2026-05-26 project-rag-ue-addon tc-34; catalogued as H5 in concurrent-em-hazards.md.)
 
+## SC-DR-013 — A `git checkout HEAD` Discard Can Resurrect via a Later `git stash pop` Into a Publish
+
+*Source: ~/.claude, 2026-05-31. [universal]*
+
+During a release, an unreviewed change was discarded via `git checkout HEAD -- <paths>`. Later, a `git stash pop` (the stash had captured the discarded change before the checkout) returned it to the working tree. Because the subsequent publish/percolate script copied from the **working tree** (not from a committed ref), the resurrected change percolated to the OSS repo unnoticed — caught only at cleanup.
+
+**Rule.** A `git checkout HEAD` discard is not durable across a stash round-trip. Before any publish/percolate operation that copies the **working tree** (vs. a committed ref): re-diff the tree against HEAD (`git diff -- HEAD`) to check for changes you thought you discarded. Or publish from a committed ref explicitly, not from `$PWD`. Composes with §36 (stash-pop-after-no-op applies stale unrelated stash) — the resurrection mechanism is the same.
+
 ## SC-DR-012 — A Pre-Commit "No Stray Staged" Check That Prints But Doesn't Halt Is Theater
 
 *2026-05-24, claude-unreal-holodeck.*
+
+## concurrent git add -A silently absorbs in-flight executor output
+
+A concurrent `git add -A` sweep (lint, format, or distill ceremony) on the shared branch silently absorbs another EM's in-flight executor output — files the other executor just wrote get committed under the sweeping EM's name before the executor has a chance to commit them. Rule: commit each chunk scoped + immediately after the executor returns; verify on disk not chat. Apply: after every executor returns, run `git diff --stat` to confirm expected files are present, then commit with explicit paths `git add -- <paths>` before doing any broad sweep.
 
 **A pre-commit "no stray staged" check that prints but doesn't halt is theater.** Under concurrent EMs, the check must unstage or abort on detection — echoing the offending path then committing anyway (the `grep … || echo` shape) re-attributes a sibling's work.
 

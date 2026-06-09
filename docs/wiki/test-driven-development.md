@@ -3,7 +3,7 @@ title: Test-driven development
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator/CLAUDE.md
   - docs/wiki/test-design-discipline.md
   - docs/wiki/verification-before-completion.md
 ---

@@ -3,10 +3,10 @@ title: Review integration doctrine
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/receiving-code-review.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-premise-challenge.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/prior-art-checker.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/docs-checker-pre-review.md
+  - plugins/coordinator/docs/wiki/receiving-code-review.md
+  - plugins/coordinator/docs/wiki/reviewer-premise-challenge.md
+  - plugins/coordinator/docs/wiki/prior-art-checker.md
+  - plugins/coordinator/docs/wiki/docs-checker-pre-review.md
 ---
 
 # Review Integration Doctrine
@@ -33,13 +33,13 @@ The failure mode this prevents: EM treating every review finding as a question r
 
 ## Chain-end review and plan-time review catch different defect classes
 
-Plan-time review (Patrik on the stub, prior-art-checker on the plan) checks substrate and approach: are the paths real, is the schema correct, does this contradict prior doctrine, is the architecture coherent? These checks work against the plan artifact before any code is written.
+Plan-time review (the Staff Engineer on the stub, prior-art-checker on the plan) checks substrate and approach: are the paths real, is the schema correct, does this contradict prior doctrine, is the architecture coherent? These checks work against the plan artifact before any code is written.
 
-Chain-end review (session-end `code-reviewer` or `code-reviewer`+Patrik on the landed diff) catches a different class: boundary-relabeling bugs (where a function's name or contract shifted during implementation), integration-seam mismatches (where two independently-implemented chunks don't compose), and structural drift from the plan. These defects are invisible at plan time because they emerge from the gap between intent and implementation.
+Chain-end review (workstream-complete `code-reviewer` or `code-reviewer`+the Staff Engineer on the landed diff) catches a different class: boundary-relabeling bugs (where a function's name or contract shifted during implementation), integration-seam mismatches (where two independently-implemented chunks don't compose), and structural drift from the plan. These defects are invisible at plan time because they emerge from the gap between intent and implementation.
 
 Running only plan-time review and skipping chain-end review is not "sufficient review" — it is review that structurally cannot see the defect class that most commonly survives execution.
 
-→ coordinator/CLAUDE.md § Session-end review and marker trail (under Review Sequencing) for the chain-end review procedure.
+→ coordinator/CLAUDE.md § Workstream-complete / weekly marker trail (under Review Sequencing) for the chain-end review procedure.
 
 ## Single-agent math and precedence findings need verification
 
@@ -52,7 +52,7 @@ The confidence threshold is convergence: two or more independent agents flagging
 
 ## Pre-flight sidecars do not require integration before the first reviewer
 
-The sequential-review HARD RULE ("integrate Reviewer 1 before Reviewer 2") applies to **named persona reviewers** — Patrik, Sid, Camelia, Palí, Fru, Zolí. It does NOT apply between a Sonnet pre-flight (docs-checker, prior-art-checker, external-pattern-checker) and the first named reviewer.
+The sequential-review HARD RULE ("integrate Reviewer 1 before Reviewer 2") applies to **named persona reviewers** — the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering. It does NOT apply between a Sonnet pre-flight (docs-checker, prior-art-checker, external-pattern-checker) and the first named reviewer.
 
 The reasoning is structural, not a convenience exception. The named reviewer is exactly the agent whose Opus-tier architectural judgment we want shaping direction-of-correction on prior-art Conflicts. Front-loading EM disposition before the reviewer sees the plan inverts the leverage: it forces the EM to make architectural calls the reviewer was dispatched to make, and it freezes prior art into "plan must yield" rather than asking which surface is the more current artifact. The post-reviewer integrator pass is where prior-art-side edits land — across the plan, the wiki, or both — per the reviewer's recommendation and the EM's direction call.
 
@@ -62,7 +62,7 @@ What this means in practice:
 - **prior-art-checker** sidecar travels unintegrated. The reviewer sees `Conflicts` / `Compatible-but-relevant` / `Silent` buckets and recommends a direction-of-correction per Conflict. EM pre-disposition in the dispatch brief is optional, reserved for cases where the direction is mechanically obvious (e.g., a Conflict against load-bearing doctrine that's already settled). When the EM does pre-dispose and the reviewer disagrees, the integrator escalates as ASK — never silently applies either direction. → `agents/review-integrator.md § Prior-Art Conflict Resolution`.
 - **external-pattern-checker** sidecar folds into the reviewer's dispatch prompt as ad-hoc context (per its own consumption contract), not as an integration step.
 
-What still requires integration between artifacts: every pass between two named persona reviewers. If Patrik runs first and recommends changes, the integrator lands them before Sid sees the artifact. That's the rule the HARD RULE was written to enforce, and it's unaffected.
+What still requires integration between artifacts: every pass between two named persona reviewers. If the Staff Engineer runs first and recommends changes, the integrator lands them before the Game Dev Reviewer sees the artifact. That's the rule the HARD RULE was written to enforce, and it's unaffected.
 
 → coordinator/CLAUDE.md § Review Sequencing (pre-flight carve-out bullet)  
 → `docs/wiki/prior-art-checker.md § Bidirectional resolution`  
@@ -103,10 +103,33 @@ job is to make sure that artifact exists.
 
 → `agents/code-reviewer.md` — the canonical write-restricted reviewer (read-only tool surface)
 
+## Integrator dispatches are 1:1 with reviewer slices
+
+When a code review is partitioned across N parallel `code-reviewer` slices (per `skills/workstream-complete/SKILL.md` § Partitioning large surfaces), the integrator pass is partitioned the same way: **one `coordinator:review-integrator` per slice, dispatched in parallel, each scoped to the same slice paths as its source reviewer.** Not a single integrator over the union of N findings against N disjoint file sets.
+
+**Why structural.** Reviewers are sliced because one Sonnet can't fit the whole surface in context. The same context-fit constraint binds the integrator — it reads the cited code, locates each finding's site, applies the fix, and adds annotations; the work is bounded by the union of (findings × cited paths), exactly the dimension the slicing controlled for. A union-integrator inherits N reviewers' merged scope and re-creates the overflow the slicing was designed to avoid. The dispatch-decomposition discipline that governs executor waves (`docs/wiki/dispatching-parallel-agents.md`) applies here for the same reason — small-remit-and-many beats large-remit-and-one when the surface was already partitioned upstream.
+
+**Why not unification.** "One integrator over the union" looks like it preserves a coherent view of the diff, but the reviewers already partitioned that view — by package, concern, or directory cluster — into slices with no file overlap. Re-unifying at the integrator stage does not restore lost coherence (none was lost; slices were chosen to be disjoint); it just re-imports the context-pressure failure mode. If two slices DO overlap on a file (rare, by construction), the EM resolves that at the partition step, not by collapsing the integrator pass.
+
+**Mechanics.**
+
+1. Each `code-reviewer` dispatch writes its findings to a per-slice sidecar (or the EM persists inline output per slice — see § EM persists inline reviewer output before dispatching the integrator).
+2. EM dispatches N integrators in parallel, each pointing at one slice's sidecar + the same slice's artifact paths.
+3. Each integrator writes its own disposition block to its own sidecar (§ Sidecar Disposition Annotation) and its own completion report.
+4. EM reads the N reports in aggregate, applies the standard tradeoff-vs-correctness routing (`coordinator/CLAUDE.md` § Reviewer findings — apply, don't ratify), and stages the union of integrator-edited files in the workstream-complete commit (`skills/workstream-complete/SKILL.md` Step 3 staging discipline already handles fan-in).
+
+**Tripwire.** A single `coordinator:review-integrator` dispatch handed N reviewers' findings against N disjoint slice paths is a doctrine violation — the integrator agent prompt rejects this shape as a broken intake (`agents/review-integrator.md` § Intake precondition, "One reviewer slice per integrator dispatch"). The recovery is to re-dispatch 1:1.
+
+**Scope.** This rule binds workstream-complete partitioned reviews. The weekly merge-gate (`coordinator:parallel-code-review`) uses a different downstream — a no-rewrite synthesizer, not the integrator — so the 1:1 rule does not apply there; the synthesizer's input is multi-slice by design and never edits files.
+
 ## Cross-session review convergence routes through the integrator, not SUPERSEDED prose
+
+## Narrative-Shape Review — Frame-Drift Lens Separate from Code-Review
+
+Narrative-shape review is a separate lens from code-review — frame-drift ships clean diffs. Code-review operates at the level of individual hunks; it cannot catch when the entire framing of a document (entry-point prose, stated purpose, scope claim) drifts from the intended narrative. Author an entry-point prose check at producer time as part of the producer skill. Apply: for any document with a stated purpose (skill, wiki, plan), add a "narrative-shape check" step in the producer: does the opening paragraph still match what the document actually does?
 
 **Cross-session review outputs flow through the review-integrator on a single canonical artifact — "SUPERSEDED" prose is not review provenance.**
 **Why:** When concurrent EM sessions independently produce review outputs against parallel artifacts, marking the loser SUPERSEDED with a "findings carry forward" assertion is structurally unverifiable — Session B's enrichment may never have seen Session A's reviewer pass.
 **How to apply:** at convergence time, the EM that supersedes MUST dispatch the review-integrator with the loser's findings as input and the winner artifact as target — same as a normal integrator pass. Review provenance is not transitive across artifact splits; an asserted carry-forward is just prose. Pairs with `coordinator/CLAUDE.md` § Cross-session reviews converge on one canonical artifact.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L121, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L121, central-promoted 2026-05-28).*

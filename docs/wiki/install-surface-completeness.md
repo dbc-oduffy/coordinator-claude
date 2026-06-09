@@ -5,11 +5,11 @@ author: claude-central-em
 status: current
 kind: wiki
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/cross-repo-communication.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/live-install-drift-audit.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/coordinator-installer-shape.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/cross-repo-handshake-doctrine.md
+  - plugins/coordinator/docs/wiki/cross-repo-communication.md
+  - plugins/coordinator/docs/wiki/live-install-drift-audit.md
+  - plugins/coordinator/docs/wiki/coordinator-installer-shape.md
+  - plugins/coordinator/docs/wiki/machine-local-registry.md
+  - plugins/coordinator/docs/wiki/cross-repo-handshake-doctrine.md
 keywords:
   - install surface
   - clean install
@@ -176,11 +176,11 @@ This wiki is intentionally keyword-dense so prior-art-checker surfaces it on pla
 
 **Existence checks on metadata files are weak substrate guards — check structural filesystem signatures unique to the desired substrate AND negative signatures for wrong variants.** A pre-flight that validates "is this a UE install?" via single-file existence (e.g. `Build.version`) catches deletion but not category mismatch — Epic launcher and from-source GitHub clones both ship that file, yet the launcher install is thinner. A pre-flight that passes against the launcher silently produces reduced extraction coverage downstream. Mitigation: check positive structural signatures unique to the desired substrate (`.git/` directory for clones, `Engine/Source/Runtime/Engine/Private/Engine.cpp` for full source) AND negative signatures for the wrong substrate (path prefix `Program Files/Epic Games/`). Generalizable to any third-party install with "lite" and "full" variants. (Source: project-rag-ue-addon L36)
 
-A `:doctor` skill that passes silently when no sentinel files exist is not a health check — it is a vacuous pass. The canonical example is `scan-addon-health.sh --red-only` (used by `/session-start`): when no `doctor-last-run.json` sentinels exist on a fresh install, the script exits 0 and emits nothing. A fresh-install operator sees no signal that their install has never been doctor'd.
+A `:doctor` skill that passes silently when no sentinel files exist is not a health check — it is a vacuous pass. The canonical example is `scan-addon-health.sh --red-only` (used by `/workstream-start`): when no `doctor-last-run.json` sentinels exist on a fresh install, the script exits 0 and emits nothing. A fresh-install operator sees no signal that their install has never been doctor'd.
 
 The three-check completeness test (§ above) includes doctor coverage precisely because of this pattern. When authoring or extending a `:doctor` skill, verify that the skill emits a non-trivial finding on a completely fresh install (no sentinels, no prior doctor runs). Sentinel-absent state must produce an AMBER or RED verdict, not a silent pass.
 
-Complementary: `/workday-start` uses `--red-and-stale` (which catches AMBER verdict inversions) while `/session-start` uses `--red-only`. This asymmetry is intentional — daily triage posture vs. session-start signal-not-noise — but it means verdict inversions (doctor wrote AMBER at 10:03Z, re-probe at 10:30Z returns RED) surface only at the next workday-start, not at interim session starts. This is a known limitation, not a bug to fix urgently.
+Complementary: `/workday-start` uses `--red-and-stale` (which catches AMBER verdict inversions) while `/workstream-start` uses `--red-only`. This asymmetry is intentional — daily triage posture vs. workstream-start signal-not-noise — but it means verdict inversions (doctor wrote AMBER at 10:03Z, re-probe at 10:30Z returns RED) surface only at the next workday-start, not at interim workstream starts. This is a known limitation, not a bug to fix urgently.
 
 ## Two-Layer Install Surfaces — Script-Layer vs. Agent-Layer Altitude
 
@@ -263,11 +263,19 @@ Sibling EMs in all repos may amend this wiki on receipt — doctrine-seeding und
 
 *2026-05-23, self (claude-central).* A state-file whose sole writer is the install ceremony (sentinel, status JSON, registry seed) silently never exists on a `source_is_live` machine — where the live install IS the canonical source and no separate install step ever runs. The **writer-of-record ≠ the operator-of-record**: the ceremony that would write the file is structurally absent. A gate that hard-fails on the file's absence then mis-fires on exactly the machines that are correctly configured.
 
-**Rule.** State-files gated by install ceremony need a **silent self-heal in the session-start Preflight** (create-if-absent with sane defaults), not a weaker gate-fallback that papers over the absence. The self-heal makes the file exist on first session regardless of install path; the gate then asserts a real invariant rather than an install-path artifact. Composes with `coordinator-installer-shape.md` (`source_is_live` propagation mode) and the § Doctor-surface vacuous-pass anti-pattern — a sentinel-absent state must self-heal or produce an honest AMBER, never a silent hard-fail on a correctly-configured machine.
+**Rule.** State-files gated by install ceremony need a **silent self-heal in the workstream-start Preflight** (create-if-absent with sane defaults), not a weaker gate-fallback that papers over the absence. The self-heal makes the file exist on first session regardless of install path; the gate then asserts a real invariant rather than an install-path artifact. Composes with `coordinator-installer-shape.md` (`source_is_live` propagation mode) and the § Doctor-surface vacuous-pass anti-pattern — a sentinel-absent state must self-heal or produce an honest AMBER, never a silent hard-fail on a correctly-configured machine.
 
 ## Hardware-Gated Validation — Validate at the Level the Local Box Supports, Name the OOS Gate
 
 *2026-05-24, claude-unreal-holodeck.* When validation requires hardware the local box doesn't have (GPU for CUDA, specific UE version, a physical device), validate **at the level the local box supports** and architecturally OOS the rest **with the gate named explicitly**. The named gate is the difference between honest partial-validation and silent under-validation: "validated CPU path; GPU path OOS — requires CUDA host, gated on `<flag/host>`" tells the next operator exactly what was and wasn't proven. An unnamed skip reads as full validation and ships unverified behavior. Composes with the § three-check completeness test (b/doctor surface) — the gate name is what the doctor or next operator keys on to know the GPU path is unproven, not broken.
+
+## OS-level autostart registration is unsolicited by default
+
+Installers that register OS-level autostart (scheduled tasks, Windows `Startup` LNK files, systemd user units, login items) are unsolicited by default — the user did not ask for the process to run at every session. Gate autostart registration on consumer-session presence (e.g., verify the consuming tool is actually running), or replace with lazy-boot on `SessionStart` hook. Never register autostart silently as a convenience. Apply: any installer that writes to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, `~/.config/systemd/user/`, or `~/Library/LaunchAgents/` must carry a `--autostart` explicit opt-in flag.
+
+## Unit-test the WRAPPER/integration path, not just the self-contained helper
+
+Green helper tests mask integration-layer guards. At least one test must drive the real operator entry point (the wrapper script, the CLI surface, the skill phase-dispatch path) end-to-end, not just the inner function. Apply: for every install surface with a wrapper/CLI, add one test that calls the wrapper and verifies the guard fires — not a test of the helper the wrapper calls.
 
 ## Chronically Dirty Tree = Git-Tracked Tooling Outputs — Untrack, Don't Flux-Commit
 

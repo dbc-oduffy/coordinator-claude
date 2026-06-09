@@ -8,6 +8,7 @@
 # Exit-code contract (TEETH): non-zero iff any gate-bound row is red or missing/uncited.
 # Message contract  (CARROT): lead with state, never blame; summary line format:
 #   "<G>/<N> gate-bound acceptance tests green; <R> red; <S> skipped (reviewer-judgment)"
+# Parsing contract: markdown code-fence blocks (``` ... ```) are excluded; only content outside fences is parsed for AC rows.
 
 set -euo pipefail
 
@@ -29,10 +30,16 @@ fi
 
 PLAN_PATH="$1"
 
-# Resolve to an absolute path if possible (portable: realpath may not exist on all platforms)
-if command -v realpath >/dev/null 2>&1; then
-    PLAN_PATH="$(realpath "$PLAN_PATH")"
-fi
+# Review: F1 — portable absolute-path resolution with no subprocess dependency.
+# `realpath` is GNU-specific (absent on macOS stock bash 3.2); the `case` form
+# is POSIX-safe and avoids a subprocess entirely. The cd guard at ~89 already
+# handles the remaining relative-path risk when REPO_ROOT comes from git rev-parse
+# (which always produces an absolute path), but making PLAN_PATH absolute here
+# removes that dependency on REPO_ROOT being set before first use.
+case $PLAN_PATH in
+    /*) ;;
+    *) PLAN_PATH="$(cd "$(dirname "$PLAN_PATH")" && pwd)/$(basename "$PLAN_PATH")" ;;
+esac
 
 if [[ ! -f "$PLAN_PATH" ]]; then
     echo "check-acceptance-oracle.sh: plan file not found: $PLAN_PATH" >&2
@@ -63,10 +70,38 @@ fi
 
 # Repo root for the plan under test (for coordinator.local.md lookup).
 # PLAN_PATH is already absolute here (realpath applied above when available).
+# Single rev-parse: capture output on success, fall through to PLAN_DIR on
+# failure (code-reviewer F5 — was a double-call; one subprocess is enough).
 PLAN_DIR="$(dirname "$PLAN_PATH")"
-REPO_ROOT="$PLAN_DIR"
-if git -C "$PLAN_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
-    REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel)"
+if REPO_ROOT="$(git -C "$PLAN_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+    :
+else
+    REPO_ROOT="$PLAN_DIR"
+fi
+
+# Resolve all relative paths in AC rows (cited:, grep:, pytest:, sh:) against
+# the plan's repo root, not the caller's cwd. Without this cd, an oracle run
+# from a subdir cwd reports false reds on cited:/grep:/pytest: rows whose paths
+# are written repo-root-relative (the canonical form). PLAN_PATH was made
+# absolute above, so the cd is safe to perform here.
+#
+# Guard: only cd when PLAN_DIR is *genuinely* in a git repo. When the
+# `git rev-parse --show-toplevel` above failed, REPO_ROOT fell through to
+# PLAN_DIR (the plan's own directory). For plans outside any git repo
+# (e.g. test fixtures synthesized in /tmp), cd'ing to PLAN_DIR would defeat
+# the caller's intent — the caller's cwd is the correct resolution surface
+# for repo-relative selectors. Detect the fallback by checking whether
+# REPO_ROOT was set by the git rev-parse path: if PLAN_DIR is in a git repo,
+# REPO_ROOT is the git toplevel; otherwise it equals PLAN_DIR and we skip.
+if [[ "$REPO_ROOT" != "$PLAN_DIR" ]]; then
+    # REPO_ROOT differs from PLAN_DIR only when the rev-parse above succeeded.
+    # Code-reviewer F1: test the invariant directly (was re-running git rev-parse,
+    # introducing a third subprocess + an undefined-contract gap if filesystem
+    # state changed between calls).
+    cd "$REPO_ROOT" || {
+        echo "check-acceptance-oracle.sh: cannot cd to repo root '$REPO_ROOT'" >&2
+        exit 1
+    }
 fi
 
 # resolve_runner_cmd <frontmatter-key> <env-var-name> <default-cmd>
@@ -123,15 +158,17 @@ resolve_runner_cmd() {
 # " — last output: <tail>" suffix to stdout and return the command's exit code.
 # Empty suffix on success.
 run_typed_test() {
-    local runner="$1" arg_str="$2"
+    # Optional third arg: prefix name (e.g. "pytest") — enables prefix-specific
+    # diagnostic hints (Fix 5, 2026-06-09). Defaults to empty for back-compat
+    # with any caller that still passes only two args.
+    local runner="$1" arg_str="$2" prefix_name="${3:-}"
     local -a cmd_arr args_arr
     read -ra cmd_arr <<< "$runner" || true
     read -ra args_arr <<< "$arg_str" || true
     local out_file rc out_tail
     out_file="$(mktemp)" || return 1
-    # RETURN trap cleans up on every exit path, including a signal-interrupted
-    # run at the interactive /merging-to-main gate (Ctrl-C during a slow suite).
-    trap 'rm -f "$out_file"' RETURN
+    # Review: F3 — RETURN trap is not portable to bash 3.2 (stock macOS); it silently
+    # no-ops, leaking the tmpfile. Replaced with explicit rm -f before each return path.
     # Combined stdout+stderr: pytest writes failure bodies to stdout and
     # collection/import errors to stderr — surfacing only one loses the signal.
     "${cmd_arr[@]}" "${args_arr[@]+"${args_arr[@]}"}" >"$out_file" 2>&1 && rc=0 || rc=$?
@@ -141,8 +178,21 @@ run_typed_test() {
         # from bloating/corrupting the red-message line.
         out_tail="$(tail -n 3 "$out_file" 2>/dev/null | tr '\n' ' ' | tr -cd '[:print:]' | sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' | head -c 200)"
         [[ -n "$out_tail" ]] && printf ' — last output: %s' "$out_tail"
+        # 0-collected hint (Fix 5, revised 2026-06-09 per project-rag-em decline of
+        # the wrapper-bug premise): pytest reporting 0-collected on a 'path::nodeid'
+        # selector most commonly means the *selector* is malformed, not that the
+        # wrapper is broken. Class-scoped tests need 'path::ClassName::method';
+        # plan authors often write 'path::method' (the bare-function form) for
+        # tests that are actually class-bound. Wrapper-side bugs are also possible
+        # but rarer; both bisect steps are surfaced.
+        if [[ "$prefix_name" == "pytest" ]] && grep -q "collected 0 items" "$out_file" 2>/dev/null; then
+            printf " — 0-collected hint: pytest reported 0 collected for the given selector. Most common cause is a class-scoped test written as 'path::method' — pytest needs 'path::ClassName::method' for class-bound tests. Bisect: (1) run 'bash <pytest_cmd> <path>' (bare path) — collects N → selector form is the issue; (2) run 'bash <pytest_cmd> <path> -k <method_substring>' — collects M → confirm the class name and rewrite the AC to 'path::ClassName::method'; (3) if (1) also collects 0, the per-repo pytest_cmd wrapper is rewriting argv (rarer)."
+        fi
+        rm -f "$out_file"
+        return $rc
     fi
-    return $rc
+    rm -f "$out_file"
+    return 0
 }
 
 PYTEST_CMD="$(resolve_runner_cmd pytest_cmd COORDINATOR_PYTEST_CMD 'pytest')"
@@ -158,9 +208,35 @@ CARGO_CMD="$(resolve_runner_cmd cargo_cmd COORDINATOR_CARGO_CMD 'cargo test')"
 section_lines=()
 in_section=0
 found_section=0
+in_fence=0
 
 while IFS= read -r line; do
-    if [[ "$line" =~ ^##[[:space:]]+Acceptance[[:space:]]+Criteria ]]; then
+    # Track markdown code-fence state. A line starting with ``` (optionally
+    # with a language tag) toggles in_fence. Inside a fence, no parsing fires —
+    # headings and table rows are illustrative, not live. Without this guard,
+    # any plan demonstrating AC table grammar inside a ```markdown code fence
+    # would have the example rows parsed as live AC tests (2026-06-09 dogfood:
+    # this skill's own plan tripped on it).
+    # Simple toggle, not depth-counter — repo convention: no nested fences in plan bodies.
+    if [[ "$line" =~ ^[[:space:]]*\`\`\` ]]; then
+        in_fence=$((1 - in_fence))
+        continue
+    fi
+    if [[ $in_fence -eq 1 ]]; then
+        # Still check for section boundary even inside a fence.
+        # Review: F8 — without this, a ## heading inside a fenced block within the AC
+        # section never fires the section-stop break, causing post-fence content from
+        # the next logical section to be wrongly appended to section_lines.
+        if [[ $in_section -eq 1 ]] && [[ "$line" =~ ^##[[:space:]] ]]; then
+            break
+        fi
+        continue
+    fi
+    # Case-insensitive header (2026-06-09): plan authors commonly write
+    # sentence-case "## Acceptance criteria" — Title-Case-only made the
+    # header miss-fire SILENT SKIP (worst class). Wiki convention stays
+    # Title Case; sentence-case accepted, not promoted.
+    if [[ "$line" =~ ^##[[:space:]]+[Aa]cceptance[[:space:]]+[Cc]riteria ]]; then
         in_section=1
         found_section=1
         continue
@@ -216,23 +292,68 @@ parse_pipe_row() {
         # trim leading/trailing whitespace
         cell="${cell#"${cell%%[![:space:]]*}"}"
         cell="${cell%"${cell##*[![:space:]]}"}"
-        # strip markdown backtick wrappers around the typed prefix:
-        # `grep:` `pattern`@path → grep:`pattern`@path
-        # Plan authors commonly backtick-wrap just the prefix for code-formatting
-        # in the rendered table; the parser tolerates that shape.
-        # Note: only matches when BOTH backticks are present (`prefix:`). `prefix: ` (no
-        # closing backtick) is intentionally NOT stripped — the resulting 'unknown typed
-        # prefix' error is diagnostic.
-        # Review: code-reviewer F7 — [a-z0-9_]+ covers future node18/py3-style prefixes at no cost today
-        if [[ "$cell" =~ ^\`([a-z0-9_]+):\`(.*)$ ]]; then
-            # Review: code-reviewer F2 — strip leading space from group 2 BEFORE join (not after),
-            # because cell# on the joined string strips position 0 not the space after the colon.
-            cell="${BASH_REMATCH[1]}:${BASH_REMATCH[2]# }"
+        # Defined-grammar tokenizer (2026-06-09): one of four accepted shapes,
+        # else preserved as-is and rejected downstream by the unknown-prefix
+        # arm OR diagnosed here with a tokenizer hint when we can recognize
+        # the prefix but not the wrap.
+        #
+        # Accepted shapes (and ONLY these):
+        #   S1 bare:                       prefix:value
+        #   S2 prefix-wrapped:             `prefix:` value
+        #   S3 whole-cell wrapped:         `prefix:value`   (no prose inside or outside)
+        #   S4 prefix+selector-wrapped:    `prefix:` `selector` [trailing prose]
+        #
+        # Unsupported shapes that we MUST diagnose (not silently mangle):
+        #   U1 whole-cell wrap + inline prose:  `prefix:selector` <prose>
+        #   U2 whole-cell wrap + trailing word: `prefix:selector` exists
+        #
+        # PREFIX_RE matches the prefix token only ([a-z0-9_]+).
+        local _tok_diag=""
+        if [[ "$cell" =~ ^\`([a-z0-9_]+):\`[[:space:]]*\`([^\`]+)\`([[:space:]].*)?$ ]]; then
+            # S4 — `prefix:` `selector` [trailing prose]
+            cell="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+        elif [[ "$cell" =~ ^\`([a-z0-9_]+):\`(.*)$ ]]; then
+            # S2 — `prefix:` value
+            # Strip ONE leading space. For single-token-selector prefixes
+            # (grep, cited, pytest, node, cargo), additionally strip trailing
+            # prose after the first whitespace boundary — covers shapes like
+            # `grep:` `pat`@path (note) where the trailing parenthetical is
+            # commentary, not part of the path. sh/bash keep their internal
+            # whitespace because they accept argv (script.sh --flag).
+            local _s2_prefix="${BASH_REMATCH[1]}"
+            local _s2_rest="${BASH_REMATCH[2]# }"
+            # Review: F4+F10 — strip trailing prose only for single-token-selector prefixes
+            # (grep, cited, pytest). sh/bash/bats/node/cargo all accept multi-word argv
+            # (e.g. `node:` `path -t "test name"`, `cargo:` `module::test --nocapture`)
+            # so their internal whitespace must be preserved.
+            case "$_s2_prefix" in
+                grep|cited|pytest)
+                    _s2_rest="${_s2_rest%% *}"
+                    ;;
+            esac
+            cell="${_s2_prefix}:${_s2_rest}"
+        elif [[ "$cell" =~ ^\`([a-z0-9_]+):([^\`]*)\`([[:space:]].+)?$ ]]; then
+            # Whole-cell wrap variants:
+            #   S3 when the trailing-prose group is empty: `prefix:value`
+            #   U1/U2 when there IS trailing prose: `prefix:value` <prose>
+            if [[ -z "${BASH_REMATCH[3]}" ]]; then
+                cell="${BASH_REMATCH[1]}:${BASH_REMATCH[2]}"
+            else
+                _tok_diag="${BASH_REMATCH[1]}"
+            fi
         fi
-        # Backstop: whole-cell backtick wrappers: `value` → value
-        if [[ "$cell" == \`*\` ]]; then
-            cell="${cell#\`}"
-            cell="${cell%\`}"
+        if [[ -n "$_tok_diag" ]]; then
+            # Emit a tokenizer-shape diagnostic. We prefix the cell with a
+            # sentinel ("__TOK_BAD__<prefix>:") so the downstream dispatch
+            # produces a diagnostic red instead of running grep/git against a
+            # malformed selector. The dispatcher matches on "__TOK_BAD__*" and
+            # renders the four-shape hint with the recognized prefix name.
+            # Review: F12 — collision risk: a plan author whose cell literally
+            # starts with __TOK_BAD__ would be falsely routed through this arm.
+            # Acceptable: __TOK_BAD__ is not a valid typed-prefix name (no
+            # [a-z0-9_]+ prefix can start with _), so real AC cells cannot
+            # collide with this sentinel under the defined grammar.
+            cell="__TOK_BAD__${_tok_diag}:${cell}"
         fi
         echo "${idx}:${cell}"
         (( idx++ )) || true
@@ -334,6 +455,24 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
         continue
     fi
 
+    # Tokenizer-shape diagnostic (Fix 2, 2026-06-09): parse_pipe_row prefixes
+    # malformed cells with __TOK_BAD__<recognized-prefix>: so we can render a
+    # shape-naming red message rather than running the dispatcher against
+    # mangled input.
+    if [[ "$row_test" == __TOK_BAD__* ]]; then
+        # Review: F2 — two-step strip; "${row_test#__TOK_BAD__*:}" is glob-greedy through
+        # colons and would truncate display for cells like `cited:path/file.py:42` exists.
+        # Step 1 strips the __TOK_BAD__ prefix to isolate the recognized-prefix token,
+        # step 2 strips __TOK_BAD__<prefix>: to recover the verbatim original cell.
+        _tok_prefix="${row_test#__TOK_BAD__}"
+        _tok_prefix="${_tok_prefix%%:*}"
+        _tok_original="${row_test#__TOK_BAD__${_tok_prefix}:}"
+        red_messages+=("AC-${row_id} (${_tok_original}) red — tokenizer: unsupported '${_tok_prefix}:' cell shape. Supported shapes are: S1 bare 'prefix:value', S2 prefix-wrapped '\`prefix:\` value', S3 whole-cell wrap '\`prefix:value\`' (no prose), S4 prefix+selector wrap '\`prefix:\` \`selector\` [optional prose]'. Got whole-cell wrap with inline/trailing prose — rewrite to S4 (e.g. '\`${_tok_prefix}:\` \`<selector>\` (note)') so the selector and prose are separable.")
+        (( red++ )) || true
+        unset _tok_prefix _tok_original
+        continue
+    fi
+
     # Dispatch on typed prefix
     prefix="${row_test%%:*}"
 
@@ -342,6 +481,15 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
         grep)
             # grep:pattern@path1[,path2...]
             rest="${row_test#grep:}"
+            # Fix 3 (2026-06-09): require '@' separator. Without it,
+            # paths_str="${rest#*@}" silently equals rest, making both pattern
+            # and path the same junk string and reporting a misleading
+            # "no match" red.
+            if [[ "$rest" != *@* ]]; then
+                red_messages+=("AC-${row_id} (${row_test}) red — grep: cell missing '@' separator. Expected shape: 'grep:pattern@path' (multi-path: 'grep:pattern@path1,path2'). Got no '@' — did you mean 'grep:${rest}@<path>'?")
+                (( red++ )) || true
+                continue
+            fi
             pattern="${rest%%@*}"
             paths_str="${rest#*@}"
 
@@ -351,6 +499,15 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             # breaking line-anchored or exact matches.
             pattern="${pattern#"${pattern%%[![:space:]]*}"}"
             pattern="${pattern%"${pattern##*[![:space:]]}"}"
+            # Strip a wrapping backtick pair from the pattern: `pattern` → pattern.
+            # Plan authors commonly backtick-wrap the pattern as code-formatting
+            # in the rendered table — `grep:` `pat`@path. Without this strip, the
+            # backticks become literal pattern characters and silently break the
+            # match. Only strips when BOTH leading and trailing backtick are present.
+            if [[ "$pattern" == \`*\` ]]; then
+                pattern="${pattern#\`}"
+                pattern="${pattern%\`}"
+            fi
 
             # Split paths on comma
             IFS=',' read -ra paths_arr <<< "$paths_str"
@@ -381,37 +538,58 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             ;;
 
         cited)
-            # cited:<ref> — validates the cited ref resolves: 40-char SHA → git cat-file -e; else file path → -f check.
-            ref="${row_test#cited:}"
+            # cited:<ref>[,<ref>...] — validates each cited ref resolves: 40-char SHA → git cat-file -e; else file path → -f check.
+            # Fix 4 (2026-06-09): comma-separated refs supported, mirroring
+            # grep:'s multi-path semantics. All must resolve (all-must-resolve).
+            ref_list="${row_test#cited:}"
             # trim whitespace
-            ref="${ref#"${ref%%[![:space:]]*}"}"
-            ref="${ref%"${ref##*[![:space:]]}"}"
+            ref_list="${ref_list#"${ref_list%%[![:space:]]*}"}"
+            ref_list="${ref_list%"${ref_list##*[![:space:]]}"}"
 
-            if [[ ${#ref} -eq 40 ]] && echo "$ref" | grep -qE '^[0-9a-fA-F]{40}$'; then
-                # Treat as git commit SHA
-                if git -C "$(dirname "$PLAN_PATH")" cat-file -e "$ref" 2>/dev/null; then
-                    echo "AC-${row_id} satisfied by citation ${ref} — NOT re-run on this host" >&2
-                    (( green++ )) || true
-                else
-                    red_messages+=("AC-${row_id} (${row_test}) red — ref does not resolve: git SHA '${ref}' not found in local history")
-                    (( red++ )) || true
-                fi
-            else
-                # Treat as file path
-                if [[ -f "$ref" ]]; then
-                    echo "AC-${row_id} satisfied by citation ${ref} — NOT re-run on this host" >&2
-                    (( green++ )) || true
-                else
-                    red_messages+=("AC-${row_id} (${row_test}) red — ref does not resolve: file path '${ref}' not found on disk")
-                    (( red++ )) || true
-                fi
+            IFS=',' read -ra _cited_refs <<< "$ref_list"
+            _cited_multi=0
+            if [[ ${#_cited_refs[@]} -gt 1 ]]; then
+                _cited_multi=1
             fi
+            _cited_row_result="green"
+            _cited_fail_msg=""
+            for ref in "${_cited_refs[@]}"; do
+                # per-element trim
+                ref="${ref#"${ref%%[![:space:]]*}"}"
+                ref="${ref%"${ref##*[![:space:]]}"}"
+                if [[ ${#ref} -eq 40 ]] && echo "$ref" | grep -qE '^[0-9a-fA-F]{40}$'; then
+                    if ! git -C "$(dirname "$PLAN_PATH")" cat-file -e "$ref" 2>/dev/null; then
+                        _cited_row_result="red"
+                        _cited_fail_msg="git SHA '${ref}' not found in local history"
+                        break
+                    fi
+                else
+                    if [[ ! -f "$ref" ]]; then
+                        _cited_row_result="red"
+                        _cited_fail_msg="file path '${ref}' not found on disk"
+                        break
+                    fi
+                fi
+            done
+
+            if [[ "$_cited_row_result" == "green" ]]; then
+                echo "AC-${row_id} satisfied by citation ${ref_list} — NOT re-run on this host" >&2
+                (( green++ )) || true
+            else
+                if (( _cited_multi == 1 )); then
+                    red_messages+=("AC-${row_id} (${row_test}) red — all-must-resolve: ${_cited_fail_msg}")
+                else
+                    red_messages+=("AC-${row_id} (${row_test}) red — ref does not resolve: ${_cited_fail_msg}")
+                fi
+                (( red++ )) || true
+            fi
+            unset _cited_refs _cited_multi _cited_row_result _cited_fail_msg
             ;;
 
         pytest)
             # pytest:<path>::<nodeid>  — invoker resolved via $PYTEST_CMD (default: pytest)
             args="${row_test#pytest:}"
-            if err_suffix="$(run_typed_test "$PYTEST_CMD" "$args")"; then
+            if err_suffix="$(run_typed_test "$PYTEST_CMD" "$args" pytest)"; then
                 (( green++ )) || true
             else
                 red_messages+=("AC-${row_id} (${row_test}) red — '${PYTEST_CMD}' exited non-zero${err_suffix}")
@@ -443,9 +621,13 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             fi
             ;;
 
-        sh|bash)
+        sh|bash|bats)
             # sh:<script-path> [args...]  — run the named script with bash.
-            # bash: is an alias for sh: — both use the same dispatch path.
+            # bash: and bats: are aliases for sh: — all three use the same dispatch path.
+            # bats: was added 2026-06-09 per holodeck-em consult: plan authors
+            # reach for 'bats:' because the typed-prefix vocabulary mirrors
+            # runner names (pytest → pytest, cargo → cargo, bats → bats).
+            # bats files ARE bash scripts; bash is the right runner.
             # Exit 0 → PASS; non-zero → FAIL. Matches the run_typed_test idiom of
             # sibling prefixes; no per-repo runner resolution (bash is the runner).
             # The script path and any arguments are word-split by run_typed_test
@@ -476,7 +658,7 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             ;;
 
         *)
-            red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited, sh, bash")
+            red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited, sh, bash, bats")
             (( red++ )) || true
             ;;
     esac

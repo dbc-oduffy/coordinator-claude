@@ -3,9 +3,9 @@ title: Receiving code review
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
-  - plugins/coordinator-claude/coordinator/snippets/reviewer-calibration.md
-  - plugins/coordinator-claude/coordinator/agents/review-integrator.md
+  - plugins/coordinator/CLAUDE.md
+  - plugins/coordinator/snippets/reviewer-calibration.md
+  - plugins/coordinator/agents/review-integrator.md
   - docs/wiki/docs-checker-pre-review.md
   - docs/wiki/prior-art-checker.md
 ---
@@ -67,7 +67,7 @@ RIGHT: "I understand items 1,2,3,6. Need clarification on 4 and 5 before proceed
 
 ## Source-Specific Handling
 
-### From Review Agents (Patrik, Zolí, Sid, Palí, Fru, Camelia)
+### From Review Agents (the Staff Engineer, the Director of Engineering, the Game Dev Reviewer, the Front-End Reviewer, the UX Reviewer, the Data Science Reviewer)
 
 This is where coordinators most often fail. You dispatched an Opus-level agent to review your work. **Use everything they give you.**
 
@@ -255,6 +255,10 @@ You understand 1,2,3,6. Unclear on 4,5.
 When replying to inline review comments on GitHub, reply in the comment thread (`gh api repos/{owner}/{repo}/pulls/{pr}/comments/{id}/replies`), not as a top-level PR comment.
 
 ## The Bottom Line
+
+## A code-review nit is a hypothesis — verify premise AND fix direction before applying
+
+A code-review nit is a hypothesis, not a directive. Reviewer nits can rest on misreads of the code or can worsen the code if applied naively. Before applying a nit: (1) verify the premise (does the code actually have the issue?), (2) verify the fix direction (does the proposed fix actually improve it, or does it introduce a different problem?). Reject-with-reason is the correct response when the premise is wrong or the fix would worsen things. Apply: never auto-apply a nit without reading the cited code and confirming both the premise and the fix direction.
 
 **External feedback = suggestions to evaluate, not orders to follow.**
 

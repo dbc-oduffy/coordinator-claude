@@ -272,41 +272,7 @@ Do NOT create this file during onboarding — no meaningful day-1 content. Creat
 
 #### 3d. docs/README.md (if missing)
 
-Create `docs/README.md` — the documentation index maintained by `/update-docs`. Structure:
-
-```markdown
-# [Project Name] — Documentation Index
-
-Central entry point for all project documentation. Maintained by `/update-docs`.
-
----
-
-## Wikis and Guides
-→ **[`docs/wiki/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
-_No guides yet. Created by `/distill` as knowledge accumulates._
-
----
-
-## Plans
-→ [`docs/plans/`](plans/) — plans start in `~/.claude/plans/`, copied here on approval.
-
----
-
-## Research
-→ [`docs/research/`](research/) — `/deep-research` outputs; key findings extracted by `/distill`.
-
----
-
-## Reference Documentation
-| Doc | Purpose |
-|-----|---------|
-| [project-tracker.md](project-tracker.md) | Active workstreams and priorities |
-
----
-*Last updated: [DATE]. Maintained by `/update-docs`.*
-```
-
-Replace `[Project Name]` and `[DATE]` with the appropriate values.
+Render `templates/README.md.template` via `render-template.sh`, substituting `[PROJECT_NAME]` and `[DATE]`.
 
 #### 3e. Directories
 
@@ -325,35 +291,7 @@ _scaffold_script="$HOME/.claude/plugins/coordinator/bin/scaffold-canonical-struc
 bash "$_scaffold_script" --root "$(pwd)"
 ```
 
-The script reads `canonical-structure.yaml` and for every `creation: eager` directory entry either:
-- Creates the directory with a `README.md` (for contract-bearing dirs with `readme:` content, e.g. `cross-repo/inbox/`)
-- Creates the directory with a `.gitkeep` sentinel (for `gitkeep: true` dirs — the full `state/` subdirectory skeleton and `tasks/`)
-
-The full skeleton produced on a fresh repo:
-
-```
-state/
-  handoffs/.gitkeep
-  review-trail/.gitkeep
-  week-changelog/.gitkeep
-  memos/.gitkeep
-  cross-repo-declarations/.gitkeep
-  cross-repo-outbound/.gitkeep
-  reviews/.gitkeep
-  review-findings/.gitkeep
-  roadmap/.gitkeep
-  audits/.gitkeep
-  recovery/.gitkeep
-  scratch/deep-architecture-survey/.gitkeep
-  scratch/bug-blitz/.gitkeep
-  scratch/artifact-distillation/.gitkeep
-tasks/
-  .gitkeep
-cross-repo/
-  inbox/README.md   (schema-documenting; inbound memo channel)
-```
-
-**Idempotence:** re-running on a repo where these directories already have populated content is a no-op — the `.gitkeep` check skips dirs that contain any real files.
+Reads `canonical-structure.yaml` (source of truth for the skeleton). For each `creation: eager` entry: contract-bearing dirs get a `README.md` (schema-documenting, e.g. `cross-repo/inbox/`); `gitkeep: true` dirs get a `.gitkeep` sentinel (full `state/` subdir skeleton + `tasks/`). Idempotent — `.gitkeep` skips dirs containing real files.
 
 **Tracker files are NOT pre-created** (`state/lessons.md`, `state/orientation_cache.md`, `state/handoff-tracker.md`, etc.) — they are written lazily by their owning skills on first use (see table above). Pre-creating empty tracker files trains agents to ignore the directory; empty scaffolding has zero signal value.
 
@@ -413,6 +351,20 @@ Then harden this repo's git config against two concurrent-EM Git-for-Windows fai
 ```
 
 Idempotent — safe to re-run; a no-op if already hardened.
+
+#### 3f.5.5. Meta-repo pre-commit exec-bit gate (conditional)
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/install-meta-repo-precommit-hook.sh"
+```
+
+Idempotent. Internally gates on `git rev-parse --show-toplevel == $HOME/.claude` — installs the pre-commit gate only in the meta-repo itself, no-ops in consumer repos. If an existing `pre-commit` hook is present without the gate marker, the installer appends the invocation instead of clobbering it.
+
+**Why this is conditional.** The helper scans `~/.claude/plugins/*` for exec-bit drift on `.sh` files — a meta-repo concern. Consumer-repo commits don't touch that tree; installing the hook in a consumer repo would fire the helper on every commit only to have it immediately exit 0. The `/workday-complete` Step 5 gate remains the meta-repo's end-of-day backstop; this hook is the earlier-cadence catch.
+
+**Override:** `COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1 git commit ...` bypasses the gate for emergency commits.
+
+**Spec backlink:** `cross-repo/inbox/2026-06-08-exec-bit-drift-runtime-tripwire-tests.md`.
 
 #### 3f.6. VS Code read-only guard for generated trackers
 
@@ -526,23 +478,7 @@ When a new project is onboarded, surface these convention introductions so the E
 
 ## Onboarding Bug Fixes — Three-Layer Rule
 
-Any onboarding bug fix that doesn't ship all three layers will recur:
-
-**Layer 1 — Prevention:** Fix the install/setup script so future runs don't hit the failure.
-
-**Layer 2 — Reactive repair:** A targeted recovery path for users who already hit the failure and won't re-run the full installer. Valid shapes: a `doctor`-style script (`--fix` flag), or an idempotent slash command safe to re-run against broken state. What matters is the ability to recover without a clean-slate install.
-
-**Layer 3 — Searchable docs:** A row in the troubleshooting table keyed on the **literal error text** the user would see.
-
-```markdown
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `ModuleNotFoundError: No module named 'coordinator_whoami'` | coordinator-whoami package was not installed | Run `/coordinator:setup` to install the introspection package |
-```
-
-Layer 2 recovery: doctor probe P-5 in [coordinator-doctor.md](../../docs/wiki/coordinator-doctor.md).
-
-**When onboarding flags a new failure:** Verify all three layers exist before closing — missing layers are part of the same fix, not a follow-up task.
+Any onboarding bug fix without all three layers recurs: **(1) Prevention** — fix the install script; **(2) Reactive repair** — `doctor`-style recovery or idempotent re-run path for users who already hit it; **(3) Searchable docs** — a troubleshooting table row keyed on the literal error text. New failures: verify all three layers before closing. → `docs/wiki/post-install-onboarding-pattern.md`; doctor probe P-5 in `docs/wiki/coordinator-doctor.md`.
 
 ## Notes
 

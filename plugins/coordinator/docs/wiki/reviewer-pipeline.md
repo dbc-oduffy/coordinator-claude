@@ -73,6 +73,14 @@ Before dispatching reviewers, mark the artifact's review status. If the artifact
 
 If the artifact is code (no status header), note the review in the tracker or plan doc that references this work. The point is: if a crash happens mid-review, there's a breadcrumb showing what was being reviewed and by whom.
 
+**This phase is EM-side only.** Phase 2.5 updates the plan body or tracker — not any executor-owned surface. Reviewers and enrichers continue to write status into their own work-product stubs as before.
+
+> **Note (2026-06-09): executor-phase in-flight state has moved.** Executors no longer stamp `**Status:**` into plan bodies. Per-chunk executor in-flight state now lives in a sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`. The reviewer pipeline's Phase 2.5 is unrelated to that change — it governs the EM-side tracker/stub write-ahead, which is unchanged.
+>
+> **Disambiguation:** Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference.
+>
+> Cross-references: `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`, `agents/executor.md § Flight-Recorder Sidecar`.
+
 ---
 
 ## Phase 2.7: API Verification (docs-checker pre-flight)

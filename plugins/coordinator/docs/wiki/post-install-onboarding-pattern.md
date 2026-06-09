@@ -52,6 +52,22 @@ These two rules apply simultaneously and do not interact: a chain can have optio
 still require a complete coordinator install on the upstream node, and a mandatory-dependency chain
 still doesn't justify cherry-picking coordinator's internals.
 
+## Onboarding bug fixes — three-layer rule
+
+Onboarding failures recur unless the fix ships all three layers:
+
+1. **Prevention** — fix the install / setup script so future runs don't hit the failure at all.
+2. **Reactive repair** — a recovery path for users who already hit it and won't re-run the full installer. Valid shapes: a `doctor`-style script (`--fix` flag) or an idempotent slash command safe to re-run against broken state. What matters is recovery without a clean-slate install.
+3. **Searchable docs** — a row in the troubleshooting table keyed on the **literal error text** the user would see, with cause and fix.
+
+   ```markdown
+   | Error | Cause | Fix |
+   |-------|-------|-----|
+   | `ModuleNotFoundError: No module named 'coordinator_whoami'` | coordinator-whoami package not installed | Run `/coordinator:setup` to install the introspection package |
+   ```
+
+**When onboarding flags a new failure:** verify all three layers exist before closing. Missing layers are part of the same fix, not a follow-up task. Layer 2 typically lives at a doctor probe (e.g. probe P-5 in [`coordinator-doctor.md`](coordinator-doctor.md)).
+
 ## Cross-references
 
 - [`getting-started.md`](getting-started.md) — the coordinator's operator-facing *instance* of this pattern (full structure, voice, EM-facilitation playbook). The reference impl to steal from.

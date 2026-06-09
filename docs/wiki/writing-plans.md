@@ -36,7 +36,7 @@ If the spec covers multiple independent subsystems, it should have been broken i
 
 **Shape:** The master plan body is a ≤40-line orchestration brief (cross-workstream invariants, integration checks, sequencing rationale) plus links to the N sub-plans. Each sub-plan is a normal plan body following all the standard plan conventions in this wiki. Order of dispatch is declared in the master plan — it is not a freestyle EM decision made at execution time.
 
-**Source:** `tasks/lessons.md` 2026-05-17 (project-rag).
+**Source:** `state/lessons.md` 2026-05-17 (project-rag).
 
 ## Scope Mode (required header field)
 
@@ -52,13 +52,13 @@ Every plan declares one scope mode. The mode shapes review depth, acceptable tra
 
 If you can't pick confidently, the scope is under-specified — push back to the PM (see "Definition of Ready" below) before drafting tasks.
 
-## YK Pre-Flight (anticipate the stress test)
+## the VP-Product Reviewer Pre-Flight (anticipate the stress test)
 
-YK reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* The PM (Head of Product) applies the VP-of-Product lens at merge directly — YK does NOT auto-dispatch on plans, on per-merge gates, or on multi-patch areas. YK joins as a teammate in `/staff-session` planning when the PM includes the `vp-product` slug. See `agents/vp-product.md` for the full lens.
+The VP-Product Reviewer reviews shape, not just correctness — *"why this many threads?", "why single-threaded when parallel is 30 lines?", "is this YAGNI legitimate or laziness in a costume?", "have you considered a different shape?"* The PM (Head of Product) applies the VP-of-Product lens at merge directly — the VP-Product Reviewer does NOT auto-dispatch on plans, on per-merge gates, or on multi-patch areas. The VP-Product Reviewer joins as a teammate in `/staff-session` planning when the PM includes the `vp-product` slug. See `agents/vp-product.md` for the full lens.
 
-**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a YK finding. Fix it at the plan stage, not at merge.
+**The plan is where the wrong shape gets baked in.** A plan that picks single-threaded execution, naive polling loops, synchronous calls where async would be more natural, or ad-hoc state where a state machine wants to live — that plan will produce code that walks into a the VP-Product Reviewer finding. Fix it at the plan stage, not at merge.
 
-While drafting, walk the YK questions against your own plan **before** you save it:
+While drafting, walk the VP-Product Reviewer questions against your own plan **before** you save it:
 
 - Is the *shape* of the solution right? (data flow, concurrency model, sync/async, declarative vs. imperative, abstraction altitude)
 - For any choice that defaults to single-threaded / single-process / serial / synchronous: is that defensible, or is it the path of least drafting effort?
@@ -66,9 +66,9 @@ While drafting, walk the YK questions against your own plan **before** you save 
 - For any patch in an area with prior patches: would a refactor be cheaper in the long run? With AI execution this is hours, not weeks.
 - What 1–3 alternative shapes did you consider before picking this one? Name them in a `## Alternatives Considered` section.
 
-**The point is not to write a YK simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of Patrik's review keeps engineers writing better code in the first pass. The PM applies the VP-of-Product lens at merge time directly; the planner's job is to make the choices defensible before they reach the PM.
+**The point is not to write a the VP-Product Reviewer simulation in every plan.** The point is to internalize the questions so the *spectre* of the review keeps the planner honest — exactly the way the spectre of the Staff Engineer's review keeps engineers writing better code in the first pass. The PM applies the VP-of-Product lens at merge time directly; the planner's job is to make the choices defensible before they reach the PM.
 
-If a YK question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
+If a the VP-Product Reviewer question doesn't have a confident answer at plan time, that's a signal — name the open question in the plan rather than ship the unexamined choice.
 
 ## Problem-set as external oracle
 
@@ -138,7 +138,7 @@ Before defining the file structure, check what's already been documented about t
 
 1. `docs/architecture/systems-index.md` → relevant system pages in `docs/architecture/systems/`
 2. `docs/wiki/DIRECTORY_GUIDE.md` → relevant wiki guides in `docs/wiki/`
-3. `tasks/repomap.md` (or task-scoped variant)
+3. `state/repomap.md` (or task-scoped variant)
 
 This gives you the structural context to make informed file-mapping decisions without redundant grep discovery. Use Glob/Grep after this to fill specific gaps — exact line numbers, recent additions not yet in the atlas, etc.
 
@@ -169,7 +169,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 1. **Identify the central nouns/abstractions** the prescription introduces or restores (e.g., a pattern name, an architectural layer, a specific tool or verb).
 
-2. **Search for those nouns paired with prohibition vocabulary.** Grep `tasks/lessons.md` and `docs/wiki/` for each noun alongside: `do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`, `do NOT`. `bin/query-records` is also useful here for frontmatter-indexed records.
+2. **Search for those nouns paired with prohibition vocabulary.** Grep `state/lessons.md` and `docs/wiki/` for each noun alongside: `do not`, `never`, `tear down`, `deprecated`, `forbidden`, `removed`, `do NOT`. `bin/query-records` is also useful here for frontmatter-indexed records.
 
 3. **If a prohibition exists, the plan must do one of two things:**
    - **(a)** Acknowledge the prior decision in §1 Objective and explicitly justify the reversal — with reasoning that engages the original argument, not merely reasserts the new direction.
@@ -185,13 +185,13 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Versioned-token plans must name the axis, not just the token.** When multiple distinct version concepts share a token spelling (e.g. three `SCHEMA_VERSION` constants — DDL/on-disk, consumer-graph, addon-protocol — coexisting in one tree), a plan that bumps "the SCHEMA_VERSION" without naming *which axis* will edit the wrong one or all three. Grep the literal token, enumerate every definition site, and state in the plan body which axis the change is on. This is the no-fabrication discipline applied to ambiguous-token identity, not just field existence. Source: 2026-05-19 project-rag-ue-addon.
 
-**Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. Patrik-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
+**Plan-substrate CLI verification via `--help` / argparse grep.** When a plan cites a script's CLI flags, require a `--help` excerpt or `argparse.add_argument` grep in the plan body — source-range inspection misses the actual surface. Reviewing the source file for argument *definitions* is insufficient; flag names surfaced to callers are in the `add_argument` call strings, which may differ from internal variable names. The Staff Engineer-level reviews have missed invalid flags this way. Source: 2026-05-14 project-rag (`--source engine --authority engine` cited in plan were not valid flags).
 
 **Remediation prose must name a command that BOTH exists AND performs the named action — verify existence *and* behavior.** When a plan's gate, runbook step, or recovery clause tells the executor to do something via a named slash-command, flag, or script ("stop the daemon via `/doctor --fix`", "reset state with `--clean`"), grep that the named primitive exists AND read what it actually does before hard-coding it. Existence is half the check: a primitive can exist and do the *opposite* of the named action. The 2026-05-30 case: a plan gate said "stop the daemon via `/doctor --fix`" — but no daemon-stop `--fix` existed, and the real `--fix` *restarts* the daemon, so the remediation would have done the reverse of what the gate intended. This extends the `--help`/argparse existence check above with a behavior check: confirm the primitive's effect matches the verb the prose assigns it. Prefer naming a dedicated script with a single unambiguous effect over a composite verb (`--fix`, `--repair`, `--reset`) whose behavior is broad and unconfirmed. Source: 2026-05-30 project-rag.
 
 **Grep existing test fixtures before prescribing new ones.** Plan-write substrate verification must `ls tests/_*_fixture.py` and `grep -l "<symptom symbol>" tests/conftest.py tests/_*_fixture.py` before prescribing a NEW fixture. Canonical fixtures frequently ship before the plan that needs them — a plan that authors a duplicate fixture wastes executor time and creates a drift surface between two near-identical helpers. Rule: if a match exists, cite it as the canonical fixture; if absent, scaffold a new one. The fixture search is the same no-fabrication / no-duplicate check applied to the test layer.
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:5).*
+*Source: 2026-05-28 project-rag (state/lessons.md:5).*
 
 **Verify prereq-cited banks/baselines with a dry-scorer/dry-validator pass before consuming downstream.** Handoff prereqs naming a specific class of artifact (smoke bank, graded bank, scored baseline) need a dry pass before leg 1 of the consuming workstream runs end-to-end. Without the dry pass, the consumer silently operates on a mismatched input class and produces subtly wrong outputs that pass all structural checks. Source: 2026-05-17 project-rag.
 
@@ -219,7 +219,7 @@ Before committing to a prescribed shape, run a negative search to surface prior 
 
 **Action on red:** loop back to Tier 1–3 investigation on the upper-layer mechanism before drafting the plan body.
 
-**Worked example** — 2026-05-19 python-first-class-corpus-closure plan, Zolí standalone review F1/F2/SI-1:
+**Worked example** — 2026-05-19 python-first-class-corpus-closure plan, the Director of Engineering standalone review F1/F2/SI-1:
 
 - **(a) Patch-shaped fix as proposed:** threshold patch inside `consumer_runner.py:547` (`_run_embed_cpp_chunks`) — skip chunks below threshold inside the embedder.
 - **(b) Upper-layer surface that should have been amended:** the `run_consumers()` substrate-applicability gate one level up — refuses to dispatch the embedder when no applicable substrate exists, making (a) redundant and fragile.
@@ -267,9 +267,15 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 
 **14-minute single-executor run signals under-decomposition.** When an executor's observed wall-clock time approaches or exceeds 14 minutes, that is a structural signal — the chunk spans multiple distinct surfaces or concerns and should have been split further. The target per-executor budget is ~5–10 minutes on ONE coherent surface (15-minute hard ceiling). If a plan chunk would exceed this in practice: split before dispatch, not after the executor stalls. Empirical: a 14-min run on project-rag indexing + fixture authoring + CLI wiring = three surfaces welded into one chunk; splitting each surface separately cut the longest executor to 8 minutes. Companion to `coordinator/CLAUDE.md` § Subagent Dispatch HARD RULE ("small-remit-and-many beats large-remit-and-one, every time").
 
-*Source: 2026-05-28 project-rag (tasks/lessons.md:1395).*
+*Source: 2026-05-28 project-rag (state/lessons.md:1395).*
+
+**Sizing from inside an investigation under-counts execution scope 2-3x.** Scope numbers derived from inside a spike systematically under-count the executor's cost. Apply 2× to any spike-derived scope estimate, or dispatch a scope-scout before writing the plan.
 
 **Scaffolded config files must self-disclose their supported subset.** A scaffolded config in a familiar format (`.gitignore`-shaped, JSON-schema-like, INI) must declare which subset of the format is actually honored in a header comment — OR the plan must instruct the executor to implement the full format. Catch at plan-time by walking the proposed default body through the matcher implementation. (Surfaced by `/percolate`'s `.percolate-ignore` shipping `**/scratch/` as dead code — the bash `[[ ]]` matcher didn't handle `**/`.)
+
+## Substrate-drift mid-execution = Branch D plan amendment, NOT executor-scope expansion
+
+When mid-execution drift blocks an executor (the substrate on disk differs from plan assumptions), the right path is Branch D plan amendment — not telling the executor to work around it. Scope-expanding the executor bypasses the doctrinal lenses (the Staff Engineer review, prior-art-checker, coverage-checker). Apply: when an executor surfaces `BLOCKED: substrate-drift`, stop the executor, invoke Branch D of `coordinator:plan` with the drift description, and re-plan before re-dispatching.
 
 ## Plan Document Header
 
@@ -313,17 +319,25 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 - **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." For plans going through `coordinator:review`, the prose checkboxes upgrade to a bindable table with binding-class and typed-prefix Test cells — see § Acceptance Oracle (outer-loop) below.
 - **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
 
-The `Status:` field is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. See ARCHITECTURE.md § "The Write-Ahead Status Protocol" for the full state machine.
+The `Status:` field is **EM-owned** and is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. This is unchanged.
 
-**`## Deviations` is auto-appended at session completion — do not hand-author it.** When the session's work was governed by this plan and the implementation deviated from the plan's forecast, `/session-end` Step 2.4 appends a `## Deviations` audit table and corrects the affected ALLOWLIST sections in place. This section is provenance-only and intentionally non-crystallized — `/distill` drops it as `[EPHEMERAL]`. Writing your own `## Deviations` section before session-end will conflict with the auto-append. → `docs/wiki/plan-deviation-reconciliation.md` for the full format and contact-point contract.
+**Per-chunk executor in-flight state** (previously `**Status:** Execution in progress` / `**Status:** Execution complete — pending verification` stamped inline by the executor into the plan body) has migrated as of 2026-06-09 to a dedicated sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`. The EM creates the sidecar at dispatch time; the executor updates it. The plan body is now mechanically immutable to executors — a PreToolUse tripwire (`block-subagent-plan-body-write.sh`) fires closed on any subagent Edit/Write to `docs/plans/**/*.md`. Do NOT stamp `**Status:**` into a plan section; write to the sidecar instead.
+
+**Disambiguation:** "Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference."
+
+**Cross-references:** `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`, `agents/executor.md § Flight-Recorder Sidecar`, `ARCHITECTURE.md § The Write-Ahead Status Protocol`.
+
+**`## Deviations` is auto-appended at workstream completion — do not hand-author it.** When the session's work was governed by this plan and the implementation deviated from the plan's forecast, `/workstream-complete` Step 2.4 appends a `## Deviations` audit table and corrects the affected ALLOWLIST sections in place. This section is provenance-only and intentionally non-crystallized — `/distill` drops it as `[EPHEMERAL]`. Writing your own `## Deviations` section before workstream completion will conflict with the auto-append. → `docs/wiki/plan-deviation-reconciliation.md` for the full format and contact-point contract.
 
 ## Acceptance Oracle (outer-loop)
 
-> Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md`. Sibling doctrine: `docs/wiki/test-driven-development.md` § Two loops.
+> Sibling doctrine: `docs/wiki/test-driven-development.md` § Two loops.
 
 When a plan goes through `coordinator:review`, its `## Acceptance Criteria` section is bindable: each row links to a named executable test that the *green-gate* runs at the merge boundary. This is the **outer loop** of test-driven development (acceptance-test-driven at the plan boundary), distinct from — and complementary to — the inner red-green cycle the executor runs per function.
 
 **Gate predicate (no new predicate; rides the existing review trigger):** a plan that warranted a review warrants verifiable exit criteria. Trivial/unreviewed plans keep prose checkboxes or nothing.
+
+**Section-header case.** The `## Acceptance Criteria` heading is matched case-insensitively — `Acceptance Criteria`, `Acceptance criteria`, `acceptance criteria`, and `acceptance Criteria` all parse. Title Case is the convention but sentence-case is honored, not promoted.
 
 ### Two-altitude flow
 
@@ -346,19 +360,63 @@ The gate dispatches on a prefix tag in the Test cell:
 
 | Prefix | Runner | Example |
 |--------|--------|---------|
-| `pytest:path::nodeid` | pytest | `pytest:tests/test_oracle.py::test_gate_fires` |
+| `pytest:path::nodeid` | pytest | `pytest:tests/test_oracle.py::TestOracle::test_gate_fires` (class) or `pytest:tests/test_oracle.py::test_gate_fires` (module) |
 | `node:path -t name` | node:test or Jest | `node:tests/oracle.test.js -t "gate fires"` |
 | `cargo:module::test` | cargo test | `cargo:oracle_tests::gate_fires` |
 | `grep:pattern@path` | bash grep | `grep:acceptance oracle@docs/wiki/writing-plans.md` |
 | `cited:ref` | citation validator | `cited:abc1234` or `cited:logs/run-2026-05-24.txt` |
+| `sh:script [args]` | bash | `sh:scripts/tests/test_install.sh --verbose` |
+| `bash:script [args]` | bash | `bash:scripts/tests/test_install.sh` (alias for `sh:`) |
+| `bats:script` | bash | `bats:scripts/tests/test_install.bats` (alias for `sh:` — bats files are bash scripts) |
 
 Adding a new language runner requires only a new prefix branch in the gate dispatcher.
 
+**Test column carries ONLY `<prefix>:<machine-parseable-arg>`.** Prose belongs in the *Criterion* column. A Test cell like `` `cited:` memo file exists at the inbox path, frontmatter carries `kind: ask`... `` will try to resolve the entire prose blob as a file path and red on resolution. Write `cited:cross-repo/inbox/<file>.md` in the Test column and put the explanation in Criterion.
+
+**Per-prefix arg-shape:**
+
+| Prefix | Arg form | Notes |
+|---|---|---|
+| `pytest:` | `<path>` OR `<path>::<nodeid>` OR `<path>::<ClassName>::<method>` | `path::method` works ONLY for module-level functions; class-bound tests need `path::ClassName::method` (otherwise pytest reports `collected 0 items`). |
+| `node:` | `<path>` OR `<path> -t "<name>"` | `-t` matches by name substring per node:test runner conventions. |
+| `cargo:` | `<module>::<test>` OR `<test>` | Single-arg form; cargo test runs the named test. |
+| `grep:` | `<pattern>@<path>` OR `<pattern>@<path1>,<path2>` | `@` is required; comma-separated paths are all-must-match. Pattern is a LITERAL substring (basic regex, no `-E`); `\|` is treated as literal. |
+| `cited:` | `<file-path>` OR `<git-sha>` OR `<refA>,<refB>` | 40-char hex = git SHA, else file path. Comma-separated refs are all-must-resolve. |
+| `sh:` / `bash:` / `bats:` | `<repo-relative-script-path> [args...]` | Path-validation guard: rejects absolute paths and `..` traversal sequences. Args are word-split and passed to bash positionally. |
+
+#### Per-repo runner-command contract
+
+`pytest:` / `node:` / `cargo:` cells dispatch through a per-repo runner command, resolved (in precedence order) from `$COORDINATOR_<RUNNER>_CMD`, then the `<runner>_cmd:` frontmatter key in `coordinator.local.md`, then the bare default (`pytest` / `node --test` / `cargo test`). The resolved command receives the per-row selector args appended.
+
+**Contract — the resolved runner MUST forward the selector syntax the AC table writes**:
+- `pytest_cmd` must accept `path::nodeid` (pytest's standard node-id form) AND pass it through to pytest without rewriting. The oracle detects `collected 0 items` and appends a `0-collected hint` to the red message — the hint walks the author through a 3-step bisect (bare path → `-k <substring>` → wrapper passthrough) because the same symptom has multiple root causes: most commonly a class-bound test written as `path::method` (needs `path::ClassName::method`); less commonly a per-repo wrapper that rewrites argv.
+- `node_cmd` must accept `<path> -t <name>` (node:test runner) or the Jest equivalent without rewriting.
+- `cargo_cmd` must accept `<module>::<test>` (cargo test selector) without rewriting.
+
+If a repo's wrapper diverges from these contracts, fix the wrapper (or use a thin pass-through wrapper) rather than reformatting AC tables — the AC table grammar is authoritative; the wrapper adapts to it.
+
 **`grep:` multi-path semantics.** A `grep:pattern@path1,path2` cell requires the pattern to match in **every** listed path (all-must-match). A criterion asserting a fact across N files binds to a test that fails if any one file is missing it — closing the single-file-grep-passes-while-half-the-criterion-unmet hole.
 
-**Path convention.** Test-cell paths resolve from the gate's invocation cwd, which is the **project root** for the normal `coordinator:merging-to-main` Step 0a invocation. Use repo-root-relative paths in Test cells (e.g. `plugins/foo/docs/wiki/X.md`, not `docs/wiki/X.md`, when the file lives inside a plugin). Surfaced empirically by the 2026-05-24 dogfood — 9 of 9 gate-bound ACs went red on the first run because the plan used plugin-relative paths; updated Test cells to repo-root and the gate flipped to all-green in one iteration.
+**`grep:` `@` separator is required.** A `grep:` cell must include `@` between pattern and path; a cell with no `@` fails with a diagnostic offering the correct shape. The pattern is interpreted as a literal substring (basic regex, no `-E`); regex alternation (`|`) is treated as literal — split alternations into N rows or use multiple grep paths.
+
+**Path convention.** Test-cell paths resolve from the gate's invocation cwd, which is the **project root** for the normal `coordinator:workstream-complete` Step 3.8 invocation. Use repo-root-relative paths in Test cells (e.g. `plugins/foo/docs/wiki/X.md`, not `docs/wiki/X.md`, when the file lives inside a plugin). Surfaced empirically by the 2026-05-24 dogfood — 9 of 9 gate-bound ACs went red on the first run because the plan used plugin-relative paths; updated Test cells to repo-root and the gate flipped to all-green in one iteration.
+
+**Backtick shape grammar.** The parser accepts exactly four backtick shapes for a typed-prefix cell:
+
+| Shape | Example |
+|---|---|
+| **S1 bare** | `pytest:tests/foo.py::test_bar` |
+| **S2 prefix-wrapped** | `` `pytest:` tests/foo.py::test_bar `` |
+| **S3 whole-cell-wrapped** | `` `pytest:tests/foo.py::test_bar` `` |
+| **S4 prefix+selector-wrapped** | `` `pytest:` `tests/foo.py::test_bar` `` (optional trailing prose after a whitespace boundary, e.g. `` `pytest:` `tests/foo.py::test_bar` — verifies basic dispatch``) |
+
+Any other shape — whole-cell wrap with inline prose (`` `grep:pat` in `path` ``), whole-cell wrap with trailing prose (`` `cited:path` exists ``), inline backticks around the typed argument — fails with a diagnostic naming the four shapes and what to rewrite to. Wrap the whole cell OR just the prefix OR the prefix+selector; do not wrap the typed argument's interior.
+
+**Two-altitude grammar enforcement.** The S1-S4 grammar is enforced at two altitudes by design: (a) authoring — `validate-ac-grammar.js` PreToolUse hook (`hooks/scripts/validate-ac-grammar.js`) offers corrections inline when a plan-body Write/Edit touches the `## Acceptance Criteria` section; the hook is WARN-default, with `COORDINATOR_AC_GRAMMAR_STRICT=1` upgrading to deny; (b) merge boundary — `check-acceptance-oracle.sh` at workstream-complete Step 3.8 enforces with non-zero exit on grammar violations. The hook is the offer surface; the runtime gate is the teeth. Teeth at the backstop license carrots upstream.
 
 **`cited:` validation.** A `cited:` cell is NOT a free-text bypass. The gate validates that the cited ref resolves: a commit SHA must exist in the local git history, or a run-log path must exist on disk. If the ref does not resolve, the gate treats the row as red. Successful citation is logged loudly in the verdict ("AC-N satisfied by citation `<ref>` — NOT re-run on this host"), enabling human inspection. Prefer the citation be present at plan-review time so the reviewer saw it.
+
+**`cited:` multi-path semantics.** A `cited:refA,refB` cell requires every comma-separated ref to resolve (all-must-resolve); a single failure reports `all-must-resolve: ref '<failing>' did not resolve`. Mirrors `grep:`'s multi-path semantics. Use this for criteria asserting multiple artifacts exist; do NOT compound with prose connectors like `and` — the parser does not honor those.
 
 ### Executor-split-by-test-altitude
 
@@ -369,7 +427,7 @@ Dispatch-graph doctrine: at `coordinator:execute-plan` Phase 1.5, the EM decides
 
 ### Green-gate seam topology
 
-The acceptance-oracle gate runs as **authoritative** at `coordinator:merging-to-main` Step 0 — the merge choke point: oracle-bearing plans with red/missing gate-bound tests hard-block the merge via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the merge boundary). `/session-end` and `/workday-complete` emit offer-shaped notices, never hard blocks (they are not merges). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the merge-boundary skill is the choke; CI is a separate infrastructure concern.
+The acceptance-oracle gate runs as **authoritative** at `coordinator:workstream-complete` Step 3.8 — the seam where one plan = one AC table is in frame: oracle-bearing plans with red/unresolved gate-bound tests hard-block workstream completion via non-zero exit. It runs as **early, non-authoritative feedback** at `coordinator:execute-plan` Phase 4 and `coordinator:finishing-a-development-branch` (advisory only — agents see red tests early and iterate before the workstream boundary). `/workday-complete` emits offer-shaped notices, never hard blocks. `/merge-to-main` is **NOT gated** — branches aggregate workstreams + doctrine + sweeps, so no single AC table governs the union; the merge surface trusts the upstream workstream-complete marker (relocated 2026-06-02). Direct `git push` / `git merge` outside the skill, and CI pipelines, are intentionally not gated here — the workstream-completion skill is the choke; CI is a separate infrastructure concern.
 
 Gate mechanism: `check-acceptance-oracle.sh <plan-path>`. Override: `COORDINATOR_OVERRIDE_ACCEPTANCE_GATE=1` skips the gate (exceptional use; `cited:` is the routine accommodation). Registered in `docs/wiki/coordinator-tripwires.md`.
 
@@ -492,9 +550,9 @@ A close-out chunk's job is citation, not re-validation: name the spec, name the 
 
 **Anti-pattern:** riding the close-out on a sibling integration run and asserting the binding path fired. Looks rigorous; fragile by construction — hardware and topology drift make the path unreachable on the validation host even when the contract is correct (RAM cap doesn't bind on a CPU-bound host; `delta == 0` between baseline-at-`--jobs auto` and resume-at-`--jobs 1` fails on shard-count drift, not on a resume bug; a lock-reaper exercise needs an orphan-PID class that's its own engineering problem to stage).
 
-**Rule:** if the contract was Patrik-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
+**Rule:** if the contract was the Staff Engineer-reviewed (or equivalent) and shipped with tests at the time it landed, cite that. A separate validation run is justified only when the host *and* topology can reproduce the binding path cleanly. Don't bundle "validation that hardening still works" with "documentation that hardening shipped."
 
-**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): Patrik flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
+**Plan-time canary:** if a reviewer's earliest finding is "integration coverage by happenstance" or "close-outs ride on Chunk N's run as their only test," reshape, don't slice-size-patch. Field-cite 2026-05-17 (ws2-narrow-activation): the Staff Engineer flagged the shape; the EM patched. At execution: Target 2 hit hardware-ceiling drift; Targets 3+4 hit shard-topology drift. PM authorized consolidated spec-citation close-outs, recovering ~46 min.
 
 ## Shared-State Pre-Flight Gate
 
@@ -589,7 +647,7 @@ When plan A depends on plan B — shared paths, asset names, API contracts — a
 
    Empty-but-present section is fine; missing section is the failure mode.
 
-A reviewer (Patrik / domain reviewer) will dispatch against the assumption that this scan has happened; surfacing a sibling-plan conflict at executor time is plan-substrate failure, not executor failure. Source: 2026-05-18, project-rag.
+A reviewer (the Staff Engineer / domain reviewer) will dispatch against the assumption that this scan has happened; surfacing a sibling-plan conflict at executor time is plan-substrate failure, not executor failure. Source: 2026-05-18, project-rag.
 
 ### (d) Tool resolution in teammate prompts
 
@@ -659,7 +717,7 @@ Tag: `[universal]` — applies to any project_type using the coordinator pipelin
 
 ## Doctrinal Contradiction — Surface as Open Question, Don't Pre-Resolve
 
-*Source: project-rag tasks/lessons.md:30, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:30, 2026-05-29. [universal]*
 
 When plan-body research surfaces a contradiction between two pieces of existing doctrine — the plan cites source A, prior-art-checker surfaces source B that conflicts — do **not** pre-resolve the contradiction inline. Surface it as an explicit §-numbered open question addressed to the reviewer: *"§Q-N: Source A says X; Source B says Y. Which doctrine prevails here?"* The reviewer reads both citations in context and rules; the plan author's job is to expose the tension, not dissolve it before anyone else can see it.
 
@@ -667,13 +725,13 @@ When plan-body research surfaces a contradiction between two pieces of existing 
 
 ## Architecture-Survey Chunk-K Guard — Doc-Heavy Repos
 
-*Source: project-rag tasks/lessons.md:91, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:91, 2026-05-29. [universal]*
 
 The architecture-survey's chunk-K guard that detects "uncatalogued architecture" by counting recently-changed files overshoots on doc-heavy repos: `tasks/`, `docs/`, and `archive/` churn (lesson captures, plan edits, handoff updates) is not uncatalogued architecture. Before triggering the guard's escalation path, cut the emergent-drift candidate list against catalogued SOURCE directories only — exclude `tasks/`, `docs/`, `archive/`, and similar doc-tree paths. A guard that fires on lesson-capture churn produces false-positive escalations that crowd out real structural drift.
 
 ## Architecture-Audit Rotation — Formula Bias and Feature-Shaped Targets
 
-*Source: project-rag tasks/lessons.md:107 and rag-ue-addon tasks/lessons.md:23, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:107 and rag-ue-addon state/lessons.md:23, 2026-05-29. [universal]*
 
 **Rotation formula over-weights freshly-audited systems.** The open-P1 signal in the rotation formula inflates exactly the systems most recently reviewed — a just-audited system with open P1 findings scores high enough to re-target immediately, starving unreviewed systems of audit cycles. Decay the open-P1 weight for systems audited within N days (suggested: linear decay to 0 over 14 days) so the formula drives breadth rather than anchoring on the freshest finding cluster.
 
@@ -681,7 +739,7 @@ The architecture-survey's chunk-K guard that detects "uncatalogued architecture"
 
 ## Defer B.0 Doubt-Check Recommendations on a Peer-Doctrine Axis
 
-*Source: rag-ue-addon tasks/lessons.md:19, 2026-05-29. [universal]*
+*Source: rag-ue-addon state/lessons.md:19, 2026-05-29. [universal]*
 
 The Branch B doubt-check in `coordinator:plan` can surface recommendations that depend on peer-doctrine substrate — a pattern or convention that lives in another repo's CLAUDE.md or wiki, not yet on disk in the current repo. When a B.0 doubt-check recommendation references peer-doctrine that hasn't been mirrored locally yet, **defer it** rather than pre-resolving against the peer's in-flight doctrine. Acting on peer-doctrine recommendations before the substrate is confirmed on disk risks implementing against a stale or mis-remembered version. Flag it explicitly: *"B.0 rec deferred — peer-doctrine substrate not yet confirmed on disk."*
 
@@ -746,7 +804,7 @@ After the plan is reviewed (or review is explicitly skipped), offer execution ch
 
 A fallback to static analysis is often correct given substrate constraints (commandlet mode skips certain initializers, hardware ceiling doesn't bind in CI), but the asymmetry must be named. The successor stub's scope becomes clear from the gap: what would prove the other half?
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L33, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L33, central-promoted 2026-05-28).*
 
 ## Asymmetric-defaults framing produces sharper decision documents
 
@@ -754,15 +812,15 @@ A fallback to static analysis is often correct given substrate constraints (comm
 **Why:** A LightRAG synthesis reached "PORT-PATTERNS, single track" cleanly because a DISQUALIFYING verdict tripped a pre-declared override condition. A balanced frame would have produced a "both have merit" table.
 **How to apply:** before dispatching research or architecture specialists, write the scope document as `KEEP <default> UNLESS <override condition>`. Asymmetry forces evidence to do work; symmetry invites hedge-anchored synthesis.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L115, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L115, central-promoted 2026-05-28).*
 
 ## Post-review plan edits need a body sweep, not just a patch
 
 **When a reviewer finding renames a section header, resequences chunks, or restructures a scope, grep the rest of the plan for the old framing after applying the finding — don't trust the integrator to surface all residual instances.**
-**Why:** A Patrik sequencing finding was applied to the Sequencing block, but the plan body still said "phase 1 / phase 2" — the enricher inherited the phase split from body text and surfaced it as an open question, requiring the EM to fold a step back in mid-stub.
+**Why:** A the Staff Engineer sequencing finding was applied to the Sequencing block, but the plan body still said "phase 1 / phase 2" — the enricher inherited the phase split from body text and surfaced it as an open question, requiring the EM to fold a step back in mid-stub.
 **How to apply:** after applying any structural reviewer finding (sequencing, scoping, decomposition, rename), grep the plan body for the old terminology and sweep — the integrator's brief is "apply this finding," not "audit the plan for residual implications."
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L155, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L155, central-promoted 2026-05-28).*
 
 ## Durability Assertions Must Cover ALL Writers of a File
 
@@ -805,6 +863,46 @@ Before shipping any "blocked on X" / "gated on Y" / "closes when Z" language, ch
 ## Gate on the Discriminating Signal, Not the Coarse Aggregate
 
 When a plan gates downstream behavior on a status, color, or rollup that aggregates multiple underlying conditions, gate on the *discriminating* sub-signal instead — the coarse aggregate fires on cases that need opposite handling. **Worked example (doctor F-2, 2026-05-23 project-rag):** a fresh-state offer was gated on `AMBER`, but `AMBER` fires both on never-indexed (INFO — the offer is correct) *and* on half-indexed-WARN (a real problem the offer would paper over). The fix gates the offer on the never-indexed INFO branch specifically, not the AMBER color. At plan-write time, for any gate keyed on an aggregate: enumerate every underlying condition the aggregate rolls up, and confirm they all want the same downstream action. If they diverge, gate on the discriminating branch. Source: 2026-05-23 project-rag.
+
+## Invokable Skill/Command Names Can Collide With Evolving Platform Vocabulary
+
+`coordinator:fan-out` shipped 2026-05-27; within 3 days "fan out" became native Claude Code dispatch vocabulary, forcing a skill→methodology demotion (2026-05-30). A command verb that is also a platform primitive is a latent collision.
+
+## AC-table Test cells must be single-typed-prefix — no compound joins
+
+AC-table `Test` cells must be single-typed-prefix — one cell, one typed prefix (`pytest:`, `grep:`, `cited:`). No compound joins (`pytest: ... + grep: ...`), no `§ Section` annotations, no `+ <file2>` chains, no escaped pipe characters. The acceptance oracle parser requires exactly one prefix per cell; compound cells cause parse failures. Apply: before writing an AC table, review each Test cell for single-prefix compliance; split multi-assertion cells into separate AC rows.
+
+## pre-plan substrate check must include today-dated plans and recent git log
+
+Substrate check before invoking `coordinator:plan` must include `git log --since=today` AND `ls docs/plans/<today's-date>*`. Without this check, two concurrent sessions can independently plan the same work. Apply: this check must fire before Branch B scouts, not after. (doe_escalation: coordinator:plan skill Branch C cross-plan conflict scan fires too late; DoE should consider moving it to pre-Branch-B.)
+
+## regression-net-before-refactor must plan test-env injection mechanism
+
+A regression-net-before-refactor plan must declare the test-env injection mechanism alongside the test, not leave it for mid-execution discovery. For hardcoded→discovered refactors, the injection mechanism (e.g., env var, monkeypatch, fixture override) must be specified in the plan before the executor brief is written. A mid-execution BLOCKED on "how do I inject the test value?" is a plan-authoring failure. Apply: for any refactor plan, add a "test-env injection: <mechanism>" line to each chunk that writes tests.
+
+## Defense-in-Depth Framing — Deliberate Overlap, Not Necessary-and-Sufficient
+
+Defense-in-depth contracts are "deliberate overlap" — NOT "necessary AND sufficient." The framing "necessary AND sufficient" implies orthogonality that layered defenses rarely have and invites future layer-removal ("we already cover that"). The correct framing is "compose with deliberate overlap." Apply: when documenting layered defenses (multiple validators, schema + runtime check + test), describe them as "deliberately overlapping" rather than "necessary AND sufficient."
+
+## Substrate-drift mid-execution = plan amendment via Branch D, NOT executor-scope expansion
+
+When mid-execution drift blocks an executor (substrate on disk differs from plan assumptions), the correct path is Branch D plan amendment — not telling the executor to figure it out. Scope-expanding the executor bypasses doctrinal lenses (the Staff Engineer review, prior-art-checker, coverage-checker). Apply: when an executor surfaces a `BLOCKED: substrate-drift` issue, stop the executor, invoke Branch D of `coordinator:plan` with the drift description, and re-plan before re-dispatching.
+
+## Sizing from inside an investigation under-counts execution scope 2-3x
+
+Scope numbers derived from inside an investigation or spike systematically under-count execution cost by 2-3×. Investigation-resolved scope reflects the planner's mental model, not the executor's cost. Apply 2× multiplier to any scope estimate that came from a spike, OR dispatch a scope-scout before writing the plan. Apply: never take a spike-derived "it's just N files" estimate at face value; budget for 2× to 3× actual.
+
+## Acceptance Oracle — AC nodeids drift from what executors write; reconcile at execute-time
+
+Plan-pre-named AC test nodeids drift from what executors actually write. Class method nodeids require full `file::Class::method` form (not just `file::method`); `grep:` prefix requires `pattern@path`; dash-starting patterns parse as flags. Reconcile AC nodeids at execute-time Phase 1 (before dispatching) by grepping the actual test file for the expected nodeid. Apply: always confirm AC nodeids exist on disk before treating them as green.
+
+**Rule (Branch C skill-scaffold checklist item):** when naming a new invokable skill/command, prefer a collision-free verb and re-check against current platform primitives at the time of authoring. Platform vocabulary evolves post-ship — a name collision that didn't exist at creation may appear at any future Claude Code release. The only resilient defense is to avoid platform-verb-shaped names at the outset. (Source: ~/.claude, 2026-05-30.)
+
+## Load-bearing numeric ceilings must declare a growth model or fixed-ceiling justification
+
+**Rule (Branch C checklist item):** when a plan introduces a numeric ceiling — RSS budget, capacity cap, timeout, retry count, allocation limit — it must declare EITHER (a) the growth model (inputs + function shape + recalibration trigger) OR (b) the architectural reason a fixed ceiling is correct here (physical hardware limit, protocol constant, user-facing UX bound). A bare integer constant in a ceiling position with no declared rationale is a P1 by default.
+
+The Staff Engineer's review lens checks for this at plan-review time. See `docs/wiki/load-bearing-numeric-ceilings.md` (in any repo that uses the coordinator plugin) for the full rule, the empirical convergence that motivated it (two independent ceilings surfaced the same defect class in 2026-05-28 and 2026-06-04), and examples of correct growth-model shapes vs. correct fixed-ceiling justifications.
 
 ## VERBATIM / Spelling-Lock Blocks Must Carve Out Standard Capitalization
 

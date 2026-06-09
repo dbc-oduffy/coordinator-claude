@@ -6,18 +6,18 @@ provenance:
     distilled: 2026-05-15
 ---
 
-# Session-End Review and Marker Trail
+# Workstream-Complete Review and Marker Trail
 
 <!-- spec-backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md §T9 -->
 
-`/session-end` is the natural pause point for post-executor code review — the diff is fresh, the EM has context, and the cost of catching an integration bug now is one Sonnet call instead of a debugging session three weeks later. The marker trail at `tasks/review-trail/` records what has been reviewed so downstream weekly and daily ceremonies shed redundant load rather than re-reviewing work already covered.
+`/workstream-complete` is the natural pause point for post-executor code review — the diff is fresh, the EM has context, and the cost of catching an integration bug now is one Sonnet call instead of a debugging session three weeks later. The marker trail at `state/review-trail/` records what has been reviewed so downstream weekly and daily ceremonies shed redundant load rather than re-reviewing work already covered.
 
 ## When this fires
 
 **Trigger surfaces:**
 
-- `/session-end` **Step 2.8** — fires whenever the session ends without a handoff and has non-trivial substance. This is the primary trigger surface: any session that dispatched executors, touched shared schema, or produced more than ~50 LOC of code change lands here.
-- `/handoff` **Step 2.10** — fires only when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/session-end` or commit-and-stop, the review consideration belongs to that downstream surface (Step 2.8 above), not here. This gate alignment prevents double-review when the no-successor gate redirects.
+- `/workstream-complete` **Step 2.8** — fires whenever the workstream completes without a handoff and has non-trivial substance. This is the primary trigger surface: any session that dispatched executors, touched shared schema, or produced more than ~50 LOC of code change lands here.
+- `/handoff` **Step 2.10** — fires only when `/handoff` Step 0's YES-test gate has passed and the skill is actually writing a handoff. If Step 0's NO-test trips and the session is redirected to `/workstream-complete` or commit-and-stop, the review consideration belongs to that downstream surface (Step 2.8 above), not here. This gate alignment prevents double-review when the no-successor gate redirects.
 
 ## Diff-shape decision table
 
@@ -28,26 +28,31 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
+| **Big-diff brightline** — any one of: ≥500 gross LOC (insertions+deletions), OR ≥5 commits, OR ≥4 distinct surfaces (e.g. bash + JSON + tests + doctrine). File count is reported by the gate for context but is NOT a trigger; mass-renames touch many files at zero review-cost. | **Partitioned `code-reviewer` — mandatory, not chain-end-gated** (SKILL.md § Partitioning large surfaces) |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
-| Chain-end AND chain diff too large for a single reviewer | **Partitioned `code-reviewer` dispatches** (see SKILL.md § Partitioning large surfaces). Named reviewers are for plans/architecture — Sonnet `code-reviewer` is the ceiling at session-end |
+| Chain-end AND chain diff exceeds the big-diff brightline | **Partitioned `code-reviewer` dispatches**. Named reviewers are for plans/architecture — Sonnet `code-reviewer` is the ceiling at workstream-complete |
 
-**Precedence rule:** chain-end rows (4, 5) override session-end rows (1, 2, 3) when both apply — the chain diff is the integration-risk artifact.
+**Precedence rule:** the big-diff brightline (row 4) and chain-end rows (5, 6) override workstream-complete rows (1, 2, 3) when they apply — partitioning is the integration-risk control, not a chain-end privilege.
 
-**Anchored-ranges note:** the numeric thresholds (50 LOC, 500 LOC, ≥3 segments) are worked examples for EM calibration, not gates that auto-dispatch or auto-skip. The executor-dispatch trigger in row 3 is mechanical; the diff-size dimension in rows 4–5 is judgment.
+**Anchored-ranges note:** the small-side anchor (50 LOC at row 3) is a calibration anchor — shape can pull a 49-LOC change in or release a 51-LOC change out. **The big-side brightlines (≥500 gross LOC / ≥5 commits / ≥4 surfaces) are hard floors, not calibration anchors.** Above the brightline, single-reviewer is a doctrine violation regardless of how coherent the diff feels — SKILL.md § Step 2.9 carries the mechanical gate command that EMs run before picking a row.
+
+**Recalibration 2026-06-09.** The gate originally tripped on `files >= 8`. A runtime-tripwire workstream that authored 3 commits across 5 files (shell + test + wiki) tripped `surfaces >= 3` despite the diff being small and coherent, while an unscoped range that pulled in a sibling-session commit inflated `files` to 11 — both fired the gate where the spirit of the rule did not. Three changes: (a) dropped `files >= 8` — file count is a blunt proxy for review-cost (a mass-rename touches many files at zero cost; a 1-file 800-LOC change is genuinely large), (b) added `commits >= 5` — commit count tracks independent logical slices, which is the unit slicing actually operates on, (c) bumped `surfaces` from 3 to 4 — hook-fixes routinely span shell+test+wiki at zero genuine breadth. The 2026-06-08 worked counterexample below still trips under the new rule (loc=890, commits=7); the small-diff false-positive at the surface=3 floor no longer does.
+
+**Worked counterexample (2026-06-08, claude meta-repo).** A workstream-complete session shipped 2156 insertions / 26 deletions (2182 gross LOC) across 21 files spanning bash + JSON + tests + doctrine, in 7+ commits. The EM read row 3 (`>50 LOC OR executor dispatched`), satisfied it, and dispatched a single `code-reviewer`. The PM caught it pre-completion. Under the current (post-recalibration) gate, LOC is 4.3× over the floor and commits trip clean — partition would have been mandatory. The mechanical gate in SKILL.md exists so this shape can never again be reasoned-around.
 
 ## No named-reviewer escalation from code review
 
-Named reviewers (Patrik, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at session-end — for any diff size, partition across as many `code-reviewer` slices as needed, but do not escalate to a named reviewer.
+Named reviewers (the Staff Engineer, personas) are for plans and architecture, not code output. Sonnet `code-reviewer` is the ceiling at workstream-complete — for any diff size, partition across as many `code-reviewer` slices as needed, but do not escalate to a named reviewer.
 
-If `code-reviewer` surfaces an architectural finding, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision. The finding belongs in the planning stream, not the code-review stream.
+If `code-reviewer` surfaces an architectural finding, capture it in `state/lessons.md` and surface to PM for a plan-shaped decision. The finding belongs in the planning stream, not the code-review stream.
 
-The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — **N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`, partitioned over the narrowed scope) + 3 mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) → no-rewrite synthesizer**. Patrik is NOT in the gate — consistent with "named reviewers are for plans/architecture, not code output" above; he runs a separate advisory architecture pass at Step 7.5 (fed by the synthesizer's `arch_tier_candidates` + `convergent_findings` + the seam set), which surfaces spinoff candidates but never blocks merge. The gate runs at merge time regardless of session-end coverage — it is NOT a deferral path. Session-end review happens at session-end; the merge gate is a separate, independent ceremony.
+The weekly `/workweek-complete` Step 7 parallel-code-review is the merge-gate ceremony — **N code-semantics chunk reviewers (Sonnet `code-reviewer-weekly`, partitioned over the narrowed scope) + 3 mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) → no-rewrite synthesizer**. The Staff Engineer is NOT in the gate — consistent with "named reviewers are for plans/architecture, not code output" above; he runs a separate advisory architecture pass at Step 7.5 (fed by the synthesizer's `arch_tier_candidates` + `convergent_findings` + the seam set), which surfaces spinoff candidates but never blocks merge. The gate runs at merge time regardless of workstream-complete coverage — it is NOT a deferral path. Workstream-complete review happens at workstream completion; the merge gate is a separate, independent ceremony.
 
 ## Anti-ceremony-bias tripwire (code-reviewer-skip direction)
 
 > "If you're considering skipping `code-reviewer` because the diff feels small or 'we already reviewed the plan' — run `code-reviewer`. Plan-time and post-implementation review catch different defect classes; the marker trail records `verdict=ok` in seconds when there's nothing to find. `code-reviewer` is the floor on row-3+ sessions, not a negotiable add-on."
 
-**Doctrine-table defaults are defaults, not negotiation starting points** — for `code-reviewer`. The EM has waive authority for genuinely shallow diffs (one-line rename, mechanical typo fix), but "I already did plan-time review" and "the workstream felt small" are not waive grounds for *`code-reviewer`*; they are the rationalization shapes the anti-ceremony bias takes. Plan-time and post-implementation review catch different defect classes (§ Why post-implementation review is not redundant). Patrik-escalation above `code-reviewer` is a separate question governed by `code-reviewer`'s actual output, not by ceremony intuition — see § Post-code-reviewer Patrik-escalation criteria.
+**Doctrine-table defaults are defaults, not negotiation starting points** — for `code-reviewer`. The EM has waive authority for genuinely shallow diffs (one-line rename, mechanical typo fix), but "I already did plan-time review" and "the workstream felt small" are not waive grounds for *`code-reviewer`*; they are the rationalization shapes the anti-ceremony bias takes. Plan-time and post-implementation review catch different defect classes (§ Why post-implementation review is not redundant). The Staff Engineer-escalation above `code-reviewer` is a separate question governed by `code-reviewer`'s actual output, not by ceremony intuition — see § Post-code-reviewer the Staff Engineer-escalation criteria.
 
 ## Why post-implementation review is not redundant with plan-time review
 
@@ -55,24 +60,24 @@ EM judgment on row 3+ keeps waive authority for genuinely shallow diffs (a one-l
 
 **1. Plan-time review and post-implementation review catch different defect classes.** They are complementary, not substitutional.
 
-- Plan-time (prior-art-checker + Patrik on the plan): catches architectural shape, prior-art conflicts, substrate verification — *what we're about to do*.
+- Plan-time (prior-art-checker + the Staff Engineer on the plan): catches architectural shape, prior-art conflicts, substrate verification — *what we're about to do*.
 - Post-implementation `code-reviewer` on the diff: catches what executors actually did vs. what the plan said — substitution misses, integration-seam mismatches between workstreams, scope creep, executor cleverness where mechanical was wanted.
 
 If a waive rationale boils down to "the plan was already reviewed," that's the substitution error: the plan is reviewed; the diff is not.
 
 **2. Mechanical executor self-acceptance gates are not review proxies.** Grep returns 0, pytest passes, `bash -n` clean — these are correctness floors, not the lens a reviewer brings. None of them exercise cross-file integration, schema-vs-consumer agreement (e.g. did the producer schema in segment 2 actually match the consumer probe in segment 4 — *both green individually* doesn't mean *consistent across the seam*), or scope-creep detection. Treating mechanical gates as a stand-in for review collapses two distinct safety properties into one.
 
-**3. "`code-reviewer`-after-already-doing-plan-review feels like ceremony — skip" is the ceremony-bias shape that matters at session-end.** The *`code-reviewer`-skip* direction is the live tripwire — ceremony-feeling is the tell for skipping a review that should happen. There is no Patrik escalation path from code review to balance against; `code-reviewer` is both the floor and the ceiling.
+**3. "`code-reviewer`-after-already-doing-plan-review feels like ceremony — skip" is the ceremony-bias shape that matters at workstream-complete.** The *`code-reviewer`-skip* direction is the live tripwire — ceremony-feeling is the tell for skipping a review that should happen. There is no the Staff Engineer escalation path from code review to balance against; `code-reviewer` is both the floor and the ceiling.
 
-**4. "We've done a lot of review already" is the shape wrap-up pressure takes.** At `/session-end`, token-budget anxiety and session-fatigue create implicit "close out" pressure. Dressed up, that becomes "distributed coverage upstream was sufficient." Bare, it's: one more dispatch felt like one more thing. Naming this pattern explicitly is the durable fix — future EMs hitting the same pressure can recognize the shape.
+**4. "We've done a lot of review already" is the shape wrap-up pressure takes.** At `/workstream-complete`, token-budget anxiety and session-fatigue create implicit "close out" pressure. Dressed up, that becomes "distributed coverage upstream was sufficient." Bare, it's: one more dispatch felt like one more thing. Naming this pattern explicitly is the durable fix — future EMs hitting the same pressure can recognize the shape.
 
-**5. "The handoff says Patrik reviewed it" — plan-vs-code conflation at chain-ends.** When reading a predecessor handoff, a "Patrik review → N findings folded" note refers to the *plan* Patrik reviewed before executors fired. Plan-level reviews do not appear in `tasks/review-trail/*.json`. The trail is the mechanical boundary: if no trail record exists for a sha-range, that range has no code-output coverage regardless of what handoff narrative says about plan-level reviews. This variant fires specifically at chain-ends, where the EM scans the chain's review history and sees "Patrik reviewed" without distinguishing plan-review from diff-review. The tell: the cited review refers to a `docs/plans/*.review-patrik.md` or a plan critique, not a `code-reviewer` dispatch. Patrik judging the plan before executors fired is *design intent* coverage; it says nothing about what the executors actually produced.
+**5. "The handoff says the Staff Engineer reviewed it" — plan-vs-code conflation at chain-ends.** When reading a predecessor handoff, a "the Staff Engineer review → N findings folded" note refers to the *plan* the Staff Engineer reviewed before executors fired. Plan-level reviews do not appear in `state/review-trail/*.json`. The trail is the mechanical boundary: if no trail record exists for a sha-range, that range has no code-output coverage regardless of what handoff narrative says about plan-level reviews. This variant fires specifically at chain-ends, where the EM scans the chain's review history and sees "the Staff Engineer reviewed" without distinguishing plan-review from diff-review. The tell: the cited review refers to a `docs/plans/*.review-patrik.md` or a plan critique, not a `code-reviewer` dispatch. The Staff Engineer judging the plan before executors fired is *design intent* coverage; it says nothing about what the executors actually produced.
 
 **The pattern-match tell:** if the EM is drafting a "waiving with rationale" sentence on a row-3+ session, the rationale itself is the tell. Compose the sentence; read it back; if it leans on plan-time coverage, executor gates, distributed/heavy upstream review, or "we've already done a lot" — run the `code-reviewer`. It's one dispatch. The marker trail records `verdict=ok` in seconds and downstream load-shedding still benefits.
 
-**Summary.** Plan-time review (writing-plans pre-flight) and post-impl review (session-end `code-reviewer`) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop session-end review because "pre-flight passed."
+**Summary.** Plan-time review (coordinator:plan pre-flight) and post-impl review (workstream-complete `code-reviewer`) catch different defect classes — pre-flight finds substrate/path/framework mismatches, post-impl finds integration/test-coverage/edge-case gaps. Doctrine-table defaults are defaults, not negotiation starting points; don't drop workstream-complete review because "pre-flight passed."
 
-**Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time Patrik review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived session-end `code-reviewer` on the rationale "distributed coverage upstream." The audited holes: a Patrik plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh `code-reviewer` lens on the actual diff catches.
+**Worked example.** A multi-executor session shipped a substantial workstream with plan-time prior-art-check (7 findings folded), plan-time the Staff Engineer review (8 findings folded), per-executor self-acceptance gates (all PASS), and a final-segment validation including an OOM smoke test. The EM waived workstream-complete `code-reviewer` on the rationale "distributed coverage upstream." The audited holes: a the Staff Engineer plan-time finding had been factually wrong (the executor caught it — meaning plan-review surface had a leak that *more downstream eyes*, not fewer, was the right response to); one executor segment swept up unrelated concurrent work whose commit message described only the headline change; the OOM smoke passed in 8s of a 600s budget without verifying it had actually exercised the install path vs. short-circuiting on cached state. None of these were catchable by plan-time review or by mechanical executor gates. They were exactly the class of finding a fresh `code-reviewer` lens on the actual diff catches.
 
 ## Dogfood as a structurally distinct review surface
 
@@ -102,7 +107,7 @@ A reviewer's enumerated options (do A, or do B) are bounded by the reviewer's br
 
 ## Marker trail mechanics
 
-Every completed session-end review writes a small JSON record to disk. The trail is the machine-readable substrate that lets downstream ceremonies compute coverage without re-reviewing already-reviewed work.
+Every completed workstream-complete review writes a small JSON record to disk. The trail is the machine-readable substrate that lets downstream ceremonies compute coverage without re-reviewing already-reviewed work.
 
 **Per-session record shape:**
 
@@ -117,7 +122,7 @@ Every completed session-end review writes a small JSON record to disk. The trail
 }
 ```
 
-Records land at `tasks/review-trail/YYYY-MM-DD-HHMMSS-{session-id-short}.json` (git-tracked, per-session, no concurrent-write risk — one file per session).
+Records land at `state/review-trail/YYYY-MM-DD-HHMMSS-{session-id-short}.json` (git-tracked, per-session, no concurrent-write risk — one file per session).
 
 **Helper:** `coordinator-write-review-trail.sh` — named-arg interface:
 
@@ -139,7 +144,7 @@ Historical JSON records written before 2026-05-18 retain `reviewer: "sonnet"` as
 
 The `code-reviewer` value refers specifically to a dispatch of `agents/code-reviewer.md` (Sonnet-locked, read-only). Do NOT substitute a generic Sonnet dispatch and label it `code-reviewer` — the agent file is the contract.
 
-**Daily roll-up:** `/workday-complete` Step 9 reads today's review records via `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `tasks/review-trail/` and `archive/review-trail/**` — covers the morning-after-weekly-reset edge case) and emits one `**Reviewed:**` line per record into the day's changelog block:
+**Daily roll-up:** `/workday-complete` Step 9 reads today's review records via `list-review-trail-records.sh --date-prefix "${TODAY}"` (unions `state/review-trail/` and `archive/review-trail/**` — covers the morning-after-weekly-reset edge case) and emits one `**Reviewed:**` line per record into the day's changelog block:
 
 ```
 **Reviewed:** sha_range=abc..def reviewer=sonnet verdict=ok diff_loc=247
@@ -147,24 +152,24 @@ The `code-reviewer` value refers specifically to a dispatch of `agents/code-revi
 
 If no review records exist for today AND today had non-trivial commits, Step 9 emits `**Reviewed:** none — flag for /workweek-complete Step 7`.
 
-**Weekly archival:** `/workweek-complete` Step 13 moves `tasks/review-trail/*.json` to `archive/review-trail/<week-starting>/` as part of the same archival sweep that moves `tasks/week-changelog/`. Archival happens AFTER Step 7 has consumed the trail (Step 7 runs before Step 13).
+**Weekly archival:** `/workweek-complete` Step 13 moves `state/review-trail/*.json` to `archive/review-trail/<week-starting>/` as part of the same archival sweep that moves `state/week-changelog/`. Archival happens AFTER Step 7 has consumed the trail (Step 7 runs before Step 13).
 
-**Handoff frontmatter mirror:** when a session-end review fires AND a handoff is also written for this session, the handoff receives a `reviewed_at_session_end:` frontmatter field for audit-trail durability with the content:
+**Handoff frontmatter mirror:** when a workstream-complete review fires AND a handoff is also written for this session, the handoff receives a `reviewed_at_workstream_complete:` frontmatter field for audit-trail durability with the content:
 
 ```yaml
-reviewed_at_session_end: abc123..def456 sonnet 2026-05-08
+reviewed_at_workstream_complete: abc123..def456 sonnet 2026-05-08
 ```
 
 This field is optional; handoffs without it are valid (field is only present when a review was performed in the same session that authored the handoff).
 
 ## Downstream load-shedding contract
 
-`/workweek-complete` Step 7 prelude reads the trail before dispatching `coordinator:parallel-code-review`. The prelude narrows the **code-semantics** scope (now chunked across N `code-reviewer-weekly` instances — Patrik is no longer the gate reviewer); the three mechanical workers always run on the full week diff regardless.
+`/workweek-complete` Step 7 prelude reads the trail before dispatching `coordinator:parallel-code-review`. The prelude narrows the **code-semantics** scope (now chunked across N `code-reviewer-weekly` instances — the Staff Engineer is no longer the gate reviewer); the three mechanical workers always run on the full week diff regardless.
 
 **Prelude logic (Step 7, external to `parallel-code-review` skill body):**
 
 ```
-1. Glob tasks/review-trail/*.json for the week's date range.
+1. Glob state/review-trail/*.json for the week's date range.
    (intentional: Step 7 runs before Step 13 archival in same invocation — live dir is complete at this point)
 2. Compute union of reviewed sha_ranges → reviewed_set.
 3. weekly_diff_shas = git log origin/main..HEAD --format=%H
@@ -172,11 +177,11 @@ This field is optional; handoffs without it are valid (field is only present whe
 5. cross_segment_seams = files modified in ≥2 different reviewed segments
 6. code_semantics_scope = unreviewed_set + cross_segment_seams
    mechanical_scope = full week diff (always)
-7. Write tasks/review-trail/.weekly-reviewer-scopes.json:
+7. Write state/review-trail/.weekly-reviewer-scopes.json:
      {"patrik": "<scope_sha_list>", "patrik_seam_files": "<seam_paths>", "mechanical_workers": "full"}
    (The JSON keys are still named `patrik`/`patrik_seam_files` for back-compat — the helper
    `workweek-trail-scope.sh` was not renamed. Post-restructure the `patrik` SHA set is the
-   code-semantics CHUNKING input; `patrik_seam_files` additionally feeds Patrik's advisory
+   code-semantics CHUNKING input; `patrik_seam_files` additionally feeds the Staff Engineer's advisory
    Layer-2 pass at Step 7.5.)
    Pass this scope file in the brief to parallel-code-review.
    The synthesizer reads it and narrates:
@@ -185,11 +190,11 @@ This field is optional; handoffs without it are valid (field is only present whe
 
 The `parallel-code-review` skill body IS modified for the N-chunk model (Strand 1), but the doctrine-guarded carve-out from `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` is preserved: scope-narrowing still happens in Step 7's prelude, and the frozen-diff / orthogonal-lens / no-rewrite-synthesizer conditions still hold (orthogonality now spans the 3 specialist lenses + code-semantics-as-a-class; the N chunks partition that class disjointly by file-scope).
 
-**`cross_segment_seams` defined precisely:** a *segment* is the sha-range of one trail record (one session-end review). Cross-segment seams are the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The per-segment file-touch set is derived from `git diff --name-only <sha-range>`. These seams carry integration risk because multiple independent sessions touched them; they feed BOTH the code-semantics chunk review (seam-first chunking gives them extra integration scrutiny) AND Patrik's advisory Layer-2 pass at Step 7.5, which reads the seam set as an integration-surface signal but does NOT gate merge.
+**`cross_segment_seams` defined precisely:** a *segment* is the sha-range of one trail record (one workstream-complete review). Cross-segment seams are the set of file paths that appear in the diff of ≥2 distinct segments — computed by taking the union of files-touched per record and intersecting pairwise. The per-segment file-touch set is derived from `git diff --name-only <sha-range>`. These seams carry integration risk because multiple independent sessions touched them; they feed BOTH the code-semantics chunk review (seam-first chunking gives them extra integration scrutiny) AND the Staff Engineer's advisory Layer-2 pass at Step 7.5, which reads the seam set as an integration-surface signal but does NOT gate merge.
 
 **Verdict subvariant:** when the code-semantics scope is empty AND no findings from any mechanical worker, the synthesizer may emit `OK (code-semantics trail-covered, mechanical clean)` — an informational subvariant of the standard `OK` verdict. The parallel dispatch still runs; no "skip" path exists. This variant signals that the trail successfully shed load without bypassing the safety gate.
 
-**Why mechanical workers are never scoped down:** session-end reviews dispatch only `coordinator:review-code` Branch A.2 (`code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at session-end. "Trail-covered" therefore does not mean "all lenses covered" — it means "code-semantics lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
+**Why mechanical workers are never scoped down:** workstream-complete reviews dispatch only `coordinator:review-code` Branch A.2 (`code-reviewer`). The three mechanical workers (security-audit-worker, dep-cve-auditor, test-evidence-parser) never run at workstream-complete. "Trail-covered" therefore does not mean "all lenses covered" — it means "code-semantics lens covered." Narrowing mechanical workers based on the trail would silently elide their independence property.
 
 ## Three-Surface Composition — Automated Build Verdicts (UBT pattern, 2026-05-15)
 
@@ -199,16 +204,16 @@ composition. The UBT compile gate is the first example; future automated linters
 
 ### Motivation
 
-Running a UBT build (~30s incremental, low-minutes cold) at session-end blocks quick-save
-commits under the concurrent-EM cadence (`tasks/lessons.md:324` — "at most one UBT-dependent
-executor in flight"). The three-surface pattern decouples intent-capture (cheap, session-end)
+Running a UBT build (~30s incremental, low-minutes cold) at workstream-complete blocks quick-save
+commits under the concurrent-EM cadence (`state/lessons.md:324` — "at most one UBT-dependent
+executor in flight"). The three-surface pattern decouples intent-capture (cheap, workstream-complete)
 from build-execution (expensive, daily) from gate-enforcement (cheap, weekly).
 
 ### Three surfaces and their roles
 
 | Surface | Role | Cost | Trigger |
 |---|---|---|---|
-| `/session-end` Step 2.9 | Write `verdict=pending` marker if chain-diff touches `control/plugin/**/Source/**/*.{cpp,h}` | Cheap (no build) | Per session |
+| `/workstream-complete` Step 2.9 | Write `verdict=pending` marker if chain-diff touches `control/plugin/**/Source/**/*.{cpp,h}` | Cheap (no build) | Per session |
 | `/workday-complete` Step 0c | Resolve today's pending markers — run UBT, parse result, write new resolved record | ~30s incremental | Daily |
 | `/workweek-complete` Step 4c | Refuse merge if any `verdict=pending` records have NO resolved sibling | Cheap (scan) | Weekly |
 
@@ -257,17 +262,17 @@ Chain-end review empirically catches **boundary-relabeling** bugs — where a re
 
 Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and downstream consumers that pattern-match on the old labels silently fall through to a default arm. Per-commit review confirms each individual rename is correct in isolation; chain-end review reads enough of the chain to notice the relabel happened at all.
 
-**How this maps to the current doctrine:** when partitioning a chain diff into slices, assign one slice specifically to boundary/seam/taxonomy/enum surfaces when present — this is the highest-value partition, not the one to merge into a larger bucket. The defect class is cross-segment by nature; a slice that spans the chain's full vocabulary-change surface ensures at least one `code-reviewer` instance sees the relabel end-to-end. If `code-reviewer` flags a boundary/seam/taxonomy shift, capture it in `tasks/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
+**How this maps to the current doctrine:** when partitioning a chain diff into slices, assign one slice specifically to boundary/seam/taxonomy/enum surfaces when present — this is the highest-value partition, not the one to merge into a larger bucket. The defect class is cross-segment by nature; a slice that spans the chain's full vocabulary-change surface ensures at least one `code-reviewer` instance sees the relabel end-to-end. If `code-reviewer` flags a boundary/seam/taxonomy shift, capture it in `state/lessons.md` and surface to PM for a plan-shaped decision; do not escalate to a named reviewer within the code-review path.
 
 ## Director-altitude review unbundles conflated concerns — and can dissolve a held decision
 
-*2026-05-18, project-rag.* A Director-altitude tiebreaker pass (the Zolí lens — invoked to break a deadlock between two reviewers or to adjudicate a contested architectural call) does more than pick a winner: it frequently **unbundles concerns the prior reviewers had conflated**, and the act of unbundling can dissolve the held decision entirely rather than ratifying either side. Two reviewers arguing "approach A vs approach B" may both be answering the wrong question — the Director lens reframes, splits the bundled concern into its independent axes, and the original A-vs-B framing evaporates because each axis resolves differently.
+*2026-05-18, project-rag.* A Director-altitude tiebreaker pass (the Director of Engineering lens — invoked to break a deadlock between two reviewers or to adjudicate a contested architectural call) does more than pick a winner: it frequently **unbundles concerns the prior reviewers had conflated**, and the act of unbundling can dissolve the held decision entirely rather than ratifying either side. Two reviewers arguing "approach A vs approach B" may both be answering the wrong question — the Director lens reframes, splits the bundled concern into its independent axes, and the original A-vs-B framing evaporates because each axis resolves differently.
 
-**Implication for review sequencing:** a Director-altitude reframe is not a failure of the lower-tier reviewers — it is the lens working as intended. Do not treat a dissolved decision as wasted review; the reframe is the value. But do treat it as a signal that the artifact's framing (the plan's problem statement, the stub's decomposition) was carrying a conflation the EM should fix at the source, not just in this one review. Capture the reframe in `tasks/lessons.md` and re-examine whether the same conflation recurs elsewhere in the workstream. This is the architectural-finding disposition path (§ No named-reviewer escalation from code review): the reframe belongs in the planning stream.
+**Implication for review sequencing:** a Director-altitude reframe is not a failure of the lower-tier reviewers — it is the lens working as intended. Do not treat a dissolved decision as wasted review; the reframe is the value. But do treat it as a signal that the artifact's framing (the plan's problem statement, the stub's decomposition) was carrying a conflation the EM should fix at the source, not just in this one review. Capture the reframe in `state/lessons.md` and re-examine whether the same conflation recurs elsewhere in the workstream. This is the architectural-finding disposition path (§ No named-reviewer escalation from code review): the reframe belongs in the planning stream.
 
 ## Review-findings folder ownership is by scope header, not timestamp
 
-`tasks/review-findings/YYYYMMDDTHHMMSSZ/` folder names encode *when* a review was dispatched, not *which workstream* owns it. A pickup session that crashed after dispatching a parallel review (but before committing the integrator fixes) leaves a folder that looks like the current workstream's pending review — but may hold a mix of real artifacts (Patrik.md, security.md at full size) and placeholder stubs (tests.md = "hello") from a different session/chain.
+`state/review-findings/YYYYMMDDTHHMMSSZ/` folder names encode *when* a review was dispatched, not *which workstream* owns it. A pickup session that crashed after dispatching a parallel review (but before committing the integrator fixes) leaves a folder that looks like the current workstream's pending review — but may hold a mix of real artifacts (the Staff Engineer.md, security.md at full size) and placeholder stubs (tests.md = "hello") from a different session/chain.
 
 **Rule:** at pickup, before treating any `review-findings/` folder as in-progress work for the current branch, grep the folder's inner `artifact scope:` header and compare its named HEAD SHA against `git rev-parse HEAD`. A mismatch means the review belongs to a different session — don't integrate its findings into the current diff.
 
@@ -277,13 +282,13 @@ Pattern shape: a taxonomy / enum / failure-reason vocabulary is refactored, and 
 
 **Review-trail coverage audits must read `archive/review-trail/**`, not just the live dir — `/workweek-complete` archives records weekly, so live-dir absence is not review absence.**
 
-`tasks/review-trail/` only ever holds the current week; any coverage check reading only it systematically under-counts review for anything older. The **review oracle** is git range-membership — `git merge-base --is-ancestor C B && ! ...C A` — over BOTH live (`tasks/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records.
+`state/review-trail/` only ever holds the current week; any coverage check reading only it systematically under-counts review for anything older. The **review oracle** is git range-membership — `git merge-base --is-ancestor C B && ! ...C A` — over BOTH live (`state/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records.
 
 *2026-05-27, claude-unreal-holodeck.* A plan-delivery audit's central alarm ("only 4 review-trail records, all this week → most shipped work unreviewed") was an archival artifact — the missing 05-24 record was in `archive/review-trail/2026-05-21/` (moved there by weekly-reset commit `db151655e`), and its `session_id` matched the shipped plan's completion-entry filename suffix. Both audited `implemented` plans were DELIVERED+REVIEWED; zero PARTIAL.
 
 When auditing delivery-vs-review: glob both dirs. The three-oracle plan-delivery audit shape (plan-claim / code-reality-on-disk / review-coverage) + this archive-aware fix were routed to the DoE as a coordinator-universal skill/doctrine candidate via cross-repo memo (`~/.claude/cross-repo/inbox/2026-05-27-plan-delivery-audit-shape.md`).
 
-**Canonical helper:** `list-review-trail-records.sh` — emits the union of live (`tasks/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records, NUL-separated, sorted by basename. Absent dirs do not error. All review-trail consumers should route through this helper rather than separate glob calls. See also `docs/wiki/plan-delivery-audit.md` for the full three-oracle audit skill.
+**Canonical helper:** `list-review-trail-records.sh` — emits the union of live (`state/review-trail/*.json`) and archived (`archive/review-trail/**/*.json`) records, NUL-separated, sorted by basename. Absent dirs do not error. All review-trail consumers should route through this helper rather than separate glob calls. See also `docs/wiki/plan-delivery-audit.md` for the full three-oracle audit skill.
 
 ## Constant/Identity Bump Is a Multi-Writer Change
 
@@ -295,8 +300,16 @@ A "one-line" pin or identity bump (version constant, schema revision, protocol c
 
 ## Cross-references
 
-- `coordinator:review-code` Branch A.2 — the dispatch surface for the actual `code-reviewer`/Patrik review invoked from Step 2.8 and Step 2.10
+## partitioned reviewers require partitioned integrators
+
+Partitioned reviewers require partitioned integrators. When a review event is fanned out to N parallel reviewers (each reviewing a different diff chunk), one integrator over the union is wrong — it will miss findings that require per-chunk context. Dispatch N parallel integrators (one per reviewer/chunk) and fold results EM-side. Apply: whenever N > 1 parallel reviewers are dispatched, plan for N parallel integrators.
+
+## partial-shipped execute-plan is a handoff not workstream-complete
+
+A partial-shipped execute-plan (where one or more chunks landed in `BLOCKED-ON-EXTERNAL` state) is a handoff, not a workstream-complete. `BLOCKED-*` state means the work is in-flight, not done. Apply: before invoking `/workstream-complete`, verify ALL AC rows are realized and NO chunk is in BLOCKED state; if any are BLOCKED, write a handoff instead.
+
+- `coordinator:review-code` Branch A.2 — the dispatch surface for the actual `code-reviewer`/the Staff Engineer review invoked from Step 2.8 and Step 2.10
 - `coordinator:parallel-code-review` — the merge-gate carve-out doctrine that this trail integrates with (without modifying); Step 7's prelude is the external interface between the trail and this skill
-- `docs/wiki/ceremony-calibration.md` § "Session-end-as-defer is hedging in disguise" — **complementary doctrine**: ceremony-calibration prevents using `/session-end` itself as a deferral mechanism; this guide prevents using "`code-reviewer`-only" as deferral within `/session-end`. The two framings are paired: one catches session-level hedging, the other catches review-scale hedging. Future EMs should read both.
+- `docs/wiki/ceremony-calibration.md` § "Workstream-complete-as-defer is hedging in disguise" — **complementary doctrine**: ceremony-calibration prevents using `/workstream-complete` itself as a deferral mechanism; this guide prevents using "`code-reviewer`-only" as deferral within `/workstream-complete`. The two framings are paired: one catches session-level hedging, the other catches review-scale hedging. Future EMs should read both.
 - `coordinator/CLAUDE.md` § Review Sequencing — top-level pointer that names this wiki as the authoritative doctrine source
 - `archive/specs/2026-05-06-parallel-code-review-weekly-gate.md` — the original spec whose Non-goals required Step 7 scope-narrowing to be implemented externally (not inside the parallel-code-review skill body)

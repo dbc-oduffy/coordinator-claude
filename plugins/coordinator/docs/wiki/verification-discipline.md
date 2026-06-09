@@ -117,6 +117,26 @@ A `sed` substitution that silently missed the backtick-wrapped form, and a follo
 ## Related
 
 - CLAUDE.md § Verification Before Done — boot-context rules (shipped-on-main, concurrent-sweep verify, smoke-test dispatch).
+## test baseline run-window overlapping in-flight commit produces transient ImportErrors
+
+A test baseline whose run-window overlaps your own in-flight commit reports transient `ImportError`s, not real failures. The in-progress commit may leave the module in a partially-written state during the baseline run. Sequence the baseline run before your commit series starts, or after it completes cleanly. Apply: if a baseline shows unexpected `ImportError`s, check whether a concurrent commit was in flight during the baseline run before treating the errors as real.
+
+## green local fast-tier is not green CI; rename sweeps must include .github/workflows/
+
+A green local fast-tier is NOT a green CI — the merge gate only counts if it actually executes. Rename and path-change sweeps MUST include `.github/workflows/` YAML files; CI workflow files that reference the old path will fail silently on the next PR. Apply: any `git mv`, module rename, or path-change plan must include a `grep -r <old-name> .github/` step in done-criteria.
+
+## red CI in seconds = billing/quota gate not code failure — triage by duration
+
+A CI job that "fails" in seconds without ever starting is a billing/quota gate, not a test failure. Distinguish by run-duration and annotation: billing/quota failures typically show a flat-line graph with a quota or billing error annotation, not a test-runner traceback. Apply: before chasing a red CI job in code, check the job duration — sub-5-second failure is a quota signal, not a code signal.
+
+## A-vs-B diff requires same-conditions control — never a pre-existing artifact
+
+To attribute an A-vs-B diff to ONE variable, hold every other variable constant — diff against a same-conditions control, never a pre-existing artifact built under different conditions. Cross-condition artifact diffs produce phantom deltas. A clean go/no-go null result (no diff under same conditions) is a success confirming the diff IS the variable. Apply: whenever testing "did X change the output," produce a fresh control run under the same conditions and diff against that.
+
+## CI precedent borrowing requires asymmetry-load-bearing audit
+
+Before invoking a CI precedent from another workflow step, audit whether the precedent is symmetric in failure-mode load-bearing. A silent-pass on an optional dependency does not equal a silent-pass on a substrate the contract pins to. Apply: when copy-pasting a CI pattern, explicitly verify that the failure mode of the borrowed pattern matches the failure mode you need to handle.
+
 - CLAUDE.md § Verifying Handoff Premises, § Verifying Executor Output After a Crash or Timeout — boot-context tripwires this section expands.
 - `verification-before-completion.md` § Runtime Readiness vs. Green Tests — the daemon/editable-install/e2e-symptom half of this bucket.
 - `cleanup-sweep-hazards.md` — sweep operations, auto-discovery globs, scaffolding-deletion checks.

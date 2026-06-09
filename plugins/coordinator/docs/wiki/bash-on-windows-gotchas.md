@@ -458,6 +458,10 @@ grep -rn 'GIT_OPTIONAL_LOCKS' . --include='*.sh'
 
 ## Related
 
+## heredoc + herestring on fd 0 silently discards one stream
+
+In bash, `python - <<HEREDOC ... HEREDOC <<< "$payload"` silently empties stdin — you cannot feed both a heredoc and a herestring to fd 0 in the same command. Only the last redirect wins; the script sees an empty input. Audit rule: grep any script that combines `<<` and `<<<` on the same command for this footgun. Fix: write the payload to a temp file, or pass it via an env var and have the Python script read `os.environ`.
+
 - → `docs/wiki/concurrent-em-hazards.md` § H23 — the EOL phantom-dirty index (stale line-ending blob size flags content-equal files) and the `coordinator-renormalize-index` automatic fix. §10 and §11 here are the two Windows gotchas that ambush an EM *diagnosing* a phantom-dirty tree before they find H23's fix.
 - → `docs/wiki/claude-code-platform-gotchas.md` — Windows subprocess pop-ups, MCP CRLF, process-group handling
 - → `docs/wiki/python-subprocess-patterns.md` — `CREATE_NO_WINDOW` flag, `pythonw.exe` vs `python.exe`, stdout pipe encoding

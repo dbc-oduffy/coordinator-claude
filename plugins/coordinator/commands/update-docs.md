@@ -204,7 +204,7 @@ esac
 If `state/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
 
 ```bash
-bash plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs
+bash ~/.claude/plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs
 ```
 
 This phase is **where bloat dies.** Any section accreted by a mid-session writer outside `## Pinboard` (a `## Recent Work` paragraph, a `## Health Snapshot` from an older schema, a `## Key Documentation` block) is discarded — only schema-conformant sections regenerate. The verifier (Phase 11b) catches any drift introduced after this phase.

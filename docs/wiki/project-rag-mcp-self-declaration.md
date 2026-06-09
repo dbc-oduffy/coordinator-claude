@@ -30,7 +30,7 @@ Four documentation-substrate roots (this wiki, `host-vs-addons.md`, `corpus-clas
 
 The `FastMCP(instructions=...)` block is ≤200 words and leads with content-class routing (primary) then query-shape routing (secondary) then bug-ownership statement.
 
-**Content-agnostic invariant (Zolí Directive 1):** Host text must contain NO addon names or engine-specific vocabulary. Banned regex: `\b(blueprint|bp_|unreal|holodeck|uproject|umap|uasset)\b` — also "BPs"; no `UCharacterMovementComponent`-shape exemplars; no `r.DroneSim.EnableFlight`-shape CVar names. Generic content-class phrasing throughout.
+**Content-agnostic invariant (the Director of Engineering Directive 1):** Host text must contain NO addon names or engine-specific vocabulary. Banned regex: `\b(blueprint|bp_|unreal|holodeck|uproject|umap|uasset)\b` — also "BPs"; no `UCharacterMovementComponent`-shape exemplars; no `r.DroneSim.EnableFlight`-shape CVar names. Generic content-class phrasing throughout.
 
 **Vocabulary pin:** "addon-registered" (not "addon-contributed") for addon-supplied corpus classes.
 
@@ -144,6 +144,10 @@ project-rag's live checkout is refresh-managed (`refresh-plugin-live-install.sh`
 **Exception:** `<ProjectRoot>/.project-rag/sentinels.json` and `coordinator.local.md` `project_type` are genuine per-project live files — editing them in place is the correct verb.
 
 ## Related guides
+
+## instructions= string is live doctrine — review on every ambition change
+
+A sister Claude session's first impression of your MCP server is the live `instructions=` string in the server registration — NOT your README or CLAUDE.md. The polarity of that string is doctrine, not prose: it shapes how every agent session routes queries to your server. Review the `instructions=` string whenever the server's ambitions change (new tool surface, new corpus class, updated routing rules). Apply: at every server-capability milestone, read the `instructions=` string out loud as if you were a new agent session seeing it for the first time and verify it still accurately describes routing priority and capability scope.
 
 - `docs/wiki/project-rag-tool-envelope.md` — response envelope schema, verdict enum, provenance fields
 - `docs/wiki/host-vs-addons.md` — host/addon separation of concerns (primary capability matrix)

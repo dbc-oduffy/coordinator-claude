@@ -88,6 +88,10 @@ git check-attr --all path/to/suspect/file.bin
 If a path you expected to be a carve-out shows `filter: lfs`, the carve-out line is either
 absent or ordered before the generic rule.
 
+## Gitignore `!` Negations Cannot Re-Include Under an Excluded Parent
+
+Gitignore `!` negation patterns cannot re-include a file under an excluded parent directory. If `scratch/` is gitignored, `!scratch/important.md` has no effect. Stacked negation chains that un-ignore parent directories then re-ignore children silently expose unrelated trees. `git add -f <file>` with a documented inline comment (`# tracked intentionally — <reason>`) is the correct carve-out for intentional tracked-in-scratch files. Apply: whenever needing to track a specific file inside an ignored directory, use `git add -f` + a comment rather than negation chains.
+
 ## Related
 
 - → `docs/wiki/lfs-coordinator-auto-push-merge.md` (LFS + post-commit hook interaction)

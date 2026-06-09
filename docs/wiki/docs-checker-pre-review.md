@@ -6,8 +6,8 @@ calibrated_against: Claude Opus 4.7 (1M context)
 type: doctrine
 related:
   - archive/specs/2026-05-03-docs-checker-default-pre-flight.md
-  - plugins/coordinator-claude/coordinator/agents/docs-checker.md
-  - plugins/coordinator-claude/coordinator/snippets/docs-checker-consumption.md
+  - plugins/coordinator/agents/docs-checker.md
+  - plugins/coordinator/snippets/docs-checker-consumption.md
 ---
 
 # docs-checker Pre-Review Doctrine
@@ -76,7 +76,7 @@ When project-RAG is absent, in-repo symbol claims are skipped and noted as out-o
 
 ## Sidecar Schema
 
-Each auto-fix is logged as a YAML block in `tasks/review-findings/{timestamp}-docs-checker-edits.md`:
+Each auto-fix is logged as a YAML block in `state/review-findings/{timestamp}-docs-checker-edits.md`:
 
 ```yaml
 - file: <path>
@@ -115,18 +115,18 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 **Why:** A green docs-checker verified "torch.cuda.mem_get_info inflates free VRAM on WDDM" (true) while the plan's highest-leverage chunk (C5) was built to route the VRAM gate through pynvml. A source-reading domain reviewer found the mem_get_info→pynvml migration had already shipped — no live call site existed. C5 collapsed to its one genuinely-missing piece.
 **How to apply:** after docs-checker passes, dispatch a domain reviewer or run a targeted grep (`grep -rn 'mem_get_info'`) to confirm the fix-locus still holds the symbol the plan proposes to replace. docs-checker answers "is the API claim true?"; only a source read answers "is the proposed locus still the current state?".
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L199, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L199, central-promoted 2026-05-28).*
 
 ## Distribution
 
 The reviewer-side consumption block is synced via `verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
-- `plugins/coordinator-claude/coordinator/agents/staff-eng.md` (Patrik)
-- `plugins/coordinator-claude/coordinator/agents/eng-director.md` (Zolí)
-- `plugins/coordinator-claude/game-dev/agents/staff-game-dev.md` (Sid)
-- `plugins/coordinator-claude/data-science/agents/staff-data-sci.md` (Camelia)
-- `plugins/coordinator-claude/web-dev/agents/senior-front-end.md` (Palí)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin Sid variant)
+- `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
+- `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
+- `plugins/game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer)
+- `plugins/data-science/agents/staff-data-sci.md` (the Data Science Reviewer)
+- `plugins/web-dev/agents/senior-front-end.md` (the Front-End Reviewer)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
 
 See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 
@@ -150,10 +150,14 @@ When the API claim is bound to a specific engine/library version (UE 5.7.4, Pyth
 
 docs-checker (and prior-art) answer "is this API claim true?" — they do not answer "is the proposed fix-locus still the current state of the code?" A plan can cite a real bug whose fix already landed; the API-behavior pre-flight goes green either way.
 
-*2026-05-27, claude-unreal-holodeck.* docs-checker VERIFIED "torch.cuda.mem_get_info inflates free-VRAM on WDDM" (true, logged bug BS-2026-05-05) and the plan's highest-leverage chunk (C5) was built to "route the VRAM gate through pynvml." Sid read the call sites and found the mem_get_info→pynvml migration had ALREADY shipped (stub G1/BS-W3) — no live mem_get_info call site existed. C5 collapsed to its one genuinely-missing piece (a WDDM sysmem warning). This is the planning-time face of "audit symptom correct, locus may be stale" (coordinator CLAUDE.md § Pre-Dispatch).
+*2026-05-27, claude-unreal-holodeck.* docs-checker VERIFIED "torch.cuda.mem_get_info inflates free-VRAM on WDDM" (true, logged bug BS-2026-05-05) and the plan's highest-leverage chunk (C5) was built to "route the VRAM gate through pynvml." the Game Dev Reviewer read the call sites and found the mem_get_info→pynvml migration had ALREADY shipped (stub G1/BS-W3) — no live mem_get_info call site existed. C5 collapsed to its one genuinely-missing piece (a WDDM sysmem warning). This is the planning-time face of "audit symptom correct, locus may be stale" (coordinator CLAUDE.md § Pre-Dispatch).
 
 **How to apply:** for any plan chunk that proposes to CHANGE existing code at a cited locus (vs. add new code), the domain reviewer (or a Tier-3 grep) must confirm the locus still has the shape the plan assumes — a green docs-checker is necessary but not sufficient. Cheapest catch: `grep` the symbol the chunk proposes to replace; if it only appears in comments/docstrings, the migration already happened.
 
+## Em-Dash Slug-Rot in Linked-To Headings
+
+Em-dash (or any Unicode dash `—`, `–`) in linked-to markdown headings causes silent slug-rot. GitHub's anchor slugger strips Unicode dashes, so `## Foo — Bar` generates slug `#foo--bar` (missing the dash), not `#foo-bar`. Links to the heading silently 404. Prefer ASCII hyphens in headings expected to be linked from other files. doc-link-checker is the mechanical catch. Also: doc-link-checker mis-parses backtick-quoted filenames inside inline-code expressions (e.g., `` `file.py` ``) as link targets — filter the report by resolved-path sanity before treating broken-link count as meaningful.
+
 ## Recalibration
 
-The EM Decision Rules table is calibrated against the current Claude model's training distribution. Re-evaluate when the underlying model changes. A note is recorded in `tasks/coordinator-improvement-queue.md` to flag this for the next model upgrade.
+The EM Decision Rules table is calibrated against the current Claude model's training distribution. Re-evaluate when the underlying model changes. A note is recorded in `state/coordinator-improvement-queue.md` to flag this for the next model upgrade.

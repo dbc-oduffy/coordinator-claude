@@ -157,7 +157,7 @@ finally:
     _PROJECT_CONTEXT_VAR.reset(token)
 ```
 
-## 5. Boot-race contract (Patrik Finding 2)
+## 5. Boot-race contract (the Staff Engineer Finding 2)
 
 **This section documents a hard architectural contract. Do not relax the retry bound without an architectural review.**
 
@@ -177,7 +177,7 @@ The boot-race retry is implemented in `CwdResolverMiddleware.__call__` in `proje
 
 ## 6. SessionStart hook by-PID marker (C5)
 
-The SessionStart hook writes a JSON marker file under `~/.project-rag/sessions/by-pid/` at session boot. This marker serves as the fallback channel when psutil cwd-resolution fails or is unavailable.
+The SessionStart hook writes a JSON marker file under `~/.project-rag/sessions/by-pid/` when the session opens. This marker serves as the fallback channel when psutil cwd-resolution fails or is unavailable.
 
 ### Marker file shape
 
@@ -499,7 +499,7 @@ Exits non-zero on unrecoverable failure with catalog-sourced error line on stder
 
 - **Primary plan:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.md`
 - **OQ-4 closure (hookspec alignment):** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.hookspec-alignment-proposal.md`
-- **Patrik review:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.patrik-review.md`
+- **the Staff Engineer review:** `docs/plans/2026-05-16-multi-source-daemon-and-source-kwarg.patrik-review.md`
 - **Cross-repo memo (ue-addon side, D-5):** `X:/project-rag-ue-addon/docs/plans/2026-05-13-ue-authority-shift-coordination-memo.md § D-5`
 - **Superseded predecessor:** `docs/plans/2026-05-16-cross-repo-mcp-registration-shape.md`
 - **MCP shared-server migration (HTTP topology):** `docs/wiki/mcp-shared-server-migration.md`

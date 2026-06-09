@@ -47,7 +47,7 @@ Pair with `check-shipped-on-main.sh` for the upstream check (producer on main); 
 
 ## In-session verification beats cross-repo acceptance handoff
 
-*2026-05-17, project-rag.* When the host EM has the corpus and tool access to verify a cross-repo deliverable directly — RAG indices, build tooling, test runners — preferring an in-session verification step over a cross-repo acceptance handoff is cheaper and more reliable. Handoffs require the receiving EM to context-load before they can confirm; the producer EM already has context. Defer to a cross-repo acceptance handoff only when (a) verification requires tools or corpus the producer EM lacks, or (b) the consumer's domain expertise is load-bearing for the acceptance call.
+*2026-05-17, project-rag.* When the host EM has the corpus and tool access to verify a cross-repo deliverable directly — RAG indices, build tooling, test runners — preferring an in-session verification step over a cross-repo acceptance handoff is cheaper and more reliable. Handoffs require the receiving EM to context-load before they can confirm; the producer EM already has context. Defer to a cross-repo acceptance handoff only when (a) verification requires tools or corpus the producer EM lacks, or (b) the consumer's domain expertise is load-bearing for the acceptance call. Stop playing memo pong — when a verification ask CAN be done locally, do it; don't relay the ask back as a return memo. Sender-side memo escalation for verification depth launders a workflow decision the EM owns into the receiver's inbox.
 
 ## Bilateral schema-bump sequencing — both repos widen readers before either flips the manifest
 
@@ -92,6 +92,30 @@ Net: new cross-repo sentinels must still meet the inline-assertion rule above. T
 ## Cross-references
 
 - [`live-install-drift-audit.md`](./live-install-drift-audit.md) — canonical convention authority for `version.txt` shape (referenced by the carve-out above).
+## land host-side compute with guarded no-op ahead of sibling DDL
+
+Land host-side compute ahead of a sibling-repo's schema/DDL by gating the write on sibling artifact presence. A guarded no-op (e.g., `if not schema_exists: return`) lets the work ship without blocking on cross-repo sequencing. The sibling lands the DDL on their own timeline; the host code auto-activates on next run. Apply: whenever host code depends on a sibling-owned schema object, add a guard that returns a benign no-op if the schema object is absent.
+
+## Mechanism Verification on Sibling-Pattern Adoption
+
+When mirroring a sibling-repo pattern, verify the mechanism transfers — not just the shape. Pattern shape can transfer; the mechanism (e.g., where a version constant is sourced, how a health-check wire is wired) may be repo-specific. Also verify that the path you are replacing actually worked in the first place. Apply: for each sibling pattern you adopt, (1) confirm the reason it works for the sibling holds in your substrate, (2) confirm the path you're replacing was actually functioning.
+
+## Incoming `kind: fyi` Is "Accept-With-Amend Invited" — Not "Trust the Diff"
+
+Incoming cross-repo `kind: fyi` memos mean no action is requested — NOT that the content is integrated correctly. Coordinated triples (code/schema/fixture) arriving via fyi must still get a code-reviewer pass and a targeted test-run before consumption. Apply: treat every inbound fyi as "accept with permission to amend" and run `code-reviewer` before adopting the content.
+
+## Cross-Repo Migration Memo Is a Hypothesis — Scout Before Adopting
+
+A cross-repo "take everything" migration memo over-claims scope. Scout provenance, byte-identity, regenerability, policy bans, and rename collisions before adopting. Thorough investigation routinely inverts the framing ("we already own this"). Apply: for any migration memo, dispatch a scout that checks: `git log -- <path>` on the sibling, `grep` for your own holding, DR classification of each artifact, and rename collision with your existing tree.
+
+## Direct-Commit Doctrine Has a Sibling-Own-Tree Carve-Out
+
+The triad-roles-doctrine direct-commit rule governs authoring work in a peer tree. A signal-back memo about a sibling's OWN-tree action (their prune timing, decline decision, cleanup scheduling) is legitimately a record-keeping memo — it does not constitute cross-repo code writing. Apply: a memo that records "we are declining / deferring X on our own timeline" is a record-keeping memo, not a violation of the direct-commit doctrine.
+
+## Stop playing memo pong — when a verification ask can be done locally, do it
+
+When a verification ask in a memo CAN be done locally in-session, do it rather than relaying the ask back as a return memo. Sender-side memo ladder for verification depth launders a workflow decision the EM owns into the receiver's inbox. Apply: before sending a return memo asking the sender to verify something, ask "can I grep/read/run this locally?" If yes, do it.
+
 - [`agentic-install-integrity.md`](./agentic-install-integrity.md) — doctrine wiki for the lifted classifier + deferred extensions (semantic-vs-byte, plugin-spawned state, agent-readable boot sentinel).
 - [`cross-repo-contract-test-discipline.md`](./cross-repo-contract-test-discipline.md) — roadmap-stub schemas speculative-until-grounded; byte-equal fixtures + `eol=lf` pinning as the executable contract oracle.
 - [`cross-repo-citation-conventions.md`](./cross-repo-citation-conventions.md) — how to cite across repos in handoffs and plans

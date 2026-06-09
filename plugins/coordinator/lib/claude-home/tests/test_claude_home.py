@@ -117,6 +117,41 @@ class TestHomeResolution(unittest.TestCase):
             self.assertEqual(cfg.parent, cdir.parent, ".claude.json must be sibling of .claude/, not inside it")
             self.assertNotEqual(cfg, cdir / ".claude.json")
 
+    def test_relative_claude_home_fails_loud(self):
+        # CLAUDE_HOME is a deliberate operator override — a relative value is
+        # a configuration error, not a soft fallback. Spec: 2026-05-28
+        # addon-pluggy audit, INFO finding on env-var absolute-path validation.
+        with _isolated_env(CLAUDE_HOME="relative/sandbox"):
+            with self.assertRaises(ValueError) as cm:
+                home_dir()
+            self.assertIn("CLAUDE_HOME", str(cm.exception))
+            self.assertIn("absolute", str(cm.exception))
+
+    def test_empty_claude_home_fails_loud(self):
+        # Review: code-reviewer — an empty string set in the environment is unambiguously
+        # malformed; the docstring contract on CLAUDE_HOME is fail-loud, not silent
+        # fallthrough. Common when CI clears a variable with `CLAUDE_HOME=`
+        # instead of `unset CLAUDE_HOME`.
+        with _isolated_env(CLAUDE_HOME=""):
+            with self.assertRaises(ValueError) as cm:
+                home_dir()
+            self.assertIn("empty", str(cm.exception))
+
+    def test_relative_home_is_skipped(self):
+        # Relative HOME (OS-provided) is ignored; resolution falls through to
+        # USERPROFILE or stdlib. Prevents env-derived relative path from
+        # anchoring later path-joins at the process cwd.
+        fake = self.tmp_path / "win_home"
+        with _isolated_env(HOME="../escape", USERPROFILE=str(fake)):
+            self.assertEqual(home_dir(), fake)
+
+    def test_relative_userprofile_is_skipped(self):
+        fake = self.tmp_path / "stdlib_home"
+        with _isolated_env(USERPROFILE="../escape"), patch.object(
+            Path, "home", classmethod(lambda cls: fake)
+        ):
+            self.assertEqual(home_dir(), fake)
+
 
 # ---------------------------------------------------------------------------
 # read_config

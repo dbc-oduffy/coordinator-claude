@@ -1,6 +1,6 @@
 ---
 name: plan-coverage-checker
-description: "Use this agent to verify that a plan's fix slate covers its own audit/found-facts oracle, that deferrals are architecturally justified (not appetite-based), and that in-repo substrate citations match the current disk state. Runs three mechanical lenses — coverage (slate-vs-oracle cross-ref), hedge detection (appetite-based deferral patterns), and substrate drift (in-repo paths/symbols/constants vs. disk) — and writes a sidecar with Missed / Ambiguous / Weak-OOS / Hedges / Substrate-drift buckets plus a verdict. REPORT-ONLY; no auto-fix. Trigger is skill-internal: the agent runs on any plan containing an audit/findings oracle table; EM opt-out is intentionally unavailable. Empirical basis: a confident EM plan missed 36 of 50 audit items, caught 9 substrate-drift failures, and contained 4 appetite-based hedges on 2026-05-18 — the EM's confidence calibration was exactly the failure mode. INCOMPLETE findings fold before named-reviewer dispatch; BLOCKED-SURFACE-TO-PM halts the pipeline."
+description: "Use this agent to verify that a plan's fix slate covers its own audit/found-facts oracle, that deferrals are architecturally justified (not appetite-based), and that in-repo substrate citations match the current disk state. Runs three mechanical lenses — coverage (slate-vs-oracle cross-ref), hedge detection (appetite-based deferral patterns), and substrate drift (in-repo paths/symbols/constants vs. disk) — and writes a sidecar with Missed / Ambiguous / Weak-OOS / Hedges / Substrate-drift buckets plus a verdict. REPORT-ONLY; no auto-fix. Trigger is skill-internal: the agent runs on any plan containing an audit/findings oracle table; EM opt-out is intentionally unavailable. Empirical basis (Lens 1-3): a confident EM plan missed 36 of 50 audit items, caught 9 substrate-drift failures, and contained 4 appetite-based hedges on 2026-05-18. INCOMPLETE findings fold before named-reviewer dispatch; BLOCKED-SURFACE-TO-PM halts the pipeline."
 model: sonnet
 color: teal
 tools: ["Read", "Grep", "Glob", "Write", "Bash", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
@@ -56,7 +56,7 @@ Check whether a prior sidecar exists at `<plan-path>.plan-coverage-check.md`. If
 
 **Oracle detection** — parse the plan for a structured found-facts list. Heuristics in priority order:
 
-**Exclusion — the `## Acceptance Criteria` heading is NEVER an audit oracle.** This section is reserved for the *acceptance oracle* (bindable AC table, gate-bound by `check-acceptance-oracle.sh` at the merge boundary) per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop). Skip the `## Acceptance Criteria` heading and any table directly under it before running the heuristics below — even when the table carries an `ID` column that would otherwise match heuristic 3 below. The acceptance oracle is the green-gate's domain, not the coverage-checker's. (Spec: `archive/specs/2026-05-24-acceptance-oracle-with-teeth.md` AC-9; substrate seam surfaced by prior-art-checker 2026-05-24.)
+**Exclusion (for oracle detection — Lens 1) — the `## Acceptance Criteria` heading is NEVER an audit oracle.** This section is reserved for the *acceptance oracle* (bindable AC table, gate-bound by `check-acceptance-oracle.sh` at the merge boundary) per `docs/wiki/writing-plans.md` § Acceptance Oracle (outer-loop). Skip the `## Acceptance Criteria` heading and any table directly under it for oracle detection below — even when the table carries an `ID` column that would otherwise match heuristic 3. The acceptance oracle is the green-gate's domain for coverage cross-reference; the coverage-checker does not treat it as an audit oracle.
 
 0. **Ratified problem-set (highest priority).** If the plan frontmatter carries a `problem_set:` key (read it only when **literally present** in frontmatter — never infer from body prose):
    - **`problem_set: <path>`** — read that file. If it has frontmatter `status: ratified`, use its problem list (the `## Problems` items) as the **primary** oracle. An internal audit table found via heuristics 1–4, if present, becomes a secondary oracle. If the file is missing or its `status` is not `ratified` (e.g. `draft`), treat as no ratified problem-set (it does NOT count as an oracle) and fall through.
@@ -70,7 +70,7 @@ Check whether a prior sidecar exists at `<plan-path>.plan-coverage-check.md`. If
 **If no oracle is found after checking all heuristics — run the advisory-nudge check FIRST, then emit SCOPE-MISMATCH:**
 
 1. **Advisory problem-set nudge (control-flow: this runs BEFORE the SCOPE-MISMATCH stop).** Read the plan's `scope_mode` frontmatter. If `scope_mode` is `feature`, `architecture`, or `spike` AND there is no ratified problem-set (heuristic 0 fell through), write **one advisory finding line** into the sidecar: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* This is an advisory **finding line that rides alongside the verdict** — it is NOT a verdict-enum member and does NOT change the verdict or force INCOMPLETE. For `production-patch` / audit / unset scope_modes, emit nothing (silent — these legitimately have no problem-set).
-2. **Then** emit the sidecar with verdict `SCOPE-MISMATCH`, reason "no audit/findings oracle found — plan-coverage-checker requires a structured found-facts list (or a ratified `problem_set:`) to cross-reference against." This is still the correct silent skip for greenfield design plans — but for feature/architecture/spike plans the sidecar now also carries the advisory nudge above. The sidecar IS written on the SCOPE-MISMATCH path (so the nudge has a surface to land on). Stop here.
+2. Emit the sidecar with verdict `SCOPE-MISMATCH`, reason "no audit/findings oracle found — plan-coverage-checker has no signal to run against." This is the correct silent skip for greenfield design plans; for feature/architecture/spike plans the sidecar additionally carries the advisory nudge above. The sidecar IS written on the SCOPE-MISMATCH path (so the nudge has a surface to land on). Stop here.
 
 **Slate detection** — parse the plan for the corresponding fix list. Heuristics:
 
@@ -152,6 +152,7 @@ Read ±5 lines of context around the token. Classify:
 - Cited behavior — only cited identifiers and paths
 
 ### Phase 5: Produce the Sidecar
+<!-- Note: Phase 5 was formerly Phase 6 (sidecar); the AC Test-cell grammar lens was retired from this agent 2026-06-09 and moved to PreToolUse hook validate-ac-grammar.js. Phase numbering updated accordingly. -->
 
 Write the sidecar to `<plan-path>.plan-coverage-check.md`. Use the format specified in the Sidecar Format section. Do not summarize, condense, or rewrite plan passages — quote them verbatim where evidence is needed.
 
@@ -174,6 +175,7 @@ plan: <plan-path-relative-to-repo-root>
 
 **Plan:** <path>
 **Verdict:** COMPLETE | INCOMPLETE | BLOCKED-SURFACE-TO-PM | SCOPE-MISMATCH | DEGRADED
+**Sub-label:** INCOMPLETE — Mechanical: N, Judgment: M  *(only emit when verdict is INCOMPLETE; omit this line for all other verdicts)*
 **Oracle items:** N (source: <heading | table | ratified problem-set: `<path>` | inline ratified problem-set>)
 **Slate items:** M
 **Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Substrate-drift:** W
@@ -193,14 +195,16 @@ plan: <plan-path-relative-to-repo-root>
 
 ### Substrate drift (in-repo paths/symbols cited that don't match disk)
 
-[For each, one block: plan citation verbatim, current disk state (file absent / symbol not found within ±10 lines), suggested action: "amend plan to current substrate OR explain drift".]
+[For each, one block: plan citation verbatim, current disk state (file absent / symbol not found within ±50 lines), suggested action: "amend plan to current substrate OR explain drift".]
+<!-- Review: code-reviewer — updated ±10 lines to ±50 lines to match Phase 4 spec (widened window documented at Phase 4 line 143) -->
 
 ### Verdict logic
 
 - **COMPLETE** — zero MISSED, zero weak-OOS, zero substrate-drift. AMBIGUOUS items do not affect COMPLETE verdict — they appear for EM review but do not gate.
 - **INCOMPLETE** — one or more MISSED, weak-OOS, or substrate-drift findings. EM must fold findings into the plan before named reviewer dispatch. AMBIGUOUS items are included in sidecar for review but do NOT count toward INCOMPLETE.
+- **INCOMPLETE sub-label** — when the verdict is INCOMPLETE, the sidecar's verdict line gains a per-lens sub-label: `INCOMPLETE — Mechanical: N, Judgment: M` where Mechanical = Substrate-drift bucket count (Lens 3 — typically auto-foldable), Judgment = Missed + Weak-OOS + Hedges bucket counts (Lens 1 + Lens 2 — needs EM decision). Mechanical findings (Lens 3 substrate drift in its common path-rename/path-absent form) are typically auto-foldable — the EM applies the suggested rewrite and moves on. Substrate-drift on semantically-loaded symbols may require judgment; treat the sub-label as a cost estimate, not a guarantee. Judgment findings (Lens 1 coverage, Lens 2 hedges) require an EM decision (add-to-slate / architectural-OOS / oracle-was-wrong / promote-OOS-to-slate). The verdict enum values themselves are unchanged — back-compat preserved.
 - **BLOCKED-SURFACE-TO-PM** — ≥20% of oracle items in the MISSED bucket (MISSED count alone, not MISSED+AMBIGUOUS combined), OR ≥3 substrate-drift findings (suggests plan was written against a stale tree). EM escalates to PM before continuing.
-- **SCOPE-MISMATCH** — no oracle table located (and no ratified `problem_set:`). Treat as no signal; review proceeds without this lens. For `feature` / `architecture` / `spike` plans, the sidecar additionally carries the advisory problem-set nudge (an advisory line, not a verdict change — SCOPE-MISMATCH remains the verdict).
+- **SCOPE-MISMATCH** — no oracle table located. Treat as no signal; review proceeds without this lens. For `feature` / `architecture` / `spike` plans, the sidecar additionally carries the advisory problem-set nudge (an advisory line, not a verdict change — SCOPE-MISMATCH remains the verdict).
 - **DEGRADED** — agent ran with incomplete coverage (token cap hit, oracle parsing ambiguous, file unreadable, etc.). Treat as no signal.
 
 **Cost estimate:** ~N tokens

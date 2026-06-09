@@ -7,7 +7,7 @@ created: 2026-05-18
 
 # Orientation Surfacing Doctrine
 
-**Purpose:** Rules for filtering and structuring orientation surfaces — the lists the EM reads at session start to choose work. Applies to `/session-start`, `/workday-start`, and any primary-list filter in a handoff index.
+**Purpose:** Rules for filtering and structuring orientation surfaces — the lists the EM reads at session start to choose work. Applies to `/workstream-start`, `/workday-start`, and any primary-list filter in a handoff index.
 
 ---
 
@@ -94,8 +94,12 @@ These rules operate within the boot-time orientation budget. Surfacing extra sub
 
 ---
 
+## Anti-Pattern: Carried-Forward Priorities Need HEAD-Verification Before Re-Stamping
+
+`/workday-start` week-priorities carry shipped items indefinitely when the week-priorities section is re-stamped without re-deriving against current state. A "(carried N weeks)" item may have shipped last week and should be removed from the surface. Apply: before re-stamping any priority with a new generation timestamp, grep the git log and decisions dir for the priority's key term; if it shipped, remove it from the surface rather than carrying it forward.
+
 ## Related
 
 - → `docs/wiki/tiered-context-loading.md` (boot-time orientation budget and tier discipline)
-- → `coordinator/CLAUDE.md` § Session Orientation (the `/session-start` is PM-invoked rule and quick-orient boot)
+- → `coordinator/CLAUDE.md` § Session Orientation (the `/workstream-start` is PM-invoked rule and quick-orient boot)
 - → `coordinator/CLAUDE.md` § Handoff Lineage (handoff frontmatter `deployment_state` enum: `awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`)

@@ -134,7 +134,16 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
       ```
       Scan commit subjects for key nouns from each pending item. A commit whose subject clearly matches an item is strong evidence that item shipped.
 
-   b. **Plan/stub status check:** For any pending item that references a plan or stub file (e.g., `docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file and check its `**Status:**` field. A stub the handoff calls "pending" but whose own status reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item.
+   b. **Plan/stub status check:** For any pending item that references a plan or stub file (e.g., `docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file and apply the appropriate closure-signal source based on file type:
+
+      - **Plan files (`docs/plans/*.md`):** Executors no longer stamp `**Status:**` into plan bodies — those lines no longer exist as per-chunk closure signals. The canonical closure-signal sources are:
+        1. **`## Dispatch Ledger` table (if present):** Read the table and note which rows show `status: committed` or `status: complete` — those chunks are closed.
+        2. **Git commit log:** Run `git log --oneline --since="<handoff-date>" -- <plan-path>` and scan for commit subjects whose prefix matches a chunk-id (e.g., `C4a-pickup-skill:`). A commit subject beginning with `<chunk-id>:` indicates that chunk shipped.
+        3. **Plan-header `Status:` field** (EM-authored): still valid for phase transitions (`draft`, `review`, `execution`, `shipped`) but does NOT carry per-chunk completion state. A plan-header `Status: execution` only means the plan entered execution phase; it does not confirm any individual chunk is done.
+
+         > Why: per-chunk executor stamps no longer exist — executors flight-record to a sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`, not the plan body. Plan-header `Status:` remains EM-authored for phase transitions. See `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`.
+
+      - **Stub/todo files (`tasks/*/stub.md`, `tasks/*/todo.md`):** The enricher's stub-stamping protocol is a distinct, unchanged protocol — stubs are the enricher's own deliverable, not an executor-written-into surface. A stub whose own `**Status:**` field reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item. This remains a valid closure signal for stubs.
 
    c. **Drop confirmed-closed items.** Items verified as already shipped do NOT go into your session execution queue. Optionally note them inline as _"verified-closed since handoff"_ for the paper trail.
 
@@ -178,6 +187,8 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    Recovery handoffs follow the standard continuation flow, but the successor's first move is disk verification (uncommitted edits, orphan `.tmp.*` files, partial executor output) per CLAUDE.md § "Verifying Executor Output After a Crash or Timeout". A null `predecessor:` on `kind: recovery` is permitted (no recoverable predecessor existed) and is NOT a stale-handoff signal.
 
 5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/workstream-complete` Step 2.7).
+
+   > **Negative-spec — the consumed body is paper trail, not a progress journal.** Once this skill flips `status: active → consumed`, the predecessor handoff body is FROZEN. Do not append `### <date> session — pickup, …` sections, do not edit the Progress / Recommended Next Steps blocks, do not tack on a fresh `## What Was Accomplished` for this session's work. Progress goes in commits; the next checkpoint goes in a **successor handoff** authored via `/handoff` (which writes the successor, then chain-archives this predecessor to `archive/handoffs/`). An in-place append is invisible to the pickup index — the next session's `/workday-start` or `/pickup` will not surface a consumed handoff as live work, so any progress stapled into the consumed body is functionally lost. Tripwire: `CONSUMED-HANDOFF-FROZEN` in `docs/wiki/coordinator-tripwires.md`; enforced at the tool layer by `hooks/scripts/block-consumed-handoff-edit.sh` (override env var `COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1` reserved for recovery-flavor crash-invalidation notes and one-off paper-trail corrections, never progress appends).
 
    ### Pre-mutation safety gates (sequential, all must pass before any write)
 

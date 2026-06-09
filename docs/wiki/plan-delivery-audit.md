@@ -34,9 +34,9 @@ Reads what **actually landed** in the working tree: commits, file mutations, dif
 
 ### Oracle 3 — Review Coverage
 
-Source: archive-aware review-trail glob — `tasks/review-trail/**` AND `archive/review-trail/**`.
+Source: archive-aware review-trail glob — `state/review-trail/**` AND `archive/review-trail/**`.
 
-Reads whether the delivered work **was reviewed** at session-end. Must use both live and archived dirs (see § Archive-Aware Glob below).
+Reads whether the delivered work **was reviewed** at workstream-complete. Must use both live and archived dirs (see § Archive-Aware Glob below).
 
 ## Five Classification Buckets
 
@@ -51,10 +51,10 @@ Reads whether the delivered work **was reviewed** at session-end. Must use both 
 ## Archive-Aware Review-Trail Glob
 
 All review-trail consumers must glob BOTH:
-- `tasks/review-trail/**` — current week's records
+- `state/review-trail/**` — current week's records
 - `archive/review-trail/**` — prior weeks' records (moved by `/workweek-complete` Step 13)
 
-`/workweek-complete` Step 13 moves `tasks/review-trail/*.json` into `archive/review-trail/<week-starting>/` on every weekly reset. Live-only readers systematically under-count review for anything older than one week.
+`/workweek-complete` Step 13 moves `state/review-trail/*.json` into `archive/review-trail/<week-starting>/` on every weekly reset. Live-only readers systematically under-count review for anything older than one week.
 
 **The 2026-05-27 holodeck "most shipped work is unreviewed" alarm was a pure archival artifact.** The missing 05-24 record was in `archive/review-trail/2026-05-21/`; both audited plans were DELIVERED+REVIEWED, not PARTIAL.
 
@@ -64,10 +64,10 @@ All review-trail consumers must glob BOTH:
 
 - After any crash or context reset where session state is uncertain
 - When `/pickup` handoff claims X was delivered but git tells a different story
-- Before declaring a workstream "complete" at `/session-end` or `/handoff`
+- Before declaring a workstream "complete" at `/workstream-complete` or `/handoff`
 - `/workweek-complete` deep-audit of the week's delivery record
 
 ## Decision Records
 
-- **DR-135** — Archive-aware review-trail glob: all consumers must read tasks/review-trail/** AND archive/review-trail/**; canonical helper bin/list-review-trail-records.sh
+- **DR-135** — Archive-aware review-trail glob: all consumers must read state/review-trail/** AND archive/review-trail/**; canonical helper bin/list-review-trail-records.sh
 - **DR-136** — coordinator:plan-delivery-audit skill with three-oracle pattern (plan-claim, code-reality, review-coverage) and five classification buckets

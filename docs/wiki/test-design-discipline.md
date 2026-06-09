@@ -246,7 +246,7 @@ Empirical timing tests are belt-and-suspenders, not the primary contract. If bot
 
 **Generalizes:** for any property best stated structurally — no sync call inside async, no allocation in a hot loop, no global state in a pure function — the source-level grep IS the primary regression net. When you find yourself writing a timing-based or sampling-based probe to enforce a structural invariant, stop and ask whether a static grep on the production source would enforce the same invariant deterministically.
 
-*Source: project-rag-ue-addon/tasks/lessons.md:116, 2026-05-16.*
+*Source: project-rag-ue-addon/state/lessons.md:116, 2026-05-16.*
 
 ## 28. Awk `\b` Word-Boundary is Not POSIX-Portable — Silent Literal-Match Failure
 
@@ -360,7 +360,7 @@ A test verdict may be correct while the evidence file's prose explanation of *wh
 
 **Rule:** evidence-file prose must separate the observed signal (what an instrument measured) from the inferred mechanism (why you believe that happened). When the inference is uncertain, say so. A confident-sounding mechanism with no observed anchor is a wishful-thinking trap.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L147, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L147, central-promoted 2026-05-28).*
 
 ## 53. Hung-Run Failure Counts — Never Quote From an Incomplete Session
 
@@ -636,7 +636,7 @@ A contract memo's *illustrative* example payload can pair fields in a combinatio
 
 *Source: L718, claude-unreal-holodeck (god-fn-refactor PR2-B). 2026-05-27. [universal]*
 
-A green "37/37 tests pass" proves nothing about an AC when the test matrix only exercises one value of a gating build flag. The PR2-B refactor passed 37/37 with `IKRig=1`; Patrik caught an `IKRig=0` violation that the matrix never ran — the AC spanned both flag values, the suite covered one.
+A green "37/37 tests pass" proves nothing about an AC when the test matrix only exercises one value of a gating build flag. The PR2-B refactor passed 37/37 with `IKRig=1`; the Staff Engineer caught an `IKRig=0` violation that the matrix never ran — the AC spanned both flag values, the suite covered one.
 
 **Rule.** When code branches on a build-config flag, feature toggle, or compile-time gate, the test matrix must exercise **both sides of every gate the AC spans** — not just the default-on configuration. "All tests pass" is a per-configuration claim; an AC that crosses configurations needs per-configuration evidence. Enumerate gate variants at test-design time and assert the matrix covers each. Composes with §1 (pass-condition must match the actual wire path) — a flag-gated branch is a wire path the default config never touches.
 
@@ -690,6 +690,22 @@ The preferred sentinel-comment shape: `# guard-allow: <rule-id> <rationale>` on 
 
 **Rule.** A new consumer of a shared config format (machine-local registry, BOM, manifest, schema) must: **(a)** reuse the canonical parser verbatim rather than hand-roll a regex/tab variant, and **(b)** run once against the REAL artifact before trusting fixtures — fixtures don't reproduce the format's accumulated variform reality (CRLF, both TOML key-shapes, backslash paths). A vacuous all-clear gate is the worst outcome: it ships confidence with zero coverage. Composes with the round-trip-against-reader rule in `implementation-standards-by-domain.md` § Structured-config write primitives.
 
+## 54. Tests Must Mirror Production Substrate Layout AND the Caller's Actual Mode
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+A path-resolving gate can pass flat scratch-repo tests yet be dead in the real nested layout. `check-schema-version-bump.sh --staged` returned "OK" on a staged change because its tests put the file at git-root and only exercised `--commit` mode; the real plugin nests 3 deep and the commit hook uses `--staged`.
+
+**Rule.** Mirror production directory nesting in fixtures and test the mode the production caller actually invokes. Use `git rev-parse --show-prefix`, never a manual `${ABS#$GIT_ROOT/}` prefix-strip (breaks on Windows `C:/` vs MSYS `/c/`). When a hook or script has multiple invocation modes, the test suite must cover the production mode, not just the convenient one.
+
+## 55. `bash -n` and Static Review Are Blind to Bash Function-Ordering Bugs
+
+*Source: ~/.claude, 2026-05-30. [universal]*
+
+An executor defined `_check_venv_state` at L995 but called it from a new branch at L557 (earlier in execution order). `bash -n` passed (syntax is fine), static plan review passed (logic is fine), but the live dry-run hit `_check_venv_state: command not found` → fell through to "stale" → reinstalled every run. Bash binds a function name only after its definition line executes, not at parse time.
+
+**Rule.** For any script edit that adds a caller earlier than a definition, the gate is a real invocation, not a read or a syntax check. `bash -n` is the syntax floor; a real run is the control-flow ceiling. The test for this class of bug is: invoke the script and observe the intended path, not just `bash -n && read`.
+
 ## 53. Structural-Grep Guards Need an Integration Counterpart That Actually Invokes the Script
 
 *Source: coordinator. 2026-05-28.*
@@ -706,3 +722,86 @@ The preferred sentinel-comment shape: `# guard-allow: <rule-id> <rationale>` on 
 - runs in <30s so it joins the fast-test set.
 
 The structural-grep guard is the floor; the integration harness is the ceiling. Both ship together — the grep catches when someone deletes the restore line; the harness catches when the script subtly stops working under a new Python or new uv. Sibling pattern: `bin/tests/test-check-plugin-drift-copy-install.sh` (grep) + `bin/tests/test-refresh-plugin-live-install-integration.sh` (integration).
+
+## 67. Test Isolation Breaks at Process and Module-Global Boundaries
+
+*Source: project-rag L32, L136, L139 (2026-05-30 / 2026-06-08). [universal]*
+
+**conftest monkeypatches, autouse fixtures, and `with patch(...)` context managers all silently lose their scope at one of three boundaries — multiprocessing-spawn workers, module-level cache short-circuits, and concurrent `patch()` re-entry.** Each shape produces green tests that pass for the wrong reason: the patch never reached the production code path, or the cached verdict carries leaked state forward, or the second-thread patch installs itself as the "original" restore-target.
+
+**The three boundaries, with the failure mode and the fix:**
+
+- **`multiprocessing.Process` / `Pool` workers (spawn mode).** A Windows-spawned worker is a fresh `python.exe` that re-imports the test module from scratch — `conftest.py` is never executed there, so subprocess-popup patches, env scrubbing, and any other monkeypatch state set at collection time are absent. The worker's own subprocess calls run with default creationflags. **Fix:** the worker function itself must apply the patch (e.g. call `**no_console_creationflags()` explicitly on every `subprocess.run` inside the worker body); never rely on conftest reach. Audit pattern: grep `def .*_worker` / `multiprocessing.Process` and trace into the worker body for unsuppressed subprocess sites. (project-rag, `tests/install/test_record_setup_state.py`.)
+
+- **Module-level verdict caches that probe-once-then-short-circuit.** Patterns like `core.torch_guard._cache`, `host_inventory`, or any `_cache: Optional[bool] = None` that's set on first call and read forever after — the first test that runs under a stub locks the cached verdict for every later test in the session. **Fix:** every probe-once-cache-global must ship with a `conftest.py` autouse fixture that resets the module global between tests, mirroring `_reset_host_inventory_cache`. The cache itself is correct as a production optimization; the test isolation gap is the missing reset hook.
+
+- **Concurrent `with patch("mod.global", ...)` from worker threads.** Two `ThreadPoolExecutor` workers each entering `with patch(...)` on the same module global race: thread B saves the *already-installed* mock from thread A as its "original," and on context exit restores to that mock — leaving the patch live session-wide after both workers finish. **Fix:** patch ONCE in the main thread, wrapping the executor block; never `with patch()` per-worker. Symmetric to §62 (guard the destructive primitive, not the offending test).
+
+Composes with §14 (cumulative-sweep validation surfaces sibling-test pollution) and §10 (mock at the helper boundary, not the stdlib boundary — but even a correctly-placed patch leaks across these three boundaries).
+
+## 68. Goldens Over Third-Party Tool Output: Stamp the Version, Minor-Lock the Dep, Sweep Every Sibling
+
+*Source: project-rag L70, L149 (2026-05-31 / 2026-06-01). [universal]*
+
+**A golden-hash net keyed on a third-party parser/formatter's output must stamp the producing tool's version into the golden AND minor-lock the dependency AND on bump regenerate every sibling golden in the same commit.** Floor-only pins (`>=0.20.0`) plus version-less goldens turn routine dependency drift into an indistinguishable-from-logic mystery — the assertion fires weeks after the upstream wheel bump and a stash-bisect is the only way to tell environmental drift from a real regression.
+
+**Concrete failure (project-rag, 2026-05-31).** The scope_detector goldens across four languages drifted hash-but-not-count against installed tree-sitter 0.25.x while pins were floor-only; the goldens recorded no version, so the assertion message couldn't self-classify. A separate bump (`5dbb3043`) that *did* rebaseline the scope_detector goldens missed the chunker symbol_id goldens (`test_ts_chunker`, `test_python_chunker`) — byte offsets shifted there too and the chunker reds surfaced weeks later as an unexplained full-suite failure.
+
+**Rule.** For any golden capturing output from a parser/formatter (tree-sitter, prettier, black, rustfmt, any wire-format encoder):
+
+1. **Stamp the producing tool's version set into the golden file** (e.g. a `# tool: tree-sitter==0.25.3` header) and have the assertion message self-classify: *"installed=X.Y.Z, golden=A.B.C — environmental, regenerate or pin"* vs. *"versions match, real regression"*.
+2. **Minor-lock the dependency** (`~=X.Y.0` not `>=X.Y`) so a minor bump is a deliberate act paired with golden regeneration in the same commit.
+3. **On every version bump, grep EVERY golden/pin keyed on that tool's output** (byte offsets, hashes, formatted text) and regenerate them all in the same commit. Fixing only the net that happened to fail leaves silent debt in the sibling nets — they'll surface as unexplained reds whenever someone re-runs them.
+
+Composes with §19 (golden-snapshot identifier normalization) and §8 (contract change → grep ALL assertions over the contract).
+
+## 69. Same-Author Encoders and Synthetic Fixtures Co-Confabulate the Wrong Wire Format
+
+*Source: project-rag L183 (2026-06-08), holodeck L64 (2026-06-08). [universal]*
+
+**When the test fixture and the production code are written from the same wrong mental model, green tests pin the author's model, not the contract.** Two shapes of this failure: (1) round-trip parser tests where the test's encoder helper and the production decoder agree on a wrong wire format and pass trivially; (2) probe/validator tests where synthetic fixtures pin the implementation's wrong understanding of the production artifact's shape.
+
+**Both shapes are *vacuous on the conformance contract* even though every assertion passes.** A passing round-trip test does not prove wire compatibility with an external producer — it proves the encoder and decoder agree, which they trivially do if one engineer wrote both. A passing probe test against an author-written fixture does not prove the probe works on real production data — it proves the fixture and the probe share a mental model.
+
+**Concrete failures:**
+
+- **Wire-format co-confabulation (project-rag, 2026-06-08).** `priming/scip_pb2.py` shipped with off-by-one protobuf field numbers in `_parse_document` / `_parse_occurrence`. The test fixture used a hand-crafted protobuf encoder helper that emitted the SAME wrong field numbers — consistent encode/decode, 8/8 green. The defect only surfaced when the translator was pointed at real `scip-python --output` bytes: every parse returned empty symbol rows.
+- **Production-artifact co-confabulation (holodeck, 2026-06-08).** `check_bom_var_consumption` compared `bom_map.get("BOM_UE_VERSION", "")` against `holodeck-bom.yaml`, but `BOM_UE_VERSION` is a *shell variable name* `phase_read_bom` derives at runtime — never a YAML top-level key. Synthetic fixtures wrote `BOM_UE_VERSION: 5.7` as a literal key; probe found it; green. Real BOM uses nested `repos.project_rag.release_tag`; probe always returned BROKEN against any real install for three weeks.
+
+**Rule.** For any parser/serializer/probe/validator whose correctness depends on conformance with an external producer's output shape, the test substrate MUST include at least one fixture sourced from outside the author's mental model:
+
+- **External-producer fixture for wire formats** — a committed binary blob from the real external tool, OR a small generation-script the test runs that invokes the real producer. A round-trip against a hand-written encoder is a smoke test; name it as such and add the external-producer fixture before declaring the parser done.
+- **Real-artifact golden snapshot for probe/validator tests** — at least one PASS-path test loads a real production artifact (or a verbatim-captured snapshot of one), not just a synthetic fixture the same author wrote. Synthetic fixtures shape-pin the author's mental model; golden snapshots shape-pin reality.
+
+Sharper than §24 (heavy-boot CLIs warrant unit-shape integration tests — that's about CALL-PATH realism) and §11 (smoke fixtures must clear pre-flight gates — that's about gate-passage); this rule is about *data-shape* realism. Composes with §19 (golden-snapshot identifier normalization) and §1 (spike pass-conditions must match the wire path).
+
+## 70. Fan-Out Lanes Must Propagate Every Filter the Seed Honors; Drop-Fixes Must Assert What Survives
+
+*Source: project-rag L73 (2026-05-31), L136 (2026-05-30). [universal]*
+
+**Two symmetric absence-coverage gaps: (1) a fan-out/lane path added beside a filtered seed silently drops the filter contract; (2) a drop/filter regression test that only asserts the bad thing is gone can't catch over-drop.** Both are "the absence is verified, the presence isn't" — and both go green while the contract is silently broken.
+
+**Fan-out lane filter propagation (project-rag, 2026-05-30).** `project_semantic_search` / `project_rag_blended_query` applied user `chunker_id=` only on the seed project lane; AD-5's later-added default-blend host lanes (`project__lane__*`) each re-filtered to their OWN content class, re-injecting other classes and violating the seed's filter contract — silently tanking NDCG@10 from 0.83 to 0.33 while the JSON verdict stayed `ok`. **Why:** when a parallel/fan-out path is bolted beside an existing one, the seed's filter/invariant contract is easy to honor on the seed and forget on the new lanes; tests written against the seed pass.
+
+**Drop/filter regression over-drop (project-rag, 2026-05-31).** A reject-malformed-node fix's test asserted "no `(`-leading symbol leaks" + a comment that the real sibling was "intentionally NOT recovered" — which masked an over-drop: the real method was fused into the same node and dropped with it. A drop guard whose test only checks the bad thing is gone never the good thing stayed cannot catch over-drop by construction.
+
+**Rule — pair every absence assertion with a presence assertion on the same surface:**
+
+- **Fan-out lanes.** When adding a fan-out lane beside a filtered query, grep every lane-dispatch site for the user-supplied filter args and assert they propagate (or that the lane is explicitly pruned from the filter contract). Add a regression test that a pinned filter yields ONLY the filtered class across the WHOLE fan-out, not just the seed lane. Reinforces enumerate-every-writer (Pre-Dispatch Verification § Investigation Funnel).
+- **Drop / filter / dedup fixes.** Pair the negative assertion (junk absent) with a positive assertion (each legitimate neighbor still emitted, by exact identity/range — not just count). A reject fix's net that only counts what's gone never catches over-drop; what survives is half the contract.
+
+Composes with §22 (leakage tests and coverage-floor goldens are complementary lenses — same shape at a different altitude) and §31 (tests must assert positively, not just survive).
+
+## 71. Noisy-Suite Triage: Cumulative-Run, Don't Mass-Edit, Stub the Boundary, Watch Hook Contracts
+
+*Source: holodeck L24 (2026-06-01), L28 (2026-06-01), L30 (2026-06-01); project-rag L175 (2026-06-02). [universal]*
+
+**When a suite is noisy after a landed refactor, four discipline floors apply before any test edit lands:** run the WHOLE tier in one pass (per-cluster green ≠ full-tier green), don't mass-edit on "test rot" framing without per-cluster root-cause, stub the deterministic-subprocess boundary instead of growing timeouts, and make pytest hooks that force outcomes obey pytest's internal contracts.
+
+**(a) Per-cluster green ≠ full-tier green; `--collect-only` is not enough.** Cluster-by-cluster fixes can each go green while the full non-slow tier hides count-assertion regressions, CI parity guards demanding a version-bump, and tests for retired features. *(holodeck, 2026-06-01: retire-layer-c — 6 clusters fixed green; full tier hid 12 failures including 3 stale probe-count constants and a `probe_registry_version` bump the parity guard correctly demanded.)* **Rule:** after any subsystem retirement / large refactor, run the whole tier in one pass before declaring closed; `--collect-only` catches `ImportError` (§56) but not count-assertion fossils (§55) or parity-guard reds. Extends §14 (cumulative-sweep validation).
+
+**(b) "Test rot" is a hypothesis until per-cluster root-cause confirms it.** Mass-editing tests on inherited "test rot" framing buries the real source bugs the gates were catching. *(holodeck, 2026-06-01: a handoff called 77 TS failures "test rot"; per-cluster triage found ~1/3 were real — 11 implemented MCP actions missing from discoverability enums, caught by an enum-handler-sync guard.)* **Rule:** gate-shaped tests (enum sync, count parity, "X is NEW") exist to catch source drift; relaxing them on "test rot" framing hides exactly what they surface. Triage per cluster — separate real source bugs from genuine stale tests — before any mass edit. Composes with §60 (hand-traced refactor-equivalence is hypothesis).
+
+**(c) Stub the deterministic-subprocess boundary; don't grow the timeout.** A test that spawns a real binary to read a deterministic fixture is both flaky and slow — under concurrent load, sporadic timeouts return None, fall back to a default, and the assertion never sees the bad value (12 silent "DID NOT RAISE" false-passes, invisible in isolation). *(holodeck, 2026-06-01: gpu_sidecar's config tests re-exec'd config.py spawning real `machine-local get` ~520× per file; stub `subprocess.run` on the subprocess module BEFORE `exec_module` reading the temp fixture directly cut runtime 219s→83s AND killed the flake.)* **Rule:** patch the external-process seam for tests reading deterministic fixtures; reserve real-subprocess tests for integration tiers. Direct application of §10 (mock at the helper boundary, not the stdlib boundary) to the deterministic-fixture-via-binary case.
+
+**(d) `pytest_runtest_makereport` hooks that force `outcome="skipped"` MUST set `longrepr` to a `(path, lineno, reason)` 3-tuple, never a bare string.** A bare string crashes the WHOLE session with an INTERNALERROR (not just the one test), because pytest's verbose skip-reason path (`_get_raw_skip_reason`) does `assert isinstance(report.longrepr, tuple)`. *(project-rag, 2026-06-02: an addon-absent auto-skip hook set `report.longrepr = "Skipped: ..."`; CI-only failure because the hook fired only addon-absent; green-local / red-CI split.)* **Rule:** when forcing-skip in a makereport hook, build `report.longrepr = (item.location[0], (item.location[1] or 0) + 1, f"Skipped: {reason}")`. Verify with a standalone reproducer under `-v`, since the crash is an INTERNALERROR with no failing-test name to point at. Composes with §25 (`xfail` markers absorb test-infra exceptions silently — same shape: the hook layer eats signal the test layer should surface).

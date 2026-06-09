@@ -383,11 +383,11 @@ to the UE addon; only the band names, `applicable_kinds` strings, and `contribut
 ## 12. Worked example C — coordinator meta-knowledge corpus (non-engine, universal)
 
 This is the Z-3 worked example. The producer is a follow-on plan (coordinator-plugin-bundled
-addon at `~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/`); this example
+addon at `~/.claude/plugins/coordinator/project_rag_addon/`); this example
 documents the binding shape that the template-addon already demonstrates.
 
 ```python
-# ~/.claude/plugins/coordinator-claude/coordinator/project_rag_addon/__init__.py
+# ~/.claude/plugins/coordinator/project_rag_addon/__init__.py
 # (shape only — actual content is a follow-on plan)
 import pluggy
 from core.addon_protocol import CorpusBand

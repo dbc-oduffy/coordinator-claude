@@ -97,6 +97,14 @@ The right artifact is one of:
 
 *Handoffs are mid-stream baton-passes, not end-of-session ceremony. Shipped ≠ handed-off.*
 
+---
+
+### Inverted antipattern — "I'll just append to the predecessor I picked up"
+
+> Parenthetical to Step 0 — applies whenever the EM has picked up a handoff this session and is now deciding whether to write a successor. Read it as a standalone callout, not a sub-decision of the YES-path.
+
+The most common failure mode of this skill is **skipping it**: the picked-up predecessor (now `status: consumed`, `consumed_by: <this-session>`) is sitting right there, so the EM appends a `### <date> session — pickup, <progress>` block to its Progress / What Was Accomplished section and stops. **This is a doctrine violation, not a shortcut.** A consumed handoff is paper trail; the pickup index (`/workday-start`, `/pickup`, session-init orphan sweep) treats consumed handoffs as historical and will NOT surface them as live work — any progress stapled into the body is invisible to the next opener. The carry-forward / cascade machinery, the YES-test/NO-test gate, the chain-archival, the new frontmatter (`status: active`, `deployment_state: ready_to_fire`, `predecessor: <this consumed file>`) — all of that exists precisely because a successor file is the only surface the index can find. If you are about to edit a `status: consumed` handoff body to record what you just did, **STOP and run this skill from Step 1** — the YES/NO gate above still applies (a session that doesn't pass it stops via commit / `/workday-complete` / `/workstream-complete`, not via predecessor-append). Enforced at the tool layer by `hooks/scripts/block-consumed-handoff-edit.sh`; tripwire `CONSUMED-HANDOFF-FROZEN` in `docs/wiki/coordinator-tripwires.md`. Override `COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1` is reserved for recovery-flavor crash-invalidation notes into sibling consumed handoffs (see this skill's recovery-flavor preamble) and one-off paper-trail corrections — never progress appends.
+
 ### Workflow
 
 #### Step 1: Write the Handoff (IMMEDIATELY)
@@ -231,7 +239,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 SID="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null || echo "unknown")}"
 
 # Get LoE metrics
-LOE=$(bash plugins/coordinator/bin/coordinator-session-loe.sh \
+LOE=$(bash ~/.claude/plugins/coordinator/bin/coordinator-session-loe.sh \
       --session-id "$SID" --format json 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,"em_tokens":null,"tshirt":"XS"}')
 
 # Extract fields (requires jq or inline bash parsing)
@@ -294,7 +302,7 @@ This is distinct from chain-archival (above): chain-archival moves the *explicit
 After chain-archival above, regenerate `state/handoff-tracker.md` so the durable tracker reflects the current queue state before the commit lands.
 
 ```bash
-node plugins/coordinator/bin/render-handoff-tracker.js
+node ~/.claude/plugins/coordinator/bin/render-handoff-tracker.js
 ```
 
 If the script is absent or exits non-zero, skip silently. The generated file is staged with the handoff's scoped commit at Step 3 — no separate commit.
@@ -330,7 +338,7 @@ Update the documents that future sessions read for orientation — closing the r
    **Pinboard rule:** if the picker-upper of this handoff MUST see a piece of context that won't be obvious from the handoff body or from a fresh ceremony regen (a transient surface gotcha; a known-trap environment caveat; an in-flight investigation that hasn't crystallised into the handoff body yet), write one line via:
 
    ```bash
-   bash plugins/coordinator/bin/regenerate-orientation-cache.sh \
+   bash ~/.claude/plugins/coordinator/bin/regenerate-orientation-cache.sh \
        --invoker handoff \
        --pinboard "YYYY-MM-DD <writer-slug>: <one-line note>"
    ```
