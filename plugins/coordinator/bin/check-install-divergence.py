@@ -30,9 +30,17 @@ PUBLIC CONTRACT (pinned — downstream consumers bind to these surfaces):
         "unchanged": int,
         "forward_safe": int,
         "consumer_modified": int,
-        "consumer_added": int
+        "consumer_added": int,
+        "consumer_modified_by_polarity": {        # v2 additive field (3-value enum)
+          "live_modified": int,
+          "ambiguous": int,
+          "unknown": int
+        }
       },
-      "consumer_modified": [{"path": str, "hunk": str}, ...],
+      "consumer_modified": [                       # v2: entries carry polarity
+        {"path": str, "hunk": str, "polarity": str},
+        ...
+      ],
       "consumer_added": [str, ...]
     }
 
@@ -179,8 +187,8 @@ def _git_hash_object(source: Path, relpath: str, file_path: Path) -> object:
     stripped = output.strip()
     if stripped:
         return stripped
-    # Review: the Staff Engineer F8 — file exists (checked above) but git returned empty output;
-    # returning ABSENT_LIVE here would silently mis-classify an existing file as absent.
+    # File exists (checked above) but git returned empty output — returning
+    # ABSENT_LIVE here would silently mis-classify an existing file as absent.
     # Fail loud so the ambiguous case is visible rather than silently wrong.
     raise RuntimeError(
         f"git hash-object returned empty output for existing file: {file_path}"
@@ -331,6 +339,78 @@ def _consumer_in_sync(live_blob: object, baseline: object) -> bool:
     return False
 
 
+def _compute_polarity(
+    live_blob: object,
+    baseline: object,
+    incoming: object,
+) -> str:
+    """Compute the polarity of a consumer_modified entry from three-way blob SHAs.
+
+    Truth table (from plan: docs/plans/2026-06-09-classifier-polarity-disambiguation.md
+    § Mechanism — 3-value enum; source-moved-forward dropped as structurally unreachable):
+
+      live != baseline, baseline == incoming         → live-modified
+      live=ABSENT_LIVE, baseline=real, incoming=real → live-modified  (consumer deleted shipped file)
+      live=real, baseline=ABSENT_BASELINE, incoming=real → ambiguous  (consumer created, source now has different content)
+      all three differ (three-way mismatch)          → ambiguous
+
+    Negative-spec: source-moved-forward is NOT in the enum. The live==baseline AND
+    baseline!=incoming case is routed to forward_safe by _consumer_in_sync BEFORE
+    reaching this function, so it is structurally unreachable here. An AssertionError
+    is raised if that SHA combination is ever observed — it would indicate a precedence
+    bug upstream, not a valid polarity.
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § Mechanism
+      ¶ "Polarity enum is 3-value, not 4 (amended 2026-06-09)"
+    """
+    # Caller-contract guard (code-reviewer F1, defense-in-depth): this function may
+    # only be called when the entry is genuinely consumer_modified — meaning the
+    # bucket-precedence above has already routed `live == incoming` to unchanged and
+    # `_consumer_in_sync(live, baseline)` cases to forward_safe. If either holds here,
+    # the caller has violated the contract — fail loud rather than silently emit a
+    # wrong polarity. The branches below assume these have been excluded.
+    if live_blob == incoming:
+        raise AssertionError(
+            f"_compute_polarity: caller-contract violation — "
+            f"live_blob == incoming ({live_blob!r}); this is the unchanged bucket and "
+            "must not reach _compute_polarity. Spec: § Mechanism."
+        )
+    if _consumer_in_sync(live_blob, baseline):
+        raise AssertionError(
+            f"_compute_polarity: caller-contract violation — "
+            f"_consumer_in_sync(live={live_blob!r}, baseline={baseline!r}) is True; "
+            "this is the forward_safe bucket and must not reach _compute_polarity. "
+            "Spec: docs/plans/2026-06-09-classifier-polarity-disambiguation.md "
+            "§ Mechanism ¶ 'Polarity enum is 3-value, not 4'."
+        )
+
+    if live_blob != baseline and baseline == incoming:
+        return "live-modified"
+
+    # Absent-file cases (per plan Mechanism absent-file rows):
+    # Consumer deleted a shipped file: live=ABSENT_LIVE, baseline=real, incoming=real.
+    if live_blob is ABSENT_LIVE and baseline is not ABSENT_BASELINE and incoming is not ABSENT_LIVE:
+        return "live-modified"
+
+    # Consumer created a file now also in source with different content:
+    # live=real, baseline=ABSENT_BASELINE, incoming=real (and live != incoming, already verified).
+    if live_blob is not ABSENT_LIVE and baseline is ABSENT_BASELINE and incoming is not ABSENT_LIVE:
+        return "ambiguous"
+
+    # Three-way mismatch: live, baseline, and incoming all differ.
+    if live_blob != baseline and baseline != incoming:
+        return "ambiguous"
+
+    # No remaining valid polarity combination — the classification logic has a gap.
+    # Fail loud per the hard constraint: no silent fallback.
+    raise RuntimeError(
+        f"_compute_polarity: unexpected SHA combination — "
+        f"live_blob={live_blob!r}, baseline={baseline!r}, incoming={incoming!r}. "
+        "This path should be unreachable; classification logic has a gap."
+    )
+
+
 def _classify_with_baseline(
     source: Path,
     live: Path,
@@ -345,16 +425,25 @@ def _classify_with_baseline(
          "consumer untouched, new content coming" case AND the new-in-source
          forward-ADD case where live=ABSENT_LIVE and baseline=ABSENT_BASELINE)
       3. ``live != incoming``          → consumer-modified-will-be-overwritten
+         Each consumer_modified entry carries a polarity field (live-modified /
+         ambiguous — 3-value enum with unknown from two-way path) computed from
+         the three-way blob comparison.
 
     Returns a dict with keys:
       unchanged, forward_safe, consumer_modified
 
+    ``consumer_modified`` is ``list[dict]`` where each entry is
+    ``{"relpath": str, "polarity": str}``.
+
     ``consumer_added`` files (live-walk paths absent from source ls-files) are
     computed by the caller from the live walk; they are not in ``relpaths``.
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1
     """
     unchanged: list[str] = []
     forward_safe: list[str] = []
-    consumer_modified: list[str] = []
+    consumer_modified: list[dict] = []
 
     for relpath in relpaths:
         incoming_file = source / relpath
@@ -377,7 +466,8 @@ def _classify_with_baseline(
             # Includes: consumer edited a shipped file, consumer deleted a shipped
             # file (live=ABSENT_LIVE, baseline=real), consumer created a file that
             # is now also in source but with different content.
-            consumer_modified.append(relpath)
+            polarity = _compute_polarity(live_blob, baseline, incoming)
+            consumer_modified.append({"relpath": relpath, "polarity": polarity})
 
     return {
         "unchanged": unchanged,
@@ -390,8 +480,8 @@ def _classify_two_way(
     source: Path,
     live: Path,
     relpaths: list[str],
-) -> list[str]:
-    """Baseline-free two-way comparison: return relpaths where live != incoming.
+) -> list[dict]:
+    """Baseline-free two-way comparison: return diverged entries with polarity "unknown".
 
     Two skip cases (not divergence):
     1. Both absent (``live is ABSENT_LIVE and incoming is ABSENT_LIVE``) — the
@@ -410,8 +500,15 @@ def _classify_two_way(
     Files present in live but absent from source (``live is real, incoming is
     ABSENT_LIVE``) ARE genuine divergence: consumer added a file the source doesn't
     have → ``consumer-added-will-be-deleted`` territory.
+
+    Each entry in the returned list is ``{"relpath": str, "polarity": "unknown"}``
+    — no baseline means polarity cannot be disambiguated. The uniform dict shape
+    matches the ``_classify_with_baseline`` output shape.
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 3
     """
-    diverged: list[str] = []
+    diverged: list[dict] = []
     for relpath in relpaths:
         incoming_file = source / relpath
         live_file = live / relpath
@@ -429,7 +526,7 @@ def _classify_two_way(
             continue
 
         if live_blob != incoming:
-            diverged.append(relpath)
+            diverged.append({"relpath": relpath, "polarity": "unknown"})
 
     return diverged
 
@@ -466,17 +563,35 @@ def _resolve_baseline(live: Path, cli_sha: str | None) -> tuple[str | None, str]
 def _build_hunks(
     source: Path,
     live: Path,
-    consumer_modified: list[str],
+    consumer_modified: list[dict],
     live_sha_map: dict[str, object],
 ) -> list[dict]:
-    """Return a list of ``{path, hunk}`` dicts for *consumer_modified* files."""
+    """Return a list of ``{path, hunk, polarity}`` dicts for *consumer_modified* files.
+
+    *consumer_modified* is ``list[{"relpath": str, "polarity": str}]`` as produced
+    by ``_classify_with_baseline`` or ``_classify_two_way``.
+
+    Note (code-reviewer F2): the overflow stub entry (when ``len(consumer_modified)
+    > _MAX_HUNK_FILES``) carries ``polarity: ""`` — display artifact only, not a
+    real file entry. Callers MUST derive polarity counts from the full
+    ``consumer_modified`` bucket list (via ``_build_polarity_counts``), not from
+    this returned hunk list, to avoid double-counting the stub and missing the
+    capped tail (the >10-files coherence bug between ``counts.consumer_modified``
+    and ``counts.consumer_modified_by_polarity``).
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 3 / step 4
+    """
     result = []
-    for i, relpath in enumerate(consumer_modified):
+    for i, entry in enumerate(consumer_modified):
+        relpath = entry["relpath"]
+        polarity = entry["polarity"]
         if i >= _MAX_HUNK_FILES:
             remaining = len(consumer_modified) - _MAX_HUNK_FILES
             result.append({
                 "path": f"… +{remaining} more files",
                 "hunk": "",
+                "polarity": "",  # display artifact — not counted in polarity totals
             })
             break
         hunk = _render_hunk(
@@ -486,19 +601,28 @@ def _build_hunks(
             live_sha_map.get(relpath, ABSENT_LIVE),
             source / relpath,
         )
-        result.append({"path": relpath, "hunk": hunk})
+        result.append({"path": relpath, "hunk": hunk, "polarity": polarity})
     return result
 
 
 def _print_text_report(
-    counts: dict[str, int],
+    counts: dict[str, int | dict],
     consumer_modified_hunks: list[dict],
     consumer_added: list[str],
     baseline_status: str,
+    polarity_counts: dict[str, int],
     *,
     file=None,
 ) -> None:
-    """Print a human-readable text report to *file* (default stdout)."""
+    """Print a human-readable text report to *file* (default stdout).
+
+    Per-file lines gain ``  [polarity: <enum>]`` suffix on the ``--- <path>``
+    separator. The summary line gains a second bullet with the polarity breakdown
+    in hyphen-shorthand form (display-only, not part of the contract JSON shape).
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 5
+    """
     if file is None:
         file = sys.stdout
 
@@ -511,15 +635,33 @@ def _print_text_report(
         file=file,
     )
 
+    # Second summary bullet: polarity breakdown (display-only hyphen-shorthand).
+    # Polarity counts now arrive from the caller (derived from the FULL
+    # consumer_modified bucket list, not the capped hunks — code-reviewer F4).
+    # Note: 3-value enum — no src-fwd token (source-moved-forward dropped per
+    # docs/plans/2026-06-09-classifier-polarity-disambiguation.md § Mechanism).
+    # Code-reviewer F11: suppress the polarity bullet entirely on a clean run
+    # (zero consumer_modified) so the text format matches the v1 baseline; print
+    # only when there's something to disambiguate.
+    live_mod = polarity_counts.get("live_modified", 0)
+    amb = polarity_counts.get("ambiguous", 0)
+    unk = polarity_counts.get("unknown", 0)
+    if live_mod or amb or unk:
+        print(
+            f"  consumer-modified-by-polarity=live-mod:{live_mod} amb:{amb} unk:{unk}",
+            file=file,
+        )
+
     if consumer_modified_hunks:
         print("\nconsumer-modified files (will be overwritten by install):", file=file)
         for entry in consumer_modified_hunks:
             path = entry["path"]
             hunk = entry.get("hunk", "")
+            polarity = entry.get("polarity", "unknown")
             if path.startswith("…"):
                 print(f"  {path}", file=file)
             else:
-                print(f"\n  --- {path}", file=file)
+                print(f"\n  --- {path}  [polarity: {polarity}]", file=file)
                 if hunk:
                     for line in hunk.splitlines():
                         print(f"  {line}", file=file)
@@ -530,15 +672,79 @@ def _print_text_report(
             print(f"  {p}", file=file)
 
 
+def _build_polarity_counts(consumer_modified: list[dict]) -> dict[str, int]:
+    """Aggregate per-entry polarity into counts by enum value.
+
+    Returns ``{live_modified: N, ambiguous: N, unknown: N}``.
+    JSON keys are snake_case to match the existing ``counts`` shape.
+
+    Code-reviewer F4: callers MUST pass the FULL ``consumer_modified`` bucket list
+    (``list[{"relpath": str, "polarity": str}]`` from ``_classify_with_baseline``
+    or ``_classify_two_way``), NOT the capped/hunk-rendered list. Counting the
+    capped hunk list produced incorrect totals for >10-file divergences (counts
+    sum to ≤11 while ``counts.consumer_modified`` reports the full count).
+
+    Negative-spec: source_moved_forward is NOT a key — that polarity value is
+    structurally unreachable (see _compute_polarity docstring and plan § Mechanism
+    ¶ "Polarity enum is 3-value, not 4").
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 4
+    """
+    by_polarity: dict[str, int] = {
+        "live_modified": 0,
+        "ambiguous": 0,
+        "unknown": 0,
+    }
+    for entry in consumer_modified:
+        polarity = entry.get("polarity", "unknown")
+        # Skip the overflow-stub display entry (code-reviewer F2): _build_hunks
+        # marks its overflow placeholder with polarity="". Real bucket entries
+        # always carry a non-empty polarity from _compute_polarity / "unknown"
+        # in the two-way path.
+        if polarity == "":
+            continue
+        # Map the hyphenated contract enum to the snake_case counts key.
+        key = polarity.replace("-", "_")
+        if key in by_polarity:
+            by_polarity[key] += 1
+        else:
+            # Unexpected polarity value — fail loud, no silent fallback.
+            raise RuntimeError(
+                f"_build_polarity_counts: unrecognised polarity {polarity!r} in "
+                "consumer_modified entry. Valid values (3-value enum): "
+                "live-modified, ambiguous, unknown."
+            )
+    return by_polarity
+
+
 def _build_json_output(
     counts: dict[str, int],
     consumer_modified_hunks: list[dict],
     consumer_added: list[str],
     baseline_status: str,
+    polarity_counts: dict[str, int],
 ) -> dict:
+    """Build the JSON output dict.
+
+    ``counts`` gains a ``consumer_modified_by_polarity`` sub-key.
+    ``consumer_modified`` array entries carry ``{path, hunk, polarity}``.
+    All v1 fields (baseline_status, counts integers, consumer_added) are preserved
+    verbatim — v1 consumers see no change to existing fields.
+
+    Code-reviewer F4: ``polarity_counts`` is supplied by the caller (derived from
+    the FULL ``consumer_modified`` bucket list, not the capped hunk list) so the
+    JSON counts sum equals ``counts.consumer_modified`` for any number of files,
+    not just ≤``_MAX_HUNK_FILES``.
+
+    Spec backlink:
+      docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 4
+    """
+    counts_v2 = dict(counts)
+    counts_v2["consumer_modified_by_polarity"] = polarity_counts
     return {
         "baseline_status": baseline_status,
-        "counts": counts,
+        "counts": counts_v2,
         "consumer_modified": consumer_modified_hunks,
         "consumer_added": consumer_added,
     }
@@ -574,22 +780,33 @@ def run(
         # ----------------------------------------------------------------
         diverged = _classify_two_way(source, live, union)
 
-        # Review: the Staff Engineer F2 — split diverged into consumer_added (live-only files not
-        # tracked in source) and consumer_modified (source-tracked files with live!=incoming).
-        # Previously everything was lumped under consumer_modified with consumer_added=0,
-        # causing undercounting and misnaming of consumer-added files in two-way mode.
-        consumer_added_2w = sorted(r for r in diverged if r not in tracked_set)
-        consumer_modified_2w = sorted(r for r in diverged if r in tracked_set)
+        # Split diverged into consumer_added (live-only files not tracked in source)
+        # and consumer_modified (source-tracked files with live != incoming) — these
+        # are distinct buckets with different recovery semantics, lumping them
+        # together undercounts and misnames consumer-added files in two-way mode.
+        # diverged is list[{"relpath": str, "polarity": "unknown"}].
+        consumer_added_2w = sorted(
+            e["relpath"] for e in diverged if e["relpath"] not in tracked_set
+        )
+        consumer_modified_2w = sorted(
+            (e for e in diverged if e["relpath"] in tracked_set),
+            key=lambda e: e["relpath"],
+        )
 
         # Build a live_sha_map for hunk rendering — only for consumer_modified files
         # (consumer_added have no incoming counterpart to diff against).
         live_sha_map_2w: dict[str, object] = {}
-        for relpath in consumer_modified_2w:
+        for entry in consumer_modified_2w:
+            relpath = entry["relpath"]
             live_file = live / relpath
             live_sha_map_2w[relpath] = _git_hash_object(source, relpath, live_file)
         diverged_hunks: list[dict] = _build_hunks(
             source, live, consumer_modified_2w, live_sha_map_2w
         )
+
+        # Polarity counts MUST be derived from the full bucket list, not the
+        # capped hunks (code-reviewer F4) — see _build_polarity_counts docstring.
+        polarity_counts_2w = _build_polarity_counts(consumer_modified_2w)
 
         counts_2w = {
             "unchanged": len(union) - len(diverged),
@@ -604,10 +821,14 @@ def run(
                 consumer_modified_hunks=diverged_hunks,
                 consumer_added=consumer_added_2w,
                 baseline_status=baseline_status,
+                polarity_counts=polarity_counts_2w,
             )
             print(json.dumps(out, indent=2))
         else:
-            _print_text_report(counts_2w, diverged_hunks, consumer_added_2w, baseline_status)
+            _print_text_report(
+                counts_2w, diverged_hunks, consumer_added_2w, baseline_status,
+                polarity_counts=polarity_counts_2w,
+            )
 
         if diverged:
             # Two-way fallback found differences → cannot prove edit vs update → gate fires.
@@ -624,14 +845,20 @@ def run(
     # ``consumer_added`` already computed above from the live walk.
 
     # Build a live_sha_map for hunk rendering.
+    # buckets["consumer_modified"] is list[{"relpath": str, "polarity": str}].
     live_sha_map: dict[str, object] = {}
-    for relpath in buckets["consumer_modified"]:
+    for entry in buckets["consumer_modified"]:
+        relpath = entry["relpath"]
         live_file = live / relpath
         live_sha_map[relpath] = _git_hash_object(source, relpath, live_file)
 
     consumer_modified_hunks = _build_hunks(
         source, live, buckets["consumer_modified"], live_sha_map
     )
+
+    # Polarity counts derived from the FULL bucket list (code-reviewer F4),
+    # not the capped hunks — keeps counts coherent with counts.consumer_modified.
+    polarity_counts = _build_polarity_counts(buckets["consumer_modified"])
 
     counts = {
         "unchanged": len(buckets["unchanged"]),
@@ -641,10 +868,16 @@ def run(
     }
 
     if fmt == "json":
-        out = _build_json_output(counts, consumer_modified_hunks, consumer_added, baseline_status)
+        out = _build_json_output(
+            counts, consumer_modified_hunks, consumer_added, baseline_status,
+            polarity_counts=polarity_counts,
+        )
         print(json.dumps(out, indent=2))
     else:
-        _print_text_report(counts, consumer_modified_hunks, consumer_added, baseline_status)
+        _print_text_report(
+            counts, consumer_modified_hunks, consumer_added, baseline_status,
+            polarity_counts=polarity_counts,
+        )
 
     if buckets["consumer_modified"] or consumer_added:
         return 3

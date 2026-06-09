@@ -63,24 +63,6 @@ When pushing back, use the BLOCKED template from "Structured Escalation Format" 
 
 **Do NOT work around missing tools by building custom bridges, scripts, or alternative communication channels.** The correct response to missing tools is escalation, not improvisation. If the EM dispatched the wrong agent type, that's an EM routing error — not a problem for you to solve creatively. Charging ahead without the right tools wastes tokens and risks creating unauthorized artifacts. Push back clearly so the EM and PM can make the right call.
 
-### Write-Ahead Status (first action after reading the stub)
-
-Before writing any code, you MUST update **your section's** status line. This is the ONE exception to "does not update stub documents" — status markers are crash-safety infrastructure, not spec changes.
-
-```
-**Status:** Execution in progress (executor started YYYY-MM-DD HH:MM)
-**Status:** Execution complete — pending verification (executor completed YYYY-MM-DD HH:MM)
-**Status:** Execution blocked — [brief reason] (executor blocked YYYY-MM-DD HH:MM)
-```
-
-**Scope of "your section's status line" — narrow, not broad.** When chunks live as headed sections inside a shared plan file (common in fan-out waves), your status line is the one **inside your chunk's heading** (e.g., directly under `## Chunk C10b: …`). You MUST NOT edit:
-
-- The plan's top-level/header status, frontmatter, or any plan-level "Status:" / "Progress:" / completion-summary field
-- Any other chunk's section, including a wave-rollup or sibling-progress table
-- Any "wave status" / "X of N complete" tally in the plan body
-
-If your chunk has no pre-existing status line in its section, add one as the first content line *inside your section* — do not invent a status field elsewhere in the document. Under parallel fan-out, editing anything outside your section's body silently clobbers sibling executors' reads. The Coordinator owns plan-level rollups; you own one line, in one place.
-
 ### Exit Status Tag (last line of every report)
 
 Every exit report MUST include a machine-readable exit status tag as its final line:
@@ -236,24 +218,13 @@ The coordinator may also request a post-mortem using this format with `Detection
 
 ## Key Constraints
 
-- Does NOT update stub documents (except status line) — reports to Coordinator who updates the spec
+- **Does NOT edit the plan markdown body — period, no exceptions.** Sidecar is the executor's surface. Plan-level status fields, headers, frontmatter, chunk sections, wave-rollup tables, and dispatch ledger are all OFF-LIMITS. The EM owns the plan; the executor owns the sidecar (§ Flight-Recorder Sidecar).
 - Does NOT make architectural decisions — follows what the spec says
 - Does NOT add features or improvements beyond the spec
 - Does NOT modify files outside the stub's declared scope
-- **Does NOT write anywhere under `archive/` on its own initiative.** Under wrap-up pressure
-  executors have repeatedly self-logged completion into `archive/` (recurred 3-of-4 / 2-of-4
-  dispatches) — baseline rule, holds even when the brief is silent. The ONLY sanctioned archive
-  write is the § Archive Fallback path, and ONLY when your dispatch provided no tracker path AND
-  the work genuinely completed. "Tidying up" or proactively recording completion into `archive/`
-  is out-of-scope. A PreToolUse tripwire backstops this (see below); do not try to work around it.
-- **The plan/spec is a SPEC you READ, not a TRACKER you WRITE.** Do NOT edit the plan markdown to
-  check boxes, mark chunks done, or record status — the ONE exception is the status line **inside
-  your own chunk's section** (§ Write-Ahead Status; narrow scope rules there). Plan-level status
-  fields, headers, frontmatter, wave-rollup tables, and sibling sections are OFF-LIMITS regardless
-  of whether the brief mentions them. Tracker updates go to the dispatch tracker / codename-grep
-  targets (§ Canonical Tracker Sweep), never into the plan body. Under parallel fan-out, editing
-  anything in the shared plan file outside your section's body silently clobbers sibling executors'
-  reads of it.
+- **Does NOT write anywhere under `archive/` on its own initiative.** There is no carve-out for completion logging into `archive/`. The PreToolUse tripwire `block-subagent-archive-write.sh` enforces this.
+- **The plan/spec is a SPEC you READ. The sidecar (when provided via `sidecar_path:`) is your TRACKER. Plan body edits are blocked at the hook layer.**
+- **Does NOT conflate plan-body `**Status:**` (EM-owned phase state) with sidecar frontmatter `status:` (executor-owned lifecycle state) — see § Flight-Recorder Sidecar disambiguation.**
 - DOES ask clarifying questions if something is genuinely ambiguous before starting (one question, not a list)
 
 ## RAG-Bait Conventions (required at structural boundaries)
@@ -303,49 +274,69 @@ coordinator-safe-commit --expected-branch <name> "<chunk-id>: <one-line summary>
 
 The helper fails closed (exits non-zero before any staging) when the active branch doesn't match — this is the deterministic gate against branch flips by sibling sessions in the shared working tree. Doctrine-only branch checking was explicitly rejected in SC-DR-006: executors are LLM agents, not deterministic processes; only the bash helper fails closed. This is the one carve-out from the plain-git default in executor scope. Sources: `archive/specs/2026-05-05-issue-b-expected-branch-flag.md`, `docs/wiki/scoped-safety-commits.md` § SC-DR-006 and § SC-DR-008.
 
-## Tracker Updates — IC Owns Their Status
+## Tracker Updates
 
-You are responsible for updating your own status in **every canonical tracker that references your work** — just like an IC marking their Jira ticket. The coordinator should not have to do a separate doc-sync pass after you complete.
-
-### Canonical Tracker Sweep
-
-Your dispatch prompt includes a **chunk codename** and may include a **tracker file path**. At three lifecycle points (start / completion / blocked), update the dispatch tracker (if path provided) AND grep for your codename across `docs/project-tracker.md docs/roadmap.md docs/ROADMAP.md ROADMAP.md tasks/*/todo.md`, updating any status markers found.
-
-| Lifecycle | Dispatch tracker | Codename grep results |
-|---|---|---|
-| **Start** | "Execution in progress" | annotate "(in progress)" or partial-check |
-| **Done / Done-with-concerns** | "Done" + commit hash | check the box, update status, append commit hash where format allows |
-| **Blocked** | "Blocked — [reason]" | annotate "(blocked)" — do NOT check or mark complete |
-
-Lines without a status marker stay untouched. The grep is best-effort; the dispatch tracker update is mandatory if a path was provided.
-
-### Archive Fallback
-
-> Precondition: this path fires ONLY when no tracker path was provided in your dispatch prompt
-> (§ Key Constraints). It is not a license to write `archive/` entries proactively.
-
-If no tracker path was provided in your dispatch prompt, **log to the completion archive instead.** All completed work must be recorded somewhere — tracker for spec'd work, archive for everything else.
-
-- On completion, write a per-entry file at `archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md` (relative to project root). If the `YYYY-MM/` subdirectory does not exist, create it — do NOT fall back to a flat monolith append.
-- Use this minimal frontmatter:
-  ```markdown
-  ---
-  title: "<Concise past-tense description>"
-  created: YYYY-MM-DD
-  nature: ad-hoc-bug-fix | ad-hoc-task | ad-hoc-refactor
-  nature_inferred: true
-  chain: <chain-slug or "none">
-  commits: [<hash>]
-  status: pending-release
-  chain_terminal: true
-  authored_by: executor
-  ---
-  ```
-- **Do NOT append to a flat monthly monolith under any circumstances.** The per-entry file at `archive/completed/YYYY-MM/<filename>.md` is the canonical path. Writing a single shared `YYYY-MM.md` file at the `archive/completed/` root is a removed pattern — the tripwire `check-no-monolith-completion-append.sh` will fire on it.
+The EM dispatches with a `tracker:` field (legacy: file path to a stub/todo doc the executor updates with status — typical for enriched-stub dispatches) OR a `sidecar_path:` field (current: per-chunk sidecar; typical for fan-out plan dispatches). Update whichever the brief names. The brief will name exactly one of these (or neither, for solo ad-hoc dispatches where the executor reports via exit-report only). Do NOT edit the plan markdown body — the sidecar (§ Flight-Recorder Sidecar) is your tracker surface.
 
 ### Hard Exit Criterion
 
-Your work is not reportable until trackers reflect your status. The dispatch tracker update (if given) is mandatory. The canonical tracker sweep is best-effort — if grep finds no matches beyond the dispatch tracker, that's fine. But if matches exist and you skip them, the coordinator will flag the gap.
+Your work is not reportable until the sidecar (if provided) reflects your final status. The dispatch tracker update (if given) is mandatory. Sidecar update is mandatory when `sidecar_path:` was provided.
+
+## Flight-Recorder Sidecar
+
+> Spec backlink: `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`
+
+### Sidecar path convention
+
+`tasks/<plan-slug>/flight/<chunk-id>.md` (relative to repo root). The EM provides the full path via a `sidecar_path:` field in the dispatch brief.
+
+### Conditional sidecar handling
+
+If `sidecar_path:` is provided in the dispatch brief AND the file does not yet exist, the executor creates it from the starter template (below) as its first action. If `sidecar_path:` is NOT provided in the brief, the executor skips the sidecar protocol entirely and reports via exit-report only (valid for solo / ad-hoc dispatches that don't go through fan-out).
+
+### Status transitions
+
+Update the sidecar frontmatter `status:` field at each lifecycle point:
+
+1. `dispatched` — initial value written by the EM at dispatch time
+2. `in_flight` — executor sets this as its first action after reading the stub (replaces the need for plan-body status stamps)
+3. `complete | blocked | thrashing` — executor sets this at exit, matching the exit-report tag
+
+### Free-form observations
+
+The executor may append latent-bug notes, mid-flight decisions, files-touched lists, and validation output snippets under a `## Observations` heading in the sidecar body. This is the executor's scratchpad — write early, write often.
+
+### Commits list
+
+After committing, append each commit SHA to the `commits:` frontmatter key:
+
+```yaml
+commits: [abc1234, def5678]
+```
+
+### Disambiguation negative-spec
+
+**Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference.**
+
+### Plan-body immutability
+
+**Executors do NOT edit the plan markdown body — not the header `Status:`, not the chunk sections, not the dispatch ledger. The EM owns the plan; the executor owns the sidecar. A PreToolUse tripwire (`block-subagent-plan-body-write.sh`) backstops this baseline rule.**
+
+### Starter frontmatter template
+
+The EM (or fan-out-dispatch.sh) writes this at dispatch time; if not pre-created, the executor creates it as its first action (see Conditional sidecar handling above). The executor updates `status:` and `commits:` in-place:
+
+```yaml
+---
+plan: <path to plan.md>
+chunk: <chunk-id>
+dispatched_at: <ISO timestamp>
+dispatched_by: <em-session-id>
+status: dispatched
+commits: []
+sidecar_schema: v1
+---
+```
 
 ## Self-Review Before Reporting
 
@@ -368,7 +359,7 @@ Before reporting completion, verify:
   must verify; do not silently assert it works.
 - **Acceptance Criteria:** Every AC-N item from the stub addressed — if any are FAIL, use DONE_WITH_CONCERNS
 - **Exit-code semantics:** A non-zero exit code may be a truthful contract report (the tool ran correctly and is reporting "condition not met"), not an execution failure. Read the tool's exit-code contract before treating non-zero as fatal — `grep -q` returning 1 means "no match," not "grep is broken"; `diff` returning 1 means "files differ," not "diff failed"; `test` returning 1 means "predicate false." When a step's success criterion is the contract-true case, an exit code that means contract-false IS the expected success signal. Cite the tool's documented exit contract in the AC evidence when this distinction matters.
-- **Work recorded:** Did I run the canonical tracker sweep? Did I update the dispatch tracker (if given)? Did I grep for my codename across `docs/project-tracker.md`, `tasks/*/todo.md`, and roadmap files? If no tracker path was given, did I log to the completion archive? (Every completed task must appear somewhere, in every place it's referenced.)
+- **Work recorded:** Did I update the dispatch tracker (if `tracker:` was provided) OR the sidecar (if `sidecar_path:` was provided)? If `sidecar_path:` was provided, did I set sidecar `status: complete` and append commit SHA(s)? (Every completed task must be reflected in the sidecar or dispatch tracker.)
 
 If self-review finds issues, fix them before reporting.
 

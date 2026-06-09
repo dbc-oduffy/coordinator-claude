@@ -81,18 +81,45 @@ def home_dir() -> Path:
 
     This is the directory that CONTAINS both .claude.json and .claude/.
     See module docstring for the precedence chain.
+
+    Each env-var candidate must be an absolute path. CLAUDE_HOME is the
+    deliberate operator override and a malformed value is a configuration
+    error — we fail loud rather than silently treat it as relative-to-cwd.
+    HOME / USERPROFILE come from the OS; a relative value (rare, but
+    possible with adversarial or broken parent processes) is ignored and
+    the next candidate is tried. This prevents an env-derived relative
+    path from anchoring later joins like ``home_dir() / ".claude" / ...``
+    at the process cwd instead of a true home directory.
     """
     claude_home = os.environ.get("CLAUDE_HOME")
-    if claude_home:
-        return Path(claude_home)
+    if claude_home is not None:
+        # Review: code-reviewer — empty-string CLAUDE_HOME (e.g. from `CLAUDE_HOME=` in CI)
+        # is set-but-malformed; treat as config error, not silent fallthrough.
+        if not claude_home:
+            raise ValueError(
+                "CLAUDE_HOME is set but empty; unset it or provide an absolute path"
+            )
+        p = Path(claude_home)
+        if not p.is_absolute():
+            # Review: code-reviewer — drive-relative paths (e.g. "C:foo") are not
+            # absolute on Windows; mention explicitly for operator clarity.
+            raise ValueError(
+                f"CLAUDE_HOME must be an absolute path; got {claude_home!r}. "
+                "(On Windows, drive letter alone is insufficient — use 'C:\\\\...' form.)"
+            )
+        return p
 
     home = os.environ.get("HOME")
     if home:
-        return Path(home)
+        p = Path(home)
+        if p.is_absolute():
+            return p
 
     userprofile = os.environ.get("USERPROFILE")
     if userprofile:
-        return Path(userprofile)
+        p = Path(userprofile)
+        if p.is_absolute():
+            return p
 
     return Path.home()
 

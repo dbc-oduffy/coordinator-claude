@@ -100,7 +100,7 @@ This mirrors Matt's ADR-0001 discipline. The file's absence means no terms have 
 
 This is a load-bearing rule, not a style preference. The coordinator system already has scaffold bloat. `CONTEXT.md` earns its keep only if it contains real terms from real work — not a pre-populated vocabulary dump.
 
-**When to create:** First time a term is resolved during a brainstorming or writing-plans session that would clearly recur in future sessions. The signal is: "I'm about to write this term in the plan, and if I don't record the canonical form, the next session will use the wrong synonym."
+**When to create:** First time a term is resolved during a brainstorming or coordinator:plan session that would clearly recur in future sessions. The signal is: "I'm about to write this term in the plan, and if I don't record the canonical form, the next session will use the wrong synonym."
 
 **When NOT to create:**
 - Project onboarding (even if the project is terminology-heavy)
@@ -126,6 +126,6 @@ This variant is documented here so a future session has a paved path. No skill c
 ## Reference
 
 - Proof-of-concept: `~/.claude/CONTEXT.md` (the coordinator-claude repo's own glossary)
-- Coordinator doctrine: `plugins/coordinator-claude/coordinator/CLAUDE.md` § Documentation and Knowledge System
+- Coordinator doctrine: `plugins/coordinator/CLAUDE.md` § Documentation and Knowledge System
 - Inspiration audit: `docs/wiki/opensource/2026-04-29-mattpocock-skills-audit.md` § High-value borrows #1
 - Producer skills: `coordinator:brainstorming`, `coordinator:plan`

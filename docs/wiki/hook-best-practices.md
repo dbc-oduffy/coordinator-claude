@@ -3,8 +3,8 @@ title: Hook best practices
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/daily-branch-discipline.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/claude-code-platform-gotchas.md
+  - plugins/coordinator/docs/wiki/daily-branch-discipline.md
+  - plugins/coordinator/docs/wiki/claude-code-platform-gotchas.md
 ---
 
 # Hook Best Practices
@@ -111,7 +111,7 @@ The two effective shapes:
    - **PreToolUse `exit 2` BLOCKS** the tool call (stderr → model). Wrong altitude for a pure warn.
    - **PostToolUse `exit 2` does NOT block** — the tool already ran, the file is on disk, only the stderr reaches the model. This is the genuine warn-reaches-the-model-**without**-blocking channel.
 
-   So a "warn, never block" hook whose audience is the EM must fire at **PostToolUse** and `exit 2`. Canonical example: `nudge-unauthorized-handoff.sh` (PostToolUse Write on `tasks/handoffs/`|`tasks/spinoffs/`) — see `coordinator-tripwires.md` § `NUDGE-UNAUTHORIZED-HANDOFF`.
+   So a "warn, never block" hook whose audience is the EM must fire at **PostToolUse** and `exit 2`. Canonical example: `nudge-unauthorized-handoff.sh` (PostToolUse Write on `state/handoffs/`|`tasks/spinoffs/`) — see `coordinator-tripwires.md` § `NUDGE-UNAUTHORIZED-HANDOFF`.
 
 Stderr at exit 0 is the failure mode — the message lands in the user terminal but never reaches the model that just made the decision. If the EM is the audience, the EM has to be forced to read it.
 

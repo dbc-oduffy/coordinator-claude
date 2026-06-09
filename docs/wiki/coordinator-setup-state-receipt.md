@@ -56,7 +56,7 @@ fi
 **Or use the helper verb** (when the coordinator plugin is install-resolvable):
 
 ```bash
-bash "$CLAUDE_HOME/plugins/coordinator-claude/coordinator/bin/coordinator-setup-state.sh" \
+bash "$CLAUDE_HOME/plugins/coordinator/bin/coordinator-setup-state.sh" \
     check setup_concluded && echo "ready to chain"
 ```
 

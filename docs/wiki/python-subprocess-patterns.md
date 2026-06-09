@@ -230,7 +230,7 @@ Also: a doctrine bullet stating an unverified *conclusion* can mislead for weeks
 
 ## `Path.write_text` on Windows Emits CRLF — Pass `newline='\n'` for Unix Consumers
 
-*Source: project-rag tasks/lessons.md:35, 2026-05-29. [universal]*
+*Source: project-rag state/lessons.md:35, 2026-05-29. [universal]*
 
 `pathlib.Path.write_text()` (and `open(..., 'w')` without `newline=`) uses the platform's native line ending. On Windows that is `\r\n` (CRLF). Files consumed by bash scripts (`[ -f ]` path lists, `git rm --pathspec-from-file`, `xargs`), by `git`, or by any POSIX tool will mis-parse CRLF-terminated lines: the carriage return appears as part of the last token on the line, turning `path/to/file` into `path/to/file\r` and silently failing every downstream match.
 
@@ -268,6 +268,14 @@ This is the spawn-flag analog of the network-mock leak (`test-design-discipline.
 - Use `locale.getpreferredencoding(False)` to diagnose the active encoding on a suspect machine.
 - Do not rely on `PYTHONIOENCODING` alone — it does not cover subprocess capture.
 - On Windows, prefer `pythonw.exe` (GUI subsystem) over `python.exe` + `CREATE_NO_WINDOW` for truly headless spawns from uv-managed venvs — use a `pythonw_executable()` helper to locate it.
+## subprocess-launched install/setup test must close child stdin (stdin=DEVNULL)
+
+A subprocess-launched install/setup test must close child stdin (`stdin=subprocess.DEVNULL`). A script keying interactivity off `[Console]::IsInputRedirected` alone hangs a non-interactive caller that inherits a console. Two-altitude fix: (1) close stdin in the harness (`stdin=DEVNULL`), AND (2) honor `-NonInteractive` flag in the script. Apply: all install/setup test subprocess calls must include `stdin=DEVNULL` explicitly.
+
+## importlib.exec_module of a helper re-runs its top-level imports — inject sys.path first
+
+`importlib.exec_module` of a helper module re-runs its top-level imports at exec time. If the helper imports siblings from its own directory, those directory entries are NOT automatically on `sys.path`. Insert `sys.path.insert(0, str(helper_path.parent))` before calling `exec_module`. Apply: any use of `importlib.util.spec_from_file_location` / `exec_module` must be paired with a `sys.path.insert` for the helper's parent directory.
+
 - When grandchildren may outlive the child: redirect to temp files + `proc.wait(timeout)` + tree-kill (`taskkill /T /F` on Windows, `killpg` on POSIX) — do NOT use `communicate(timeout=)` with captured PIPEs.
 - Never run `pytest` through `pythonw` — use console python + `CREATE_NO_WINDOW` + `stdin=DEVNULL` instead; put popup suppression in `conftest.py`.
 - For headless pytest: `creationflags=CREATE_NO_WINDOW` + `stdin=DEVNULL` on console python reconciles "no window" with "valid stdin for child processes."

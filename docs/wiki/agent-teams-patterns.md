@@ -3,8 +3,8 @@ title: Agent Teams patterns
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/staff-sessions.md
+  - plugins/coordinator/docs/wiki/dispatching-parallel-agents.md
+  - plugins/coordinator/docs/wiki/staff-sessions.md
 ---
 
 # Agent Teams Patterns

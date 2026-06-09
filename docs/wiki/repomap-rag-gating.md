@@ -66,7 +66,7 @@ esac
 
 ### Hook-context callers (project-orientation.sh)
 
-Hook scripts run at session boot and must NOT block it. Wrap the entire gate-and-generate
+Hook scripts run at session open and must NOT block it. Wrap the entire gate-and-generate
 block in a guard that exits 0 on any failure:
 
 ```bash
@@ -101,7 +101,7 @@ multiple callers).
 ## Audit Log (update-docs Phase 10b)
 
 When `/update-docs` generates repomap as a RAG-fallback (`RAG_STATE` is `stale` or `unknown`),
-it appends an audit log entry to `tasks/repomap-audit.log`:
+it appends an audit log entry to `state/repomap-audit.log`:
 
 ```
 <ISO-date> | rag_state=<state> | generated=yes | unique_value=<yes|no|unknown>

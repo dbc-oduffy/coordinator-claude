@@ -39,7 +39,7 @@ When a hookspec spans repos — producer in repo A, consumer in repo B, addon in
 
 1. Grep ratified DRs in the originating repo: `rg "@hookspec.*<seam-shape>" docs/decisions/ archive/specs/`.
 2. Grep peer-repo memos for the seam name family: `rg -n '\b(project_rag_|<peer-prefix>_)?<verb-noun>' <peer-repo>/docs/`.
-3. Grep the central improvement queue and any open spinoff handoffs for the same surface: `rg -n '<seam-shape>' ~/.claude/tasks/coordinator-improvement-queue.md ~/.claude/tasks/handoffs/`.
+3. Grep the central improvement queue and any open spinoff handoffs for the same surface: `rg -n '<seam-shape>' ~/.claude/state/coordinator-improvement-queue.md ~/.claude/state/handoffs/`.
 4. If any hit names a ratified seam: cite it in the new spec's "prior art" frontmatter and either *extend* the ratified name (preferred) or document why this is a distinct seam in the same neighborhood (rare).
 
 Cheap pre-flight; expensive to do as integrator-pass rewrite.

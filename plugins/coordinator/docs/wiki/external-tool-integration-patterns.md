@@ -39,3 +39,7 @@ Before bumping a sync-timeout in code that drives a stateful session, ask:
 - **Should "session" be a first-class concept in the protocol?** If the producer needs to maintain state across calls (open editor, loaded notebook, running game), the protocol needs explicit session handles — not implicit "the same long-running process is on the other end of the wire." Without session identity, timeouts can't distinguish "session crashed and was replaced" from "session is still doing the work."
 
 Symptom shape: timeout bumps that accumulate over months without resolving the underlying flakiness. Fix shape: redesign the protocol seam before iterating timeout values.
+
+## Schema-Declaration Gap — LLM Cannot Send Undeclared Fields
+
+"`<field>` is required" with no way to send the field — check the tool schema, not the handler. LLM clients only emit fields the `inputSchema` declares. When a handler returns "field X is required" but there is no visible input slot for X, the schema is missing the field declaration — the handler's error is pointing away from the real issue. Apply: before debugging a handler's validation logic, verify the field appears in the tool's `inputSchema.properties` in the MCP server registration.

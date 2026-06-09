@@ -3,11 +3,11 @@ title: /delegate-execution procedure
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/commands/delegate-execution.md
-  - plugins/coordinator-claude/coordinator/agents/executor.md
+  - plugins/coordinator/commands/delegate-execution.md
+  - plugins/coordinator/agents/executor.md
   - docs/wiki/dispatching-parallel-agents.md
-  - plugins/coordinator-claude/coordinator/skills/review-code/SKILL.md
-  - plugins/coordinator-claude/coordinator/commands/enrich-and-review.md
+  - plugins/coordinator/skills/review-code/SKILL.md
+  - plugins/coordinator/commands/enrich-and-review.md
 ---
 
 # /delegate-execution — Dispatch Enriched Stubs to Executor Agents
@@ -40,7 +40,7 @@ If `$ARGUMENTS` is provided:
 1. Update the tracker README: change each stub's status from "Enriched and reviewed" → **"Execution in progress"**
 2. Commit this tracker update immediately (WAL record — must persist before agents launch)
 
-The executor agents will also mark their individual stub documents (per the executor's write-ahead protocol), creating two layers of breadcrumbs. If a session crashes mid-execution, both the tracker and the stub itself show "in progress."
+**For plan-based fan-out dispatches (no separate tracker README):** instead of a tracker README entry, the EM creates a per-chunk sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md` and passes `sidecar_path:` in the executor brief. The executor updates the sidecar's `status:` field (not the plan body) as its write-ahead record. See § Flight-Recorder Sidecars below for the full convention.
 
 ### Between Dispatch Waves — Checkpoint Protocol
 
@@ -55,7 +55,7 @@ Each wave is a checkpoint. Prefer to never batch multiple waves before committin
 
 #### Model Selection Rubric
 
-**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (Sid/Camelia/Palí corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
+**Default: Sonnet. Always.** The enrichment pipeline exists precisely so execution can be cheap. By the time a stub reaches this phase, it has been through enrichment (exact code sketches, line numbers, file paths) and domain review (the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer corrections). The Opus judgment has already been spent — the executor is a typist following a blueprint.
 
 | Stub character | Model | Rationale |
 |---|---|---|
@@ -108,11 +108,13 @@ For each executor that completes:
 
 **Re-dispatch budget:** Each stub gets a maximum of **3 dispatch attempts** (initial + 2 re-dispatches). This budget is shared across all failure modes (BLOCKED spec fixes, THRASHING re-dispatch, validation self-correction) and **supersedes** the previous THRASHING-specific rule ("if second executor also aborts → escalate to PM") — the universal 3-budget is the single source of truth.
 
-Track attempts in the **tracker README** status column (coordinator-owned), not the stub's own status line (which the executor overwrites with its write-ahead format):
+Track attempts in the **tracker README** status column (coordinator-owned), not the stub's own status line:
 
 ```
 Tracker README: | chunk-2A | Execution in progress (attempt 2/3) | ... |
 ```
+
+**Sidecar alternative (plan-based fan-out):** when there is no tracker README, track attempt counts in the EM's dispatch ledger row (`skills/execute-plan/SKILL.md` § Phase 1.6) and in the per-chunk sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`. See § Flight-Recorder Sidecars below.
 
 After the 3rd attempt, regardless of outcome:
 - If still failing: escalate to PM with full dispatch history
@@ -352,7 +354,7 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 **Why:** Across one session, 5 of 5 dispatched executors touched plan Status fields and/or archive entries despite each brief carrying a verbatim prohibition. The "mark this complete" impulse recurs because the executor's prior conflates plan-status ownership with chunk-completion convention.
 **How to apply:** gate Status edits via schema-validation hook + frontmatter enum (catches invalid values mid-write), or move plan-status into a derived view computed from the archive log. Stop assuming briefs alone are the enforcement; they're the policy, hooks are the enforcement.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L143, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L143, central-promoted 2026-05-28).*
 
 ## No-commit briefs need structural enforcement, not prose
 
@@ -360,9 +362,65 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 **Why:** A brief said "DO NOT commit; EM commits after verification" verbatim; the Sonnet executor self-committed anyway, citing chunk-completion as the stronger convention.
 **How to apply:** either enforce no-commit via `settings.json` deny on `git commit`, or accept that committers will commit and use an EM-side review/amend pattern after the executor returns. Prose alone is not binding against a structural prior. See coordinator improvement-queue for the executor agent-prompt amendment candidate.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L173, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L173, central-promoted 2026-05-28).*
 
 **Long-running dispatches are especially prone to constraint decay.** A Sonnet executor dispatched for ~30 min on a .NET/native task committed and continued past stub scope to author + commit a second wave despite an explicit "DO NOT COMMIT — EM commits at wave end" in the mandatory verbatim block. Hypothesis: long runs let initial constraints decay; the executor reverts to "ship the work" instinct mid-debugging. Mitigation candidates: (a) pin `expected_branch` AND `expected_HEAD_sha` in dispatch so a pre-commit hook can fail-loud on any commit during the run; (b) shorten dispatch windows to keep the no-commit constraint in working memory; (c) name the executor and include a kill-switch `SendMessage` after the first commit-attempt is detected. File for instance #2 before extracting a full pattern. (2026-05-27, project-rag-ue-addon tc-3 W-B.)
+
+## Flight-Recorder Sidecars
+
+**Spec:** `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`. **Executor prompt:** `agents/executor.md § Flight-Recorder Sidecar`.
+
+For plan-based fan-out dispatches (via `bin/fan-out-dispatch.sh`), the EM creates a per-chunk sidecar file at dispatch time and passes its path to the executor brief. The executor writes crash-safety status and observations into the sidecar — never into the plan body.
+
+### Sidecar path convention
+
+```
+tasks/<plan-slug>/flight/<chunk-id>.md
+```
+
+`<plan-slug>` derives from the plan filename without the `YYYY-MM-DD-` prefix and `.md` suffix. `<chunk-id>` is the dispatch's chunk identifier (e.g., `C1-executor-prompt`).
+
+### EM responsibilities
+
+1. **At dispatch:** create the sidecar with starter frontmatter (including `status: dispatched`) and pass `sidecar_path:` in the executor brief.
+2. **Mid-dispatch:** do NOT edit the sidecar — the executor owns it until it exits.
+3. **At `/workstream-complete`:** read all sidecars under `tasks/<plan-slug>/flight/`; fold genuinely-noteworthy observations into a `## Execution Observations` section appended to the plan body; delete `complete`-status sidecars. `blocked` and `thrashing` sidecars persist until the EM clears them manually (diagnostic preservation).
+
+The dispatch ledger (`## Dispatch Ledger` table in the plan, maintained by `skills/execute-plan/SKILL.md` Phase 1.6) is the EM's canonical in-plan surface for "is chunk N done?" — readers consult the ledger row, not a body stamp.
+
+### Executor responsibilities
+
+1. Read `sidecar_path:` from the brief. If the file does not exist, create it with the starter frontmatter defined in `agents/executor.md § Flight-Recorder Sidecar`.
+2. First action: update `status: dispatched` → `status: in_flight`.
+3. Append free-form observations under `## Observations` (latent-bug notes, mid-flight decisions, validation output).
+4. Exit transition: update `status: in_flight` → `status: complete | blocked | thrashing`.
+5. Append `commits:` list when the executor commits (one SHA per line).
+
+**Executors do NOT stamp `**Status:**` into the plan body.** The plan body is immutable to executors; a PreToolUse tripwire (`hooks/scripts/block-subagent-plan-body-write.sh`, registered as `EXECUTOR-PLAN-BODY-IMMUTABLE` in `coordinator-tripwires.md`) denies subagent Edit/Write on `docs/plans/**/*.md`. The sidecar path at `tasks/<plan-slug>/flight/` is carved out from that deny rule.
+
+### Status state machine
+
+```
+dispatched → in_flight → complete
+                       → blocked
+                       → thrashing
+```
+
+### Disambiguation — two different "Status:" fields
+
+**Plan-body `**Status:**`** is EM-owned phase state (e.g., `Enriched and reviewed`, `Execution in progress` in the dispatch ledger). The EM writes this; executors never touch it.
+
+**Sidecar frontmatter `status:`** is executor-owned lifecycle state (`dispatched`, `in_flight`, `complete`, `blocked`, `thrashing`). The executor writes this; the EM reads it post-dispatch.
+
+These are distinct fields with distinct owners — do not cross-reference.
+
+### Scope: fan-out dispatches only
+
+Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.sh` writes `sidecar_path:` into each brief. Solo `Agent`-tool dispatches without a `sidecar_path:` field in the brief are valid; the executor falls back to exit-report-only and does not attempt to create or update a sidecar.
+
+### Lifecycle
+
+`tasks/<plan-slug>/flight/` directories are tracked by default (consistent with other `tasks/` UUID flight-recorder dirs) and swept at `/workstream-complete`. They are ephemeral — not load-bearing substrate. Load-bearing surface is the in-plan dispatch ledger, not the sidecar files themselves.
 
 ## Spotter Ownership — Fix What You Find
 
@@ -386,6 +444,6 @@ Source: `archive/completed/2026-04.md` (2026-04-04 entry).
 
 Git Bash's bundled OpenSSH cannot read 1Password's Windows named pipe (`\\.\pipe\openssh-ssh-agent`). `coordinator-auto-push` detects Git Bash + SSH remote and routes through `powershell.exe -NonInteractive -NoProfile` (Windows OpenSSH has access to the credential manager via the pipe). HTTPS and Linux/macOS go direct.
 
-The post-commit hook delegates to `coordinator-auto-push`; project-onboarding installs it on new repos.
+The post-commit hook delegates to `coordinator-auto-push`; repo-setup installs it on new repos.
 
 Source: `archive/completed/2026-04.md` (2026-04-28).

@@ -1,7 +1,7 @@
 # Pre-Dispatch Verification — Extras
 
 **System:** coordinator
-**Provenance:** consolidated 2026-05-14 from `tasks/coordinator-improvement-queue.md` triage (E24, E131, E136, E161).
+**Provenance:** consolidated 2026-05-14 from `state/coordinator-improvement-queue.md` triage (E24, E131, E136, E161).
 
 Extensions to [`pre-dispatch-verification.md`](pre-dispatch-verification.md) for specific failure modes the parent wiki doesn't carry — predicate-claim verification against schema, write-seam grep (not just read-seam), numeric-constant transcription, and mechanical enumeration as the source-of-truth for audit tables. Companion to `coordinator/CLAUDE.md` § Pre-Dispatch Verification; keep the parent for headline rules, this file for the long tail.
 
@@ -56,6 +56,18 @@ When an executor reports N/N tests green, those tests cover what was written, no
 ---
 
 ## Related
+
+## Old cross-repo handoff — re-verify failure modes before grinding the original investigation
+
+Old cross-repo handoffs age. Re-verify the failure modes against the current sibling substrate before grinding the original investigation. Re-repro is cheap (a few test runs); grinding a stale spec is expensive (hours of work that may not apply). Apply: for any handoff older than a day, run `git log --oneline -- <cited-paths>` on the sibling before accepting the handoff's failure-mode description.
+
+## Roadmap stub authored against old substrate — premise-check against sibling DRs
+
+A roadmap stub authored against old substrate can rest on a false premise a sibling ticket already corrected. Before executing a stub, check sibling DRs + the live branch — not just the stub's own disk state. Stubs inherit-don't-regenerate extends across repos; sibling DRs can retire a stub's premise before it's executed. Apply: for any roadmap stub older than a few days, run `bin/query-records --kind decision` on the sibling repo before treating the stub's premise as current.
+
+## gh release list != git tag -l when checking a version surface
+
+`gh release list` and `git tag -l` are disjoint namespaces — a tag that isn't a GitHub Release won't appear in `gh release list`, and a draft release won't appear in `git tag -l`. Before asserting a versioning surface is missing, query both plus `git ls-remote --tags`. Apply: any "is version X published?" check must query all three surfaces.
 
 - [`pre-dispatch-verification.md`](pre-dispatch-verification.md) — parent doctrine
 - `coordinator/CLAUDE.md` § Pre-Dispatch Verification — canonical bullet list

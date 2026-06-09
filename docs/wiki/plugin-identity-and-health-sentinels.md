@@ -21,14 +21,14 @@ Crossing any of these boundaries inverts the decay model in the failure-mode sen
 | Surface              | Path / Tool                                     | Writer                | Trigger                  | Decay regime                | Contract                              |
 | -------------------- | ----------------------------------------------- | --------------------- | ------------------------ | --------------------------- | ------------------------------------- |
 | **Health receipt**   | `~/.claude/plugins/<plugin>/data/doctor-last-run.json` | Doctor skill only     | Doctor invocation        | Stale = signal (nudge)      | Durable evidence of a transient check |
-| **Health scanner**   | `scan-addon-health.sh` (and future siblings)    | n/a (reader)          | `/session-start`, `/workday-start` | None — no-side-effects | Reduces verdicts to RED/AMBER/GREEN   |
+| **Health scanner**   | `scan-addon-health.sh` (and future siblings)    | n/a (reader)          | `/workstream-start`, `/workday-start` | None — no-side-effects | Reduces verdicts to RED/AMBER/GREEN   |
 | **Identity (live)**  | `project_whoami` MCP tool (and per-plugin equivalents) | n/a (live response) | Caller invocation        | None — current = answer     | Status panel for the running process  |
 
 The receipt surface and the identity surface are deliberately **not** merged into a single file. They don't share a decay model, so they can't share a contract.
 
 ## Scope of this doctrine: runtime-queryable state only
 
-<!-- Narrowing amendment — 2026-05-19. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (Zolí review Conflict #1, direction: both). Framing: narrowing, not overturning — the three-EM consensus on runtime-identity is preserved. -->
+<!-- Narrowing amendment — 2026-05-19. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (the Director of Engineering review Conflict #1, direction: both). Framing: narrowing, not overturning — the three-EM consensus on runtime-identity is preserved. -->
 
 The decay-discipline described in this wiki applies to **runtime-queryable plugin state** — MCP binding, daemon PID, consumer-project path, current binding state. These are the artifacts whose live source makes on-disk persistence an active lie after a state change.
 

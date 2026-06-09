@@ -174,6 +174,10 @@ Before drafting a plan that adds a diagnostic probe / log line / counter to inve
 
 ---
 
+## Procedural-Overrides-Declarative Comprehension Trap
+
+In agent comprehension, procedural-overrides-declarative when the two disagree — declarative doctrine (CLAUDE.md, wiki rule) loses to procedural surface context (a step-by-step script, a skill body) in practice. Verify procedural surfaces against declarative doctrine before trusting what the procedural surface narrates. Apply: when a procedural surface (skill step, hook script, install procedure) conflicts with declarative doctrine (CLAUDE.md rule, wiki principle), treat the procedural surface as drift and resolve it explicitly — don't silently adopt the procedural behavior. (doe_escalation: DoE should assess whether procedural-surface validation belongs as a tip in CLAUDE.md § Verification Before Done.)
+
 ## 11. `~/.claude/projects/` is the canonical per-folder activity record
 
 When a skill or audit needs **cross-project recency** ("which repos has the operator touched lately / in what order"), `~/.claude/projects/` is the canonical source — consult it before falling back to heuristic dev-folder scans (globbing `X:/`, walking `E:/dev`, `git log` across guessed paths). The directory holds one subdirectory per project Claude Code has run in; the subdirectory **name is the project's filesystem path with separators encoded** (e.g. `C--Users-oduffy--claude`), and its **mtime ≈ last-activity recency** for that project. A single `ls -dt ~/.claude/projects/*/` gives a recency-ranked list of every folder the operator has actually worked in — far more reliable than guessing which dev folders are "active" by scanning the filesystem. This is a Tier-0/Tier-3 lookup (a known path, direct read), not a scout dispatch. Decode the path-as-name to recover the real project root.

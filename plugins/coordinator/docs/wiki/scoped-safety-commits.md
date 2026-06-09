@@ -655,6 +655,10 @@ During a release, an unreviewed change was discarded via `git checkout HEAD -- <
 
 *2026-05-24, claude-unreal-holodeck.*
 
+## concurrent git add -A silently absorbs in-flight executor output
+
+A concurrent `git add -A` sweep (lint, format, or distill ceremony) on the shared branch silently absorbs another EM's in-flight executor output — files the other executor just wrote get committed under the sweeping EM's name before the executor has a chance to commit them. Rule: commit each chunk scoped + immediately after the executor returns; verify on disk not chat. Apply: after every executor returns, run `git diff --stat` to confirm expected files are present, then commit with explicit paths `git add -- <paths>` before doing any broad sweep.
+
 **A pre-commit "no stray staged" check that prints but doesn't halt is theater.** Under concurrent EMs, the check must unstage or abort on detection — echoing the offending path then committing anyway (the `grep … || echo` shape) re-attributes a sibling's work.
 
 *Incident.* A broad `git add tasks/ docs/` swept a concurrent EM's plan and a 29K-line `diff.patch` into a distill commit. The grep flagged the offending paths; the commit ran regardless; fix-forward `git rm --cached` recovered — but the commit had already landed on the shared branch.

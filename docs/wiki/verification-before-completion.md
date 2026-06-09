@@ -3,7 +3,7 @@ title: Verification before completion
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator/CLAUDE.md
   - docs/wiki/delegate-execution.md
   - docs/wiki/round-trip-contract-tests.md
 ---
@@ -225,7 +225,7 @@ For any plan with declared acceptance criteria, "done" means more than green tes
 - [ ] Every **acceptance criterion** is satisfied (or explicitly waived in writing with PM acknowledgement).
 - [ ] Tests/checks ran and the output is captured (link or excerpt — not "trust me").
 - [ ] If user-visible: **manual demo path verified** — you actually walked the steps, not just inferred from green tests.
-- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional). The VP-of-Product lens at merge (refactor-vs-patch, shape, dumb questions) is the PM's call — not an auto-dispatched YK gate.
+- [ ] Technical reviewer has run if scope mode warrants it (production-patch and feature: yes; prototype/spike: optional). The VP-of-Product lens at merge (refactor-vs-patch, shape, dumb questions) is the PM's call — not an auto-dispatched the VP-Product Reviewer gate.
 - [ ] **Known limitations** are documented — what *isn't* covered, what edge cases were deferred.
 - [ ] **Rollback or mitigation** is named — if this turns out wrong in production, what's the recovery move?
 - [ ] **Ship verdict** is staged for the PM (see `coordinator:merging-to-main`).
@@ -289,7 +289,7 @@ A persistent daemon holds imported modules in memory and serves the code loaded 
 
 ### End-to-end verify can uncover a different-mechanism bug with the same user symptom
 
-Green tests + correct ACs ≠ user-visible problem resolved. A workstream can address every *named* bug, pass Patrik review, ship executors, and still leave the *symptom* alive via a path the substrate read never reached.
+Green tests + correct ACs ≠ user-visible problem resolved. A workstream can address every *named* bug, pass the Staff Engineer review, ship executors, and still leave the *symptom* alive via a path the substrate read never reached.
 
 - **When a workstream targets a user symptom (not just a code defect), end-to-end verify by running the actual user action and observing the actual user-visible state** — non-skippable even when tests pass and ACs are met. (Observed: `session-restart` worked perfectly, then an addon hookspec re-spawned a sister daemon on the wrong interpreter within seconds — same symptom, new mechanism.)
 - **If verify uncovers a new mechanism producing the same symptom, carve a spinoff** — do not expand scope mid-workstream.
@@ -329,6 +329,18 @@ Separately: a harness that *runs* is not a harness that *answers*. Before trusti
 **A root-cause derived by reading code or reasoning statically is a hypothesis — reproduce it empirically before it drives an irreversible decision (a config flip, a ship, a cross-repo memo).** Static analysis tells you what *should* happen; it does not prove what *does*. When a diagnosed cause is about to gate a decision with reach beyond the current edit — flipping a default, shipping a fix, sending a sibling EM a memo that asserts the cause — run the reproduction first: trigger the failure, observe it, then observe the fix removing it (red→green on the actual mechanism, not a proxy). This is the decision-gating twin of the fix-code empirical-audit rule (`reviewer-premise-challenge.md` § Empirical audit before fix code) and the P0/P1 verification gate: read-confirms-plausible, but only a reproduction confirms-real, and the cost of a confidently-wrong static cause scales with the blast radius of the decision it gates. (2026-05-29, project-rag.)
 
 ## The Bottom Line
+
+## verify executor output on disk even when report claims already-present
+
+Verify executor output on disk even when the report says "no work needed / already present." Executor self-reports are unreliable — an executor that detects existing content may misidentify it or may have stale context. `git diff --stat` and `ls -la <expected-path>` are the authoritative checks. Apply: after every executor return, regardless of the executor's narrative, verify at least one expected artifact exists on disk before treating the executor's work as done.
+
+## blocked classification means indeterminate — oracle never ran
+
+A `blocked` classification from a fail-loud build/verify gate means the oracle never ran — not that the build failed. `blocked` is indeterminate; `failed` is a verdict. Also: UBT "up to date" in ~1s after an edit means the file's mtime was not changed — `touch` the file to force real recompile. Apply: before treating a `blocked` classification as a failure, check whether the oracle actually executed; re-run with forced inputs if needed.
+
+## Green-but-SKIPPED is not verified — run the integration the skip masks
+
+Green-but-SKIPPED test runs are not verified — they confirm the skip condition fired, not that the implementation works. Run the integration the skip masks, especially on the producer's own platform. Apply: before declaring a workstream done, grep for `pytest.mark.skipif` and `@pytest.mark.skip` in the test suite; run any that were skipped due to platform or environment conditions in the actual target environment.
 
 **No shortcuts for verification.**
 

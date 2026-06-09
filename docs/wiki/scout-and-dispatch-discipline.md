@@ -24,7 +24,7 @@ Any time the EM dispatches a scout or subagent — Tier-4 investigation, fan-out
 
 - **Peer-repo scouts during onboarding.** When a repo's README names sibling, upstream, or downstream repos, dispatch parallel Explore scouts against them BEFORE drafting the tracker or workstream specs. Cross-repo schema-vendoring contracts, consumer entrypoints, and ship-state of cited PRs only surface from the peer side. Cite peer `file:line` evidence in workstream specs; prose descriptions from the sending repo are insufficient.
 
-- **Fix scout brief at instance #3, not per-directory classifier READMEs.** When scouts misread the same structural shape in 3 separate dispatches, fix the scout brief (e.g. the workstream-classification heuristic in `/session-start`) — do NOT write per-directory README files to correct the misread. Per-dir corrections decay in isolation and do not propagate to future dispatches; brief corrections compound across every future scout run.
+- **Fix scout brief at instance #3, not per-directory classifier READMEs.** When scouts misread the same structural shape in 3 separate dispatches, fix the scout brief (e.g. the workstream-classification heuristic in `/workstream-start`) — do NOT write per-directory README files to correct the misread. Per-dir corrections decay in isolation and do not propagate to future dispatches; brief corrections compound across every future scout run.
 
 - **Readiness / defer-recommendation scouts must name the unverified premise behind every defer.** "Defer X to follow-up" is a hypothesis about scope, not a verdict. The scout brief must surface each defer as a question with the premise inline: *"Defer Y assuming Z (unverified) — confirm before acting."* Defers without named premises age into mystery cuts; the next session re-investigates from zero.
 
@@ -65,6 +65,10 @@ Any time the EM dispatches a scout or subagent — Tier-4 investigation, fan-out
 - **Native Windows executables called from MSYS / Git Bash need path translation.** Use `C:\path` form, not `/c/path`. The MSYS shell will translate `/c/...` arguments for some calls and silently pass-through for others, depending on argument position and tool — the failure mode is `file not found` against a path that exists. Fix: use `cygpath -w "$path"` to convert before the call, or set `MSYS_NO_PATHCONV=1` for the affected invocation. Dispatches that hand a path to a scout running a native exe (e.g. UE-Cmd, MSBuild, native git on Windows) carry this hazard. [E115]
 
 ## Related
+
+## find-and-patch waves — separate fact-finding from fix-application
+
+For find-and-patch waves, separate fact-finding from fix-application — do not dispatch a single Sonnet executor to do both. Scout wave: dispatcher produces an inventory file on disk (paths, line numbers, current state). Fix wave: each executor reads the inventory as its brief substrate and applies fixes to its slice. Combining both in one agent produces lower-quality inventories, misses sites, and makes the fix wave harder to recover when an executor crashes mid-way. Apply: any "find all X and fix them" work → dedicate wave 1 to inventory-on-disk, wave 2 to fix-from-inventory.
 
 - CLAUDE.md § Scouts and Disk-First Verification — the parent doctrine on disk-as-signal, TEXT-ONLY recovery, write fallback.
 - CLAUDE.md § Subagent Dispatch — Haiku billing-gate carve-out, 1M-context inheritance, out-of-scope block requirement, destructive-action prohibition for autonomous-write skills.

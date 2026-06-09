@@ -18,7 +18,9 @@ When you have multiple unrelated failures (different test files, different subsy
 
 ## Concurrency Budget
 
-**No fixed numeric cap.** There is no cross-session accounting and no flat wave-size limit. Each EM session reasons only about its own dispatches; the human governs aggregate device load organically across open windows.
+**No fixed numeric cap.** There is no cross-session accounting and no flat wave-size limit. **Est-min at ceiling is a re-split signal:** any ledger row showing `est-min ≥ 12` must be split before dispatch — at-ceiling estimates always run over.
+
+ Each EM session reasons only about its own dispatches; the human governs aggregate device load organically across open windows.
 
 **Two surviving hard rules:**
 
@@ -196,6 +198,8 @@ dispatch ceremony lives in two places: the compiler (`fan-out-dispatch.sh`, a bi
 *these steps*, which the EM follows from `execute-plan` Phase 1.5 (the plan-mediated path) or
 inline whenever it has ≥2 independent tasks with no plan doc (the ad-hoc path). Both paths run the
 same steps; only the entry differs.
+
+**Dispatch-ledger granularity must equal actual dispatch granularity.** Splitting ledger rows for budget visibility then collapsing to one executor is theater. If the ledger says N chunks, N executors must be dispatched. A ledger row that never becomes an actual dispatch is a planning artifact that misleads future sessions.
 
 **Do not author fan-out prompts by hand.** The compiler does the mechanical ceremony:
 
@@ -699,5 +703,37 @@ After agents return:
 2. **Check for conflicts** - Did agents edit same code?
 3. **Run full suite** - Verify all fixes work together
 4. **Spot check** - Agents can make systematic errors
+
+## stub-lay + slot-anchor pattern for file-overlapped parallel fan-out
+
+Stub-lay before parallel fan-out turns file-overlapped chunks into write-disjoint parallel slots. Before dispatching executors that all write to the same large file: author placeholder stubs (empty section headers, stub function skeletons) for each executor's target zone — now each executor fills its own pre-existing slot and never needs to restructure the file. This converts a serial-gate (file-overlap) into a parallel-safe dispatch. Apply: whenever a fan-out plan lists ">1 executor writing to the same file," insert a stub-lay step before the fan-out.
+
+## fan-out wave sizing by file count not alpha-halving
+
+Size fan-out waves by file-count-per-executor (~30–40 files, ~5–10 min), not by a coarse alphabetical halving. Alpha-halving produces uneven work distribution when file complexity is non-uniform. Rule: count total files, divide by 30–40 to get wave width, then assign by natural clustering (module/directory boundary), not alpha range.
+
+## sh+ps1 lockstep dispatches chronically under-budgeted — pre-split at ledger time
+
+Shell-script + Windows lockstep dispatches (`.sh` leg + `.ps1` leg of the same operation) are chronically under-budgeted when coalesced into one executor. Pre-split at ledger time: separate executor row per leg, label them `<feature>-posix` and `<feature>-windows`. At-ceiling estimates (≥12 min) on a lockstep dispatch are a mandatory re-split signal.
+
+## DAG-driven dispatch — fire unblocked chunks immediately not at wave-boundary
+
+DAG-driven dispatch beats wave-shape: fire any chunk the moment its dispatch-graph predecessors land, rather than waiting for all sibling-wave-mates to complete. "Wave" is documentation shorthand for a cohort of simultaneously-unblocked tasks — not a synchronization barrier. Apply: after each executor returns, check the dependency graph and dispatch any newly-unblocked chunk immediately rather than waiting for the full wave to land.
+
+## Dispatch-ledger granularity must equal actual dispatch granularity
+
+Splitting ledger rows for budget visibility then collapsing them to a single executor is theater — the ledger must mirror the actual dispatch count one-for-one. If the ledger says N chunks, dispatch N executors. A ledger row that never becomes an actual dispatch is a planning artifact that misleads future EM sessions reading the record.
+
+## Fan-out aggression matches plan substrate enrichment — disjoint-write-targets is the wave-width count
+
+When a plan has named write-targets, wave width equals the count of disjoint write-targets — not "a manageable number of chunks." Chunk-sizing failures surface as runtime tripwires (>15 min per executor). Apply: count plan-named write-targets; if they are disjoint (no two executors write the same file), that count IS the fan-out width.
+
+## Chunk by 5-10 min sizing, not adaptation-similarity
+
+Grouping disjoint-write files by how similar they look (all "same type of change") inverts the small-remit-and-many HARD RULE. One executor per disjoint file when writes are structurally independent. Apply: adaptation-similarity is NOT a dispatch coherence criterion — only file-overlap and output-consumption create coherence requirements.
+
+## dispatch-ledger est-min at ceiling is a re-split signal, not a pass
+
+A dispatch-ledger `est-min` at or near the 15-min hard ceiling is a mandatory re-split signal. At-ceiling estimates always run over — the executor hits the ceiling and leaves work incomplete. Apply: if any ledger row shows `est-min ≥ 12`, split the row before dispatching; never dispatch an at-ceiling chunk as-is.
 
 **Validation floors must derive from emission shape, not author intuition.** Dispatch briefs that gate executor completion on `≥N items emitted` invite false-negatives when the floor is set from "feels about right" rather than from the actual emission path. Before setting a count floor: trace the emission path end-to-end and pick the number from the actual cardinality of what flows through — not the feeling of "should be a lot." A floor derived from the wrong emitter level (e.g. class bodies when the pipeline emits one dict per class, not one entry per field) produces a false-fail even when the executor is correct. (2026-05-27, project-rag-ue-addon tc-8 Phase E.)

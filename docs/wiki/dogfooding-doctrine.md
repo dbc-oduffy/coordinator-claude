@@ -34,7 +34,7 @@ Running at the source-of-truth surface (the actual invocation, not a simulation 
 
 Dogfooding is **binary**: either the capability converges (works end-to-end) or the session switches gears (surfaces a replan ask to PM). There is no third outcome.
 
-The forbidden middle ground is **file-and-defer**: the dogfood run surfaces a bug, the bug gets logged to `tasks/bug-backlog.md` or a note in the handoff, and the session moves on. This pattern means:
+The forbidden middle ground is **file-and-defer**: the dogfood run surfaces a bug, the bug gets logged to `state/bug-backlog.md` or a note in the handoff, and the session moves on. This pattern means:
 
 - The capability has not been proven. The lesson it was meant to validate remains a hypothesis.
 - The bug is now disconnected from the context in which it was found. Future sessions that pick it up from the backlog have lost the reproduction environment and the fix-cone.
@@ -103,7 +103,7 @@ Three real bugs surfaced and shipped in the same session:
 
 The convergence signal was concrete: **Probe 9 status mtime advanced from FAIL to PASS in 0.9 seconds** after W7 landed. That transition was the observable that proved the capability worked end-to-end.
 
-Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `tasks/bug-backlog.md`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
+Universal lesson captured from this run: **"Dogfood means fix-through, not file-and-defer."** No bug from this run was deferred to `state/bug-backlog.md`. All three were fixed in the same session, on the same branch, with smoke evidence in the commit message.
 
 Canonical archived plan: `archive/specs/2026-05-06-agentic-install-hardening.md`.
 
@@ -155,7 +155,7 @@ The three lenses find progressively different defect classes. A clean plan-revie
 
 §9 establishes dogfood as a review-floor that runs before declaring done. For one class of artifact — **runbook / command-surface `.md` edits** (install/doctor runbooks, CLI-invocation docs, anything an agent executes by walking a command graph) — the dogfood pass is most valuable *before* the named-reviewer dispatch, not after.
 
-Review lenses cover *what the artifact says*; dogfood covers *what happens when an agent walks the artifact's command graph in a real environment*. The 2026-05-23 leaf-trigger workstream made the distinction concrete: Zolí (DoE-altitude), code-reviewer (Sonnet, post-integration), plan-coverage, and prior-art pre-flights ALL approved. A dogfood pass then caught two operational bugs no lens surfaced: (i) the runbook probed a `--help` surface that didn't exist (the host ships a direct python script, intentionally not a console-script); (ii) a `python3` literal that fails on Windows Git-Bash where only `python` is on PATH. Both are invisible to a reviewer reading partition / gate-matrix correctness; they only surface when an agent executes the command graph in a real shell.
+Review lenses cover *what the artifact says*; dogfood covers *what happens when an agent walks the artifact's command graph in a real environment*. The 2026-05-23 leaf-trigger workstream made the distinction concrete: the Director of Engineering (DoE-altitude), code-reviewer (Sonnet, post-integration), plan-coverage, and prior-art pre-flights ALL approved. A dogfood pass then caught two operational bugs no lens surfaced: (i) the runbook probed a `--help` surface that didn't exist (the host ships a direct python script, intentionally not a console-script); (ii) a `python3` literal that fails on Windows Git-Bash where only `python` is on PATH. Both are invisible to a reviewer reading partition / gate-matrix correctness; they only surface when an agent executes the command graph in a real shell.
 
 **Rule:** for runbook `.md` edits to install/doctor command surfaces, slot a dogfood pass BETWEEN Wave 1 (drafting) and named-reviewer dispatch. Cheap shape: spawn a Sonnet agent with the runbook, have it execute the read-paths (chain-presence reads, CLI probes, env-var resolution) against the local environment and report exit codes + stderr — no full live-install needed. This catches the "the runbook says X but X doesn't work on this OS" class before the named reviewer's time is spent on architecture. Review caught the architecture bug; dogfood caught the operational bugs — complementary, not substitutional.
 

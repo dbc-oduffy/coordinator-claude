@@ -615,6 +615,14 @@ Either emit with `\n` line endings from the Python side (open stdout in binary o
 
 *2026-05-30, ~/.claude.* A recurring Windows blue-`powershell.exe` flash was assumed upstream/Claude-Code-owned and treated as belt-only ("can't fully fix this"). Root cause was our own `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` added months earlier via `git log -S <setting> -- settings.json`.
 
+## Bash tool cwd persists across calls — never cd without cd-ing back
+
+The Bash tool's cwd persists across calls in the same session. Issuing `cd <worktree>` for inspection then forgetting to `cd` back causes subsequent `git commit` calls to land on the wrong branch. Prefer `Read`/`Glob`/`Grep` tools for inspection (they don't change cwd), or use `git -C <path>` for compound git ops without changing shell cwd. Apply: any `cd` in the Bash tool must be followed by `cd -` or an absolute `cd <original-path>` before the next git operation.
+
+## GPU Validation Must Not Be Bundled Into Executor Done-Criteria
+
+Dispatched executors must NOT bundle GPU validation (model loading, CUDA smoke tests) into their own done-criteria. Executor context + a spawned GPU smoke-test combined can lock up the system (GPU contention, OOM). GPU validation must be a separate EM-issued Bash call under PM observation of the GPU meter. Apply: any executor brief that includes model loading or CUDA validation must have that step removed and flagged as "EM-gated post-executor step."
+
 **Rule.** When a symptom "appeared at some point" and you're tempted to blame the platform, bisect your own config history BEFORE theorizing about upstream. The PM's "we didn't always have this" is the tell. `git log -S <setting_name> -- settings.json ~/.mcp*.json` takes 3 seconds and eliminates half the hypothesis space.
 
 ### WMI hangs on a thrashed Windows host — use kernel APIs for crash forensics

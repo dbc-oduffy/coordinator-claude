@@ -3,9 +3,9 @@ title: Dispatching parallel agents
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
+  - plugins/coordinator/CLAUDE.md
   - docs/wiki/delegate-execution.md
-  - plugins/coordinator-claude/coordinator/commands/mise-en-place.md
+  - plugins/coordinator/commands/mise-en-place.md
 ---
 
 # Dispatching Parallel Agents
@@ -18,7 +18,9 @@ When you have multiple unrelated failures (different test files, different subsy
 
 ## Concurrency Budget
 
-**No fixed numeric cap.** There is no cross-session accounting and no flat wave-size limit. Each EM session reasons only about its own dispatches; the human governs aggregate device load organically across open windows.
+**No fixed numeric cap.** There is no cross-session accounting and no flat wave-size limit. **Est-min at ceiling is a re-split signal:** any ledger row showing `est-min ≥ 12` must be split before dispatch — at-ceiling estimates always run over.
+
+ Each EM session reasons only about its own dispatches; the human governs aggregate device load organically across open windows.
 
 **Two surviving hard rules:**
 
@@ -196,6 +198,8 @@ dispatch ceremony lives in two places: the compiler (`fan-out-dispatch.sh`, a bi
 *these steps*, which the EM follows from `execute-plan` Phase 1.5 (the plan-mediated path) or
 inline whenever it has ≥2 independent tasks with no plan doc (the ad-hoc path). Both paths run the
 same steps; only the entry differs.
+
+**Dispatch-ledger granularity must equal actual dispatch granularity.** Splitting ledger rows for budget visibility then collapsing to one executor is theater. If the ledger says N chunks, N executors must be dispatched. A ledger row that never becomes an actual dispatch is a planning artifact that misleads future sessions.
 
 **Do not author fan-out prompts by hand.** The compiler does the mechanical ceremony:
 
@@ -489,7 +493,7 @@ When a dispatched agent spawns a background shell process (installer, pipeline r
 - Check `status` field before reading `phases_completed` — a `failed` status with a non-empty `phases_completed` means partial work was done; use this to resume from the last checkpoint, not re-run from scratch.
 - Do NOT derive status from log file size or line count — these are unreliable proxies.
 
-**Empirical source:** `tasks/lessons.md:358` — generalizes the `install_status_writer` pattern from the holodeck plugin installer, 2026-05-07.
+**Empirical source:** `state/lessons.md:358` — generalizes the `install_status_writer` pattern from the holodeck plugin installer, 2026-05-07.
 
 ## Shared-API Gap in Parallel Waves
 
@@ -526,7 +530,7 @@ Do NOT dispatch N executors with "append to `tests/foo.test.ts`" in parallel. Th
 
 ## Haiku Subagents Do NOT Inherit the Parent's 1M-Context Flag
 
-*Source: holodeck tasks/lessons.md:5, 2026-05-29. [universal]*
+*Source: holodeck state/lessons.md:5, 2026-05-29. [universal]*
 
 **Only Opus has a 1M-context tier.** A parent session running with the 1M-context flag does NOT pass that flag to Haiku subagents — Haiku operates at its standard context ceiling regardless of the parent's tier. This is distinct from the billing-gate bypass (Haiku bypasses the 1M-context billing gate that blocks Sonnet/Opus subagent dispatch) — the bypass is about *dispatch permission*, not *context window size*.
 
@@ -534,7 +538,7 @@ Do NOT dispatch N executors with "append to `tests/foo.test.ts`" in parallel. Th
 
 ## Mechanical Multi-File Migrations Fan Out, Never Serial
 
-*Source: rag-ue-addon tasks/lessons.md:14, 2026-05-29. [universal]*
+*Source: rag-ue-addon state/lessons.md:14, 2026-05-29. [universal]*
 
 When migrating, renaming, or reformatting N files with the same mechanical transformation (move + path-update, rename + import-fix, format-convert), **fan out across files in parallel, never assign one executor to grind them serially**. One executor handed a list of 10 files and told "do each in sequence" accumulates context, extends its blast radius with every file, and degrades judgment as the window fills — the overload in slow motion.
 
@@ -546,7 +550,7 @@ The correct shape: break into file-bounded chunks of ≤5 files per executor, di
 
 **Rule:** For Haiku scouts and inventory dispatches, default to a tool-bounded subagent type (`deep-research:repo-scout` or similar) rather than the `claude` catch-all. Reserve the `claude` catch-all for Sonnet/Opus dispatches where the context headroom is sufficient.
 
-*2026-05-28, project-rag (`tasks/lessons.md:67`) and claude-unreal-holodeck (companion entry, same root cause).*
+*2026-05-28, project-rag (`state/lessons.md:67`) and claude-unreal-holodeck (companion entry, same root cause).*
 
 ## Chunk-Size Signal — 14-Minute Single-Executor Run Is Under-Decomposed
 
@@ -554,7 +558,7 @@ The correct shape: break into file-bounded chunks of ≤5 files per executor, di
 
 ## Inspiration-Audit / "Compare to Upstream X" — The Three-Agent Fan-Out Recipe
 
-*2026-05-30, central-promoted from sibling-repo `tasks/lessons.md`.* For "compare our work to upstream X" / inspiration-audit tasks — auditing our coverage against an external reference system, skill suite, plugin, or body of prior art — the natural shape is a **three-agent parallel fan-out into a synthesizer**, not one agent grinding the comparison serially. The three reads are independent (disjoint sources, no write-overlap, none consumes another's output) so they parallelize freely under § Dispatch-Gate Taxonomy.
+*2026-05-30, central-promoted from sibling-repo `state/lessons.md`.* For "compare our work to upstream X" / inspiration-audit tasks — auditing our coverage against an external reference system, skill suite, plugin, or body of prior art — the natural shape is a **three-agent parallel fan-out into a synthesizer**, not one agent grinding the comparison serially. The three reads are independent (disjoint sources, no write-overlap, none consumes another's output) so they parallelize freely under § Dispatch-Gate Taxonomy.
 
 **The three parallel agents:**
 
@@ -624,7 +628,7 @@ Source plan: `archive/specs/2026-05-05-issue-b-expected-branch-flag.md`.
 
 **Generalizes to:** any task whose unit-of-work is a file (or file-bounded chunk) and whose total exceeds 5 units. Prefer fan-out + EM-serial-commit over single-executor sequential.
 
-**Source:** `tasks/lessons.md:1057` (2026-05-17).
+**Source:** `state/lessons.md:1057` (2026-05-17).
 
 **One executor = one coherent task; split by *kind of work*, not just file count.** A chunk that fuses judgment/design + wide mechanical sweep + docs into one dispatch is under-decomposed even if file count is below 5. The tell: a long, hard-to-spot-check tail AND a completion criterion that requires three different verification methods (probe test + sync-inventory test + doc grep). That is three chunks, not one. Split at dispatch time — judgment as its own chunk, wide N-surface mechanical sync as its own, docs as its own — each sized to ~5-10 min (15 min hard ceiling) and independently verifiable by a single method. (2026-05-28, unified-unreal-path-seeding Chunk 5: 32-min bundled dispatch vs 10-15 min peers.)
 
@@ -644,13 +648,13 @@ The EM-side post-wave step deletes the corresponding queue entries and commits o
 
 **Review the convention-locking artifact BEFORE fanning out the copies — the propagation factor outweighs normal review-budget discipline.** When N future units will copy a just-built artifact by template, the review tier is set by N (the blast radius), not by the artifact's own size — a one-subsystem diff that 10 siblings inherit earns Opus depth even though budget discipline would normally say one reviewer. Sequence: review + harden the template, THEN fan out.
 
-*2026-05-27, claude-unreal-holodeck.* The handoff listed widget-extract as step 1, but the foundation (H-2 classifier + bt-extract) was the template the other 10 extractors would copy by convention. The predecessor warned "4 reviewer greens each hid a real defect." Running the waived foundation review first — before any fan-out — Sid (Opus) returned REQUIRES_CHANGES with 3 P1 + 4 minor, including two masked-skip tests (vacuous green) and a doc gap where `Classify(->GetClass())` (class-provenance) vs `Classify(asset)` (asset-provenance) emit structurally different payloads from "the same locked convention." A single uncaught convention defect would have been miscopied 10×.
+*2026-05-27, claude-unreal-holodeck.* The handoff listed widget-extract as step 1, but the foundation (H-2 classifier + bt-extract) was the template the other 10 extractors would copy by convention. The predecessor warned "4 reviewer greens each hid a real defect." Running the waived foundation review first — before any fan-out — the Game Dev Reviewer (Opus) returned REQUIRES_CHANGES with 3 P1 + 4 minor, including two masked-skip tests (vacuous green) and a doc gap where `Classify(->GetClass())` (class-provenance) vs `Classify(asset)` (asset-provenance) emit structurally different payloads from "the same locked convention." A single uncaught convention defect would have been miscopied 10×.
 
 Also: de-escalate cross-repo wire-contract findings by reading the consumer's actual parse path — if the consumer keyed off field-presence rather than schema_version, a version-field divergence is a doc-only fix, not a wire break.
 
 ## Pre-Derive and Commit the Load-Bearing Design Before Fan-Out — Park with Links on Supersession, Never Orphan
 
-**Pre-derive the load-bearing design before fan-out so a mid-flight supersession leaves reference, not waste — then park-with-links, never orphan or delete.** Commit the Opus-tier design artifact (frontmatter-graph, interface stubs, budget model) before dispatching cheap Sonnet executor bodies; when supersession strikes, it costs only the executor bodies, not the architecture. On stand-down, relocate uncommitted artifacts OUT of `tasks/handoffs/` into the roadmap/plan dir, add a README with provenance and supersession note, and bidirectionally link from the canonical surviving spec.
+**Pre-derive the load-bearing design before fan-out so a mid-flight supersession leaves reference, not waste — then park-with-links, never orphan or delete.** Commit the Opus-tier design artifact (frontmatter-graph, interface stubs, budget model) before dispatching cheap Sonnet executor bodies; when supersession strikes, it costs only the executor bodies, not the architecture. On stand-down, relocate uncommitted artifacts OUT of `state/handoffs/` into the roadmap/plan dir, add a README with provenance and supersession note, and bidirectionally link from the canonical surviving spec.
 
 *2026-05-26, claude-unreal-holodeck.* A roadmap Phase-2 session committed the per-stub frontmatter-graph template BEFORE dispatching stub-body executors. When a concurrent EM absorbed the workstream and the PM pivoted to build-now, the design survived as durable reference; the half-written stubs were relocated into the roadmap dir and cross-linked from surviving canonical surfaces. Relocating-and-linking (vs deleting or leaving in-queue) preserved a head-start without polluting the concurrent session's `/workday-start` triage with contradictory live items.
 
@@ -658,7 +662,7 @@ Also: de-escalate cross-repo wire-contract findings by reading the consumer's ac
 
 **A load-bearing scalar shared across parallel fan-out chunks must be PINNED as a named constant in the serial keystone before the wave dispatches — never left to per-executor derivation.**
 
-*2026-05-27, project-rag-ue-addon (whoami-consolidation).* The aggregate-commit invariant's `fraction` was used in 5 chunks but undefined; Patrik caught that two parallel executors would each pick a different fraction for the same commit pool. Worse, the review-integrator, asked to "pin it," invented contradictory numbers (`LIBCLANG_FLEET_FRACTION=0.50` / `CLANG_BATCH_FRACTION=0.20`) because it modeled two nested budgets as two independent fractions of one pool.
+*2026-05-27, project-rag-ue-addon (whoami-consolidation).* The aggregate-commit invariant's `fraction` was used in 5 chunks but undefined; the Staff Engineer caught that two parallel executors would each pick a different fraction for the same commit pool. Worse, the review-integrator, asked to "pin it," invented contradictory numbers (`LIBCLANG_FLEET_FRACTION=0.50` / `CLANG_BATCH_FRACTION=0.20`) because it modeled two nested budgets as two independent fractions of one pool.
 
 Three corollaries:
 
@@ -674,7 +678,7 @@ Three corollaries:
 **Why:** Three parallel sizing sweeps in one session matched each candidate repo to its right intervention shape (catalog→prototype, system→port, off-domain→skip). Pipeline B is heavyweight; running it on all candidates before sizing wastes 2-3× the token budget.
 **How to apply:** before `/deep-research --pipeline=repo`, dispatch a sizing scout (`general-purpose` Sonnet, ~30 min, structured brief) per candidate. Fire full deep research only where sizing recommends. Scout briefs should produce a structured verdict (RECOMMEND_PIPELINE_B / PROTOTYPE_ONLY / SKIP) with one-paragraph rationale.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L113, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L113, central-promoted 2026-05-28).*
 
 ## Load-Bearing Prose Doctrine Gets Read-and-Skipped — Convert to a Disk-Artifact Forcing Function
 
@@ -699,5 +703,37 @@ After agents return:
 2. **Check for conflicts** - Did agents edit same code?
 3. **Run full suite** - Verify all fixes work together
 4. **Spot check** - Agents can make systematic errors
+
+## stub-lay + slot-anchor pattern for file-overlapped parallel fan-out
+
+Stub-lay before parallel fan-out turns file-overlapped chunks into write-disjoint parallel slots. Before dispatching executors that all write to the same large file: author placeholder stubs (empty section headers, stub function skeletons) for each executor's target zone — now each executor fills its own pre-existing slot and never needs to restructure the file. This converts a serial-gate (file-overlap) into a parallel-safe dispatch. Apply: whenever a fan-out plan lists ">1 executor writing to the same file," insert a stub-lay step before the fan-out.
+
+## fan-out wave sizing by file count not alpha-halving
+
+Size fan-out waves by file-count-per-executor (~30–40 files, ~5–10 min), not by a coarse alphabetical halving. Alpha-halving produces uneven work distribution when file complexity is non-uniform. Rule: count total files, divide by 30–40 to get wave width, then assign by natural clustering (module/directory boundary), not alpha range.
+
+## sh+ps1 lockstep dispatches chronically under-budgeted — pre-split at ledger time
+
+Shell-script + Windows lockstep dispatches (`.sh` leg + `.ps1` leg of the same operation) are chronically under-budgeted when coalesced into one executor. Pre-split at ledger time: separate executor row per leg, label them `<feature>-posix` and `<feature>-windows`. At-ceiling estimates (≥12 min) on a lockstep dispatch are a mandatory re-split signal.
+
+## DAG-driven dispatch — fire unblocked chunks immediately not at wave-boundary
+
+DAG-driven dispatch beats wave-shape: fire any chunk the moment its dispatch-graph predecessors land, rather than waiting for all sibling-wave-mates to complete. "Wave" is documentation shorthand for a cohort of simultaneously-unblocked tasks — not a synchronization barrier. Apply: after each executor returns, check the dependency graph and dispatch any newly-unblocked chunk immediately rather than waiting for the full wave to land.
+
+## Dispatch-ledger granularity must equal actual dispatch granularity
+
+Splitting ledger rows for budget visibility then collapsing them to a single executor is theater — the ledger must mirror the actual dispatch count one-for-one. If the ledger says N chunks, dispatch N executors. A ledger row that never becomes an actual dispatch is a planning artifact that misleads future EM sessions reading the record.
+
+## Fan-out aggression matches plan substrate enrichment — disjoint-write-targets is the wave-width count
+
+When a plan has named write-targets, wave width equals the count of disjoint write-targets — not "a manageable number of chunks." Chunk-sizing failures surface as runtime tripwires (>15 min per executor). Apply: count plan-named write-targets; if they are disjoint (no two executors write the same file), that count IS the fan-out width.
+
+## Chunk by 5-10 min sizing, not adaptation-similarity
+
+Grouping disjoint-write files by how similar they look (all "same type of change") inverts the small-remit-and-many HARD RULE. One executor per disjoint file when writes are structurally independent. Apply: adaptation-similarity is NOT a dispatch coherence criterion — only file-overlap and output-consumption create coherence requirements.
+
+## dispatch-ledger est-min at ceiling is a re-split signal, not a pass
+
+A dispatch-ledger `est-min` at or near the 15-min hard ceiling is a mandatory re-split signal. At-ceiling estimates always run over — the executor hits the ceiling and leaves work incomplete. Apply: if any ledger row shows `est-min ≥ 12`, split the row before dispatching; never dispatch an at-ceiling chunk as-is.
 
 **Validation floors must derive from emission shape, not author intuition.** Dispatch briefs that gate executor completion on `≥N items emitted` invite false-negatives when the floor is set from "feels about right" rather than from the actual emission path. Before setting a count floor: trace the emission path end-to-end and pick the number from the actual cardinality of what flows through — not the feeling of "should be a lot." A floor derived from the wrong emitter level (e.g. class bodies when the pipeline emits one dict per class, not one entry per field) produces a false-fail even when the executor is correct. (2026-05-27, project-rag-ue-addon tc-8 Phase E.)

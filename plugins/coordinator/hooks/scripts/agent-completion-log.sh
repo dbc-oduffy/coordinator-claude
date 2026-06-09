@@ -24,11 +24,15 @@ fi
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if command -v jq >/dev/null 2>&1; then
+  # -c (compact, one-line JSON) is REQUIRED: the skip-if-completed grep in
+  # runtime-tripwire-em-check.sh greps for `"agentId":"<id>"` on a single line.
+  # Switching to pretty-printed output would break that consumer.
   echo "$INPUT" | jq -c --arg ts "$TIMESTAMP" '{
     logged_at: $ts,
     description: (.tool_input.description // "unknown"),
     subagent_type: (.tool_input.subagent_type // "general-purpose"),
-    name: (.tool_input.name // null)
+    name: (.tool_input.name // null),
+    agentId: (.tool_response.agentId // null)
   }' >> "$LOG_FILE" 2>/dev/null || true
 fi
 

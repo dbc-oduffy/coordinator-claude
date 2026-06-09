@@ -19,7 +19,7 @@ Sub-agent dispatch has fixed costs: worktree creation on large repos, prompt-boo
 
 Surfaced empirically when Claude Code 2.1.141 introduced `isolation: "worktree"` as the default dispatch mode. On a 58k-file repo (project-rag-ue-addon, 2026-05-15), each dispatch added 30–60s of worktree creation overhead before the sub-agent's first tool call. A rename that takes the EM 20 seconds of typing became a 90-second round-trip when dispatched. The lesson from that data point is that **sub-60s mechanical fixes on known loci warrant EM-inline** — not that dispatch is expensive in general.
 
-Empirical antecedent (2026-05-20, `tasks/lessons.md`): *"Many agents often beat one — don't overload a single Sonnet when the work decomposes [universal]."* A cross-repo slow-test sweep dispatched as one agent grinding ~10 independent chunks crashed at 35 min / 43 tool uses; only 1 of 10 deliverables landed. The correct shape was N parallel agents at the natural decomposition unit. Independent chunks have zero cross-chunk data dependency; coordination cost is zero; wall-clock is N× faster; failure blast-radius is contained per-chunk; the PM gets partial results immediately as each agent lands.
+Empirical antecedent (2026-05-20, `state/lessons.md`): *"Many agents often beat one — don't overload a single Sonnet when the work decomposes [universal]."* A cross-repo slow-test sweep dispatched as one agent grinding ~10 independent chunks crashed at 35 min / 43 tool uses; only 1 of 10 deliverables landed. The correct shape was N parallel agents at the natural decomposition unit. Independent chunks have zero cross-chunk data dependency; coordination cost is zero; wall-clock is N× faster; failure blast-radius is contained per-chunk; the PM gets partial results immediately as each agent lands.
 
 <!-- negative-spec: The co-equal cost framing ("token + worktree overhead as co-equal with wall-clock") that appeared in the 2026-05-18 draft of this file was incorrect as a general rule. It is valid only for sub-60s mechanical fixes on known loci. The § Overview previously read "This is a real economic call, not a default-to-delegate rule" — that framing caused over-application as cover for under-dispatching genuinely large jobs. Reanchored 2026-05-27. -->
 
@@ -45,7 +45,7 @@ Wall-clock cost is the primary axis. Token and worktree overhead are subordinate
 - **Work is independently verifiable.** A scout returns a structured deliverable the EM reads; concurrency is real leverage.
 - **Work spans contexts the EM hasn't loaded.** Sub-agent loads a directory's worth of code the EM doesn't need to hold in its own context window.
 - **Work is parallel-shaped.** N independent edits to N different files; sequential EM would gate each behind the last.
-- **Work needs persona judgment.** Patrik / Sid / Camelia / Fru bring framing, calibration, and review lens the EM doesn't have.
+- **Work needs persona judgment.** the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer / the UX Reviewer bring framing, calibration, and review lens the EM doesn't have.
 - **Work would blow EM context.** Reading 50k tokens of code to make a small edit is sub-agent shape — the sub-agent reads, acts, and reports a summary.
 - **Work is long-running and the EM needs to continue.** Background dispatch with disk-based signaling lets the EM make progress while the sub-agent works.
 - **Work decomposes into ≥2 independent chunks.** Fan out — don't hand a multi-chunk job to one agent. See anti-monolith HARD RULE above.
@@ -70,7 +70,7 @@ Anthropic CLI v2.1.141 ships no opt-out for `isolation: "worktree"`. Per-agent w
 
 Mitigations:
 
-- **`agent-worktree-sweep.sh`** — reaps orphan worktrees. Wired into `/workday-start` Step 0.6 and `/session-start` warn-detect.
+- **`agent-worktree-sweep.sh`** — reaps orphan worktrees. Wired into `/workday-start` Step 0.6 and `/workstream-start` warn-detect.
 - **`disableAgentView: true` in settings.json** — nuclear option; disables agent telemetry alongside worktree creation. Use only if worktree overhead is untenable and sweep is insufficient.
 - **File upstream.** Issue #58597 is open as a request for a `defaultIsolation` settings key that would allow per-project opt-down to `isolation: "none"` for large repos.
 - **Coordinator-side dispatch throttling.** On repos confirmed >30k files, prefer batching mechanical fixes into a single executor pass over N individual dispatches. One worktree creation + N edits beats N worktree creations.
@@ -80,7 +80,7 @@ Mitigations:
 *2026-05-17, coordinator-claude.* When a cluster of related fixes shares a single architectural shape (one novel pattern + N surgical follow-ups that mirror it), front-load the review ceremony on the novel item and direct-dispatch the surgical follow-ups against the established pattern. Full plan-review + prior-art-check + post-impl code-review on every cluster member is ceremony inflation — the second through Nth instances re-verify the same pattern with diminishing return.
 
 **Rule:**
-- **Item 1 (the novel one):** full ceremony — plan, prior-art-check, Patrik, post-impl review.
+- **Item 1 (the novel one):** full ceremony — plan, prior-art-check, the Staff Engineer, post-impl review.
 - **Items 2..N (surgical follow-ups of the same shape):** direct executor dispatch with the item-1 spec as reference. EM spot-check post-commit.
 
 Tell for cluster shape: each item edits a different file, the *shape* of the edit is the same, and the only judgment in items 2..N is "apply the item-1 pattern to this file's specifics." When you find yourself drafting the same plan body N times with the file path changed, that's the tell — promote item 1 to canonical and direct-dispatch the rest.
@@ -107,5 +107,5 @@ Three facets of the same discipline: the wall-clock budget for a dispatched run,
 - → `fan-out-dispatch.sh` — overlap pass + scoped-prompt compiler (run this to fan out a wave)
 - → `dispatching-parallel-agents.md` § Executing a Fan-Out Wave — the fan-out methodology execution follows; runs the helper, dispatches the compiled wave via `Agent`, holds EM-serial commit between waves (not a skill — the `/fan-out` command was demoted 2026-05-30, vocabulary collision with native Claude Code)
 - → `em-operating-model.md` HARD RULES — anti-monolith HARD RULE (a large job is fanned out or chunked per-fresh-agent, never one agent grinding chunk after chunk)
-- → `tasks/lessons.md` line 85 — 2026-05-20 "Many agents often beat one [universal]" empirical antecedent
+- → `state/lessons.md` line 85 — 2026-05-20 "Many agents often beat one [universal]" empirical antecedent
 - Anthropic issue #58597 — settings.json `defaultIsolation` key proposal

@@ -84,11 +84,15 @@ EM_SID=$(head -1 "$EM_SID_FILE" 2>/dev/null | tr -d '[:space:]' || true)
 [[ -z "$EM_SID" ]] && exit 0
 
 # --- Read own dispatched-at + model from EM's dispatched-agents.txt ---
-# Record shape (post-C3): agentId\tmodel\tsubagent_type\tdispatched-at
+# Record shape (as of 2026-06-08): agentId\tmodel\tsubagent_type\tdispatched-at
 DISPATCH_FILE="$GIT_ROOT/.git/coordinator-sessions/$EM_SID/dispatched-agents.txt"
 [[ ! -f "$DISPATCH_FILE" ]] && exit 0
 
-OWN_ROW=$(grep -F "$OWN_AGENT_ID" "$DISPATCH_FILE" 2>/dev/null | head -1 || true)
+# Match on field 1 exactly via awk — guards against a longer agentId that has
+# OWN_AGENT_ID as a substring. Random hex makes collisions astronomically
+# unlikely but `awk $1 == id` makes the invariant explicit and survives any
+# future ID-format change.
+OWN_ROW=$(awk -F'\t' -v id="$OWN_AGENT_ID" '$1 == id { print; exit }' "$DISPATCH_FILE" 2>/dev/null || true)
 [[ -z "$OWN_ROW" ]] && exit 0
 
 MODEL=$(echo "$OWN_ROW" | cut -f2)

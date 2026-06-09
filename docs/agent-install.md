@@ -13,7 +13,7 @@
 
 ## Step 0 — Detect: Track A or Track B?
 
-> **Before any block:** confirm Prerequisites (end of this doc) — Claude Code CLI, Python 3, jq, bash 4+.
+> **Before any block:** confirm Prerequisites (end of this doc) — Claude Code CLI, bash 4.3+ (macOS: Homebrew + `brew install bash`), git, Python 3, jq.
 > **Running the bash blocks:** pre-install blocks (Step 0 and Step 1a–1d) assume your cwd is the
 > coordinator clone root — the directory you cloned and read this playbook from; `cd` there first.
 > Post-install blocks (Step 1e onward) use absolute `~/.claude` paths and run from anywhere.
@@ -51,7 +51,10 @@ from Step 1 onward, noting in the continue-onboarding handoff that Track B was d
 
 ## Step 1 — Layer 0: everything a vanilla session can do before the restart
 
-Layer 0 is frontloaded. Do all of this before asking the human to restart Claude Code.
+Layer 0 is frontloaded: get the *whole* system wired before the restart, so the fresh session comes
+up already Coordinator-shaped and the human and their new EM can get straight to customizing it
+together. Do all of this before asking the human to restart Claude Code. Move fast on the mechanism
+here — the collaboration shape gets decided after the restart, not during the wiring.
 
 ### 1a. Clone or locate the repo
 
@@ -83,7 +86,50 @@ without a cold restart:
 This makes the slash commands available immediately. The fresh session (Step 2) is still needed for
 the Agent Teams env var — `/reload-plugins` alone is not a substitute.
 
-### 1c. Plugin selection — what to enable
+### 1c. The install-everything-vs-DIY decision gate
+
+Before you touch the plugin selection table, settle one thing with the human: **install the whole
+system, or hand-pick pieces?** Installing Coordinator is installing a *collaboration contract, not
+software* — the whole system goes in. This is **not like installing Linux** — it is not that deep,
+not that much surface area, not a thing you assemble component-by-component to taste. Steer hard to
+**install-everything-then-customize**, and do it without being tentative.
+
+Two paths:
+
+1. **Install-everything-then-customize (recommended — this is the path).** Install the full
+   coordinator system, get a fresh session that is *itself* Coordinator-shaped, and customize from
+   there together. Customization is real and expected — it just happens *after* the install, with a
+   Claude that now understands the system, not as an install-time pick-'n'-mix. This is what the rest
+   of this playbook walks.
+2. **DIY-minimal (discuss-with-EM-first).** The human wants to hand-pick a reduced subset. **Do not
+   proceed down this path on your own.** Surface it as a decision for the human and their EM, and be
+   straight with them about what it means (next paragraph) before anyone commits to it.
+
+**On the DIY-minimal path: native cherry-pick of coordinator is unsupported, period.** This is not a
+degraded-but-tolerated path with a shrug and a "you're on your own now" — it is genuinely
+unsupportable. Downstream repos plug **into** coordinator infra, and we cannot validate a custom
+subset, so we cannot certify the chain works at all. We will not pretend otherwise, and we will not
+claim a hand-picked subset works.
+
+Be honest about the obvious: a Claude *will* offer to DIY-cherry-pick if the human pushes — agents are
+eager, and yours will too. Don't pretend that won't happen. But say plainly what it costs: the operator
+owns the **entire** outcome, does their **own** research and planning, and gets **no claim from us that
+it works**. That is the deal on the DIY path; there is no supported-subset middle ground.
+
+> **Chain-stability rule (the coordinator-completeness axis).** If the human intends *any* downstream
+> chain — a private product, a sibling repo, anything that lists coordinator as a prerequisite —
+> install the **FULL** coordinator system. Do not DIY-trim coordinator: downstream repos depend on
+> coordinator infra that a cherry-pick could silently remove, and you would not find out until the
+> chain breaks later. This is the **coordinator-completeness** axis: *how much of coordinator goes in*.
+>
+> It is **orthogonal** to whether a given downstream dependency is itself mandatory or optional — that
+> is a separate question, governed by the mandatory-vs-optional discriminator in
+> `post-install-onboarding-pattern.md`. Both rules hold at once. The coordinator-completeness rule does
+> **not** reverse, narrow, or override that discriminator — it sits beside it. (Concretely: "install
+> all of coordinator" does not mean "every downstream dep is now mandatory," and it does not force the
+> optional add-ons either.)
+
+### 1c-i. Plugin selection — what to enable
 
 The ecosystem has three tiers. Offer the first two; do NOT offer the third to a generic user.
 
@@ -95,6 +141,34 @@ The ecosystem has three tiers. Offer the first two; do NOT offer the third to a 
 
 If the human gave you a signal about their project type (web, ML, data science), confirm which
 recommended plugins fit. Otherwise ask once, briefly.
+
+**Offer granularity is the add-on level, never the component level.** The picks above —
+deep-research (on by default, opt out) and the NotebookLM add-on (opt in) — are genuine install-time
+choices, and they are the *only* kind of install-time choice on offer. You never pick-'n'-mix the
+**internals** of a plugin you've chosen: install coordinator and you get *all* of it — every skill and
+reviewer (`/staff-session`, the review personas, the full pipeline). There is no install-time per-skill
+picker, and you do not add one. If the human wants a piece of an installed plugin turned off, that is a
+**post-install** move — installed-but-disabled is a supported state (per-project plugin gating), set
+*after* the fact, not carved out during install.
+
+**Pre-restart "what else do you want installed?" question.** Coordinator is the natural *first*
+install when the human wants several related tools — it is the contract the rest plug into, and the
+post-restart session has the durability (flight recorder + saved-to-disk spinoffs) that a multi-repo
+install needs. Remember this is an **add-on-level** question, not a component-level one: you are asking
+*which whole tools go in alongside coordinator*, not which slices of coordinator to keep. So while you
+have them, ask once — and treat their answer as the **authorization** for each additional install
+leg (each becomes an install *spinoff* the post-restart session picks up; see Step 1f):
+
+- **deep-research** — recommended; it's the bundled OSS add-on. If they want it, you'll seed its
+  install spinoff in Step 1f.
+- **Other downstream repos** — if the human came here to install something further down a chain
+  (e.g. a private/proprietary product that lists coordinator as a prerequisite), that product's own
+  installer seeds its `kind: spinoff` baton into `~/.claude/state/handoffs/`. You do not need to know
+  what those are — just be aware the post-restart session will find and sequence whatever is there.
+- **Dev tooling worth having present** — recommend (don't force) **Python 3** and **Node 18+ /
+  TypeScript** if absent: Claude reaches for them when solving problems, and a missing runtime turns
+  a quick fix into a yak-shave. (Bash 4.3+ is already a hard prerequisite — see Prerequisites; macOS
+  ships 3.2, so `brew install bash`.)
 
 ### 1d. Run setup (installer + plugin wiring)
 
@@ -126,7 +200,7 @@ can identify it.
 Copy the handoff template and substitute its tokens:
 
 ```bash
-HANDOFF_DEST="${HOME}/.claude/tasks/handoffs/continue-onboarding-and-installation.md"
+HANDOFF_DEST="${HOME}/.claude/state/handoffs/continue-onboarding-and-installation.md"
 # install.sh (Step 1d) has already copied the plugin into ~/.claude — resolve the
 # template from the installed location, NOT $0/cwd (this playbook is run as ad-hoc
 # snippets by an agent, so $0 is the shell, not the clone path).
@@ -134,13 +208,32 @@ TEMPLATE="${HOME}/.claude/plugins/coordinator/templates/handoffs/continue-onboar
 mkdir -p "$(dirname "$HANDOFF_DEST")"
 cp "$TEMPLATE" "$HANDOFF_DEST"
 
-# Substitute {{DATE}} and {{BRANCH}} tokens:
+# Substitute {{DATE}} and {{BRANCH}} tokens (sed -i.bak is portable across GNU and BSD/macOS;
+# bare `sed -i` is a GNU-ism that fails on macOS):
 TODAY="$(date +%Y-%m-%d)"
 BRANCH="$(git -C "${HOME}/.claude" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'main')"
-sed -i "s/{{DATE}}/${TODAY}/g; s/{{BRANCH}}/${BRANCH}/g" "$HANDOFF_DEST"
+sed -i.bak "s/{{DATE}}/${TODAY}/g; s/{{BRANCH}}/${BRANCH}/g" "$HANDOFF_DEST" && rm -f "$HANDOFF_DEST.bak"
 ```
 
 Confirm the file exists and the tokens are substituted before moving to Step 2.
+
+**If the human opted into deep-research (Step 1c-i), also seed its install spinoff** so the
+post-restart session picks it up as a tracked leg. It is a `kind: spinoff` baton in the standard
+handoff folder (`state/handoffs/`) — the same place `/spinoff` writes — so `/pickup` and
+`/workday-start` handle it with no special wiring. Seed via `cp` (NOT the Write tool — a Write into
+`state/handoffs/` without an authoring skill trips the unauthorized-handoff nudge; `cp` does not):
+
+```bash
+DR_SPINOFF_DEST="${HOME}/.claude/state/handoffs/install-deep-research.md"
+DR_TEMPLATE="${HOME}/.claude/plugins/coordinator/templates/handoffs/install-deep-research.md"
+mkdir -p "$(dirname "$DR_SPINOFF_DEST")"
+cp "$DR_TEMPLATE" "$DR_SPINOFF_DEST"
+sed -i.bak "s/{{DATE}}/${TODAY}/g; s/{{BRANCH}}/${BRANCH}/g" "$DR_SPINOFF_DEST" && rm -f "$DR_SPINOFF_DEST.bak"
+```
+
+Any *other* downstream repos the human named install their own `kind: spinoff` batons into
+`~/.claude/state/handoffs/` via their own installers — not from here. The post-restart session's
+Step 0 sweep finds whatever is present and lays out the chain; you do not enumerate them.
 
 ### 1g. Pre-write the install state record
 
@@ -161,7 +254,7 @@ Tell the human exactly this — verbatim matters:
 
 > **Start a fresh Claude Code session and paste:**
 >
-> `/pickup tasks/handoffs/continue-onboarding-and-installation.md`
+> `/pickup state/handoffs/continue-onboarding-and-installation.md`
 >
 > Why a fresh session? The Agent Teams capability (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) that
 > the deep-research pipeline depends on is an environment variable that Claude Code reads at
@@ -176,15 +269,16 @@ is the resumption mechanism; make sure they write it down or can copy it.
 
 ## Step 3 — Layer 2: what the fresh session does
 
-The fresh session resumes via `/pickup tasks/handoffs/continue-onboarding-and-installation.md`.
+The fresh session resumes via `/pickup state/handoffs/continue-onboarding-and-installation.md`.
 That handoff carries everything the new session needs. You (this cold agent) do not need to
 describe the fresh session's work in detail here — that work is specified in the handoff body.
 
 The broad shape is:
 
-1. **Co-write `CLAUDE.md` and `CLAUDE.local.md`.** The highest-leverage first step. The
-   coordinator ships an opinionated default; the operator and EM write the version that fits *how
-   they want to work* together.
+1. **Co-write `CLAUDE.md` and `CLAUDE.local.md`.** The highest-leverage first *customization* step —
+   the handoff's Step 0 builds the install-chain spine and Step 1 reloads the live surfaces before
+   this. The coordinator ships an opinionated default; the operator and EM write the version that fits
+   *how they want to work* together.
 2. **Finish any deferred install legs.** The sentinel file and state record from Layer 0 let the
    fresh session audit what completed and what didn't.
 3. **First real working spin.** The guided tour in `docs/wiki/getting-started.md` is the vehicle;
@@ -210,6 +304,15 @@ Before running the registration step or installer, verify:
 
 - **Claude Code CLI** on PATH: `claude --version`. If missing, link the human to
   https://docs.anthropic.com/en/docs/claude-code and stop.
+- **bash 4.3+** on PATH (`bash --version`). The coordinator's scripts use associative arrays
+  (bash 4.0+) and `coordinator-safe-commit` — invoked on essentially every commit — uses `local -n`
+  namerefs (bash **4.3+**). **macOS ships bash 3.2 as `/bin/bash`**: install [Homebrew](https://brew.sh),
+  `brew install bash`, and put it first on PATH (`export PATH="$(brew --prefix)/bin:$PATH"` in
+  `~/.zshrc`/`~/.bashrc`). Coordinator scripts use `#!/usr/bin/env bash`, so PATH order — not
+  `/bin/bash` — decides. The installer fails fast with this guidance if run under < 4.3. Linux,
+  WSL, and Git Bash for Windows ship bash 4.3+ already.
+- **git** on PATH (`git --version`). Branch management, commits, handoffs, and the auto-push safety
+  net all require it. If missing, link to https://git-scm.com and stop.
 - **Python 3** on PATH. The installer uses Python for JSON manipulation. If missing, link to
   https://python.org and stop.
 - **jq** on PATH (`jq --version`). Hooks use it. If missing, the installer will warn and offer to

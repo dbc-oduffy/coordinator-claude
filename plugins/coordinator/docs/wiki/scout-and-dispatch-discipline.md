@@ -66,6 +66,10 @@ Any time the EM dispatches a scout or subagent — Tier-4 investigation, fan-out
 
 ## Related
 
+## find-and-patch waves — separate fact-finding from fix-application
+
+For find-and-patch waves, separate fact-finding from fix-application — do not dispatch a single Sonnet executor to do both. Scout wave: dispatcher produces an inventory file on disk (paths, line numbers, current state). Fix wave: each executor reads the inventory as its brief substrate and applies fixes to its slice. Combining both in one agent produces lower-quality inventories, misses sites, and makes the fix wave harder to recover when an executor crashes mid-way. Apply: any "find all X and fix them" work → dedicate wave 1 to inventory-on-disk, wave 2 to fix-from-inventory.
+
 - CLAUDE.md § Scouts and Disk-First Verification — the parent doctrine on disk-as-signal, TEXT-ONLY recovery, write fallback.
 - CLAUDE.md § Subagent Dispatch — Haiku billing-gate carve-out, 1M-context inheritance, out-of-scope block requirement, destructive-action prohibition for autonomous-write skills.
 - `tiered-context-loading.md` — Tier-4 dispatch rationale rule and exceptions.

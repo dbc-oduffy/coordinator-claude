@@ -17,13 +17,13 @@ spec_backlink: docs/plans/2026-05-09-skill-consolidation-pass.md
 
 The daily strategic review is dispatched as an **unnamed Sonnet worker** (`general-purpose`,
 `model: "sonnet"`). There is **no domain→persona routing** at daily cadence — that was the old
-shape and it was wrong. Personas (Sid / Palí / Camelia / Patrik) are Opus-only; routing a *daily*
+shape and it was wrong. Personas (the Game Dev Reviewer / the Front-End Reviewer / the Data Science Reviewer / the Staff Engineer) are Opus-only; routing a *daily*
 ceremony to one puts Opus persona-judgment on the cheapest, most frequent gate we have. The fix
 mirrors Sonnet-tier code review moving off personas onto `code-reviewer`.
 
-**Role: observer, not judge.** The daily worker leaves a **paper trail for future-Patrik** —
+**Role: observer, not judge.** The daily worker leaves a **paper trail for future-the Staff Engineer** —
 alignment notes, debt candidates, architectural-risk *flags*. It renders no final architectural
-verdict. The **weekly** Opus Patrik arch pass (`/workweek-complete` Step 7.5) consumes the week's
+verdict. The **weekly** Opus the Staff Engineer arch pass (`/workweek-complete` Step 7.5) consumes the week's
 accumulated daily trail (the `## Strategic Review (Sonnet daily observer)` sections + DSR rows
 tagged `for-weekly-arch-review`) and adjudicates. Domain still matters only for *vocabulary* — a
 UE-heavy day's observer should speak UE — but the dispatch is one Sonnet worker regardless, never
@@ -106,8 +106,8 @@ Use this verbatim when dispatching the Phase 4b analyst agent
 
 Dispatch after the analyst completes, as an **unnamed Sonnet worker** (`general-purpose`,
 `model: "sonnet"`) — **never a named persona** (see § Daily Reviewer above for why). The worker is
-an **observer leaving a paper trail for future-Patrik**, not a judge. It flags candidates; the
-weekly Opus Patrik arch pass adjudicates.
+an **observer leaving a paper trail for future-the Staff Engineer**, not a judge. It flags candidates; the
+weekly Opus the Staff Engineer arch pass adjudicates.
 
 ---
 
@@ -149,7 +149,7 @@ inline code fixes.
    - [Debt item — what, why it matters, suggested future action]
    - ...
 
-   ### Architectural-Risk Flags (for future-Patrik / weekly arch pass)
+   ### Architectural-Risk Flags (for future-the Staff Engineer / weekly arch pass)
    - [Candidate concern — flagged, NOT adjudicated. State what to look at and why it might matter.]
    - ...
 
@@ -162,18 +162,18 @@ inline code fixes.
    (SOLID, coupling, extensibility).
 
 5. **Debt backlog entries:** For any finding that warrants tracking, add a row to
-   `tasks/debt-backlog.md` (create from template if it doesn't exist):
+   `state/debt-backlog.md` (create from template if it doesn't exist):
    - ID: `DSR-{date}-{N}` (Daily Strategic Review prefix)
    - Source: `workday-complete/step4/sonnet-observer/{date}`
    - Status: `open`
-   - **Tag any architectural-risk flag `for-weekly-arch-review`** so the weekly Patrik arch pass
+   - **Tag any architectural-risk flag `for-weekly-arch-review`** so the weekly the Staff Engineer arch pass
      (`/workweek-complete` Step 7.5) picks it up as accumulated daily signal.
 
 ---
 
 ## Health Ledger Entry Schema
 
-After the reviewer agent completes, update `tasks/health-ledger.md`:
+After the reviewer agent completes, update `state/health-ledger.md`:
 
 1. If it doesn't exist, create it with this shape (two audit clocks above a per-system table —
    the schema established by the 2026-05-23 weekly-gate/arch-survey restructure; do **not**
@@ -193,8 +193,8 @@ After the reviewer agent completes, update `tasks/health-ledger.md`:
 
 3. Do **NOT** update grades or the two audit clocks from the daily wrap. `Last full audit` is written
    only by a PM-invoked `/architecture-survey`; `Last targeted audit` only by `/architecture-audit`.
-   The daily Sonnet observer renders no grades — it flags candidates as `tasks/debt-backlog.md` DSR
-   rows (`for-weekly-arch-review`) for the weekly Patrik arch pass to adjudicate. Grade changes are
+   The daily Sonnet observer renders no grades — it flags candidates as `state/debt-backlog.md` DSR
+   rows (`for-weekly-arch-review`) for the weekly the Staff Engineer arch pass to adjudicate. Grade changes are
    an audit output, never a daily-wrap side effect.
 
 ---
@@ -209,7 +209,7 @@ DSR-{YYYY-MM-DD}-{N}
 
 Where `{N}` is a 1-based sequential integer for that day (DSR-2026-05-09-1, DSR-2026-05-09-2, …).
 
-Full row schema for `tasks/debt-backlog.md`:
+Full row schema for `state/debt-backlog.md`:
 
 ```markdown
 | DSR-{date}-{N} | {one-line description} | workday-complete/step4/{reviewer}/{date} | open |

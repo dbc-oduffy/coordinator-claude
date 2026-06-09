@@ -28,15 +28,17 @@ EM judgment with anchored ranges — the numbers below are decision anchors, not
 | Doc-only edits, lesson capture, no executor dispatched, no code touched | **None** |
 | Single-file fix <50 LOC, no shared schema touched, no executor | **None** (but commit message names the change) |
 | Any executor dispatched, OR >50 LOC code change, OR shared schema/seam touched | **`code-reviewer`** (Sonnet, locked — see `agents/code-reviewer.md`) |
-| **Big-diff brightline** — any one of: ≥500 gross LOC (insertions+deletions), OR ≥8 files changed, OR ≥3 distinct surfaces (e.g. bash + JSON + tests + doctrine); ≥5 commits is a corroborating signal, not a trigger on its own | **Partitioned `code-reviewer` — mandatory, not chain-end-gated** (SKILL.md § Partitioning large surfaces) |
+| **Big-diff brightline** — any one of: ≥500 gross LOC (insertions+deletions), OR ≥5 commits, OR ≥4 distinct surfaces (e.g. bash + JSON + tests + doctrine). File count is reported by the gate for context but is NOT a trigger; mass-renames touch many files at zero review-cost. | **Partitioned `code-reviewer` — mandatory, not chain-end-gated** (SKILL.md § Partitioning large surfaces) |
 | Chain-end (started with `/pickup`, ending without `/handoff`/`/spinoff`) AND chain diff is non-trivial | **`code-reviewer`** on chain diff |
 | Chain-end AND chain diff exceeds the big-diff brightline | **Partitioned `code-reviewer` dispatches**. Named reviewers are for plans/architecture — Sonnet `code-reviewer` is the ceiling at workstream-complete |
 
 **Precedence rule:** the big-diff brightline (row 4) and chain-end rows (5, 6) override workstream-complete rows (1, 2, 3) when they apply — partitioning is the integration-risk control, not a chain-end privilege.
 
-**Anchored-ranges note:** the small-side anchor (50 LOC at row 3) is a calibration anchor — shape can pull a 49-LOC change in or release a 51-LOC change out. **The big-side brightlines (≥500 gross LOC / ≥8 files / ≥3 surfaces) are hard floors, not calibration anchors.** Above the brightline, single-reviewer is a doctrine violation regardless of how coherent the diff feels — SKILL.md § Step 2.9 carries the mechanical gate command that EMs run before picking a row.
+**Anchored-ranges note:** the small-side anchor (50 LOC at row 3) is a calibration anchor — shape can pull a 49-LOC change in or release a 51-LOC change out. **The big-side brightlines (≥500 gross LOC / ≥5 commits / ≥4 surfaces) are hard floors, not calibration anchors.** Above the brightline, single-reviewer is a doctrine violation regardless of how coherent the diff feels — SKILL.md § Step 2.9 carries the mechanical gate command that EMs run before picking a row.
 
-**Worked counterexample (2026-06-08, claude meta-repo).** A workstream-complete session shipped 2156 insertions / 26 deletions (2182 gross LOC) across 21 files spanning bash + JSON + tests + doctrine. The EM read row 3 (`>50 LOC OR executor dispatched`), satisfied it, and dispatched a single `code-reviewer`. The PM caught it pre-completion. Every brightline dimension tripped (LOC 4.3× over, files 2.6× over, surfaces at the floor); the single-reviewer pick was a doctrine violation the table at the time permitted. The mechanical gate in SKILL.md exists so this shape can never again be reasoned-around.
+**Recalibration 2026-06-09.** The gate originally tripped on `files >= 8`. A runtime-tripwire workstream that authored 3 commits across 5 files (shell + test + wiki) tripped `surfaces >= 3` despite the diff being small and coherent, while an unscoped range that pulled in a sibling-session commit inflated `files` to 11 — both fired the gate where the spirit of the rule did not. Three changes: (a) dropped `files >= 8` — file count is a blunt proxy for review-cost (a mass-rename touches many files at zero cost; a 1-file 800-LOC change is genuinely large), (b) added `commits >= 5` — commit count tracks independent logical slices, which is the unit slicing actually operates on, (c) bumped `surfaces` from 3 to 4 — hook-fixes routinely span shell+test+wiki at zero genuine breadth. The 2026-06-08 worked counterexample below still trips under the new rule (loc=890, commits=7); the small-diff false-positive at the surface=3 floor no longer does.
+
+**Worked counterexample (2026-06-08, claude meta-repo).** A workstream-complete session shipped 2156 insertions / 26 deletions (2182 gross LOC) across 21 files spanning bash + JSON + tests + doctrine, in 7+ commits. The EM read row 3 (`>50 LOC OR executor dispatched`), satisfied it, and dispatched a single `code-reviewer`. The PM caught it pre-completion. Under the current (post-recalibration) gate, LOC is 4.3× over the floor and commits trip clean — partition would have been mandatory. The mechanical gate in SKILL.md exists so this shape can never again be reasoned-around.
 
 ## No named-reviewer escalation from code review
 
@@ -297,6 +299,14 @@ A "one-line" pin or identity bump (version constant, schema revision, protocol c
 **Rule.** Never waive the row-3 review floor on a constant/identity bump on the grounds that it is "just one line." Before committing: grep every vendored copy and mock of the constant, run the touched test surface, and confirm all N copies are updated in the same commit. The bump is complete only when `git grep <old_value>` returns zero hits in non-test-data files.
 
 ## Cross-references
+
+## partitioned reviewers require partitioned integrators
+
+Partitioned reviewers require partitioned integrators. When a review event is fanned out to N parallel reviewers (each reviewing a different diff chunk), one integrator over the union is wrong — it will miss findings that require per-chunk context. Dispatch N parallel integrators (one per reviewer/chunk) and fold results EM-side. Apply: whenever N > 1 parallel reviewers are dispatched, plan for N parallel integrators.
+
+## partial-shipped execute-plan is a handoff not workstream-complete
+
+A partial-shipped execute-plan (where one or more chunks landed in `BLOCKED-ON-EXTERNAL` state) is a handoff, not a workstream-complete. `BLOCKED-*` state means the work is in-flight, not done. Apply: before invoking `/workstream-complete`, verify ALL AC rows are realized and NO chunk is in BLOCKED state; if any are BLOCKED, write a handoff instead.
 
 - `coordinator:review-code` Branch A.2 — the dispatch surface for the actual `code-reviewer`/the Staff Engineer review invoked from Step 2.8 and Step 2.10
 - `coordinator:parallel-code-review` — the merge-gate carve-out doctrine that this trail integrates with (without modifying); Step 7's prelude is the external interface between the trail and this skill

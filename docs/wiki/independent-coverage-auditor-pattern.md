@@ -3,10 +3,10 @@ title: independent-coverage-auditor-pattern
 created: 2026-05-30
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/docs/wiki/plan-coverage-checker.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/reviewer-pipeline.md
-  - plugins/coordinator-claude/coordinator/CLAUDE.md
-  - plugins/coordinator-claude/deep-research/agents/coverage-auditor.md
+  - plugins/coordinator/docs/wiki/plan-coverage-checker.md
+  - plugins/coordinator/docs/wiki/reviewer-pipeline.md
+  - plugins/coordinator/CLAUDE.md
+  - plugins/deep-research/agents/coverage-auditor.md
   - docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md
 ---
 
@@ -115,7 +115,7 @@ and the downstream checks should run on the amended body.
 
 Its audit question is structural: "does the plan address canonical coverage areas (rollback,
 migration, observability, security boundary, error paths, test surface, concurrency, docs impact)?"
-Output sidecar at `tasks/review-findings/{timestamp}-comprehensiveness.md`. Non-empty Silent column
+Output sidecar at `state/review-findings/{timestamp}-comprehensiveness.md`. Non-empty Silent column
 blocks downstream reviewer dispatch until the EM fills or annotates N/A.
 
 ## Shared doctrine; disjoint implementations
@@ -145,10 +145,10 @@ Per `coordinator/CLAUDE.md § Adding a Convention to the Coordinator System` —
 unless greppable from surfaces agents encounter:
 
 **Deep-research instantiation:**
-- `plugins/coordinator-claude/deep-research/agents/coverage-auditor.md` — agent body
-- `plugins/coordinator-claude/deep-research/pipelines/coverage-auditor-prompt-template.md` — per-pipeline field set
-- `plugins/coordinator-claude/deep-research/commands/research.md` — driver contact point
-- `plugins/coordinator-claude/deep-research/CLAUDE.md` — plugin-level convention surface
+- `plugins/deep-research/agents/coverage-auditor.md` — agent body
+- `plugins/deep-research/pipelines/coverage-auditor-prompt-template.md` — per-pipeline field set
+- `plugins/deep-research/commands/research.md` — driver contact point
+- `plugins/deep-research/CLAUDE.md` — plugin-level convention surface
 - `deep-research/pipelines/team-protocol.md` (and repo/structured variants) — protocol contact points
 - This wiki entry — canonical pattern doc
 

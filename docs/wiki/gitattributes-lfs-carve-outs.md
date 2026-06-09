@@ -64,7 +64,7 @@ For every `.gitattributes` entry that intends to OVERRIDE a more-general rule:
 
 ## Onboarding Checklist Addition
 
-At repo setup time (`/project-onboarding`), if `.gitattributes` is present:
+At repo setup time (`/repo-setup`), if `.gitattributes` is present:
 
 - Read the file; identify every `filter=lfs` rule.
 - For each LFS rule, ask: "are there fixture paths, test-data paths, or generated-asset paths
@@ -73,7 +73,7 @@ At repo setup time (`/project-onboarding`), if `.gitattributes` is present:
 - Run `git check-attr --all <representative-path>` for at least one path per carve-out to
   confirm the resolved attribute is `-filter` (not `lfs`).
 
-Propose adding a `gitattributes audit` step to `coordinator/skills/project-onboarding/SKILL.md`.
+Propose adding a `gitattributes audit` step to `coordinator/skills/repo-setup/SKILL.md`.
 
 ## Quick Diagnostic
 
@@ -88,8 +88,12 @@ git check-attr --all path/to/suspect/file.bin
 If a path you expected to be a carve-out shows `filter: lfs`, the carve-out line is either
 absent or ordered before the generic rule.
 
+## Gitignore `!` Negations Cannot Re-Include Under an Excluded Parent
+
+Gitignore `!` negation patterns cannot re-include a file under an excluded parent directory. If `scratch/` is gitignored, `!scratch/important.md` has no effect. Stacked negation chains that un-ignore parent directories then re-ignore children silently expose unrelated trees. `git add -f <file>` with a documented inline comment (`# tracked intentionally — <reason>`) is the correct carve-out for intentional tracked-in-scratch files. Apply: whenever needing to track a specific file inside an ignored directory, use `git add -f` + a comment rather than negation chains.
+
 ## Related
 
 - → `docs/wiki/lfs-coordinator-auto-push-merge.md` (LFS + post-commit hook interaction)
 - → `docs/wiki/agent-dispatch-economics.md` (worktree-creation costs and failure modes)
-- → `coordinator/skills/project-onboarding/SKILL.md` (gitattributes audit step — propose adding)
+- → `coordinator/skills/repo-setup/SKILL.md` (gitattributes audit step — propose adding)

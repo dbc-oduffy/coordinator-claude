@@ -219,6 +219,14 @@ When a long-lived shared branch suddenly shows a large red residual (100+ failin
 
 **Rule.** Before fixing a large red residual on a refactor-heavy shared branch, **triage by attribution, not by sampling.** Dispatch read-only triage workers to classify *each* red into a bucket — `{stale-patch-target / stale-path / stale-fixture / hygiene-gap / concurrent-active / genuine-bug}` — with a fix-locus and a `safe-now` flag per entry. Then fix only the safe slice and commit per-wave; surface `genuine-bug` and `concurrent-active` separately rather than folding them into the bulk sweep. *Empirical anchor (2026-05-30):* a "97 concurrent reds" first impression triaged to ~91 fixable stale-debt entries + 6 not-ours — the bulk was landed-refactor lag, not the concurrent session's live work. Composes with test-design §26 ("pre-existing failure" is provisional — a recently-landed refactor can have created it), §43 (collection errors + slow-marking mask large populations — fix collection first, then attribute), and §56 (source-migrate without test-migrate leaves an import wall — a major stale-path source).
 
+## scope="session" autouse fixture bleeds global state into every later file
+
+A `scope="session"` autouse fixture that mutates global state (`sys.modules`, `os.environ`) restores only at session END — it bleeds into every later file in the session. A later test then trips on the leaked state. Use `scope="module"` for global-state mutators. Also: a test driving real lifespan must pin ALL env knobs via monkeypatch, not inherit ambient state. Apply: audit `scope="session"` fixtures that mutate global state and downgrade to `scope="module"`.
+
+## repro Windows daemon spawn bugs under production parent context (nohup/detached) not foreground bash
+
+Test-environment console does not equal production-environment console for child-process spawn flags. A Windows daemon bug that only manifests in production (hidden console, no stdin) may not reproduce in a foreground bash test. Always repro Windows daemon spawn bugs under production parent context: use `nohup`, `START /B`, or a fully-detached spawn wrapper to replicate the real launch conditions. Apply: any Windows daemon spawn-flag bug investigation must include a repro under production parent context before concluding the fix works.
+
 ## Related
 
 - `docs/wiki/test-design-discipline.md` — broader test discipline (fixture hygiene, assertion granularity, round-trip contract tests); §32–33 (HOME-isolation, fixture-substitution), §38 (stale-bytecode flake), §44 (bound every run)

@@ -225,7 +225,21 @@ a. **Git log check:** extract handoff date from filename/header. Run:
    ```
    Scan commit subjects for key nouns from each pending item. A subject clearly matching an item is strong evidence it shipped.
 
-b. **Plan/stub status check:** for any pending item that references a plan/stub file (`docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), Read the file's `**Status:**` field. A stub the handoff calls "pending" but whose own status reads `Shipped`, `Completed`, or `Execution complete` is closed.
+b. **Plan/stub closure check:** for any pending item that references a plan/stub file (`docs/plans/*.md`, `tasks/*/stub.md`, `tasks/*/todo.md`), determine closure via the following sources in priority order:
+
+   1. **`## Dispatch Ledger` table (preferred, when present):** Read the plan file and locate the `## Dispatch Ledger` table. Rows with `status: committed` or `status: complete` are closed chunks. If every chunk row is closed, the plan itself is closed. This is the EM-authored canonical surface — executors no longer stamp per-chunk completion into plan bodies, so a plan-body `**Status:** Execution complete — pending verification` signal no longer appears here.
+
+   2. **Git commit log (fallback):** Run:
+      ```bash
+      git log --oneline --since="<handoff-date>" --all
+      ```
+      A commit whose subject begins with `<chunk-id>:` (e.g., `C4b-workday-start: ...`) indicates that chunk shipped. A commit whose subject references a plan slug or feature name with "complete" / "done" semantics is strong evidence the plan closed.
+
+   3. **Plan-header `Status:` field (EM-authored phase transitions):** The plan's top-level `**Status:**` or frontmatter `status:` field is still valid for phase-level closure (`status: shipped`, `status: complete`, `Status: Shipped`). This field is EM-authored and reflects review / enrichment / execution phase transitions — NOT per-chunk executor stamps. Read it only when the dispatch ledger is absent or the plan has no chunks.
+
+   4. **Stub-file `**Status:**` reads (enricher surface, still valid):** A `tasks/*/stub.md` or `tasks/*/todo.md` whose own `**Status:**` reads `Shipped`, `Completed`, or `Execution complete` is closed — these are enricher-authored stubs whose completion state the enricher writes, not executor-stamped plan bodies.
+
+   > **Why the per-chunk executor stamp is gone:** the prior pattern had executors stamp `**Status:** Execution complete — pending verification` into their own chunk section of the plan body. This pattern was removed as part of the executor-sidecar-flight-recorder migration (2026-06-09). Executors no longer stamp plan bodies; that signal is absent from `docs/plans/*.md`. Spec backlink: `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`.
 
 c. **Drop confirmed-closed items.** Verified-closed items do NOT surface as today's work. Note in the report as _"verified-closed since handoff"_ so the PM sees the reconciliation was done.
 

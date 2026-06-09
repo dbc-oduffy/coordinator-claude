@@ -1,32 +1,30 @@
 #!/bin/bash
-# PreToolUse hook: Blocks subagent writes to archive/** outside the sanctioned
-# archive/completed/YYYY-MM/<entry>.md per-entry fallback shape.
+# PreToolUse hook: Unconditional backstop — blocks subagent writes to archive/**
+# outside the archive/daily-summaries/YYYY-MM-DD.md dated-file carve-out.
 #
 # Spec backlink: archive/specs/2026-05-27-cqcs-cluster1-delegate-constraint-adherence.md § E5 / § Structural Mechanism
 #
 # Problem: executors under wrap-up pressure repeatedly self-log completion into
-# archive/ (recurred 2-of-4 dispatches) even when the dispatch brief says not to.
+# archive/ even when the dispatch brief says not to (recurred 2-of-4 dispatches).
 # Per-dispatch prose is insufficient — the baseline rule in agents/executor.md §
 # Key Constraints is the calibration layer; this hook is the fail-closed safety-net
 # layer (per state/lessons.md:81 "calibration alone is insufficient — the safety-net
 # layer is what makes the system actually work").
+# agents/executor.md no longer has § Archive Fallback — executors have no sanctioned
+# archive write path other than daily-summaries. Per-entry fallback removed 2026-06-09
+# (see docs/plans/2026-06-09-executor-sidecar-flight-recorder.md).
 #
 # Fires on Write|Edit|MultiEdit|NotebookEdit when:
 #   (1) the top-level `agent_id` field is present in the hook input (i.e. a subagent
 #       is writing, not the top-level EM), AND
-#   (2) the normalized file_path matches (^|/)archive/ (any path under archive/), AND
-#   (3) the path is NOT the sanctioned archive/completed/YYYY-MM/<entry>.md per-entry
-#       fallback shape (executor.md:277 mandates this write; it is NOT a violation).
+#   (2) the normalized file_path matches (^|/)archive/ (any path under archive/).
 #
 # Allow conditions (pass through):
 #   (1) No agent_id (top-level EM write) → always allow.
 #   (2) Path not under archive/ → allow.
-#   (3) Path IS the sanctioned archive/completed/YYYY-MM/<entry>.md per-entry fallback
-#       shape → allow (P0-1 carve-out; mirrors block-completion-monolith-write.sh
-#       sub-path discrimination at lines 87-95 of that hook).
-#   (3b) Path IS archive/daily-summaries/YYYY-MM-DD.md → allow (daily-summary carve-out;
-#        the /workday-complete Step 4b analyst + Step 4c Sonnet observer are dispatched to
-#        write/append it — sanctioned, not a violation). Tightly scoped to the dated file.
+#   (3) Path IS archive/daily-summaries/YYYY-MM-DD.md → allow (daily-summary carve-out;
+#       the /workday-complete Step 4b analyst + Step 4c Sonnet observer are dispatched to
+#       write/append it — sanctioned, not a violation). Tightly scoped to the dated file.
 #   (4) Override env COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1 → allow (rare-use; e.g.
 #       an explicitly archive-authoring executor dispatch).
 #
@@ -92,9 +90,8 @@ fi
 # No agent_id → top-level EM write → allow.
 [[ -z "$AGENT_ID" ]] && exit 0
 
-# Parse file_path. F14: NotebookEdit carries notebook_path (not file_path), so fall
-# back to it when file_path is empty. MultiEdit DOES carry tool_input.file_path → already
-# covered by the primary extraction.
+# Parse file_path. NotebookEdit carries notebook_path (not file_path); fall back to it
+# when file_path is empty. MultiEdit uses file_path and is covered by the primary extraction.
 if command -v jq &>/dev/null; then
   FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null || true)
 else
@@ -122,16 +119,6 @@ if ! [[ "$FILE_PATH_NORM" =~ (^|/)archive/ ]]; then
   exit 0
 fi
 
-# P0-1 carve-out: the sanctioned archive/completed/YYYY-MM/<entry>.md per-entry
-# fallback shape (executor.md:277 mandates this write; it is NOT a violation).
-# Pattern: any path segment sequence ending in archive/completed/YYYY-MM/<file>.md
-# where YYYY = 4 digits, MM = 2 digits, and <file> is any non-empty name ending .md.
-# This is the per-entry form — NOT the monolith archive/completed/YYYY-MM.md (which
-# has no intermediate path segment and is caught by the sibling monolith hook).
-if [[ "$FILE_PATH_NORM" =~ (^|/)archive/completed/[0-9]{4}-[0-9]{2}/.+\.md$ ]]; then
-  exit 0
-fi
-
 # Daily-summary carve-out: the /workday-complete Step 4b analyst and Step 4c Sonnet
 # strategic observer are EXPLICITLY dispatched to write/append archive/daily-summaries/
 # YYYY-MM-DD.md. That is a sanctioned subagent write path, exactly like the per-entry
@@ -150,13 +137,7 @@ if [[ "$FILE_PATH_NORM" =~ (^|/)archive/daily-summaries/[0-9]{4}-[0-9]{2}-[0-9]{
   exit 0
 fi
 
-# Subagent writing under archive/ outside the sanctioned per-entry fallback → block.
-# Determine if path also matches the monolith shape (double-block) so deny message
-# can name both override vars.
-EXTRA_OVERRIDE=""
-if [[ "$FILE_PATH_NORM" =~ (^|/)archive/completed/[0-9]{4}-[0-9]{2}\.md$ ]]; then
-  EXTRA_OVERRIDE=" OR COORDINATOR_OVERRIDE_COMPLETION_MONOLITH=1 (monolith-write override)"
-fi
+# Subagent writing under archive/ outside the daily-summaries carve-out → block.
 
 # Parse session_id for log (best-effort).
 if command -v jq &>/dev/null; then
@@ -182,24 +163,23 @@ fi
 # fallback only escapes backslash + quote + newline — a raw control char would still leak.
 FILE_PATH_SAFE="${FILE_PATH//[$'\t\r\n\f\v']/ }"
 # Collapse any remaining low control chars (0x00-0x1F) to a space.
-FILE_PATH_SAFE=$(printf '%s' "$FILE_PATH_SAFE" | tr -d '\000-\010\013\014\016-\037')
+# Review: code-reviewer — simplified tr range covers full 0x00-0x1F, no gaps to audit.
+FILE_PATH_SAFE=$(printf '%s' "$FILE_PATH_SAFE" | tr -d '\000-\037')
 
 # Emit deny using hookSpecificOutput.permissionDecision → stdout → exit 0.
 # Mirrors block-off-daily-branch.sh:262-277.
-REASON="BLOCKED: subagent write to archive/ outside the sanctioned fallback path."$'\n\n'
+REASON="BLOCKED: subagent write to archive/ outside the sanctioned daily-summaries path."$'\n\n'
 REASON+="  Subagent: ${AGENT_ID}"$'\n'
 REASON+="  Target:   ${FILE_PATH_SAFE}"$'\n\n'
 REASON+="Executors under wrap-up pressure repeatedly self-log completion into archive/;"$'\n'
-REASON+="this hook is the fail-closed backstop for agents/executor.md § Key Constraints."$'\n\n'
+REASON+="this hook is the unconditional backstop. agents/executor.md no longer has an"$'\n'
+REASON+="Archive Fallback section — executors have no sanctioned archive write path"$'\n'
+REASON+="other than the daily-summaries dated file below."$'\n\n'
 REASON+="Sanctioned subagent writes under archive/ are:"$'\n'
-REASON+="  1. archive/completed/YYYY-MM/YYYY-MM-DD-<chain-slug>-<sid6>.md"$'\n'
-REASON+="     (the per-entry completion fallback — ONLY when no tracker path was given), and"$'\n'
-REASON+="  2. archive/daily-summaries/YYYY-MM-DD.md"$'\n'
+REASON+="  1. archive/daily-summaries/YYYY-MM-DD.md"$'\n'
 REASON+="     (the /workday-complete Step 4b/4c daily summary)."$'\n\n'
-REASON+="If this is the sanctioned fallback write, ensure the path matches:"$'\n'
-REASON+="  archive/completed/<YYYY-MM>/<filename>.md  (per-entry, NOT the monolith root)"$'\n\n'
 REASON+="Override (rare-use — read the hook source before invoking):"$'\n'
-REASON+="  COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1${EXTRA_OVERRIDE}"
+REASON+="  COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1"
 
 if command -v jq &>/dev/null; then
   jq -nc --arg reason "$REASON" '{
@@ -213,6 +193,8 @@ else
   esc="${REASON//\\/\\\\}"
   esc="${esc//\"/\\\"}"
   esc="${esc//$'\n'/\\n}"
+  esc="${esc//$'\r'/\\r}"
+  # Review: code-reviewer — non-jq fallback must also escape \r to avoid breaking JSON envelope.
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
 fi
 exit 0

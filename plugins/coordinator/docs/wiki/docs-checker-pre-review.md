@@ -154,6 +154,10 @@ docs-checker (and prior-art) answer "is this API claim true?" — they do not an
 
 **How to apply:** for any plan chunk that proposes to CHANGE existing code at a cited locus (vs. add new code), the domain reviewer (or a Tier-3 grep) must confirm the locus still has the shape the plan assumes — a green docs-checker is necessary but not sufficient. Cheapest catch: `grep` the symbol the chunk proposes to replace; if it only appears in comments/docstrings, the migration already happened.
 
+## Em-Dash Slug-Rot in Linked-To Headings
+
+Em-dash (or any Unicode dash `—`, `–`) in linked-to markdown headings causes silent slug-rot. GitHub's anchor slugger strips Unicode dashes, so `## Foo — Bar` generates slug `#foo--bar` (missing the dash), not `#foo-bar`. Links to the heading silently 404. Prefer ASCII hyphens in headings expected to be linked from other files. doc-link-checker is the mechanical catch. Also: doc-link-checker mis-parses backtick-quoted filenames inside inline-code expressions (e.g., `` `file.py` ``) as link targets — filter the report by resolved-path sanity before treating broken-link count as meaningful.
+
 ## Recalibration
 
 The EM Decision Rules table is calibrated against the current Claude model's training distribution. Re-evaluate when the underlying model changes. A note is recorded in `state/coordinator-improvement-queue.md` to flag this for the next model upgrade.

@@ -4,6 +4,83 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+### Breaking changes
+
+`/project-onboarding` and `/bootstrap-repos` consolidated into single `/repo-setup` command (2026-06-08). Migration:
+
+| Old verb | New verb |
+|---|---|
+| `/project-onboarding` | `/repo-setup` |
+| `/bootstrap-repos` | `/repo-setup --batch` |
+
+Rationale: new-project setup is infrequent enough that muscle-memory cost is low. Single consolidated surface eliminates the "which verb do I invoke when" decision the prior dual-surface architecture imposed on every setup site. See `docs/plans/2026-06-08-repo-setup-consolidation.md` (and the Decision-#0 reversal of 2026-05-30 in that plan) for the full architectural rationale.
+
+## [2.8.1] — 2026-06-01
+
+Patch release — 2026-06-01 weekly-close ceremony residual: install-surface exec-bit fix, an acceptance-oracle shell-test prefix, review-trail `scope_kind`, weekly-gate test hardening, plus the nomenclature cleanups deferred from 2.8.0.
+
+### Fixed
+
+- **Exec bit restored on 168 coordinator hook/bin `.sh` scripts.** Scripts under `coordinator/hooks/scripts/` and `coordinator/bin/` were committed at mode `100644`; on fresh Mac/Linux clones (and OSS publish repos) scripts invoked as `./x`, gated by `[[ -x ]]`, or run as bare `hooks.json` commands silently never ran (Windows masked it). Now `100755`, with an `exec-bit.test.js` lint pinning the invariant. Two mirror files owned by sibling source repos are allowlisted and memo'd to their EMs.
+- **Weekly code-review gate test hardening.** The `block-no-verify` CRLF-regression test is now portable (removed GNU-only `grep -P`; `#!/usr/bin/env bash`) and fails loud when CRLF injection produces no CR bytes (was silently passing with zero coverage).
+- **Restored a dropped behavioral spec block** in `setup.md` (the install "Test surface" expectations) lost during a line-ceiling trim.
+
+### Added
+
+- **`sh:` / `bash:` typed-prefix in the acceptance-oracle checker.** Gate-bound shell-script ACs (this repo's `.sh` test convention) can now be expressed and run (exit 0 = pass), with a path-validation guard (rejects `..`, absolute, non-existent script paths) before dispatch. Closes the false-red at `/merge-to-main` Step 0a.
+- **Typed `scope_kind` (`diff` | `plan` | `integration`) on review-trail records.** The weekly scope helper classifies via the typed field (plan/integration → skip; diff → process) instead of fragile `..`-presence inference, with a backward-compatible fallback for existing records.
+
+### Changed
+
+- **`reviewed_at_session_end` handoff frontmatter key renamed to `reviewed_at_workstream_complete`.** 2.8.0 deliberately kept the old key name for record back-compat (the command/data-field split). That constraint turned out to be empty — the field is write-only (no consumer reads it) and zero handoff records, live or archived, ever carried it — so the back-compat justification was moot. The key now matches the renamed ceremony. Schemas (`handoff.yaml`, `handoff-archived.yaml`), the `/handoff` frontmatter template, and the spinoff anti-scope note are updated; no record migration was needed.
+
+### Removed
+
+- **`/session-start` and `/session-end` deprecation aliases removed.** The transition stubs shipped in 2.8.0 (aliasing to `/workstream-start` / `/workstream-complete`) are gone. The aliases were live for a single release cycle; the rename had already landed and the stubs carried no behavior of their own. Use `/workstream-start` and `/workstream-complete`. (Temporal "session start/end" prose and the `SessionStart`/`SessionEnd` platform hooks are unaffected — only the slash-command aliases were removed.)
+
+## [2.8.0] — 2026-06-01
+
+Minor release — lifecycle skill renames and nomenclature correction, plus a cross-repo-memo discovery surface, the install-contract orientation layer, and a generalized git-tag cut seam.
+
+### Added
+
+- **`cross-repo-memo --list-receivers`.** A canonical enumerator of every valid `--to` target (Claude Central first, then registered siblings with their paths). The previously-documented discovery path (`machine-local keys | grep '^repos\.'`) structurally could not surface Claude Central — it is special-cased to `~/.claude`, not a `repos.*` key — so a sibling EM enumerating receivers that way concluded "central isn't registered" and hand-authored into the inbox, the exact anti-pattern the CLI exists to prevent. The new flag also filters out publish-target mirrors so a repo where no EM reads inbound memos can never appear as a discoverable receiver (closes a latent `--to deep-research-em` misdelivery into the OSS mirror).
+- **Install-contract orientation-supersession layer.** A continuing onboarding/install chain driven by the coordinator trunk: a durable continuation-handoff layer, conditional-and-live `supersedes:` on `kind: spinoff` batons (validated in the handoff frontmatter schema), and narrative coherence across the install/orient surfaces with a `provision` sub-axis. Captured in `agent-install-contract.md` and the continue-onboarding template.
+
+### Changed
+
+- **`/session-start` → `/workstream-start` (skill rename).** The PM-invoked front-of-session orientation skill is now `/workstream-start`. The old name `/session-start` is a deprecation alias that resolves to the same skill; it will be removed in a future major release. Update any automation or documented workflows that reference `/session-start`.
+- **`/session-end` → `/workstream-complete` (skill rename).** The PM-invoked end-of-session wrap-up skill is now `/workstream-complete`. The old name `/session-end` is a deprecation alias; same removal timeline. The mutual-exclusion doctrine (`/handoff` vs. `/workstream-complete`) is unchanged — just the command name.
+- **"session boot" coinage reverted.** The term "session boot" (used briefly in doctrine to name the automatic open-session machinery) has been removed. The platform hook is `SessionStart` (PascalCase, no slash); temporal prose uses "session start"; neither role needed a separate coined term. Doctrine updated across `CONTEXT.md` and `coordinator/CLAUDE.md`.
+- **`merging-to-main` Mode A git-tag cut seam generalized (DR-149).** The Step 1.5 Mode A cut (`tag_anchor: git-tag`) gains two optional, additive `coordinator.local.md` knobs — `tag_prefix:` (default empty → bare `vX.Y.Z`; e.g. `holodeck-` → `holodeck-vX.Y.Z`) and `version_source:` (default `manifest` reads `pyproject`/`package.json`/`Cargo`; `tag` treats the latest `${tag_prefix}v*` tag as the version SSOT). Defaults reproduce the current bare-`v*` behavior exactly — non-breaking — so one cut seam now serves single-package repos and prefixed multi-version-line repos alike instead of forcing a hand-rolled fork.
+- **Receiver-side ceremony calibration for memo pickup.** `/pickup` now scales its ceremony to the inbound memo's `--kind` rather than applying full workstream rigor to every memo, with the calibration recorded in `ceremony-calibration.md`.
+
+### Motivation
+
+The `{session}-start` / `{session}-end` skill names shadowed the `SessionStart` / `SessionEnd` platform hook identifiers, creating a three-way collision (skill slash-command, platform hook key, temporal phrase). Renaming to `workstream-*` breaks the collision: platform hooks keep `SessionStart`/`SessionEnd` (PascalCase, no slash); temporal "session start/end" prose stays as free English; the PM-invoked skills are now `workstream-start`/`workstream-complete`.
+
+### Migration
+
+```diff
+- /session-start
++ /workstream-start
+
+- /session-end
++ /workstream-complete
+```
+
+Deprecation aliases are active during the transition window — existing invocations continue to work. The `reviewed_at_session_end` frontmatter key is **not** renamed (it is a data key, not a command reference).
+
+## [2.7.1] — 2026-06-01
+
+Patch release — the 2026-06-01 weekly-close ceremony fixes.
+
+### Fixed
+
+- **Weekly validation gate unblocked.** `validate-capability-catalog` now reads the union of `capability-catalog*.md` so holodeck-domain agents documented in the `.holodeck.md` split count as covered; `_plugin_discovery` skips nested-git/submodule plugin dirs so the meta-repo no longer gates its release on a submodule's internal files; `setup.md` trimmed under the 500-line ceiling.
+- **`block-no-verify.sh` made CRLF-robust.** The `FLAT_COMMAND` pipeline is collapsed onto a single physical line so a transient working-tree CRLF can't make a backslash-continuation escape the CR and crash the hook (which had denied all Bash mid-session).
+- **`workweek-trail-scope.sh` hardened.** Skips (warns) trail records whose `sha_range` isn't a diff range instead of aborting the weekly gate on a co-located plan-review record, and validates `sha_range` against git-argument injection before handing it to git.
+
 ## [2.7.0] — 2026-05-31
 
 Minor release. A large batch of session-lifecycle, hook, and skill work, plus the previously-undocumented 2.6.0 safety hook folded in. Headlines: EM-environment and boundary-guard hooks, a generated-tracker system, the cross-repo memo `--kind` lifecycle, the fan-out demotion, and assorted reviewer/skill hardening.
@@ -55,7 +132,7 @@ Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-
 - **`docs/wiki/machine-local-registry.md § 4a`** — new doctrine section: filesystem-layout invariant (`.claude.json` and `.claude/` are SIBLINGS under `$HOME`, never nested); resolution-order precedence with rationale for why `CLAUDE_HOME` ranks ABOVE `HOME` (unlike `MACHINE_LOCAL_<KEY>` env vars which rank BELOW the registry); generic `read_config` / `write_config` JSON I/O surface; alignment policy naming project-rag as the canonical consumer to retire its inline copy.
 - **`coordinator/lib/install-substrate.sh`** — new helper encapsulating `/coordinator:setup` Phase 3 mechanical work (machine-local substrate, bin/ resolver install, Windows PATH integration, Windows Python-resolution health checks: orphan AppX stub detection with `[y/N]` consent, store-alias-on-PATH warning, no-Python-at-all warning). Replaces ~190 lines of inline bash in `setup.md`; setup.md now describes the contract while the script does the work. Fail-loud on missing template directories (hard precondition for downstream skills).
 - **`coordinator/lib/discover-working-repos.sh`** — new helper encapsulating `/coordinator:setup` Phase 2 Step 4 working-repos discovery (Tier A: `~/.claude/projects/` activity record; Tier B: common dev-folder layouts). Tier C interactive prompt remains in `setup.md`.
-- **`coordinator/lib/workweek-trail-scope.sh`** — new helper encapsulating the `/workweek-complete` Step 7 prelude logic (parses `tasks/week-changelog/HEADER.md`, globs `tasks/review-trail/*.json`, computes `patrik_scope = unreviewed_week_SHAs ∪ cross-segment-seam SHAs`, writes `tasks/review-trail/.weekly-reviewer-scopes.json`). Subprocess-only, fail-loud, spec-backlinked. Same shape as `install-substrate.sh`.
+- **`coordinator/lib/workweek-trail-scope.sh`** — new helper encapsulating the `/workweek-complete` Step 7 prelude logic (parses `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, computes `patrik_scope = unreviewed_week_SHAs ∪ cross-segment-seam SHAs`, writes `state/review-trail/.weekly-reviewer-scopes.json`). Subprocess-only, fail-loud, spec-backlinked. Same shape as `install-substrate.sh`.
 - **`coordinator/snippets/meta-ask-preamble.md` + `bin/verify-meta-ask-preamble-sync.sh`** — new shared preamble snippet plus a sync verifier in the tripwires registry; ergonomic substrate for the eager-agent-calibration doctrine.
 - **`coordinator/docs/wiki/eager-agent-calibration.md`** — new wiki capturing the design-as-offers ethos: agent-facing tooling defaults to offer-shape (lead with the better alternative), not nag-shape. Referenced from `~/.claude/CLAUDE.md § Implementation Standards`.
 - **`coordinator/bin/verify-templates-bin-sync.sh`** — new verifier ensuring `templates/bin/` resolver scripts stay in sync between source and install targets.
@@ -67,7 +144,7 @@ Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-
 - **`commands/workday-start.md`** — 545 → 496 lines. Prose compaction only; no extraction. Doctrine preserved (every step number, precedence rule, exit code, behavioral trigger intact).
 - **`commands/workweek-complete.md`** — 651 → 498 lines. Step 7 prelude extracted to `lib/workweek-trail-scope.sh`; Step 4c UBT-gate, Step 4f enabledPlugins-drift, and Step 9.2 editorial-worker prose-compacted. All MANDATORY steps and gate behaviors preserved.
 - **`skills/learn-lessons/SKILL.md`** — 593 → 499 lines. Prose compaction (merged duplicate Anti-Patterns entries, condensed DoE-adjudication rationale, tightened Local-mode auto-apply bounds). All five modes-and-cadence rules, the four-check gate, the routing schema, and the Change-Kind taxonomy intact.
-- **`skills/project-onboarding/SKILL.md`** — 528 → 498 lines. Prose compaction (collapsed lazy-dir bullet enumeration to a reference to the existing table; compacted inline `docs/README.md` template from 43 to 28 lines). No phase ordering or behavior change.
+- **`skills/repo-setup/SKILL.md`** (formerly `skills/project-onboarding/SKILL.md`) — 528 → 498 lines. Prose compaction (collapsed lazy-dir bullet enumeration to a reference to the existing table; compacted inline `docs/README.md` template from 43 to 28 lines). No phase ordering or behavior change.
 
 ### Fixed
 
@@ -99,7 +176,7 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machin
 - **`docs/wiki/percolate-setup.md` Step 2** default-registers via `machine-local set publish.targets.<name>`; the legacy `publish-targets.sh` path is reachable only via `--legacy` flag.
 - **`setup/publish.sh`** uses a portable PY fallback chain (`python3 || py -3 || python` with fail-loud) instead of bare `python`, so the script works on Linux/macOS AND Windows Git Bash. Smoke `--dry-run` clean across 4 targets.
 - **`/session-start` orientation health-check** now invokes `python3 -m coordinator_whoami.project_rag --human` (gated on `coordinator_whoami` importability) as a spot-check of the coordinator/project-rag binding. Cites `coordinator-doctor.md` P-6.
-- **`/project-onboarding` Phase 4 Next Steps** cites `coordinator_whoami` as the canonical introspection surface with a one-line bootstrap pointer to `coordinator-doctor.md` P-1 through P-4 for machine-local health verification.
+- **`/repo-setup` (formerly `/project-onboarding`) Phase 4 Next Steps** cites `coordinator_whoami` as the canonical introspection surface with a one-line bootstrap pointer to `coordinator-doctor.md` P-1 through P-4 for machine-local health verification.
 
 #### Fixed (substrate)
 
@@ -134,7 +211,7 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 ### Changed
 
 - **Mandatory end-of-run Sonnet code review in mise-en-place Phase 6.** `/mise-en-place` now requires a minimum-Sonnet review on the cumulative diff before declaring the run complete; fires in both standard and hibernate modes (doctrine commit `e592b2d1`).
-- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on the diff. Records land in `tasks/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
+- **Session-end review doctrine recalibrated.** Reverted the closed-set blacklist over-correction; encoded a four-point shape framing for when `/session-end` and `/handoff` warrant a Sonnet (default) or Sonnet+the Staff Engineer (chain-end escalation, EM-judged) code review on the diff. Records land in `state/review-trail/*.json` and feed `/workday-complete` Step 9 + `/workweek-complete` Step 7. Doctrine: `docs/wiki/session-end-review.md`.
 - **Bare-slash skill invocations standardized for 24 coordinator skills/commands.** `name:` frontmatter doctrine captured in `docs/wiki/writing-skills.md`.
 - **`depersonalize-for-publish.sh` hardened** — extended identity-vocab and JSON coverage; sanitization sweep over 10 wikis + the 3 deferred wikis; PM-D2 placeholders, PM-D3 ue-bootstrap exclusion, PM-D4 disclaimer integrated.
 
@@ -241,12 +318,12 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 
 ### Theme A — Workday/workweek cadence split
 
-`/workday-complete` had grown to 306 lines doing double duty: lightweight daily housekeeping AND release-grade ceremony. Multi-day workstreams don't fit a daily wrap, so the heavy half either got skipped or fired at the wrong cadence. This release splits the cadence into daily and weekly bookends, with a structured `tasks/week-changelog/` ledger acting as a thin index over handoffs (which remain the unit of session continuity).
+`/workday-complete` had grown to 306 lines doing double duty: lightweight daily housekeeping AND release-grade ceremony. Multi-day workstreams don't fit a daily wrap, so the heavy half either got skipped or fired at the wrong cadence. This release splits the cadence into daily and weekly bookends, with a structured `state/week-changelog/` ledger acting as a thin index over handoffs (which remain the unit of session continuity).
 
 ### Added
-- **`/workweek-start`** (new) — PM-invoked strategic orient at the start of a week. Reads the prior week's changelog, surfaces stalled workstreams, runs an orphan sweep, prompts the PM for 1–3 priorities, and resets-or-updates `tasks/week-changelog/HEADER.md` based on whether a `/workweek-complete` has occurred since the last `/workweek-start`.
+- **`/workweek-start`** (new) — PM-invoked strategic orient at the start of a week. Reads the prior week's changelog, surfaces stalled workstreams, runs an orphan sweep, prompts the PM for 1–3 priorities, and resets-or-updates `state/week-changelog/HEADER.md` based on whether a `/workweek-complete` has occurred since the last `/workweek-start`.
 - **`/workweek-complete`** (new) — PM-invoked release-grade close. Reads the week-changelog as canonical record, runs full validation + `/update-docs` + ShellCheck + Codex review + improvement-queue triage + scc snapshot, drafts release notes from changelog + `archive/completed/`, surfaces a version bump, invokes `/merge-to-main`, archives the daily files, and resets the HEADER.
-- **`tasks/week-changelog/`** convention — per-machine daily files (`YYYY-MM-DD-{hostname}.md`) + shared `HEADER.md`. Per-machine layout eliminates concurrent-write conflicts when multiple machines wrap the same calendar day.
+- **`state/week-changelog/`** convention — per-machine daily files (`YYYY-MM-DD-{hostname}.md`) + shared `HEADER.md`. Per-machine layout eliminates concurrent-write conflicts when multiple machines wrap the same calendar day.
 - **`bin/check-weekly-staleness.sh`** — emits `STALE` / `MILD` / `FRESH` / `UNKNOWN` based on days-since-last-weekly + commits-since-last-weekly thresholds (≥5 days AND ≥15 commits = STALE). Consumed by daily nudge and both weekly commands.
 - **`/pickup` "while you were away" surface** — when the named handoff is from a prior day (not a same-day baton pass), surfaces one-line summaries of changelog blocks since the handoff date, capped at ~10 lines. Strengthens the handoff/pickup backbone for multi-workstream weeks.
 - **`docs/wiki/workday-workweek-cadence.md`** — tutorial guide for the new cadence.
@@ -256,7 +333,7 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 - **`plugins/coordinator/CLAUDE.md`** — new "Workday/Workweek Cadence" doctrine section ("handoffs are the atom, the changelog is the index"); existing improvement-queue triage rule updated to reflect daily-nudge / weekly-action split.
 
 ### Migration
-- Existing projects do not need to do anything. `tasks/week-changelog/HEADER.md` is shipped as a seed template; first `/workweek-start` populates it. Until then, `bin/check-weekly-staleness.sh` returns `UNKNOWN` (no nudge fires).
+- Existing projects do not need to do anything. `state/week-changelog/HEADER.md` is shipped as a seed template; first `/workweek-start` populates it. Until then, `bin/check-weekly-staleness.sh` returns `UNKNOWN` (no nudge fires).
 - Existing `/workday-complete` workflows continue to work — the command does less, but everything it still does was already there.
 - `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
 
@@ -265,11 +342,11 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
 
-Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodeck `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `tasks/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
+Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodeck `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
 
 #### Added
 - **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
-- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `tasks/lessons.md`.
+- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `state/lessons.md`.
 - **W3 — `staff-eng` (the Staff Engineer)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
 - **W4 — `staff-game-dev` (the Game Dev Reviewer (`game-dev:staff-game-dev`))** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
 - **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
@@ -355,7 +432,7 @@ Promotes the `docs-checker` Sonnet agent from optional reporting-only to a sugge
 - **`plugins/coordinator/skills/requesting-code-review/SKILL.md`**, **`plugins/coordinator/skills/requesting-staff-session/SKILL.md`** — pointer to docs-checker pre-flight in review-setup steps.
 
 ### Internal
-- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `tasks/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
+- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `state/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
 
 ## [1.7.1] — 2026-05-03
 
@@ -425,7 +502,7 @@ The git tree is the only authoritative answer to "is this shipped." Handoffs, do
 A run of small, related changes converging on one principle: the code we ship runs on machines we've never seen, in projects we don't own, in shells we didn't configure. Portability is the baseline, not a feature.
 
 ### Added
-- **Agent-driven install as first-class path** — `README.md` Quick Start replaces the `git clone && bash install.sh` block with a paste-to-agent prompt pointing at `docs/agent-install.md`. The agent reads the playbook, runs the installer, validates the result, and queues `/project-onboarding` as the immediate post-restart step. New `docs/agent-install.md` is written second-person to the agent — prereq checks, plugin selection guidance, manual fallback section, failure modes. Manual install steps remain in `docs/getting-started.md` but are no longer surfaced from the front page.
+- **Agent-driven install as first-class path** — `README.md` Quick Start replaces the `git clone && bash install.sh` block with a paste-to-agent prompt pointing at `docs/agent-install.md`. The agent reads the playbook, runs the installer, validates the result, and queues `/repo-setup` (was `/project-onboarding` pre-2026-06-08) as the immediate post-restart step. New `docs/agent-install.md` is written second-person to the agent — prereq checks, plugin selection guidance, manual fallback section, failure modes. Manual install steps remain in `docs/getting-started.md` but are no longer surfaced from the front page.
 - **Doctrine rule: "Build For Someone Else's Machine"** (in `coordinator/CLAUDE.md`) — generalizes the older "Shipped Code Has No Home Field" intuition into a concrete fallback chain: explicit flag → env var → marker auto-discovery → silent skip (opt-in) or hard error with remediation (explicitly invoked). Hardcoded local paths are last-resort only. Project-scoped tools need a cwd-scope guard. Test fixtures and battle-story comments are exempt.
 - **Project-RAG project-scope guard** — single-source preamble (`snippets/project-rag-preamble.md`) gains a guard so agents skip project-RAG calls when the indexed repo doesn't match the current working directory. Propagated to all 8 sentinel-fenced consumers via `bin/verify-preamble-sync.sh --fix`. Prevents wrong-project pollution when an agent is dispatched in repo A while project-RAG is indexed against repo B.
 

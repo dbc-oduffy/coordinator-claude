@@ -1,0 +1,72 @@
+#!/bin/bash
+# Pre-commit hook for the ~/.claude meta-repo: assert exec-bit on .sh files
+# under plugins/*/{hooks,bin}/ before drift can land.
+#
+# Surfaced by a project-rag /merge-to-main hook-suite failure on 2026-06-08:
+# the meta-repo gate at /workday-complete Step 5 was correctly placed but
+# only fired end-of-day; in the 80-min window between drift-introduction
+# and the consumer merge, no /workday-complete had run. This hook moves
+# drift detection from end-of-day to commit-time.
+#
+# Scope: only fires inside the meta-repo (recognized by ~/.claude/.git).
+# Outside that repo it exits 0 immediately — consumer repos do not host
+# the plugin source tree, so the test would be a no-op anyway.
+#
+# Cost: ~0.5s per commit (measured 2026-06-09). Below the annoyance floor.
+#
+# Spec backlink: cross-repo/inbox/2026-06-08-exec-bit-drift-runtime-tripwire-tests.md
+
+set -euo pipefail
+
+# Review F2: fail fast on empty REPO_ROOT — `|| true` followed by `canon ""`
+# silently resolved to cwd, breaking the meta-repo identity guard on detached
+# HEAD or outside-git contexts.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$REPO_ROOT" ] || exit 0
+
+META_REPO="$HOME/.claude"
+
+# Canonicalize both sides — symlink resolution on macOS, /c/ vs C:\ on Git-Bash.
+# BSD-portable: prefer `cd && pwd -P`, fall back to literal compare.
+# Empty-input guard prevents `cd ""` from succeeding silently as a no-op.
+canon() {
+  [ -n "$1" ] || { echo ""; return; }
+  (cd "$1" 2>/dev/null && pwd -P) || echo "$1"
+}
+if [ "$(canon "$REPO_ROOT")" != "$(canon "$META_REPO")" ]; then
+  exit 0
+fi
+
+# Review F1: override must short-circuit BEFORE the test runs, not after the
+# failure print — otherwise stderr shows "Fix and re-commit" immediately
+# followed by "override accepted; commit proceeding", which is contradictory.
+if [ "${COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT:-}" = "1" ]; then
+  echo "pre-commit: exec-bit check skipped (COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1)." >&2
+  exit 0
+fi
+
+# Review F4: silent-skip if node is missing — otherwise `set -e` + 127 from
+# `node --test` blocks the commit with an opaque "command not found".
+# /workday-complete Step 5 remains the backstop for nodeless machines.
+if ! command -v node >/dev/null 2>&1; then
+  exit 0
+fi
+
+EXEC_BIT_TEST="$META_REPO/plugins/coordinator-claude/coordinator/tests/plugin-ecosystem/exec-bit.test.js"
+if [ ! -f "$EXEC_BIT_TEST" ]; then
+  # Test not present (partial checkout, mid-rebase, fresh clone before npm) —
+  # do not block the commit. The /workday-complete Step 5 gate remains the
+  # backstop.
+  exit 0
+fi
+
+# Review F3: `node --test` writes structured failure detail (including the
+# `git update-index --chmod=+x` fix command) to stdout. Merge both streams
+# so CI configurations that split stdout/stderr see the actionable line
+# alongside the "drift detected" framing.
+if ! node --test "$EXEC_BIT_TEST" 2>&1 >&2; then
+  echo "" >&2
+  echo "pre-commit: exec-bit drift detected (above). Fix and re-commit." >&2
+  echo "Override (PM-authorized only): COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1 git commit ..." >&2
+  exit 1
+fi

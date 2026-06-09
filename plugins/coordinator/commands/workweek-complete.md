@@ -106,6 +106,25 @@ If not triggered: note _"Improvement queue: K entries, oldest YYYY-MM-DD — no 
   Surface findings to the weekly triage list. Treat the same as the merge-time
   step: PM dispositions; never a workweek-complete blocker.
 
+### Cruft-sweep verification (read-only)
+
+Surface the Layer 1 cruft-sweep cadence in the weekly summary. Read-only — no `--apply` from here.
+
+```bash
+# Last sweep timestamp + reclaimable size (if log exists)
+if [[ -f ~/.claude/state/cruft-sweep-log.md ]]; then
+  # Review: Slice C reviewer F5 — log is pipe-delimited; awk '{print $1}' returns "|" not timestamp.
+  # Use field-split on "|" and strip spaces from field 2 (the timestamp column).
+  LAST=$(tail -1 ~/.claude/state/cruft-sweep-log.md | awk -F'|' '{gsub(/ /, "", $2); print $2}')
+  echo "Cruft-sweep last run: ${LAST:-never}"
+fi
+bash ~/.claude/plugins/coordinator/bin/cruft-sweep.sh --class all --dry-run --quiet 2>&1 | tail -1
+```
+
+If staleness exceeds 21 days OR the dry-run reports > 2 GB reclaimable, surface a one-line note in the weekly summary: _"Cruft-sweep cadence drift — N days since last run, X MB reclaimable. Invoke `/cruft-sweep` to action."_
+
+See `docs/wiki/cruft-sweep-cadence.md` for the full cadence + class breakdown.
+
 ---
 
 ## Step 4b: Install OOM Reproducer Freshness Check

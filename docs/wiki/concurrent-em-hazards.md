@@ -62,13 +62,13 @@ git add -- <paths> && git commit -m "<subject>" -- <paths>
 
 The trailing `-- <paths>` on `git commit` is non-negotiable — it scopes the commit by pathspec regardless of what else landed in the index. If a commit returns "no changes added," the work is likely in the reflog under a sibling's SHA — probe before retrying (see R4). Full treatment in [`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Atomic stage+commit gesture".
 
-### H4 — A sibling's session-end / blanket sweep absorbs your in-flight edits
+### H4 — A sibling's workstream-complete / blanket sweep absorbs your in-flight edits
 
 **Symptom.** Your uncommitted edits ship inside a sibling's commit; that commit's subject doesn't describe your work. Or your staged handoff `git mv` is reverted by the same sweep.
 
-**Trap.** While you hold an edit uncommitted, a concurrent `/session-end`, `/workday-complete`, or `--blanket` sweep stages and commits whatever is dirty in the tree — including your work. This is the inverse of H1 (you're the victim, not the polluter), and it is structurally undefendable from your side once the edit is dirty and unguarded.
+**Trap.** While you hold an edit uncommitted, a concurrent `/workstream-complete`, `/workday-complete`, or `--blanket` sweep stages and commits whatever is dirty in the tree — including your work. This is the inverse of H1 (you're the victim, not the polluter), and it is structurally undefendable from your side once the edit is dirty and unguarded.
 
-**Rule.** **Commit shared / hot files explicitly and immediately after the edit — never batch them for session-end.** For known shared buses (`tasks/lessons.md`, `tasks/improvement-queue.md`, shared registration/index files), `git add -- <file> && git commit -m "..." -- <file>` the moment the edit is complete. The window between edit and commit is the entire attack surface; close it to near-zero.
+**Rule.** **Commit shared / hot files explicitly and immediately after the edit — never batch them for workstream-complete.** For known shared buses (`state/lessons.md`, `state/improvement-queue.md`, shared registration/index files), `git add -- <file> && git commit -m "..." -- <file>` the moment the edit is complete. The window between edit and commit is the entire attack surface; close it to near-zero.
 
 ### H5 — Committing a shared registration/index file ships a HEAD that imports untracked modules
 
@@ -147,6 +147,7 @@ Rescue only genuinely-unique content (e.g. an uncommitted lesson), then `git sta
 - **Before:** `git diff --cached --name-only` (full staged set).
 - **After:** `git show --stat HEAD` (confirm the file list matches intent).
 - **After high-concurrency fan-out (N>5):** `git log -p --since="<dispatch-start>"` audit before merge — look for diffs exceeding their subject's scope and ghost commits with no clear attribution.
+- **Verify your commit landed with `git log -N | grep <subject>`, never `git log -1`.** On a shared branch, `git log -1` may show a sibling's commit; grep recent log for your own subject line to confirm your commit actually landed.
 
 ### H11 — `git checkout --ours` and mtime pitfalls
 
@@ -164,7 +165,7 @@ Rescue only genuinely-unique content (e.g. an uncommitted lesson), then `git sta
 
 **Trap.** Same-repo sibling sessions are not addressable. Touching their dirty file is the H1/H4 collision; you have no channel to ask them to commit first.
 
-**Rule.** **Split at the concurrency seam.** Commit the clean part of your fix; write a dated `archive/YYYY-MM-DD-<topic>.md` memo with the exact atomic change + file links; leave their dirty file untouched. The receiving session reads the memo and lands it. Distinct from a cross-repo memo (PM-relay, different repo) and from Agent Teams `SendMessage` (same team context). → [`cross-repo-communication.md`](./cross-repo-communication.md) § same-repo concurrent sessions. If you discover >100 LOC of unstaged changes in a shared file you didn't edit, an active peer is on that surface — surface to PM, edit unrelated files only, resume after they commit ([`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Large unstaged diff in shared files").
+**Rule.** **Split at the concurrency seam.** Commit the clean part of your fix; write a dated `archive/YYYY-MM-DD-<topic>.md` memo. Also: a `consumed`/`in_flight` handoff stamp is a collision signal — grep the shared branch before building on a handoff that shows this status. with the exact atomic change + file links; leave their dirty file untouched. The receiving session reads the memo and lands it. Distinct from a cross-repo memo (PM-relay, different repo) and from Agent Teams `SendMessage` (same team context). → [`cross-repo-communication.md`](./cross-repo-communication.md) § same-repo concurrent sessions. If you discover >100 LOC of unstaged changes in a shared file you didn't edit, an active peer is on that surface — surface to PM, edit unrelated files only, resume after they commit ([`scoped-safety-commits.md`](./scoped-safety-commits.md) § "Large unstaged diff in shared files").
 
 ### H13 — Scope process-kills to your own invocation, not the runtime class
 
@@ -222,7 +223,7 @@ Identify the sibling commit; if it absorbed your files they're now in HEAD under
 A peer session co-driving your workstream is invisible until you look. Two read-side checks before treating branch state as yours:
 
 - **At pickup.** If the workstream branch shows commits since your orientation point you didn't author, suspect a parallel EM session. Run `git log --since=<handoff-date> --oneline` and `ls archive/ cross-repo/` to surface sibling commits and dropped memos. (Folds into `/pickup` concurrent-EM detection.)
-- **Before launching a plan pipeline.** Survey `git log --oneline` on the workstream for concurrent work — a peer may be co-driving the same plan. Grep for sibling plans before reverting "out-of-scope drift" as contamination (it may be a sibling's legitimate in-flight work). (Folds into `/session-start` / `/workday-start` concurrent-workstream surfacing.)
+- **Before launching a plan pipeline.** Survey `git log --oneline` on the workstream for concurrent work — a peer may be co-driving the same plan. Grep for sibling plans before reverting "out-of-scope drift" as contamination (it may be a sibling's legitimate in-flight work). (Folds into `/workstream-start` / `/workday-start` concurrent-workstream surfacing.)
 - **Peer detection uses remotes, not `--branches`.** `git branch --branches` is structurally wrong for detecting concurrent EMs — peers are visible only via `origin/work/{peer}/*` remote refs. Use `git for-each-ref refs/remotes/origin/work/` to enumerate peer machines' active branches.
 - **Before authoring overlapping code fixes**, a concurrent-EM peer `git log` check on the target paths — a sibling may have already fixed it. → [`daily-branch-discipline.md`](./daily-branch-discipline.md).
 
@@ -240,21 +241,21 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 ### H15 — Concurrent `/update-docs` silently pre-populates archive and orientation entries
 
-**Symptom.** You reach `/session-end` to write an archive entry or update the orientation cache, only to find the entries are already there — or worse, you write a duplicate.
+**Symptom.** You reach `/workstream-complete` to write an archive entry or update the orientation cache, only to find the entries are already there — or worse, you write a duplicate.
 
 **Trap.** A sibling session running `/update-docs` while you were working may have swept your commit hashes into `archive/completed/`, the orientation cache, and the project tracker. The sibling cannot tell you; the surfaces look clean until you diff.
 
-**Rule.** Before adding any archive/orientation entry at session-end, grep `archive/completed/` for your commit hashes and check the orientation cache's `git_head_at_generation` field. If your work is already indexed, skip the entry — do not add a duplicate. Duplicates cause merge friction and wasted edits on shared branches.
+**Rule.** Before adding any archive/orientation entry at workstream-complete, grep `archive/completed/` for your commit hashes and check the orientation cache's `git_head_at_generation` field. If your work is already indexed, skip the entry — do not add a duplicate. Duplicates cause merge friction and wasted edits on shared branches.
 
-*Source: holodeck `tasks/lessons.md` (holodeck-L37, central-promoted 2026-05-28).*
+*Source: holodeck `state/lessons.md` (holodeck-L37, central-promoted 2026-05-28).*
 
-### H16 — Shared-file edits under concurrent EMs get clobbered at session-end
+### H16 — Shared-file edits under concurrent EMs get clobbered at workstream-complete
 
-**Symptom.** Edits to `tasks/lessons.md` or `tasks/improvement-queue.md` accumulated during a session vanish when a concurrent session commits its own version before your session-end commit.
+**Symptom.** Edits to `state/lessons.md` or `state/improvement-queue.md` accumulated during a session vanish when a concurrent session commits its own version before your workstream-complete commit.
 
-**Trap.** `tasks/lessons.md` and similar shared buses are last-writer-wins on the working tree. A staged `git mv` or pending edit held for the batched session-end commit is overwritten the moment a sibling's commit/checkout touches the same path (H4). Two lessons appended mid-session can be silently lost.
+**Trap.** `state/lessons.md` and similar shared buses are last-writer-wins on the working tree. A staged `git mv` or pending edit held for the batched workstream-complete commit is overwritten the moment a sibling's commit/checkout touches the same path (H4). Two lessons appended mid-session can be silently lost.
 
-**Rule.** When editing a known shared file during a multi-session window, commit it immediately after the edit — `git add -- <file> && git commit -m "..." -- <file>` — rather than holding it for the batched session-end commit. The window between edit and commit is the entire attack surface; close it to near-zero.
+**Rule.** When editing a known shared file during a multi-session window, commit it immediately after the edit — `git add -- <file> && git commit -m "..." -- <file>` — rather than holding it for the batched workstream-complete commit. The window between edit and commit is the entire attack surface; close it to near-zero.
 
 ### H17 — Line-number-keyed allow-lists drift silently under concurrent editing
 
@@ -264,13 +265,13 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 **Rule.** Reconcile via the test's own collectors (e.g., `_collect_hits` + stale-key diff), not truncated pytest output. Longer-term, such registries should key on a stable marker (function signature, symbol name), not line number. When taking over a `file:line`-keyed registry, treat any pre-existing drift comments as a structural warning — the registry design will fail again.
 
-### H18 — Session-end housekeeping artifacts are exposed to concurrent tree resets
+### H18 — Workstream-complete housekeeping artifacts are exposed to concurrent tree resets
 
-**Symptom.** Mid-`/session-end`, a concurrent crash-recovery session runs a working-tree reset that wipes this session's uncommitted lessons, plan edits, orientation updates, and untracked completion-log entries.
+**Symptom.** Mid-`/workstream-complete`, a concurrent crash-recovery session runs a working-tree reset that wipes this session's uncommitted lessons, plan edits, orientation updates, and untracked completion-log entries.
 
 **Trap.** The branch is a shared bus; other sessions run destructive git ops (checkout, clean) without coordination. Committed work survives; uncommitted working-tree state has no protection.
 
-**Rule.** During `/session-end`, commit each housekeeping artifact promptly rather than batching all edits then committing once at the end. Untracked deliverables (completion entries, review trail JSON) are especially exposed to `git clean` by a sibling's crash recovery. Session-end is not the moment to accumulate — it is the moment to commit fast and narrow.
+**Rule.** During `/workstream-complete`, commit each housekeeping artifact promptly rather than batching all edits then committing once at the end. Untracked deliverables (completion entries, review trail JSON) are especially exposed to `git clean` by a sibling's crash recovery. Workstream-complete is not the moment to accumulate — it is the moment to commit fast and narrow.
 
 ### H19 — A just-authored plan's cited seam can drift mid-execution when a concurrent session refactors shared infra
 
@@ -280,7 +281,7 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 
 **Rule.** When an executor finds its cited seam has moved into shared/out-of-scope territory, the correct response is an in-scope adaptation that preserves behaviour — NOT silently widening scope to absorb the drift (Branch D violation). Flag the deviation in the return so the EM records it. If the seam moved into a shared library that is genuinely out-of-scope, compute the new field or behaviour via an inline alternative, deliver identical observable behaviour, and report the deviation explicitly.
 
-*Source: meta-repo `tasks/lessons.md` (central-promoted 2026-05-29).*
+*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 ### H20 — Editing Build-Input Source During an In-Flight Long-Running Build
 
@@ -297,10 +298,50 @@ A peer session co-driving your workstream is invisible until you look. Two read-
 **Trap — this is NOT coordinator code.** `coordinator-auto-push` only runs `git push` (never touches the index); `coordinator-safe-commit`'s session lock is `.overlap-gate.lock` (PID-stamped, self-reaping), never `index.lock`, and it commits via plain foreground git. The real mechanism is a Windows file-sharing artifact: a foreground `git add`/`git commit` writes a full index copy to `index.lock`, then the final `rename(index.lock → index)`/unlink fails with a sharing violation because another process holds a handle on `index` — a concurrent session's `git`, antivirus/Defender, the search indexer, or **git's own *detached* auto-maintenance child** (`gc.autoDetach` defaults true; the co-present `maintenance.lock` is its fingerprint). The commit's objects+ref are already durable, so the commit "succeeds" while the orphan lock survives. `index.lock` carries no holder PID, so liveness cannot be read from the lock itself.
 
 **Rule — two-leg fix, both ship to every coordinator install:**
-1. **Production-reduction:** `gc.autoDetach false` (set by `coordinator-configure-git`, asserted at `/setup` `--global`, `/project-onboarding` § 3f.5, and every coordinator session boot via `session-init.sh`). Auto-gc then runs synchronously and releases its handles before the triggering command returns — no detached child to orphan the lock. Keeps automatic repacking (unlike the heavier `gc.auto 0`).
-2. **Self-heal:** `coordinator-reap-stale-locks` removes an orphaned `index.lock`/`next-index-*.lock`/`maintenance.lock` ONLY when it is both aged (≥120s; maintenance ≥600s) AND stable across a re-sample (no active writer) — never a fresh/in-flight lock. Runs as a pre-flight in `coordinator-safe-commit` and at every session boot, so worktrees auto-recover instead of needing manual `rm -f`. Manual recovery: `tasklist`/`pgrep` to confirm no live git, then `rm -f .git/index.lock .git/next-index-*.lock .git/objects/maintenance.lock`.
+1. **Production-reduction:** `gc.autoDetach false` (set by `coordinator-configure-git`, asserted per-repo at `/setup`, `/repo-setup` § 3f.5, and every coordinator session start via `session-init.sh` — kept per-repo by design, not globalized, to avoid changing auto-gc behavior in non-coordinator repos). Auto-gc then runs synchronously and releases its handles before the triggering command returns — no detached child to orphan the lock. Keeps automatic repacking (unlike the heavier `gc.auto 0`).
+2. **Self-heal:** `coordinator-reap-stale-locks` removes an orphaned `index.lock`/`next-index-*.lock`/`maintenance.lock` ONLY when it is both aged (≥120s; maintenance ≥600s) AND stable across a re-sample (no active writer) — never a fresh/in-flight lock. Runs as a pre-flight in `coordinator-safe-commit` and at every session start, so worktrees auto-recover instead of needing manual `rm -f`. Manual recovery: `tasklist`/`pgrep` to confirm no live git, then `rm -f .git/index.lock .git/next-index-*.lock .git/objects/maintenance.lock`.
+
+### H22 — Phantom-dirty index under concurrent-EM (Git-for-Windows + NTFS)
+
+**Symptom.** `git status` reports a large set of tracked files as modified that have no real content change; `git update-index --refresh` (even `--really-refresh`) does not clear them, and the racy-entry count can *grow* mid-refresh (e.g. 3181→3183) as other sessions touch the index. (Source: striker concurrent-EM observation, 2026-06-01.)
+
+**Trap.** Git-for-Windows writes nanosecond mtimes into `.git/index`, but NTFS reports them back at coarser precision, so on every stat the recorded and observed mtimes differ and the entry is flagged "racy." The default `core.checkStat` also compares `ctime/ino/dev`, which are likewise unstable across the NTFS round-trip. Concurrent EM sessions continuously rewriting the shared `.git/index` re-arm the racy flag faster than any single refresh can clear it — a refresh-clobber loop that no amount of `--refresh` escapes.
+
+**Rule.** `core.checkStat minimal` — compares only `mtime+size` (both stable across the NTFS round-trip), dropping the unstable fields. Set by `coordinator-configure-git` alongside `gc.autoDetach false`, so it self-heals per-repo via `/repo-setup` § 3f.5 and every coordinator session start (`session-init.sh`). Unlike `gc.autoDetach` (which we keep per-repo), `core.checkStat minimal` is benign and content-neutral on every platform and the phantom-dirty pattern affects *any* repo on Git-for-Windows + NTFS, so `/setup` **also** sets it as the machine-wide default (`git config --global core.checkStat minimal`) — covering every current and future repo, coordinator-managed or not. Manual one-off: `git config --global core.checkStat minimal`. **Does not cure H23** — that phantom is a *size* mismatch, which even `minimal` compares.
+
+### H23 — EOL phantom-dirty index: stale line-ending blob size flags content-equal files (Git-for-Windows)
+
+**Symptom.** `git status` perpetually flags files as ` M` that `git diff` and `git diff --cached` both report as having nothing to commit. Forensics on one file: HEAD blob and index blob are byte-identical (e.g. both 41313 B, LF), but the recorded stat size differs from the worktree (e.g. worktree 42218 B, CRLF) — or the mirror image (worktree LF 5115 B, index CRLF 5218 B, HEAD LF). The count can run into the thousands and grow as siblings commit. `core.checkStat minimal` does **not** fix it (size is compared even by `minimal`); `git update-index --refresh` does **not** fix it (the size genuinely differs). (Source: striker + holodeck concurrent-EM observation, 2026-06-01.)
+
+**Trap.** This is a *pending line-ending renormalization that lives only in the index*. `git diff`/`git diff --cached` renormalize-then-hash, so they correctly see the content as equal and report empty. But `git status` uses the recorded blob *size* as a stat shortcut, and the EOL round-trip changes the size — so the file is flagged forever. The naïve fix `git add --renormalize .` is **forbidden under concurrent-EM**: it re-stages every modified file's *current* worktree content, absorbing siblings' live uncommitted edits into the next commit and clobbering a sibling's mid-commit staged blob (the exact absorption hazard the doctrine bans).
+
+**Rule — `coordinator-renormalize-index`.** Because each phantom's content already renormalizes-equal to the index/HEAD, a plain `git add <path>` refreshes only the stat-cache and stages **nothing committable** — no commit needed. The tool refreshes ONLY the phantom set, computed as `(git ls-files -m) MINUS (git diff --name-only) MINUS deleted-in-worktree` = stat-modified minus real worktree-vs-index content diffs minus deletions. This excludes every genuine worktree edit AND any path a sibling has staged (index≠HEAD with a differing worktree). **Residual race (honest scope, not "by construction impossible"):** the set is a snapshot and the `git add` fires later, so a sibling overwriting a phantom path in that window could be staged; we shrink the window to near-zero by re-confirming against a fresh `git diff` immediately before staging, and the worst case is bounded — the sweep only ever `git add`s, never commits, so an absorbed edit sits merely *staged* (visible, recoverable) and is caught downstream by `coordinator-safe-commit`'s touched-files filter before it can enter a commit. **Safe on a live shared tree at any time.** Hardening: a real `git diff` *failure* (not empty) aborts loudly rather than treating all paths as phantoms; deleted-in-worktree paths are excluded (a `git add` there would stage a deletion); `--ignore-errors` keeps one poison path from sinking the batch; and the write is deferred if a live `index.lock` is present (no added contention vs § H21). Requires bash 4+ (associative arrays) — `#!/usr/bin/env bash` prefers a modern bash, and it no-ops cleanly on older shells (e.g. macOS stock /bin/bash 3.2), where the NTFS phantom does not arise anyway. It is packaged as a **silent, idempotent SessionStart hook**: `session-init.sh` runs it at every session start in every repo, alongside `coordinator-reap-stale-locks` and `coordinator-configure-git` — a no-op (no index write) when the tree is clean, so it adds no noise. This is preferred over per-ceremony prose steps (which depend on an agent executing them and fire on the wrong cadence); the session terminators' dirty-tree gates only carry a one-line *recognition* clause treating a content-equal ` M` file as benign (never a case-(c) orphan) as a backstop for phantoms that appear mid-session. Also invokable on demand; `--check` reports the phantom count without writing the index. The heavier repo-wide cure — `git add --renormalize . && commit` — fixes it for *all* clones at once but must run on a quiet tree (no live sibling edits); prevention is a consistent `.gitattributes` (`* text=auto`) so the index never re-acquires an EOL-stale blob.
 
 ## See also
+
+## verify HEAD before pausing release or spinoff on broken-today claim
+
+Before pausing a release or authoring a spinoff based on a "broken today" claim, run `git log --oneline -- <cited-paths>` for concurrent-session work on that exact surface FIRST. Broken-today claims age in hours under concurrent EMs; the fix may have already landed. Apply: verify-before-act, not verify-after; never pause a release ceremony or open a spinoff stub on a broken-today premise without a HEAD check.
+
+## concurrent rename + scoped commit can land delete-half without add-half
+
+Concurrent rename plus your scoped commit can land the delete-half without the add-half, silently. When a sibling EM runs `git mv old-path new-path` concurrently, your explicit-path `git add -- old-path` will stage the deletion (because old-path is gone) but NOT stage the add (because new-path is a different path). Result: committed tree is missing the file. Apply: after a scoped commit on a shared branch, `git show --stat HEAD` to verify the expected add landed, not just the delete.
+
+## H15 — Orientation-cache "in-flight concurrent" flag must be verified against live branch before building
+
+Before planning or executing a ticket the orientation cache flags as "in flight under a concurrent session," grep the live branch for that ticket's commits FIRST. The in-flight flag is a STOP-and-check signal — parallel duplicate work is the failure mode. Apply: `git log --oneline --grep="<ticket-id>" origin/<branch>` before starting any work flagged as concurrent-in-flight.
+
+## stash-pop conflict silently rolls back disk state in multi-agent sessions
+
+Multi-agent stash-pop conflicts silently roll back disk state — the final reviewer reads a stale tree. In multi-agent sessions where multiple sessions may stash independently, stash-pop conflicts abort silently (no error message on stdout), leaving the file as it was before the pop. Use a WIP commit instead of `git stash` in multi-agent contexts. Apply: in any concurrent-EM session, replace `git stash push` / `git stash pop` with `git commit -m "wip: <context>"` / `git reset HEAD~1`.
+
+## consumed/in_flight handoff means concurrent session already owns it
+
+A `consumed` or `in_flight` handoff frontmatter status means a concurrent session already owns it. The `consumed_at`/`consumed_by` stamp is a collision signal; grep the shared branch and decisions dir before building on a handoff that shows this status. Apply: `git fetch && git log --oneline -- state/handoffs/<file>` before picking up any handoff; if consumed_by is populated, stand down and surface to PM.
+
+## Gate failure during long ceremony may be stale code — re-run before treating as real
+
+A gate failure during a long ceremony (workweek-complete, parallel fan-out) may be stale checked-out code that a concurrent EM is actively fixing. Re-run the gate after sibling commits land before treating it as a real failure. Also: capture shared-file appends (week-changelog, orientation-cache) via commit message or a scoped append, not full-file Write, when a sibling may be doing full-file Writes concurrently.
 
 - [`scoped-safety-commits.md`](./scoped-safety-commits.md) — the commit-content enforcement surface (`coordinator-safe-commit`, touch-tracker, hunk-scoping, the full atomic-gesture / blanket-race / reflog-probe treatments). This page is the symptom catalog; that page is the machinery.
 - [`daily-branch-discipline.md`](./daily-branch-discipline.md) — the commit-location enforcement surface (branch-shape hook, shared-bus framing, plumbing-reword).

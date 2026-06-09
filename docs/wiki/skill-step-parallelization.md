@@ -6,9 +6,9 @@
 
 Skills look like checklists, and the coordinator doctrine ("follow skills like a pilot follows a checklist") rewards careful linear walking. But pilots don't actually walk checklists linearly when the items are independent — they batch. Treating every numbered step as a gate costs:
 
-- **Wall-clock latency** — 5-15 minutes per long-skill invocation, especially on `/handoff`, `/session-end`, `/update-docs`, `/workday-start`.
+- **Wall-clock latency** — 5-15 minutes per long-skill invocation, especially on `/handoff`, `/workstream-complete`, `/update-docs`, `/workday-start`.
 - **PM patience** — the EM idling on Step N before doing Step N+1 when N+1 doesn't read N's output.
-- **Context-pressure pain** — `/handoff` and `/session-end` fire when context is most constrained, which is exactly when serialization hurts most.
+- **Context-pressure pain** — `/handoff` and `/workstream-complete` fire when context is most constrained, which is exactly when serialization hurts most.
 
 The PM observation that prompted this convention (2026-05-20, mid-`/workweek-complete`): *"Claude, can we accelerate the rest of this please? I don't think we need to be so precious about this process."*
 
@@ -54,14 +54,14 @@ Scan the numbered steps before walking them. Two-minute exercise:
 3. Cross-reference: any READ matched against a peer's WRITE is an edge.
 4. The remainder is the todo-list.
 
-If the analysis reveals substantial parallelism currently treated as sequential, **file a queue entry** (`tasks/improvement-queue.md` or `~/.claude/tasks/coordinator-improvement-queue.md` for cross-repo patterns) proposing the `## Execution Shape` refactor on that skill.
+If the analysis reveals substantial parallelism currently treated as sequential, **file a queue entry** (`state/improvement-queue.md` or `~/.claude/state/coordinator-improvement-queue.md` for cross-repo patterns) proposing the `## Execution Shape` refactor on that skill.
 
 ## Reference: skills currently with explicit Execution Shape
 
 Don't maintain a static list — it decays. Enumerate live with grep:
 
 ```bash
-grep -rl '## Execution Shape' plugins/coordinator-claude/coordinator/skills/
+grep -rl '## Execution Shape' plugins/coordinator/skills/
 ```
 
 Same canonical answer at any point in time, no maintenance.
@@ -78,4 +78,4 @@ Same canonical answer at any point in time, no maintenance.
 
 ## Spec backlink
 
-Empirical survey + decision: `tasks/skill-step-survey/` (commands.md, skills-a.md, skills-b.md, usage-frequency.md). Spinoff: `tasks/handoffs/2026-05-20_231841_skill-step-gates-vs-todo-list.md`.
+Empirical survey + decision: `tasks/skill-step-survey/` (commands.md, skills-a.md, skills-b.md, usage-frequency.md). Spinoff: `state/handoffs/2026-05-20_231841_skill-step-gates-vs-todo-list.md`.

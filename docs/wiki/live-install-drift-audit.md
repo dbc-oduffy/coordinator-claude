@@ -224,6 +224,10 @@ The plan contains the implementation rationale and dispatch decomposition. This 
 
 - `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md` — implementation spec and rationale for Default + source_is_live modes
 - `docs/plans/2026-05-23-copy-install-drift-coverage.md` — implementation spec for copy_install mode
+## Directionality Verification Before Back-Propagation
+
+Reverse-drift detector can't tell direction — forward drift (live behind source) presents as "hand-edited, at risk." Live-ahead-of-source shows as a reverse-drift false positive. Always diff directionally before back-propagating: if the live install is ahead of the source (contains changes the source doesn't), back-propagating would DESTROY those changes. Apply: before any back-prop, run `diff <source> <live>` and classify direction; only back-propagate when live is verified to be a SUBSET of source.
+
 - `docs/wiki/machine-local-registry.md § plugin.mirrors` — registry schema and value-writing discipline; § 12 copy_install subsection
 - `docs/wiki/addon-health-sentinel.md` — health sentinel convention; design contrast documented above
 - `docs/wiki/plugin-identity-and-health-sentinels.md` — scanner-is-reader-never-writer rule

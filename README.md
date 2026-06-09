@@ -27,11 +27,11 @@ You don't install this — your agent does. Open Claude Code in any project and 
 ```
 Install coordinator-claude. The playbook is at
 https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/agent-install.md
-— read it, follow it, and queue /project-onboarding as the immediate next step
+— read it, follow it, and queue /repo-setup as the immediate next step
 after I restart Claude Code.
 ```
 
-Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/project-onboarding` bootstraps tracking infrastructure in your project.
+Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/repo-setup` bootstraps tracking infrastructure in your project.
 
 **Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the installer changes, what it does not do, audit commands, and exact uninstall steps.
 
@@ -39,7 +39,7 @@ Claude clones the repo, runs the installer, validates the result, and tells you 
 
 | coordinator-claude | Claude Code | OS tested | Notes |
 |--------------------|-------------|-----------|-------|
-| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. **Requires bash 4.0+** — macOS ships bash 3.2 as `/bin/bash`, so Mac users `brew install bash` and run the installer with it (`"$(brew --prefix)/bin/bash" setup/install.sh`); the installer fails fast with this guidance if run under 3.2. Linux/WSL/Git Bash ship bash 4+. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
+| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. **Requires bash 4.3+** — the scripts use associative arrays (4.0+) and `coordinator-safe-commit` uses `local -n` namerefs (4.3+). macOS ships bash 3.2 as `/bin/bash`, so Mac users install [Homebrew](https://brew.sh), `brew install bash`, and run the installer with it (`"$(brew --prefix)/bin/bash" setup/install.sh`); the installer fails fast with this guidance if run under 4.3. Linux/WSL/Git Bash ship bash 4.3+. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
 
 ## How a Session Works
 
@@ -57,7 +57,7 @@ Most tools hand you a bag of commands and wish you luck. This system has *routin
 
 **Navigating the codebase.** This system invests heavily in documentation-as-navigation. Claude's natural mode is grep-heavy — searching text, reading prose, following paper trails. An architecture atlas, project tracker, orientation caches, and structured comments throughout the codebase give Claude something to *find* when it searches. We call this "grep bait." It's why the doc maintenance pipeline and architecture atlas exist: not bureaucracy, but navigation infrastructure that lets Claude plan from 60 lines of orientation instead of reading 20 source files cold. Research artifacts, lessons files, and handoff documents all serve double duty — they record decisions *and* create searchable landmarks for future sessions.
 
-**Wrapping up.** `/session-end` captures lessons, updates documentation, and commits state. `/workday-complete` goes further: syncs docs, merges to main via PR, and optionally hibernates the machine. The cycle is continuous — each session starts where the last one left off.
+**Wrapping up.** `/workstream-complete` captures lessons, updates documentation, and commits state. `/workday-complete` goes further: syncs docs, merges to main via PR, and optionally hibernates the machine. The cycle is continuous — each session starts where the last one left off.
 
 ## What You Need to Remember
 
@@ -65,7 +65,7 @@ The EM handles most of this on its own. Your key moves:
 
 | Command | When | What It Does |
 |---------|------|-------------|
-| `/session-start` | Beginning of work | Deliberate orientation — triage handoffs, surface staleness, choose work. PM-invoked; *not* auto-fired. (Boot context loads automatically via a separate `SessionStart` hook; this command is the optional deeper orient.) |
+| `/workstream-start` | Beginning of work | Deliberate orientation — triage handoffs, surface staleness, choose work. PM-invoked; *not* auto-fired. (Boot context loads automatically via a separate `SessionStart` hook; this command is the optional deeper orient.) |
 | `/pickup` | Resuming work | Load a handoff artifact and continue where you left off |
 | `/handoff` | Stepping away | Save session state for the next session |
 | `/staff-session` | Big decisions | Multi-perspective planning or review from persona-based contributors |
@@ -82,7 +82,7 @@ Don't memorize commands; learn five flows. Most of what the system does, you'll 
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
-**Flow 3 — Resume work.** The boot `SessionStart` hook automatically loads orientation, lessons, and pending handoffs into context → optionally run `/session-start` for a deeper triage → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
+**Flow 3 — Resume work.** The boot `SessionStart` hook automatically loads orientation, lessons, and pending handoffs into context → optionally run `/workstream-start` for a deeper triage → you pick up via `/pickup <handoff>` or pick from the menu → Claude lands mid-context and starts where the last session stopped.
 
 **Flow 4 — Autonomous sprint.** `/mise-en-place` gathers ready work, builds a compaction-proof flight recorder, and executes through the backlog without stopping. `/autonomous` suppresses handoff nudges when you want it to push through context pressure.
 
@@ -107,8 +107,8 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 
 | Command | Purpose | Why It Exists |
 |---------|---------|---------------|
-| `/session-start` | Orient to project, load context, choose work | Eliminate cold starts; position key context optimally |
-| `/session-end` | Capture lessons, update docs, commit | Preserve institutional knowledge between sessions |
+| `/workstream-start` | Orient to project, load context, choose work | Eliminate cold starts; position key context optimally |
+| `/workstream-complete` | Capture lessons, update docs, commit | Preserve institutional knowledge between sessions |
 | `/pickup` | Resume from a handoff artifact | Structured continuity beats re-reading git log |
 | `/handoff` | Save state before stepping away | Prospective capture > retrospective reconstruction |
 | `/staff-session` | Multi-perspective planning or review | Debate surfaces tradeoffs a solo agent misses |
@@ -125,7 +125,7 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 | `/bug-sweep` | Systematic codebase bug hunt | Find and fix all AI-fixable bugs in-session |
 | `/bug-blitz` | Autonomous bug-backlog grinder | Wave-based execution with EM-serial commits at each gate |
 | `/dogfood` | Smoke-driven fix-through loop | Binary outcome: converge on a working capability or switch gears |
-| `/learn-lessons` | Triage `tasks/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
+| `/learn-lessons` | Triage `state/lessons.md` as doctrine change-requests | Three modes: local (per-repo), central (cross-repo), recheck (deferred follow-ups) |
 | `/code-health` | Night-shift code health review | Scan today's commits, dispatch reviewer, apply findings |
 | `/architecture-audit` | Deep architecture analysis | Multi-phase agent pipeline for system health |
 | `/distill` | Extract knowledge from session artifacts | Turn plans and handoffs into evergreen wiki docs |
@@ -137,12 +137,12 @@ See [`docs/wiki/task-tier-guidance.md`](docs/wiki/task-tier-guidance.md) for the
 
 | Real Team Practice | coordinator-claude Equivalent |
 |--------------------|-------------------------------|
-| **Daily standup** | `/session-start` — what happened, what's blocked, what's next |
+| **Daily standup** | `/workstream-start` — what happened, what's blocked, what's next |
 | **Sprint planning** | `/staff-session plan` — persona-based engineers debate approach |
 | **Spec review** | Plan mode with PM sign-off — Claude proposes, you approve |
 | **Code review** | `/review-code` — domain expert first, generalist second, fix gates between |
 | **Tech lead gut-check** | Any reviewer can be dispatched ad-hoc for a quick assessment |
-| **Retrospective** | `/session-end` — capture lessons, update docs |
+| **Retrospective** | `/workstream-complete` — capture lessons, update docs |
 | **Heads-down sprint** | `/mise-en-place` — autonomous execution through the backlog |
 | **Handoff between shifts** | `/handoff` — structured state capture, not "check the git log" |
 

@@ -29,7 +29,7 @@ The file at risk is always at the fixed config path, independent of the session'
 
 ## Mechanism
 
-Runs at `SessionStart` (matcher `startup|clear|compact`), first in the block so recovery precedes other hooks. Always exits 0; never blocks session start.
+Runs at `SessionStart` (matcher `startup|clear|compact`), first in the block so recovery precedes other hooks. Always exits 0; never blocks session open.
 
 **Health predicate** — one `jq -e '(.enabledPlugins | objects | length) > 0'`. A single call covers corrupt JSON, a stub, and a genuinely-empty plugin set (`jq -e` exits non-zero on parse error / false / null / no-result). The `objects` filter is load-bearing: it drops non-object values, so a garbage scalar such as `"enabledPlugins": "false"` (string length 5 > 0) is correctly classified UNHEALTHY rather than passing as healthy and overwriting the good snapshot. A non-empty object whose values are all `false` deliberately reads *healthy* — requiring a `true` value would false-restore over a user who has legitimately disabled every plugin (a worse failure than the all-disabled-clobber it would catch, which is not an observed shape).
 

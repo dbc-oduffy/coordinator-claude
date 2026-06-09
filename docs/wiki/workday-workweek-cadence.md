@@ -74,6 +74,10 @@ Improvement-queue triage: daily emits depth nudge only (≥5 → notice); weekly
 
 ## Relationship Between the Two Ceremonies
 
+## /workweek-complete reads changelog as ground truth — HEADER + daily entries are hard preconditions
+
+`/workweek-complete` reads the week-changelog as ground truth — a missing `HEADER` or absent daily entries for days-with-commits is a precondition failure, not a thing to read past. Backfill before the ceremony; never reconstruct silently inside the skill body. Apply: before invoking `/workweek-complete`, verify `state/week-changelog/current.md` has a `HEADER` section and at least one daily entry per day that had commits.
+
 - `/workday-complete` is a branch wrap, not a release ceremony.
 - `/workweek-complete` is the release ceremony; it reads what the daily ceremony wrote.
 - Neither ceremony merges to main directly — `/workday-complete` never merges; `/workweek-complete` delegates to `/merge-to-main`.

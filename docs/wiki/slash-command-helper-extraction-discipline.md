@@ -3,8 +3,8 @@ title: Slash-command helper extraction discipline
 created: 2026-05-27
 type: doctrine
 related:
-  - plugins/coordinator-claude/coordinator/agents/code-reviewer.md
-  - plugins/coordinator-claude/coordinator/docs/wiki/install-surface-completeness.md
+  - plugins/coordinator/agents/code-reviewer.md
+  - plugins/coordinator/docs/wiki/install-surface-completeness.md
 ---
 
 <!-- spec-backlink: archive/specs/2026-05-27-cqcs-cluster2-review-pipeline-calibration.md § Entry 121 — code-reviewer path-resolution sub-lens -->

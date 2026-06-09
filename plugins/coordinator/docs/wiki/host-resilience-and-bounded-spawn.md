@@ -214,6 +214,22 @@ The SHA-pin policy originated in `archive/specs/2026-05-07-bounded-popen-converg
 ## Cross-references
 
 - Holodeck peer plan (now archived): `X:/claude-unreal-holodeck/archive/specs/2026-05-05-host-resource-resilience.md` (was: `docs/plans/2026-05-05-host-resource-resilience.md`)
+## startup-only guard does not cover mid-life resource failure
+
+A startup-only guard (a flag set at load time that says "resource is available") does not cover mid-life failure of the same resource. If the resource fails after startup, the guard reports it as available until the next restart. Health probes must reflect functional state (liveness), not just load-time availability. Apply: any health flag set once at import/startup must be backed by a periodic re-check or replaced with a functional probe that queries the resource directly.
+
+## Windows asyncio ProactorEventLoop CPython #93821 — use SelectorEventLoop for HTTP daemons
+
+Windows asyncio `ProactorEventLoop` carries CPython bug #93821 — long-running HTTP daemons using ProactorEventLoop can zombify after network transients. Use `asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())` at daemon start for any HTTP server that must survive multi-hour sessions. Apply: grep `asyncio` daemon entry points for Windows; add `WindowsSelectorEventLoopPolicy` guard at start.
+
+## PID-file-holder liveness != accept-loop liveness — zombie discriminator grace window
+
+Hook zombie discriminator: PID-file-holder liveness (process is alive) does not equal accept-loop liveness (socket is accepting connections). A process can be alive but wedged before `bind()`/`accept()` — it holds the PID file but cannot serve requests. Add a grace window (e.g., 5s) after PID-file presence is confirmed before asserting accept-loop availability, and perform a socket-connect probe, not just a process-alive check.
+
+## three lifecycle topologies — _boot_subprocess vs ensure-script vs outer-process supervisor
+
+Per-project Windows daemons need a per-user outer-process supervisor (e.g., a coordinator `ensure-<daemon>` script launched by `SessionStart`), NOT a Windows service AND NOT the in-process `_boot_subprocess` harness. Three distinct topologies: (1) `_boot_subprocess` — inline child managed by the caller process, dies when caller dies; (2) `ensure-script` — idempotent launch script, suitable for short-lived services; (3) outer-process supervisor — started by SessionStart hook, independent lifetime, correct for per-project HTTP daemons.
+
 - Cross-repo bug filing: `X:/claude-unreal-holodeck/archive/bugs/2026-05-05-cross-repo-217gb-virtual-memory-recurring.md`
 - project-rag archived spec: `archive/specs/2026-05-05-belt-and-suspenders-oom-prevention.md`
 - Companion VRAM-coexistence wiki: `docs/wiki/cross-process-vram-coexistence.md`

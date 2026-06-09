@@ -100,12 +100,14 @@ case "${MODE}" in verify|--fix|--list) ;;
   *) echo "ERROR: unknown argument '${MODE}'" >&2; exit 2 ;; esac
 
 # --- hardcoded consumer list ---
-# These are the 5 reviewer prompt files that carry the plan-coverage-check-consumption sentinel:
-#   the Staff Engineer (staff-eng), the Game Dev Reviewer (staff-game-dev), the Data Science Reviewer (staff-data-sci), the Front-End Reviewer (senior-front-end), the Director of Engineering (eng-director).
+# These are the 4 reviewer prompt files that carry the plan-coverage-check-consumption sentinel:
+#   the Staff Engineer (staff-eng), the Data Science Reviewer (staff-data-sci), the Front-End Reviewer (senior-front-end), the Director of Engineering (eng-director).
+# the Game Dev Reviewer (staff-game-dev) is holodeck-resolved below — present only when the holodeck sibling repo is local.
+# game-dev plugin retired from OSS coordinator-claude distribution 2026-05-26.
 # Spec backlink: docs/plans/2026-05-18-plan-coverage-checker.md § Snippet — snippets/plan-coverage-check-consumption.md
+# Review: code-reviewer — removed dead $PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md entry (game-dev retired from OSS coordinator-claude 2026-05-26); holodeck-resolved path below is the live consumer when holodeck repo is present locally
 HARDCODED_CONSUMERS=(
     "$PLUGIN_ROOT/agents/staff-eng.md"
-    "$PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md"
     "$PLUGIN_ROOT/../data-science/agents/staff-data-sci.md"
     "$PLUGIN_ROOT/../web-dev/agents/senior-front-end.md"
     "$PLUGIN_ROOT/agents/eng-director.md"

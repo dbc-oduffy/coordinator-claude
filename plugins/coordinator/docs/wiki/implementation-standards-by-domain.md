@@ -200,6 +200,26 @@ When an N-sibling pattern (e.g. N exception-catch sites, N retry loops, N path-n
 
 ## Related
 
+## best-effort try/except with pre-guarded callee catches only real failures — narrow the swallow
+
+A best-effort `try/except` whose only benign failure is already guarded inside the callee only ever catches REAL failures when the swallow fires. Swallowing broadly (bare `except Exception`) masks contract drift. Apply: before writing a try/except, enumerate what the callee's benign cases are and whether they're already handled inside. If yes, narrow the `except` to the specific exception class that represents genuine transient failure; any broader swallow is silently masking bugs.
+
+## Hardening doctrine in one document does not cleanse downstream surfaces
+
+Hardening a rule in a wiki or CLAUDE.md does not automatically cleanse downstream surfaces (agent prompts, skill SKILL.md files, hook scripts, executor briefs) that may still carry the old pattern. Ratification opens a contact-point sweep, not closes it. Apply: after any DR or wiki-hardening commit, enumerate downstream contact-points with `grep -r <old-pattern>` and edit them in lockstep, OR file a tracked cleanse stub in the improvement queue before claiming the hardening is done.
+
+## Closed-Set Frozenset Duplication — Import Canonical, Never Re-Declare
+
+A manually-duplicated closed-set frozenset will drift. When one stale copy is found, grep for ALL copies before fixing. The real fix is to import the canonical definition, not re-declare it at the use site. Apply: any frozenset that defines a closed set (enum-like values, allowed type names) must have exactly one declaration site; all other uses import from that site.
+
+## Chronic-Warning Anti-Pattern — Benign Conditions Must Be Silent
+
+A guard that warns on every run for an expected-benign condition is a defect, not tolerable noise. Chronic warnings train agents and humans to ignore warnings, so when a real drift occurs, it goes unnoticed. The fix is to make the condition conditional on genuine drift (e.g., check if the value actually changed), not to suppress the warning entirely. Apply: any warning that fires on every run without a corresponding user action needed must be made conditional.
+
+## Deletion-Boundary Sentinels Must Match All Top-Level Constructs
+
+"Next top-level construct" sentinel patterns for deletion-range detection must match ALL top-level construct forms: `^(def |class )` alone is insufficient. Also match `^[A-Z_]+\s*[=:]` (module-level assignments and annotated assignments), `^# ---` (section headers), and `^(import |from )` (imports). Missing sentinels cause deletion ranges to over-consume into the next construct. Apply: whenever authoring or reviewing a deletion-boundary sentinel regex, verify it handles all five construct forms.
+
 - `coordinator/CLAUDE.md` § Implementation Standards — the cross-cutting flat-bullet rules
 - `docs/wiki/test-design-discipline.md`
 - `docs/wiki/cleanup-sweep-hazards.md`

@@ -145,6 +145,10 @@ project-rag's live checkout is refresh-managed (`refresh-plugin-live-install.sh`
 
 ## Related guides
 
+## instructions= string is live doctrine — review on every ambition change
+
+A sister Claude session's first impression of your MCP server is the live `instructions=` string in the server registration — NOT your README or CLAUDE.md. The polarity of that string is doctrine, not prose: it shapes how every agent session routes queries to your server. Review the `instructions=` string whenever the server's ambitions change (new tool surface, new corpus class, updated routing rules). Apply: at every server-capability milestone, read the `instructions=` string out loud as if you were a new agent session seeing it for the first time and verify it still accurately describes routing priority and capability scope.
+
 - `docs/wiki/project-rag-tool-envelope.md` — response envelope schema, verdict enum, provenance fields
 - `docs/wiki/host-vs-addons.md` — host/addon separation of concerns (primary capability matrix)
 - `docs/wiki/corpus-class-taxonomy.md` — corpus class definitions

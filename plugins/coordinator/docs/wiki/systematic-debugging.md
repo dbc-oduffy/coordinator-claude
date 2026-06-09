@@ -507,6 +507,10 @@ Patching one column without auditing siblings leaves live consumer join paths si
 
 *Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
+## flaky process crash resisting code-layer fixes — rate-measure then fix at gate layer
+
+A flaky test-PROCESS crash (hard abort, no traceback) that resists code-layer fixes is upstream of the code — it is a gate-layer problem (process isolation, spawn flags, resource limits). Before escalating to architectural changes: measure the crash rate (N/M runs) before AND after each candidate fix. If the rate does not improve after 3 code-layer candidates, the locus is the gate layer (spawn flags, isolation wrapper, OS resource limit). Apply: quantify the crash rate first; treat "rate unchanged after code fix" as evidence of wrong locus.
+
 ## Reference
 
 - **Aux script:** `~/.claude/plugins/coordinator/bin/find-polluter.sh` — bisection-based test polluter finder.

@@ -395,6 +395,14 @@ Keep the early-exiting `grep -q` reader out of the pipeline. Test with a real-si
 
 Bulk CRLF→LF worktree stripping kills the Git-for-Windows autocrlf nag only where the index is already pure LF. A mixed/CRLF index (LFS-heavy or older repo) shows thousands of files "modified" post-strip and needs `git add --renormalize`, not just a strip.
 
+## blanket ruff F401 --fix destroys implicit re-exports and fixture imports
+
+Blanket `ruff --select F401 --fix` is destructive in repos with: (1) implicit re-exports (modules that import then re-export without `__all__`), (2) pytest fixture-argument imports (fixtures injected by name, invisible to static analysis), (3) monkeypatch-target module imports (imports that exist only so the monkeypatch can find the symbol). These are invisible to ruff's static analysis. Apply: never auto-fix F401 blindly in a repo you haven't audited; run `--select F401` in report-only mode first, then apply fixes one-by-one with manual review.
+
+## Post-Extraction Residue Is an Orphan, Not a Conflict
+
+Post-extraction residue (leftover wiring in a consumer after a subsystem is extracted) is an ORPHAN of the old key, not a CONFLICT with the new owner. The consumer's leftover import/reference targets the OLD deleted module; disposition is REMOVE (delete the wiring), not REPOINT (redirect to the new module). Apply: before "fixing" post-extraction residue, verify which module the leftover targets — if it targets the deleted module, remove; if it targets a still-existing module, investigate whether it should repoint.
+
 **Before any fleet-wide strip:** survey per-repo index EOL with `git ls-files --eol` and watch for `i/mixed` or `i/crlf` index attributes. The committed `.gitattributes` `* text=auto eol=lf` is the durable fix (survives a fresh clone under system `autocrlf=true`); a worktree-only strip without an index renormalization is belt-only and may not survive the next checkout.
 
 ## Skill Checklist Reference
