@@ -14,6 +14,8 @@ version: 1.0.0
 - PM asks to set up project tracking in an existing repo
 - **Marketplace first-run** — new coordinator plugin user setting up their first project
 
+**Setup is sufficient — downstream skills add-to, never create-from-scratch.** This skill produces minimum-viable versions of all coordinator artifacts the operator will rely on (`state/orientation_cache.md`, `docs/project-tracker.md`, `docs/README.md`, `CLAUDE.md`). Downstream skills (`/update-docs`, `/workstream-start`) add to these artifacts as content accumulates, and they self-gate when invoked against fresh substrate. → [`docs/wiki/produce-not-prescribe.md`](../../docs/wiki/produce-not-prescribe.md) for the underlying principle. (`/workday-start` is the morning cadence skill — it runs unconditionally as part of session orientation, so the produce-not-prescribe / self-gate axis does not apply to it.)
+
 ## Flag contract
 
 - **Default (no flag) — single-repo interactive.** Runs from inside one repo's cwd. PM-present; asks the 3 cold questions when needed; full Phase 1 → Phase 4 flow as documented below.
@@ -268,6 +270,8 @@ Use `templates/CLAUDE.md.template` via `render-template.sh`. Construct three sub
 
 Use absolute `$HOME`-anchored paths. Leave `<!-- Fill in -->` comments as-is.
 
+After `render-template.sh` returns successfully, set `_PHASE_3A_RENDERED_CLAUDE_MD=true` so Phase 4 item 1 can fire its conditional. (When CLAUDE.md exists before Phase 3a and is left untouched, the flag stays unset and Phase 4 item 1 is suppressed — the intended behavior for bespoke CLAUDE.md.)
+
 #### 3b. docs/project-tracker.md (if missing)
 
 Use `templates/tracker.md.template`:
@@ -321,7 +325,7 @@ bash "$_scaffold_script" --root "$(pwd)"
 
 Reads `canonical-structure.yaml` (source of truth for the skeleton). For each `creation: eager` entry: contract-bearing dirs get a `README.md` (schema-documenting, e.g. `cross-repo/inbox/`); `gitkeep: true` dirs get a `.gitkeep` sentinel (full `state/` subdir skeleton + `tasks/`). Idempotent — `.gitkeep` skips dirs containing real files.
 
-**Tracker files are NOT pre-created** (`state/lessons.md`, `state/orientation_cache.md`, `state/handoff-tracker.md`, etc.) — they are written lazily by their owning skills on first use (see table above). Pre-creating empty tracker files trains agents to ignore the directory; empty scaffolding has zero signal value.
+**Most tracker files are NOT pre-created** (`state/lessons.md`, `state/handoff-tracker.md`, etc.) — they are written lazily by their owning skills on first use (see table above). Pre-creating empty tracker files trains agents to ignore the directory; empty scaffolding has zero signal value. **Exception — `state/orientation_cache.md`** is now eagerly seeded by Phase 3h below: PM has just ratified project name, type, and workstreams in Phase 2, so meaningful day-1 content exists. See `docs/wiki/produce-not-prescribe.md` for the underlying principle.
 
 #### 3f. .gitignore handling
 
@@ -335,6 +339,9 @@ Ensure `.gitignore` contains the canonical block (per `docs/wiki/gitignore-polic
 # `scratch/` matches at any depth (top-level scratch/, tasks/scratch/, etc.)
 scratch/
 tasks/_*.log
+
+# Per-session transient markers (produce-not-prescribe sentinel — consumed by /workstream-start)
+state/.repo-setup-*
 ```
 
 Procedure:
@@ -403,9 +410,9 @@ can still override per-file via VS Code's "Set Active Editor Writeable".
 
 #### 3g. DIRECTORY.md
 
-Do NOT create this file directly — requires source file analysis handled by `/update-docs` Phase 2. Note in the report that the PM should run `/update-docs`.
+Do NOT create this file directly — requires source file analysis handled by `/update-docs` Phase 2. Do NOT add a prescription to the Phase 4 REPORT telling the PM to run `/update-docs` — the precondition probe self-gates and will run when DIRECTORY.md analysis is warranted. → `docs/wiki/produce-not-prescribe.md`.
 
-### Phase 3g. Currency stamp (ALWAYS — idempotent)
+### Phase 3i. Currency stamp (ALWAYS — idempotent)
 
 <!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
 
@@ -423,7 +430,7 @@ coordinator_currency_write "$(pwd)" "${CLAUDE_PLUGIN_ROOT}"
 
 If the write succeeds: add `docs/coordinator-currency.yaml` to the **Created** list (or **Already Existed** if idempotent no-op). If it fails with a clear error, add a **Needs Attention** warning — the stamp is non-fatal for onboarding but required for the drift probe.
 
-#### 3g. state/orientation_cache.md (if missing)
+#### 3h. state/orientation_cache.md (if missing)
 
 Authority for this eager seed: the lazy-creation rule at `:235-238` — *"Only scaffold files that have meaningful day-1 content."* PM input from Phase 2 (project name, type, initial workstreams, sibling-repo refs) is *exactly* the meaningful day-1 content that licenses an eager seed. This is the produce-not-prescribe principle (→ `docs/wiki/produce-not-prescribe.md`) applied to the orientation surface: setup has the maximum-possible context for this project, so setup writes the cache rather than punting to `/update-docs` Phase 13 against an empty repo.
 
@@ -474,12 +481,23 @@ Present what was done:
 ### Recent Roadmap (last 90d, top-10 by size)
 _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
 
-### Next Steps
+### What's next
+
+Setup left this repo with `state/orientation_cache.md`, `docs/project-tracker.md`, `docs/README.md`, and `CLAUDE.md` — minimum-viable versions of all coordinator artifacts. The standard coordinator skills (`/update-docs`, `/workstream-start`, `/workday-start`, `/workstream-complete`) will keep these in sync as the project accumulates work — invoke them when there's something to maintain. Both `/update-docs` and `/workstream-start` self-gate on fresh substrate and will emit a one-liner rather than running an empty pipeline (→ `docs/wiki/produce-not-prescribe.md` for the underlying principle).
+
+Two things worth flagging before you dive in:
+
 0. **Your `~/.claude` is the surface you evolve** — it is a git-tracked repo that IS your live coordinator install. Customize it (CLAUDE.md, lessons, wiki), commit, and push. Never edit the upstream `coordinator-claude` source clone; changes there are overwritten on the next publish/refresh.
-1. **Fill in CLAUDE.md** — the `<!-- Fill in -->` sections need project-specific details
-2. **Run `/update-docs`** — generates DIRECTORY.md source index, refreshes docs/README.md, and creates orientation cache
-3. **Run `/workstream-start`** — verifies everything is wired up correctly
-4. **Introspect coordinator / plugin bindings** — run the envelope-branch check below to verify the coordinator sees this project correctly.
+
+1. **Fill in CLAUDE.md** *(only if Phase 3a rendered the template this session — skip if CLAUDE.md was authored bespoke)* — the `<!-- Fill in -->` sections need project-specific details. Skip silently if `_PHASE_3A_RENDERED_CLAUDE_MD=true` was not set.
+
+To verify the install: `python3 -m coordinator_whoami.project_rag`.
+
+To start your first workstream now, just describe what you want to do — the EM has full context from the setup conversation.
+
+### Verify the coordinator binding
+
+Run the envelope-branch check below to verify the coordinator sees this project correctly.
 
    ```sh
    # Compact JSON output — pipe through python -m json.tool if you want pretty-print.
@@ -504,7 +522,8 @@ _(Results from Phase 1.5 roadmap orientation query — one bullet per row. Rende
      `coordinator_whoami is not installed. Run /coordinator:install to install the introspection package.`
 
    Full probe suite: [`docs/wiki/coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md).
-5. **If `machine-local get repos.*` fails** — the machine-local registry is not yet bootstrapped for this project. See [`coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md) probes P-1 through P-4 to bootstrap the registry.
+
+**If `machine-local get repos.*` fails** — the machine-local registry is not yet bootstrapped for this project. See [`coordinator-doctor.md`](../docs/wiki/coordinator-doctor.md) probes P-1 through P-4 to bootstrap the registry.
 
 ### Documentation System
 The documentation index is live at `docs/README.md`. Subdirectories are created lazily as artifacts accumulate:
@@ -513,6 +532,17 @@ The documentation index is live at `docs/README.md`. Subdirectories are created 
 - **`docs/research/`** — created by `/deep-research` on first run
 - `/update-docs` maintains docs/README.md; `/distill` creates wiki guides from session artifacts
 ```
+
+### Sentinel — signal that setup just ran
+
+As the final action of `/coordinator:repo-setup`, write a session-scoped sentinel so `/workstream-start` (if invoked in this same session) detects that setup just ran and emits the produce-not-prescribe one-liner instead of re-orienting:
+
+```bash
+mkdir -p state
+touch state/.repo-setup-just-ran
+```
+
+The sentinel is single-shot: `/workstream-start`'s Preflight consumes it on first read (`rm -f`). It MUST be gitignored — see Phase 3f for the `.gitignore` line. Per-machine transient marker, never committed.
 
 ## Coordinator Conventions — Discovery Summary
 

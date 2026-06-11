@@ -58,7 +58,7 @@ def get_repo_root(override: str | None = None) -> str:
     equivalent to the explicit-anchor call.  On a developer machine, callers
     that need a specific repo should pass ``--repo-root`` explicitly.
 
-    Review: Patrik — ``__file__``-anchor is a footgun when called from outside
+    Review: the Staff Engineer — ``__file__``-anchor is a footgun when called from outside
     the repo (e.g. meta-repo ~/.claude); ``--repo-root`` override + cwd default
     matches the sibling-validator convention.
     """
@@ -95,7 +95,7 @@ def get_staged_entries(repo_root: str) -> list[tuple[str, str, str]]:
         sys.exit(1)
 
     entries = []
-    # Review: Patrik — during merge conflicts git ls-files --stage emits stage 1/2/3 entries
+    # Review: the Staff Engineer — during merge conflicts git ls-files --stage emits stage 1/2/3 entries
     # for the same path; dedupe by path keeping the first-seen entry to avoid false positives.
     seen_paths: set[str] = set()
     for line in result.stdout.splitlines():
@@ -157,7 +157,7 @@ def check_shebang_via_git(repo_root: str, obj_hashes: list[str]) -> set[str]:
         try:
             size = int(parts[2])
         except ValueError:
-            # Review: Patrik — silent desync of binary stream parser is worse than a hard exit;
+            # Review: the Staff Engineer — silent desync of binary stream parser is worse than a hard exit;
             # unexpected header format means the git cat-file output is malformed, so exit 1.
             print(f"ERROR: unexpected cat-file header format: {header!r}", file=sys.stderr)
             sys.exit(1)
@@ -210,7 +210,7 @@ def main() -> int:
 
     print()
     print("Fix with:")
-    # Review: Patrik — shlex.quote ensures paths with spaces are shell-safe
+    # Review: the Staff Engineer — shlex.quote ensures paths with spaces are shell-safe
     print(f"  git update-index --chmod=+x {' '.join(shlex.quote(p) for p in offenders)}")
     print()
     print("Then commit the mode change WITHOUT a path-restricted `-- <paths>` suffix")

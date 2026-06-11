@@ -117,6 +117,10 @@ fi
 
 # tr -d '\r' strips Windows CRLF carriage returns from Python stdout so that the
 # tab-separated fields read by bash's 'read' below are clean on all platforms.
+# Error-propagation note: a non-zero exit from Python below would otherwise be
+# masked by `tr`'s zero exit (bash `$(cmd1 | cmd2)` exits with cmd2's status);
+# `set -o pipefail` at the top of this script is what re-surfaces Python's failure
+# through the pipe so the `|| { ... exit 2; }` clause fires correctly.
 #
 # Bash 3.2 parser limitation: `"$(...)" | tr ...` with an interior `<<'EOF'` heredoc
 # fails to parse (line 430 "unexpected EOF while looking for matching `\"'"). Bash 4+

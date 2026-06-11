@@ -15,6 +15,22 @@ All notable changes to coordinator-claude are documented here.
 
 Rationale: new-project setup is infrequent enough that muscle-memory cost is low. Single consolidated surface eliminates the "which verb do I invoke when" decision the prior dual-surface architecture imposed on every setup site. See `docs/plans/2026-06-08-repo-setup-consolidation.md` (and the Decision-#0 reversal of 2026-05-30 in that plan) for the full architectural rationale.
 
+### Fixed
+
+- **Exec-bit install-surface — install-surface completeness pass (2026-06-11).** The exec-bit lint (`exec-bit.test.js`) now gracefully skips on OSS clones missing peer source repos rather than failing the whole suite, with a root-plugin allowlist fix and an fd-leak safety guard. The `check-exec-bit.py` CI validator gained parser fail-loud on malformed shebangs, dedup across the file list, and a `--repo-root` override so the GH Action wires cleanly. The OSS-side precommit hook installer (`bin/install-publish-repo-precommit-hook.sh`) now ships and is wired into `install.sh`, so fresh OSS clones get the exec-bit guard without manual setup. The `coordinator-ensure-post-commit-hook` installer was hardened for bash portability — redirect ordering, space-safe `find`, canonicalisation guards, and a shebang-scan replacement for the prior `SETUP_TEMPLATE_EXEC_FILES` whitelist.
+- **`publish_sync` file-handle leak in chmod-after-copy2.** The defense-in-depth chmod path for shebanged files in the publish pipeline left a file handle open after `copy2`; closed under context manager.
+- **Personal-data leaks scrubbed from publish surface.** Found by an audit of accumulated publish-time-transform misses (PM name in plugin descriptions, leftover identity references in scaffolded docs). The `publish.sh` personal-data audit was also fixed — it was silently false-clean on macOS/Linux due to a portability bug in the matcher and now correctly surfaces hits.
+
+### Added
+
+- **`produce-not-prescribe.md` plugin-bundled wiki.** Pins the producer-side doctrine: agents producing artifacts (plans, stubs, briefs, dispatches) name what's true and what's needed; consumer-side judgement decides what to do with it. Surfaced from `/repo-setup` SKILL rewrite and indexed in `DIRECTORY_GUIDE.md`.
+- **`/repo-setup` produce-not-prescribe rewrite.** The skill's AC table is now runnable typed-prefix grammar (`sh:`/`bash:` prefixes consumed by the acceptance-oracle checker), with a sentinel-file freshness probe replacing the prior time-window probe, 3-axis precondition checking, and a manual-integration AC slot. Wave-1 work also landed orientation_cache eager-seed and the 3-axis precondition probe into `/update-docs` and `/workstream-start`.
+
+### Changed
+
+- **Deep-research NotebookLM agent/command renames.** `notebooklm/agents/research-scout.md` → `notebooklm-research-scout.md` and `notebooklm/commands/research.md` → `notebooklm-research.md` — plugin-distinct names that don't collide with the parent `deep-research` surface. Stale references swept across the plugin.
+- **Hook test portability.** `test-offer-git-c-over-cd.sh` updated for cross-platform shell correctness (DR-148 alignment).
+
 ## [2.8.1] — 2026-06-01
 
 Patch release — 2026-06-01 weekly-close ceremony residual: install-surface exec-bit fix, an acceptance-oracle shell-test prefix, review-trail `scope_kind`, weekly-gate test hardening, plus the nomenclature cleanups deferred from 2.8.0.

@@ -64,7 +64,7 @@ except Exception: pass' 2>/dev/null || true)
 # ---------------------------------------------------------------------------
 # DENY / REDIRECT — the cd-prefix-then-git stall shape.
 # ---------------------------------------------------------------------------
-run_case "cd then git (&&) redirected" deny "cd /c/Users/oduffy/.claude && git log --oneline -1"
+run_case "cd then git (&&) redirected" deny "cd /c/Users/operator/.claude && git log --oneline -1"
 run_case "cd then git (;) redirected" deny "cd /repo; git status --porcelain"
 run_case "cd then git (newline) redirected" deny "cd /repo
 git add -- file.txt"
@@ -100,8 +100,8 @@ run_case "quoted ; in commit msg not redirected"  allow "cd /repo && git commit 
 # Suggestion reconstruction.
 # ---------------------------------------------------------------------------
 assert_suggestion "suggestion rewrites to git -C <path>" \
-  "cd /c/Users/oduffy/.claude && git log --oneline -1" \
-  "git -C /c/Users/oduffy/.claude log --oneline -1"
+  "cd /c/Users/operator/.claude && git log --oneline -1" \
+  "git -C /c/Users/operator/.claude log --oneline -1"
 assert_suggestion "suggestion quotes a spaced path" \
   "cd '/c/Program Files/repo' && git status" \
   'git -C "/c/Program Files/repo" status'

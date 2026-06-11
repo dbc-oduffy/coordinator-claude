@@ -416,7 +416,7 @@ installer injects BOMs into `.ps1` files, copies the marketplace manifest, and s
 ```bash
 machine-local set plugin.mirrors.holodeck-control.propagation_mode copy_install
 machine-local set plugin.mirrors.holodeck-control.source_path X:/claude-unreal-holodeck
-machine-local set plugin.mirrors.holodeck-control.live_path C:/Users/oduffy/.claude/plugins/claude-unreal-holodeck/holodeck-control
+machine-local set plugin.mirrors.holodeck-control.live_path "$HOME/.claude/plugins/claude-unreal-holodeck/holodeck-control"
 machine-local set plugin.mirrors.holodeck-control.refresh_cmd 'bash scripts/install-control-plugin.sh --allow-standalone --no-enable'
 # game-dev: same shape, refresh_cmd → install-game-dev-plugin.sh --allow-standalone --no-enable
 # holodeck (docs, no forwarder): refresh_cmd → 'HOLODECK_UMBRELLA_INSTALL=1 bash scripts/install-plugin.sh holodeck --no-enable'

@@ -252,7 +252,7 @@ Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a
    > `DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only.`
    > `Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.`
 
-**Cleanup-deferred ordering (hard constraint):** notebook deletion (`--cleanup`) MUST be deferred until **after** the auditor sidecar is written. The EM's Step 6 completion sequence is: run auditor → confirm sidecar exists → THEN delete notebooks. This ordering is enforced in `notebooklm/commands/research.md` Step 6. The sweep agent does not delete notebooks directly; deletion is an EM-step that runs post-audit.
+**Cleanup-deferred ordering (hard constraint):** notebook deletion (`--cleanup`) MUST be deferred until **after** the auditor sidecar is written. The EM's Step 6 completion sequence is: run auditor → confirm sidecar exists → THEN delete notebooks. This ordering is enforced in `notebooklm/commands/notebooklm-research.md` Step 6. The sweep agent does not delete notebooks directly; deletion is an EM-step that runs post-audit.
 
 ## Fidelity Relay: OUT OF SCOPE
 
