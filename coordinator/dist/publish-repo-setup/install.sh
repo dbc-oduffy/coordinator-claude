@@ -833,6 +833,16 @@ copy_plugins() {
     fi
   done
 
+  # Shebang-scan: chmod +x every shebanged file in the installed plugins tree.
+  # Runs once after all cp -r copies complete so it catches all plugin files
+  # regardless of source-repo index mode (defense against core.fileMode=false drift).
+  # macOS bash 3.2 + BSD coreutils compatible: no grep -P, no find -printf.
+  # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 7
+  echo "Fixing exec bits on installed plugin shebanged files..."
+  find "$plugins_target" -type f | while read -r _pf; do
+    head -c 2 "$_pf" 2>/dev/null | grep -q '^#!' && chmod +x "$_pf"
+  done
+
   # Copy marketplace manifest (required for Claude Code to discover plugins)
   copy_marketplace_manifest
   echo ""
@@ -1007,9 +1017,14 @@ deliver_setup_templates() {
     fi
   done
 
-  # Mark manifest-declared exec files executable (chmod no-op on Windows FS).
-  for ef in "${SETUP_TEMPLATE_EXEC_FILES[@]}"; do
-    chmod +x "$setup_dest/$ef" 2>/dev/null || true
+  # Shebang-scan: walk the installed setup tree and chmod +x any file whose
+  # first 2 bytes are '#!'. This replaces the hardcoded SETUP_TEMPLATE_EXEC_FILES[]
+  # whitelist — the scan catches newly-added shebanged files automatically, without
+  # requiring a manifest update. Compatible with macOS bash 3.2 + BSD coreutils:
+  # no grep -P, no find -printf, no GNU-only flags.
+  # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 7
+  find "$setup_dest" -type f | while read -r _ef; do
+    head -c 2 "$_ef" 2>/dev/null | grep -q '^#!' && chmod +x "$_ef"
   done
   echo ""
 }
