@@ -277,6 +277,56 @@ Installers that register OS-level autostart (scheduled tasks, Windows `Startup` 
 
 Green helper tests mask integration-layer guards. At least one test must drive the real operator entry point (the wrapper script, the CLI surface, the skill phase-dispatch path) end-to-end, not just the inner function. Apply: for every install surface with a wrapper/CLI, add one test that calls the wrapper and verifies the guard fires — not a test of the helper the wrapper calls.
 
+## Exec-bit-shebang invariant
+
+> Spec backlink: `docs/plans/2026-06-11-exec-bit-install-surface-completion.md`; decision: `docs/decisions/DR-151-exec-bit-install-surface-completion.md`
+
+### The invariant
+
+Any tracked file whose first two bytes are `#!` MUST be committed at index mode `100755`. A shebanged file at `100644` is a silent install-surface failure: on any Unix clone, `[[ -x "$file" ]]` gates skip it, the interpreter never runs it, and the failure surfaces only at the downstream user's machine — not at the Windows authoring machine where `core.fileMode=false` suppresses all mode-bit visibility.
+
+First confirmed instance (2026-06-01): `session-init.sh`'s hygiene scripts (`lock-reaper`, `configure-git`, `renormalize-index`) committed at `100644` — dead on Mac/Linux until an install caught them via `[[ -x ]]` gating. Source lesson: `state/lessons.md` content-anchor "A boot-hook script committed at mode 100644 silently never runs on fresh Mac/Linux clones [universal]".
+
+### Three enforcement surfaces — each load-bearing
+
+A single enforcement surface is not enough. Each protects a different stage:
+
+1. **Precommit hook** — fires at commit time; surfaces new drift before it reaches the index. Meta-repo: `coordinator-precommit-exec-bit-check` → `exec-bit.test.js` (scope: any tracked file with `#!` shebang, any directory). OSS repo: parallel shim installed by `coordinator/dist/publish-repo-setup/install.sh`.
+
+2. **CI validator** — fires on every PR; catches drift that bypasses the precommit hook (force-push, hook-skipped commit, Windows author without `core.fileMode` awareness). OSS repo: `check-exec-bit.py` wired into `.github/workflows/validate-plugins.yml`. NO allowlist — CI is the strict gate; any legitimate exception belongs in a DR, not the validator.
+
+3. **Install-time chmod** — fires on a clean install; last-resort safety net against broken source-index state surviving into an end-user machine. `coordinator/dist/publish-repo-setup/install.sh` shebang-scans every installed file and `chmod +x` anything starting with `#!`.
+
+Losing any one surface means silent failure at that stage. **Cross-surface obligation:** a fix that lives only in the meta-repo silently degrades OSS-user experience until re-clone. The obligation is to land all three surfaces (source-of-truth fix + percolation target fix + install-path awareness) in the same plan, never any single one alone.
+
+### Windows-chmod commit mechanic
+
+On Windows with `core.fileMode=false` (standard Striker config), the SC-DR-008 scoped-commit form `git commit -m "..." -- <paths>` silently resets exec bits: the path-restricted commit re-reads the working-tree pathspec and overwrites the `update-index` staged mode with the on-disk mode (always `100644` when `fileMode=false`).
+
+**Correct mechanic for chmod-bearing commits** (named exception to SC-DR-008; see `docs/decisions/DR-151-exec-bit-install-surface-completion.md`):
+
+```bash
+# Stage via update-index — NOT git add:
+git update-index --chmod=+x -- <file1> <file2> ...
+
+# Verify: git ls-files --stage <file> must show 100755
+
+# Commit WITHOUT path restriction:
+git commit -m "<subject>"
+# No '-- <paths>' suffix. The path restriction re-reads working-tree mode under
+# core.fileMode=false and resets the staged exec bit back to 100644.
+```
+
+The path restriction in SC-DR-008 is a re-staging guard to prevent blanket-staging of unrelated files. Once files are correctly staged via `update-index`, the path restriction is redundant and triggers the `fileMode=false` interaction. This carve-out also appears in `agents/executor.md § Commit Discipline` so dispatched executors see it at load time.
+
+Source lesson: `state/lessons.md` content-anchor "Windows `core.fileMode=false` + path-restricted `git commit` resets exec-bit in index [universal]".
+
+### Scope-hole rot pattern
+
+Narrow guards rot at the edges when the authoring machine doesn't reproduce the failure mode. The Jun 9 precommit hook covered `.sh` files under `bin/`+`hooks/scripts/` only. 19 days later a Mac install error surfaced that `.py`, `.js`, `.bats`, and extensionless shebanged files in `lib/`, `tests/`, `setup/`, `.github/scripts/`, and `dist/` were entirely unguarded — 141 files in meta-repo, 211 in OSS (2026-06-11).
+
+Rule when scoping a new guard: enumerate the negative space at design time (everything the guard does NOT cover, by extension and by directory) and either justify each exclusion architecturally or widen the scope. Default to the broadest enforceable scope; narrow only with a named cost. The cost of a wider scope is usually one regex change; the cost of a scope hole is a downstream-user-facing failure some days later.
+
 ## Chronically Dirty Tree = Git-Tracked Tooling Outputs — Untrack, Don't Flux-Commit
 
 *2026-05-27, coordinator-claude.* A working tree that is *always* dirty after routine tooling runs (doctor sentinels, last-run JSON, generated mirror metadata) is a signal that **tooling outputs are git-tracked when they shouldn't be**. The fix is to **untrack** them (`git rm --cached` + `.gitignore`), not to flux-commit the churn every session — flux-commits bury real diffs in noise and make `git status` useless as a change signal.

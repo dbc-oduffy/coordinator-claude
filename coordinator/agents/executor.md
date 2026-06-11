@@ -274,6 +274,24 @@ coordinator-safe-commit --expected-branch <name> "<chunk-id>: <one-line summary>
 
 The helper fails closed (exits non-zero before any staging) when the active branch doesn't match — this is the deterministic gate against branch flips by sibling sessions in the shared working tree. Doctrine-only branch checking was explicitly rejected in SC-DR-006: executors are LLM agents, not deterministic processes; only the bash helper fails closed. This is the one carve-out from the plain-git default in executor scope. Sources: `archive/specs/2026-05-05-issue-b-expected-branch-flag.md`, `docs/wiki/scoped-safety-commits.md` § SC-DR-006 and § SC-DR-008.
 
+**Windows `core.fileMode=false` carve-out — chmod-bearing commits (DR-151).** When a task requires committing exec-bit changes set via `git update-index --chmod=+x`, the standard path-restricted commit form (`git commit -m "..." -- <paths>`) MUST NOT be used on Windows or any repo with `core.fileMode=false`. The path restriction triggers a working-tree re-read that silently resets the staged mode back to `100644`, undoing the `update-index` entirely. The correct mechanic:
+
+```bash
+# 1. Stage via update-index (not git add):
+git update-index --chmod=+x -- <file1> <file2> ...
+
+# 2. Verify staging before committing:
+git ls-files --stage <file1>   # must show 100755, not 100644
+
+# 3. Commit WITHOUT path restriction — files are already correctly staged:
+git commit -m "<subject>"
+# No '-- <paths>' suffix here. The scoped-commit path restriction is a
+# re-staging guard; once update-index has set the correct mode, the restriction
+# is redundant and triggers the fileMode=false reset under Windows.
+```
+
+This is a named exception to the SC-DR-008 scoped-commit doctrine. It applies specifically to commits whose primary purpose is mode change via `update-index --chmod=+x` — not a general license to drop path restrictions. Source lesson: `state/lessons.md` content-anchor "Windows `core.fileMode=false` + path-restricted `git commit` resets exec-bit in index [universal]". See also `docs/wiki/install-surface-completeness.md` § Exec-bit-shebang invariant.
+
 ## Tracker Updates
 
 The EM dispatches with a `tracker:` field (legacy: file path to a stub/todo doc the executor updates with status — typical for enriched-stub dispatches) OR a `sidecar_path:` field (current: per-chunk sidecar; typical for fan-out plan dispatches). Update whichever the brief names. The brief will name exactly one of these (or neither, for solo ad-hoc dispatches where the executor reports via exit-report only). Do NOT edit the plan markdown body — the sidecar (§ Flight-Recorder Sidecar) is your tracker surface.
