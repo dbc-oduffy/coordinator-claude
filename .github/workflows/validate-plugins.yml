@@ -26,22 +26,23 @@ jobs:
         run: pip install pyyaml==6.0.2
 
       - name: Validate frontmatter
-        run: python .github/scripts/validate-frontmatter.py
+        # Review: Patrik — PEP 394 removed bare `python` from many distros; use python3 consistently
+        run: python3 .github/scripts/validate-frontmatter.py
 
       - name: Validate references
-        run: python .github/scripts/validate-references.py
+        run: python3 .github/scripts/validate-references.py
 
       - name: Check for secrets
-        run: python .github/scripts/check-secrets.py
+        run: python3 .github/scripts/check-secrets.py
 
       - name: Validate JSON schemas
-        run: python .github/scripts/validate-json-schemas.py
+        run: python3 .github/scripts/validate-json-schemas.py
 
       - name: Validate gitignore policy
-        run: python .github/scripts/validate-gitignore.py
+        run: python3 .github/scripts/validate-gitignore.py
 
       - name: Check file sizes
-        run: python .github/scripts/check-file-sizes.py
+        run: python3 .github/scripts/check-file-sizes.py
 
       - name: Validate agent tools
         run: python3 .github/scripts/validate-agent-tools.py

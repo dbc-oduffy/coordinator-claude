@@ -38,27 +38,38 @@ EXIT CONTRACT
   1  — one or more shebanged files are at 100644 (drift detected; fix commands printed)
 """
 
+import argparse
+import shlex
 import subprocess
 import sys
 
 
-def get_repo_root() -> str:
+def get_repo_root(override: str | None = None) -> str:
     """Return the absolute path to the repository root via git.
 
-    Anchors the git query to the directory containing this script so that the
-    correct repo is found regardless of the caller's cwd.  In CI the workflow
-    step sets cwd to the repo root, so this is equivalent to the plain call; on
-    a developer machine this prevents the ambient cwd from silently pointing at
-    a different repo (e.g. the meta-repo ~/.claude when working across multiple
-    repos).
+    If ``override`` is provided (via ``--repo-root`` CLI flag), it is returned
+    directly without a git subprocess call — useful for callers that already
+    know the root and want to avoid the ``__file__``-anchor footgun described
+    below.
+
+    Without an override, defaults to the ambient cwd (``"."``), matching the
+    convention used by validate-hook-paths.py and the other sibling validators.
+    In CI the workflow step already sets cwd to the repo root, so this is
+    equivalent to the explicit-anchor call.  On a developer machine, callers
+    that need a specific repo should pass ``--repo-root`` explicitly.
+
+    Review: Patrik — ``__file__``-anchor is a footgun when called from outside
+    the repo (e.g. meta-repo ~/.claude); ``--repo-root`` override + cwd default
+    matches the sibling-validator convention.
     """
-    import pathlib
-    script_dir = str(pathlib.Path(__file__).resolve().parent)
+    if override is not None:
+        return override
+
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
-        cwd=script_dir,
+        cwd=".",
     )
     if result.returncode != 0:
         print(f"ERROR: git rev-parse --show-toplevel failed: {result.stderr.strip()}")
@@ -84,6 +95,9 @@ def get_staged_entries(repo_root: str) -> list[tuple[str, str, str]]:
         sys.exit(1)
 
     entries = []
+    # Review: Patrik — during merge conflicts git ls-files --stage emits stage 1/2/3 entries
+    # for the same path; dedupe by path keeping the first-seen entry to avoid false positives.
+    seen_paths: set[str] = set()
     for line in result.stdout.splitlines():
         # Format: <mode> SP <object> SP <stage> TAB <file>
         parts = line.split("\t", 1)
@@ -95,6 +109,9 @@ def get_staged_entries(repo_root: str) -> list[tuple[str, str, str]]:
         mode = meta[0]
         obj_hash = meta[1]
         path = parts[1]
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
         entries.append((mode, obj_hash, path))
     return entries
 
@@ -140,8 +157,10 @@ def check_shebang_via_git(repo_root: str, obj_hashes: list[str]) -> set[str]:
         try:
             size = int(parts[2])
         except ValueError:
-            pos += 1  # skip trailing newline after content
-            continue
+            # Review: Patrik — silent desync of binary stream parser is worse than a hard exit;
+            # unexpected header format means the git cat-file output is malformed, so exit 1.
+            print(f"ERROR: unexpected cat-file header format: {header!r}", file=sys.stderr)
+            sys.exit(1)
 
         # Read exactly `size` bytes of blob content, then the trailing newline
         content_start = pos
@@ -158,7 +177,15 @@ def check_shebang_via_git(repo_root: str, obj_hashes: list[str]) -> set[str]:
 
 
 def main() -> int:
-    repo_root = get_repo_root()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="Override the repository root (default: discovered from ambient cwd via git rev-parse).",
+    )
+    args = parser.parse_args()
+
+    repo_root = get_repo_root(args.repo_root)
     entries = get_staged_entries(repo_root)
 
     # Collect all 100644 entries to check for shebangs
@@ -183,7 +210,8 @@ def main() -> int:
 
     print()
     print("Fix with:")
-    print(f"  git update-index --chmod=+x {' '.join(offenders)}")
+    # Review: Patrik — shlex.quote ensures paths with spaces are shell-safe
+    print(f"  git update-index --chmod=+x {' '.join(shlex.quote(p) for p in offenders)}")
     print()
     print("Then commit the mode change WITHOUT a path-restricted `-- <paths>` suffix")
     print("(Windows core.fileMode=false silently resets exec bits when path-restricting).")
