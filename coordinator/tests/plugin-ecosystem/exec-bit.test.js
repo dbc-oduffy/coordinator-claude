@@ -57,6 +57,12 @@ const SOURCE_ONLY_ALLOWLIST = new Set([
 // would be a reverse-drift edit (live ahead of source). When the source repo
 // sets the exec bit, the live mirror refresh propagates it and the entry can be
 // removed. Cross-repo memos sent 2026-06-01.
+//
+// Review: code-reviewer F8 — OSS note: this allowlist is meta-repo-scoped.
+// On OSS clones (~/.claude from coordinator-claude) the live-suite describe
+// block is skipped when known_marketplaces.json is absent, so these entries
+// are never evaluated. The allowlist is percolated verbatim to the OSS copy
+// for parity but has no practical effect there.
 // ---------------------------------------------------------------------------
 // Review: chunk-1 Finding 4 (FALSE POSITIVE — EM disposition: add comment, not fix).
 // The prefix difference between the two entries below is INTENTIONAL, not a typo:
@@ -101,6 +107,15 @@ function findGitRoot(startDir) {
  *
  * `relDir` may be empty string to query the entire repo root (git rejects
  * an empty pathspec — we substitute '.' in that case).
+ *
+ * Trailing-slash pathspec convention (Review: code-reviewer F7):
+ * When relDir is non-empty we append a trailing '/' before passing it to
+ * `git ls-files --stage -- "<pathspec>"`. This is intentional: git treats a
+ * pathspec ending in '/' as a directory prefix filter, which ensures we match
+ * only files *inside* the directory and not files whose name merely starts
+ * with the same string (e.g. "bin-extra/foo" matching a pathspec of "bin").
+ * The trailing slash is stripped from the relDir string before appending it
+ * (`relDir.replace(/\/$/, '')`) so we never double-up slashes.
  */
 function getGitModesForDir(repoRoot, relDir) {
   const modeMap = new Map();
@@ -142,14 +157,17 @@ function getGitModesForDir(repoRoot, relDir) {
  *   head -c 2 "$p" | grep -q '^#!'
  */
 function hasShebang(absPath) {
+  // Review: code-reviewer F5 — guard against fd leak when readSync throws
+  let fd = -1;
   try {
-    const fd = fs.openSync(absPath, 'r');
+    fd = fs.openSync(absPath, 'r');
     const buf = Buffer.alloc(2);
     const bytesRead = fs.readSync(fd, buf, 0, 2, 0);
-    fs.closeSync(fd);
     return bytesRead === 2 && buf[0] === 0x23 && buf[1] === 0x21; // '#' + '!'
   } catch {
     return false;
+  } finally {
+    if (fd !== -1) { try { fs.closeSync(fd); } catch {} }
   }
 }
 
@@ -157,8 +175,26 @@ function hasShebang(absPath) {
 // Test suite
 // ---------------------------------------------------------------------------
 
-const marketplaces = getDirectoryMarketplaces();
+// Review: code-reviewer F1 — guard against ENOENT on machines without
+// ~/.claude/plugins/known_marketplaces.json (OSS-clone case). When the file
+// is absent, marketplaces stays [] and the live-suite describe block
+// iterates over nothing, effectively skipping all live tests gracefully.
+let marketplaces = [];
+try { marketplaces = getDirectoryMarketplaces(); } catch { /* no meta-repo install — live suite skips */ }
 
+// ---------------------------------------------------------------------------
+// Live suite — meta-repo-scoped
+//
+// This describe block reads ~/.claude/plugins/known_marketplaces.json to
+// discover installed plugin directories and checks their git index exec bits.
+// It is ONLY meaningful on machines with a meta-repo install of the
+// coordinator plugin. On OSS clones without known_marketplaces.json the
+// marketplaces array is empty and all tests in this block are skipped.
+//
+// OSS-side exec-bit enforcement is handled by the Chunk 6 CI Python
+// validator, not by this live-suite block. The AC4 synthetic block below
+// is self-contained and provides the correctness proof regardless.
+// ---------------------------------------------------------------------------
 describe('exec-bit: all shebanged scripts must be committed at mode 100755', () => {
   for (const marketplace of marketplaces) {
     const marketplaceDir = marketplace.source.path;
@@ -215,8 +251,13 @@ describe('exec-bit: all shebanged scripts must be committed at mode 100755', () 
           // no-extension — all are candidates if the first 2 bytes are '#!'.
           if (!hasShebang(absPath)) continue;
 
-          // Compute path relative to plugin dir for allowlist check
-          const relFromPlugin = relFromRepo.startsWith(relPluginDir + '/')
+          // Compute path relative to plugin dir for allowlist check.
+          // Review: code-reviewer F2 — guard against relPluginDir === '' (root-level plugin):
+          // if relPluginDir is '', then relPluginDir + '/' becomes '/', and every repo-relative
+          // path starts with '/' is false, so the slice never fires and the allowlist key shape
+          // changes silently. The guard `relPluginDir &&` short-circuits for root-level plugins,
+          // leaving relFromPlugin = relFromRepo (which is already root-relative — correct).
+          const relFromPlugin = (relPluginDir && relFromRepo.startsWith(relPluginDir + '/'))
             ? relFromRepo.slice(relPluginDir.length + 1)
             : relFromRepo;
 
@@ -266,6 +307,11 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
   const UNGUARDED_DIRS = ['lib', 'tests', 'setup', '.github/scripts'];
   const SHEBANG_CONTENT = '#!/usr/bin/env python3\nprint("hello")\n';
 
+  // Review: code-reviewer F9 — before() uses synchronous execSync calls without an explicit
+  // timeout option. This is acceptable here: all operations (mkdtemp, git init, git add) are
+  // local-only filesystem/process operations that complete in <1s under normal conditions.
+  // The node:test runner's default per-test timeout (infinite unless set) does not apply to
+  // before() hooks. If CI machines are slow, add `{ timeout: 10000 }` to the before() call.
   before(() => {
     // Create a fresh temp git repo that acts as the "plugin" source
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-bit-ac4-'));
@@ -284,7 +330,12 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
     // Stage all files WITHOUT exec bit (mode 100644 — the drift scenario)
     execSync('git add .', { cwd: tmpDir, stdio: 'pipe' });
     // Explicitly ensure they are staged at 100644 (git add without -x leaves them at 100644)
-    // Verify by checking no exec bit was auto-assigned
+    // Review: code-reviewer F6 — verify the precondition: all files must be at 100644 after
+    // staging, before any test runs. If the platform auto-assigns +x (e.g. core.fileMode=true
+    // on Linux with executable fs bits), the second it-block's assertion would be wrong.
+    const stageOut = execSync('git ls-files --stage', { cwd: tmpDir, stdio: 'pipe' }).toString();
+    const allAt644 = stageOut.trim().split('\n').every(l => l.startsWith('100644'));
+    if (!allAt644) throw new Error('Precondition failed: some files staged at non-100644 mode');
   });
 
   after(() => {
@@ -297,6 +348,12 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
     }
   });
 
+  // Review: code-reviewer F4 — ordering dependency: these two it() blocks share the same
+  // tmpDir and must run in declaration order. The first it() asserts all four script.py
+  // files are at 100644. The second it() calls `git update-index --chmod=+x -- lib/script.py`,
+  // mutating the shared git index, and asserts that only 3 violations remain.
+  // node:test runs it() blocks sequentially within a describe, so this implicit ordering is
+  // safe here — but do not reorder or parallelize these two blocks.
   it('staged .py files at 100644 are detected by getGitModesForDir', () => {
     // Query the git index for the tmp repo — this exercises the same code path
     // the widened test uses for each plugin
