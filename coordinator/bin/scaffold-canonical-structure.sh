@@ -117,7 +117,14 @@ fi
 
 # tr -d '\r' strips Windows CRLF carriage returns from Python stdout so that the
 # tab-separated fields read by bash's 'read' below are clean on all platforms.
-ENTRIES="$("$PYTHON" - "$MANIFEST" <<'PYEOF' | tr -d '\r'
+#
+# Bash 3.2 parser limitation: `"$(...)" | tr ...` with an interior `<<'EOF'` heredoc
+# fails to parse (line 430 "unexpected EOF while looking for matching `\"'"). Bash 4+
+# parses it fine, but stock macOS /bin/bash is 3.2 and per DR-148 we need scripts to
+# parse under 3.2 even when they target bash 4 at runtime (otherwise the fail-loud
+# guard pattern can never fire). Resolution: hoist the heredoc into its own $()
+# binding to a PY_PROG variable first, then pipe via herestring.
+PY_PROG=$(cat <<'PYEOF'
 import sys, pathlib
 
 manifest_path = pathlib.Path(sys.argv[1])
@@ -303,7 +310,8 @@ for entry in entries:
     gitkeep_flag = "1" if gitkeep else "0"
     print(f"{path}\t{gitkeep_flag}\t{readme_transport}")
 PYEOF
-)" || {
+)
+ENTRIES=$("$PYTHON" - "$MANIFEST" <<<"$PY_PROG" | tr -d '\r') || {
     echo "scaffold-canonical-structure.sh: manifest parse failed" >&2
     exit 2
 }
