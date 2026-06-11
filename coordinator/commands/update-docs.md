@@ -34,11 +34,18 @@ This is the **produce-not-prescribe** principle (`docs/wiki/produce-not-prescrib
 **Threshold (conjunctive AND — all three must be true for the no-op to fire):**
 
 ```bash
+# cwd guard — the probe's relative paths assume repo root.
+if [ ! -f CLAUDE.md ] && [ ! -f .git/HEAD ]; then
+  # Not at repo root — fall through to the normal pipeline; safer to run than to silently no-op
+  : # explicit no-op; skip the probe entirely
+else
+
 # Axis 1 — source-file surface: DIRECTORY.md does not yet exist (no source indexed)
 axis1=0
 [ ! -f docs/DIRECTORY.md ] && axis1=1
 
 # Axis 2 — completed-work archive: empty
+# Note: archive/completed/ containing only .gitkeep will set axis2=0 (probe falls through to pipeline — intentional false-negative-NEVER bias)
 axis2=0
 if [ ! -d archive/completed ] || [ -z "$(ls -A archive/completed 2>/dev/null)" ]; then
   axis2=1
@@ -58,9 +65,11 @@ Doctrine: docs/wiki/produce-not-prescribe.md — setup-class skills produce mini
 EOF
   exit 0
 fi
+
+fi
 ```
 
-**Portability note (per DR-148):** Execution target is **bash ≥ 4 + BSD coreutils**. The probe uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. `find tasks -name '*.md' -type f` is portable across BSD and GNU `find`; `ls -A` is portable. Verify with `bash -n` before committing — see `docs/wiki/cross-platform-shell-portability.md` for the BSD coreutils-axis specifics.
+**Portability note (per DR-148):** Execution target is **bash ≥ 4 + BSD coreutils**. The probe uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. `find tasks -name '*.md' -type f` is portable across BSD and GNU `find`; `ls -A` is portable. Verify with `bash -n` before committing — see `docs/wiki/cross-platform-shell-portability.md` for the BSD coreutils-axis specifics. For future maintainers: paste the probe block into a `.sh` file and run `bash -n <file>` to verify syntax — the markdown-fenced block here cannot be lint-checked in place.
 
 **Bias:** false-negative-NEVER. The conjunctive AND means if even ONE axis suggests real maintenance is due, the probe falls through and the full pipeline runs. Better to run a no-op pipeline than silently skip real work.
 

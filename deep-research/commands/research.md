@@ -52,7 +52,7 @@ The coverage auditor answers: *"Did the synthesis carry the research?"* It emits
 
 **Pipeline D boundaries** (documented divergence from the unified auditor):
 - D auditor carries notebooklm MCP tools (`notebook_query` at minimum) with graduated bootstrap (exact names → keyword fallback → graceful-skip); degrades to `{letter}-claims.json`-only with explicit sidecar note if MCP unavailable.
-- D notebook cleanup (`--cleanup`) is deferred until AFTER the D auditor completes — notebook deletion must not run before the sidecar is written. Wire at `notebooklm/commands/research.md` Step 6: run auditor first, then delete notebooks.
+- D notebook cleanup (`--cleanup`) is deferred until AFTER the D auditor completes — notebook deletion must not run before the sidecar is written. Wire at `notebooklm/commands/notebooklm-research.md` Step 6: run auditor first, then delete notebooks.
 - Relay is OOS for D until D gains a depth concept (architectural boundary, not an appetite call).
 
 See `agents/coverage-auditor.md` for the full auditor spec (input universe, sidecar format, MCP bootstrap, D-specific divergences). See `coordinator/docs/wiki/independent-coverage-auditor-pattern.md` for the canonical pattern with both named instantiations (deep-research + coordinator comprehensiveness-auditor-DRAFT).

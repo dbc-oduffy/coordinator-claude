@@ -242,7 +242,7 @@ The auditor sources notebook IDs from each `{letter}-summary.md` YAML frontmatte
 
 > **PINNED CLEANUP-DEFERRAL CONTRACT (AC16):** Notebooks must still exist when the D auditor
 > runs. The sweep MUST NOT delete notebooks at sweep-completion time. Cleanup is deferred to
-> the EM's post-audit completion step (`notebooklm/commands/research.md` Step 6 sequencing:
+> the EM's post-audit completion step (`notebooklm/commands/notebooklm-research.md` Step 6 sequencing:
 > run auditor first, then delete notebooks). The `CLEANUP_NOTEBOOKS` flag controls whether
 > deletion eventually happens — it does NOT authorize deletion before the auditor sidecar is
 > written.
