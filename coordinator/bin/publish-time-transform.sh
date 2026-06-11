@@ -189,7 +189,9 @@ fi
 # be listed before their substrings (e.g. "Dónal") to prevent partial-match
 # clobbering. ORDERED_KEYS enforces this sequence at fix time.
 declare -A NAME_TO_ROLE=(
-  # Persona names (must match the publish-repo check-persona-names.py pattern)
+  # Persona names (must match the publish-repo check-persona-names.py pattern).
+  # Persona depersonalization is intentional for OSS distribution: the reviewer-
+  # role framing carries the value; persona names are private vocabulary.
   ["Patrik"]="the Staff Engineer"
   ["Zolí"]="the Director of Engineering"
   ["YK"]="the VP-Product Reviewer"
@@ -197,23 +199,21 @@ declare -A NAME_TO_ROLE=(
   ["Palí"]="the Front-End Reviewer"
   ["Fru"]="the UX Reviewer"
   ["Camelia"]="the Data Science Reviewer"
-  # Identity vocabulary — PM name forms (compound before bare)
-  ["Dónal O'Duffy & Claude"]="the Coordinator Authors"
-  ["Donal O'Duffy & Claude"]="the Coordinator Authors"
-  ["Donal + Claude"]="the Coordinator Authors"
-  ["Dónal"]="the PM"
+  # NOTE: PM-name forms ("Dónal", "Dónal O'Duffy & Claude", etc.) are intentionally
+  # NOT depersonalized — the PM is the author of this OSS project (repo lives at
+  # github.com/dbc-oduffy/coordinator-claude) and merits attribution in LICENSE,
+  # marketplace owner.name, README, and other attribution surfaces. The prior rule
+  # produced broken attributions like "Copyright (c) 2026 the PM O'Duffy" in
+  # LICENSE and stripped owner.name from marketplace.json, which is the inverse
+  # of what an OSS publish target should do.
   # Per-operator org-slug rewrites are merged in below from
   # `depersonalize-identity.sh` (sibling file, optional).
 )
 
-# Fix-application order: compound identity forms before their substrings,
-# then persona names. Assoc array iteration order is undefined in bash, so we
-# maintain an explicit ordered list here.
+# Fix-application order: persona names only. (PM-name forms removed — see
+# NAME_TO_ROLE comment above.) Assoc array iteration order is undefined in
+# bash, so we maintain an explicit ordered list here.
 ORDERED_KEYS=(
-  "Dónal O'Duffy & Claude"
-  "Donal O'Duffy & Claude"
-  "Donal + Claude"
-  "Dónal"
   "Patrik"
   "Zolí"
   "YK"

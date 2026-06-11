@@ -25,6 +25,45 @@ Repo-wide maintenance — syncs all documentation artifacts to match the current
 
 Phases below are the source of truth — the headings enumerate everything this command does. No separate "what this does" list (it drifts).
 
+### Pre-flight: Fresh-Repo Precondition Probe
+
+Before running any phase, probe whether the repo has accumulated anything worth maintaining. If ALL THREE axes below indicate a freshly-scaffolded repo with no doc-relevant activity, emit the no-op-loud message and EXIT — do NOT dispatch the doc-maintenance agent against empty inputs.
+
+This is the **produce-not-prescribe** principle (`docs/wiki/produce-not-prescribe.md`) applied as a downstream self-gate: `/coordinator:repo-setup` produces the minimum-viable substrate (orientation_cache.md, project-tracker.md, README.md, CLAUDE.md); `/update-docs` adds-to those artifacts once content accumulates, rather than re-creating from scratch on a fresh repo.
+
+**Threshold (conjunctive AND — all three must be true for the no-op to fire):**
+
+```bash
+# Axis 1 — source-file surface: DIRECTORY.md does not yet exist (no source indexed)
+axis1=0
+[ ! -f docs/DIRECTORY.md ] && axis1=1
+
+# Axis 2 — completed-work archive: empty
+axis2=0
+if [ ! -d archive/completed ] || [ -z "$(ls -A archive/completed 2>/dev/null)" ]; then
+  axis2=1
+fi
+
+# Axis 3 — distillable artifacts in tasks/: none
+axis3=0
+if [ ! -d tasks ] || [ -z "$(find tasks -name '*.md' -type f 2>/dev/null)" ]; then
+  axis3=1
+fi
+
+if [ "$axis1" -eq 1 ] && [ "$axis2" -eq 1 ] && [ "$axis3" -eq 1 ]; then
+  cat <<'EOF'
+Nothing material to update — the repo is freshly-scaffolded (no DIRECTORY.md, no completed work, no distillable artifacts in tasks/). /coordinator:repo-setup already produced the minimum-viable substrate (orientation_cache.md, project-tracker.md, README.md, CLAUDE.md). Re-run /update-docs after the first workstream lands real content.
+
+Doctrine: docs/wiki/produce-not-prescribe.md — setup-class skills produce minimum-viable downstream artifacts; downstream skills add-to them as content accumulates.
+EOF
+  exit 0
+fi
+```
+
+**Portability note (per DR-148):** Execution target is **bash ≥ 4 + BSD coreutils**. The probe uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. `find tasks -name '*.md' -type f` is portable across BSD and GNU `find`; `ls -A` is portable. Verify with `bash -n` before committing — see `docs/wiki/cross-platform-shell-portability.md` for the BSD coreutils-axis specifics.
+
+**Bias:** false-negative-NEVER. The conjunctive AND means if even ONE axis suggests real maintenance is due, the probe falls through and the full pipeline runs. Better to run a no-op pipeline than silently skip real work.
+
 #### Phase 0: Quick-Save Before Docs
 
 1. **Branch guard:** If on `main`, create a work branch (`work/{machine}/{date}`) and switch. Never commit to main directly.

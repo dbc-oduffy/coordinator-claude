@@ -3,7 +3,7 @@
   "version": "2.7.1",
   "description": "Turn Claude Code into a structured development partner — session lifecycle, named code reviewers, research pipelines, and 23 workflow skills that enforce quality from plan through execution.",
   "author": {
-    "name": "the Coordinator Authors"
+    "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/dbc-oduffy/coordinator-claude",
   "keywords": [

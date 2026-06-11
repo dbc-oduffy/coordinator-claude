@@ -11,7 +11,7 @@ plan: plugins/coordinator/docs/plans/2026-06-08-runtime-tripwire-background-exec
 
 **Plan:** `plugins/coordinator/docs/plans/2026-06-08-runtime-tripwire-background-executors.md`
 **Verdict:** COMPLETE
-**Oracle items:** 4 (source: ratified problem-set: `docs/problems/2026-06-08-runtime-tripwire-background-executors.md`, `status: ratified`, ratified by PM the PM O'Duffy 2026-06-08)
+**Oracle items:** 4 (source: ratified problem-set: `docs/problems/2026-06-08-runtime-tripwire-background-executors.md`, `status: ratified`, ratified by PM Dónal O'Duffy 2026-06-08)
 **Slate items:** 6 chunks (C1–C6) + 9 ACs (AC1–AC9)
 **Missed:** 0 | **Ambiguous:** 0 | **OOS-weak:** 0 | **Hedges:** 0 | **Substrate-drift:** 0
 

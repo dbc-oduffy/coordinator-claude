@@ -18,7 +18,7 @@ related:
 
 ## Problem set
 
-> Ratified by PM the PM O'Duffy 2026-06-09
+> Ratified by PM Dónal O'Duffy 2026-06-09
 
 EMs are spending material time on `plan-coverage-checker` rework that does not add product value. The PM reports the rework is **cosmetic** — AC Test-cell grammar, substrate citation form, formatting — rather than real coverage gaps (Lens 1) or appetite-based hedges (Lens 2). The oracle's Lens 4 (AC grammar) was added 2026-06-09 specifically because runtime AC-grammar reds were costly *at workstream-complete*, and the design move was to surface them *at plan-write time*. The move was right; the **mechanism** was wrong: a Sonnet agent producing a sidecar that the EM folds is an *after-the-fact rework loop*, not an *at-authoring offer*. The frontmatter validator (`validate-frontmatter-schema.js`) is the in-tree precedent for the correct mechanism — PreToolUse hook, additionalContext offer, exits 0, strict-mode env opt-in.
 
@@ -34,7 +34,7 @@ Three independent problems compose the burden:
 
 ## PM-ratified decisions (2026-06-09)
 
-> Ratified by PM the PM O'Duffy 2026-06-09
+> Ratified by PM Dónal O'Duffy 2026-06-09
 
 1. **Lens 4 retires fully from `plan-coverage-checker` once the hook ships.** Hook upstream + runtime gate downstream cover the grammar. Oracle goes back to judgment-only checking (Lens 1 coverage, Lens 2 hedges, Lens 3 substrate drift).
 2. **Hook defaults to WARN; strict mode is opt-in** via `COORDINATOR_AC_GRAMMAR_STRICT=1`. Mirrors `validate-frontmatter-schema.js` precedent.

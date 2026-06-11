@@ -4,7 +4,7 @@
   "description": "Research YouTube, podcasts, and media Claude can't access directly — NotebookLM integration with structured claims extraction, adversarial coverage checking, and notebook preservation for follow-up queries.",
   "license": "MIT",
   "author": {
-    "name": "the Coordinator Authors"
+    "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/dbc-oduffy/deep-research-claude",
   "homepage": "https://github.com/dbc-oduffy/deep-research-claude",

@@ -1,6 +1,6 @@
 # coordinator
 
-Core orchestration plugin for the PM + Claude agent hierarchy. Always enabled on every project.
+Core orchestration plugin for the coordinator agent hierarchy. Always enabled on every project.
 
 This plugin addresses six failure modes that compound silently in sustained AI-assisted development. Each maps to named skills and commands.
 
@@ -279,4 +279,4 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) § "The Write-Ahead Status Protocol" f
 
 ## Authors
 
-the Coordinator Authors
+Dónal O'Duffy & Claude

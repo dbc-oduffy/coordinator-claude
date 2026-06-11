@@ -26,7 +26,7 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # bash version guard (ratified policy: Coordinator requires bash >= 4 — see
-# docs/wiki/cross-platform-shell-portability.md § bash-version policy).
+# plugins/coordinator-claude/coordinator/docs/wiki/cross-platform-shell-portability.md § bash-version policy).
 # This helper specifically uses `local -n` namerefs (bash 4.3+) in addition to
 # `declare -A` (bash 4.0+), so its true floor is 4.3. macOS ships bash 3.2 as
 # /bin/bash; without this guard the script aborts mid-commit at the first

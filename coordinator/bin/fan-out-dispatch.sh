@@ -315,7 +315,7 @@ if [[ -n "$PLAN_PATH" ]]; then
         exit 2
     fi
 
-    # date -u +%Y-%m-%dT%H:%M:%SZ is BSD-portable (distinct from date -d and date +%s%N which are not — see docs/wiki/cross-platform-shell-portability.md).
+    # date -u +%Y-%m-%dT%H:%M:%SZ is BSD-portable (distinct from date -d and date +%s%N which are not — see plugins/coordinator/docs/wiki/cross-platform-shell-portability.md).
     DISPATCH_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     DISPATCH_BY="${CLAUDE_CODE_SESSION_ID:-em-unknown}"
 
