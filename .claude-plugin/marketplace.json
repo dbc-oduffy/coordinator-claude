@@ -1,17 +1,17 @@
 {
   "name": "coordinator-claude",
   "owner": {
-    "name": "D\u00f3nal O'Duffy & Claude"
+    "name": "the Coordinator Authors"
   },
   "metadata": {
-    "description": "Structured agent orchestration for Claude Code \u2014 multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
-    "version": "2.1.0"
+    "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
+    "version": "2.1.1"
   },
   "plugins": [
     {
       "name": "coordinator",
-      "source": "./plugins/coordinator",
-      "description": "Core orchestration: PM-EM dynamic, workflow skills, reviewer personas (the Staff Engineer, Zol\u00ed), session lifecycle, research pipelines, three-tier delegation.",
+      "source": "./coordinator",
+      "description": "Core orchestration: PM-EM dynamic, workflow skills, reviewer personas (the Staff Engineer, the Director of Engineering), session lifecycle, research pipelines, three-tier delegation.",
       "tags": [
         "orchestration",
         "code-review",
@@ -22,8 +22,8 @@
     },
     {
       "name": "web-dev",
-      "source": "./plugins/web-dev",
-      "description": "Web development reviewers: Pal\u00ed (frontend, design tokens, CSS) and the UX Reviewer (UX flows, trust signals).",
+      "source": "./web-dev",
+      "description": "Web development reviewers: the Front-End Reviewer (frontend, design tokens, CSS) and the UX Reviewer (UX flows, trust signals).",
       "tags": [
         "web-development",
         "frontend",
@@ -33,7 +33,7 @@
     },
     {
       "name": "data-science",
-      "source": "./plugins/data-science",
+      "source": "./data-science",
       "description": "Data science reviewer: the Data Science Reviewer (ML pipelines, statistics, data modeling, LLM workflows).",
       "tags": [
         "data-science",
@@ -43,26 +43,26 @@
       ]
     },
     {
-      "name": "notebooklm",
-      "source": "./plugins/deep-research/notebooklm",
-      "description": "Google NotebookLM integration via MCP. Research YouTube videos, podcasts, and audio content.",
-      "tags": [
-        "notebooklm",
-        "youtube",
-        "media-research",
-        "mcp"
-      ]
-    },
-    {
       "name": "deep-research",
-      "source": "./plugins/deep-research",
-      "description": "Multi-agent deep research pipelines \u2014 internet, repo, and structured research with Agent Teams. Now a standalone plugin.",
+      "source": "./deep-research",
+      "description": "Multi-agent deep research pipelines — internet, repo, and structured research with Agent Teams.",
       "tags": [
         "research",
         "deep-research",
         "agent-teams",
         "multi-agent",
         "web-research"
+      ]
+    },
+    {
+      "name": "notebooklm",
+      "source": "./deep-research/notebooklm",
+      "description": "Google NotebookLM integration via MCP. Research YouTube videos, podcasts, and audio content.",
+      "tags": [
+        "notebooklm",
+        "youtube",
+        "media-research",
+        "mcp"
       ]
     }
   ]
