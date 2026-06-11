@@ -836,12 +836,14 @@ copy_plugins() {
   # Shebang-scan: chmod +x every shebanged file in the installed plugins tree.
   # Runs once after all cp -r copies complete so it catches all plugin files
   # regardless of source-repo index mode (defense against core.fileMode=false drift).
-  # macOS bash 3.2 + BSD coreutils compatible: no grep -P, no find -printf.
+  # Null-delimited find avoids word-splitting on filenames with spaces (F2 fix).
+  # Process substitution requires bash 4+ — gated by the bash 4.3 admission guard above.
   # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 7
   echo "Fixing exec bits on installed plugin shebanged files..."
-  find "$plugins_target" -type f | while read -r _pf; do
+  # Review: reviewer — null-delimited form prevents word-splitting on paths with spaces
+  while IFS= read -r -d '' _pf; do
     head -c 2 "$_pf" 2>/dev/null | grep -q '^#!' && chmod +x "$_pf"
-  done
+  done < <(find "$plugins_target" -type f -print0)
 
   # Copy marketplace manifest (required for Claude Code to discover plugins)
   copy_marketplace_manifest
@@ -1020,12 +1022,14 @@ deliver_setup_templates() {
   # Shebang-scan: walk the installed setup tree and chmod +x any file whose
   # first 2 bytes are '#!'. This replaces the hardcoded SETUP_TEMPLATE_EXEC_FILES[]
   # whitelist — the scan catches newly-added shebanged files automatically, without
-  # requiring a manifest update. Compatible with macOS bash 3.2 + BSD coreutils:
-  # no grep -P, no find -printf, no GNU-only flags.
+  # requiring a manifest update. Null-delimited find avoids word-splitting on
+  # filenames with spaces (F2 fix). Process substitution requires bash 4+ — gated
+  # by the bash 4.3 admission guard at the top of this script.
   # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 7
-  find "$setup_dest" -type f | while read -r _ef; do
+  # Review: reviewer — null-delimited form prevents word-splitting on paths with spaces
+  while IFS= read -r -d '' _ef; do
     head -c 2 "$_ef" 2>/dev/null | grep -q '^#!' && chmod +x "$_ef"
-  done
+  done < <(find "$setup_dest" -type f -print0)
   echo ""
 
   # Install the OSS publish-repo pre-commit exec-bit drift gate.
@@ -1036,12 +1040,12 @@ deliver_setup_templates() {
   # never blocks install on gate-installation failure.
   # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 5
   local _hook_installer="$REPO_ROOT/coordinator/bin/install-publish-repo-precommit-hook.sh"
-  if [[ -x "$_hook_installer" ]]; then
-    echo "Installing OSS exec-bit pre-commit gate..."
-    bash "$_hook_installer" "$REPO_ROOT" || true
-  else
-    echo "  SKIP: install-publish-repo-precommit-hook.sh not found or not executable (skipping exec-bit gate install)" >&2
-  fi
+  # Review: reviewer — avoid TOCTOU between -x check and bash call; invoke directly
+  # with || true so a missing or non-executable file is silently swallowed rather
+  # than aborting install. The gate installer is idempotent and offer-shape (exit 0
+  # on all skip paths), so direct invocation is safe.
+  echo "Installing OSS exec-bit pre-commit gate..."
+  bash "$_hook_installer" "$REPO_ROOT" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
