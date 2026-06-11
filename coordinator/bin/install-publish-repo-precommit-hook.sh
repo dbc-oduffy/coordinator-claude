@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install the OSS publish-repo pre-commit exec-bit drift gate.
 #
 # Usage: install-publish-repo-precommit-hook.sh <EXPECTED_REPO_ROOT>
@@ -24,8 +24,10 @@
 set -euo pipefail
 
 canon() {
+  # Review: reviewer — return empty string on cd failure so a failed canon never
+  # matches a non-empty expected path (safe skip rather than masked edge case).
   [ -n "$1" ] || { echo ""; return; }
-  (cd "$1" 2>/dev/null && pwd -P) || echo "$1"
+  (cd "$1" 2>/dev/null && pwd -P) || { echo ""; }
 }
 
 # ------------------------------------------------------------------
@@ -94,7 +96,7 @@ fi
 # can detect a previously-installed shim.
 # ------------------------------------------------------------------
 cat > "$HOOK_PATH" <<HOOK
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-oss-exec-bit-gate — OSS publish-repo exec-bit drift gate.
 # Identity-scoped to this repo (canonical path baked in at install time).
 # Exits 0 silently when run outside the expected repo.
@@ -102,8 +104,10 @@ cat > "$HOOK_PATH" <<HOOK
 # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 5
 OSS_REPO_ROOT="${CANONICAL_EXPECTED}"
 _canon() {
+  # Review: reviewer — return empty string on cd failure so a failed _canon never
+  # matches a non-empty expected path (safe skip rather than masked edge case).
   [ -n "\$1" ] || { echo ""; return; }
-  (cd "\$1" 2>/dev/null && pwd -P) || echo "\$1"
+  (cd "\$1" 2>/dev/null && pwd -P) || { echo ""; }
 }
 _cur="\$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "\$_cur" ] || exit 0
@@ -121,7 +125,10 @@ EXEC_BIT_TEST="\$_cur/coordinator/tests/plugin-ecosystem/exec-bit.test.js"
 if [ ! -f "\$EXEC_BIT_TEST" ]; then
   exit 0
 fi
-if ! node --test "\$EXEC_BIT_TEST" 2>&1 >&2; then
+if ! node --test "\$EXEC_BIT_TEST" >&2 2>&1; then
+  # Review: reviewer — >&2 first redirects stdout to stderr, then 2>&1 merges
+  # remaining stderr to the same fd; the prior order 2>&1 >&2 was wrong: it
+  # duplicated stderr to current stdout (tty) before redirecting stdout to stderr.
   echo "" >&2
   echo "pre-commit: exec-bit drift detected (above). Fix and re-commit." >&2
   echo "Override (PM-authorized only): COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1 git commit ..." >&2
