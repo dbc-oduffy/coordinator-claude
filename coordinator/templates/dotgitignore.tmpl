@@ -1,0 +1,82 @@
+# =============================================================================
+# Starter ~/.claude/.gitignore — laid down by /coordinator:install on git init.
+#
+# PRINCIPLE: Track everything that represents work (your doctrine, plugins,
+# wikis, lessons). Ignore only per-machine state, credentials, and regenerable
+# caches/transcripts. Edit freely — this is a starting point, not a contract.
+#
+# No template placeholders: copied verbatim. Plugins that produce their own
+# per-machine artifacts add nested .gitignore files in their own data dirs.
+# =============================================================================
+
+# --- Coordinator per-machine state (set by /setup + orientation on THIS machine) ---
+# These answer "what is true on this machine" — a cloned ~/.claude must not carry
+# them to a fresh machine. See docs/wiki/coordinator-setup-state-receipt.md.
+/coordinator-setup-state.yaml
+/coordinator-identity.yaml
+/working-repos.yaml
+
+# --- Credentials & secrets / machine-local auth state ---
+.credentials.json
+settings.local.json
+stats-cache.json
+mcp-needs-auth-cache.json
+
+# --- Python bytecode ---
+__pycache__/
+*.pyc
+
+# --- Session transcripts (regenerable, massive) ---
+*.jsonl
+# Exception: plugin test fixtures are work product, not ephemeral transcripts.
+# `**` matches at any depth, so a flat plugins/<name>/tests/fixtures/ is covered.
+!plugins/**/tests/fixtures/*.jsonl
+
+# --- Claude Code internals (regenerable / ephemeral) ---
+backups/
+cache/
+debug/
+downloads/
+file-history/
+ide/
+daemon/
+paste-cache/
+session-env/
+shell-snapshots/
+statsig/
+telemetry/
+todos/
+usage-data/
+sessions/
+image-cache/
+.last-cleanup
+
+# --- Per-project session data (memory, settings, pointers — machine-local) ---
+projects/
+
+# --- Tasks: ignore UUID-named TodoWrite files (8-hex prefix + rest) + caches; keep curated files ---
+# (lessons.md, improvement-queue.md, handoffs/ etc. stay tracked.)
+tasks/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*
+state/orientation_cache.md
+state/.scc-cache
+tasks/_*.log
+
+# --- Plugin install/marketplace state (machine-specific paths, autoupdate stamps, caches) ---
+plugins/installed_plugins.json
+plugins/known_marketplaces.json
+plugins/blocklist.json
+plugins/install-counts-cache.json
+plugins/cache/
+plugins/marketplaces/
+plugins/data/
+
+# --- Repository map (regenerable cache) ---
+.claude/repomap.md
+.claude/repomap-cache/
+
+# --- Scratch / agent-teams scratch (transient, consumed by next phase) ---
+scratch/
+teams/
+
+# --- Session plans (ephemeral). Anchored to root so it does NOT shadow docs/plans/. ---
+/plans/
