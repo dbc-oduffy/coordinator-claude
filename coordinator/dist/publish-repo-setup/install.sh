@@ -1027,6 +1027,21 @@ deliver_setup_templates() {
     head -c 2 "$_ef" 2>/dev/null | grep -q '^#!' && chmod +x "$_ef"
   done
   echo ""
+
+  # Install the OSS publish-repo pre-commit exec-bit drift gate.
+  # Mirrors the meta-repo pattern (install-meta-repo-precommit-hook.sh) but
+  # identity-guards to this OSS repo root, not $HOME/.claude.
+  # Pass REPO_ROOT so the installer can canonical-compare without hardcoding
+  # any machine-specific path. Offer-shape: prints and continues on foreign hook;
+  # never blocks install on gate-installation failure.
+  # Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 5
+  local _hook_installer="$REPO_ROOT/coordinator/bin/install-publish-repo-precommit-hook.sh"
+  if [[ -x "$_hook_installer" ]]; then
+    echo "Installing OSS exec-bit pre-commit gate..."
+    bash "$_hook_installer" "$REPO_ROOT" || true
+  else
+    echo "  SKIP: install-publish-repo-precommit-hook.sh not found or not executable (skipping exec-bit gate install)" >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------
