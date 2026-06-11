@@ -54,3 +54,6 @@ jobs:
 
       - name: Validate hook paths
         run: python3 .github/scripts/validate-hook-paths.py
+
+      - name: Check exec bit
+        run: python3 .github/scripts/check-exec-bit.py
