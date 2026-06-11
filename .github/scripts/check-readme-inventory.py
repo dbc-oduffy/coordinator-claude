@@ -5,7 +5,7 @@ import re
 import sys
 import pathlib
 
-PLUGINS_ROOT = pathlib.Path("plugins")
+PLUGINS_ROOT = pathlib.Path(".")
 
 # Regex to find section headers with claimed counts, e.g.:
 #   ### Commands (18)
@@ -57,7 +57,7 @@ def main():
         return 1
 
     for plugin_dir in sorted(PLUGINS_ROOT.iterdir()):
-        if not plugin_dir.is_dir():
+        if not plugin_dir.is_dir() or not (plugin_dir / ".claude-plugin").is_dir():
             continue
         check_plugin(plugin_dir, errors)
 

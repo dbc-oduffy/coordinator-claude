@@ -6,7 +6,7 @@ import re
 import sys
 import pathlib
 
-PLUGINS_ROOT = pathlib.Path("plugins")
+PLUGINS_ROOT = pathlib.Path(".")
 
 # Matches script paths after bash/sh/python/python3/node invocations, skipping flags.
 # Review: the Staff Engineer — skip flags (e.g. `bash -e script.sh`) so we capture the script path, not the flag.
@@ -51,6 +51,9 @@ def check_hooks_file(hooks_json_path: pathlib.Path, plugin_dir: pathlib.Path, er
                 command = hook.get("command", "")
                 script_paths = resolve_script_path(command, plugin_dir)
                 for script_path in script_paths:
+                    # Skip install-location paths (delivered to ~/.claude/bin/ at install time)
+                    if "~/.claude/bin/" in command or "$HOME/.claude/bin/" in command:
+                        continue
                     if not script_path.exists():
                         errors.append(
                             f"{hooks_json_path}: hook command references missing file: "
@@ -66,7 +69,7 @@ def main():
         return 1
 
     for plugin_dir in sorted(PLUGINS_ROOT.iterdir()):
-        if not plugin_dir.is_dir():
+        if not plugin_dir.is_dir() or not (plugin_dir / ".claude-plugin").is_dir():
             continue
 
         # Check hooks/hooks.json first, then hooks.json at plugin root

@@ -5,7 +5,7 @@ import sys
 import pathlib
 import yaml
 
-PLUGINS_ROOT = pathlib.Path("plugins")
+PLUGINS_ROOT = pathlib.Path(".")
 
 # (glob pattern relative to plugin dir, required fields)
 TARGETS = [
@@ -87,7 +87,7 @@ def main():
         return 1
 
     for plugin_dir in sorted(PLUGINS_ROOT.iterdir()):
-        if not plugin_dir.is_dir():
+        if not plugin_dir.is_dir() or not (plugin_dir / ".claude-plugin").is_dir():
             continue
         for pattern, required in TARGETS:
             for path in sorted(plugin_dir.glob(pattern)):

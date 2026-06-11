@@ -12,8 +12,8 @@ LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
 # (e.g. project-rag, project-rag-ue-addon) that exist in the source meta-repo
 # layout but not here; skip rather than fail.
 REPO_TOP_DIRS = {
-    "archive", "assets", "cross-repo", "docs", "evals", "experiments",
-    "plugins", "setup", "tasks", "tests", ".github",
+    "coordinator", "data", "data-science", "deep-research",
+    "docs", "web-dev", ".github",
 }
 
 
@@ -21,11 +21,12 @@ def check_routing_files(errors: list):
     """Check that agent names in routing.md files have matching agent .md files."""
     # Collect all agent stems across all plugins for cross-plugin resolution
     all_agent_stems: set[str] = set()
-    for pd in pathlib.Path("plugins").iterdir():
+    for pd in pathlib.Path(".").iterdir():
+        if not (pd / ".claude-plugin").is_dir(): continue
         if pd.is_dir() and (pd / "agents").is_dir():
             all_agent_stems.update(p.stem for p in (pd / "agents").glob("*.md"))
 
-    for routing in pathlib.Path("plugins").rglob("routing.md"):
+    for routing in pathlib.Path(".").rglob("routing.md"):
         plugin_dir = routing.parent
         agents_dir = plugin_dir / "agents"
         if not agents_dir.is_dir():
@@ -143,7 +144,7 @@ def check_markdown_links(errors: list):
     source meta-repo layout but not in this publish-repo's layout.
     """
     repo_root = pathlib.Path(".").resolve()
-    search_dirs = [pathlib.Path("plugins"), pathlib.Path("docs")]
+    search_dirs = [p for p in pathlib.Path(".").iterdir() if (p / ".claude-plugin").is_dir()] + [pathlib.Path("docs")]
     for search_dir in search_dirs:
         if not search_dir.is_dir():
             continue

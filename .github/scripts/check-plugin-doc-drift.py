@@ -30,14 +30,16 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 def find_repo_root() -> Path:
-    """Walk up from this script's location to find the repo root (has setup/install.sh)."""
+    """Walk up from this script's location to find the repo root."""
     candidate = Path(__file__).resolve().parent
     for _ in range(6):
+        if (candidate / ".claude-plugin" / "marketplace.json").exists():
+            return candidate
         if (candidate / "setup" / "install.sh").exists():
             return candidate
         candidate = candidate.parent
     raise FileNotFoundError(
-        "Could not find repo root (looked for setup/install.sh up to 6 levels up)"
+        "Could not find repo root (looked for .claude-plugin/marketplace.json or setup/install.sh up to 6 levels up)"
     )
 
 
@@ -292,7 +294,10 @@ def main() -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    install_sh = repo_root / "setup" / "install.sh"
+    # Flat layout: install.sh lives under coordinator/dist/publish-repo-setup/
+    install_sh = repo_root / "coordinator" / "dist" / "publish-repo-setup" / "install.sh"
+    if not install_sh.exists():
+        install_sh = repo_root / "setup" / "install.sh"  # legacy layout fallback
     agent_install = repo_root / "docs" / "agent-install.md"
     safety_md = repo_root / "docs" / "safety.md"
     readme = repo_root / "README.md"
