@@ -10,7 +10,7 @@ import sys
 import pathlib
 import yaml
 
-PLUGINS_ROOT = pathlib.Path("plugins")
+PLUGINS_ROOT = pathlib.Path(".")
 
 WRITE_TOOLS = {"Write", "Edit", "Bash"}
 
@@ -75,7 +75,7 @@ def main():
         return 1
 
     for plugin_dir in sorted(PLUGINS_ROOT.iterdir()):
-        if not plugin_dir.is_dir():
+        if not plugin_dir.is_dir() or not (plugin_dir / ".claude-plugin").is_dir():
             continue
         agents_dir = plugin_dir / "agents"
         if not agents_dir.is_dir():

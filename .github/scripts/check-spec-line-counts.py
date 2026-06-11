@@ -4,7 +4,7 @@
 import sys
 import pathlib
 
-PLUGINS_ROOT = pathlib.Path("plugins")
+PLUGINS_ROOT = pathlib.Path(".")
 
 CEILING = 500
 WARNING_THRESHOLD = 400
