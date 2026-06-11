@@ -306,6 +306,37 @@ fi
 ```
 **If `RECENT_24H == 0` AND `TOTAL < 5`:** skip silently.
 
+## Step 1.91: Local-Only Work-Branch Surface
+
+Complement to Step 1.9. Step 1.9 surfaces failures that the auto-push hook *captured* into `.git/push-failures.log`; this step catches the silent failure mode where the hook never ran at all (uninstalled, non-executable, routed elsewhere) — in which case `.git/push-failures.log` would never be created and Step 1.9 would report all-green even though commits are stranding on local disk.
+
+Spec backlink: `state/handoffs/2026-06-11_145955_auto-push-silent-failure-email-privacy.md`. The 2026-06-11 instance stranded ~15 commits across multiple sessions for an entire day before being noticed at `/workstream-complete`.
+
+```bash
+CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+LOCAL_ONLY_AHEAD=0
+LOCAL_ONLY_NOORIGIN=0
+if [[ "$CUR_BRANCH" == work/* || "$CUR_BRANCH" == feature/* ]]; then
+  git fetch --quiet origin "$CUR_BRANCH" 2>/dev/null
+  if git rev-parse --verify --quiet "refs/remotes/origin/$CUR_BRANCH" >/dev/null 2>&1; then
+    LOCAL_ONLY_AHEAD=$(git rev-list --count "origin/$CUR_BRANCH..HEAD" 2>/dev/null || echo 0)
+  else
+    # Branch doesn't exist on origin at all — every commit is local-only.
+    LOCAL_ONLY_NOORIGIN=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+  fi
+fi
+```
+
+**Surface `### Local-Only Branch Warning`** when `LOCAL_ONLY_AHEAD ≥ 1` OR `LOCAL_ONLY_NOORIGIN ≥ 1`:
+```
+### Local-Only Branch Warning
+- Branch `<CUR_BRANCH>` has [N] commits not on origin (or does not exist on origin at all).
+- Auto-push has either not fired or has been failing silently; `.git/push-failures.log` is [present|absent].
+- Verify `.git/hooks/post-commit` is present-AND-executable-AND-routed-to-coordinator-auto-push (session-init self-heals this on next boot, but the day's accumulated commits stay stranded until pushed).
+- Recover with `git push origin <CUR_BRANCH>`; if the remote rejects on email-privacy (GH007), set `git config user.email '<id>+<user>@users.noreply.github.com'` and make any benign commit before retrying.
+```
+**Otherwise:** skip silently.
+
 ## Step 1.10: Addon Health Sentinels
 
 **First**, heal canonical-structure drift at `~/.claude` before the doctor fires. The scaffold is idempotent and additive-only (`mkdir -p` + `.gitkeep`; never overwrites READMEs or existing content). Running it here turns manifest-extension drift into a self-healing event instead of a recurring P-12 AMBER nag across every repo's daily health snapshot:

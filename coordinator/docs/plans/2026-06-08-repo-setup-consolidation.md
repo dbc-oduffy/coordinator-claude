@@ -1,7 +1,7 @@
 ---
 title: Consolidate /bootstrap-repos + project-onboarding into /repo-setup
 date: 2026-06-08
-author: the Coordinator Authors (EM)
+author: Dónal O'Duffy & Claude (EM)
 scope_mode: feature
 status: draft
 supersedes:

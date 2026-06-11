@@ -76,6 +76,17 @@ _REAPER="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-reap-stale-locks"
 _CFGGIT="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-configure-git"
 [[ -x "$_CFGGIT" ]] && ( cd "$GIT_ROOT" && "$_CFGGIT" ) >/dev/null 2>&1 || true
 
+# --- Idempotent post-commit auto-push hook install/repair ---
+# The crash-insurance doctrine ("auto-push on every commit on work/* and feature/*") used to be
+# install-time-only via /repo-setup § 3f.5. Repos that pre-date the doctrine, repos whose
+# .git/hooks/ got wiped, and OSS users who clone without running /repo-setup all silently lost
+# the safety net — commits succeed, no hook fires, work strands on local. This helper makes the
+# install self-healing on every session boot, so the next opened session in any repo restores
+# the hook. Idempotent and near-zero cost when already installed (one stat + one grep).
+# Spec backlink: state/handoffs/2026-06-11_145955_auto-push-silent-failure-email-privacy.md.
+_ENSURE_HOOK="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-ensure-post-commit-hook"
+[[ -x "$_ENSURE_HOOK" ]] && ( cd "$GIT_ROOT" && "$_ENSURE_HOOK" ) >/dev/null 2>&1 || true
+
 # --- Boot-time EOL phantom-dirty index sweep (best-effort, idempotent, silent) ---
 # Clear "phantom-dirty" entries where the index records a stale line-ending blob size while
 # HEAD and the worktree already agree on normalized content — `git status` flags these ` M`

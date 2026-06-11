@@ -1,7 +1,7 @@
 {
   "name": "coordinator-claude",
   "owner": {
-    "name": "the Coordinator Authors"
+    "name": "Dónal O'Duffy & Claude"
   },
   "metadata": {
     "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",

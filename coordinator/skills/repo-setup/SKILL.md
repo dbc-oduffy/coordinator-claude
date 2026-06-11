@@ -246,6 +246,7 @@ Only scaffold files that have **meaningful day-1 content**. A placeholder header
 | `.gitignore` entry | EAGER | Prevents accidental credential commits from first commit onwards |
 | Post-commit hook | EAGER | Auto-push crash insurance is needed from the very first commit |
 | `cross-repo/` dir | EAGER (contract-bearing) | Inbound cross-repo memo channel — sibling EMs address this repo's `cross-repo/` by name; must exist before any memo arrives. Scaffolded with `README.md` (real content, not `.gitkeep`) by `scaffold-canonical-structure.sh`. Schema: `cross-repo-memo`. Source of truth: `canonical-structure.yaml`; plan: `docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Lazy-vs-eager reconciliation`. |
+| `state/orientation_cache.md` | EAGER | Project name, type, workstreams, sibling-repo refs all ratified in Phase 2 — meaningful day-1 content exists. Applies the lazy-creation rule at `:235-238`, not a reversal. |
 | `state/lessons.md` | LAZY | Header + comment only; no lessons exist until first session runs |
 | `state/handoffs/` dir | LAZY | No handoffs until first session ends via `/handoff` |
 | `state/handoff-tracker.md` | LAZY (render) | Per-repo handoff tracker. **Never scaffold manually** — lazily created on first render by `bin/render-handoff-tracker.js`. Edit-resistance: two layers (agent hook + editor guard, both wired automatically). → `docs/wiki/handoff-tracker-system.md` § Edit-Resistance |
@@ -349,25 +350,13 @@ Procedure:
 
 #### 3f.5. Auto-push post-commit hook
 
-Check for `.git/hooks/post-commit`. If absent, install one that delegates to the canonical helper (SSH remotes on Windows → PowerShell; HTTPS → git directly):
+Delegate to the canonical idempotent self-heal helper — it handles install (hook absent), repair (hook present but not routed), and exec-bit fix (hook present but `chmod -x`) in one place:
 
 ```bash
-cat > .git/hooks/post-commit <<'HOOK'
-#!/bin/bash
-# Auto-push to remote on work/* or feature/* branches — crash insurance.
-# Delegates to coordinator-auto-push helper.
-exec "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
-HOOK
-chmod +x .git/hooks/post-commit
+"$HOME/.claude/plugins/coordinator/bin/coordinator-ensure-post-commit-hook"
 ```
 
-If the repo already has a post-commit hook (e.g. Git LFS prefix), preserve the existing block(s) and append the helper invocation backgrounded:
-
-```bash
-# === Auto-push (crash insurance) ===
-( "$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push" ) &
-exit 0
-```
+Idempotent and near-zero cost when already installed (one stat + one grep). The same helper runs from `session-init.sh` on every session boot, so any repo that pre-dated the doctrine, had its `.git/hooks/` wiped, or was cloned without `/repo-setup` ever being run, is self-healed on the next opened Claude Code session. The 2026-06-11 silent-failure spinoff (`state/handoffs/2026-06-11_145955_auto-push-silent-failure-email-privacy.md`) is the empirical basis for the install-time-only → self-healing shift.
 
 Skip if a custom auto-push hook already exists and the PM has signed off on it.
 
@@ -433,6 +422,32 @@ coordinator_currency_write "$(pwd)" "${CLAUDE_PLUGIN_ROOT}"
 ```
 
 If the write succeeds: add `docs/coordinator-currency.yaml` to the **Created** list (or **Already Existed** if idempotent no-op). If it fails with a clear error, add a **Needs Attention** warning — the stamp is non-fatal for onboarding but required for the drift probe.
+
+#### 3g. state/orientation_cache.md (if missing)
+
+Authority for this eager seed: the lazy-creation rule at `:235-238` — *"Only scaffold files that have meaningful day-1 content."* PM input from Phase 2 (project name, type, initial workstreams, sibling-repo refs) is *exactly* the meaningful day-1 content that licenses an eager seed. This is the produce-not-prescribe principle (→ `docs/wiki/produce-not-prescribe.md`) applied to the orientation surface: setup has the maximum-possible context for this project, so setup writes the cache rather than punting to `/update-docs` Phase 13 against an empty repo.
+
+Render to `state/orientation_cache.md` with the project context just gathered:
+
+```markdown
+# Orientation Cache
+
+## Project
+[PROJECT_NAME] — [PROJECT_TYPE] project. [ONE-LINE_PURPOSE_FROM_PM_OR_DETECTED_STACK].
+
+## Active workstreams
+[WORKSTREAM_LIST — name + 2-3 deliverables each, from Phase 2 PM input]
+
+## State
+- **Handoffs:** none yet (created by `/handoff` when first session ends mid-stream).
+- **Lessons:** none captured yet (`state/lessons.md` lazily created on first capture).
+- **Last weekly reset:** N/A (no weeks closed yet).
+
+## Pinboard
+[empty — populated by future workday-start / workstream-start runs]
+```
+
+Substitute the bracketed tokens from Phase 1.5 / Phase 2 ratified inputs. Leave `## Pinboard` empty (intentional — populated later). Future `/update-docs` Phase 13 reads this cache and updates it rather than overwriting from scratch.
 
 ---
 

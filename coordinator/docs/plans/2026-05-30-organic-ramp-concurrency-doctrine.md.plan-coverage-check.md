@@ -117,6 +117,6 @@ Resolution options:
 - **Amend the plan:** Update C2 chunk description to specify `16` (matching the pinned contract, which is explicitly load-bearing).
 - **Amend the pinned contract:** If `12` was the intended design decision, update the pinned contract table and resolution-order paragraph to say `12`. Then C4 test assertions must also use `12` as the threshold input for Test E (currently the test uses 9 chunks for `>8`; if the threshold becomes 12, Test E needs ≥12 chunks to trigger the NOTE).
 
-Advisory: The inline problem-set block lacks the `> Ratified by PM` marker required to count as ratified. Add `> Ratified by PM the PM O'Duffy 2026-05-30` inside `## Problem` to satisfy the spec, or leave as-is if the PM confirmation is understood to be captured in the plan body prose ("Converged design (PM decisions, 2026-05-30)"). This is advisory only and does not change the INCOMPLETE verdict.
+Advisory: The inline problem-set block lacks the `> Ratified by PM` marker required to count as ratified. Add `> Ratified by PM Dónal O'Duffy 2026-05-30` inside `## Problem` to satisfy the spec, or leave as-is if the PM confirmation is understood to be captured in the plan body prose ("Converged design (PM decisions, 2026-05-30)"). This is advisory only and does not change the INCOMPLETE verdict.
 
 **Cost estimate:** ~4,200 tokens (6 oracle items × substrate verification of ~18 cited paths/symbols)

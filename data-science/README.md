@@ -1,6 +1,6 @@
 # data-science
 
-Data science domain plugin for the PM + Claude agent hierarchy. Enable when projects involve ML, AI, statistics, or data modeling.
+Data science domain plugin for the coordinator agent hierarchy. Enable when projects involve ML, AI, statistics, or data modeling.
 
 ## Components
 
@@ -10,4 +10,4 @@ Data science domain plugin for the PM + Claude agent hierarchy. Enable when proj
 
 ## Authors
 
-the Coordinator Authors
+Dónal O'Duffy & Claude

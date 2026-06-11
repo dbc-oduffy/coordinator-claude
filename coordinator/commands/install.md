@@ -58,7 +58,7 @@ Run all checks and collect results for the status table.
 
 ### 1a.0. Bash version (macOS portability — ratified policy: bash ≥ 4)
 
-Policy: `docs/wiki/cross-platform-shell-portability.md` § support matrix + DR-148. Scripts resolve via `#!/usr/bin/env bash` — check the PATH-resolved bash, not `/bin/bash`:
+Policy: `plugins/coordinator/docs/wiki/cross-platform-shell-portability.md` § support matrix + DR-148. Scripts resolve via `#!/usr/bin/env bash` — check the PATH-resolved bash, not `/bin/bash`:
 
 ```bash
 PATHBASH="$(command -v bash)"

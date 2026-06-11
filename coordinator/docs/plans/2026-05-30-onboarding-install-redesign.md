@@ -1,7 +1,7 @@
 ---
 title: Coordinator onboarding/install redesign — the front door enacts the system
 date: 2026-05-30
-author: the Coordinator Authors (EM)
+author: Dónal O'Duffy & Claude (EM)
 problem_set: docs/problems/2026-05-30-coordinator-onboarding-install-redesign.md
 scope_mode: feature
 status: implemented

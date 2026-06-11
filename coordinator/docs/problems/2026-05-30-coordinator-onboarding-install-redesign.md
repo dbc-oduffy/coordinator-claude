@@ -1,7 +1,7 @@
 ---
 title: Coordinator onboarding/install redesign — the front door must enact the system it installs
 date: 2026-05-30
-ratified_by: the PM O'Duffy
+ratified_by: Dónal O'Duffy
 ratified_date: 2026-05-30
 status: ratified
 kind: problem-set
@@ -9,7 +9,7 @@ kind: problem-set
 
 # Coordinator onboarding/install redesign
 
-> Ratified by PM the PM O'Duffy 2026-05-30. Frozen before any solution. This is the external coverage oracle for plans that cite it.
+> Ratified by PM Dónal O'Duffy 2026-05-30. Frozen before any solution. This is the external coverage oracle for plans that cite it.
 >
 > Origin: first real external user (Britt O'Duffy, CS PhD candidate, Oxford) installed coordinator cold; the install surface failed in linked ways. Root cause is a **bootstrap paradox** — a vanilla, doctrine-less Claude is asked to install the coordinator doctrine, so it cannot behave like the system it is installing. The fix philosophy: **the install must enact the collaboration it installs** — decision-dense where shape is at stake, fast everywhere else; never the "press the button, don't think" express analog, which contradicts a system whose value is that Claude pushes back on half-formed work.
 

@@ -123,7 +123,8 @@ fi
 # parses it fine, but stock macOS /bin/bash is 3.2 and per DR-148 we need scripts to
 # parse under 3.2 even when they target bash 4 at runtime (otherwise the fail-loud
 # guard pattern can never fire). Resolution: hoist the heredoc into its own $()
-# binding to a PY_PROG variable first, then pipe via herestring.
+# binding to a PY_PROG variable first, then feed via herestring (`<<<` is a
+# herestring redirection to stdin, not a pipe).
 PY_PROG=$(cat <<'PYEOF'
 import sys, pathlib
 

@@ -399,7 +399,7 @@ If any step was skipped due to an existing artifact, note it explicitly so the P
 
 **`/percolate` dry-run file-count is inflated by the depersonalization-delta — not a signal of real changes.** A dry-run may report 200+ "UPDATE" files when the real run syncs only 2-3 genuinely-changed files and re-depersonalizes the rest (the dest is already depersonalized; the source is not, so every file reads as "changed" in a naive diff). Judge percolate scope by `git status` in the dest repo after the real run, not the dry-run UPDATE count. The content-leakage scan result (0 hits) is the real safety signal.
 
-*Note on depersonalize scope:* the depersonalize hook strips identity tokens (the PM/oduffy/paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
+*Note on depersonalize scope:* the depersonalize hook strips identity tokens (Dónal/oduffy/paths) but does NOT convert reviewer-persona display names (the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering) to role labels — that is a separate `check-persona-names` CI gate. When editing `dist/publish-repo-toplevel/` or any OSS-shipped doc, use role labels, not persona names, or CI will catch it.
 
 *Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 

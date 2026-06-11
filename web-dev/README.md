@@ -1,6 +1,6 @@
 # web-dev
 
-Web development domain plugin for the PM + Claude agent hierarchy. Enable for front-end and web application projects.
+Web development domain plugin for the coordinator agent hierarchy. Enable for front-end and web application projects.
 
 ## Components
 
@@ -10,4 +10,4 @@ Web development domain plugin for the PM + Claude agent hierarchy. Enable for fr
 
 ## Authors
 
-the Coordinator Authors
+Dónal O'Duffy & Claude

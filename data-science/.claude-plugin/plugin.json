@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "ML and data science review for Claude Code — the Data Science Reviewer reviews model architecture, statistical analysis, feature engineering, and LLM workflows with the rigor of a senior data scientist.",
   "author": {
-    "name": "the Coordinator Authors"
+    "name": "Dónal O'Duffy & Claude"
   },
   "repository": "https://github.com/dbc-oduffy/coordinator-claude",
   "keywords": ["ml", "ai", "llm", "claude-code", "data-science", "machine-learning", "statistics", "code-review"]

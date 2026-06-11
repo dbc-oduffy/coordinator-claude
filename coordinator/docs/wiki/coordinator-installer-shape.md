@@ -52,7 +52,7 @@ audience you are shapes which flags and flows are operative.
 
 ### Meta-repo operator dogfooding
 
-**Who:** The meta-repo operator (the PM O'Duffy, or any future operator running
+**Who:** The meta-repo operator (Dónal O'Duffy, or any future operator running
 `~/.claude` as their personal coordinator tree) re-running `/coordinator:install` after
 a percolation cycle that updates plugin content.
 

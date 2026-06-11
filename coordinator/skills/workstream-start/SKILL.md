@@ -17,6 +17,28 @@ Orient this agent by verifying the environment, loading project context, and cho
 
 Safety and environment checks. Order matters — each depends on the one before it.
 
+### Setup-freshness probe
+
+If `/coordinator:repo-setup` just ran in this session, `/workstream-start` is the orientation skill being applied to a session that already oriented itself by running setup. Detect this and emit a different one-liner — do NOT proceed through the full Preflight + Context Load + Engage menu, which would burn budget on re-orienting an already-oriented session.
+
+**Detection — sentinel file (`state/.repo-setup-just-ran`):**
+
+```bash
+if [ -f state/.repo-setup-just-ran ]; then
+  cat <<'EOF'
+Setup just ran — your orientation is current. /workstream-start is the orientation skill for sibling EMs or post-restart sessions, not for the operator who just set the repo up. Use /workday-start tomorrow morning, or describe a workstream and we'll start it now.
+
+Doctrine: docs/wiki/produce-not-prescribe.md — /coordinator:repo-setup produces the minimum-viable orientation substrate (orientation_cache.md); /workstream-start adds-to it when there's something to add.
+EOF
+  rm -f state/.repo-setup-just-ran  # consume the sentinel
+  exit 0
+fi
+```
+
+The sentinel is single-shot: this probe consumes it. Subsequent `/workstream-start` invocations behave normally. The sentinel is `.gitignore`'d — it's a per-session transient marker, never committed.
+
+**Why a sentinel, not a time window:** a 60-min `git log --since='60 minutes ago' | grep repo-setup` window false-negatives on operator pause >60 min (original failure mode recurs) and false-positives on `/workday-start` reconciliation pulling a sibling repo-setup commit from another machine (a session that genuinely wants `/workstream-start`). The sentinel is session-scoped, deterministic, and immune to both.
+
 ### Safety commit
 
 Secure any uncommitted work before touching branches:

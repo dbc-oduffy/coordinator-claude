@@ -218,7 +218,7 @@ Content-leakage scan:
 
 **Hook escape:** if a `<source_dir>/.percolate-scan-allowlist` file exists, treat each line as a `file:line` exemption (e.g. for a wiki that legitimately documents an example secret format). The exemption MUST be the exact file:line; pattern matches don't auto-allowlist. Exemptions are reviewed during percolation setup (see `docs/wiki/percolate-setup.md` § Drift Detection), not here.
 
-**False-positive caveat:** the regex set is intentionally broad. `the PM` matches any first-name use (intended). Refining is the EM's call when integrating findings — but defaulting to "surface and let PM judge" beats "silently miss a real leak."
+**False-positive caveat:** the regex set is intentionally broad. `Dónal` matches any first-name use (intended). Refining is the EM's call when integrating findings — but defaulting to "surface and let PM judge" beats "silently miss a real leak."
 
 #### Step 2d — Inverse-drift detection
 
