@@ -1,2 +1,0 @@
-coordinator_whoami
-tests

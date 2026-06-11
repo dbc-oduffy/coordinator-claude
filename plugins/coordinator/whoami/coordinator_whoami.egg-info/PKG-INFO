@@ -1,5 +1,0 @@
-Metadata-Version: 2.4
-Name: coordinator-whoami
-Version: 0.1.0
-Requires-Python: >=3.10
-Requires-Dist: jsonschema>=4.18
