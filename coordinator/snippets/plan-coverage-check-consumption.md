@@ -1,4 +1,5 @@
 <!-- canonical source for plan-coverage-check-consumption — edit here, then run verify-plan-coverage-sync.sh --fix -->
+<!-- consumers: see bin/snippet-registry list-consumers plan-coverage-check-consumption -->
 
 <!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->
 ## Plan Coverage Check Integration

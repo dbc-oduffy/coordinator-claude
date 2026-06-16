@@ -171,7 +171,7 @@ _acquire_lock || exit 1
 # ---------------------------------------------------------------------------
 
 _read_registry() {
-    "$PYTHON" - "$REGISTRY_LOCAL" "$PLUGIN" <<'PYEOF' | tr -d '\r'
+    bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$REGISTRY_LOCAL" "$PLUGIN" <<'PYEOF' | tr -d '\r'
 import sys, pathlib
 
 try:
@@ -364,7 +364,7 @@ if [[ "$PROPAGATION_MODE" == "copy_install" ]]; then
         cat >&2 <<EOF
 refresh-plugin-live-install.sh: [copy_install] $PLUGIN has no refresh_cmd registered — cannot auto-refresh.
   Refresh manually, then re-run the probe (check-plugin-drift.sh $PLUGIN):
-    holodeck trio (umbrella):  /holodeck:setup
+    holodeck trio (umbrella):  /holodeck:install
     per-component (standalone): ( cd "$SOURCE_PATH" && bash scripts/install-<component>-plugin.sh --allow-standalone --no-enable )
   To enable automated refresh, register the invocation (run from source_path):
     machine-local set plugin.mirrors.$PLUGIN.refresh_cmd '<command>'
@@ -393,11 +393,18 @@ EOF
     if ! ( cd "$SOURCE_PATH" && bash -euo pipefail -c "$REFRESH_CMD" ); then
         echo "refresh-plugin-live-install.sh: copy-install refresh failed — restoring from snapshot." >&2
         if [[ -d "$SNAPSHOT_PATH" ]]; then
-            # REPLACE semantics (not overlay): LIVE_PATH already validated by the
-            # rm-rf guard above; clear-and-copy so a partial install leaves no orphans.
+            # REPLACE semantics (not overlay): stage-then-swap so LIVE_PATH stays intact
+            # until the copy succeeds — prevents data loss if cp is interrupted mid-transfer.
+            _restore_staging="${LIVE_PATH}.restore.$$"
+            cp -r "$SNAPSHOT_PATH" "$_restore_staging" || {
+                echo "refresh-plugin-live-install.sh: restore staging failed — $LIVE_PATH is intact. Manual: copy from $SNAPSHOT_PATH" >&2
+                rm -rf "$_restore_staging" 2>/dev/null || true
+                exit 1
+            }
+            # staging copy succeeded — safe to remove live and swap in staged copy.
             rm -rf "$LIVE_PATH"
-            cp -r "$SNAPSHOT_PATH" "$LIVE_PATH" || {
-                echo "refresh-plugin-live-install.sh: restore failed — manual recovery required from $SNAPSHOT_PATH" >&2
+            mv "$_restore_staging" "$LIVE_PATH" || {
+                echo "refresh-plugin-live-install.sh: restore mv failed — both $LIVE_PATH and $_restore_staging exist on disk. Manual recovery needed." >&2
                 exit 1
             }
             echo "refresh-plugin-live-install.sh: restored from snapshot." >&2
@@ -422,9 +429,17 @@ EOF
     if [[ $POST_FLIGHT_CLEAN_CI -eq 0 ]]; then
         echo "refresh-plugin-live-install.sh: ERROR: post-flight drift probe failed for copy_install — restoring from snapshot." >&2
         if [[ -d "$SNAPSHOT_PATH" ]]; then
+            # Review: post-flight rollback — stage-then-swap so LIVE_PATH stays intact
+            # until the copy succeeds (symmetric fix to primary rollback at L398-408).
+            _postflight_staging="${LIVE_PATH}.postflight.$$"
+            cp -r "$SNAPSHOT_PATH" "$_postflight_staging" || {
+                echo "refresh-plugin-live-install.sh: post-flight restore staging failed — $LIVE_PATH is intact. Manual: copy from $SNAPSHOT_PATH" >&2
+                rm -rf "$_postflight_staging" 2>/dev/null || true
+                exit 1
+            }
             rm -rf "$LIVE_PATH"
-            cp -r "$SNAPSHOT_PATH" "$LIVE_PATH" || {
-                echo "refresh-plugin-live-install.sh: restore failed — manual recovery required from $SNAPSHOT_PATH" >&2
+            mv "$_postflight_staging" "$LIVE_PATH" || {
+                echo "refresh-plugin-live-install.sh: post-flight restore mv failed — both $LIVE_PATH and $_postflight_staging exist on disk. Manual recovery needed." >&2
                 exit 1
             }
             echo "refresh-plugin-live-install.sh: restored from snapshot. Investigate and retry." >&2
@@ -462,7 +477,7 @@ _check_venv_state() {
     local live="$1"
     local dist="$2"
     local pin_root="${3:-$1}"
-    "$PYTHON" - "$live" "$dist" "$pin_root" <<'VENVEOF' 2>/dev/null
+    bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$live" "$dist" "$pin_root" <<'VENVEOF' 2>/dev/null
 import sys, os, json, pathlib, re
 
 live_path = pathlib.Path(sys.argv[1])
@@ -643,7 +658,7 @@ if [[ "$PROPAGATION_MODE" == "editable_sibling_venv" ]]; then
 
     ESV_CURRENT_PYPROJECT_HASH=""
     if [[ -f "$ESV_PYPROJECT" ]]; then
-        ESV_CURRENT_PYPROJECT_HASH="$("$PYTHON" - "$ESV_PYPROJECT" <<'HASHEOF' | tr -d '\r'
+        ESV_CURRENT_PYPROJECT_HASH="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$ESV_PYPROJECT" <<'HASHEOF' | tr -d '\r'
 import sys, hashlib, pathlib
 data = pathlib.Path(sys.argv[1]).read_bytes()
 print(hashlib.sha256(data).hexdigest())
@@ -722,7 +737,7 @@ HASHEOF
             ESV_INSTALL_TOOL="pip"
         else
             echo "refresh-plugin-live-install.sh: [editable_sibling_venv] [venv-leg] uv not on PATH — bootstrapping via pip install uv (180s timeout)"
-            if "$PYTHON" -m pip install uv --timeout 180 --quiet; then
+            if bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -m pip install uv --timeout 180 --quiet; then
                 ESV_INSTALL_TOOL="uv"
             else
                 echo "refresh-plugin-live-install.sh: [editable_sibling_venv] FATAL: uv bootstrap failed." >&2
@@ -755,7 +770,7 @@ HASHEOF
     # whose sentinel lives at live_path/data/doctor-last-run.json.
     ESV_DOCTOR_SENTINEL="$LIVE_PATH/data/doctor-last-run.json"
     if [[ -f "$ESV_DOCTOR_SENTINEL" ]]; then
-        ESV_MCP_PID="$("$PYTHON" - "$ESV_DOCTOR_SENTINEL" <<'PIDEOF' 2>/dev/null | tr -d '\r'
+        ESV_MCP_PID="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$ESV_DOCTOR_SENTINEL" <<'PIDEOF' 2>/dev/null | tr -d '\r'
 import sys, json, pathlib
 try:
     data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
@@ -1069,7 +1084,7 @@ PYPROJECT_CHANGED="n"
 # Compute current pyproject hash.
 CURRENT_PYPROJECT_HASH=""
 if [[ -f "$PYPROJECT" ]]; then
-    CURRENT_PYPROJECT_HASH="$("$PYTHON" - "$PYPROJECT" <<'HASHEOF' | tr -d '\r'
+    CURRENT_PYPROJECT_HASH="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$PYPROJECT" <<'HASHEOF' | tr -d '\r'
 import sys, hashlib, pathlib
 data = pathlib.Path(sys.argv[1]).read_bytes()
 print(hashlib.sha256(data).hexdigest())
@@ -1161,7 +1176,7 @@ if [[ $NEED_VENV_INSTALL -eq 1 ]]; then
     else
         # Attempt to bootstrap uv (fail-loud on failure per substrate-pin-doctrine.md).
         echo "refresh-plugin-live-install.sh: [venv-leg] uv not on PATH — bootstrapping via pip install uv (180s timeout)"
-        if "$PYTHON" -m pip install uv --timeout 180 --quiet; then
+        if bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -m pip install uv --timeout 180 --quiet; then
             INSTALL_TOOL="uv"
         else
             echo "refresh-plugin-live-install.sh: FATAL: uv bootstrap failed." >&2
@@ -1253,7 +1268,7 @@ fi
 
 DOCTOR_SENTINEL="$PLUGINS_DIR/${PLUGIN}/data/doctor-last-run.json"
 if [[ -f "$DOCTOR_SENTINEL" ]]; then
-    MCP_PID="$("$PYTHON" - "$DOCTOR_SENTINEL" <<'PIDEOF' 2>/dev/null | tr -d '\r'
+    MCP_PID="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$DOCTOR_SENTINEL" <<'PIDEOF' 2>/dev/null | tr -d '\r'
 import sys, json, pathlib
 try:
     data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))

@@ -9,6 +9,16 @@ argument-hint: "[--dry-run] [--no-delete] [--min-convergence=N] [path]"
 
 Extract knowledge from accumulated session artifacts into evergreen wiki documents. Trim and archive canonical specs; delete scaffolding; write or update wiki entries. The archive is the long-term record; the wiki is the navigable present.
 
+**Scope discipline — record-keeping, not cleanup.** `/distill` exists to capture the *shape* of what shipped, was decided, or happened, and canonicalize it into wiki form for future prior-art-checkers (any agent may consume). Concision and trimming serve **clarity**, not cleanliness — `/distill` is NOT a disposal route for trash the EM didn't delete at workstream-complete time. Three disposal mechanisms are distinct and non-substitutable:
+
+- **Layer 1 (mechanical, age-gated)** — `bin/cruft-sweep.sh` (name + age + fingerprint anchors).
+- **Layer 2 (on-demand judgment scan)** — `/cruft-sweep` skill (registry-diff + confirm-needed names).
+- **Layer 3 (front-line judgment, fresh context)** — EM self-clean at `/workstream-complete` Step 2.67 (this session's transient scratch the EM authored — runs first in lifecycle order, before Layers 1 and 2 ever see the residue).
+
+`/distill` and `/update-docs` are NOT a substitute for any of those layers — they extract knowledge and index canonical artifacts. → `docs/wiki/cruft-sweep-cadence.md` § Three-layer design.
+
+**Plan files are a high-value distillation source alongside wiki entries and archived handoffs.** Plan documents under `docs/plans/` — especially with `(was: <plan-forecast>)` ALLOWLIST corrections from `/workstream-complete` Step 2.4 (and, on historical plans, `## Deviations` audit tables) — carry the shipped-vs-forecast reality that future prior-art-checkers consume. The four-fate table below routes plan/spec → `archive/specs/` precisely so that body of evidence stays greppable; the table treats plans as one of four equal categories, but plans + divergence corrections are the source future prior-art-checkers will read most often.
+
 **Four categories, four fates:**
 
 | Artifact | Fate | Rationale |
@@ -86,7 +96,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 3a** | Sonnet (parallel by cluster) | Contradiction detection — one agent per topic cluster; coordinator cross-cluster check post-3a; Opus escalation if unresolvable contradictions found, followed by Sonnet fidelity-check verifying all source nugget IDs cited |
 | **Phase 3b** | Sonnet (single) | Decision-record dedup — collect all Phase 2 DRs, produce deduplicated canonical set + `dr_dedup:` YAML manifest (schema: `agent-prompts/phase-3b.md`) |
 | **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write `directory_entries:` YAML manifest + prose preview; no subagent |
-| **Phase 3d** | Sonnet (single) | Deletion manifest — every source artifact with disposition `DELETE`, `SKIP`, or `PRESERVE`; output is a `deletions:` YAML block (schema: `agent-prompts/phase-3d.md`); prose table is derived PM-readable view |
+| **Phase 3d** | Sonnet (single) | Deletion manifest — per-file `deletions:` YAML block and (schema v2) grouped `deletion_groups:` sibling key; >50-row self-check switches bulk EPHEMERAL/ALREADY_CAPTURED to grouped form; prose table is derived PM-readable view. Full schema: `agent-prompts/phase-3d.md` |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest + DIRECTORY_GUIDE.md preview, wait for explicit approval |
 | **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); trim + archive canonical specs (including rationale extraction); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
 <!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
@@ -396,6 +406,10 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 - **Negative AC — `escalated-disagree` findings excluded:** a finding listed in the sidecar's appended `## Integrator Dispositions` bulk block under the `escalated-disagree:` bucket does NOT count toward convergence. Phase 2.5 reads the YAML `dispositions:` block at the END of the sidecar (per review-integrator agent prompt § Sidecar Disposition Annotation — single bulk block, not per-finding inline annotation) before Phase 5 deletes it. Validated via fixture where one of three matching findings is listed under `escalated-disagree:`; convergence count must be 2, no promotion.
 - **Prior-art-checker dogfood:** dispatching prior-art-checker on a synthetic plan whose claim-shape matches a seeded judgment entry must produce a sidecar containing a Compatible-but-relevant or Conflict bucket entry referencing the `docs/wiki/codebase-judgment/` file by path. This is the end-to-end behaviour test confirming cached Opus-tier judgment surfaces to future plan authors.
 - **AC11 — schema_version: 1 on every manifest:** every `dispositions:` (Phase 2), `dr_dedup:` (Phase 3b), `directory_entries:` (Phase 3c), `deletions:` (Phase 3d), and Phase 2.7-QG verdict file carries `schema_version: 1` as its first key. Consumers must fail-loud on unknown forward versions, per DR-5 in `docs/plans/2026-05-28-distill-structured-manifests.md`.
+<!-- AC12-AC14 are agent-prompt-scoped or test-scoped; see agent-prompts/phase-3d.md (AC2) and tests/phase3d-fixtures/ (AC11/12/14). This file mirrors plan-level ACs that are command-surface-relevant. -->
+- **AC15 — backward-compat (schema_version: 1):** Phase 5 consuming a `schema_version: 1` Phase 3d manifest (only `deletions:`, no `deletion_groups:`) succeeds — backward-compat invariant. A `schema_version: 2` manifest with `deletion_groups:` is the new canonical shape; the absence of that key on a v1 manifest is not an error. Spec backlink: `docs/plans/2026-06-14-distill-phase3d-output-budget.md` § AC15.
+- **AC16 — scout YAML block:** Phase 1 scout output includes a fenced YAML block with `artifact_paths:` list under each group section heading (EPHEMERAL / ALREADY_CAPTURED cluster sections). Phase 5 reads `artifact_paths:` from this YAML block — not from Markdown prose or glob — when expanding `deletion_groups:` entries in Phase 3d manifests. Spec backlink: `docs/plans/2026-06-14-distill-phase3d-output-budget.md` § AC16.
+- **AC17 — fanout sentinel:** if Phase 3d fanout fragments (`phase3d-fragment-*.md`) exist at the scratch path but no canonical assembled manifest is present at the canonical path, Phase 5 aborts with named error: "fanout assembly incomplete — N fragments found, no canonical manifest." Applies only when Phase 0 engaged Workflow-fanout mode (`N > 500` deletion-eligible candidates). Spec backlink: `docs/plans/2026-06-14-distill-phase3d-output-budget.md` § AC17.
 
 ---
 

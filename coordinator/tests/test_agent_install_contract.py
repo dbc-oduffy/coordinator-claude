@@ -1,0 +1,310 @@
+"""
+plugins/coordinator/tests/test_agent_install_contract.py
+
+Validates plugins/coordinator/docs/install/agent-install-manifest.json
+against the v2 agent-install contract schema and asserts required fields for the
+coordinator-claude install surface.
+
+Adapted from plugins/deep-research/tests/test_agent_install_contract.py
+(DR Phase B C5 shape) with these coordinator-claude-specific adaptations:
+  - COORDINATOR_ROOT resolves from tests/<file> (two parent levels) rather than
+    tests/install/<file>
+  - Manifest path: plugins/coordinator/docs/install/agent-install-manifest.json
+    (nested working-repo layout — two extra hops up then back down)
+  - Named tests that correspond exactly to the AC1 decomposition in the plan §6:
+      test_manifest_valid, test_repo_id_and_empty_deps,
+      test_override_flags_schema
+  - coord declares NO direct deps: direct_deps == [] (coord is DAG root)
+  - Contract version expected: 2
+
+Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC1 + AC6
+Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Path resolution
+#
+# In the nested working-repo layout, this file lives at:
+#   plugins/coordinator/tests/test_agent_install_contract.py
+# COORDINATOR_ROOT is the coordinator plugin root (two parents up from this file):
+#   tests/<file> → tests/ → coordinator plugin root
+# The manifest lives at:
+#   plugins/coordinator/docs/install/agent-install-manifest.json
+# We compute COORDINATOR_ROOT as two parents up from this file so the test is
+# layout-agnostic: in the flat publish-repo (X:\coordinator-claude\), the file
+# lives at tests/test_agent_install_contract.py so COORDINATOR_ROOT = Path(__file__)
+# .resolve().parent.parent would point at the flat repo root, where docs/install/
+# also lives.
+# ---------------------------------------------------------------------------
+
+# Two parent levels: tests/<file> → tests/ → coordinator plugin root (or flat repo root)
+COORDINATOR_ROOT = Path(__file__).resolve().parent.parent
+MANIFEST_PATH = COORDINATOR_ROOT / "docs" / "install" / "agent-install-manifest.json"
+SCHEMA_PATH = COORDINATOR_ROOT / "docs" / "install" / "agent-install-manifest.schema.json"
+AGENT_MD_PATH = COORDINATOR_ROOT / "docs" / "install" / "AGENT.md"
+
+# Contract constants — duplicated here so tests are self-contained.
+_EXPECTED_CONTRACT_VERSION = 2
+_EXPECTED_REPO_ID = "coordinator-claude"
+_EXPECTED_DIRECT_DEPS: list = []  # coord is DAG root — no upstream dependencies
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_manifest() -> dict:
+    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+def _load_schema() -> dict:
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# AC1 (named sub-test 1 of 3): test_manifest_valid
+#
+# Loads the manifest, validates it against the schema (jsonschema when
+# available; stdlib structural check otherwise), and asserts no missing
+# required top-level fields.
+# Spec: plan §6 AC1 "schema-validate"
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_valid():
+    """Loads manifest, validates against schema, asserts all required top-level fields present.
+
+    Uses jsonschema when available (acceptable test-only dep per contract § Runtime vs test-time
+    validation). Falls back to a stdlib-only structural field check so the test suite is
+    runnable in environments without jsonschema installed.
+
+    Tests are intentionally RED until C1 lands the manifest. That is the contract —
+    see plan §7 C5: 'Tests will be RED on dispatch return; that's the contract.'
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC1
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "C1 must land before this test can be green. Tests are intentionally RED until Wave 2."
+    )
+    manifest = _load_manifest()
+    assert isinstance(manifest, dict), (
+        f"Manifest top-level must be an object; got {type(manifest).__name__}"
+    )
+
+    # Required top-level fields per contract § Schema reference
+    required_top_level = [
+        "agent_install_contract_version",
+        "repo_id",
+        "setup_skill",
+        "doctor_skill",
+        "standalone_setup_script",
+        "direct_deps",
+        "required_env_vars",
+        "override_flags",
+    ]
+    missing = [f for f in required_top_level if f not in manifest]
+    assert not missing, (
+        f"agent-install-manifest.json is missing required top-level fields: {missing}. "
+        "See plugins/coordinator/docs/wiki/agent-install-contract.md § Schema reference."
+    )
+
+    # Review: code-reviewer F9 — use pytest.importorskip for cleaner conditional-dep pattern.
+    # jsonschema is a required test-only dep; absent = skip (stdlib structural check above still ran).
+    jsonschema = pytest.importorskip(
+        "jsonschema",
+        reason="jsonschema not installed — install with: pip install jsonschema",
+    )
+
+    assert SCHEMA_PATH.exists(), (
+        f"agent-install-manifest.schema.json not found at {SCHEMA_PATH}. "
+        "Schema file must be present alongside the manifest (C1 in-scope expansion per PM disposition)."
+    )
+    schema = _load_schema()
+    # Raises jsonschema.ValidationError on constraint violation.
+    jsonschema.validate(instance=manifest, schema=schema)
+
+
+# ---------------------------------------------------------------------------
+# AC1 (named sub-test 2 of 3): test_repo_id_and_empty_deps
+#
+# Loads manifest, asserts repo_id == "coordinator-claude" AND direct_deps == [].
+# Coord is the DAG root (chain step 5 of 5 — no upstream dependencies).
+# Spec: plan §6 AC1 "field-by-field — repo_id + direct_deps"
+# ---------------------------------------------------------------------------
+
+
+def test_repo_id_and_empty_deps():
+    """repo_id == 'coordinator-claude' and direct_deps == [] (DAG root, no upstream deps).
+
+    Coordinator-claude is DAG root (chain step 5 of 5). It declares no direct
+    dependencies. This assertion is decoupled from JSON serialisation order.
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC1
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § DirectDep fields
+    Predecessor §7.4: coord direct_deps: [] is structural (DAG root).
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "C1 must land before this test can be green. Tests are intentionally RED until Wave 2."
+    )
+    manifest = _load_manifest()
+
+    assert manifest.get("repo_id") == _EXPECTED_REPO_ID, (
+        f"repo_id expected {_EXPECTED_REPO_ID!r}; got {manifest.get('repo_id')!r}. "
+        "repo_id must match the GitHub repository name (coordinator-claude)."
+    )
+
+    deps = manifest.get("direct_deps", "MISSING")
+    assert deps != "MISSING", (
+        "direct_deps key is absent from manifest. Required field per contract § Schema reference."
+    )
+    assert isinstance(deps, list), (
+        f"direct_deps must be an array; got {type(deps).__name__}. "
+        "Contract v2 schema: direct_deps is an array (empty array valid for DAG root)."
+    )
+    assert deps == _EXPECTED_DIRECT_DEPS, (
+        f"direct_deps expected {_EXPECTED_DIRECT_DEPS!r} (empty — coord is DAG root, chain step 5 of 5); "
+        f"got {deps!r}. "
+        "Predecessor §7.4 structural decision: coordinator-claude declares direct_deps: []."
+    )
+
+
+# ---------------------------------------------------------------------------
+# AC1 (named sub-test 3 of 3): test_override_flags_schema
+#
+# Asserts override_flags has both schema-canonical keys:
+#   skip_dep_check, accept_hallucination_risk
+# And that their values are the contract-locked CLI flag strings.
+# Spec: plan §6 AC1 "field-by-field — override_flags"
+# ---------------------------------------------------------------------------
+
+
+def test_override_flags_schema():
+    """override_flags has both schema-canonical keys with correct CLI flag values.
+
+    Contract note: the KEY is schema-canonical (skip_dep_check, accept_hallucination_risk);
+    the VALUE is the CLI flag string the setup scripts accept (--skip-dep-check,
+    --accept-missing-deps-risk). This is the same convention used in DR Phase B.
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC1
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § Schema reference
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+    flags = manifest.get("override_flags", {})
+
+    assert "skip_dep_check" in flags, (
+        "override_flags.skip_dep_check is required (contract § Schema reference). "
+        "Note: the KEY is schema-canonical; the VALUE is the CLI flag string."
+    )
+    assert flags["skip_dep_check"] == "--skip-dep-check", (
+        f"override_flags.skip_dep_check value expected '--skip-dep-check'; "
+        f"got {flags['skip_dep_check']!r}. "
+        "Per predecessor §7.2: --skip-dep-check is the contract-locked CLI flag."
+    )
+
+    assert "accept_hallucination_risk" in flags, (
+        "override_flags.accept_hallucination_risk is required (contract § Schema reference). "
+        "Per the Staff Engineer Finding 1: key is accept_hallucination_risk (schema-canonical); "
+        "value is --accept-missing-deps-risk (predecessor §7.2 vestigial-path naming)."
+    )
+    assert flags["accept_hallucination_risk"] == "--accept-missing-deps-risk", (
+        f"override_flags.accept_hallucination_risk value expected '--accept-missing-deps-risk'; "
+        f"got {flags['accept_hallucination_risk']!r}. "
+        "Per predecessor §7.2 PM-ratified naming (accept_hallucination_risk key, --accept-missing-deps-risk value)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Supporting structural tests (AC6: schema + contract version)
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_contract_version():
+    """agent_install_contract_version is 2 (current contract version for coord).
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §5.2
+    PM disposition 2026-06-15: coord ships at v2 (match DR Phase B; gating §8.3 v1 literal
+    predated v2 promotion).
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+    version = manifest.get("agent_install_contract_version")
+    assert version == _EXPECTED_CONTRACT_VERSION, (
+        f"agent_install_contract_version expected {_EXPECTED_CONTRACT_VERSION}; got {version!r}. "
+        "Per plan §5.2 PM disposition: coord ships at v2 (current)."
+    )
+
+
+def test_schema_mirror_exists():
+    """Schema mirror exists at coordinator/docs/install/agent-install-manifest.schema.json.
+
+    AC6: schema mirror at coord canonical is present. Byte-identity against the contract-
+    canonical source is verified separately by test_publish_propagation.sh.
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC6
+    PM disposition 2026-06-15: MIRROR schema under coord tree (symmetric with DR Phase B C1).
+    """
+    assert SCHEMA_PATH.exists(), (
+        f"agent-install-manifest.schema.json not found at {SCHEMA_PATH}. "
+        "C1 (in-scope expansion per PM disposition) must land this file. "
+        "Tests are intentionally RED until Wave 2."
+    )
+    schema = _load_schema()
+    assert isinstance(schema, dict), (
+        f"Schema top-level must be an object; got {type(schema).__name__}"
+    )
+    # Minimal structural check: JSON Schema v7 draft has $schema property
+    # (or similar); the agent-install-manifest schema must have a title or
+    # $schema entry at minimum.
+    assert "$schema" in schema or "title" in schema, (
+        f"Schema appears malformed — neither '$schema' nor 'title' key present. Schema keys: {list(schema.keys())}"
+    )
+
+
+def test_setup_skill_field():
+    """setup_skill declares '/coordinator:setup' (the chain-walker skill).
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 verbatim manifest
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+    assert manifest.get("setup_skill") == "/coordinator:setup", (
+        f"setup_skill expected '/coordinator:setup'; got {manifest.get('setup_skill')!r}. "
+        "Per plan §7 C1 verbatim manifest content."
+    )
+
+
+def test_doctor_skill_field():
+    """doctor_skill declares '/coordinator:doctor' (stub skill — AC12; contract schema required).
+
+    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 verbatim manifest
+    the Staff Engineer 2026-06-15 finding F1: doctor_skill is required in schema with no null option.
+    C4b authors the conforming stub at skills/doctor/SKILL.md.
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+    assert manifest.get("doctor_skill") == "/coordinator:doctor", (
+        f"doctor_skill expected '/coordinator:doctor'; got {manifest.get('doctor_skill')!r}. "
+        "Per plan §7 C1 verbatim manifest + the Staff Engineer 2026-06-15 F1 (schema requires non-null doctor_skill)."
+    )

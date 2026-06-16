@@ -97,6 +97,56 @@ class TestFlagSurface:
             f"stderr: {result.stderr}"
         )
 
+    def test_quiet_emits_grand_total_to_stderr(self, tmp_path):
+        """--quiet suppresses per-class banners but MUST still emit the grand-total banner to stderr.
+
+        Regression test for the bug discovered 2026-06-14: the script previously
+        gated the grand-total emit on `QUIET=0`, suppressing it under --quiet.
+        That silently broke /workday-start Step 1.11, which reads this banner
+        from stderr to check the 1 GB advisory threshold. The wiki contract at
+        docs/wiki/cruft-sweep-cadence.md § --quiet output contract is the
+        authoritative spec: under --quiet, this one stderr line is the only output.
+
+        Coverage scope: this test exercises --dry-run --quiet (the /workday-start
+        Step 1.11 callsite). The grand-total emit at cruft-sweep.sh:1158 is mode-
+        agnostic — the gate is `JSON_MODE -eq 0`, not on APPLY — so this single
+        test covers both /workday-start Step 1.11 (dry-run) and /workday-complete
+        Step 1.5 (apply) by extension. --dry-run is preferred here because it
+        does not require staging stale-UUID fixtures whose deletion side-effects
+        the emit assertion does not depend on.
+        """
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        fh = tmp_path / "fh"
+        fh.mkdir()
+        log_path = tmp_path / "sweep-log.md"
+
+        # --class harness keeps the test fast (no parent-root scan against real X:/, E:/dev/);
+        # the grand-total emit is class-agnostic — it runs after the case-statement in cruft-sweep.sh.
+        result = run([
+            "--class", "harness",
+            "--dry-run",
+            "--quiet",
+            "--days", "14",
+            "--projects-root", bp(projects),
+            "--file-history-root", bp(fh),
+            "--handoffs-glob", bp(tmp_path / "no-handoffs") + "/*.md",
+            "--log-path", bp(log_path),
+        ], timeout=30)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        # stdout must be empty under --quiet (no JSON, no per-class banners).
+        assert result.stdout == "", (
+            f"--quiet must leave stdout empty; got stdout={result.stdout!r}"
+        )
+        # The grand-total banner MUST appear on stderr — this is the signal
+        # /workday-start Step 1.11 reads for its 1 GB threshold check.
+        assert "grand total" in result.stderr, (
+            f"--quiet must emit grand-total banner on stderr; got stderr={result.stderr!r}"
+        )
+        assert "reclaimable across all classes" in result.stderr, (
+            f"grand-total banner shape changed; got stderr={result.stderr!r}"
+        )
+
     def test_default_is_dry_run(self, tmp_path):
         """Script runs in dry-run mode by default (no log written without --apply, stale dir preserved)."""
         # Review: code-reviewer — empty fixture didn't verify that dry-run default

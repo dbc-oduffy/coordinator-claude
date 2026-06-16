@@ -105,6 +105,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import time as _time
 
 # --topic must be filesystem-safe to prevent path traversal out of cross-repo/.
 # Allows: lowercase alphanum + dashes, must start with alphanum. No '..', '/', '\'.
@@ -713,10 +714,628 @@ def _write_file(path: str, content: str, receiver_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Outbox draft helpers
+# ---------------------------------------------------------------------------
+
+_OUTBOX_REQUIRED_FIELDS = ("title", "from", "to", "created", "status", "delivery_mode", "summary")
+
+
+def _validate_outbox_frontmatter(fm: dict) -> list[str]:
+    """CLI-local validator for outbox draft frontmatter.
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C1
+
+    Accepts status == "draft" and validates the required sender-side fields.
+    This is intentionally separate from schemas/cross-repo-memo.yaml — the inbox
+    schema's applies_to glob fires only on cross-repo/inbox/*.md paths; outbox
+    files at state/memo-outbox/*.md are a different lifecycle and must NOT extend
+    the inbox schema (would couple two separate lifecycles without runtime benefit).
+
+    summary is allowed to be present-but-empty at draft time (user fills in body
+    later via `compose`); only its KEY must be present. All other required fields
+    must be present and non-empty.
+
+    Returns a list of error strings; empty list = valid.
+    """
+    errors = []
+    if fm.get("status") not in ("draft",):
+        errors.append(f"status must be 'draft', got: {fm.get('status')!r}")
+    # All required fields must have their KEY present; summary may be empty at draft time.
+    for field in _OUTBOX_REQUIRED_FIELDS:
+        if field == "summary":
+            # summary key must exist; empty string is allowed (placeholder draft)
+            if field not in fm:
+                errors.append(f"required field '{field}' missing")
+        else:
+            if not fm.get(field):
+                errors.append(f"required field '{field}' missing or empty")
+    return errors
+
+
+def _compose_outbox_frontmatter(
+    *,
+    topic: str,
+    title: str,
+    to: str,
+    summary: str | None = None,
+    kind: str | None = None,
+) -> str:
+    """Compose YAML frontmatter for a draft outbox memo.
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C1
+
+    Uses status: draft (CLI-local convention — not schema-tracked).
+    Reuses _yaml_quote and _sender_em_id from the existing send path.
+    summary defaults to empty string when not provided (placeholder).
+    """
+    sender = _sender_em_id()
+    today = _today()
+    resolved_summary = summary if summary is not None else ""
+    if len(resolved_summary) > _SUMMARY_MAX_CHARS:
+        resolved_summary = resolved_summary[: _SUMMARY_MAX_CHARS - 1] + "…"
+
+    lines = [
+        "---",
+        f"title: {_yaml_quote(title)}",
+        f"from: {_yaml_quote(sender)}",
+        f"to: {_yaml_quote(to)}",
+        f"created: {today}",
+        f"status: draft",
+        f"delivery_mode: receiver-repo",
+        f"summary: {_yaml_quote(resolved_summary)}",
+    ]
+    if kind is not None:
+        lines.append(f"kind: {_yaml_quote(kind)}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def _cmd_draft(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo draft <topic> --to <em> --title <line> [--summary] [--kind]
+
+    Writes state/memo-outbox/<topic>.md in the sender's repo (cwd's git root).
+    Uses os.O_CREAT | os.O_EXCL for atomic creation — FileExistsError → exit 2
+    with hint to compose or discard (realises AC11).
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C1
+    """
+    topic = args.topic
+    to = args.to
+    title = args.title
+
+    # Validate topic slug (reuse existing guard — path traversal prevention).
+    if not _TOPIC_SLUG_RE.fullmatch(topic):
+        print(
+            f"cross-repo-memo draft: invalid topic {topic!r}; must match "
+            f"lowercase-alphanum + dashes, start with alphanum (e.g. 'my-topic').",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Resolve sender repo root (cwd's git root — NOT a hardcoded path).
+    sender_root = _current_repo_root()
+    if sender_root is None:
+        print(
+            "cross-repo-memo draft: must be invoked from inside a git repo (sender). "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Create outbox dir atomically-safe (exist_ok=True — idempotent).
+    outbox_dir = os.path.join(sender_root, "state", "memo-outbox")
+    os.makedirs(outbox_dir, exist_ok=True)
+
+    outbox_path = os.path.join(outbox_dir, f"{topic}.md")
+
+    # Compose draft content.
+    frontmatter = _compose_outbox_frontmatter(
+        topic=topic,
+        title=title,
+        to=to,
+        summary=getattr(args, "summary", None),
+        kind=getattr(args, "kind", None),
+    )
+    body_placeholder = f"<!-- compose your memo here, then: cross-repo-memo send {topic} -->\n"
+    content = frontmatter + "\n" + body_placeholder
+
+    # Atomic creation — O_CREAT | O_EXCL prevents overwriting an existing draft.
+    try:
+        fd = os.open(outbox_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        print(
+            f"cross-repo-memo draft: outbox draft '{topic}' already exists at {outbox_path}. "
+            f"Use `cross-repo-memo compose {topic}` to edit, or "
+            f"`cross-repo-memo discard {topic}` to remove.",
+            file=sys.stderr,
+        )
+        return 2
+
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    # Self-check: validate the written frontmatter.
+    # Review: code-reviewer — replace duplicate inline parser with _parse_outbox_file
+    # to avoid strip-behaviour divergence between the inline version and the canonical parser.
+    fm_parsed, _ = _parse_outbox_file(outbox_path)
+    errors = _validate_outbox_frontmatter(fm_parsed)
+    if errors:
+        # This indicates a composer bug — log to stderr but don't delete the file
+        # (the EM can still compose/discard manually).
+        print(
+            f"cross-repo-memo draft: WARNING — written frontmatter failed self-check: "
+            f"{'; '.join(errors)}. File was written but may need manual correction.",
+            file=sys.stderr,
+        )
+
+    # Print absolute path to stdout.
+    print(os.path.abspath(outbox_path))
+    return 0
+
+
+def _parse_outbox_file(path: str) -> tuple[dict[str, str], str]:
+    """Parse an outbox draft file into (frontmatter_dict, body_str).
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C2
+
+    Minimal YAML parser — handles simple key: "value" and key: value lines within
+    --- delimiters. Returns the frontmatter dict and the body text (after the closing
+    --- delimiter). Both raw string values and quoted string values are supported.
+
+    Returns ({}, "") on parse failure (empty frontmatter signals invalid file to caller).
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return {}, ""
+
+    lines = content.splitlines()
+    fm: dict[str, str] = {}
+    in_fm = False
+    body_start = len(lines)
+
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            if not in_fm:
+                in_fm = True
+                continue
+            else:
+                body_start = i + 1
+                break
+        if in_fm and ":" in line:
+            key, _, rest = line.partition(":")
+            v = rest.strip()
+            # Handle quoted values: "..." → strip outer quotes, unescape backslash sequences.
+            if v.startswith('"'):
+                raw = v[1:]
+                chars: list[str] = []
+                j = 0
+                while j < len(raw):
+                    c = raw[j]
+                    if c == '\\' and j + 1 < len(raw):
+                        nc = raw[j + 1]
+                        if nc == '"':
+                            chars.append('"')
+                        elif nc == '\\':
+                            chars.append('\\')
+                        elif nc == 'n':
+                            chars.append('\n')
+                        elif nc == 'r':
+                            # Review: code-reviewer — _yaml_quote emits \r but parser did not handle it
+                            chars.append('\r')
+                        elif nc == 't':
+                            chars.append('\t')
+                        else:
+                            chars.append(nc)
+                        j += 2
+                        continue
+                    if c == '"':
+                        break
+                    chars.append(c)
+                    j += 1
+                v = ''.join(chars)
+            fm[key.strip()] = v
+
+    body = "\n".join(lines[body_start:]).lstrip("\n")
+    return fm, body
+
+
+def _cmd_send(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo send <topic>
+
+    Reads state/memo-outbox/<topic>.md from sender repo, validates frontmatter
+    (required fields present, status is 'draft'), then dispatches via the existing
+    _compose_memo / _write_file pipeline. Promotes status: draft → open and applies
+    created: today at send time (not draft time — matches today's send-flow semantics).
+
+    On success, os.remove() the outbox file (receiver write is the committed action).
+
+    Failure-shape taxonomy (spec: § C2):
+      Validation fail (missing fields / wrong status) → leave outbox, exit 2
+      Receiver-resolution fail                        → leave outbox, exit 1
+      Pre-write pipeline failure                      → leave outbox, exit 1
+      Receiver-write succeeds, anything after fails   → remove outbox,  exit 0
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C2
+    """
+    topic = args.topic
+
+    # Review: code-reviewer — validate topic slug before any path construction to prevent
+    # path traversal (e.g. "../../../some/path"). Mirrors _cmd_draft's slug validation.
+    if not _TOPIC_SLUG_RE.fullmatch(topic):
+        print(
+            f"cross-repo-memo send: invalid topic slug '{topic}'. "
+            f"Topic must match [a-z0-9][a-z0-9-]* (lowercase alphanum and dashes only).",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Resolve sender repo root.
+    sender_root = _current_repo_root()
+    if sender_root is None:
+        print(
+            "cross-repo-memo send: must be invoked from inside a git repo (sender). "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Locate outbox file.
+    outbox_path = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    if not os.path.isfile(outbox_path):
+        print(
+            f"cross-repo-memo send: outbox draft '{topic}' not found at {outbox_path}. "
+            f"Use `cross-repo-memo list` to see pending drafts, or "
+            f"`cross-repo-memo draft {topic} --to <em> --title \"...\"` to create one.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Parse and validate frontmatter.
+    fm, body = _parse_outbox_file(outbox_path)
+
+    if not fm:
+        print(
+            f"cross-repo-memo send: could not parse frontmatter from '{outbox_path}'. "
+            f"The outbox file may be empty or malformed. "
+            f"Use `cross-repo-memo compose {topic}` to view the path and fix it, "
+            f"or `cross-repo-memo discard {topic}` to remove it and start over.",
+            file=sys.stderr,
+        )
+        return 2
+
+    validation_errors = _validate_outbox_frontmatter(fm)
+    if validation_errors:
+        print(
+            f"cross-repo-memo send: outbox draft '{topic}' has invalid frontmatter "
+            f"— cannot send:\n"
+            + "\n".join(f"  - {e}" for e in validation_errors)
+            + f"\nFix the draft with `cross-repo-memo compose {topic}`, then retry.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Extract fields from outbox frontmatter for dispatch.
+    # Review: code-reviewer — supersedes was silently dropped; extract and pass through
+    # so the receiver-side memo preserves the field from the outbox draft.
+    to = fm.get("to", "")
+    title = fm.get("title", "")
+    summary = fm.get("summary") or None
+    kind = fm.get("kind") or None
+    supersedes = fm.get("supersedes") or None
+
+    # Reject publish-target receivers (reuse existing guard from legacy path).
+    if _is_publish_target_em(to) and os.environ.get("COORDINATOR_OVERRIDE_PUBLISH_TARGET_RECEIVER") != "1":
+        known = _known_receiver_ids()
+        hint = (
+            f"\n  Known EM receivers: {', '.join(known)}."
+            if known else ""
+        )
+        print(
+            f"cross-repo-memo send: cannot deliver to '{to}': it is a publish target "
+            f"(outward distribution mirror), not an EM working repo.{hint}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Resolve receiver repo path.
+    home = _claude_home()
+    receiver_path = _resolve_receiver_path(to, home)
+
+    if receiver_path is None:
+        repo_key = _receiver_repo_key(to)
+        known = _known_receiver_ids()
+        hint = (
+            f"\n  Known receivers on this machine: {', '.join(known)}."
+            if known else ""
+        )
+        print(
+            f"cross-repo-memo send: cannot deliver to '{to}' — it resolves to "
+            f"machine-local key '{repo_key}', which is not registered on this machine.\n"
+            f"  Remediation: if that repo lives on this machine, register it with "
+            f"`machine-local set {repo_key} <path>`. Otherwise route this memo via "
+            f"the PM's next session in that repo.{hint}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Compose the dispatched memo — promote status: draft → open, apply created: today.
+    # _compose_memo always writes status: open (unless self_receipt, which we never pass here).
+    # 'created' is derived from _today() inside _compose_frontmatter — send time, not draft time.
+    filename = _memo_filename(topic)
+    receiver_side_path = os.path.join(receiver_path, "cross-repo", "inbox", filename)
+
+    # gitignore delivery guard (mirrors legacy path — run BEFORE any filesystem mutation).
+    # Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § B3
+    rel_inbox_path = os.path.join("cross-repo", "inbox", filename)
+    try:
+        gi_result = subprocess.run(
+            ["git", "-C", receiver_path, "check-ignore", rel_inbox_path],
+            capture_output=True,
+        )
+        if gi_result.returncode == 0:
+            print(
+                f"cross-repo-memo send: refusing to deliver to '{receiver_side_path}': "
+                f"it is gitignored in the receiver repo and would be invisible in "
+                f"`git status`. Fix the receiver's .gitignore.",
+                file=sys.stderr,
+            )
+            return 1
+    except OSError:
+        pass
+
+    # Compose memo content with promoted status (open) and today's created date.
+    receiver_content = _compose_memo(
+        title=title,
+        to=to,
+        topic=topic,
+        body=body,
+        summary=summary,
+        kind=kind,
+        supersedes=supersedes,
+    )
+
+    # Pre-write pipeline: attempt the write. Outbox stays if this fails.
+    try:
+        _write_file(receiver_side_path, receiver_content, receiver_path)
+    except Exception as exc:
+        print(
+            f"cross-repo-memo send: failed to write memo to receiver: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # COMMITTED ACTION: receiver write succeeded. Remove outbox regardless of what follows.
+    try:
+        os.remove(outbox_path)
+    except OSError:
+        pass  # Best-effort — the memo was delivered; outbox cleanup is secondary.
+
+    # Stdout output (mirrors legacy path).
+    abs_receiver = os.path.abspath(receiver_side_path)
+    print(f"Receiver-side: {abs_receiver}")
+    print(f"Hand the PM this path for relay: {abs_receiver}")
+    print("Reminder: Hand the PM the receiver path — PM-relay is still the primary channel.")
+
+    return 0
+
+
+def _format_age(seconds: float) -> str:
+    """Format an age in seconds as a human-readable string (e.g. '5m', '3h', '2d').
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
+    """
+    # Review: code-reviewer — avoid "0m" for brand-new files; "<1m" is clearer
+    if seconds < 60:
+        return "<1m"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo list
+
+    Enumerates state/memo-outbox/*.md in the sender repo.
+    Stamps mtime-based age. Marks entries older than COORDINATOR_OUTBOX_STALE_HOURS
+    (default 24) as [stale]. Empty outbox → exit 0 with 'no drafts'.
+
+    Output format per draft (sorted by mtime ascending, oldest first):
+      <topic>  <age>  → <to>  :: <title>
+
+    Stale entries get a '[stale]' marker after the age column.
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
+    """
+    sender_root = _current_repo_root()
+    if sender_root is None:
+        print(
+            "cross-repo-memo list: must be invoked from inside a git repo (sender). "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 2
+
+    outbox_dir = os.path.join(sender_root, "state", "memo-outbox")
+
+    # Collect .md files from the outbox dir (missing dir = empty outbox).
+    entries: list[tuple[float, str, str]] = []  # (mtime, topic, path)
+    if os.path.isdir(outbox_dir):
+        for fname in os.listdir(outbox_dir):
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(outbox_dir, fname)
+            try:
+                mtime = os.stat(fpath).st_mtime
+            except OSError:
+                continue
+            topic = fname[:-3]  # strip .md
+            entries.append((mtime, topic, fpath))
+
+    if not entries:
+        print("no drafts")
+        return 0
+
+    # Sort by mtime ascending (oldest first).
+    entries.sort(key=lambda t: t[0])
+
+    stale_hours = float(os.environ.get("COORDINATOR_OUTBOX_STALE_HOURS", "24"))
+    stale_threshold_seconds = stale_hours * 3600
+    now = _time.time()
+
+    for mtime, topic, fpath in entries:
+        age_seconds = now - mtime
+        age_str = _format_age(age_seconds)
+        is_stale = age_seconds > stale_threshold_seconds
+        stale_marker = "  [stale]" if is_stale else ""
+
+        # Parse to/title from frontmatter.
+        fm, _ = _parse_outbox_file(fpath)
+        to = fm.get("to", "?")
+        title = fm.get("title", "(no title)")
+
+        print(f"{topic}  {age_str}{stale_marker}  → {to}  :: {title}")
+
+    return 0
+
+
+def _cmd_discard(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo discard <topic>
+
+    Removes state/memo-outbox/<topic>.md from the sender repo.
+    Missing file → exit non-zero with hint to use 'cross-repo-memo list'.
+    Uses FileNotFoundError catch (TOCTOU-safe; not os.path.exists).
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
+    """
+    topic = args.topic
+
+    # Review: code-reviewer — validate topic slug before path construction to prevent
+    # path traversal. Mirrors _cmd_draft and _cmd_send validation.
+    if not _TOPIC_SLUG_RE.fullmatch(topic):
+        print(
+            f"cross-repo-memo discard: invalid topic slug '{topic}'. "
+            f"Topic must match [a-z0-9][a-z0-9-]* (lowercase alphanum and dashes only).",
+            file=sys.stderr,
+        )
+        return 2
+
+    sender_root = _current_repo_root()
+    if sender_root is None:
+        print(
+            "cross-repo-memo discard: must be invoked from inside a git repo (sender). "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 2
+
+    outbox_path = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+
+    try:
+        os.remove(outbox_path)
+    except FileNotFoundError:
+        print(
+            f"cross-repo-memo discard: outbox draft '{topic}' not found. "
+            f"Use `cross-repo-memo list` to see drafts.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+def _cmd_compose(args: argparse.Namespace) -> int:
+    """Handle: cross-repo-memo compose <topic> [--open]
+
+    Default (no flags): print the absolute path of state/memo-outbox/<topic>.md
+    and exit 0. This is the safe default — works in any context (agent or human).
+
+    With --open AND $EDITOR set: os.execvp the editor on the outbox file (human
+    opt-in only). Never fires unconditionally.
+
+    With --open but $EDITOR unset/empty: print path + warning that $EDITOR is
+    unset; exit 0.
+
+    Missing file → exit non-zero with hint to use 'cross-repo-memo list'.
+
+    CRITICAL negative-spec: plain 'compose <topic>' (without --open) MUST NEVER
+    exec an editor unconditionally. This is the F12 footgun the plan exists to
+    prevent. The --open flag is the human opt-in gate.
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
+    """
+    topic = args.topic
+    open_flag = getattr(args, "open", False)
+
+    # Review: code-reviewer — validate topic slug before path construction to prevent
+    # path traversal. Mirrors _cmd_draft and _cmd_send validation.
+    if not _TOPIC_SLUG_RE.fullmatch(topic):
+        print(
+            f"cross-repo-memo compose: invalid topic slug '{topic}'. "
+            f"Topic must match [a-z0-9][a-z0-9-]* (lowercase alphanum and dashes only).",
+            file=sys.stderr,
+        )
+        return 2
+
+    sender_root = _current_repo_root()
+    if sender_root is None:
+        print(
+            "cross-repo-memo compose: must be invoked from inside a git repo (sender). "
+            "Current cwd is not a git working tree.",
+            file=sys.stderr,
+        )
+        return 2
+
+    outbox_path = os.path.join(sender_root, "state", "memo-outbox", f"{topic}.md")
+    abs_path = os.path.abspath(outbox_path)
+
+    if not os.path.isfile(outbox_path):
+        print(
+            f"cross-repo-memo compose: outbox draft '{topic}' not found. "
+            f"Use `cross-repo-memo list` to see drafts.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Always print the absolute path first — the safe default output.
+    print(abs_path)
+
+    if open_flag:
+        editor = os.environ.get("EDITOR", "").strip()
+        if editor:
+            # Human opt-in: exec the editor. os.execvp replaces the process —
+            # nothing after this line runs on success.
+            os.execvp(editor, [editor, abs_path])
+            # execvp only returns on failure (OSError), but that's an OS-level
+            # error — we already printed the path, so exit 0 (file is accessible).
+        else:
+            # $EDITOR unset or empty — warn, but still exit 0 (path was printed).
+            print(
+                "Warning: $EDITOR is not set. Set $EDITOR to an editor command "
+                "to use `--open` (e.g. export EDITOR=vim).",
+                file=sys.stderr,
+            )
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
-def _build_parser() -> argparse.ArgumentParser:
+# Verbs that trigger subcommand dispatch (not legacy flag-only path).
+_SUBCOMMAND_VERBS: frozenset[str] = frozenset({"draft", "compose", "send", "list", "discard"})
+
+
+def _build_legacy_parser() -> argparse.ArgumentParser:
+    """Build the legacy flag-only parser (--to / --topic / --title / --body-file).
+
+    Unchanged from before the subcommand refactor — all existing automation and
+    workday-start surfacer continue to work identically.
+    """
     description = textwrap.dedent("""\
         Dispatch a cross-repo memo to a receiver-EM working tree.
 
@@ -879,14 +1498,167 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_combined_parser() -> argparse.ArgumentParser:
+    """Build the combined top-level parser showing both new verbs and legacy form.
+
+    Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C1
+
+    This parser is shown for `--help` and for the absent/empty argv[0] case.
+    It enumerates draft|compose|send|list|discard alongside the legacy --to form
+    so that `cross-repo-memo --help` satisfies AC9.
+
+    The subparsers here are argument-schema stubs only — the actual command
+    handlers live in _cmd_draft / _cmd_send_stub etc. and are invoked directly
+    from main() after verb detection. This avoids duplicating argument schemas
+    in two places while still giving argparse correct subcommand help text.
+    """
+    description = textwrap.dedent("""\
+        cross-repo-memo — dispatch cross-repo memos between EM working trees.
+
+        DRAFT LIFECYCLE (canonical multi-line workflow):
+          1. draft   <topic> --to <em> --title "<line>" [--summary <s>] [--kind <k>]
+                     Stage a draft in state/memo-outbox/<topic>.md; prints the path.
+          2. compose <topic>
+                     Print the outbox path again (--open execs $EDITOR, human opt-in).
+          3. send    <topic>
+                     Validate frontmatter and dispatch to the receiver repo; removes draft.
+          4. list    Enumerate outbox drafts with age (>24h marked stale).
+             discard <topic>
+                     Remove an outbox draft without sending.
+
+        Stale drafts (>24h) surface at /workstream-start and /workday-start.
+        Never write memo bodies to %TEMP% or tasks/ paths — the CLI owns the buffer.
+
+        LEGACY FLAG FORM (preserved — one-shot send for short memos):
+          cross-repo-memo --to <em> --topic <slug> --title "<line>" [--body-file <path>]
+          (reads body from --body-file or stdin when --body-file is omitted)
+
+        Run `cross-repo-memo --list-receivers` to see valid --to targets.
+    """)
+
+    parser = argparse.ArgumentParser(
+        prog="cross-repo-memo",
+        description=description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="verb", metavar="VERB")
+
+    # draft subparser — argument schema (handler is _cmd_draft)
+    draft_p = subparsers.add_parser(
+        "draft",
+        help="Stage a new draft in state/memo-outbox/<topic>.md",
+    )
+    draft_p.add_argument("topic", metavar="TOPIC", help="Topic slug (lowercase-alphanum + dashes)")
+    draft_p.add_argument("--to", required=True, metavar="RECEIVER_EM_ID", help="Receiver-EM identifier")
+    draft_p.add_argument("--title", required=True, metavar="ONE_LINE", help="One-line memo title")
+    draft_p.add_argument("--summary", metavar="TEXT", default=None, help=f"One-line tl;dr (≤{_SUMMARY_MAX_CHARS} chars)")
+    draft_p.add_argument("--kind", choices=["ask", "consult", "fyi"], default=None, help="Memo kind")
+
+    # compose subparser (handler is _cmd_compose)
+    compose_p = subparsers.add_parser(
+        "compose",
+        help="Print outbox path so you can open it in your editor (--open to exec $EDITOR)",
+    )
+    compose_p.add_argument("topic", metavar="TOPIC", help="Topic slug")
+    compose_p.add_argument("--open", action="store_true", default=False, help="Open $EDITOR (human opt-in)")
+
+    # send subparser (handler is _cmd_send)
+    send_p = subparsers.add_parser(
+        "send",
+        help="Validate frontmatter and dispatch the outbox draft to the receiver repo",
+    )
+    send_p.add_argument("topic", metavar="TOPIC", help="Topic slug")
+
+    # list subparser (handler is _cmd_list)
+    subparsers.add_parser(
+        "list",
+        help="List outbox drafts in the sender repo with age (marks >24h stale)",
+    )
+
+    # discard subparser (handler is _cmd_discard)
+    discard_p = subparsers.add_parser(
+        "discard",
+        help="Remove an outbox draft without sending (hard-errors on missing topic)",
+    )
+    discard_p.add_argument("topic", metavar="TOPIC", help="Topic slug")
+
+    return parser
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Return the combined parser (used for --help routing).
+
+    This is now an alias for _build_combined_parser so that callers of the
+    legacy _build_parser() name (e.g. tests that call mod._build_parser())
+    still work — the combined parser is the new canonical surface.
+    """
+    return _build_combined_parser()
+
+
 # ---------------------------------------------------------------------------
 # Main dispatch logic
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point. Returns exit code (0 = success, non-zero = failure)."""
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+    """Entry point. Returns exit code (0 = success, non-zero = failure).
+
+    Verb-detection truth table (spec: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C1):
+      argv[0] ∈ {draft, compose, send, list, discard} → verb dispatch → subparser
+      argv[0] starts with '--'                         → legacy parser (unchanged)
+      absent / empty                                   → combined help; exit 0
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # Absent / empty → combined help, exit 0.
+    if not argv:
+        _build_combined_parser().print_help()
+        return 0
+
+    first = argv[0]
+
+    # Verb dispatch → subparser.
+    if first in _SUBCOMMAND_VERBS:
+        combined_parser = _build_combined_parser()
+        args = combined_parser.parse_args(argv)
+        verb = args.verb
+        if verb == "draft":
+            return _cmd_draft(args)
+        elif verb == "send":
+            return _cmd_send(args)
+        elif verb == "list":
+            return _cmd_list(args)
+        elif verb == "discard":
+            return _cmd_discard(args)
+        elif verb == "compose":
+            return _cmd_compose(args)
+        else:
+            # Should not reach here — argparse would have exited.
+            print(f"cross-repo-memo: unknown verb {verb!r}", file=sys.stderr)
+            return 2
+
+    # Legacy path: starts with '--' or any unrecognised non-verb.
+    # --help routes through combined parser (satisfies AC9).
+    if first == "--help" or first == "-h":
+        _build_combined_parser().print_help()
+        return 0
+
+    # Review: code-reviewer — detect likely typo verbs before falling through to legacy
+    # parser, which would emit a confusing argparse error about unrecognised flags.
+    # A non-flag non-verb token (no leading '--') that isn't in _SUBCOMMAND_VERBS is
+    # almost certainly a typo (e.g. "sned", "lst"). Emit a friendly hint and exit 2.
+    if not first.startswith("-"):
+        print(
+            f"cross-repo-memo: unknown subcommand '{first}'. "
+            f"Valid verbs: draft, compose, send, list, discard. "
+            f"Run 'cross-repo-memo --help' for the legacy flag-only form.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # All other flag-prefixed args → legacy parser (unchanged behaviour).
+    legacy_parser = _build_legacy_parser()
+    args = legacy_parser.parse_args(argv)
 
     # --list-receivers is a discovery-only mode: print every valid --to target
     # (central first, then registered siblings) and exit before any send-path

@@ -367,7 +367,19 @@ Idempotent and near-zero cost when already installed (one stat + one grep). The 
 
 Skip if a custom auto-push hook already exists and the PM has signed off on it.
 
-Then harden this repo's git config against two concurrent-EM Git-for-Windows failure modes (see `docs/wiki/concurrent-em-hazards.md` § H21–H22): `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process that can orphan the index lock, and `core.checkStat minimal` so the index comparison ignores the NTFS-unstable `ctime/ino/dev` fields that cause a phantom-dirty tree under concurrent index rewrites:
+#### 3f.5.6. Session-Id trailer prepare-commit-msg hook
+
+Delegate to the same idempotent self-heal pattern as 3f.5 — installs the `prepare-commit-msg` hook that injects a `Session-Id: <id>` git trailer on every commit (resolution-order: `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → `.git/coordinator-sessions/.current-session-id`). The trailer is the substrate `~/.claude/plugins/coordinator/bin/review-brightline-gate.sh --session-id` filters on so the brightline gate fires on this session's commits, not the whole shared-branch diff:
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/coordinator-ensure-prepare-commit-msg-hook"
+```
+
+Idempotent; silent no-op when no session-id resolves (legitimate non-coordinator commits stay unaffected). The same helper runs from `session-init.sh` for self-healing. Empirical basis for the install-surface completion: `docs/plans/2026-06-15-brightline-session-scope-fix.md` § Problem.
+
+#### 3f.7. Concurrent-EM git config hardening
+
+Harden this repo's git config against two concurrent-EM Git-for-Windows failure modes (see `docs/wiki/concurrent-em-hazards.md` § H21–H22): `gc.autoDetach false` so git's auto-maintenance runs synchronously instead of detaching into a background process that can orphan the index lock, and `core.checkStat minimal` so the index comparison ignores the NTFS-unstable `ctime/ino/dev` fields that cause a phantom-dirty tree under concurrent index rewrites:
 
 ```bash
 "$HOME/.claude/plugins/coordinator/bin/coordinator-configure-git"

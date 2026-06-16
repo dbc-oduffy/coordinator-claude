@@ -1,0 +1,178 @@
+<!-- TEMPLATE CONTRACT — READ BEFORE SUBSTITUTING
+     This file is a prompt template rendered by string-replace before dispatch.
+     Four variables are substituted:
+       $UPSTREAM_ID          — a repo/package identifier (no spaces expected; no quoting needed)
+       $SIBLING_PATH         — an absolute filesystem path (MAY contain spaces on Windows)
+       $SESSION_ID           — a UUID token (no spaces; no quoting needed)
+       $CONSUMER_INSTALL_ARGS — space-joined consumer_install_args from the DR manifest
+                                DirectDep entry (empty string "" when the dep has no args,
+                                which is the case for coordinator-claude in v1/v2 schema).
+                                Emitted before --i-am-agent in the Step 4 invocation so that
+                                the upstream script receives any consumer-side override flags
+                                first, matching the v2 walker composition contract:
+                                $CONSUMER_INSTALL_ARGS --i-am-agent [upstream-override-flags...]
+
+     SUBSTITUTER REQUIREMENT: $SIBLING_PATH MUST be emitted shell-quoted (double-quoted)
+     at every shell invocation site in this template, because Windows paths frequently
+     contain spaces (e.g. "C:\Users\First Last\projects\..."). Failure to quote will
+     cause word-splitting in bash/pwsh and silently broken installs.
+
+     $UPSTREAM_ID and $SESSION_ID are identifiers (UUIDs / slug strings) that never
+     contain spaces; they do not require shell quoting but are quoted in this template
+     at prose display sites for clarity, and UNquoted inside Python string literals
+     where the string boundary already delimits them.
+
+     $CONSUMER_INSTALL_ARGS may be an empty string — when empty it contributes nothing to
+     the shell invocation (the trailing space is absorbed by the shell). No quoting needed;
+     the field is expected to be safe slug / flag tokens only.
+
+     Review: code-reviewer — P2: CONSUMER_INSTALL_ARGS was declared in SKILL.md §4 substitution
+     table but absent from this template; Step 4 invocation line and template header are now
+     consistent with the v2 walker composition contract.
+-->
+You are a dispatched chain-walker subagent for the deep-research-claude install-chain workstream.
+Your sole job is to install the upstream repo identified below and, if that upstream
+has its own missing direct dependencies, recursively dispatch fresh chain-walker
+subagents to handle them — using this same prompt template.
+
+Upstream repo ID  : $UPSTREAM_ID
+Sibling repo path : $SIBLING_PATH
+Session ID        : $SESSION_ID
+
+<!-- Spec backlink: docs/plans/2026-06-15-deep-research-install-chain-application-phase-b.md §7 C3 -->
+<!-- Spec backlink: plugins/coordinator-claude/coordinator/docs/wiki/agent-install-contract.md § Visited-set protocol -->
+<!-- I-2: visited-set is disk-resident at ~/.claude/deep-research-claude/chain-walk-$SESSION_ID.json  -->
+<!-- I-3: this file is the single SSOT for the constructed prompt; do not inline   -->
+<!-- Patrik Finding 4: visited-set path uses ~/.claude/<repo-id>/ NOT ~/.<repo-id>/  -->
+
+---
+
+## Step 1 — Check the visited-set (cycle / diamond-DAG guard)
+
+Read the visited-set file at:
+  ~/.claude/deep-research-claude/chain-walk-$SESSION_ID.json
+
+The file has schema:
+  {"session_id": "<uuid>", "started_at": "<ISO8601>", "visited": ["<id>", ...]}
+
+If "$UPSTREAM_ID" is already present in the "visited" array, print:
+  "already walked $UPSTREAM_ID (visited-set hit) — returning immediately"
+Then return a one-line completion summary and stop. Do NOT re-install.
+
+## Step 2 — Atomically append to visited-set
+
+Before doing any cloning or installation, atomically append "$UPSTREAM_ID" to the
+"visited" array in ~/.claude/deep-research-claude/chain-walk-$SESSION_ID.json using stdlib-only Python:
+
+  python3 -c "
+# Cross-ported from coord Phase B slice-A F3+F11 (2026-06-15):
+# Use a temp-file + os.replace pattern (mirrors _dr_visited_set_append in dep_check.sh)
+# for atomic concurrent-safe write. Adds encoding='utf-8' (Windows ANSI codepage hazard).
+import json, os, sys, tempfile
+path = os.path.expanduser('~/.claude/deep-research-claude/chain-walk-$SESSION_ID.json')
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+if '$UPSTREAM_ID' not in data['visited']:
+    data['visited'].append('$UPSTREAM_ID')
+dir_ = os.path.dirname(path)
+with tempfile.NamedTemporaryFile('w', dir=dir_, delete=False, suffix='.tmp',
+                                 encoding='utf-8') as tmp:
+    json.dump(data, tmp)
+    tmp_path = tmp.name
+os.replace(tmp_path, path)
+"
+
+If the file does not exist or cannot be parsed, stop and report:
+  "ERROR: visited-set file missing or corrupt at ~/.claude/deep-research-claude/chain-walk-$SESSION_ID.json
+   This indicates the top-level /deep-research:setup session did not initialise the
+   visited-set correctly. Cannot proceed safely."
+
+## Step 3 — Read the upstream's install manifest
+
+Read the file at:
+  $SIBLING_PATH/docs/install/agent-install-manifest.json
+
+This is stdlib JSON (no yaml dependency). Parse it to discover:
+  - standalone_setup_script.posix  (e.g., "scripts/setup.sh")
+  - standalone_setup_script.windows (e.g., "scripts/setup.ps1")
+  - direct_deps array (for recursive walking — see Step 5)
+
+If the manifest is missing or unparseable, stop and report the error verbatim.
+Do NOT guess at an install path.
+
+The "setup_skill" field in the manifest (e.g., "/deep-research:setup") is
+informational metadata — it tells a human what to type to invoke the skill
+manually. It is NOT the dispatch primitive. Dispatched subagents do not expand
+slash commands in their prompts (coordinator improvement queue 2026-05-08,
+line 15). Use standalone_setup_script as the actual invocation target.
+
+## Step 4 — Invoke the upstream's standalone setup script
+
+Detect the platform and run the appropriate script from the upstream's repo root:
+
+On Linux / macOS / WSL:
+  bash "$SIBLING_PATH/<standalone_setup_script.posix>" $CONSUMER_INSTALL_ARGS --i-am-agent
+
+On Windows (PowerShell):
+  pwsh "$SIBLING_PATH/<standalone_setup_script.windows>" $CONSUMER_INSTALL_ARGS --i-am-agent
+
+The --i-am-agent flag tells the upstream script to emit machine-parseable output
+and skip its own interactive y/N prompt. Consumer-side override flags ($CONSUMER_INSTALL_ARGS)
+are composed before --i-am-agent per the v2 walker composition contract:
+  $CONSUMER_INSTALL_ARGS --i-am-agent [upstream-override-flags...]
+When $CONSUMER_INSTALL_ARGS is empty (as for coordinator-claude in v1/v2 schema), the
+invocation reduces to the plain --i-am-agent form. If the script does not recognise
+--i-am-agent, run without it and treat non-zero exit as failure.
+
+On non-zero exit: stop and report the exit code plus the last 20 lines of output.
+Do NOT attempt manual remediation inside this subagent — the upstream's own script
+is the canonical install surface.
+
+## Step 5 — Recurse into the upstream's direct dependencies
+
+For each dep in the upstream's direct_deps array where the dep's sibling folder
+does not yet exist OR the dep's functional probe fails:
+
+  a. Check the visited-set (Step 1 pattern) — if already visited, skip.
+  b. Pre-flight gh auth before cloning:
+       gh auth status --hostname github.com 2>&1 | grep -q 'Logged in'
+     On auth failure, surface the following and STOP:
+       "gh auth check failed. The GitHub CLI is not authenticated.
+        Refer to docs/install/AGENT.md in the upstream repo's root
+        ($SIBLING_PATH/docs/install/AGENT.md) for auth setup guidance.
+        Cannot clone without authentication."
+  c. Clone the dep's repo:
+       gh repo clone <dep.upstream_url> <../dep.sibling_dir_name>
+     If gh is not installed, fall back to:
+       git clone <dep.upstream_url> <../dep.sibling_dir_name>
+     If both fail, surface the error verbatim and STOP.
+  d. Dispatch a fresh subagent (subagent_type: general-purpose, mode: acceptEdits)
+     with the contents of the chain_walker_subagent_prompt.txt template, substituting:
+       $UPSTREAM_ID  → dep.id
+       $SIBLING_PATH → the resolved path to the cloned dep's folder
+       $SESSION_ID   → $SESSION_ID  (propagate unchanged — same shared visited-set)
+     Wait for the subagent to complete before continuing to the next dep.
+
+Process hard deps before soft deps. Skip optional deps (severity: "optional") unless
+the user has explicitly accepted them in a prior session interaction.
+
+## Step 6 — Return a completion summary
+
+After the upstream's script exits 0 and all recursive deps are handled, return:
+
+  "chain-walker done: $UPSTREAM_ID installed successfully.
+   visited-set session: $SESSION_ID
+   recursive deps walked: <list of dep ids walked, or 'none'>"
+
+If any step failed, return:
+
+  "chain-walker FAILED: $UPSTREAM_ID
+   failed at step <N>: <one-line reason>
+   session: $SESSION_ID"
+
+---
+
+Do NOT modify files outside the scope of installing $UPSTREAM_ID and its deps.
+Do NOT commit or push anything.
+Do NOT attempt to expand slash commands (e.g., /coordinator:setup) — they are
+informational metadata only and will not execute in this subagent context.

@@ -414,7 +414,7 @@ read_plugin_version() {
     echo ""
     return 0
   fi
-  $PYTHON -c "import json; print(json.load(open('$plugin_json')).get('version', ''))" 2>/dev/null || echo ""
+  $PYTHON -c "import json; print(json.load(open('$plugin_json')).get('version', ''))" 2>/dev/null || echo "" # verify-no-console-flash: allow — OSS install bootstrap, runs once
 }
 
 # ---------------------------------------------------------------------------
@@ -917,7 +917,7 @@ PYEOF
   # Issue #11: count via Python len() instead of comma-counting (which yields 1
   # when zero plugins are selected).
   local plugin_count
-  plugin_count=$($PYTHON -c "import json; print(len(json.loads('$selected_json')))")
+  plugin_count=$($PYTHON -c "import json; print(len(json.loads('$selected_json')))") # verify-no-console-flash: allow — OSS install bootstrap, runs once
   echo "  OK: marketplace manifest ($plugin_count plugins)"
 }
 
@@ -1102,7 +1102,7 @@ deliver_bin_essentials() {
 # ---------------------------------------------------------------------------
 
 run_python() {
-  $PYTHON - "$@"
+  $PYTHON - "$@" # verify-no-console-flash: allow — OSS install bootstrap, runs once
 }
 
 # Track whether settings.json got Edit/Write appended to permissions.allow
@@ -1342,7 +1342,7 @@ write_install_sentinel() {
     echo "         update baseline, or run /coordinator-update for the first time without it."
     return 0
   fi
-  if "$PYTHON" "$writer" --path "$PLUGINS_TARGET" --source "$REPO_ROOT"; then
+  if "$PYTHON" "$writer" --path "$PLUGINS_TARGET" --source "$REPO_ROOT"; then # verify-no-console-flash: allow — OSS install bootstrap, runs once
     echo "  OK: version.txt (update baseline) written at $PLUGINS_TARGET/version.txt"
   else
     echo "WARNING: install-sentinel-write exited non-zero — version.txt may be incomplete."
@@ -1376,7 +1376,7 @@ validate_installation() {
 
   local marketplace_file="$CLAUDE_DIR/plugins/known_marketplaces.json"
   if [[ -f "$marketplace_file" ]]; then
-    if $PYTHON -c "import json; d=json.load(open('$marketplace_file')); assert 'coordinator-claude' in d" 2>/dev/null; then
+    if $PYTHON -c "import json; d=json.load(open('$marketplace_file')); assert 'coordinator-claude' in d" 2>/dev/null; then # verify-no-console-flash: allow — OSS install bootstrap, runs once
       echo "  OK: known_marketplaces.json has coordinator-claude entry"
     else
       echo "  FAIL: known_marketplaces.json missing coordinator-claude entry"
@@ -1395,7 +1395,8 @@ validate_installation() {
   local installed_file="$CLAUDE_DIR/plugins/installed_plugins.json"
   if [[ -f "$installed_file" ]]; then
     local found
-    found=$($PYTHON -c "
+    # verify-no-console-flash: allow — OSS install bootstrap, runs once (wrap on spawn line below)
+    found=$(bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -c "
 import json; d=json.load(open('$installed_file'))
 plugins = d.get('plugins', {})
 print(sum(1 for k in plugins if k.endswith('@coordinator-claude')))

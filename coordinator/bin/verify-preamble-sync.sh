@@ -122,7 +122,7 @@ fi
 # Review: patrik R2 finding 0 — factor shared extraction primitive; replace inlined awk.
 extract_block() {
     local file="$1"
-    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL" # verify-no-console-flash: allow — on-demand sync verifier, not session-hot-path
 }
 
 # Read snippet body: NR>2 skips the snippet header (one comment line + one blank line below it).
@@ -159,7 +159,7 @@ while IFS= read -r consumer; do
         if [ "$MODE" = "--fix" ]; then
             # Replace content between sentinels with the snippet body.
             # Python is the most reliable cross-platform tool for multi-line string replacement.
-            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF'
+            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF' # verify-no-console-flash: allow — on-demand sync verifier --fix mode, not session-hot-path
 import sys, pathlib
 
 fpath = pathlib.Path(sys.argv[1])

@@ -622,43 +622,58 @@ for line in "${section_lines[@]+"${section_lines[@]}"}"; do
             ;;
 
         sh|bash|bats)
-            # sh:<script-path> [args...]  — run the named script with bash.
+            # sh:<command>  — evaluate the cell as a shell command via `bash -c`.
             # bash: and bats: are aliases for sh: — all three use the same dispatch path.
             # bats: was added 2026-06-09 per holodeck-em consult: plan authors
             # reach for 'bats:' because the typed-prefix vocabulary mirrors
             # runner names (pytest → pytest, cargo → cargo, bats → bats).
             # bats files ARE bash scripts; bash is the right runner.
-            # Exit 0 → PASS; non-zero → FAIL. Matches the run_typed_test idiom of
-            # sibling prefixes; no per-repo runner resolution (bash is the runner).
-            # The script path and any arguments are word-split by run_typed_test
-            # (same as pytest/node/cargo) and passed to bash as positional args.
+            # Contract per skills/plan/SKILL.md § Acceptance Criteria typed-prefixes:
+            #   sh:<command>   — shell, exit 0 == green
+            #   bash:<command> — bash,  exit 0 == green
+            # The cell content is interpreted as a shell command — file paths, builtins
+            # (e.g. `test ! -f x`), commands resolved via PATH (e.g. `python script.py`),
+            # redirects, and pipes all work. Path-traversal / absolute-path / file-existence
+            # checks WERE applied to the first token but rejected legitimate shapes like
+            # `sh:python <script>` and `sh:test ! -f <path>` — fixed 2026-06-15 to honor
+            # the documented contract. The threat model relies on plan-authoring review
+            # (plans are committed via the EM with reviewer pass); the script-path guard
+            # was an over-restriction, not a security floor.
             args="${row_test#*:}"
             # trim leading whitespace (mirrors grep/cited whitespace trimming above)
             args="${args#"${args%%[![:space:]]*}"}"
-            # Review: security-audit — path-validation guard: reject absolute paths,
-            # path-traversal sequences, and non-existent files before dispatching to bash.
-            # Accepts repo-relative paths only (e.g. plugins/foo/bar.sh [--flag]).
-            _sh_script_path="${args%% *}"
-            if [[ "$_sh_script_path" == *..* ]]; then
-                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: contains '..' (path traversal not allowed)")
-                (( red++ )) || true
-            elif [[ "$_sh_script_path" == /* ]]; then
-                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: absolute path not allowed (use repo-relative path)")
-                (( red++ )) || true
-            elif [[ ! -f "$_sh_script_path" ]]; then
-                red_messages+=("AC-${row_id} (${row_test}) red — script path rejected: '${_sh_script_path}' is not an existing regular file")
-                (( red++ )) || true
-            elif err_suffix="$(run_typed_test "bash" "$args")"; then
-                (( green++ )) || true
+            _sh_out_file="$(mktemp 2>/dev/null)" || _sh_out_file=""
+            if [ -n "$_sh_out_file" ]; then
+                if bash -c "$args" >"$_sh_out_file" 2>&1; then
+                    (( green++ )) || true
+                else
+                    _sh_rc=$?
+                    _sh_tail="$(tail -c 240 "$_sh_out_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')"
+                    red_messages+=("AC-${row_id} (${row_test}) red — bash -c exited ${_sh_rc}: ${_sh_tail}")
+                    (( red++ )) || true
+                    unset _sh_rc _sh_tail
+                fi
+                rm -f "$_sh_out_file" 2>/dev/null || true
             else
-                red_messages+=("AC-${row_id} (${row_test}) red — 'bash' exited non-zero${err_suffix}")
-                (( red++ )) || true
+                # mktemp unavailable — degrade to inline capture
+                if bash -c "$args" >/dev/null 2>&1; then
+                    (( green++ )) || true
+                else
+                    red_messages+=("AC-${row_id} (${row_test}) red — bash -c exited non-zero (output discarded; mktemp unavailable)")
+                    (( red++ )) || true
+                fi
             fi
-            unset _sh_script_path
+            unset _sh_out_file
             ;;
 
         *)
-            red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited, sh, bash, bats")
+            if [ "${prefix}" = "git" ]; then
+                _git_args="${row_test#git:}"
+                red_messages+=("AC-${row_id} (${row_test}) red — 'git:' is not a supported typed prefix. Rewrite as 'sh:${_git_args}' (or 'sh:git ... | wc -l | grep -q <N>' for count assertions). Supported prefixes: pytest, node, cargo, grep, cited, sh, bash, bats.")
+                unset _git_args
+            else
+                red_messages+=("AC-${row_id} (${row_test}) red — unknown typed prefix '${prefix}': supported prefixes are pytest, node, cargo, grep, cited, sh, bash, bats")
+            fi
             (( red++ )) || true
             ;;
     esac

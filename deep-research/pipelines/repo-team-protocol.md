@@ -138,9 +138,9 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **Read failures:** If a file can't be read (binary, permissions), skip it and note in output.
 - **All specialists fail:** EM is notified (no completed specialist tasks), reports to PM.
 
-## Scratch Directory
+## Working Directory
 
-`tasks/scratch/deep-research-teams/{run-id}/`
+`docs/research/{run-id}-{topic-slug}-workdir/`
 
 - Scout 1 writes to: `{scratch-dir}/A-inventory.md`, `{scratch-dir}/B-inventory.md`
 - Scout 2 writes to: `{scratch-dir}/C-inventory.md`, `{scratch-dir}/D-inventory.md`

@@ -49,7 +49,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { loadSchemas, parseFrontmatter } = require('./lib/schema.js');
+const { loadSchemas, parseFrontmatter, _parseYaml } = require('./lib/schema.js');
 const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./lib/consumed-marker.js');
 // Review: Patrik F3 — import shared constants/regex so read-time and write-time
 // paths (normalize-consumed-frontmatter.js) stay greppably aligned.
@@ -78,6 +78,11 @@ const TYPE_TO_GLOB = {
   // passes brackets through). Memo-shape guard (from+to present) replaces the bracket-class
   // filename filter.
   'cross-repo-memo':  'cross-repo/inbox/*.md',
+  // Directory-form queue types (per-entry YAML files, no --- delimiters).
+  // Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
+  debt:               'state/debt-backlog/*.yaml',
+  bug:                'state/bug-backlog/*.yaml',
+  improvement:        'state/improvement-queue/*.yaml',
 };
 
 // Markdown-list format columns per type (field name → label)
@@ -91,6 +96,9 @@ const TYPE_DISPLAY = {
   completion:        (p, fm) => `- **${fm.title}** [${fm.nature}] (chain: ${fm.chain || 'none'}) — ${fm.commits?.join(', ') || 'no-commit'}`,
   'handoff-ledger':  (p, fm) => `- [${p}] tshirt=${fm.tshirt || '?'} agents=${fm.agent_dispatches ?? '?'} opus=${fm.opus_dispatches ?? '?'} session=${fm.session_id || '?'} created=${fm.created || '?'}`,
   'cross-repo-memo': (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'} (from ${fm.from || '?'})`,
+  debt:        (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.severity || 'P?'} ${fm.status || 'unknown'} (source: ${fm.source || '?'})`,
+  bug:         (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.severity || 'P?'} ${fm.status || 'unknown'} (system: ${fm.system || '?'})`,
+  improvement: (p, fm) => `- [${fm.title || path.basename(p)}](${p}) — ${fm.status || 'unknown'} (target: ${fm.proposed_target || '?'})`,
 };
 
 // ---------------------------------------------------------------------------
@@ -593,8 +601,22 @@ function queryRecords(opts, root) {
     for (const file of files) {
       let content;
       try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
-      const { frontmatter, body } = parseFrontmatter(content);
       const relPath = path.relative(root, file).replace(/\\/g, '/');
+      // .yaml files are whole-file frontmatter (no --- delimiters); .md files use the
+      // standard parseFrontmatter delimiter-aware path.
+      // Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
+      let frontmatter, body;
+      if (path.extname(file) === '.yaml') {
+        try {
+          frontmatter = _parseYaml(content);
+          body = '';
+        } catch {
+          frontmatter = null;
+          body = content;
+        }
+      } else {
+        ({ frontmatter, body } = parseFrontmatter(content));
+      }
       if (!frontmatter) {
         // includeUnparseable opt-in: return a stub record with parseError instead of silently skipping.
         // Default OFF (false) preserves the existing silent-skip for all current consumers.

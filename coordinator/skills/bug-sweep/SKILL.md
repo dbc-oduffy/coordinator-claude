@@ -4,6 +4,7 @@ description: Systematic codebase bug hunt — find and fix all AI-fixable bugs i
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[path]"
 ---
+<!-- Updated 2026-06-15 by structured-queue-medium-rollout C11: state/bug-backlog.md → state/bug-backlog/*.yaml; capture via coordinator-queue-append --schema bug-backlog -->
 
 # Bug Sweep — Systematic Codebase Bug Hunt
 
@@ -17,7 +18,10 @@ Sweep the codebase for bug patterns, fix everything AI-fixable in-session, defer
 
 `$ARGUMENTS` is an optional path to scope the sweep. If omitted, the full codebase is scanned.
 
-Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase]."
+Recognized flags:
+- `--codex-verify` — after Phase 3 fixes land, invoke `skill:codex-review-gate` for an independent-model second opinion on the fix diff (graceful no-op when the codex-review-gate skill or Codex CLI is absent). Opt-in only; default off.
+
+Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase][, with --codex-verify second-opinion pass]."
 
 ## Phase 0: Scope and Pattern Selection (~5 min, YOU do this)
 
@@ -63,7 +67,7 @@ Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / acros
 
 **Before dispatching any Phase 1 agents, verify that known backlog items are still applicable.**
 
-If this sweep is re-running against a prior bug backlog (`state/bug-backlog.md`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
+If this sweep is re-running against a prior bug backlog (`state/bug-backlog/`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
 
 1. Read each cited file:line — does the bug pattern still exist in HEAD?
 2. Check recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
@@ -134,7 +138,7 @@ Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks
 
 ## Phase 1.5: Churn-Gated Findings Verification (conditional)
 
-**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA captured in `state/bug-backlog.md` header ("Commit at sweep:"). If no prior sweep SHA exists or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
+**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA stored in `state/bug-backlog/.meta.yaml` under the `last_sweep_commit:` key. If `state/bug-backlog/.meta.yaml` does not exist, or `last_sweep_commit` is absent, or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
 
 **Why gated on churn:** *2026-05-28, project-rag (809 commits since prior sweep).* Sonnet sweepers pattern-match on historical bug shapes. Under heavy churn, the highest-confidence P1 findings have the highest false-positive rate — concurrent EMs already fixed the loud bugs, but the sweeper still remembers their shape. Low-churn sweeps don't show this inversion; Phase 1.5 cost (4 Haiku, ~10K tokens each, <5 min) is not worth paying every run.
 
@@ -225,6 +229,18 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
 
 **Phase 3.5 does NOT re-run the full sweep.** It reads only the changed files, verifying that executor agents didn't introduce new API errors while fixing existing bugs.
 
+## Phase 3.6: Codex Verification (opt-in via `--codex-verify`)
+
+Detection: `[[ "$ARGUMENTS" == *"--codex-verify"* ]]` — flag-present triggers the gate; flag-absent makes this phase a true no-op.
+
+If `--codex-verify` was passed at command invocation, invoke `skill:codex-review-gate` with:
+
+- `scope: bug-sweep-fixes`
+- `base: origin/main`
+- `required: false`
+
+Without the flag, this phase is a no-op (no skill invocation, no log line). With the flag, the gate skill handles graceful fallback when the `codex-review-gate` skill itself is absent (user never opted in at install), when the Codex CLI is not installed or unauthed, or when no diff exists against `origin/main`. Findings reported alongside the bug-sweep summary in Phase 4; never blocking — the gate is purely advisory.
+
 ## Phase 4: Report and Commit (YOU do this)
 
 0. **Mechanical diff gate — fail loud on zero-diff runs.** Before commit, assert that fix-now-claimed files actually changed on disk (requires bash — uses process substitution):
@@ -248,40 +264,44 @@ Before committing any fixes, run docs-checker on the changed files to verify tha
    git add -- $SWEEP_FILES && git commit -m "bug-sweep: fixed N bugs across M files" -- $SWEEP_FILES
    ```
 
-2. **Prune already-fixed rows from the existing backlog (paper-trail commit).** Before appending new blocked items, read `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` (written during Pre-Dispatch). For each entry there:
-   - Delete the corresponding row from the active P1/P2 tables in `state/bug-backlog.md`.
-   - Do NOT move it to a "resolved" section in the same file — the paper trail is the resolving commit SHA from the pre-dispatch scan, captured in this commit's subject.
+2. **Prune already-fixed entries from the existing backlog (paper-trail commit).** Before appending new blocked items, read `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` (written during Pre-Dispatch). For each already-fixed entry:
+   - Stamp the YAML file with `status: closed`, `closed_at: <ISO date>`, `closed_by: <resolving-sha>` (or `unattributed` when no single SHA is identifiable).
+   - Archive it: `git mv state/bug-backlog/<id>.yaml archive/bug-backlog/<YYYY-MM>/<id>.yaml`
 
    Commit the prune (separate from the fixes commit in step 1):
    ```bash
-   git reset && git add -- state/bug-backlog.md && \
+   git add -- state/bug-backlog/ archive/bug-backlog/ && \
      git commit -m "bug-sweep {run-id}: prune already-fixed — <BS-ID-1>→<sha1>, <BS-ID-2>→<sha2>, ..."
    ```
-   The commit subject names each closed ID paired with the SHA that resolved it (or `unattributed` when no single SHA is identifiable). This is the greppable record — `git log --all -- state/bug-backlog.md | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
+   The commit subject names each closed ID paired with the SHA that resolved it. This is the greppable record — `git log --all -- state/bug-backlog/ | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
 
    Skip this sub-step entirely if no already-fixed items were detected pre-dispatch.
 
-3. **Update bug backlog** (`state/bug-backlog.md`) — append genuinely blocked items from this sweep + refresh the header:
+3. **Append genuinely blocked items to the bug backlog** (`state/bug-backlog/`) and refresh the queue metadata:
 
-   Header format:
-   ```markdown
-   # Bug Backlog
-
-   > Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)
-   > Next sweep suggested: when code churn warrants it — workday-start tracks this
-
-   | ID | System | Severity | Description | Why Blocked | Found | Cross-ref |
-   |----|--------|----------|-------------|-------------|-------|-----------|
+   For each genuinely blocked finding, capture it via:
+   ```bash
+   coordinator-queue-append --schema bug-backlog \
+     --id BS-<date>-<N> \
+     --system <subsystem> \
+     --severity P1 \
+     --status open \
+     --title "<title>" \
+     --body "<description>" \
+     [--why-blocked "<reason>"] \
+     [--cross-ref <ref>]
    ```
 
-   ID format: `BS-{date}-{N}`. Cross-reference with `state/debt-backlog.md` if overlap exists.
+   This creates `state/bug-backlog/BS-<date>-<N>.yaml`. Do NOT run this CLI as a smoke test inline during skill execution — the CLI surface integration tests live in `coordinator-queue-append.test.py` (C17).
 
-   If no blocked items, update just the header line (last sweep date, commit hash, zero counts).
+   **ID format:** `BS-{date}-{N}`. **Cross-reference with `state/debt-backlog/`** if overlap exists — the `cross_ref:` field is structured as a YAML list (e.g. `cross_ref: ["DSR-2026-06-15-3"]`) and is passed via `--cross-ref` to the CLI.
+
+   **Update queue metadata** — write/update `state/bug-backlog/.meta.yaml` with `last_sweep_commit: <short-hash>` and `last_sweep_at: <YYYY-MM-DD>` after appending new entries. If no blocked items, still update `.meta.yaml` (last sweep commit + zero counts).
 
    Commit this update separately from the prune in step 2:
    ```bash
-   git reset && git add -- state/bug-backlog.md && \
-     git commit -m "bug-sweep {run-id}: append <M> new blocked items, refresh header"
+   git add -- state/bug-backlog/ && \
+     git commit -m "bug-sweep {run-id}: append <M> new blocked items, refresh .meta.yaml"
    ```
 
 4. **Report to PM:**

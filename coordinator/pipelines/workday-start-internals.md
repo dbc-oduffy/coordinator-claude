@@ -317,3 +317,23 @@ Helper: `bin/workday-start-cross-repo-memo-surface.sh`.
 **Exit semantics:** exit 0 always (empty output on zero qualifying memos; silent skip in workday-start command body).
 
 **Spec backlink:** `docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 3`. Doctrine: `docs/wiki/cross-repo-communication.md § Lifecycle and dirty-file backstop`.
+
+---
+
+## Step 1.46 — Outstanding Outbox Drafts (details)
+
+Helper: `bin/workday-start-cross-repo-memo-outbox-surface.sh`.
+
+**Query.** Glob `state/memo-outbox/*.md` (git-root-relative), filter to files with mtime older than `${COORDINATOR_OUTBOX_STALE_HOURS:-24}` hours. Distinct from Step 1.45 — this surfaces sender-side composition state (drafts staged but not sent), not receiver-side inbox state. Mtime-based (not `created:` frontmatter), so a draft repeatedly edited resets its staleness clock.
+
+**Line format:**
+```
+Outbox draft <topic> staged <N>h ago → <to>  :: <title>
+  → send | compose | discard
+```
+
+**Offer-shape contract.** The surfacer is awareness-only: it emits the three CLI verbs (`send`, `compose`, `discard`) as the EM's options and never mutates. Lifecycle mutation lives solely in the `cross-repo-memo` subcommands per the `/workstream-start surfaces, /pickup acts` boundary (`docs/wiki/cross-repo-communication.md § Tell another repo's EM about something`).
+
+**Exit semantics:** exit 0 always (silent on missing `state/memo-outbox/`, empty directory, or all drafts fresh; nudge lines on stale).
+
+**Spec backlink:** `docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C4`. Doctrine: `docs/wiki/cross-repo-communication.md` (updated by C5 to name the draft-lifecycle workflow as the canonical multi-line path).

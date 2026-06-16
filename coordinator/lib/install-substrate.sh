@@ -162,7 +162,7 @@ if [[ -z "$_bin_dst_win" ]]; then
 else
     # Pass the path via env var so PowerShell sees a clean literal (no bash
     # interpolation into a PS string — defends against quoting injection).
-    _already_set=$(BIN_DST_WIN="$_bin_dst_win" powershell.exe -NoProfile -Command \
+    _already_set=$(BIN_DST_WIN="$_bin_dst_win" powershell.exe -NoProfile -WindowStyle Hidden -Command \
         "\$p=[Environment]::GetEnvironmentVariable('PATH','User'); \
          \$t=\$env:BIN_DST_WIN; \
          if (\$p -split ';' | Where-Object {\$_ -ieq \$t}) {'yes'} else {'no'}" \
@@ -174,7 +174,7 @@ else
     if [[ -z "$_already_set" ]]; then
         echo "[setup] WARNING: could not read Windows user PATH (powershell.exe unavailable or check failed); skipping PATH integration" >&2
     elif [[ "$_already_set" != "yes" ]]; then
-        BIN_DST_WIN="$_bin_dst_win" powershell.exe -NoProfile -Command \
+        BIN_DST_WIN="$_bin_dst_win" powershell.exe -NoProfile -WindowStyle Hidden -Command \
             "\$p = [Environment]::GetEnvironmentVariable('PATH','User'); \
              [Environment]::SetEnvironmentVariable('PATH', \"\$env:BIN_DST_WIN;\$p\", 'User')" \
             && echo "[setup] added ${_bin_dst_win} to Windows user PATH — restart shells/Claude sessions for it to take effect" \
@@ -184,7 +184,7 @@ fi
 
 # 3c-1: orphan AppX stub detection (zero-byte reparse-points from uninstalled Store Python)
 for _stub_name in python.exe python3.exe; do
-    _stub_path=$(powershell.exe -NoProfile -Command \
+    _stub_path=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
         "\$p = \"\$env:LOCALAPPDATA\Microsoft\WindowsApps\\${_stub_name}\"; \
          if (Test-Path -LiteralPath \$p) { \$i = Get-Item -LiteralPath \$p -Force; \
          if (\$i.Length -eq 0 -and \$i.LinkType -eq 'ReparsePoint' -and -not \$i.Target) { Write-Output \$p } }" \
@@ -203,7 +203,7 @@ for _stub_name in python.exe python3.exe; do
                 # backticks, $(); the path comes from PowerShell output through
                 # `tr -d '\r'` and shell-interpolating it directly would be an
                 # injection sink).
-                STUB_PATH="${_stub_path}" powershell.exe -NoProfile -Command \
+                STUB_PATH="${_stub_path}" powershell.exe -NoProfile -WindowStyle Hidden -Command \
                     'Remove-Item -LiteralPath $env:STUB_PATH -Force'
                 echo "[setup]   Deleted."
             fi
@@ -214,7 +214,7 @@ for _stub_name in python.exe python3.exe; do
 done
 
 # 3c-2: store-alias-on-PATH warning
-_py_resolved=$(powershell.exe -NoProfile -Command \
+_py_resolved=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
     "\$c = Get-Command python3 -ErrorAction SilentlyContinue; \
      if (-not \$c) { \$c = Get-Command python -ErrorAction SilentlyContinue }; \
      if (\$c) { Write-Output \$c.Source }" 2>/dev/null | tr -d '\r')
@@ -227,7 +227,7 @@ case "$_py_resolved" in
 esac
 
 # 3c-3: no-Python-at-all detection
-_have_py=$(powershell.exe -NoProfile -Command \
+_have_py=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
     "\$p = Get-Command py -ErrorAction SilentlyContinue; \
      if (\$p) { Write-Output 'yes' } else { Write-Output 'no' }" 2>/dev/null | tr -d '\r')
 if [[ "$_have_py" != "yes" && -z "$_py_resolved" ]]; then

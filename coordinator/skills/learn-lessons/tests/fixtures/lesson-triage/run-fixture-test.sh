@@ -48,7 +48,7 @@ fi
 echo ""
 echo "=== expected-manifest.yaml well-formed ==="
 if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import yaml,sys; yaml.safe_load(open('$EXPECTED'))" && echo "OK     valid YAML"
+    python3 -c "import yaml,sys; yaml.safe_load(open('$EXPECTED'))" && echo "OK     valid YAML"  # verify-no-console-flash: allow (test fixture; not session hot-path)
 else
     echo "SKIP   python3 not available; YAML lint skipped"
 fi

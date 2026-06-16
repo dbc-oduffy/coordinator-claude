@@ -87,6 +87,14 @@ _CFGGIT="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-configure-git"
 _ENSURE_HOOK="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-ensure-post-commit-hook"
 [[ -x "$_ENSURE_HOOK" ]] && ( cd "$GIT_ROOT" && "$_ENSURE_HOOK" ) >/dev/null 2>&1 || true
 
+# --- Idempotent prepare-commit-msg Session-Id trailer hook install/repair ---
+# Self-healing install of the prepare-commit-msg hook that appends Session-Id
+# trailers — enables brightline gate --session-id filtering to scope commits
+# to the current session on a shared-branch concurrent-EM work shape.
+# Spec backlink: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1, AC9.
+_ENSURE_PCM_HOOK="$(dirname "${BASH_SOURCE[0]}")/../../bin/coordinator-ensure-prepare-commit-msg-hook"
+[[ -x "$_ENSURE_PCM_HOOK" ]] && ( cd "$GIT_ROOT" && "$_ENSURE_PCM_HOOK" ) >/dev/null 2>&1 || true
+
 # --- Boot-time EOL phantom-dirty index sweep (best-effort, idempotent, silent) ---
 # Clear "phantom-dirty" entries where the index records a stale line-ending blob size while
 # HEAD and the worktree already agree on normalized content — `git status` flags these ` M`
@@ -127,6 +135,20 @@ fi
 # This is what coordinator-safe-commit's Priority-3 resolution reads (the
 # fallback below the CLAUDE_CODE_SESSION_ID env var, for old Claude Code).
 echo "$SESSION_ID" > "${SESSIONS_DIR}/.current-session-id"
+
+# --- Stop-watcher stale PID-lock sweep (best-effort, silent) ---
+# C2d: sweep any stop-watcher.pid files left by crashed sessions. A lock file
+# whose PID is no longer alive is an orphan — remove it so the next Stop event
+# can acquire the lock and start a fresh watcher without being blocked by a
+# ghost entry.  Live PIDs (sibling session's active watcher) are left alone.
+# Spec backlink: docs/plans/2026-06-15-runtime-tripwire-idle-em-layered-fix.md § C2d.
+for _sw_pid_file in "${SESSIONS_DIR}"/*/stop-watcher.pid; do
+  [ -f "$_sw_pid_file" ] || continue
+  _sw_pid=$(cat "$_sw_pid_file" 2>/dev/null | tr -d '[:space:]' || true)
+  [ -z "$_sw_pid" ] && { rm -f "$_sw_pid_file" 2>/dev/null || true; continue; }
+  kill -0 "$_sw_pid" 2>/dev/null || rm -f "$_sw_pid_file" 2>/dev/null || true
+done
+unset _sw_pid_file _sw_pid
 
 # --- Periodic stale-session reaper (gated: at most once per 12h) ---
 #
@@ -221,6 +243,13 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
   if [ -n "$consumed_paths" ]; then
     archive_dir="${GIT_ROOT}/archive/handoffs"
     mkdir -p "$archive_dir" 2>/dev/null || true
+    # Source stamp lib once before the loop (C2b — orphan-sweep call site).
+    # Spec: docs/plans/2026-06-15-shipped-in-archive-stamping.md § C2b.
+    # Review: F10 — resolve lib relative to this hook before falling back to ~/.claude
+    # shellcheck source=../../lib/coordinator-archive-stamp.sh
+    STAMP_LIB_PATH="$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-archive-stamp.sh"
+    [[ ! -f "$STAMP_LIB_PATH" ]] && STAMP_LIB_PATH="${HOME}/.claude/plugins/coordinator/lib/coordinator-archive-stamp.sh"
+    [[ -f "$STAMP_LIB_PATH" ]] && source "$STAMP_LIB_PATH"
 
     while IFS= read -r fpath; do
       [ -z "$fpath" ] && continue
@@ -272,9 +301,9 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
             # shell-interpolation injection via sid_last_activity value.
             # Review: code-reviewer — mirrors lib's env-var pattern.
             if command -v python3 &>/dev/null; then
-              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" python3 -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python3 -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
             elif command -v python &>/dev/null; then
-              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" python -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
             fi
           fi
           inactive_for=$(( now_epoch - last_epoch ))
@@ -308,8 +337,16 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
       if grep -q '^deployment_state:[[:space:]]*in_flight' "$fpath" 2>/dev/null; then
         # In-place sed; portable form (works on both GNU sed and BSD sed via tmpfile)
         tmp_ds="${fpath}.ds.tmp.$$"
-        sed 's/^deployment_state:[[:space:]]*in_flight.*/deployment_state: abandoned/' "$fpath" > "$tmp_ds" && mv "$tmp_ds" "$fpath"
+        sed 's/^deployment_state:[[:space:]]*in_flight.*/deployment_state: abandoned/' "$fpath" > "$tmp_ds" && mv "$tmp_ds" "$fpath" || rm -f "$tmp_ds"
       fi
+
+      # Stamp shipped_in: before archival — no branch-tip fallback (the Staff Engineer F1).
+      # The orphan case: we don't know if work shipped on the branch; the branch
+      # tip is overwhelmingly a sibling workstream's commit. If scope-paths yield
+      # no commit, shipped_in: is left absent — misattribution is worse than omission.
+      # DO NOT pass --allow-branch-tip-fallback here.
+      # Review: F11 — guard against stamp_shipped_in not being defined (lib source may have failed)
+      command -v stamp_shipped_in &>/dev/null && stamp_shipped_in "$fpath" || true
 
       # Quietly archive (git mv stages both the rename and the in-place sed edit above)
       fname=$(basename "$fpath")
@@ -345,7 +382,7 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
       # passphrase-protected signing key would hang the hook with no prompt to answer,
       # so signing is disabled for this internal housekeeping commit only. block-no-verify
       # guards EM-issued Bash commits, not hook-internal subprocess commits.
-      git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" 2>/dev/null || true
+      git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" -- state/handoffs/ archive/handoffs/ tasks/orphan-sweep-notes.md 2>/dev/null || true
     fi
   fi
 fi

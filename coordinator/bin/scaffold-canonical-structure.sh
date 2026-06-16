@@ -316,7 +316,7 @@ for entry in entries:
     print(f"{path}\t{gitkeep_flag}\t{readme_transport}")
 PYEOF
 )
-ENTRIES=$("$PYTHON" - "$MANIFEST" <<<"$PY_PROG" | tr -d '\r') || {
+ENTRIES=$("$PYTHON" - "$MANIFEST" <<<"$PY_PROG" | tr -d '\r') || { # verify-no-console-flash: allow — on-demand scaffold utility, not session-hot-path
     echo "scaffold-canonical-structure.sh: manifest parse failed" >&2
     exit 2
 }

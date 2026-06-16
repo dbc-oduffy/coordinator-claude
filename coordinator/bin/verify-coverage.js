@@ -330,6 +330,10 @@ const REF_ALLOWLIST = new Set([
   // CHANGELOG migration notes. No live dispatch resolves to these names.
   'coordinator:session-start',          // renamed→workstream-start; stub deleted 2026-06-01, refs historical
   'coordinator:session-end',            // renamed→workstream-complete; stub deleted 2026-06-01, refs historical
+  // historical reference; command retired 2026-06-08 per repo-setup-consolidation plan.
+  // Three callers are all plan-doc substrate counts / coverage-check notes describing the
+  // old architecture — not live dispatch instructions.
+  'coordinator:bootstrap-repos',        // retired 2026-06-08; refs historical in 2026-05-30 plan:50, 2026-06-08 plan:36, coverage-check:143
 ]);
 
 // ---------------------------------------------------------------------------

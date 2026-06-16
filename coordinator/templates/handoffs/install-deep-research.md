@@ -4,7 +4,7 @@
      {{DATE}} and {{BRANCH}}. It is a `kind: spinoff` baton in the standard handoff folder — the same
      place /spinoff writes — so /pickup + /workday-start handle it with no special wiring.
      COORDINATOR-OWNED because deep-research ships bundled (no separate DR repo on disk to seed
-     itself); revisit this template when the `/deep-research setup` flow changes. This is install
+     itself); revisit this template when the `/deep-research:install` flow changes. This is install
      spinoff order 1; the post-restart EM discovers it via the Step 0 sweep in
      continue-onboarding-and-installation.md and tracks it on the install-chain spine. -->
 ---
@@ -16,7 +16,7 @@ status: active
 predecessor: none
 authoring_session: "coordinator install — operator opted into deep-research at the pre-restart question"
 category: infra
-summary: "Activate the bundled deep-research plugin and run /deep-research setup; verify a pipeline can dispatch"
+summary: "Activate the bundled deep-research plugin and run /deep-research:install; verify a pipeline can dispatch"
 workstream: install-deep-research
 repo: deep-research-claude
 install_chain_order: 1
@@ -42,7 +42,7 @@ separate clone.
    `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — this is the env var the fresh-session restart was
    for. If `/deep-research` pipelines report Agent Teams unavailable, the operator started this
    session without the env var; have them restart Claude Code from a shell where it is exported.
-3. **Run first-run setup.** `/deep-research setup` — this also plants the `version.txt` baseline the
+3. **Run first-run install.** `/deep-research:install` — this also plants the `version.txt` baseline the
    boot currency-notification hook compares against (so the operator gets honest "update available"
    nudges later).
 4. **Verify.** Run a tiny real query through one pipeline (e.g. a single-topic

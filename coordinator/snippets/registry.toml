@@ -1,0 +1,157 @@
+# snippets/registry.toml — central SSOT for the 4 HARDCODED-shape sentinel-synced
+# coordinator snippets and their consumer mappings.
+#
+# Schema-owner: coordinator EM. Amending this file is a deliberate schema act —
+# add a new [snippet.<name>] entry, then bin/verify-<name>-sync.sh sources its
+# CONSUMERS from bin/snippet-registry at runtime. No per-script CONSUMERS edits.
+#
+# Out of scope (substrate-different, per Patrik-A adjudication 2026-06-15):
+#   - meta-ask-preamble, project-rag-preamble, text-only-recovery-preamble
+#     (verify-meta-ask-preamble / verify-preamble / verify-text-only)
+#     — these scripts grep $PLUGIN_ROOT for the BEGIN sentinel; consumers are
+#     runtime-discovered, not centrally listed. Documented in
+#     coordinator-tripwires.md § Snippet-sync as the "dynamic-discovery
+#     sentinel-synced" category.
+#
+# Path conventions in `consumers` arrays:
+#   - "agents/<name>.md"           → resolves under $PLUGIN_ROOT (coordinator plugin root)
+#   - "../<plugin>/agents/<name>"  → sibling plugin under the plugins/ tree
+#
+# Conditional consumers (e.g. holodeck sibling repo) use [[snippet.<name>.conditional_consumer]]:
+#   - `condition_type = "machine-local-key"` is the only supported type today.
+#   - `condition_key` resolves via the machine-local registry (env var is
+#     DERIVED — uppercase, dots/hyphens → underscores). See machine-local-registry.md § 4.
+#   - `path` is relative to the directory resolved by `condition_key` — i.e., the
+#     value of `machine-local get <condition_key>`. For
+#     condition_key = "repos.claude_unreal_holodeck" this resolves to the holodeck
+#     repo root, so "coordinator/agents/staff-eng.md" resolves as
+#     $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md.
+#   (Review: patrik-c2 — F1: disambiguate conditional-consumer path resolution root
+#    vs. the $PLUGIN_ROOT / ../<sibling> conventions used in `consumers` arrays.)
+#
+# Consumer ordering: arrays are unordered sets. The bin/snippet-registry
+# list-consumers CLI emits consumers in a deterministic sort order
+# ($PLUGIN_ROOT-relative paths first, alphabetical within each group).
+# Equality comparisons in bin/verify-snippet-registry-consistency.sh are
+# set-equality, not sequence-equality.
+# (Review: patrik-c2 — F5: consumer ordering must be specified for C3/C4 consumers.)
+#
+# Required vs. optional fields:
+#   [snippet.<name>]                      sentinel_begin, sentinel_end, consumers — all REQUIRED
+#   [[snippet.<name>.conditional_consumer]] path, condition_type, condition_key — all REQUIRED
+# (Review: patrik-c2 — F6: enumerate required/optional fields for C3/C4 implementers.)
+#
+# schema_version: bump when the field set changes. Readers (C3 CLI, C4 verifier)
+# MUST check this field and fail-loud on unknown versions.
+# (Review: patrik-c2 — F4: schema_version field required for C3/C4 forward-compat.)
+#
+# Spec backlinks:
+#   - docs/decisions/2026-06-15-snippet-registry-shape.md (DR)
+#   - docs/plans/2026-06-15-snippet-sync-consumer-registry.md (plan)
+#   - docs/plans/2026-06-15-snippet-sync-consumer-registry.md.patrik-substrate-adjudication.md (Patrik-A)
+
+# Review: patrik-c2 — F4: schema_version field; bump on field-set changes;
+# C3 CLI and C4 verifier MUST fail-loud on unknown version.
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# reviewer-calibration — Patrik calibration block, consumed by all named
+# Opus-tier reviewer personas + vp-product, plus 2 holodeck conditionals
+# (coordinator/staff-eng AND game-dev/staff-game-dev).
+# ---------------------------------------------------------------------------
+[snippet.reviewer-calibration]
+sentinel_begin = "<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->"
+sentinel_end   = "<!-- END reviewer-calibration -->"
+consumers = [
+  "agents/staff-eng.md",
+  "agents/vp-product.md",
+  "../data-science/agents/staff-data-sci.md",
+  "../game-dev/agents/staff-game-dev.md",
+  "../web-dev/agents/senior-front-end.md",
+]
+
+# Both holodeck conditionals present: coordinator-side staff-eng.md carries the
+# reviewer-calibration sentinel (verified against holodeck repo); game-dev/staff-game-dev.md
+# also carries it. This snippet is unique among the 4 in having 2 holodeck conditionals.
+# (Review: patrik-c2 — F3: document why reviewer-calibration has 2 holodeck conditionals
+# while the other 3 snippets have only 1.)
+[[snippet.reviewer-calibration.conditional_consumer]]
+path           = "coordinator/agents/staff-eng.md"
+condition_type = "machine-local-key"
+condition_key  = "repos.claude_unreal_holodeck"
+
+[[snippet.reviewer-calibration.conditional_consumer]]
+path           = "game-dev/agents/staff-game-dev.md"
+condition_type = "machine-local-key"
+condition_key  = "repos.claude_unreal_holodeck"
+
+# ---------------------------------------------------------------------------
+# docs-checker-consumption — pre-review docs-checker sidecar consumption,
+# consumed by named reviewer personas + eng-director + 1 holodeck conditional.
+# ---------------------------------------------------------------------------
+[snippet.docs-checker-consumption]
+sentinel_begin = "<!-- BEGIN docs-checker-consumption (synced from snippets/docs-checker-consumption.md) -->"
+sentinel_end   = "<!-- END docs-checker-consumption -->"
+consumers = [
+  "agents/eng-director.md",
+  "agents/staff-eng.md",
+  "../data-science/agents/staff-data-sci.md",
+  "../game-dev/agents/staff-game-dev.md",
+  "../web-dev/agents/senior-front-end.md",
+]
+
+# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
+# staff-eng.md in holodeck does NOT carry this sentinel (verified against
+# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
+# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+[[snippet.docs-checker-consumption.conditional_consumer]]
+path           = "game-dev/agents/staff-game-dev.md"
+condition_type = "machine-local-key"
+condition_key  = "repos.claude_unreal_holodeck"
+
+# ---------------------------------------------------------------------------
+# plan-coverage-check-consumption — plan-coverage-checker sidecar consumption,
+# consumed by 4 reviewers + 1 holodeck conditional.
+# ---------------------------------------------------------------------------
+[snippet.plan-coverage-check-consumption]
+sentinel_begin = "<!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->"
+sentinel_end   = "<!-- END plan-coverage-check-consumption -->"
+consumers = [
+  "agents/eng-director.md",
+  "agents/staff-eng.md",
+  "../data-science/agents/staff-data-sci.md",
+  "../web-dev/agents/senior-front-end.md",
+]
+
+# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
+# staff-eng.md in holodeck does NOT carry this sentinel (verified against
+# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
+# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+[[snippet.plan-coverage-check-consumption.conditional_consumer]]
+path           = "game-dev/agents/staff-game-dev.md"
+condition_type = "machine-local-key"
+condition_key  = "repos.claude_unreal_holodeck"
+
+# ---------------------------------------------------------------------------
+# prior-art-check-consumption — prior-art-checker sidecar consumption,
+# consumed by named reviewer personas + eng-director + 1 holodeck conditional.
+# ---------------------------------------------------------------------------
+[snippet.prior-art-check-consumption]
+sentinel_begin = "<!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->"
+sentinel_end   = "<!-- END prior-art-check-consumption -->"
+consumers = [
+  "agents/eng-director.md",
+  "agents/staff-eng.md",
+  "../data-science/agents/staff-data-sci.md",
+  "../game-dev/agents/staff-game-dev.md",
+  "../web-dev/agents/senior-front-end.md",
+]
+
+# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
+# staff-eng.md in holodeck does NOT carry this sentinel (verified against
+# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
+# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+[[snippet.prior-art-check-consumption.conditional_consumer]]
+path           = "game-dev/agents/staff-game-dev.md"
+condition_type = "machine-local-key"
+condition_key  = "repos.claude_unreal_holodeck"

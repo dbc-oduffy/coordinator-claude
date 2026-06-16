@@ -58,12 +58,14 @@ describe('installed_plugins.json structure', () => {
         // Cache-rooted entries (plugins/cache/...) can transiently carry scope="local"
         // when the harness re-syncs after a stale-marketplace install; skip them here
         // for the same reason installPath existence is skipped for cache paths.
+        // Non-cache entries with scope="local" are source-is-live plugins (direct installs
+        // under plugins/ rather than plugins/cache/) — "local" is a valid harness scope.
         const skipCacheCheck = isCachePath(entry.installPath);
         const testFn = skipCacheCheck ? it.skip : it;
-        testFn(`${pluginKey} scope is "project" or "user"`, () => {
+        testFn(`${pluginKey} scope is "project", "user", or "local"`, () => {
           assert.ok(
-            entry.scope === 'project' || entry.scope === 'user',
-            `Invalid scope "${entry.scope}" for ${pluginKey} — expected "project" or "user"`
+            entry.scope === 'project' || entry.scope === 'user' || entry.scope === 'local',
+            `Invalid scope "${entry.scope}" for ${pluginKey} — expected "project", "user", or "local"`
           );
         });
       }

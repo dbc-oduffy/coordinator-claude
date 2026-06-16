@@ -1,4 +1,5 @@
 <!-- canonical source for reviewer-calibration — edit here, then run verify-calibration-sync.sh --fix -->
+<!-- consumers: see bin/snippet-registry list-consumers reviewer-calibration -->
 
 ## Confidence Calibration (1–10)
 

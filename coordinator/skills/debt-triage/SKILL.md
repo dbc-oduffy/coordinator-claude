@@ -1,3 +1,4 @@
+<!-- Updated 2026-06-15 by structured-queue-medium-rollout C10: state/debt-backlog.md → state/debt-backlog/*.yaml; closure via git mv to archive/<YYYY-MM>/ -->
 ---
 name: debt-triage
 description: "EM-PM conversation to review and prioritize the technical debt backlog. Triggers on demand or when open item count exceeds 20."
@@ -35,19 +36,19 @@ The maintainer can:
 
 ### Step 1: Read Current State
 
-1. Read `state/debt-backlog.md`
+1. Read `state/debt-backlog/` entries via `bin/query-records.sh --type debt` (each entry is an individual YAML file with `id`, `severity`, `status`, and related frontmatter fields per `docs/wiki/debt-backlog-schema.md`)
 2. Summarize: total open items, breakdown by severity (P0/P1/P2), breakdown by system
 3. Identify the oldest open items (stalest debt)
 
 ### Step 1b: Cross-reference bug backlog
 
-Also read `state/bug-backlog.md` (if it exists). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `Cross-ref` field on both entries (e.g., `Cross-ref: BS-2026-03-18-1` on the debt item, `Cross-ref: WAA-2026-03-19-1` on the bug item). Present overlaps to PM for deduplication decision.
+Also read `state/bug-backlog/*.yaml` via `bin/query-records.sh --type bug` (each entry is a YAML file with `id`, `severity`, `status`, etc. as frontmatter). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `cross_ref:` field on both entries (e.g., `cross_ref: ["BS-2026-03-18-1"]` on the debt YAML, `cross_ref: ["WAA-2026-03-19-1"]` on the bug YAML). Present overlaps to PM for deduplication decision.
 
 ### Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
 
 Before dispatching any Haiku verification agents, do a quick staleness pre-check on the full item list.
 
-For each item in `state/debt-backlog.md`, note its cited file path and the date it was logged. Items where `git log --since="<finding-date>" -- <file-path>` shows relevant commits are candidates for `already-fixed` status and should be confirmed first.
+For each item in `state/debt-backlog/`, note its cited file path and the date it was logged (`created` field in frontmatter). Items where `git log --since="<finding-date>" -- <file-path>` shows relevant commits are candidates for `already-fixed` status and should be confirmed first.
 
 This pre-check prevents dispatching agents to verify debt that has already been resolved. In one measured run, 11 of 20 backlog items were already fixed before dispatch — the same failure mode applies to debt backlogs that drift behind active development.
 
@@ -62,6 +63,20 @@ When evaluating whether a debt item or proposed enhancement is worth acting on, 
 **One-adapter / two-adapter rule.** One adapter is a hypothetical seam. Two adapters is a real seam that pays its abstraction cost. A single adapter wrapping one concrete implementation is usually premature — the deletion test confirms this. Two independent adapters in production justify the interface.
 
 These probes apply when evaluating YAGNI calls, scope-change proposals, and deepening candidates. Pair any deletion-test finding with the convergence rule (≥2 independent agents before acting on a "shallow module" verdict) — single-agent subjective verdicts have elevated false-positive rates.
+
+### Step 1d: Read Improvement Queue
+
+Also read `state/improvement-queue/` entries via `bin/query-records.sh --type improvement` (if the directory exists — skip silently if absent). For each entry, classify scope:
+
+- **Universal** — would apply if a different project type used the coordinator pipeline? → routing note: _"should be in lessons-outbox — surface to next `/learn-lessons` local run."_ Do NOT pull these into the debt triage path; flag them for the EM to route at the end of this session.
+- **Project-specific** — structural or implementation debt scoped to this repo → flow into the standard triage path alongside `state/debt-backlog/` entries. These are candidates for migration to `state/debt-backlog/` at Step 6b.
+
+Present the classification summary to the PM before proceeding:
+> "Improvement queue: N entries total — M universal (flagged for lessons-outbox routing), K project-specific (flowing into triage)."
+
+If the queue is absent or empty, note this and proceed without block.
+
+**Doctrine refs:** `CLAUDE.md § Improvement Queue` (admission rule + routing contract); `docs/wiki/lessons-outbox-schema.md` (universal entry routing schema).
 
 ### Step 2: Verify Relevance (Haiku agents)
 
@@ -144,11 +159,17 @@ Present the triage results and ask for:
 ### Step 6: Update Backlog
 
 After PM decisions:
-1. Close resolved items (status: `closed — [reason]`)
-2. Update priorities per PM direction
-3. Remove items PM declares YAGNI
-4. Update header counts
-5. For any item rejected with a **load-bearing reason** (scope conflict, doctrine conflict, cost-benefit rejection, architectural veto): write `tasks/out-of-scope/<concept>.md` using the template below. One file per *concept*, not per item — if a matching file already exists, append a new entry under "Prior requests" instead of creating a duplicate. **Bugs do NOT go to `.out-of-scope/`** — only enhancement rejections. Create the directory on first use; never scaffold it empty.
+1. Close resolved items: for each item to close, stamp `status: closed`, `closed_at: <ISO date>`, and `closed_by: <commit-sha>` in the entry's YAML frontmatter, then archive it:
+   ```bash
+   # For each closed entry:
+   mkdir -p archive/debt-backlog/<YYYY-MM>
+   git mv state/debt-backlog/<id>.yaml archive/debt-backlog/<YYYY-MM>/<id>.yaml
+   # After all archive moves, clean up an empty source dir if it becomes empty:
+   rmdir state/debt-backlog/ 2>/dev/null || true
+   ```
+2. Update priorities per PM direction (edit `severity` field in the relevant YAML files)
+3. Remove items PM declares YAGNI (archive via `git mv` as above, with `status: closed` and a `closed_by` referencing PM decision)
+4. For any item rejected with a **load-bearing reason** (scope conflict, doctrine conflict, cost-benefit rejection, architectural veto): write `tasks/out-of-scope/<concept>.md` using the template below. One file per *concept*, not per item — if a matching file already exists, append a new entry under "Prior requests" instead of creating a duplicate. **Bugs do NOT go to `.out-of-scope/`** — only enhancement rejections. Create the directory on first use; never scaffold it empty.
 
    ```markdown
    # Out of scope: <concept>
@@ -169,11 +190,34 @@ After PM decisions:
    [Conditions under which this should be reconsidered. Optional but useful.]
    ```
 
-6. Commit:
+5. Commit:
    ```bash
-   git add state/debt-backlog.md tasks/out-of-scope/
+   git add archive/debt-backlog/ state/debt-backlog/ tasks/out-of-scope/
    git commit -m "debt-triage: reviewed N items, closed M, N remain open"
    ```
+
+### Step 6b: Migrate project-specific improvement-queue entries
+
+After the Step 6 commit, migrate any project-specific entries identified in Step 1d from `state/improvement-queue/` into `state/debt-backlog/`:
+
+1. For each project-specific entry from Step 1d that survived triage (not YAGNI'd):
+   - Capture a new debt-backlog entry via `coordinator-queue-append --schema debt-backlog` (mechanical capture using the CLI — do not manually author YAML). The CLI writes a new `state/debt-backlog/<id>.yaml` file.
+   - Close the source improvement-queue YAML by stamping `status: closed`, `closed_at: <ISO date>`, and `closed_by: <migrated-to-debt-backlog>` in its frontmatter, then archive via `git mv`:
+     ```bash
+     mkdir -p archive/improvement-queue/<YYYY-MM>
+     git mv state/improvement-queue/<source-id>.yaml archive/improvement-queue/<YYYY-MM>/<source-id>.yaml
+     rmdir state/improvement-queue/ 2>/dev/null || true
+     ```
+2. Commit the new debt-backlog entries and the improvement-queue archive moves in **two dedicated commits** (do not bundle with Step 6 closure commits):
+   ```bash
+   git add state/debt-backlog/
+   git commit -m "debt-triage: migrate N improvement-queue entries to debt-backlog"
+   git add archive/improvement-queue/ state/improvement-queue/
+   git commit -m "debt-triage: archive migrated improvement-queue entries"
+   ```
+3. Universal entries flagged in Step 1d are NOT migrated to `state/debt-backlog/` — they stay in `state/improvement-queue/` until the EM routes them via `/learn-lessons` local run (see `docs/wiki/lessons-outbox-schema.md`). Only project-specific entries migrate.
+
+If no project-specific entries were identified in Step 1d, skip this step entirely.
 
 ## Notes
 

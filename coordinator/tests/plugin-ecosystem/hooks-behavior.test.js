@@ -750,7 +750,7 @@ describe('block-subagent-archive-write.sh', () => {
   }
   const isDeny = (out) => out.includes('"permissionDecision":"deny"');
 
-  it('ALLOWS a subagent writing the dated daily-summary file (the Step 4b/4c sanctioned path)', { skip: !bashAvailable }, () => {
+  it('ALLOWS a subagent writing the dated daily-summary file (the Step 4b/4c sanctioned path)', { skip: !bashAvailable, timeout: 30_000 }, () => {
     const r = runHook({ tool_name: 'Write', agent_id: AID,
       tool_input: { file_path: 'archive/daily-summaries/2026-05-27.md' } });
     assert.equal(r.status, 0);

@@ -44,7 +44,7 @@ fi
 # ---------------------------------------------------------------------------
 # Main logic in Python for JSON/TOML manipulation
 # ---------------------------------------------------------------------------
-"$PYTHON" - "$CLAUDE_HOME" "$PLUGINS_DIR" "$SETTINGS_LOCAL" "$KNOWN_MARKETPLACES" "$REGISTRY_LOCAL" <<'PYEOF'
+"$PYTHON" - "$CLAUDE_HOME" "$PLUGINS_DIR" "$SETTINGS_LOCAL" "$KNOWN_MARKETPLACES" "$REGISTRY_LOCAL" <<'PYEOF'  # verify-no-console-flash: allow (install-time localize template; runs once at setup)
 import sys, json, os, re
 
 claude_home = sys.argv[1]

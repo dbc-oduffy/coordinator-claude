@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# coordinator-prepare-commit-msg — append a Session-Id trailer to every commit
+# made inside an active coordinator session.
+#
+# Git hook signature (prepare-commit-msg):
+#   $1  COMMIT_EDITMSG path (required)
+#   $2  commit source  (optional: message, template, merge, squash, commit)
+#   $3  SHA1           (optional: present only for --amend / squash)
+#
+# Behaviour:
+#   1. Resolve the current session-id via three-tier ladder (identical to
+#      bin/coordinator-write-review-trail.sh lines 182-199):
+#        (1) ${CLAUDE_SESSION_ID}                                      (legacy var)
+#        (2) ${CLAUDE_CODE_SESSION_ID}                                 (platform-injected)
+#        (3) $(cat .git/coordinator-sessions/.current-session-id)     (sentinel fallback)
+#   2. Empty session-id → exit 0 silently (non-coordinator commit; unaffected).
+#   3. Message already contains a Session-Id: line → exit 0 (idempotent).
+#   4. Otherwise: inject via `git interpret-trailers --in-place --trailer`.
+#
+# NEVER blocks a commit — always exits 0.
+#
+# Cross-platform: bash ≥ 4, BSD coreutils, Git-Bash on Windows.
+# `git interpret-trailers` is core git ≥ 1.8.
+#
+# Spec backlink: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1
+
+# DR-148 bash-version guard — must remain parseable on bash 3.2 (boot-path hook
+# reachability requirement per cross-platform-shell-portability.md). Uses [ ]
+# not [[ ]], and simple arithmetic, so 3.2 parses it. Guard exits 0 because
+# hooks MUST NEVER block a commit; the trailer is merely omitted on old bash.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  # brew install bash && ensure /usr/local/bin or /opt/homebrew/bin is early in PATH
+  # NOTE: intentional silent no-op (not fail-loud) — this is a git hook; blocking a commit
+  # on bash version is not acceptable. Trailer is omitted on bash < 4.
+  # Review: code-reviewer — added clarity note per Finding 10.
+  exit 0
+fi
+
+set +e
+
+COMMIT_MSG_FILE="${1:-}"
+[ -z "$COMMIT_MSG_FILE" ] && exit 0
+[ -f "$COMMIT_MSG_FILE" ] || exit 0
+
+# --- Three-tier session-id resolution (doctrine: coordinator-write-review-trail.sh:182-199) ---
+# Tier 1: legacy env var (still supported in canonical ladder)
+SESSION_ID="${CLAUDE_SESSION_ID:-}"
+
+# Tier 2: platform-injected, unclobberable (preferred over sentinel)
+if [ -z "$SESSION_ID" ]; then
+  SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
+fi
+
+# Tier 3: sentinel file (last-writer-wins fallback for old Claude Code)
+if [ -z "$SESSION_ID" ]; then
+  GIT_DIR=$(git rev-parse --git-dir 2>/dev/null || true)
+  if [ -n "$GIT_DIR" ]; then
+    SESSION_ID=$(cat "${GIT_DIR}/coordinator-sessions/.current-session-id" 2>/dev/null || true)
+  fi
+fi
+
+# Empty resolution → legitimate non-coordinator commit; leave unaffected.
+[ -z "$SESSION_ID" ] && exit 0
+
+# Idempotency guard — already has a Session-Id trailer; do not duplicate.
+if grep -q '^Session-Id:' "$COMMIT_MSG_FILE" 2>/dev/null; then
+  exit 0
+fi
+
+# Inject the trailer in-place. `--in-place` edits the file directly.
+# Trailer format matches git's trailer convention for `git log --grep` filtering.
+git interpret-trailers --in-place --trailer "Session-Id: ${SESSION_ID}" "$COMMIT_MSG_FILE" 2>/dev/null || true
+
+exit 0

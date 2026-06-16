@@ -121,19 +121,28 @@ fi
 
 # Daily-summary carve-out: the /workday-complete Step 4b analyst and Step 4c Sonnet
 # strategic observer are EXPLICITLY dispatched to write/append archive/daily-summaries/
-# YYYY-MM-DD.md. That is a sanctioned subagent write path, exactly like the per-entry
-# completion fallback above — without this carve-out the daily wrap requires a manual
-# COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1 on every run (the fight-the-hook anti-pattern).
+# YYYY-MM-DD.md. That is a sanctioned subagent write path — without this carve-out the
+# daily wrap requires a manual COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1 on every run
+# (the fight-the-hook anti-pattern).
 # Tightly scoped to the dated summary file only (YYYY-MM-DD.md) — a subagent writing any
 # OTHER file under archive/daily-summaries/ is still blocked.
 # Anchor note: the `(^|/)` prefix is REQUIRED, not `^` — hook `file_path` inputs are
 # frequently ABSOLUTE (e.g. C:/Users/.../.claude/archive/daily-summaries/... or
 # /c/.../archive/...). `^archive/` would fail to match those and wrongly DENY legitimate
 # daily writes. The mid-path match this admits (e.g. tasks/archive/daily-summaries/...) is
-# the accepted cost of absolute-path support and mirrors the per-entry carve-out + entry
-# guard above; nothing legitimate writes that shape, and it is not the real archive/.
+# the accepted cost of absolute-path support and mirrors the per-entry carve-out below;
+# nothing legitimate writes that shape, and it is not the real archive/.
 # Spec backlink: commands/workday-complete.md Step 4b/4c; docs/wiki/daily-summary-procedure.md.
 if [[ "$FILE_PATH_NORM" =~ (^|/)archive/daily-summaries/[0-9]{4}-[0-9]{2}-[0-9]{2}\.md$ ]]; then
+  exit 0
+fi
+
+# Per-entry completion fallback carve-out: executors writing sidecar/completion records
+# under archive/completed/YYYY-MM/YYYY-MM-DD-<slug>.md are sanctioned.
+# Pattern: archive/completed/<month-dir>/<dated-slug-file>.md
+# This was inadvertently removed in C3b-archive-carveout-strip (commit 62bb1cd9);
+# restored here as the behavior-regression test (hooks-behavior.test.js:791) is the oracle.
+if [[ "$FILE_PATH_NORM" =~ (^|/)archive/completed/[0-9]{4}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}-.+\.md$ ]]; then
   exit 0
 fi
 

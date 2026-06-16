@@ -126,9 +126,21 @@ function getGitModesForDir(repoRoot, relDir) {
     // "empty string is not a valid pathspec" fatal error from git.
     const cleaned = relDir ? relDir.replace(/\/$/, '') : '';
     const pathspec = cleaned ? cleaned + '/' : '.';
+    // 2026-06-14 — scrub inherited GIT_* env. When this runs from a pre-commit
+    // hook, parent GIT_INDEX_FILE / GIT_DIR redirect `ls-files` to the real-repo
+    // index even though `git -C "${repoRoot}"` names a different worktree. Both
+    // the AC4 synthetic fixture (tmpDir) and any plugin-tree query under
+    // repoRoot must read THEIR OWN .git, not the parent commit's index.
+    const env = { ...process.env };
+    delete env.GIT_INDEX_FILE;
+    delete env.GIT_DIR;
+    delete env.GIT_WORK_TREE;
+    delete env.GIT_OBJECT_DIRECTORY;
+    delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
     output = execSync(`git -C "${repoRoot}" ls-files --stage -- "${pathspec}"`, {
       stdio: 'pipe',
       timeout: 15000,
+      env,
     }).toString();
   } catch {
     // git not available or path not tracked — return empty map
@@ -312,12 +324,33 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
   // local-only filesystem/process operations that complete in <1s under normal conditions.
   // The node:test runner's default per-test timeout (infinite unless set) does not apply to
   // before() hooks. If CI machines are slow, add `{ timeout: 10000 }` to the before() call.
+  //
+  // 2026-06-14 — GIT_*-env isolation: when this test runs from inside a `git commit`
+  // pre-commit hook, the parent sets GIT_INDEX_FILE / GIT_DIR / GIT_WORK_TREE /
+  // GIT_OBJECT_DIRECTORY pointing at the REAL repo's commit index. execSync inherits
+  // those env vars; cwd=tmpDir does NOT override them. Without scrubbing, `git add .`
+  // inside tmpDir stages tmpDir's fixture files into the commit's real-repo index
+  // (path-relative to tmpDir root → `lib/script.py`, `.github/scripts/script.py`, etc.),
+  // poisoning the tree-write and producing "invalid object … for '.github/scripts/script.py'"
+  // when git commit closes the tree. Delete (not spread undefined) to remove the keys
+  // from the child env — spreading undefined leaves the key present with value undefined,
+  // which Node.js serialises as the string "undefined" in the child environment.
+  // Review: code-reviewer (F5) — use explicit delete pattern matching getGitModesForDir().
+  const GIT_ENV_KEYS = ['GIT_INDEX_FILE', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'];
+  // NOTE: tmpEnv() must not be called before before() runs — it closes over tmpDir, which is null at module load and only set in before().
+  // Review: code-reviewer (F10) — ordering note added so future readers don't call tmpEnv() at describe() level.
+  const tmpEnv = (extra = {}) => {
+    const env = { ...process.env, ...extra };
+    for (const k of GIT_ENV_KEYS) delete env[k];
+    return { cwd: tmpDir, stdio: 'pipe', env };
+  };
+
   before(() => {
     // Create a fresh temp git repo that acts as the "plugin" source
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-bit-ac4-'));
-    execSync('git -c init.defaultBranch=main init -q', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git config user.email "test@test.example"', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git config user.name "Test"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git -c init.defaultBranch=main init -q', tmpEnv());
+    execSync('git config user.email "test@test.example"', tmpEnv());
+    execSync('git config user.name "Test"', tmpEnv());
 
     // Create a shebanged .py file in each previously-unguarded directory
     for (const dir of UNGUARDED_DIRS) {
@@ -328,12 +361,12 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
     }
 
     // Stage all files WITHOUT exec bit (mode 100644 — the drift scenario)
-    execSync('git add .', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git add .', tmpEnv());
     // Explicitly ensure they are staged at 100644 (git add without -x leaves them at 100644)
     // Review: code-reviewer F6 — verify the precondition: all files must be at 100644 after
     // staging, before any test runs. If the platform auto-assigns +x (e.g. core.fileMode=true
     // on Linux with executable fs bits), the second it-block's assertion would be wrong.
-    const stageOut = execSync('git ls-files --stage', { cwd: tmpDir, stdio: 'pipe' }).toString();
+    const stageOut = execSync('git ls-files --stage', tmpEnv()).toString();
     const allAt644 = stageOut.trim().split('\n').every(l => l.startsWith('100644'));
     if (!allAt644) throw new Error('Precondition failed: some files staged at non-100644 mode');
   });
@@ -390,7 +423,7 @@ describe('exec-bit AC4: synthetic fixture — widened scope catches .py shebang 
 
   it('staged .py files at 100755 are NOT flagged as violations', () => {
     // Fix the exec bit on one file and confirm it drops out of violation list
-    execSync('git update-index --chmod=+x -- lib/script.py', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git update-index --chmod=+x -- lib/script.py', tmpEnv());
 
     const modeMap = getGitModesForDir(tmpDir, '');
     const violations = [];

@@ -178,6 +178,23 @@ Before dispatching the synthesizer, validate each expected findings file:
 - Each must be non-empty — apply the 1KB threshold from disk-first doctrine (`coordinator/CLAUDE.md` § Scouts and Disk-First Verification). A 1-2KB file where the brief expected substantially more is a summary masquerading as a deliverable; treat as a failed dispatch.
 - If a file fails this check: emit `verdict: WARN` with `lens_coverage[<reviewer>]: failed_disk_read` and surface to EM. **Do NOT default a missing reviewer's findings to "no findings = no issues"** — that silently downgrades coverage without visibility.
 
+**quota-exhausted dispatch detection — scan each chunk-reviewer slice's return body BEFORE synthesizer dispatch.**
+
+The doctrine root is `docs/wiki/tool-output-flakiness-protocol.md § API quota exhaustion looks like a clean "completed" return with error-text body`. Pattern set + corroboration rule (inlined here so the rule is greppable from the skill itself, per the dual-altitude convention with `snippets/quota-self-detect-preamble.md`):
+
+| Pattern (case-INsensitive) | Alone-sufficient? |
+|---|---|
+| `resets [0-9][0-9]?:[0-9][0-9]` | Yes — time-signature is structurally unique to the quota-apology shape. |
+| `session limit` | No — requires body length < 1024 bytes. |
+| `rate limit` | No — requires body length < 1024 bytes. |
+| `quota` | No — requires body length < 1024 bytes. |
+
+**Also recognize the `QUOTA-EXHAUSTED-DISPATCH:` envelope** as a definite quota event (the agent self-detected and substituted — see `snippets/quota-self-detect-preamble.md`). No corroboration needed; the envelope IS the corroboration.
+
+**On match:** treat the dispatch as failed-needing-re-dispatch. Do NOT write a verdict-ok trail record. Either (a) wait for quota reset and re-dispatch with the original brief, or (b) escalate to PM with the partial-coverage situation. The EM decides retry vs escalate based on retry budget. → `docs/wiki/tool-output-flakiness-protocol.md § API quota exhaustion`.
+
+Quota-matching slices are excluded from synthesis; the merge gate is held until they re-dispatch successfully OR the PM authorizes proceeding with partial coverage.
+
 Once all present files pass pre-flight, dispatch Sonnet `parallel-review-synthesizer` (`agents/parallel-review-synthesizer.md`). It discovers the chunk set, reads the validated findings files from disk, applies the no-rewrite contract, aggregates `escalate_to_architecture` flags into `arch_tier_candidates`, and writes `$FINDINGS_DIR/synthesis.json`. The synthesizer must not be dispatched until all reviewer findings are on disk.
 
 ---

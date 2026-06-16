@@ -65,8 +65,56 @@ architecture atlas system names where possible. Format:
 
 ### [EPHEMERAL]
 Task lists, agent logs, "next session should...", status updates with no lasting value.
+
+**Single-file form** (for isolated ephemeral files that don't cluster with siblings):
 Mark as: `EPHEMERAL: [filename] — [brief reason]`
 (No `id:` field — EPHEMERAL nuggets are not carried downstream.)
+
+**Grouped form** (preferred when ≥2 files share the same ephemeral pattern, e.g. a whole
+directory of completion logs or agent scratch files):
+Emit an H2 group section heading followed immediately by a fenced YAML block (using triple
+backticks with `yaml` language tag). Example output shape:
+
+    ## EPHEMERAL — archive/completed/* completion logs
+
+    ```yaml
+    artifact_paths:
+      - archive/completed/2026-01-15-workstream-foo.md
+      - archive/completed/2026-01-16-workstream-bar.md
+      # ... one entry per artifact in this group
+    description: "Optional one-line description of this group"
+    ```
+
+The fenced YAML block under each group H2 heading is mandatory — Phase 5 parses YAML at
+the anchor, not the surrounding Markdown prose. The `artifact_paths:` list is authoritative;
+`description:` is optional documentation. Phase 5 locates the YAML block by H2 heading match,
+so the H2 heading text must be stable and descriptive.
+
+### [ALREADY_CAPTURED]
+Knowledge that is already present in the wiki (compare against the wiki directory guide
+headings and content). Mark individual files in single-file form, or group them:
+
+**Single-file form:**
+Mark as: `ALREADY_CAPTURED: [filename] — [brief reason / wiki location where it already lives]`
+(No `id:` field — ALREADY_CAPTURED nuggets are not carried downstream.)
+
+**Grouped form** (preferred when ≥2 files are superseded by the same wiki section):
+Emit an H2 group section heading followed immediately by a fenced YAML block (using triple
+backticks with `yaml` language tag). Example output shape:
+
+    ## ALREADY_CAPTURED — tasks/distill-*/output covered by wiki/DIRECTORY_GUIDE.md
+
+    ```yaml
+    artifact_paths:
+      - tasks/distill-2026-05-10/output.md
+      - tasks/distill-2026-05-11/output.md
+      # ... one entry per artifact in this group
+    description: "Optional one-line description of this group"
+    ```
+
+The fenced YAML block under each group H2 heading is mandatory — Phase 5 parses YAML at
+the anchor, not the surrounding Markdown prose. The `artifact_paths:` list is authoritative;
+`description:` is optional documentation.
 
 ### [AMBIGUOUS]
 Can't classify with confidence. Format:

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/install/agent-install-manifest.schema.json",
+  "title": "Agent Install Manifest",
+  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical home: plugins/coordinator/docs/wiki/agent-install-contract.md in the working-repo layout).",
+  "type": "object",
+  "required": [
+    "agent_install_contract_version",
+    "repo_id",
+    "setup_skill",
+    "doctor_skill",
+    "standalone_setup_script",
+    "direct_deps",
+    "required_env_vars",
+    "override_flags"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "agent_install_contract_version": {
+      "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2} (reader-widen-first sequencing) so a v1 and a v2 manifest can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field.",
+      "enum": [1, 2],
+      "type": "integer"
+    },
+    "repo_id": {
+      "description": "Canonical repo identifier (matches the GitHub repository name). Used as the visited-set entry key during chain-walk.",
+      "type": "string",
+      "minLength": 1
+    },
+    "setup_skill": {
+      "description": "The slash-command that a human types to invoke the agentic setup flow (informational — not the agent dispatch primitive; see agent-install-contract.md §Skill chain-walker).",
+      "type": "string",
+      "pattern": "^/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?$"
+    },
+    "doctor_skill": {
+      "description": "The slash-command that a human types to invoke the doctor/health-check flow (informational).",
+      "type": "string",
+      "pattern": "^/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?$"
+    },
+    "standalone_setup_script": {
+      "description": "Paths to the standalone (non-skill) setup scripts, relative to the repo root. These are the actual agent dispatch targets.",
+      "type": "object",
+      "required": ["posix", "windows"],
+      "additionalProperties": false,
+      "properties": {
+        "posix": {
+          "description": "Relative path to the POSIX (bash) standalone setup script.",
+          "type": "string",
+          "minLength": 1
+        },
+        "windows": {
+          "description": "Relative path to the Windows (PowerShell) standalone setup script.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "direct_deps": {
+      "description": "Ordered list of direct upstream dependencies. The chain-walker processes these in declaration order. Does not include transitive deps — each upstream declares its own.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DirectDep"
+      }
+    },
+    "required_env_vars": {
+      "description": "Environment variables that must be set for this repo's install to succeed. The standalone script prompts for any that are missing in interactive mode and fails fast in non-interactive mode.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Environment variable name (uppercase by convention).",
+        "minLength": 1
+      }
+    },
+    "override_flags": {
+      "description": "The canonical flag-pair that bypasses the hard-dep consent gate. Both flags must be passed together; passing only one produces exit code 93.",
+      "type": "object",
+      "required": ["skip_dep_check", "accept_hallucination_risk"],
+      "additionalProperties": false,
+      "properties": {
+        "skip_dep_check": {
+          "description": "Flag string that signals the caller explicitly intends to skip dependency checking.",
+          "type": "string",
+          "pattern": "^--[a-z][a-z0-9-]*$"
+        },
+        "accept_hallucination_risk": {
+          "description": "Flag string that signals the caller explicitly accepts the hallucination risk of running without all hard deps.",
+          "type": "string",
+          "pattern": "^--[a-z][a-z0-9-]*$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "DirectDep": {
+      "type": "object",
+      "description": "A single direct upstream dependency declaration.",
+      "required": [
+        "id",
+        "severity",
+        "sibling_dir_name",
+        "upstream_url",
+        "functional_probe"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Canonical dependency identifier (matches the upstream's repo_id).",
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "description": "How the chain-walker treats a missing or broken instance of this dep. hard = block unless override flag pair + double-confirm. soft = warn loudly, offer to walk chain, proceed if user declines. optional = offer once, no warning if declined.",
+          "type": "string",
+          "enum": ["hard", "soft", "optional"]
+        },
+        "sibling_dir_name": {
+          "description": "Expected directory name of the sibling clone, relative to the consumer repo's parent directory. The chain-walker checks for sibling presence at <parent>/<sibling_dir_name> before running the functional probe.",
+          "type": "string",
+          "minLength": 1
+        },
+        "upstream_url": {
+          "description": "Canonical GitHub HTTPS URL for cloning this dep.",
+          "type": "string",
+          "pattern": "^https://github\\.com/[^/]+/[^/]+$"
+        },
+        "functional_probe": {
+          "$ref": "#/$defs/FunctionalProbe"
+        },
+        "consumer_install_args": {
+          "description": "Optional. Args the CONSUMER wants passed to this upstream's standalone setup script (install mode + version selection). Composed by the chain-walker with --i-am-agent and the UPSTREAM's override_flags; does NOT include the upstream's override flags (those are read from the upstream manifest — see override_flags). Introduced in contract v2; intentionally NOT version-guarded — a v1 manifest carrying this field validates clean, consistent with the reader-widen-first doctrine.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "FunctionalProbe": {
+      "description": "A probe that verifies the dep is not only present but functional. Supplements the implicit sibling_dir_exists check.",
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "Probe kind. sibling_dir_exists: implicit always-run check, no additional fields. file_exists: requires path. python_import: requires expr. command_succeeds: requires cmd.",
+          "type": "string",
+          "enum": [
+            "sibling_dir_exists",
+            "file_exists",
+            "python_import",
+            "command_succeeds"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "const": "file_exists" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "description": "File path to check for existence, relative to the sibling repo root.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "python_import" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["expr"],
+            "properties": {
+              "expr": {
+                "description": "Python import expression to evaluate via the resolved Python interpreter. Must succeed (exit 0) for the dep to be considered functional.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "command_succeeds" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["cmd"],
+            "properties": {
+              "cmd": {
+                "description": "Shell command to execute. Must exit zero for the dep to be considered functional. Escape hatch for non-Python upstreams.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "sibling_dir_exists" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["path"] },
+                { "required": ["expr"] },
+                { "required": ["cmd"] }
+              ]
+            }
+          }
+        }
+      ],
+      "$comment": "unevaluatedProperties at THIS level per JSON Schema 2020-12 spec — properties evaluated by adjacent in-place applicators (the if/then chain in allOf) and by this object's own `properties` declaration count as evaluated; extra fields outside both are rejected.",
+      "unevaluatedProperties": false
+    }
+  }
+}

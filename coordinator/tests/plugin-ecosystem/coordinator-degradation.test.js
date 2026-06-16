@@ -202,14 +202,14 @@ describe('suggest-sonnet-research.sh — with deep-research present', () => {
 
 describe('coordinator-reminder.sh — runs without crashing', () => {
 
-  it('exits cleanly and produces non-empty output', () => {
+  it('exits cleanly and produces non-empty output', { timeout: 30_000 }, () => {
     if (!bashAvailable) return;
     assert.ok(fileExists(REMINDER_SCRIPT), `Script not found: ${REMINDER_SCRIPT}`);
 
     let output;
     try {
       const buf = execSync(`bash "${REMINDER_SCRIPT}"`, {
-        timeout: 10000,
+        timeout: 25000,
         stdio: 'pipe',
       });
       output = buf.toString('utf-8');

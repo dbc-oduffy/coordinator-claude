@@ -270,7 +270,11 @@ EOF
 if command -v jq &>/dev/null; then
   jq -nc --arg reason "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
 else
-  REASON_JSON=$(printf '%s' "$REASON" | python -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null \
+  # code-reviewer F2 (2026-06-15): pass REASON as argv to eliminate the printf-pipe
+  # ambiguity around --stdin-mode=safe. The launcher's safe mode is documented as
+  # heredoc/redirect/args-only — argv-only is unambiguously safe and avoids relying
+  # on undocumented pipe-stdin survival through pythonw.exe.
+  REASON_JSON=$(REASON="$REASON" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ["REASON"]))' 2>/dev/null \
     || printf '"%s"' "$(printf '%s' "$REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$REASON_JSON"
 fi

@@ -314,7 +314,7 @@ _check_plugin() {
         # argv[3]=site_packages, argv[4]=expected_pin_root (source_path in this mode).
         if [[ -d "$esv_venv_dir" ]]; then
             local esv_direct_url_result
-            esv_direct_url_result="$("$PYTHON" - "$esv_live_path" "$dist_name" "$esv_site_packages" "$esv_source_path" <<'PYEOF' | tr -d '\r'
+            esv_direct_url_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$esv_live_path" "$dist_name" "$esv_site_packages" "$esv_source_path" <<'PYEOF' | tr -d '\r'
 import sys, json, pathlib
 live_path = pathlib.Path(sys.argv[1])
 dist_name = sys.argv[2]
@@ -382,7 +382,7 @@ PYEOF
         local esv_pyproject_path="${esv_source_path}/pyproject.toml"
         if [[ -f "$esv_pyproject_path" ]]; then
             local esv_current_hash
-            esv_current_hash="$("$PYTHON" - "$esv_pyproject_path" <<'HASHEOF' | tr -d '\r'
+            esv_current_hash="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$esv_pyproject_path" <<'HASHEOF' | tr -d '\r'
 import sys, hashlib, pathlib
 print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
 HASHEOF
@@ -411,7 +411,7 @@ HASHEOF
         # argv[1]=live_path (for dist-info host), argv[2]=site_packages, argv[3]=expected_pin_root (source_path).
         if [[ -d "$esv_site_packages" ]]; then
             local esv_mapping_result
-            esv_mapping_result="$("$PYTHON" - "$esv_live_path" "$esv_site_packages" "$esv_source_path" <<'PYEOF' | tr -d '\r'
+            esv_mapping_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$esv_live_path" "$esv_site_packages" "$esv_source_path" <<'PYEOF' | tr -d '\r'
 import sys, pathlib, re
 live_path    = pathlib.Path(sys.argv[1]).resolve()
 site_pkg_dir = pathlib.Path(sys.argv[2])
@@ -464,7 +464,7 @@ PYEOF
         # Shims themselves live in live_path/.venv/{Scripts,bin}/ (the host venv).
         if [[ -f "$esv_pyproject_path" ]]; then
             local esv_shim_result
-            esv_shim_result="$("$PYTHON" - "$esv_source_path" "$IS_WINDOWS" "$esv_live_path" <<'PYEOF' | tr -d '\r'
+            esv_shim_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$esv_source_path" "$IS_WINDOWS" "$esv_live_path" <<'PYEOF' | tr -d '\r'
 import sys, pathlib
 source_path = pathlib.Path(sys.argv[1])
 is_windows = sys.argv[2] == "1"
@@ -572,7 +572,7 @@ PYEOF
     # preserves all existing default-mode callers that pass only 3 args).
     if [[ -d "$venv_dir" ]]; then
         local direct_url_result
-        direct_url_result="$("$PYTHON" - "$live_path" "$dist_name" "$site_packages" <<'PYEOF' | tr -d '\r'
+        direct_url_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$live_path" "$dist_name" "$site_packages" <<'PYEOF' | tr -d '\r'
 import sys, json, pathlib
 live_path = pathlib.Path(sys.argv[1])
 dist_name = sys.argv[2]
@@ -631,7 +631,7 @@ PYEOF
     local pyproject_path="${live_path}/pyproject.toml"
     if [[ -f "$pyproject_path" ]]; then
         local current_hash
-        current_hash="$("$PYTHON" - "$pyproject_path" <<'HASHEOF' | tr -d '\r'
+        current_hash="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$pyproject_path" <<'HASHEOF' | tr -d '\r'
 import sys, hashlib, pathlib
 print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
 HASHEOF
@@ -661,7 +661,7 @@ HASHEOF
     # Leg 2c: venv-MAPPING integrity
     if [[ -d "$site_packages" ]]; then
         local mapping_result
-        mapping_result="$("$PYTHON" - "$live_path" "$site_packages" <<'PYEOF' | tr -d '\r'
+        mapping_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$live_path" "$site_packages" <<'PYEOF' | tr -d '\r'
 import sys, pathlib, re
 live_path    = pathlib.Path(sys.argv[1]).resolve()
 site_pkg_dir = pathlib.Path(sys.argv[2])
@@ -714,7 +714,7 @@ PYEOF
     # Leg 2d: venv-shims
     if [[ -f "$pyproject_path" ]]; then
         local shim_result
-        shim_result="$("$PYTHON" - "$live_path" "$IS_WINDOWS" <<'PYEOF' | tr -d '\r'
+        shim_result="$(bash "$(dirname "${BASH_SOURCE[0]}")/../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" - "$live_path" "$IS_WINDOWS" <<'PYEOF' | tr -d '\r'
 import sys, pathlib
 live_path = pathlib.Path(sys.argv[1])
 is_windows = sys.argv[2] == "1"

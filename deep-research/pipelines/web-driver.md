@@ -26,10 +26,11 @@ The scout handles mechanical source discovery. Specialists self-govern their tim
 2. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 3. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
 4. Generate topic slug (e.g., `novel-claude-code-implementations`)
-5. Create scratch directory:
+5. Create work directory:
    ```bash
-   mkdir -p tasks/scratch/deep-research-teams/{run-id}
+   mkdir -p docs/research/{run-id}-{topic-slug}-workdir
    ```
+   Set `{workdir}` = `docs/research/{run-id}-{topic-slug}-workdir` for use in subsequent steps.
 6. Set output path: `docs/research/YYYY-MM-DD-{topic-slug}.md`
 7. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md`)
 8. Parse `--shallow` flag from arguments (default: false)
@@ -52,7 +53,7 @@ This is judgment work — the EM does it directly. Use the scoping checklist bel
 6. **Ask the PM for timing preferences:**
    > "Research timing: default is 5-15 min with 5-source minimum. For a trivial topic, I'd suggest 3-8 min / 3 sources. For a complex topic, 5-20 min / 5 sources. What ceiling works for you?"
 
-Cap at 5 topics (team size constraint: 1 scout + 5 specialists + 1 sweep = 7 teammates). Default 4 topics. Write scope AND search queries to `{scratch-dir}/scope.md`.
+Cap at 5 topics (team size constraint: 1 scout + 5 specialists + 1 sweep = 7 teammates). Default 4 topics. Write scope AND search queries to `{workdir}/scope.md`.
 
 ### EM Scoping Checklist (review before dispatching)
 
@@ -83,12 +84,12 @@ TeamCreate(team_name: "research-{topic-slug}")
 
 **1. Sweep task** (created first — will be blocked later):
 ```
-TaskCreate(subject: "Sweep: assess coverage, fill gaps, write framing", description: "Read all specialist outputs from {scratch-dir}/, perform adversarial coverage check, fill gaps via web research, write exec summary + conclusion to {output-path}")
+TaskCreate(subject: "Sweep: assess coverage, fill gaps, write framing", description: "Read all specialist outputs from {workdir}/, perform adversarial coverage check, fill gaps via web research, write exec summary + conclusion to {output-path}")
 ```
 
 **2. Scout task** (no blockers — reads queries from disk):
 ```
-TaskCreate(subject: "Build shared source corpus", description: "Read search queries from {scratch-dir}/scope.md, execute via WebSearch, vet accessibility via WebFetch, write corpus to {scratch-dir}/source-corpus.md")
+TaskCreate(subject: "Build shared source corpus", description: "Read search queries from {workdir}/scope.md, execute via WebSearch, vet accessibility via WebFetch, write corpus to {workdir}/source-corpus.md")
 ```
 
 **3. Specialist tasks** (each blocked by scout):
@@ -174,7 +175,7 @@ When you receive a notification that the sweep task is complete:
 1. Read the synthesis document at `{output-path}`
 2. Verify it has substantive content (not just headers)
 3. Check for advisory: `test -f {advisory-path}` — if the file exists, read it
-4. Read the gap report at `{scratch-dir}/gap-report.md`
+4. Read the gap report at `{workdir}/gap-report.md`
 5. Commit:
    ```bash
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: Team 1 complete — {topic-slug}"
@@ -182,7 +183,7 @@ When you receive a notification that the sweep task is complete:
 6. **Dispatch the coverage auditor** (always-on for web — see § Coverage Auditor Dispatch below).
 7. Shut down Team 1: `TeamDelete(team_name: "research-{topic-slug}")`
 
-**Proceed to Step 6.5** (do NOT archive yet — deepening may add to the scratch directory).
+**Proceed to Step 6.5** (do NOT archive yet — deepening may add to the work directory).
 
 ### Coverage Auditor Dispatch
 
@@ -197,7 +198,7 @@ Fill the dispatch prompt from the Pipeline A block of `pipelines/coverage-audito
 
 - `[SYNTHESIS_PATH]` → `{output-path}`
 - `[OUTPUT_PATH_WITHOUT_EXTENSION]` → `{output-path}` minus `.md`
-- `[SCRATCH_DIR]` → `{scratch-dir}`
+- `[SCRATCH_DIR]` → `{workdir}`
 - Pipeline input block: **Pipeline A — Web Research**
 
 ```
@@ -245,21 +246,21 @@ Parse the gap report's YAML front-matter and apply the DEEPEN / DO NOT DEEPEN ru
 
 When the Team 2 sweep completes:
 
-1. Read `{scratch-dir}/deepening-delta.md`; verify substantive content; read Team 2 advisory if present.
+1. Read `{workdir}/deepening-delta.md`; verify substantive content; read Team 2 advisory if present.
 2. **Merge delta into `{output-path}`** per the rules in `pipelines/web-research-internals.md` § Step 6.7 (Resolved Contradictions, Filled Gaps, Updated Claims, Open Questions, strip provenance markers).
-3. Write merged doc back to `{output-path}` and `{scratch-dir}/synthesis-merged.md`.
+3. Write merged doc back to `{output-path}` and `{workdir}/synthesis-merged.md`.
 4. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: Team 2 deepening merged — {topic-slug}"`
 5. `TeamDelete(team_name: "research-{topic-slug}-t2")`
 6. Proceed to Step 7.
 
 ## Step 7 — Finalize
 
-1. Archive paper trail:
+1. Archive work directory:
    ```bash
-   mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
-   cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
-   rm -rf {scratch-dir}
+   mv docs/research/{run-id}-{topic-slug}-workdir docs/research/archive/YYYY-MM-DD-{topic-slug}
    ```
+
+   **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
 2. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup — {topic-slug}"`
 3. Present executive summary to PM for discussion:
    - If deepening occurred: "Research complete (2 passes). Team 1 identified {gap_count} gaps ({high_severity_gaps} high-severity); Team 2 filled {N}. See synthesis at `{output-path}`."

@@ -69,6 +69,7 @@ captured_artifacts = [
 tripwire_scripts = [
   "bin/detect-stale-shell-env.*",
   "bin/verify-no-powershell-flash.*",
+  "bin/verify-no-console-flash.*",
 ]
 
 # CI workflows that legitimately reference Linux-runner-resident paths such as

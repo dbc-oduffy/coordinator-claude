@@ -76,6 +76,7 @@ SCOPE_FROM_PATH=""
 SUBJECT=""
 ALLOW_OUT_OF_SCOPE_DIRTY=0  # --allow-out-of-scope-dirty
 EXPECTED_BRANCH=""   # --expected-branch <name>: deterministic branch-pin gate
+EXPECTED_OWNER=""    # --expected-owner em-only: fail closed if invoked from a subagent context (see DoE follow-up 8)
 INCLUDE_ORPHANS=()   # --include-orphans <pathspec>...: claim hook/install-touched files (Phase 2)
 
 usage() {
@@ -95,6 +96,14 @@ Optional flags (combinable):
                                     One-shot (not appended to touched.txt). Runs
                                     the runtime overlap gate; requires single live
                                     session or --scope-from for concurrent use.
+  --expected-owner em-only          Fail closed (exit 2) if COORDINATOR_AGENT_CONTEXT
+                                    names a subagent context (e.g. executor).
+                                    v1 accepts only the literal 'em-only'. The gate
+                                    is default-on (auto-applied when no --expected-owner
+                                    and no --expected-branch); passing the flag explicitly
+                                    is accepted for clarity. An authorized executor commit
+                                    (SC-DR-008 --expected-branch path) simply does NOT
+                                    pass this flag — branch-pin alone bypasses the gate.
 USAGE
   exit 1
 }
@@ -146,6 +155,22 @@ while [[ $# -gt 0 ]]; do
       EXPECTED_BRANCH="$2"
       shift 2
       ;;
+    --expected-owner)
+      # v1 accepts only the literal 'em-only'; the flag exists to fail closed when
+      # a subagent context (COORDINATOR_AGENT_CONTEXT != 'em'/unset) invokes the
+      # helper. Anti-scope: no speculative --expected-owner reviewer-only / integrator-only.
+      # Spec backlink: docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md DR-3.
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --expected-owner requires a value (only 'em-only' is accepted in v1)." >&2
+        exit 1
+      fi
+      if [[ "$2" != "em-only" ]]; then
+        echo "ERROR: --expected-owner only accepts 'em-only' in v1 (got: '$2')." >&2
+        exit 1
+      fi
+      EXPECTED_OWNER="$2"
+      shift 2
+      ;;
     --)
       shift
       break
@@ -174,6 +199,16 @@ SUBJECT="$1"
 if [[ -z "$SUBJECT" ]]; then
   echo "ERROR: Commit subject cannot be empty." >&2
   exit 1
+fi
+
+# Default-on em-only when caller passed no explicit owner gate and no branch-pin.
+# Plan: docs/plans/2026-06-15-harden-safe-commit-against-sibling-add-all.md § E3.
+# PM ruling (2026-06-15): presume concurrent EMs always; helper defaults to multi-EM safe shape.
+# Executor opt-out path is unchanged: --expected-branch <name> without --expected-owner.
+# --blanket has its own CLAUDE_INVOKING_COMMAND allow-list; do not auto-gate it.
+# scope-from mode is intentionally NOT exempt — EM serial commits via scope-from must also fail-closed in subagent context.
+if [[ -z "$EXPECTED_OWNER" && -z "$EXPECTED_BRANCH" && "$MODE" != "blanket" ]]; then
+  EXPECTED_OWNER="em-only"
 fi
 
 # ---------------------------------------------------------------------------
@@ -717,7 +752,10 @@ ERR
   # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
   local _pre_head
   _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  git add -A
+  # Review: code-reviewer — subshell scope-safety: if git add -A fails under set -e, the export/unset
+  # block in the parent shell would leak _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET into EXIT trap /
+  # signal handlers. Subshell ensures the env var dies with the subshell on any exit path.
+  ( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git add -A )  # E1 hook bypass — sanctioned blanket-add path (SC-DR-014). Plan: harden-safe-commit-against-sibling-add-all.
 
   # Destructive-shape gate (soft-warn through 2026-06-01, then promote to fail).
   # Catches blanket commits laundering unauthorized substrate changes (572a548b class):
@@ -1017,7 +1055,10 @@ do_override() {
   # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
   local _pre_head
   _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  git add -A
+  # Review: code-reviewer — subshell scope-safety: if git add -A fails under set -e, the export/unset
+  # block in the parent shell would leak _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET into EXIT trap /
+  # signal handlers. Subshell ensures the env var dies with the subshell on any exit path.
+  ( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git add -A )  # E1 hook bypass — sanctioned blanket-add path (SC-DR-014). Plan: harden-safe-commit-against-sibling-add-all.
   # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
   # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
   if ! git commit -m "$SUBJECT"; then
@@ -1480,6 +1521,24 @@ do_scoped() {
 # ---------------------------------------------------------------------------
 
 main() {
+  # --expected-owner em-only: fail closed if invoked from a subagent context.
+  # COORDINATOR_AGENT_CONTEXT is set by subagents in their first action per their
+  # standing orders (agents/executor.md § Operating Protocols § EM-Only Commit Gate).
+  # Unset / "em" = EM context. Gate runs first — identity failure short-circuits
+  # before any git or session operation (DR-4 ordering).
+  # Spec backlink: docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md DR-1, DR-4.
+  if [[ "$EXPECTED_OWNER" == "em-only" ]]; then
+    local _ctx="${COORDINATOR_AGENT_CONTEXT:-em}"
+    if [[ "$_ctx" != "em" ]]; then
+      echo "ERROR: coordinator-safe-commit --expected-owner em-only refused: COORDINATOR_AGENT_CONTEXT='${_ctx}'." >&2
+      echo "       This commit was invoked from a subagent context; the EM-serial commit contract" >&2
+      echo "       requires the EM (not the executor) to commit after spot-check residuals." >&2
+      echo "       If you are an executor: report DONE without committing; the EM commits after verification." >&2
+      echo "       See: agents/executor.md § Operating Protocols § EM-Only Commit Gate." >&2
+      exit 2
+    fi
+  fi
+
   # Self-heal orphaned git locks before any git operation. Under concurrent-EM on
   # Git-for-Windows, a prior session's commit can leave an orphaned `.git/index.lock`
   # that blocks every subsequent commit ("Unable to create '.../index.lock': File exists").

@@ -1,4 +1,5 @@
 &lt;!-- canonical source for project-rag-preamble — edit here, then run verify-preamble-sync.sh --fix --&gt;
+<!-- consumers: discovered at runtime by bin/verify-preamble-sync.sh via grep for BEGIN sentinel across $PLUGIN_ROOT -->
 
 **Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time. Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're investigating — not a different project on the same machine. If your target codebase doesn't have a project-rag index (no `Saved/ProjectRag/` marker at its root, no `--project-root` argument pointing at it in the MCP config), skip this preamble entirely and use grep/Explore.
 

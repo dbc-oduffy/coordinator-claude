@@ -52,10 +52,14 @@ Parse `$ARGUMENTS`:
 
 Generate run ID: `{topic-slug}-{YYYYMMDD}` (e.g., `ai-agents-20260321`)
 
-Create scratch directory:
+<!-- Review: Slice B reviewer F8 — Pipeline D run-id already contains the topic-slug; using {run-id}-{topic-slug}-workdir/ would double the slug (e.g., ai-agents-20260321-ai-agents-workdir/). Pipeline D workdir omits the trailing -{topic-slug} from the convention. -->
+**Pipeline D's workdir omits the trailing `-{topic-slug}` from the standard convention** because the run-id format already contains the slug; this avoids slug duplication (e.g., `ai-agents-20260321-ai-agents-workdir/` is wrong; `ai-agents-20260321-workdir/` is correct).
+
+Create workdir:
 ```bash
-mkdir -p tasks/scratch/notebooklm-research/{run-id}/
+mkdir -p docs/research/{run-id}-workdir/
 ```
+Set `{scratch-dir}` = `docs/research/{run-id}-workdir`
 
 Set output path: `~/docs/research/YYYY-MM-DD-{topic-slug}.md`
 
@@ -282,9 +286,12 @@ The auditor has completed. Notebooks may now be deleted if `--cleanup` was passe
 
 **6d — Archive, teardown, commit**
 
-4. Archive scratch directory:
+4. Archive workdir (atomic rename — no copy-then-delete race window):
+   <!-- Review: Slice B reviewer F8 — src path corrected to {run-id}-workdir/ (no slug-doubling); archive destination unchanged -->
+   **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
+   <!-- Review: Slice B reviewer F10 — cross-FS guard added here (missing from Pipeline D; the Staff Engineer R1 required it in all executor-touched archive steps) -->
    ```bash
-   mv tasks/scratch/notebooklm-research/{run-id}/ tasks/scratch/archive/notebooklm-research/{run-id}/
+   mv docs/research/{run-id}-workdir docs/research/archive/YYYY-MM-DD-{topic-slug}
    ```
 5. Delete the team: `TeamDelete("notebooklm-{topic-slug}")`
 6. Commit the output file and coverage-audit sidecar.

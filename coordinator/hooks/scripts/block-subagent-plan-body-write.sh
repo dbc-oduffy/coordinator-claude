@@ -233,18 +233,32 @@ REASON+="Override (rare-use — read the hook source before invoking):"$'\n'
 REASON+="  COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY=1"
 
 if command -v jq &>/dev/null; then
-  jq -nc --arg reason "$REASON" '{
+  EMIT=$(jq -nc --arg reason "$REASON" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
       permissionDecisionReason: $reason
     }
-  }'
+  }')
 else
   esc="${REASON//\\/\\\\}"
   esc="${esc//\"/\\\"}"
   esc="${esc//$'\n'/\\n}"
   esc="${esc//$'\r'/\\r}"
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$esc"
+  EMIT=$(printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$esc")
 fi
+
+# Diagnostic: log the exact bytes we emit so we can compare to what the harness
+# reports if a "hookSpecificOutput missing hookEventName" schema-validation
+# error fires. → improvement-queue 2026-06-15.
+GIT_DIR=$(git rev-parse --git-dir 2>/dev/null || true)
+if [[ -n "$GIT_DIR" ]]; then
+  LOG_DIR="$GIT_DIR/coordinator-sessions/${CLAUDE_SESSION_ID:-no-session}/hook-emits"
+  mkdir -p "$LOG_DIR" 2>/dev/null && {
+    TS=$(date -u +%Y%m%dT%H%M%SZ)
+    printf '%s\t%s\t%s\n' "$TS" "block-subagent-plan-body-write" "$EMIT" >> "$LOG_DIR/emits.tsv"
+  }
+fi
+
+printf '%s\n' "$EMIT"
 exit 0

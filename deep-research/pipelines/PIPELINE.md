@@ -387,8 +387,11 @@ Three explicit sequential phases:
 
 ---
 
-## Scratch Directory
+## Working Directory
 
-Both pipelines use `tasks/scratch/deep-research-teams/{run-id}/`. Run ID format: `YYYY-MM-DD-HHhMM`.
+Both pipelines use `docs/research/{run-id}-{topic-slug}-workdir/`. Run ID format: `YYYY-MM-DD-HHhMM`.
 
-After completion, paper trail is archived to `docs/research/archive/YYYY-MM-DD-{topic-slug}/` and scratch is deleted.
+Throughout this document, `{scratch-dir}` is used as an alias for `docs/research/{run-id}-{topic-slug}-workdir/`.
+<!-- Review: Slice B reviewer F5 — alias was used in downstream sections without being defined; readers/agents couldn't resolve the token -->
+
+After completion, the working directory is atomically renamed to `docs/research/archive/YYYY-MM-DD-{topic-slug}/` via `mv` (no copy-then-delete race window).

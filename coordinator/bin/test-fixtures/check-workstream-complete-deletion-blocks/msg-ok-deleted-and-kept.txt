@@ -1,0 +1,9 @@
+workstream-complete quick-save
+
+Deleted (Step 2.67):
+fixture/scratch-a.md
+fixture/scratch-b.md
+
+Kept (Step 2.67):
+fixture/kept-doc.md — still load-bearing for follow-up
+--- end Step 2.67 blocks ---

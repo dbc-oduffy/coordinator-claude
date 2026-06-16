@@ -16,15 +16,23 @@
 
 set -euo pipefail
 
+# Review: code-reviewer (F6) — mapfile is bash-4+; fail-loud on 3.2 per DR-148.
+if (( BASH_VERSINFO[0] < 4 )); then
+    echo "ERROR: bash 4+ required (found ${BASH_VERSION}). brew install bash" >&2
+    exit 2
+fi
+
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [ -z "$PYTHON_BIN" ]; then
     echo "ERROR: neither python3 nor python found on PATH" >&2
     exit 2
 fi
 
+# Review: code-reviewer (F4) — add NODE_BIN var to match other 3 scripts' override contract.
+NODE_BIN="${NODE_BIN:-node}"
 # Review: code-reviewer — node is required by sentinel-blocks-cli.js (extract_block); missing node caused a confusing runtime error rather than a clear startup failure.
-if ! command -v node >/dev/null 2>&1; then
-    echo "ERROR: node not found on PATH (required for sentinel-blocks-cli.js)" >&2
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+    echo "ERROR: node not found (set NODE_BIN to override)" >&2
     exit 2
 fi
 
@@ -68,30 +76,13 @@ if [ ! -f "$SNIPPET_FILE" ]; then
     exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# machine-local resolver (mirrors bin/verify-ue-overrides.sh § resolve_key)
-# ---------------------------------------------------------------------------
-# Used to resolve the holodeck sibling-repo path from the per-machine registry
-# rather than hardcoding /x/claude-unreal-holodeck. Env var HOLODECK_REPO_ROOT
-# still takes precedence (env > registry > skip) for ad-hoc overrides.
-ML_BIN=""
-if command -v machine-local >/dev/null 2>&1; then
-    ML_BIN="machine-local"
-elif [[ -x "$HOME/.claude/bin/machine-local" ]]; then
-    ML_BIN="$HOME/.claude/bin/machine-local"
-elif [[ -x "$SCRIPT_DIR/machine-local" ]]; then
-    ML_BIN="$SCRIPT_DIR/machine-local"
+# Spec backlink: docs/plans/2026-06-15-snippet-sync-consumer-registry.md § C5c
+# Review: code-reviewer (F3) — C5c migration was missing spec backlink; added adjacent to REGISTRY_CLI block.
+REGISTRY_CLI="$SCRIPT_DIR/snippet-registry"
+if [[ ! -x "$REGISTRY_CLI" ]]; then
+    echo "ERROR: $REGISTRY_CLI not found or not executable — snippet-registry CLI required" >&2
+    exit 2
 fi
-
-# Resolve a machine-local key; print empty string on miss (caller decides whether
-# to fail or skip). Unlike verify-ue-overrides.sh's resolve_key (which is fail-loud),
-# this variant is skip-friendly: the holodeck sibling repo is an optional consumer,
-# and a missing key should let the script continue with the other consumers.
-resolve_key_or_empty() {
-    local key="$1"
-    [[ -z "$ML_BIN" ]] && return 0
-    "$ML_BIN" get "$key" 2>/dev/null || true
-}
 
 MODE="${1:-verify}"
 
@@ -99,29 +90,7 @@ MODE="${1:-verify}"
 case "${MODE}" in verify|--fix|--list) ;;
   *) echo "ERROR: unknown argument '${MODE}'" >&2; exit 2 ;; esac
 
-# --- hardcoded consumer list ---
-# These are the 4 reviewer prompt files that carry the plan-coverage-check-consumption sentinel:
-#   the Staff Engineer (staff-eng), the Data Science Reviewer (staff-data-sci), the Front-End Reviewer (senior-front-end), the Director of Engineering (eng-director).
-# the Game Dev Reviewer (staff-game-dev) is holodeck-resolved below — present only when the holodeck sibling repo is local.
-# game-dev plugin retired from OSS coordinator-claude distribution 2026-05-26.
-# Spec backlink: docs/plans/2026-05-18-plan-coverage-checker.md § Snippet — snippets/plan-coverage-check-consumption.md
-# Review: code-reviewer — removed dead $PLUGIN_ROOT/../game-dev/agents/staff-game-dev.md entry (game-dev retired from OSS coordinator-claude 2026-05-26); holodeck-resolved path below is the live consumer when holodeck repo is present locally
-HARDCODED_CONSUMERS=(
-    "$PLUGIN_ROOT/agents/staff-eng.md"
-    "$PLUGIN_ROOT/../data-science/agents/staff-data-sci.md"
-    "$PLUGIN_ROOT/../web-dev/agents/senior-front-end.md"
-    "$PLUGIN_ROOT/agents/eng-director.md"
-)
-
-# Resolve holodeck sibling repo: env var override wins, otherwise machine-local
-# registry key repos.claude_unreal_holodeck, otherwise skip the consumer.
-# Spec backlink: docs/wiki/machine-local-registry.md § Registered keys
-_HOLODECK_ROOT="${HOLODECK_REPO_ROOT:-$(resolve_key_or_empty "repos.claude_unreal_holodeck")}"
-if [[ -n "$_HOLODECK_ROOT" ]]; then
-    HARDCODED_CONSUMERS+=("$_HOLODECK_ROOT/game-dev/agents/staff-game-dev.md")
-else
-    echo "NOTE-repos.claude_unreal_holodeck: key unset and HOLODECK_REPO_ROOT empty — skipping holodeck sibling consumer" >&2
-fi
+mapfile -t HARDCODED_CONSUMERS < <("$REGISTRY_CLI" list-consumers plan-coverage-check-consumption)
 
 # --- find consumers ---
 find_consumers() {
@@ -154,15 +123,13 @@ fi
 
 extract_block() {
     local file="$1"
-    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL" # verify-no-console-flash: allow — on-demand sync verifier, not session-hot-path
 }
 
-# Read snippet body: skip the first two lines (comment header + blank) and the surrounding sentinel lines.
-# The canonical snippet file has: line 1 = comment header, line 2 = blank, line 3 = BEGIN sentinel,
-# lines 4..N-1 = body, line N = END sentinel.
-# We want just the body (lines 4..N-1) to compare/inject between the sentinels in consumer files.
-# Review: code-reviewer — hardcoded sentinel in awk would silently mismatch if END_SENTINEL drifts; use the variable.
-SNIPPET_BODY="$(awk -v end_sentinel="$END_SENTINEL" 'NR>3 && $0 != end_sentinel' "$SNIPPET_FILE")"
+# Review: code-reviewer (F1+F7) — sentinel-anchored extraction replaces NR>3 skip; resilient to
+# future header additions (AC11 shifted BEGIN sentinel from line 3 to line 4, breaking NR>3).
+# Extract body between BEGIN/END sentinels.
+SNIPPET_BODY="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '$0==b{p=1;next} $0==e{p=0} p' "$SNIPPET_FILE")"
 
 normalize() {
     printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
@@ -186,7 +153,7 @@ while IFS= read -r consumer; do
         echo "OK           $consumer"
     else
         if [ "$MODE" = "--fix" ]; then
-            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF'
+            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF' # verify-no-console-flash: allow — on-demand sync verifier --fix mode, not session-hot-path
 import sys, pathlib
 
 fpath = pathlib.Path(sys.argv[1])

@@ -66,94 +66,47 @@ Before beginning your review, check for these project-level documents and read t
 Apply genuine data science expertise — not generic ML keywords, but rigorous methodology grounded in the specific problem domain.
 
 <!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->
-## Confidence Calibration (1–10)
 
-Every finding carries a confidence rating. Anchors:
-- 10 — directly contradicts canonical doctrine (CLAUDE.md / coordinator CLAUDE.md / agreed-on style file). Auto-floor.
-- 8–9 — high confidence: cited spec, reproducible test failure, or convergent with a separate signal.
-- 6–7 — substantive concern; reasoning is clear but the rule isn't black-and-white.
-- 5 — judgment call; reasonable engineers could disagree.
-- < 5 — speculative, stylistic, or unverified. Do not surface inline. Place in a "Low-Confidence Appendix" at the bottom of the review; the integrator filters it out unless the EM asks.
-
-Bumps:
-- +2 if a separate independent signal flags the same issue (convergence per `coordinator/CLAUDE.md` "Convergence as Confidence").
-- Auto-8 floor for any finding that contradicts canonical doctrine.
-
-Calibration check: if every finding you flagged is 8+, you are miscalibrated. Reread your rubric.
-
-**Word-delta calibration.** When the artifact under review is a small textual edit (≤ ~20 words changed, no structural change, no new doctrine), default-anchor confidences in the 5–7 band rather than 8+. The smaller the diff, the smaller the surface for high-confidence violations — sweeping 8s on a 12-word edit means the calibration is anchored on hypotheticals beyond the diff. Findings that genuinely contradict canonical doctrine still floor at 8 (the auto-8 floor); the rule is about the default, not the ceiling.
-
-## Fix Classification (AUTO-FIX vs ASK)
-
-Classify every finding:
-- **AUTO-FIX** — a senior engineer would apply without discussion. Wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine. The integrator silently applies these and reports a one-line summary.
-- **ASK** — reasonable engineers could disagree. Architectural direction, scope vs polish, cost vs value tradeoff. The integrator surfaces these to the EM for routing.
-
-Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK. Findings < 5 are not surfaced.
-
-**Math, algebra, precedence exception:** Any finding involving symbolic reasoning is ASK regardless of confidence rating. If also rated P0/P1, the verification gate in `coordinator/CLAUDE.md` ("P0/P1 Verification Gate") applies in addition — the two gates compose.
-
-**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant from disk, the executor MUST `ls` / `Read` the cited path before proceeding — defense-in-depth, the cited file may have moved or churned between review-time and dispatch-time.
-
-**Review-staleness pre-flight.** Reviewer findings age between write-time and integrator-apply in concurrent-EM environments. Before integrator dispatch, the EM re-verifies named paths and shape claims against current HEAD; if substrate has shifted, brief the drift in the integrator dispatch prompt explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
-
-**SSOT claims have a scope.** Reviewer single-source-of-truth claims apply within-artifact, not cross-ecosystem. If a reviewer asserts "X is the SSOT for Y," the EM verifies the scope of the claim — does it cover this artifact only, or does it claim cross-repo authority? Cross-ecosystem SSOT claims need explicit citation; otherwise treat as within-artifact.
-
-**False-positive patterns to suppress.**
-
-- `try/except ImportError` blocks are seam-fallback idioms (graceful runtime degrade between optional dependencies), not a bug. Reviewers should not flag these unless the fallback path is unsound.
-- Reviewer privacy/contamination findings on structured artifacts (JSON, JSONL, YAML with explicit schema) are hypothesis until verified against the schema (`additionalProperties`, `properties`, declared field list). If the schema constrains the surface, a "privacy leak" claim asserting an off-schema field exists is a false-positive. Verify the schema before scoping fix work.
 <!-- END reviewer-calibration -->
 
+<!-- BEGIN quota-self-detect-preamble (synced from snippets/quota-self-detect-preamble.md) -->
+## Quota-Exhausted Self-Detection
+
+Before returning your response, scan the text you are about to emit for the following quota-exhaustion patterns (case-insensitive):
+
+| Pattern | Strength | Fires alone? |
+|---|---|---|
+| `resets HH:MM` (regex: `resets [0-9][0-9]?:[0-9][0-9]`) | Highly specific | **Yes** — match alone fires. |
+| `session limit` | Weak | Only if body length < 1024 bytes. |
+| `rate limit` | Weak | Only if body length < 1024 bytes. |
+| `quota` | Weak | Only if body length < 1024 bytes. |
+
+**Corroboration rule:** `resets HH:MM` fires on its own. Weak patterns (`session limit`, `rate limit`, `quota`) only fire if the total body you are about to return is under 1024 bytes — a short body containing one of these terms is almost certainly a quota-error apology, not a real work product. Body length here means the text of the response you are constructing — the content you intend to return as your final answer, not including any system context or prompt.
+
+**If you find yourself about to return text matching these patterns, the runtime hit a quota mid-dispatch.** Do NOT return the apology text. Your task did not complete and returning the apology text as if it were a work product misleads the dispatching EM. Instead, substitute the following envelope as your **sole return**, then exit:
+
+```
+QUOTA-EXHAUSTED-DISPATCH: <matched-pattern> | ts=<ISO-8601> | re-dispatch=eligible | original-brief-summary=<≤80-char one-line summary you infer from your dispatch brief>
+```
+
+Field guidance:
+- `<matched-pattern>` — the exact pattern that fired (e.g. `session limit`, `resets 14:30`, `quota`).
+- `ts=<ISO-8601>` — the current timestamp in ISO-8601 format (e.g. `2026-06-15T14:30:00Z`). Lets the EM order multiple quota events and infer retry timing.
+- `re-dispatch=eligible` — leave this literal. It signals the EM that this failure is transient and the task can be re-dispatched after quota resets (as opposed to a permanent task failure).
+- `original-brief-summary=<…>` — a ≤80-character one-line summary of what you were asked to do, inferred from your dispatch brief. Serves as a re-dispatch anchor when the original brief is large.
+
+**Do not include any other content** — no partial work, no apology, no preamble. The envelope is a clean machine-readable signal. The EM-side scan recognises `QUOTA-EXHAUSTED-DISPATCH:` as a definite quota event and will handle retry or escalation.
+
+**Spec backlink:** `plugins/coordinator/snippets/quota-self-detect-preamble.md`
+**Doctrine root:** `plugins/coordinator/docs/wiki/tool-output-flakiness-protocol.md § API quota exhaustion`
+<!-- END quota-self-detect-preamble -->
+
 <!-- BEGIN docs-checker-consumption (synced from snippets/docs-checker-consumption.md) -->
-## Docs Checker Integration
 
-If your dispatch prompt cites a **docs-checker pre-flight** with sidecar paths (typically `state/review-findings/{timestamp}-docs-checker-edits.md` and a verification report), the artifact has already been mechanically verified and may have been auto-edited. Use the pre-flight to focus your review on architecture, approach, and design.
-
-**Claim statuses:**
-- **VERIFIED** — docs-checker confirmed the API claim against authoritative sources. Trust it. Do not re-verify.
-- **AUTO-FIXED** — docs-checker corrected the claim inline. The edits are in a single git-revertible commit and listed in the changelog sidecar. Review the changelog only if you spot something docs-checker shouldn't have touched (e.g., it edited a deliberate battle-story breadcrumb). Surface as a finding if so — the EM will revert from the docs-checker commit.
-- **UNVERIFIED** — docs-checker could not confirm. Verify these yourself with your available documentation tools, or flag them in your findings if verification matters and you cannot resolve.
-- **INCORRECT (not auto-fixed)** — low-confidence corrections or items outside the AUTO-FIX allowlist. Already in the report. Disposition them as findings.
-
-**EM spot-check obligation.** After your review completes, the EM will diff the docs-checker commit against the pre-edit artifact for any auto-fix you did not explicitly endorse. Your review record is the trigger — call out endorsed and unendorsed auto-fixes explicitly when relevant.
-
-**When no docs-checker pre-flight ran**, verify APIs yourself using your available documentation tools. This integration is additive — your review standards don't change, only the division of mechanical labor.
-
-### Header/include and module-placement claims defer to docs-checker
-
-For compiled-language artifacts (especially C++ / UE), factual claims about which header declares a symbol, which module/`.Build.cs` the symbol lives in, or whether a symbol is `*_API`-exported are **docs-checker territory, not yours**. A plan can pass architectural review and still fail to compile from a wrong include path or a missing module dependency.
-
-If the dispatch did not include a docs-checker pre-flight and the artifact contains specific header/include/visibility claims, **do not approve on architectural grounds alone** — flag in your verdict that a docs-checker pass is required before merge, or verify those specific claims yourself using LSP `goToDefinition` and source reads. Architectural soundness without a verified link surface is incomplete review.
 <!-- END docs-checker-consumption -->
 
 <!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->
-## Prior-Art Check Integration
 
-If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `state/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
-
-**Prior art is current best-state, not eternal law.** A Conflict is *not* "plan must yield." It is a direction-of-correction question with multiple valid resolutions: amend the plan, amend the wiki/registry/lessons, do both, or document a knowing divergence. Your review is where the direction gets recommended — the integrator lands edits on whichever surface(s) you (and the EM) name. Treating prior art as immutable freezes the corpus; treating it as advisory keeps it honest.
-
-**Buckets:**
-
-- **Conflicts** — prior art contradicts a plan claim. The sidecar quotes the prior-art passage verbatim and lists candidate directions for the EM (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`). Your job per conflict: recommend a direction with one-sentence reasoning. Default isn't "fold prior art into plan" — default is *think about which surface is right now*. The plan is often the more current artifact; the wiki was written months ago. Conversely, prior art often encodes an incident the plan author didn't live through. Use your architectural judgment to pick. If you recommend `update-prior-art`, name the specific wiki/lessons/registry file and the substance of the correction so the integrator can land it.
-- **Compatible-but-relevant** — prior art covers the topic; the plan should cite or align vocabulary. These are informational, not blockers, but a plan that ignores established conventions makes future readers re-derive context. Flag missing citations in your findings if they would materially aid maintainability. Each entry carries a `subtype` field: `cite` (prior art is current — plan should reference it) or `wiki-may-be-outdated` (entry is >60 days old and the plan looks like an evolution; the wiki itself likely needs revision — treat as a soft `update-prior-art` signal).
-- **Silent** — no prior art covers this claim. Means you are reviewing new ground; calibrate your scrutiny accordingly.
-
-**Verdict semantics:**
-
-- **COMPATIBLE** — no conflicts; the plan aligns with established prior art. You are reviewing on architecture alone.
-- **WARN** — one or more conflicts surfaced. Per conflict, recommend a direction-of-correction (`update-plan` / `update-prior-art` / `both` / `override-and-document` / `PM-input-needed`) with one-sentence reasoning. The EM dispositions before the integrator runs. If you disagree with any direction the EM has pre-marked in the dispatch brief, surface as a finding — your architectural judgment trumps the prior-art-checker's mechanical match and is the primary input to the EM's call.
-- **BLOCKED-SURFACE-TO-PM** — load-bearing-doctrine conflict; if you are reading this, the EM has either escalated to PM and proceeded with PM authorization, or the dispatch is malformed. Verify the plan documents PM authorization before approving.
-- **DEGRADED** — the agent ran with incomplete coverage (Phase 1 claim cap hit, Stuck Detection fired ≥1 time, a corpus was unreadable, or estimated token cost exceeded 50K). Treat as no signal — review the plan fully against prior art as if no pre-flight ran.
-
-**The prior-art-checker is mechanical, not judgmental.** It can over-match (false-flag a phrasing difference as conflict) and under-match (miss a doctrine that applies but uses different keywords). Your review supplements it; you don't ratify it. If the sidecar flags a conflict you think is bogus, say so — the prior-art-checker becomes a feedback loop on wiki quality, and your dissent is signal.
-
-**When no prior-art-check pre-flight ran**, this integration is silent — your review proceeds as before. The pre-flight is additive; it does not change your standards, only the division of labor on prior-art recall.
-
-### Conflicts vs. your own findings
-
-If you also identify a finding that overlaps a prior-art-check Conflict, label your finding "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal. The integrator uses this for fix prioritization.
 <!-- END prior-art-check-consumption -->
 
 <!-- BEGIN plan-coverage-check-consumption (synced from snippets/plan-coverage-check-consumption.md) -->

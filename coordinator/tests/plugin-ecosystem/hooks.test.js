@@ -1,6 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
+const os = require('os');
 const { execSync } = require('child_process');
 const { PLUGINS_ROOT, fileExists, dirExists, readJson, getDirectoryMarketplaces } = require('./helpers/fs');
 
@@ -18,6 +19,10 @@ function resolveScriptPath(command, pluginDir) {
   for (const token of tokens) {
     // Look for tokens with a file extension (e.g., .sh, .js, .py)
     if (/\.\w+$/.test(token) && !token.startsWith('-')) {
+      // Expand leading ~ to the home directory so paths like ~/.claude/bin/foo.sh resolve.
+      if (token.startsWith('~/') || token === '~') {
+        return path.join(os.homedir(), token.slice(1));
+      }
       return token;
     }
   }

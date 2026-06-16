@@ -59,11 +59,8 @@ fi
 # ── Run the generator ────────────────────────────────────────────────────────
 if [ $# -eq 0 ]; then
     # Default invocation
-    exec $PYTHON "$GENERATOR" \
-        --project-root "${PROJECT_ROOT:-.}" \
-        --budget 4000 \
-        --profile balanced
+    exec $PYTHON "$GENERATOR" --project-root "${PROJECT_ROOT:-.}" --budget 4000 --profile balanced # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
 else
     # User arguments take full precedence — pass through verbatim
-    exec $PYTHON "$GENERATOR" "$@"
+    exec $PYTHON "$GENERATOR" "$@" # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
 fi

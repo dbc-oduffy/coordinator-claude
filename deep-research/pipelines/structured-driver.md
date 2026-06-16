@@ -74,10 +74,12 @@ Do NOT proceed to Run Mode (Step 1) until the PM approves.
 4. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
 6. Generate subject slug from `{subject-key}` (e.g., `acme-corp`)
-7. Create scratch directory:
+7. Create workdir:
    ```bash
-   mkdir -p tasks/scratch/deep-research-teams/{run-id}
+   mkdir -p docs/research/{run-id}-{topic-slug}-workdir
    ```
+   Set `{scratch-dir}` = `docs/research/{run-id}-{topic-slug}-workdir`
+   <!-- Review: Slice B reviewer F3 — {scratch-dir} was unbound; downstream references (scout-brief, spec-score, etc.) were unresolved template tokens -->
 
 Announce: "Running structured research (Pipeline C, Agent Teams) on '{subject-key}' using spec '{spec-path}'."
 
@@ -311,12 +313,12 @@ When you receive a notification that the synthesis task is complete:
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: structured complete — {subject-slug}"
    ```
 
-7. Archive paper trail:
+7. Archive paper trail (atomic rename — no copy-then-delete race window):
    ```bash
-   mkdir -p docs/research/archive/YYYY-MM-DD-{subject-slug}
-   cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{subject-slug}/
-   rm -rf {scratch-dir}
+   mv docs/research/{run-id}-{topic-slug}-workdir docs/research/archive/YYYY-MM-DD-{subject-slug}
    ```
+
+   **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
 
 8. Shut down the team: `TeamDelete(team_name: "structured-{subject-slug}")`
 

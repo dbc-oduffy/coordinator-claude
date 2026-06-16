@@ -1,4 +1,5 @@
 <!-- canonical source for meta-ask-preamble — edit here, then run verify-meta-ask-preamble-sync.sh --fix -->
+<!-- consumers: discovered at runtime by bin/verify-meta-ask-preamble-sync.sh via grep for BEGIN sentinel across $PLUGIN_ROOT -->
 
 **What 'working' means on this stack.** This code lives on multiple machines and multiple operating systems — Windows, macOS, Linux. "Working" means working on all of them. Not "compiles on this machine." Not "passes the test the EM ran." Not "the immediate symptom is gone." Working means: a future agent picking this up on a different OS, with a different home directory, with the repos cloned to different paths, can run this code without batch-fixing backslashes or rewriting hardcoded paths.
 

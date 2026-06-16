@@ -65,8 +65,7 @@ while IFS= read -r root; do
   esac
   lessons="$root/state/lessons.md"
   [ -f "$lessons" ] || continue   # unreachable on this machine — skip silently
-  out=$("$PYTHON" "$EXTRACT" extract "$lessons" --shortname vol --since "$cutoff" \
-        --require-tag universal 2>/dev/null) || continue
+  out=$("$PYTHON" "$EXTRACT" extract "$lessons" --shortname vol --since "$cutoff" --require-tag universal 2>/dev/null) || continue # verify-no-console-flash: allow — on-demand cross-repo check, not session-hot-path
   n=$(printf '%s\n' "$out" | grep -oE '# record_count:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
   if [ -z "$n" ]; then
     [ -n "$out" ] && echo "central-run-due: no record_count in extractor output for $root — counting 0" >&2

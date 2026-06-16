@@ -73,14 +73,153 @@ fi
 
 - **major ≥ 5, or (major == 4 and minor ≥ 3):** ready. Status: `bash_version: ready (<version> at <path>)`.
 - **major == 4 and minor < 3:** `fail-loud` — `coordinator-safe-commit` uses `local -n` namerefs (4.3+) and hard-aborts on 4.0–4.2; every commit would abort. Status: `bash_version: failed (<version> below 4.3 nameref floor)`.
-- **major < 4:** `fail-loud`. Surface remediation:
-  ```
-  ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>.
-    macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:
-        brew install bash
-        export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc
-  ```
-  Status: `bash_version: failed (<version> — bash ≥ 4.3 required)`. Under `--check-only`, report the failed row without halting setup; otherwise a hard blocker for script-dependent phases.
+- **major < 4 (macOS stock bash 3.2):** `fail-loud`. The whole block below is gated on macOS so it is a silent no-op on Linux and Git-Bash on Windows:
+
+```bash
+if [[ "$OSTYPE" == darwin* ]]; then
+  # ── Offer A — brew presence (precondition for B and C) ─────────────────────
+  # default-with-warning: emit brew_present row; subsequent offers skip if brew absent.
+  BREW_BIN=""
+  if [ -x /opt/homebrew/bin/brew ]; then
+    BREW_BIN=/opt/homebrew/bin/brew        # Apple Silicon
+  elif [ -x /usr/local/bin/brew ]; then
+    BREW_BIN=/usr/local/bin/brew           # Intel
+  fi
+
+  if [ -z "$BREW_BIN" ]; then
+    STATUS: brew_present: failed (Homebrew not installed)
+    echo "Install Homebrew first: https://brew.sh — then re-run coordinator:install."
+  else
+    STATUS: brew_present: ready
+
+    # ── Offer B — install brew bash ──────────────────────────────────────────
+    # default-with-warning: prompt Y/n; apply on accept; emit row on decline/error.
+    BREW_BASH_VER=""
+    if "$BREW_BIN" list bash &>/dev/null; then
+      BREW_BASH_VER="$("$BREW_BIN" list --versions bash | awk '{print $2}')"
+    fi
+
+    BREW_BASH_MAJOR="${BREW_BASH_VER%%.*}"
+    # Review: code-reviewer F4 — BREW_BASH_MINOR only matters when MAJOR == 4 (the -gt 4 branch short-circuits below).
+    # cut on empty string returns empty; ${BREW_BASH_MINOR:-0} normalizes that.
+    BREW_BASH_MINOR="$([ -n "$BREW_BASH_VER" ] && echo "$BREW_BASH_VER" | cut -d. -f2 || echo "")"
+
+    if [ -n "$BREW_BASH_VER" ] && \
+       { [ "$BREW_BASH_MAJOR" -gt 4 ] || { [ "$BREW_BASH_MAJOR" -eq 4 ] && [ "${BREW_BASH_MINOR:-0}" -ge 3 ]; }; }; then
+      # brew bash already installed and ≥ 4.3 — idempotent, proceed to Offer C
+      STATUS: brew_bash_installed: ready ($BREW_BASH_VER at $("$BREW_BIN" --prefix)/bin/bash)
+      OFFER_B_SUCCESS=1
+    elif [[ "${ARGUMENTS:-}" == *"--check-only"* ]]; then
+      STATUS: brew_bash_installed: would write (offer-B)
+      OFFER_B_SUCCESS=0
+    else
+      # Offer B prompt
+      # AskUserQuestion: "Offer: brew install bash [Y/n]  (installs brew bash ≥ 4.3, required for coordinator scripts)"
+      if <user_accepted_offer_B>; then
+        if "$BREW_BIN" install bash; then
+          BREW_BASH_NEW_VER="$("$BREW_BIN" list --versions bash | awk '{print $2}')"
+          STATUS: brew_bash_installed: ready ($BREW_BASH_NEW_VER at $("$BREW_BIN" --prefix)/bin/bash)
+          OFFER_B_SUCCESS=1
+        else
+          STATUS: brew_bash_installed: failed (brew install bash error: <stderr tail>)
+          # Original remediation (decline/error fallback):
+          echo ""
+          echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
+          echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
+          echo "      brew install bash"
+          echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zshrc or ~/.bashrc"
+          OFFER_B_SUCCESS=0
+        fi
+      else
+        STATUS: brew_bash_installed: failed (declined)
+        # Original remediation (decline/error fallback):
+        echo ""
+        echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
+        echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
+        echo "      brew install bash"
+        echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zshrc or ~/.bashrc"
+        OFFER_B_SUCCESS=0
+      fi
+    fi
+
+    # ── Offer C — append shellenv block to login rc ───────────────────────────
+    # Fires ONLY after a successful Offer B (or pre-existing brew bash ≥ 4.3).
+    # default-with-warning: prompt Y/n; append on accept; emit row on decline/error.
+    # Review: code-reviewer F10 — under --check-only, Offer C must always enter to emit
+    # shellenv_block: would write (offer-C, target: <rc-path>) per AC12. The inner
+    # --check-only branch handles the would-write emission when reached.
+    if [ "${OFFER_B_SUCCESS:-0}" -eq 1 ] || [[ "${ARGUMENTS:-}" == *"--check-only"* ]]; then
+      case "$SHELL" in
+        */zsh)  RC="$HOME/.zprofile" ;;
+        */bash) RC="$HOME/.bash_profile" ;;
+        *)      RC="$HOME/.zprofile" ;;
+      esac
+
+      SENTINEL="# coordinator-install: brew shellenv (DR-148)"
+
+      if [ -f "$RC" ] && grep -qF "$SENTINEL" "$RC"; then
+        # Review: code-reviewer F1 — --check-only must not spawn interactive subshell; strict read-only semantics.
+        if [[ "${ARGUMENTS:-}" == *"--check-only"* ]]; then
+          STATUS: shellenv_block: ready (sentinel present — eval status unprobed in check-only mode)
+        else
+          # Sentinel present — probe whether the eval line is actually live.
+          PROBE_BASH="$(zsh -lc 'command -v bash' 2>/dev/null || bash -lc 'command -v bash' 2>/dev/null)"
+          case "$PROBE_BASH" in
+            /opt/homebrew/*|/usr/local/*)
+              STATUS: shellenv_block: ready (already present in $RC)
+              ;;
+            *)
+              STATUS: shellenv_block: failed (sentinel present, eval not active — inspect $RC)
+              ;;
+          esac
+        fi
+      else
+        if [[ "${ARGUMENTS:-}" == *"--check-only"* ]]; then
+          STATUS: shellenv_block: would write (offer-C, target: $RC)
+        else
+          # Pre-write writability check (BEFORE prompting):
+          if [ -e "$RC" ] && [ ! -w "$RC" ]; then
+            STATUS: shellenv_block: failed (rc not writable: $RC)
+          elif [ ! -e "$RC" ] && [ ! -w "$(dirname "$RC")" ]; then
+            STATUS: shellenv_block: failed (rc parent dir not writable: $(dirname "$RC"))
+          else
+            # Show block, then prompt Y/n
+            BLOCK="${SENTINEL}
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval \"\$(/opt/homebrew/bin/brew shellenv)\"
+elif [ -x /usr/local/bin/brew ]; then
+  eval \"\$(/usr/local/bin/brew shellenv)\"
+fi"
+            echo "Offer C: append the following block to $RC:"
+            echo ""
+            printf '%s\n' "$BLOCK"
+            echo ""
+            # AskUserQuestion: "Append shellenv block to $RC? [Y/n]"
+            if <user_accepted_offer_C>; then
+              # Review: code-reviewer F2 — mutually exclusive branches; failed append must not fall through to sentinel re-check.
+              if printf '%s\n' "$BLOCK" >> "$RC"; then
+                if grep -qF "$SENTINEL" "$RC" 2>/dev/null; then
+                  STATUS: shellenv_block: ready (appended to $RC)
+                  echo ""
+                  echo "Open a new shell or \`source $RC\` for the change to take effect — this Claude Code session inherits the stale PATH."
+                else
+                  STATUS: shellenv_block: failed (append succeeded but sentinel absent — inspect $RC)
+                fi
+              else
+                STATUS: shellenv_block: failed (append failed mid-write — inspect $RC for partial sentinel)
+              fi
+            else
+              STATUS: shellenv_block: failed (declined)
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+fi
+```
+
+Status: `bash_version: failed (<version> — bash ≥ 4.3 required)`. Under `--check-only`, report the failed row without halting setup; otherwise a hard blocker for script-dependent phases.
 
 ### 1a. Git repository
 
@@ -338,6 +477,25 @@ bash "${CLAUDE_PLUGIN_ROOT}/bin/capture-fan-out-threshold.sh" --check-only  # ch
 
 Add a `Fan-out threshold` row to the Phase 7 status table from the script's output (`written (N)` / `pre-existing` / `would write (N)`).
 
+### Step 9 — Fire platform-localize once at install time
+
+The `platform-localize.sh` hook auto-fires on SessionStart, so the first new session after install will produce a valid `settings.local.json` + `known_marketplaces.json`. But running it eagerly here closes the window where `/plugin` fails with a "marketplace configuration corrupted" error before the user opens a new session — a real-world failure surfaced 2026-06-14.
+
+```bash
+if [[ "${CHECK_ONLY:-0}" == "1" ]]; then
+  # check-only: report whether the file would change, do not write
+  echo "platform-localize: skipped (check-only mode)"
+else
+  bash "$HOME/.claude/bin/platform-localize.sh"
+  # Confirm the output is schema-valid before continuing
+  if [[ -f .github/scripts/validate-json-schemas.py ]] && [[ -f "$HOME/.claude/plugins/known_marketplaces.json" ]]; then
+    python .github/scripts/validate-json-schemas.py 2>&1 | grep -E '(known_marketplaces|passed)' | head -3
+  fi
+fi
+```
+
+Idempotent. Adds row to Phase 7 status: `platform_localize: ran` / `skipped (check-only)` / `error (see stderr)`.
+
 ---
 
 ## Phase 4 — Meta-repo doctrine
@@ -429,6 +587,103 @@ Under interactive:
 
 If customize: no `rename-personas.sh` ships yet — hand-edit names across agent files and prompts/skills. Exclude `bin/publish-time-transform.sh` from search-replace (it carries the canonical `NAME_TO_ROLE` table). One-time cosmetic choice; automation queued.
 
+### Codex Integration (optional opt-in)
+
+<!-- D4: opt-in — default declined; only --check-only reports state. -->
+<!-- Spec backlink: docs/plans/2026-06-14-codex-reviewer-integration-opt-in.md -->
+<!-- Sync: Leg-A and Leg-B Python heredocs below are mirrored verbatim in tests/plugin-ecosystem/platform-localize-marketplaces.test.js — any change here MUST be mirrored there. -->
+
+Register the `openai-codex` marketplace + `codex@openai-codex` plugin as an optional second-opinion reviewer for `/workweek-complete` Step 7.4 and `/bug-sweep --codex-verify`. Default declined; opt-in is per-user.
+
+Under `--non-interactive`: skip silently. Status row: `codex_integration: skipped (non-interactive)`.
+
+Under `--check-only`: read `~/.claude/settings.json`. If `extraKnownMarketplaces["openai-codex"]` does not exist → `codex_integration: absent (would offer)`. If it exists with canonical shape `{"source": {"source": "git", "url": "..."}}` → `codex_integration: present`. If it exists with any other shape → `codex_integration: present (existing entry preserved — shape may differ from canonical)`. Do not mutate disk.
+
+Under interactive:
+
+> Install openai-codex marketplace? This registers the `codex@openai-codex` plugin (Claude Code wrapper over OpenAI Codex CLI), used as an independent-model second-opinion reviewer in `/workweek-complete` Step 7.4 (default-on, advisory) and `/bug-sweep --codex-verify` (opt-in flag). Prerequisite: Codex CLI installed and authenticated (`codex login`). The plugin will be registered user-global, but enablement is per-project — run `/plugin enable codex@openai-codex` from any project you want it active in (or this step will best-effort enable in the current project if cwd has a `.claude/` directory). **[y/N]**
+
+**Soft prereq warning:** if `codex --version` fails, note *"Codex CLI not detected — you can install it separately at https://github.com/openai/codex; the marketplace registration is independent of CLI install."* Do NOT block — the marketplace can be registered ahead of installing the CLI.
+
+**On NO:** status row `codex_integration: declined`.
+
+**On YES:** two-leg idempotent edit, multi-OS safe via Python stdlib. Doctrine: `plugin-extraction-and-distribution.md` § 7 (marketplace registration is user-global; enablement is per-project).
+
+**Two-surface model.** Leg-A writes the marketplace registration to user-global `~/.claude/settings.json`. `platform-localize.sh` separately manages `~/.claude/settings.local.json`'s `extraKnownMarketplaces` from a directory-scan of `~/.claude/plugins/<dir>/.claude-plugin/marketplace.json`. The two files are merged by Claude Code at load; the codex entry living only in `settings.json` is the intended steady state (we do not bundle a local `~/.claude/plugins/openai-codex/` mirror).
+
+**Idempotency.** `setdefault` preserves existing entries with any shape — this is the desired no-clobber behavior, but it can mask stale or legacy entries written by older Claude Code versions (see status-row value `present (existing entry preserved — shape may differ from canonical)`).
+
+**Canonical source shape.** GitHub-hosted remote marketplaces use `{"source": "git", "url": "..."}` — NOT `{"source": "github", "repo": "..."}` (the `github+repo` form is a legacy artifact observed only in negatively-labeled test fixtures; the live `claude-plugins-official` entry in `~/.claude/settings.json` uses `git+url`).
+
+**Leg A — marketplace registration (user-global, MANDATORY).** Run:
+
+```bash
+python3 - <<'PY'
+import json, pathlib, tempfile, os, sys
+p = pathlib.Path.home() / ".claude" / "settings.json"
+try:
+    s = json.loads(p.read_text()) if p.exists() else {}
+except (json.JSONDecodeError, OSError) as e:
+    print(f"FATAL: existing settings.json malformed ({e}) — skipping codex opt-in. Repair and re-run.", file=sys.stderr)
+    sys.exit(1)
+mkts = s.setdefault("extraKnownMarketplaces", {})
+mkts.setdefault("openai-codex", {"source": {"source": "git", "url": "https://github.com/openai/codex-plugin-cc.git"}})
+# Per plugin-extraction-and-distribution.md § 7, enablement does NOT belong in user-global settings.json.
+# Do NOT write enabledPlugins here.
+fd, tmp_path = tempfile.mkstemp(dir=p.parent, prefix=".settings.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", newline="\n") as f:
+        f.write(json.dumps(s, indent=2) + "\n")
+    os.replace(tmp_path, p)
+except Exception:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+    raise
+PY
+bash "$HOME/.claude/bin/platform-localize.sh"
+```
+
+**Leg B — best-effort project enablement (project-local, optional).** Skips silently when install is run from the meta-repo (`cwd == ~/.claude`) or from a directory without a `.claude/` subdir; writes when cwd has a project Claude directory.
+
+```bash
+python3 - <<'PY'
+import json, pathlib, os, tempfile, sys
+cwd = pathlib.Path(os.getcwd()).resolve()
+home_claude = (pathlib.Path.home() / ".claude").resolve()
+if cwd == home_claude:
+    print("install run from meta-repo — skipping leg-B project-enablement write")
+    sys.exit(0)
+proj_settings = pathlib.Path(os.getcwd()) / ".claude" / "settings.local.json"
+is_claude_project = (
+    proj_settings.exists()
+    or (proj_settings.parent / "settings.json").exists()
+    or (proj_settings.parent.parent / "CLAUDE.md").exists()
+)
+if proj_settings.parent.exists() and is_claude_project:
+    try:
+        s = json.loads(proj_settings.read_text()) if proj_settings.exists() else {}
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"FATAL: existing {proj_settings} malformed ({e}) — skipping project enablement. Repair and re-run.", file=sys.stderr)
+        sys.exit(1)
+    plugins = s.setdefault("enabledPlugins", {})
+    plugins.setdefault("codex@openai-codex", True)
+    fd, tmp_path = tempfile.mkstemp(dir=proj_settings.parent, prefix=".settings.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", newline="\n") as f:
+            f.write(json.dumps(s, indent=2) + "\n")
+        os.replace(tmp_path, proj_settings)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+    print(f"codex enabled in project: {proj_settings.parent.parent}")
+else:
+    print("no recognizable Claude project at cwd (.claude/ absent or empty of Claude markers) — run /plugin enable codex@openai-codex from any project that wants it active")
+PY
+```
+
+**Status row.** `codex_integration: installed (registered; enabled in <project>)` when Leg B fired with a write; `installed (registered; no project detected — run /plugin enable)` when Leg B was a meta-repo skip or no-cwd-project; `present` for an existing canonical entry; `present (existing entry preserved — shape may differ from canonical)` when an existing entry was preserved but its shape diverges from `git+url`.
+
 ### Percolation Setup (if applicable)
 
 Check `test -f setup/publish.sh`. If absent: skip silently (not a percolation source). If present: check registered targets via `source setup/publish-targets.sh && echo "TARGET_COUNT:${#TARGETS[@]}"`.
@@ -455,6 +710,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/bin/coordinator-setup-state.sh" record setup_conclud
 ```
 
 Add a `Setup-state receipt` row to the status table (`recorded` / `pre-existing` / `would record`).
+
+**Phase 7 status table — codex_integration row.** Driven from the Phase 6 Codex Integration step's outcome. Value-set: `installed (registered; enabled in <project>)` | `installed (registered; no project detected — run /plugin enable)` | `declined` | `present` | `present (existing entry preserved — shape may differ from canonical)` | `absent (would offer)` | `skipped (non-interactive)`.
 
 Present a summary table with one row per check above. Full status-row value-sets and available-commands list: `docs/wiki/setup-reference-detail.md` § Phase 7.
 

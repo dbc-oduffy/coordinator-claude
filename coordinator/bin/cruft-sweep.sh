@@ -229,9 +229,9 @@ _get_mtime() {
   _mt=$(stat -c %Y "$target" 2>/dev/null) && [[ -n "$_mt" ]] && { echo "$_mt"; return; }
   # Fall back to python
   if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import os; print(int(os.path.getmtime('${target}')))" 2>/dev/null && return
+    python3 -c "import os,sys; print(int(os.path.getmtime(sys.argv[1])))" -- "$target" 2>/dev/null && return # verify-no-console-flash: allow — on-demand cruft sweep utility, not session-hot-path
   elif command -v python >/dev/null 2>&1; then
-    python -c "import os; print(int(os.path.getmtime('${target}')))" 2>/dev/null && return
+    python -c "import os,sys; print(int(os.path.getmtime(sys.argv[1])))" -- "$target" 2>/dev/null && return # verify-no-console-flash: allow — on-demand cruft sweep utility, not session-hot-path
   fi
   echo "0"
 }
@@ -335,8 +335,9 @@ _build_uuid_blocklist() {
   _md_list=$(mktemp 2>/dev/null) || _md_list="${TMPDIR:-/tmp}/_cruft_handoffs_$$"
   find "$glob_dir" -name "*.md" -type f 2>/dev/null > "$_md_list"
   if [[ -s "$_md_list" ]]; then
-    xargs grep -hE '^predecessor:[[:space:]]*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' 2>/dev/null \
-      < "$_md_list" \
+    while IFS= read -r _mf; do
+      grep -hE '^predecessor:[[:space:]]*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$_mf" 2>/dev/null || true
+    done < "$_md_list" \
       | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
       | sort -u \
       || true
@@ -709,7 +710,8 @@ _is_untracked() {
     return 0
   fi
   # ls-files --error-unmatch exits non-zero if path is untracked
-  if git -C "$repo_root" ls-files --error-unmatch "$path" >/dev/null 2>&1; then
+  local rel_path="${path#${repo_root}/}"
+  if git -C "$repo_root" ls-files --error-unmatch "$rel_path" >/dev/null 2>&1; then
     # Tracked by git — NOT untracked
     return 1
   fi
@@ -812,16 +814,45 @@ _sweep_scratch() {
     if _is_auto_prune_name "$dir_name"; then
       local mtime age_sec
       mtime=$(_get_mtime "$dir_path")
+
+      # Review: reviewer F3 — fail-safe when mtime resolution fails on platforms
+      # without stat or Python (e.g. Windows Git-Bash without Python on PATH).
+      # mtime=0 would produce a huge age_sec, bypassing all gates and silently
+      # deleting. Skip with stderr notice instead (preserve-on-doubt).
+      if [[ "$mtime" -eq 0 ]]; then
+        if [[ "$QUIET" -eq 0 ]]; then
+          printf '[cruft-sweep] mtime-resolution-failed skip: %s\n' "$dir_path" >&2
+        fi
+        continue
+      fi
+
       age_sec=$(( now - mtime ))
 
-      # Pre-condition 2: mtime older than threshold
-      # Review: reviewer — defer size_bytes until after all gating checks pass;
-      # compute exactly once per dir on the prunable path (F4 fix).
-      if [[ "$age_sec" -le "$threshold_sec" ]]; then
+      # Consolidated age gate (RD-2, F1+F2):
+      #   effective_threshold = max(configured_threshold, 24h hard floor)
+      # The 24h floor is a HARD minimum regardless of --scratch-age configuration
+      # (mirrors handoff-archival.md § "Mechanical mtime veto"; prevents deletion of
+      # in-flight scratch dirs during handoff/pickup gaps). Using max() keeps the
+      # floor always load-bearing even with --scratch-age 0 or --scratch-age 1, where
+      # the old two-gate approach made the floor unreachable.
+      # Spec: docs/plans/2026-06-14-deep-research-workdir-out-of-killzone.md RD-2.
+      local effective_threshold
+      effective_threshold=$(( threshold_sec > 86400 ? threshold_sec : 86400 ))
+
+      if [[ "$age_sec" -le "$effective_threshold" ]]; then
         if [[ "$json_mode" -eq 1 ]]; then
           local size_bytes
           size_bytes=$(_dir_size_bytes "$dir_path")
-          _emit_jsonl "scratch" "$dir_path" "$dir_name" "$size_bytes" "$mtime" "skip" "mtime ${age_sec}s <= threshold ${threshold_sec}s (too recent)"
+          # Discriminate skip reason: floor is the operative gate when age <= 24h
+          # (the 24h floor is the intended defense; age-threshold is the normal
+          # configured gate). A dir <= 24h always cites mtime-floor even when the
+          # configured threshold also covers it — this makes the floor visible to
+          # --json callers and test assertions.
+          if [[ "$age_sec" -le 86400 ]]; then
+            _emit_jsonl "scratch" "$dir_path" "$dir_name" "$size_bytes" "$mtime" "skip" "mtime ${age_sec}s <= 86400s (mtime-floor)"
+          else
+            _emit_jsonl "scratch" "$dir_path" "$dir_name" "$size_bytes" "$mtime" "skip" "mtime ${age_sec}s <= threshold ${threshold_sec}s (age-threshold)"
+          fi
         fi
         continue
       fi
@@ -846,7 +877,7 @@ _sweep_scratch() {
       printf '%s\n' "$dir_path" >> "$_pruned_parents_file"
 
       if [[ "$json_mode" -eq 1 ]]; then
-        _emit_jsonl "scratch" "$dir_path" "$dir_name" "$size_bytes" "$mtime" "auto-prune" "name in auto-prune list; mtime ${age_sec}s > threshold ${threshold_sec}s"
+        _emit_jsonl "scratch" "$dir_path" "$dir_name" "$size_bytes" "$mtime" "auto-prune" "name in auto-prune list; mtime ${age_sec}s > effective_threshold ${effective_threshold}s"
       fi
 
       if [[ "$apply" -eq 1 ]]; then
@@ -990,10 +1021,12 @@ _get_parent_whitelist() {
   # Lossy: handles only simple single-line arrays like parent_whitelist = ["foo", "bar"].
   # Review: reviewer — multi-line TOML arrays are NOT parsed — entries on continuation
   # lines will be silently ignored. Write parent_whitelist as a single-line array. (F15)
-  grep 'parent_whitelist' "$_registry" 2>/dev/null \
-    | grep -oE '"[^"]*"' \
-    | tr -d '"' \
-    || true
+  local _raw
+  _raw=$(grep 'parent_whitelist' "$_registry" 2>/dev/null | grep -oE '"[^"]*"' | tr -d '"' || true)
+  if [[ -z "$_raw" ]] && grep -q 'parent_whitelist' "$_registry" 2>/dev/null; then
+    echo "cruft-sweep: WARNING: parent_whitelist found in registry but yielded no entries — if using multi-line TOML syntax, entries are silently ignored. Use single-line: parent_whitelist = [\"name\"]" >&2
+  fi
+  echo "$_raw"
 }
 
 _sweep_orphans() {
@@ -1150,11 +1183,34 @@ case "$CLASS" in
     ;;
 esac
 
-# Grand total banner (suppress with --quiet or --json)
-if [[ "$JSON_MODE" -eq 0 && "$QUIET" -eq 0 ]]; then
-  _total_all_mb=$(( ( HARNESS_BYTES + SCRATCH_BYTES + ORPHANS_BYTES ) / 1048576 ))
-  # Review: reviewer — grand-total banner to stderr to match per-phase convention (F13 fix).
+# Grand total banner — emitted to stderr in all modes EXCEPT --json (which owns stdout).
+# Under --quiet the per-class banners are suppressed (see lines 550, 869, 1106) but the
+# grand total IS still emitted: it is the only signal /workday-start Step 1.11 reads to
+# check the 1 GB advisory threshold. Suppressing it under --quiet (the prior bug)
+# silently broke the briefing's threshold detector — empirical: 2.7 GB sitting
+# reclaimable with the morning briefing reading "0 reclaimable" — see
+# docs/wiki/cruft-sweep-cadence.md § --quiet output contract.
+_total_all_bytes=$(( HARNESS_BYTES + SCRATCH_BYTES + ORPHANS_BYTES ))
+_total_all_items=$(( ${HARNESS_ITEMS:-0} + ${SCRATCH_ITEMS:-0} + ${ORPHANS_ITEMS:-0} ))
+if [[ "$JSON_MODE" -eq 0 ]]; then
+  _total_all_mb=$(( _total_all_bytes / 1048576 ))
   echo "[cruft-sweep] grand total: ~${_total_all_mb} MB reclaimable across all classes" >&2
+fi
+
+# Run-marker log row — written unconditionally on --apply runs, even when zero items
+# were pruned. /workday-start Step 1.11's staleness arm reads `tail -1 cruft-sweep-log.md`
+# and treats file-absent OR oldest-row > 14d as stale. Without a marker row, every
+# /workday-complete Step 1.5 sweep on a clean machine leaves the staleness clock
+# unfed — the morning advisory would fire the staleness branch every day after 14d
+# even though sweeps ran nightly and found nothing. Per-class rows above remain
+# items-gated (forensic detail); this trailing row is the staleness signal.
+# Reviewer-flagged 2026-06-14 (F4); see workday-complete Step 1.5 cadence rationale.
+if [[ "$APPLY" -eq 1 && "$JSON_MODE" -eq 0 ]]; then
+  _marker_ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  _marker_log_dir=$(dirname "$LOG_PATH")
+  [[ -d "$_marker_log_dir" ]] || mkdir -p "$_marker_log_dir" 2>/dev/null || true
+  printf '| %s | run-marker | %s bytes | %s items |\n' \
+    "$_marker_ts" "$_total_all_bytes" "$_total_all_items" >> "$LOG_PATH" 2>/dev/null || true
 fi
 
 exit 0

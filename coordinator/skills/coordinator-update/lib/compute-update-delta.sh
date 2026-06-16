@@ -119,7 +119,8 @@ _emit_offline() {
   # Review: code-reviewer — (nit) pass CANONICAL_PUBLISH_URL via sys.argv[2] so a future
   # URL with a quote character cannot break the Python string literal.
   # Build a minimal payload — counts and lists are empty since we couldn't reach source.
-  "$PYTHON" -c "
+  # verify-no-console-flash: allow — OSS install bootstrap, runs once (annotation on the spawn line below)
+  bash "$(dirname "${BASH_SOURCE[0]}")/../../../../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -c "
 import json, sys
 payload = {
     'update_status': 'offline',
@@ -236,10 +237,7 @@ fi
 CLASSIFIER_JSON=""
 CLASSIFIER_EXIT=0
 
-CLASSIFIER_JSON="$("$PYTHON" "$CLASSIFIER" \
-  --source "$SOURCE_DIR" \
-  --live "$INSTALL_ROOT" \
-  --format json 2>/dev/null)" || CLASSIFIER_EXIT=$?
+CLASSIFIER_JSON="$("$PYTHON" "$CLASSIFIER" --source "$SOURCE_DIR" --live "$INSTALL_ROOT" --format json 2>/dev/null)" || CLASSIFIER_EXIT=$? # verify-no-console-flash: allow — OSS install bootstrap, runs once
 
 # Exit 1 = invalid CLI input (should not happen with our paths).
 # Exit 2 = no baseline, two-way clean.
@@ -272,7 +270,7 @@ fi
 _JSON_TMP="${_WORK_TEMP}/classifier_output.json"
 printf '%s' "${CLASSIFIER_JSON}" > "$_JSON_TMP"
 
-"$PYTHON" - "$_JSON_TMP" "$INCOMING_REF" "$CANONICAL_PUBLISH_URL" "$CLASSIFIER_EXIT" "$MARKETPLACE_JSON_PATH" <<'PYEOF'
+"$PYTHON" - "$_JSON_TMP" "$INCOMING_REF" "$CANONICAL_PUBLISH_URL" "$CLASSIFIER_EXIT" "$MARKETPLACE_JSON_PATH" <<'PYEOF' # verify-no-console-flash: allow — OSS install bootstrap, runs once
 import json, sys
 
 json_path, incoming_ref, manual_url, classifier_exit_str, marketplace_path = sys.argv[1:6]

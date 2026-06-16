@@ -130,6 +130,21 @@ git add -- $SCOPE "$HANDOFF" && git commit -m "chore(spinoff): <slug> [authored 
 
 The auto-push hook handles propagation.
 
+*(The block below is the universal mandatory-commit-shape reminder; for spinoff Step 4 specifically, the plain-git form above is the expected path — coordinator-safe-commit is for handoff-scoped sessions, not spinoff-write.)*
+
+<!-- mandatory-commit-shape -->
+**Mandatory commit shape (concurrent-EM safe).** Plain explicit-path git is the default per SC-DR-008; the helper is reserved for sweep ceremonies + the executor's branch-pin path. Use ONE of:
+
+```bash
+# Default — explicit-path commit (SC-DR-008 baseline):
+git add -- <paths> && git commit -m "<subject>" -- <paths>
+
+# OR, for handoff-scoped sessions, the helper (defaults to em-only as of 2026-06-15):
+coordinator-safe-commit --scope-from <handoff> "<subject>"
+```
+
+Plain-git is listed first deliberately — the helper is the carve-out, not the primary path. **Never `git add -A` / `git add .` / `git add --all`** — the `block-blanket-git-add.sh` PreToolUse hook enforces this; see `docs/wiki/coordinator-tripwires.md § BLOCK-BLANKET-GIT-ADD` and `docs/wiki/scoped-safety-commits.md § SC-DR-014`.
+
 ### Step 5: Surface to PM
 
 Print one line:
