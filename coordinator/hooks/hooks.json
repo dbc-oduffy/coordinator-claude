@@ -101,6 +101,47 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "_comment": "C1a — L1 idle-EM awareness on end-of-turn",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "C2b — L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun)",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.sh",
+            "timeout": 1800,
+            "async": true,
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "_comment": "C1a — L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -168,6 +209,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-blanket-git-add.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/offer-git-c-over-cd.sh",
             "timeout": 5
           }
@@ -205,6 +256,7 @@
         ]
       },
       {
+        "_comment": "NotebookEdit excluded: validate-ac-grammar.js and validate-ac-chunk-ownership.js operate on plan files (.md); plan files are never .ipynb",
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
@@ -215,6 +267,11 @@
           {
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-ac-grammar.js",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-ac-chunk-ownership.js",
             "timeout": 5
           },
           {

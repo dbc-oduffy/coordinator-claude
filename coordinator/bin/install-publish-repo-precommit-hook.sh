@@ -125,7 +125,7 @@ EXEC_BIT_TEST="\$_cur/coordinator/tests/plugin-ecosystem/exec-bit.test.js"
 if [ ! -f "\$EXEC_BIT_TEST" ]; then
   exit 0
 fi
-if ! node --test "\$EXEC_BIT_TEST" >&2 2>&1; then
+if ! node --test "\$EXEC_BIT_TEST" >&2 2>&1; then # verify-no-console-flash: allow — pre-commit hook, runs on explicit git commit only
   # Review: reviewer — >&2 first redirects stdout to stderr, then 2>&1 merges
   # remaining stderr to the same fd; the prior order 2>&1 >&2 was wrong: it
   # duplicated stderr to current stdout (tty) before redirecting stdout to stderr.

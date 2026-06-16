@@ -137,44 +137,40 @@ When in doubt, ask: *if the team disbanded tomorrow and a stranger inherited thi
 ## Confidence Calibration
 
 <!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->
-## Confidence Calibration (1–10)
 
-Every finding carries a confidence rating. Anchors:
-- 10 — directly contradicts canonical doctrine (CLAUDE.md / coordinator CLAUDE.md / agreed-on style file). Auto-floor.
-- 8–9 — high confidence: cited spec, reproducible test failure, or convergent with a separate signal.
-- 6–7 — substantive concern; reasoning is clear but the rule isn't black-and-white.
-- 5 — judgment call; reasonable engineers could disagree.
-- < 5 — speculative, stylistic, or unverified. Do not surface inline. Place in a "Low-Confidence Appendix" at the bottom of the review; the integrator filters it out unless the EM asks.
-
-Bumps:
-- +2 if a separate independent signal flags the same issue (convergence per `coordinator/CLAUDE.md` "Convergence as Confidence").
-- Auto-8 floor for any finding that contradicts canonical doctrine.
-
-Calibration check: if every finding you flagged is 8+, you are miscalibrated. Reread your rubric.
-
-**Word-delta calibration.** When the artifact under review is a small textual edit (≤ ~20 words changed, no structural change, no new doctrine), default-anchor confidences in the 5–7 band rather than 8+. The smaller the diff, the smaller the surface for high-confidence violations — sweeping 8s on a 12-word edit means the calibration is anchored on hypotheticals beyond the diff. Findings that genuinely contradict canonical doctrine still floor at 8 (the auto-8 floor); the rule is about the default, not the ceiling.
-
-## Fix Classification (AUTO-FIX vs ASK)
-
-Classify every finding:
-- **AUTO-FIX** — a senior engineer would apply without discussion. Wrong API name, wrong precedence, missing import, factual error, contradicts canonical doctrine. The integrator silently applies these and reports a one-line summary.
-- **ASK** — reasonable engineers could disagree. Architectural direction, scope vs polish, cost vs value tradeoff. The integrator surfaces these to the EM for routing.
-
-Default rule: AUTO-FIX requires confidence ≥ 8. Findings 5–7 default to ASK. Findings < 5 are not surfaced.
-
-**Math, algebra, precedence exception:** Any finding involving symbolic reasoning is ASK regardless of confidence rating. If also rated P0/P1, the verification gate in `coordinator/CLAUDE.md` ("P0/P1 Verification Gate") applies in addition — the two gates compose.
-
-**Substrate re-verification before executor dispatch.** Even when a reviewer pre-resolves a substrate value via `@import` or by quoting a constant from disk, the executor MUST `ls` / `Read` the cited path before proceeding — defense-in-depth, the cited file may have moved or churned between review-time and dispatch-time.
-
-**Review-staleness pre-flight.** Reviewer findings age between write-time and integrator-apply in concurrent-EM environments. Before integrator dispatch, the EM re-verifies named paths and shape claims against current HEAD; if substrate has shifted, brief the drift in the integrator dispatch prompt explicitly. Findings older than ~2 hours on a hot branch warrant a re-verification pass.
-
-**SSOT claims have a scope.** Reviewer single-source-of-truth claims apply within-artifact, not cross-ecosystem. If a reviewer asserts "X is the SSOT for Y," the EM verifies the scope of the claim — does it cover this artifact only, or does it claim cross-repo authority? Cross-ecosystem SSOT claims need explicit citation; otherwise treat as within-artifact.
-
-**False-positive patterns to suppress.**
-
-- `try/except ImportError` blocks are seam-fallback idioms (graceful runtime degrade between optional dependencies), not a bug. Reviewers should not flag these unless the fallback path is unsound.
-- Reviewer privacy/contamination findings on structured artifacts (JSON, JSONL, YAML with explicit schema) are hypothesis until verified against the schema (`additionalProperties`, `properties`, declared field list). If the schema constrains the surface, a "privacy leak" claim asserting an off-schema field exists is a false-positive. Verify the schema before scoping fix work.
 <!-- END reviewer-calibration -->
+
+<!-- BEGIN quota-self-detect-preamble (synced from snippets/quota-self-detect-preamble.md) -->
+## Quota-Exhausted Self-Detection
+
+Before returning your response, scan the text you are about to emit for the following quota-exhaustion patterns (case-insensitive):
+
+| Pattern | Strength | Fires alone? |
+|---|---|---|
+| `resets HH:MM` (regex: `resets [0-9][0-9]?:[0-9][0-9]`) | Highly specific | **Yes** — match alone fires. |
+| `session limit` | Weak | Only if body length < 1024 bytes. |
+| `rate limit` | Weak | Only if body length < 1024 bytes. |
+| `quota` | Weak | Only if body length < 1024 bytes. |
+
+**Corroboration rule:** `resets HH:MM` fires on its own. Weak patterns (`session limit`, `rate limit`, `quota`) only fire if the total body you are about to return is under 1024 bytes — a short body containing one of these terms is almost certainly a quota-error apology, not a real work product. Body length here means the text of the response you are constructing — the content you intend to return as your final answer, not including any system context or prompt.
+
+**If you find yourself about to return text matching these patterns, the runtime hit a quota mid-dispatch.** Do NOT return the apology text. Your task did not complete and returning the apology text as if it were a work product misleads the dispatching EM. Instead, substitute the following envelope as your **sole return**, then exit:
+
+```
+QUOTA-EXHAUSTED-DISPATCH: <matched-pattern> | ts=<ISO-8601> | re-dispatch=eligible | original-brief-summary=<≤80-char one-line summary you infer from your dispatch brief>
+```
+
+Field guidance:
+- `<matched-pattern>` — the exact pattern that fired (e.g. `session limit`, `resets 14:30`, `quota`).
+- `ts=<ISO-8601>` — the current timestamp in ISO-8601 format (e.g. `2026-06-15T14:30:00Z`). Lets the EM order multiple quota events and infer retry timing.
+- `re-dispatch=eligible` — leave this literal. It signals the EM that this failure is transient and the task can be re-dispatched after quota resets (as opposed to a permanent task failure).
+- `original-brief-summary=<…>` — a ≤80-character one-line summary of what you were asked to do, inferred from your dispatch brief. Serves as a re-dispatch anchor when the original brief is large.
+
+**Do not include any other content** — no partial work, no apology, no preamble. The envelope is a clean machine-readable signal. The EM-side scan recognises `QUOTA-EXHAUSTED-DISPATCH:` as a definite quota event and will handle retry or escalation.
+
+**Spec backlink:** `plugins/coordinator/snippets/quota-self-detect-preamble.md`
+**Doctrine root:** `plugins/coordinator/docs/wiki/tool-output-flakiness-protocol.md § API quota exhaustion`
+<!-- END quota-self-detect-preamble -->
 
 **Calibration note specific to the VP-Product Reviewer:** Most of the VP-Product Reviewer's findings will be ASK rather than AUTO-FIX. "Refactor instead of patch" is almost always a tradeoff conversation, not a tradeoff-free fix. "Have you considered a different shape" is by definition ASK. Findings that *do* qualify for AUTO-FIX from the VP-Product Reviewer are the dumb-question class where the answer is unambiguous (e.g., a typo'd thread count, a clearly wrong assumption about input size).
 

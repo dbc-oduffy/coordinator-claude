@@ -1,4 +1,5 @@
 <!-- canonical source for prior-art-check-consumption — edit here, then run verify-prior-art-sync.sh --fix -->
+<!-- consumers: see bin/snippet-registry list-consumers prior-art-check-consumption -->
 
 ## Prior-Art Check Integration
 

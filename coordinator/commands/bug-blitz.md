@@ -1,17 +1,19 @@
 ---
 name: bug-blitz
-description: Autonomously grind state/bug-backlog.md AND the full test suite — run all tests every run, chase failing tests as first-class fix items, verify each backlog entry still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization. Runs even when the backlog is empty.
+description: Autonomously grind state/bug-backlog/ (directory of per-entry YAML files) AND the full test suite — run all tests every run, chase failing tests as first-class fix items, verify each backlog entry still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization. Runs even when the backlog is empty.
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--dry-run | --max=N]"
 ---
 
+<!-- Updated 2026-06-15 by structured-queue-medium-rollout C12: state/bug-backlog.md → state/bug-backlog/*.yaml; HEAD-verify gate preserved per the Staff Engineer F4 -->
+
 # Bug Blitz — Aggressively Tackle the Bug Backlog and the Test Suite
 
-Verify-then-grind through **two work sources every run**: (1) `state/bug-backlog.md`, and (2) **the full test suite** — the configured test command is run on every invocation, and each genuinely-failing test becomes a first-class fix item that flows through the same triage → wave → fix → verify machinery as a backlog bug. Re-check each backlog item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
+Verify-then-grind through **two work sources every run**: (1) `state/bug-backlog/` (directory of per-entry YAML files, each at `state/bug-backlog/<id>.yaml`), and (2) **the full test suite** — the configured test command is run on every invocation, and each genuinely-failing test becomes a first-class fix item that flows through the same triage → wave → fix → verify machinery as a backlog bug. Re-check each backlog item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
 
 **A green test suite is part of the definition of done.** The run does not complete on a thin "fixed 2 bugs" note while tests are red. Failing tests are chased to root cause and fixed (or, when oversized, surfaced as spinoffs) exactly like backlog bugs.
 
-**Runs even when the backlog is empty.** An empty or missing `state/bug-backlog.md` is no longer a halt condition — the test-suite leg still runs. The run only short-circuits to a green no-op when the backlog is empty AND the full suite passes clean. (Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries and test failures are NOT pre-spec'd executor stubs, so triage is the spec-creation step.)
+**Runs even when the backlog is empty.** An absent or empty `state/bug-backlog/` directory is no longer a halt condition — the test-suite leg still runs. The run only short-circuits to a green no-op when the backlog is empty AND the full suite passes clean. (Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries and test failures are NOT pre-spec'd executor stubs, so triage is the spec-creation step.)
 
 **Announce at start:** "Running `/bug-blitz` — running the full test suite, then aggressive autonomous parallel waves through every fixable backlog item AND every failing test. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written. The run ends with a green-suite gate."
 
@@ -80,11 +82,11 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 
 ## Phase 0: Preflight (~1 min, EM)
 
-1. **Check backlog presence — do NOT halt on absence.** Note whether `state/bug-backlog.md` exists and how many open items it carries. An absent or empty backlog is **not** a halt condition: the test-suite leg (Phase 0.7) runs regardless and supplies its own work items. Record `backlog_present: true|false` and the open count for the Phase 2 plan. (Contrast with the prior behaviour, which halted here and recommended `/bug-sweep` — that gate is removed because a clean backlog with a red suite is exactly the state this skill must still act on.)
+1. **Check backlog presence — do NOT halt on absence.** Note whether `state/bug-backlog/` exists and how many `.yaml` files it contains (use `bin/query-records.sh --type bug | wc -l` or `ls state/bug-backlog/*.yaml 2>/dev/null | wc -l`). An absent or empty `state/bug-backlog/` is **not** a halt condition: the test-suite leg (Phase 0.7) runs regardless and supplies its own work items. Record `backlog_present: true|false` and the open count for the Phase 2 plan. (Contrast with the prior behaviour, which halted here and recommended `/bug-sweep` — that gate is removed because a clean backlog with a red suite is exactly the state this skill must still act on.)
 2. **Generate run ID.** Format: `YYYY-MM-DD-HHhMM`. Scratch dir: `state/scratch/bug-blitz/{run-id}/`.
 3. **Active workstream branch check.** Confirm `git branch --show-current` is an allowed workstream branch: `work/{machine}/{date-or-span}` (span names like `work/striker/2026-05-06to07` are accepted; both uppercase and lowercase machine segments are accepted). If not an allowed branch (e.g. on `feature/X` or bare topic branch), halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on an active workstream branch. **Note: `/bug-blitz` is fail-closed-only (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the active workstream branch under any circumstance.
 4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
-5. **Read backlog header** (skip if backlog absent) to confirm last_sweep_commit and item counts. If `last_sweep_commit` is many commits behind HEAD, expect more "already-fixed" verdicts in Phase 1.
+5. **Read a sample of backlog entries** (skip if backlog absent) to confirm last_sweep_commit (from any entry's `created` field or a directory-level header file if present) and item counts. If entries are old relative to HEAD, expect more "already-fixed" verdicts in Phase 1.
 
 ## Phase 0.7: Full Test-Suite Baseline (EM + test-evidence-parser, ~3 min)
 
@@ -111,7 +113,7 @@ Run the project's configured test suite up front. Every genuinely-failing test b
 **Disk-first verification preamble (inline verbatim into the test-evidence-parser dispatch):**
 > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 
-**Empty-backlog-and-green-suite short-circuit.** If the backlog is absent/empty AND the suite resolves, runs, and is fully green (zero `real` failures), there is no work: skip Phases 0.5–3, write no commit, and emit this one-line all-clear report — *"Bug-blitz {run-id}: backlog empty/absent, suite green — no work this run."* (Distinct from the Phase 4 step 3 no-op, which covers a *non-empty* backlog where nothing was fixable and points to `/bug-sweep` or `/plan`.) An all-clear is a useful signal, not a failed run.
+**Empty-backlog-and-green-suite short-circuit.** If `state/bug-backlog/` is absent/empty (zero `.yaml` files) AND the suite resolves, runs, and is fully green (zero `real` failures), there is no work: skip Phases 0.5–3, write no commit, and emit this one-line all-clear report — *"Bug-blitz {run-id}: backlog empty/absent, suite green — no work this run."* (Distinct from the Phase 4 step 3 no-op, which covers a *non-empty* backlog where nothing was fixable and points to `/bug-sweep` or `/plan`.) An all-clear is a useful signal, not a failed run.
 
 ## Phase 0.5: Severity Split (EM, ~1 min)
 
@@ -151,10 +153,10 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 
 **Long-stale backlog — ghost-prune dominates fix-value; trust the header SHA over the per-entry OPEN field.** When Phase 0 step 5 shows `last_sweep_commit` many commits behind HEAD, the dominant value of this run is *pruning ghost entries* (items the backlog still marks OPEN but that are provably fixed or whose cited file is gone on HEAD), not net-new fixes — expect a high `already-fixed` / `file-removed` rate and treat the prune as the deliverable, not a thin run. When a per-entry `OPEN` status field disagrees with the backlog header's SHA attribution (the header is the freshest cross-cutting truth; per-entry status fields drift because they are hand-maintained per item), **trust the header SHA over the OPEN field** — re-verify against HEAD per the cited-file read, and close ghosts as `already-fixed` (commit SHA cited) or `file-removed` (`ls` confirms absence). A per-entry `OPEN` field is not evidence the bug is live; it is a stale assertion the verify step exists to overturn. **Stale per-entry status drifts in both directions** — a stale FIXED tag can hide live in-progress work (paragraph above), and a stale OPEN field can be a ghost (here); the resolution is the same in both cases — the per-entry status field is hypothesis, the HEAD re-verification is ground truth, and the SHA is a verification-triggering prior, never an auto-close. (see `docs/wiki/cleanup-sweep-hazards.md` § 19 — "entries that no longer reproduce get deleted"; sibling: `CLAUDE.md` § Verifying Handoff Premises — "broken-today claims need HEAD verification before action".)
 
-**Per-item verification + size classification.** Each agent, for each item:
+**Per-item verification + size classification.** Each agent, for each item — read frontmatter from `state/bug-backlog/<id>.yaml` to extract `id`, `severity`, `system`, `title`, `body`, `cross_ref`, and `why_blocked` fields (field names per `docs/wiki/bug-backlog-schema.md`). The `cross_ref` field carries the file:line citation used below:
 
 1. **Verify still-applies:**
-   - Read the cited file:line — does the bug pattern still exist in HEAD?
+   - Read the cited file:line (from the entry's `cross_ref` field) — does the bug pattern still exist in HEAD?
    - `git log --oneline -5 <file>` — did a recent commit address it?
    - Verdict: `still-open` | `already-fixed` | `pattern-changed` | `file-removed`
 2. **Size classify (only if `still-open` or `pattern-changed`):**
@@ -173,6 +175,8 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 | BS-2026-05-06-001 | still-open | big | coordinator-safe-commit, tests/... | Frontmatter parser refactor + new CRLF tests |
 | BS-2026-05-06-018 | already-fixed | — | — | Fixed in commit abc1234 |
 ```
+
+IDs in the table correspond to the YAML filename stems (e.g. `BS-2026-05-06-007` ↔ `state/bug-backlog/BS-2026-05-06-007.yaml`).
 
 **Scratch path:** `state/scratch/bug-blitz/{run-id}/chunk-N-verify.md`. Each agent must end with `DONE: <path>` after writing.
 
@@ -198,7 +202,7 @@ Candidate spinoffs from this bug-blitz run ({N} items):
 Authorize all / authorize subset / none?
 ```
 
-Block on PM response. Only authored spinoffs proceed; unauthorized candidates revert to `needs-investigation` in the backlog with a one-line note ("PM declined spinoff at bug-blitz <run-id>"). Do not retry without fresh PM direction.
+Block on PM response. Only authored spinoffs proceed; unauthorized candidates revert to `needs-investigation` in `state/bug-backlog/<ID>.yaml` (update the `why_blocked` field with "PM declined spinoff at bug-blitz <run-id>"). Do not retry without fresh PM direction.
 
 For each PM-authorized `big` item, write a spinoff handoff using the canonical schema below (or invoke `/spinoff <slug>` per-item).
 
@@ -213,7 +217,7 @@ status: active
 kind: spinoff
 predecessor: none
 authoring_session: bug-blitz <run-id>
-workstream: bug-backlog item <ID>
+workstream: bug-backlog item <ID> (state/bug-backlog/<ID>.yaml)
 deployment_state: ready_to_fire
 scope:
   - <pathspec 1>
@@ -228,7 +232,7 @@ scope:
 - Opening paragraph: one sentence on why this is its own session
 - `## What this covers`
 - `## Reference materials (read first)`
-- `## Specification` — include the original backlog entry verbatim (file:line, description, recommended fix) plus a brief rationale: "classified `big` because: <reason>"
+- `## Specification` — include the original backlog entry verbatim from `state/bug-backlog/<ID>.yaml` (fields: `body`, `cross_ref`, `why_blocked`) plus a brief rationale: "classified `big` because: <reason>"
 - `## Acceptance criteria`
 - `## Recommended next steps`
 - `## Anti-scope`
@@ -240,7 +244,7 @@ scope:
 
 Path: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_bug-blitz-spinoff-{slug}.md`
 
-Update the backlog entry: `resolution: spun-off-{YYYY-MM-DD} {handoff-path}`. The item leaves the active backlog.
+Close the YAML entry via `git mv state/bug-backlog/<ID>.yaml archive/bug-backlog/<YYYY-MM>/<ID>.yaml`, then set `status: closed`, `closed_at: <YYYY-MM-DD>`, and `closed_by: spun-off-<handoff-path>` in the archived file's frontmatter. The item leaves the active `state/bug-backlog/` directory.
 
 ### Step 2.2: Drop already-fixed items
 
@@ -317,7 +321,7 @@ For each wave:
      ```
      The leading `git reset` clears any sibling-session staging so only this item's paths land. Use plain `git commit` (not `coordinator-safe-commit`) — the helper's touched-files heuristic is what produced the smoke-run scope sweep. The auto-push hook fires on commit; capture the resulting SHA from `git rev-parse HEAD` and write it back to the DONE summary as `commit: <sha>`. Re-confirm `git branch --show-current == $BLITZ_BRANCH` before each commit; halt the wave if it flipped mid-loop.
    - For PASS items: PASS commits at the wave gate ARE the persistence (commit subject names each item). No per-wave backlog append — PASS items are deleted from the active P1/P2 tables in Phase 4 only.
-   - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update the backlog entry with `resolution: re-attempted-{date}: <reason>`, leave in backlog.
+   - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update `state/bug-backlog/<id>.yaml` — append a note to `why_blocked` field: `re-attempted-{date}: <reason>`, leave the entry in the active backlog directory.
    - Update flight-recorder tasks to `completed`.
 
    <!-- Review: the Staff Engineer F4 — poll git branch --show-current BEFORE each commit at the wave gate. Branch is captured at Phase 0 as $BLITZ_BRANCH; EM re-checks before every commit (per-item granularity, not per-wave, because the loop spans many seconds). -->
@@ -341,21 +345,20 @@ After all waves complete:
    - *Pre-existing failure still red after one corrective wave:* stop chasing in-wave, leave the (reverted-to-baseline) state, surface the residual red test to the PM as a spinoff candidate. The suite is no worse than at baseline.
    - *Self-inflicted regression still red after one corrective wave:* `git revert` the introducing commit (above), confirm the gate goes green, then surface the original TF item as a spinoff. The suite returns to baseline-or-better. Either way the run does not loop a second corrective wave.
 
-1. **Final backlog update — prune-with-paper-trail.** The fixes themselves are the paper trail (each PASS item committed individually in Phase 3 with the item ID in the commit subject); Phase 4 removes the now-redundant backlog rows so the backlog doesn't bloat. Phase 4:
-   - Updates the header: `last_run: bug-blitz-{run-id}`, `last_run_commit: <new-HEAD>`, current open counts.
-   - **Deletes — does NOT archive in-place — every closed row** from the active P1/P2 tables. Three closure shapes, all delete:
-     - `PASS` (fixed this run) — paper trail is the Phase 3 commit naming the item ID
-     - `already-fixed` (silent prior fix) — paper trail is the cited prior commit SHA in the final report
-     - `spun-off` (auto-spinoff to handoff) — paper trail is the handoff path
-   - **No "Resolved this run" section inside the backlog.** The backlog is the queue of OPEN work. Closed items live in `git log` + the final report — adding them back to the backlog as a "resolved" section defeats the prune.
-   - Adds `## Spun off (this run)` section with each spinoff: ID, handoff path. (Spinoffs are pointers to live work elsewhere, not closure records.)
-   **Note: last-write-wins hazard.** If two bug-blitz runs overlap, the second run's Phase 4 rewrite will overwrite the first. Do NOT run concurrent bug-blitzes.
-2. **Commit the backlog prune** as the final wave (EM-serial, single Bash call):
+1. **Final backlog update — close-with-paper-trail.** The fixes themselves are the paper trail (each PASS item committed individually in Phase 3 with the item ID in the commit subject); Phase 4 moves the now-resolved YAML files out of the active `state/bug-backlog/` directory so the queue only holds open items. Phase 4:
+   - **Archives — does NOT delete in-place — every closed entry** via `git mv`. Three closure shapes, all move to `archive/bug-backlog/<YYYY-MM>/<id>.yaml`:
+     - `PASS` (fixed this run) — set `status: closed`, `closed_at: <date>`, `closed_by: <Phase-3-commit-SHA>` in the archived YAML's frontmatter before committing the move
+     - `already-fixed` (silent prior fix) — set `status: closed`, `closed_at: <date>`, `closed_by: <prior-commit-SHA>` (cited in the final report)
+     - `spun-off` (auto-spinoff to handoff) — set `status: closed`, `closed_at: <date>`, `closed_by: spun-off-<handoff-path>`
+   - **No "Resolved this run" section inside the active backlog directory.** The `state/bug-backlog/` directory holds only `open`-status YAML files. Closed items live in `archive/bug-backlog/`, `git log`, and the final report.
+   - The `archive/bug-backlog/<YYYY-MM>/` path is self-indexing — the YAML filenames and frontmatter carry all attribution.
+   **Note: last-write-wins hazard.** If two bug-blitz runs overlap they may both attempt to move the same YAML files. Do NOT run concurrent bug-blitzes.
+2. **Commit the backlog archive moves** as the final wave (EM-serial, single Bash call):
    ```bash
-   git reset && git add -- state/bug-backlog.md && \
+   git reset && git add -- state/bug-backlog/ archive/bug-backlog/ && \
      git commit -m "bug-blitz {run-id}: prune resolved — fixed: <ID1, ID2, ...>; already-fixed: <ID3, ...>; spun-off: <ID4, ...>"
    ```
-   **The commit subject MUST name every closed ID** (across all three closure shapes). This is the greppable paper trail — `git log --all -- state/bug-backlog.md | grep BS-NNNN` resolves "whatever happened to that bug?" without reading the backlog history. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
+   **The commit subject MUST name every closed ID** (across all three closure shapes). This is the greppable paper trail — `git log --all -- state/bug-backlog/ | grep BS-NNNN` resolves "whatever happened to that bug?" without reading the backlog history. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
 3. **If no items closed this run** (all verifications came back blocked / pattern-shifted / nothing fixable), do NOT commit an empty backlog update. Skip to the final report and announce the no-op — that itself is a useful signal that the backlog has reached a state where bug-blitz alone can't make progress and the next step is `/bug-sweep` or `/plan`.
 4. **Clean scratch.** Run cleanup only after backlog commit succeeds:
    ```bash
@@ -393,7 +396,7 @@ After canonical outputs are committed, delete the working-notes scratch director
 
 | Situation | Action |
 |-----------|--------|
-| `state/bug-backlog.md` missing/empty | Do NOT halt — run the test-suite leg (Phase 0.7); only short-circuit to green no-op if the suite is also clean. Recommend `/bug-sweep` in the report if the suite was green and the backlog absent. |
+| `state/bug-backlog/` missing or empty (zero `.yaml` files) | Do NOT halt — run the test-suite leg (Phase 0.7); only short-circuit to green no-op if the suite is also clean. Recommend `/bug-sweep` in the report if the suite was green and the backlog absent. |
 | Test command unconfigured (resolver exit 2) | Continue on the backlog leg; report the `unconfigured` remediation (`full_test_cmd:` in `coordinator.local.md`, or `fast_test_cmd:` for fast-tier coverage). Do NOT fabricate a test command. |
 | No `full_test_cmd` configured (resolver exit 3) | Run the fast-tier fallback; report coverage honestly as `fast-fallback` with the `set full_test_cmd:` remediation. Do NOT label a fast-fallback run "the entire test suite." |
 | `test-evidence-parser` returns text-only (no file) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure EM runs the suite directly and persists the classification. |
@@ -401,7 +404,7 @@ After canonical outputs are committed, delete the working-notes scratch director
 | Fix would weaken a test's assertion to pass | `BLOCKED: assertion-weakening-without-evidence` — never green a test by deleting its check; reclassify (code-bug vs stale-test) with evidence or spin off. |
 | Off active workstream branch (not `work/{machine}/{date-or-span}`) | Halt Phase 0 |
 | Phase 1 chunk Haiku returns text-only (no file written) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure, EM persists agent's inline output |
-| Executor reports `BLOCKED: pattern-not-as-described` | Update backlog with revised description; do NOT fix anyway |
+| Executor reports `BLOCKED: pattern-not-as-described` | Update `state/bug-backlog/<id>.yaml` `body` with revised description; do NOT fix anyway |
 | Executor reports `BLOCKED: footprint-overflow` | Revert; reclassify item as `big`, auto-spinoff |
 | Verifier returns `REGRESSION` | Revert that item's writes; mark backlog row with regression note + commit SHA |
 | Concurrent session flips branch mid-run | Halt at next wave gate; report state to PM via final report |
@@ -418,10 +421,10 @@ In all cases: commit completed waves, update backlog with current state, write a
 
 ## Relationship to Other Commands
 
-- **`/bug-sweep`** — populates `state/bug-backlog.md`. Run periodically; bug-blitz consumes its output.
+- **`/bug-sweep`** — populates `state/bug-backlog/` (one `<id>.yaml` file per bug). Run periodically; bug-blitz consumes its output.
 - **`/mise-en-place`** — for pre-spec'd executor stubs (reviewed-and-sealed plan items). Bug-blitz handles the un-spec'd backlog case where triage is the spec-creation step.
 - **`/spinoff`** — convention used by Phase 2.1 to fork big items into pickup-ready handoffs.
-- **`/debt-triage`** — separate skill for `state/debt-backlog.md` (technical debt, not bugs). Different file, conversational prioritization.
+- **`/debt-triage`** — separate skill for `state/debt-backlog/` (technical debt, not bugs — directory of per-entry YAML files). Different surface, conversational prioritization.
 - **`/validate`** — shares the single-owner resolver lib (`coordinator/lib/coordinator-resolve-validation-cmd.sh`). `/validate` resolves the **fast** tier (`cs_resolve_fast_test_cmd`) and runs it once, reporting an enum. Bug-blitz resolves the **full** tier (`cs_resolve_full_test_cmd`, which falls back to fast with a caveat when no `full_test_cmd` is set), runs it, *chases the failures*, and re-runs as a green-suite gate. Neither inlines its own resolution — the tiers are siblings in one lib so they can't diverge.
 - **`/learn-lessons`** — if blitz reveals recurring patterns (e.g., 3 different items all flag the same hook bug, or the same test flakes every run), capture the meta-lesson.
 
@@ -429,7 +432,7 @@ In all cases: commit completed waves, update backlog with current state, write a
 
 `/bug-blitz` is wired into the discovery surfaces (smoke run 2026-05-06-22h42 follow-up):
 
-- **`/workstream-start`** — "work the backlog" framing advocates `/bug-blitz` when `state/bug-backlog.md` exists with ≥10 open P1+P2 items, OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
+- **`/workstream-start`** — "work the backlog" framing advocates `/bug-blitz` when `state/bug-backlog/` contains ≥10 open P1+P2 `.yaml` files (use `bin/query-records.sh --type bug | wc -l`), OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
 - **`/workday-start`** — Step 1.55 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
 - **`/workweek-complete` Step 4** — bug-backlog depth check joins the improvement-queue triage gate; ≥10 open proposes a blitz, otherwise summarised.
 - **Coordinator README** — listed adjacent to `/bug-sweep` in the commands table, failure-modes section, and skills section.

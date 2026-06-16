@@ -264,8 +264,7 @@ This is an architectural boundary, not an appetite call. The relay is revisited 
 
 ## Scratch Directory
 
-`tasks/scratch/notebooklm-research/{run-id}/`
-<!-- NOTE: scratch directory name kept as notebooklm-research for backward compatibility with existing runs -->
+`docs/research/{run-id}-{topic-slug}-workdir/`
 
 - Strategy: `{scratch-dir}/strategy.md`
 - Scout output: `{scratch-dir}/sources.md`

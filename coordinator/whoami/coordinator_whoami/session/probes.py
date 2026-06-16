@@ -174,7 +174,7 @@ def probe_orientation_cache() -> dict[str, Any]:
     if root is None:
         return result
 
-    cache_path = root / "tasks" / "orientation_cache.md"
+    cache_path = root / "state" / "orientation_cache.md"
     result["present"] = cache_path.exists()
     if not result["present"]:
         return result

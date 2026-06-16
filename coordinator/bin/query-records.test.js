@@ -1,9 +1,10 @@
 'use strict';
 /**
  * query-records.test.js — Tests for cross-repo-memo type, includeUnparseable flag,
- * and the archive/handoffs ledger glob fix.
+ * the archive/handoffs ledger glob fix, and YAML-backed queue types (debt/bug/improvement).
  *
  * Spec backlink: docs/plans/2026-05-29-query-records-cross-repo-memo-and-includeunparseable.md
+ * Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
  *
  * Covers:
  *   1. --type cross-repo-memo finds inbox memos and filters on status=open
@@ -11,6 +12,9 @@
  *   3. includeUnparseable: true returns a parseError record for an invalid-frontmatter fixture
  *      while default (false) still skips it
  *   4. handoff-ledger query globs archive/handoffs (not state/handoffs/archive)
+ *   5. --type debt finds state/debt-backlog/*.yaml files (whole-file YAML, no --- delimiters)
+ *   6. --type bug with --where severity=P1 returns matching subset
+ *   7. --type improvement returns record with proposed_target in markdown-list output
  *
  * Run with: node --test bin/query-records.test.js
  */
@@ -46,6 +50,27 @@ function writeMemoFixture(filename, fields) {
   }
   lines.push('---', '', 'Memo body.');
   writeFile(path.join(inboxDir, filename), lines.join('\n'));
+}
+
+/**
+ * Write a YAML-queue fixture (whole-file YAML, no --- delimiters) to a state/<dir>/ path.
+ * models the per-entry files for debt-backlog, bug-backlog, improvement-queue types.
+ */
+function writeYamlQueueFixture(dir, filename, fields) {
+  const queueDir = path.join(tmpRoot, 'state', dir);
+  fs.mkdirSync(queueDir, { recursive: true });
+  const lines = [];
+  for (const [k, v] of Object.entries(fields)) {
+    if (typeof v === 'string' && v.includes('\n')) {
+      lines.push(`${k}: |`);
+      for (const bodyLine of v.split('\n')) {
+        lines.push(`  ${bodyLine}`);
+      }
+    } else {
+      lines.push(`${k}: ${JSON.stringify(v)}`);
+    }
+  }
+  writeFile(path.join(queueDir, filename), lines.join('\n') + '\n');
 }
 
 /** Write a handoff-ledger fixture under archive/handoffs/ (flat). */
@@ -117,6 +142,62 @@ before(() => {
     commits: 'abc1234',
     session_id: 'sess-archive-test',
     created: new Date().toISOString().slice(0, 10),
+  });
+
+  // Debt-backlog fixtures — whole-file YAML (no --- delimiters)
+  writeYamlQueueFixture('debt-backlog', 'DSR-2026-06-15-1.yaml', {
+    id: 'DSR-2026-06-15-1',
+    created: '2026-06-15',
+    source: 'daily-review/patrik/2026-06-15',
+    status: 'open',
+    severity: 'P2',
+    title: 'Fan-out overlap pass verifies interface presence, not correctness',
+    body: 'Structural gap in fan-out dispatch gate.',
+    risk: 'Wrong interface pin causes divergent executor outputs.',
+    suggested_action: 'Add correctness check to fan-out gate.',
+  });
+  writeYamlQueueFixture('debt-backlog', 'DSR-2026-06-15-2.yaml', {
+    id: 'DSR-2026-06-15-2',
+    created: '2026-06-15',
+    source: 'daily-review/patrik/2026-06-15',
+    status: 'deferred',
+    title: 'Second debt item for filter testing',
+    body: 'Another debt item.',
+    risk: 'Minor risk.',
+    suggested_action: 'Investigate later.',
+  });
+
+  // Bug-backlog fixtures — whole-file YAML (no --- delimiters)
+  writeYamlQueueFixture('bug-backlog', 'BS-2026-06-14-1.yaml', {
+    id: 'BS-2026-06-14-1',
+    created: '2026-06-14',
+    system: 'setup/publish',
+    severity: 'P1',
+    status: 'open',
+    title: 'publish.sh Phase 4 audit skips unchanged files',
+    body: 'Personal data audit only covers newly-synced files.',
+  });
+  writeYamlQueueFixture('bug-backlog', 'BS-2026-06-14-2.yaml', {
+    id: 'BS-2026-06-14-2',
+    created: '2026-06-14',
+    system: 'coordinator/auto-push',
+    severity: 'P2',
+    status: 'open',
+    title: 'Auto-push skips dirty working tree warning',
+    body: 'When working tree is dirty auto-push proceeds without warning.',
+  });
+
+  // Improvement-queue fixtures — whole-file YAML (no --- delimiters)
+  writeYamlQueueFixture('improvement-queue', 'b7e3d2f1-2026-06-15.yaml', {
+    id: 'b7e3d2f1-2026-06-15',
+    created: '2026-06-15',
+    from_repo: 'coordinator-claude',
+    title: 'Promote persona-name word-boundary patterns into REVIEW_PATTERNS',
+    body: 'The current patterns miss persona names mid-sentence.',
+    surface: 'setup/publish.sh:88-95',
+    proposed_target: 'setup/publish.sh (REVIEW_PATTERNS array)',
+    change_kind: 'script-edit',
+    status: 'open',
   });
 });
 
@@ -291,5 +372,111 @@ describe('cross-repo-memo — markdown-list format', () => {
     for (const line of lines) {
       assert.ok(line.includes('(from '), `Expected "(from ...)" in line: ${line}`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. test_query_debt_basic — YAML-backed debt-backlog type
+// Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
+// ---------------------------------------------------------------------------
+
+describe('debt — basic query (YAML whole-file frontmatter)', () => {
+  it('test_query_debt_basic: --type debt finds both debt fixture records', () => {
+    const raw = runQuery('debt', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 2, `Expected 2 debt records; got ${records.length}: ${raw}`);
+  });
+
+  it('title field is parsed correctly from whole-file YAML', () => {
+    const raw = runQuery('debt', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    const first = records.find(r => r.frontmatter && r.frontmatter.id === 'DSR-2026-06-15-1');
+    assert.ok(first, `Expected DSR-2026-06-15-1 record; got: ${JSON.stringify(records.map(r => r.frontmatter && r.frontmatter.id))}`);
+    assert.equal(first.frontmatter.source, 'daily-review/patrik/2026-06-15');
+    assert.equal(first.frontmatter.severity, 'P2');
+  });
+
+  it('--where status=open returns only the open debt item', () => {
+    const raw = runQuery('debt', ['--where', 'status=open', '--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 1, `Expected 1 open debt item; got ${records.length}: ${raw}`);
+    assert.equal(records[0].frontmatter.id, 'DSR-2026-06-15-1');
+  });
+
+  it('markdown-list format includes severity and source fields', () => {
+    const raw = runQuery('debt', ['--where', 'status=open', '--format', 'markdown-list']);
+    assert.ok(raw.includes('P2'), `Expected severity P2 in output: ${raw}`);
+    assert.ok(raw.includes('(source:'), `Expected "(source:..." in output: ${raw}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. test_query_bug_severity — YAML-backed bug-backlog type with --where filter
+// Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
+// ---------------------------------------------------------------------------
+
+describe('bug — severity filter (YAML whole-file frontmatter)', () => {
+  it('test_query_bug_severity: --type bug returns both fixture records', () => {
+    const raw = runQuery('bug', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 2, `Expected 2 bug records; got ${records.length}: ${raw}`);
+  });
+
+  it('--where severity=P1 returns only the P1 bug', () => {
+    const raw = runQuery('bug', ['--where', 'severity=P1', '--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 1, `Expected 1 P1 bug; got ${records.length}: ${raw}`);
+    assert.equal(records[0].frontmatter.id, 'BS-2026-06-14-1');
+    assert.equal(records[0].frontmatter.system, 'setup/publish');
+  });
+
+  it('--where severity=P2 returns only the P2 bug', () => {
+    const raw = runQuery('bug', ['--where', 'severity=P2', '--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 1, `Expected 1 P2 bug; got ${records.length}: ${raw}`);
+    assert.equal(records[0].frontmatter.system, 'coordinator/auto-push');
+  });
+
+  it('markdown-list format includes severity and system fields', () => {
+    const raw = runQuery('bug', ['--where', 'severity=P1', '--format', 'markdown-list']);
+    assert.ok(raw.includes('P1'), `Expected severity P1 in output: ${raw}`);
+    assert.ok(raw.includes('(system:'), `Expected "(system:..." in output: ${raw}`);
+    assert.ok(raw.includes('setup/publish'), `Expected system name in output: ${raw}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. test_query_improvement_basic — YAML-backed improvement-queue type
+// Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C6
+// ---------------------------------------------------------------------------
+
+describe('improvement — basic query (YAML whole-file frontmatter)', () => {
+  it('test_query_improvement_basic: --type improvement finds the fixture record', () => {
+    const raw = runQuery('improvement', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records.length, 1, `Expected 1 improvement record; got ${records.length}: ${raw}`);
+  });
+
+  it('proposed_target field is parsed and available for filtering', () => {
+    const raw = runQuery('improvement', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(
+      records[0].frontmatter.proposed_target,
+      'setup/publish.sh (REVIEW_PATTERNS array)',
+      `Expected proposed_target field; got: ${JSON.stringify(records[0].frontmatter)}`
+    );
+  });
+
+  it('markdown-list format includes proposed_target in (target: ...) suffix', () => {
+    const raw = runQuery('improvement', ['--format', 'markdown-list']);
+    assert.ok(raw.includes('(target:'), `Expected "(target:..." in markdown output: ${raw}`);
+    assert.ok(raw.includes('REVIEW_PATTERNS'), `Expected proposed_target value in output: ${raw}`);
+  });
+
+  it('from_repo field is parsed correctly from whole-file YAML', () => {
+    const raw = runQuery('improvement', ['--format', 'json']);
+    const records = JSON.parse(raw);
+    assert.equal(records[0].frontmatter.from_repo, 'coordinator-claude',
+      `Expected from_repo=coordinator-claude; got: ${records[0].frontmatter.from_repo}`);
   });
 });

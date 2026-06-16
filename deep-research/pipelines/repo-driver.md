@@ -29,10 +29,12 @@ Scouts produce the shared thoroughness artifact that Sonnets would naturally ski
 3. Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp)
 4. Generate topic slug from repo name (e.g., `onnxruntime`, `langchain`)
 5. Record spawn timestamp: `date +%s` (Unix epoch seconds — passed to teammates for timing)
-6. Create scratch directory:
+6. Create working directory:
    ```bash
-   mkdir -p tasks/scratch/deep-research-teams/{run-id}
+   mkdir -p docs/research/{run-id}-{topic-slug}-workdir
    ```
+   Set `{scratch-dir}` = `docs/research/{run-id}-{topic-slug}-workdir`
+   <!-- Review: Slice B reviewer F1 — {scratch-dir} was unbound; 15+ downstream references were unresolved template tokens -->
 7. Set output path: `docs/research/YYYY-MM-DD-{topic-slug}.md`
 8. Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-advisory.md` (replace `.md` with `-advisory.md` on the assessment output path)
 9. If `--compare`: set gap analysis path: `docs/research/YYYY-MM-DD-{topic-slug}-gap-analysis.md`
@@ -362,18 +364,20 @@ When you receive a notification that the synthesis task is complete:
    ```bash
    ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: complete — {topic-slug}"
    ```
-10. Archive paper trail:
+10. Archive paper trail (atomic rename — no copy-then-delete race window):
     ```bash
-    mkdir -p docs/research/archive/YYYY-MM-DD-{topic-slug}
-    cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-{topic-slug}/
-    rm -rf {scratch-dir}
+    mv docs/research/{run-id}-{topic-slug}-workdir docs/research/archive/YYYY-MM-DD-{topic-slug}
     ```
+    **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
 11. Commit: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "deep-research: archive + cleanup"`
 12. Present executive summary to PM for discussion. If advisory exists, mention it: "The synthesizer flagged observations beyond scope — see the advisory at `{advisory-path}`." If `--deepest`: mention the atlas artifacts and their locations. Mention the coverage-audit sidecar: "Coverage audit written to `{output-path minus .md}-coverage-audit.md` — {present_count} claims present, {absent_count} absent."
 
 ## Step 7.5 — Atlas Refinement (only if `--deepest`)
 
 **Phase 3:** After the team is deleted and the assessment is verified, dispatch a Sonnet subagent (NOT a teammate — team is deleted) to refine the preliminary atlas using specialist analysis and synthesis findings, producing the 4th artifact (architecture summary) which requires specialist data. Use `pipelines/repo-atlas-prompt-template.md`. Verify all 4 artifacts (`atlas-file-index.md`, `atlas-system-map.md`, `atlas-connectivity-matrix.md`, `atlas-architecture-summary.md`) exist and have substantive content; on success, copy from scratch to the docs/research/ paths set in Step 1; on failure, note to PM and proceed (atlas is additive). Return to Step 7 item 9 (Commit).
+
+<!-- Review: Slice B reviewer F2 — atlas-refinement copy step uses cp (not mv); both src and dst are under docs/research/ by construction, so no cross-FS guard is needed here -->
+**Note on the copy step:** The atlas-refinement step copies artifacts from the workdir into `docs/research/` (using `cp` since both paths are sibling directories); the workdir's atomic `mv` to `archive/` happens at Step 7 item 10 and carries the cross-FS precondition guard there. No separate guard is needed at Step 7.5 because both src and dst are under `docs/research/` by construction.
 
 **Template fields, dispatch syntax, copy commands:** see `pipelines/repo-research-internals.md` § Step 7.5.
 

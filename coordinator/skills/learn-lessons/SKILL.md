@@ -192,6 +192,28 @@ The EM (or a delegated router) reads the per-repo `*-extracted.yaml` files and p
 
 If a Haiku/Sonnet router is dispatched, the dispatch prompt MUST include the verify-gate clause: *"Every routing record's `id` MUST appear in the cited `*-extracted.yaml`. Inventing a record under a fabricated id will be caught by `extract-lessons.py verify` at Phase 5 and fail the run."* The gate is mechanical (Phase 5); the prompt clause is the design-as-offers framing that lets the router self-check before producing output.
 
+### Central mode — undated-pass (required after delta routing)
+
+After the delta routing pass lands, run a second routing pass per repo for undated `[universal]` entries. `--since` excludes them from the delta extraction (`undated_excluded_under_since: N` in extraction meta), so without this pass every undated universal accrued in a project's `lessons.md` silently leaks past central promotion. The 2026-06-14 central run is the empirical case: 53 dated records routed in delta, 7 undated+universal records left unrouted, 1 stripped without routing (doctrine loss recoverable from `git show 434365dcb^:state/lessons.md`). The Phase 8 `undated_universal_remaining` counter (below) is the fail-close that surfaces a leak before `COMPLETE` lands. This Phase promotes the passing acknowledgement at the "Why two extractions" note above to a checkable Phase step.
+
+**Placed in Phase 2 (not Phase 4.x):** undated records ARE routing input — they consume the same router → verify-gate → apply pipeline as delta records. A post-archive home would run after the archive pass that depends on routed records and would create a circular dependency with Phase 8's `COMPLETE`-sentinel fail-close.
+
+```bash
+# VERBATIM filter: select undated+universal records from full extraction (per repo).
+# extract-lessons.py already emits per-record `undated` + `tag_universal`; no API change.
+# stdin-streaming form — avoids Windows/Git-Bash msys path resolution mismatches that
+# break Python stdlib open() on `/c/Users/...` paths.
+python3 -c "
+import yaml, sys
+data = yaml.safe_load(sys.stdin)
+records = [r for r in data.get('records', []) if r.get('undated') and r.get('tag_universal')]
+data['records'] = records
+yaml.safe_dump(data, sys.stdout, sort_keys=False)
+" < "${RUN}/<shortname>-extracted-full.yaml" > "${RUN}/<shortname>-extracted-undated-universal.yaml"
+```
+
+The filtered extraction then flows through the **same** router → Phase 5 verify-gate → apply pipeline as the delta records. If a Haiku/Sonnet router is dispatched on this pass, the dispatch prompt MUST cite the verify-gate clause above. Output artifact naming: `<shortname>-extracted-undated-universal.yaml` per repo (established by 2026-06-14 run).
+
 ### Local mode
 
 Same two layers, scoped to one repo:
@@ -202,6 +224,187 @@ bin/extract-lessons.py extract state/lessons.md --shortname <repo> \
 ```
 
 EM produces `records.yaml` inline from the extraction (no router dispatch — local-mode deltas are always small enough for EM-direct routing).
+
+## Phase 2.6 — Lessons-Outbox Drain (Central Mode Only)
+
+<!-- Spec backlink: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C4 -->
+<!-- Negative-spec: Do NOT read outbox YAMLs during local-mode runs — the outbox drain is a
+     DoE-owned central-mode operation only. Local-mode routing writes TO the outbox via
+     coordinator-lesson-promote; Phase 2.6 reads FROM the outbox. -->
+
+**Purpose:** After the delta-routing and undated passes above, the central run drains any structured
+YAML entries already queued in peer-repo outboxes by prior `coordinator-lesson-promote` invocations.
+These entries were produced by local-mode runs on machines that had `[universal]` + central-wiki-target
+lessons and called the CLI rather than appending to their improvement queues.
+Schema reference: `docs/wiki/lessons-outbox-schema.md`.
+
+### Step 1 — Enumerate peer repos
+
+Read the `[repos]` table from `~/.claude/machine-local/registry.local.toml`. This is the canonical
+source for all registered peer repos on this machine.
+
+```bash
+# Enumerate registered peers. machine-local keys returns dotted keys; resolve each to its filesystem path:
+machine-local keys | grep '^repos\.' | while IFS= read -r key; do
+  machine-local get "$key"   # filesystem path to peer repo
+done
+```
+
+### Step 2 — Sync each peer repo (skip-with-warning if absent)
+
+For each registered peer repo path:
+
+1. **Verify on-disk.** If the peer path does not resolve on this machine, emit a warning and skip:
+   `"outbox-drain: peer <shortname> not on disk — skipping (DoE drain runs from Striker)"`.
+   Do NOT error-exit on absent peers; the drain is designed to run from a machine with all repos
+   checked out (typically Striker) but must degrade gracefully elsewhere.
+
+2. **Fetch and pull** to ensure the outbox is current:
+
+   ```bash
+   git -C "<peer-path>" fetch
+   git -C "<peer-path>" pull --ff-only
+   ```
+
+   If `pull --ff-only` fails (non-fast-forward), emit a warning and skip that peer:
+   `"outbox-drain: peer <shortname> non-FF pull — skipping"`. Do NOT force-merge.
+
+3. **Precheck for uncommitted state-tree modifications** (required by the DoE-owned cross-repo
+   state drain contract — see `docs/wiki/cross-repo-communication.md`
+   § Doctrine seeding vs. code/install-surface change > DoE-owned cross-repo state drain (third axis)):
+
+   ```bash
+   git -C "<peer-path>" status --porcelain --untracked-files=no
+   ```
+
+   If the output is non-empty (peer has uncommitted state-tree modifications), emit a warning and
+   skip: `"outbox-drain: peer <shortname> has uncommitted modifications — skipping writeback;
+   drain routing will proceed but writeback is deferred"`. The routing pass still runs on the
+   already-fetched outbox content; only the writeback (Step 6) is deferred for this peer.
+
+### Step 3 — Read peer outbox entries
+
+For each peer that passed Step 2, glob `<peer-path>/state/lessons-outbox/*.yaml` excluding the
+`drained/` subdirectory:
+
+```bash
+find "<peer-path>/state/lessons-outbox/" -maxdepth 1 -name "*.yaml" -not -path "*/drained/*"
+```
+
+Parse each YAML file per the schema at `docs/wiki/lessons-outbox-schema.md`. Required fields:
+`id`, `created`, `from_repo`, `title`, `body`, `change_kind`, `target_wiki`.
+Entries with `target_wiki: unknown` are queued for manual triage — do NOT route them through
+the apply pipeline; surface them to the PM in the Phase 8 report.
+
+### Step 4 — Deduplicate across repos
+
+Build a dedup index keyed on the triple `(title, change_kind, target_wiki)`.
+
+- **Multiple entries sharing the same triple from different repos are NOT a collision** — they are
+  a convergence signal. Record the `from_repo` values as a priority annotation on the merged entry.
+  Apply the merged entry once with elevated confidence, noting the source repos in the provenance.
+- **Entries with unique triples** proceed independently.
+
+Log the dedup results: `"outbox-drain: N entries across M repos → K unique after dedup (J convergence signals)"`.
+
+### Step 5 — Apply via existing central-mode pipeline
+
+Route each deduplicated entry (and each convergence-merged entry) through the **existing** central-mode
+router → Phase 5 verify-gate → apply pipeline, as if they were delta-routing records from Phase 2.
+Use the outbox `body` field as the lesson content and `target_wiki` as the destination.
+The `change_kind` field maps directly to the Phase 2 routing schema (see `docs/wiki/lessons-outbox-schema.md`
+§ Change-kind enum).
+
+`target_wiki: unknown` entries are surfaced to the PM for manual triage; do NOT pass them to the
+apply pipeline.
+
+For each entry routed successfully through the apply pipeline, append its source YAML path to a
+`$drained_paths` list. Entries that fail apply (verify-gate red or apply error) are NOT added to
+`$drained_paths` and are left in place in the peer's outbox for the next drain cycle.
+
+### Step 6 — Writeback (DoE-owned cross-repo state drain)
+
+> Authority: `docs/wiki/cross-repo-communication.md` § Doctrine seeding vs. code/install-surface
+> change — **DoE-owned cross-repo state drain (third axis)**. The outbox YAMLs are physically
+> distributed instances of DoE-owned state; the drain confirmation (`git mv` to `drained/`) is
+> DoE-owned state management, not a content addition to peer-owned surfaces.
+
+For each peer repo where Step 3 found entries AND Step 2 precheck passed (no uncommitted
+state-tree modifications), perform the following writeback:
+
+1. **Determine branch base.** Use the peer's `main` branch as the cut point:
+
+   ```bash
+   git -C "<peer-path>" fetch origin main
+   # Branch cut point = origin/main (never the peer's active workstream branch)
+   ```
+
+2. **Create drain branch on peer repo:**
+
+   ```bash
+   DRAIN_DATE=$(date +%Y-%m-%d)
+   git -C "<peer-path>" checkout -b "drain/${DRAIN_DATE}-doe-pull" origin/main
+   ```
+
+3. **Move drained entries from `state/lessons-outbox/` to `state/lessons-outbox/drained/`:**
+
+   ```bash
+   mkdir -p "<peer-path>/state/lessons-outbox/drained/"
+   for yaml_file in $drained_paths; do
+     git -C "<peer-path>" mv "state/lessons-outbox/$(basename $yaml_file)" \
+       "state/lessons-outbox/drained/$(basename $yaml_file)"
+   done
+   ```
+
+4. **Create the DoE-side drain manifest BEFORE the first peer commit.** Write
+   `~/.claude/state/lessons-outbox-drained-manifest.<DRAIN_DATE>.json` enumerating all drained
+   entries as `[{peer, filename, id, title}]`. The manifest must exist on disk before any peer
+   commit can cite its path in the commit message. If creation fails, abort the drain — do NOT
+   commit on any peer.
+
+5. **Commit on the peer repo's drain branch.** Commit message MUST carry:
+   - `[doe-state-drain]` prefix
+   - Name the DoE-side drain ledger: `~/.claude/state/lessons-outbox-drained-manifest.<date>.json`
+
+   ```bash
+   git -C "<peer-path>" commit -m "[doe-state-drain] drain <N> outbox entries to drained/ — manifest: ~/.claude/state/lessons-outbox-drained-manifest.${DRAIN_DATE}.json"
+   ```
+
+6. **Do NOT push the drain branch.** The branch is created locally on the DoE machine. The peer EM
+   pulls and merges on their own schedule. Record the local branch name in the Phase 8 report under
+   the drain summary.
+
+7. **Return to peer's previous branch** to leave the peer repo in a clean state:
+
+   ```bash
+   git -C "<peer-path>" checkout -
+   ```
+
+   If `git checkout -` fails (e.g., peer was in detached HEAD or mid-rebase before drain —
+   `git status --porcelain --untracked-files=no` does NOT detect mid-rebase state), record the
+   error in the Phase 8 drain summary AND leave a
+   `DRAIN-CHECKOUT-FAILED-<DRAIN_DATE>` breadcrumb file in the peer's
+   `state/lessons-outbox/drained/` so the next drain cycle can adjudicate.
+
+**Writeback skipped (Step 2 precheck failed):** record in the Phase 8 drain summary with reason.
+The PM may re-run the drain pass after the peer's concurrent work settles; the outbox entries
+remain in `state/lessons-outbox/` and will be picked up on the next central run.
+
+### Phase 2.6 end-of-step summary (feeds Phase 8 report)
+
+Record the following for the Phase 8 end-of-run report:
+
+```
+outbox-drain summary:
+- Peers enumerated: N  (M on disk, K skipped-absent, J skipped-non-ff, L skipped-dirty-tree)
+- Outbox entries read: N total (before dedup)
+- After dedup: K unique entries (J convergence-merged from multiple repos)
+- target_wiki: unknown (manual triage): U entries
+- Entries routed through apply pipeline: R
+- Writeback branches created: W  (<shortname>: drain/<date>-doe-pull, ...)
+- Writeback deferred (dirty tree): D peers
+- DoE drain manifest: ~/.claude/state/lessons-outbox-drained-manifest.<date>.json
+```
 
 ## Phase 3 — Recurrence Detection
 
@@ -370,6 +573,40 @@ Batch authorization is OK ("apply all of A, defer all of B-MEDIUM, reject B-LOW"
 
 **Central first, then strip-local — both in the same run, both DoE-applied.** Strip-local records have `depends_on` pointing at the central change; do not strip until the central commit SHA exists. Once that SHA lands, the DoE applies the strip in the sibling repo in the same central run — do **not** defer to "the sibling's next local-mode age-sweep" (deferral is the boot-tax pattern; every day the redundant entry remains it costs every consumer that reads `lessons.md`). Concurrent-edit safety: pull-then-content-match-then-prune; skip-and-warn on drift; age-sweep catches residue.
 
+### Strip-list orphan-rejection (mechanical, before strip-executor dispatch)
+
+Every `id` in the strip-list MUST correspond to a record in `records.yaml` whose `change_kind` routes to a real destination (NOT `discard`). Reject any strip-line lacking a corresponding routed record — that is the 2026-06-14-shape mistake (strip without route, doctrine loss). This actions the 2026-05-30 improvement-queue entry on `bulk strip-universals.py` assuming-all-promoted false-on-heavy-capture-days. Implementation is a short inline Python check from the dispatching skill; do NOT add a new bin script:
+
+```bash
+# VERBATIM: reject orphan strip-lines.
+# Streamed via shell pipelines — avoids Windows/Git-Bash msys path resolution
+# mismatches that break Python stdlib open() on `/c/Users/...` paths.
+routed_ids=$(python3 -c "
+import yaml, sys
+records = yaml.safe_load(sys.stdin).get('records', [])
+for r in records:
+    if r.get('change_kind') and r['change_kind'] != 'discard':
+        print(r['id'])
+" < "${RUN}/records.yaml")
+
+orphans=$(python3 -c "
+import yaml, sys, os
+routed = set(os.environ['ROUTED_IDS'].split())
+strip_list = yaml.safe_load(sys.stdin).get('strip', [])
+for s in strip_list:
+    if s.get('id') not in routed:
+        print(f\"  {s.get('id')} — in strip-list, no routed record\")
+" ROUTED_IDS="$routed_ids" < "${RUN}/strip-list.yaml")
+
+if [ -n "$orphans" ]; then
+    echo "STRIP-ORPHAN-REJECT:" >&2
+    echo "$orphans" >&2
+    exit 1
+fi
+```
+
+**Placement at Phase 5 § Apply order (not Phase 5 verify-gate pre-flight) is load-bearing** — verify-gate catches fabrication of source references (cited id doesn't exist in extraction); orphan-rejection catches routing-set gaps (cited id exists but has no routed sibling). Both are necessary because they fail on different invariants. Complementary to `docs/wiki/learn-lessons-routing.md` § "Cross-Repo Strip — Content-Signature Matching, Not Line-Number Partition", which guards the strip mechanism against source-file drift; this check guards against routing-set gaps. Both fire at strip dispatch time.
+
 ### Per-record apply dispatch
 
 > **Full dispatch table + CLAUDE.md pre-flight gates:**
@@ -399,6 +636,28 @@ Project-structural improvements queued by `/learn-lessons`. Consumed by `/workwe
 ```
 
 **When appending a NEW entry to either queue (central or per-project), write the main line only.** DR-056 amended 2026-05-17: the `recurring:` and `resolution:` sub-lines are dropped from the schema (empirical data: 100% of central-queue entries had `recurring: 0` / `resolution: pending` — 266 lines of unchanging ceremony across 133 entries). `/update-docs` Phase 11i strips trivial sub-lines on every run regardless. If recurrence count matters, append ` [recurring: N]` to the main line when N ≥ 1.
+
+### Universal-routing classifier branch
+
+When the classifier returns a `[universal]`-tagged entry, apply this routing fork before any queue append:
+
+**Case A — `[universal]` + central-wiki target** (`target_wiki` resolves to a path under `~/.claude/docs/wiki/`, NOT under the project's own `docs/wiki/`): invoke `coordinator-lesson-promote` mechanically with the classifier's structured fields. Do NOT append to `state/improvement-queue.md` for this case.
+
+```bash
+# TEMPLATE: adapt paths/values
+coordinator-lesson-promote \
+  --title "<classifier.title>" \
+  --body "<classifier.body>" \
+  --change-kind "<classifier.change_kind>" \
+  --target-wiki "<classifier.target_wiki>" \
+  --evidence "<source-lesson-file>:<line>"
+```
+
+The CLI writes a schema-conforming YAML to `state/lessons-outbox/<ISO-ts>-<slug>.yaml`. Schema reference: `docs/wiki/lessons-outbox-schema.md`. The DoE drains the outbox on the next central run — see `coordinator/CLAUDE.md § Improvement Queue` for the full routing contract.
+
+**Case B — `[universal]` + project-local wiki target** (`target_wiki` resolves to a path under the project's own `docs/wiki/`, or is a local-wiki name): auto-apply locally as today — unchanged.
+
+**Case C — project-scope entries** (classifier returns `scope: project`): route to `state/improvement-queue.md` markdown — unchanged.
 
 **Routing:** scope → queue mapping in `docs/wiki/learn-lessons-routing.md` § Lesson Scope Classification.
 
@@ -456,7 +715,13 @@ learn-lessons run complete (mode=<mode>):
     If skipped > 0: surface to PM — "Re-run `/learn-lessons --mode central` targeting these
     ids after the affected sibling's concurrent work settles. Age-sweep will NOT catch them
     in the current window (just-promoted entries are inside the cutoff date)."
+- V undated_universal_remaining: <count> across N repos
+    <per-repo breakdown for repos with >0>
 ```
+
+**Fail-close on undated leak.** If `undated_universal_remaining > 0`, the run MUST NOT write the `COMPLETE` sentinel — surface the per-repo breakdown to the PM via the existing Phase 5 § "Central mode — PM gate" channel (the same gate that handles deferred records today) and stop. The undated-pass is mandatory; a non-zero remainder is a SKILL failure. `undated_universal_remaining` is the count of undated `[universal]` records that have neither been **applied** this run, **deferred** to the improvement queue, nor **rejected** — records under PM disposition (a/b/c) decrement the counter (a fully-deferred batch does NOT spuriously block COMPLETE). PM disposition follows the established central-mode triad: (a) apply now (route the undated batch in-run), (b) defer to improvement queue with PM-recorded reason, (c) reject. Only after every undated `[universal]` record has a (a)/(b)/(c) decision may COMPLETE land. This deliberately re-uses the existing parameter surface rather than introducing a `--allow-undated-leak` flag — see Anti-Patterns § "Bespoke extra parameters" below: modes are the parameter surface; the PM gate is the escape hatch. The sentinel is the contract Phase 4.5 reads to pick its cutoff (this file § Phase 4.5 "Cutoff is event-based, not age-based") — writing it on a leaky run silently certifies promotion completion for entries that were never routed.
+
+**Other COMPLETE-sentinel consumers:** `bin/central-run-due.sh` (Phase 7 volume-trigger nudge at `/workday-start` Step 1.75) reads the sentinel to compute its cutoff. The fail-close strengthens sentinel semantics monotonically — sentinel presence now also implies "undated `[universal]` records were dispositioned" — so the central-run-due cutoff becomes more reliable. No consumer-side change needed.
 
 The recurrence list is the pressure signal. PM acts or defers — no automatic block.
 The `doe_escalation` and downgrade lists are inputs to the DoE's separate doctrine-edit
@@ -469,6 +734,12 @@ never become a sweep cutoff (it never promoted its entries). Write it last, afte
 land — it certifies "every universal up to this date had its promotion opportunity."
 
 **Forbidden report shapes.** The end-of-run report MUST NOT include defer-chain language ("N candidates for next pass", "run /learn-lessons later to action these", "scope limited to this pass"). Records belong in one of three buckets: (a) applied this run, (b) PM-surfaced with a decision request, (c) mode escalated. Any record that fits none is a routing error — fix the routing, not the report.
+
+**Local-mode exhaustivity goal (non-universal entries too).** The goal of a local-mode run is to drain `state/lessons.md` of every entry, not only `[universal]`-tagged ones. Every non-`[universal]` entry should exit via one of: (a) `wiki-append` to a project wiki, (b) `improvement-queue` append, (c) `discard` to `archive/lessons-archived/YYYY-MM.md` with rationale, or (d) `retag-local` if mis-tagged. The three-bucket exhaustivity rule applies to every entry — "the universals are handled, we're done" is the doctrine violation this clause closes.
+
+The goal is aspirational because the queue can exceed what fits in one context window. When it does, the carryover is legitimate IFF it is **explicitly enumerated** in the end-of-run report with the reason: `context-window-bound: N entries remain — recommend follow-up /learn-lessons run`, alongside any `[universal]` strip-local residue from a concurrent central run. A silent residue (entries left without enumeration or reason) is the failure mode; an enumerated residue with a follow-up signal is acceptable triage. The Phase 8 report should enumerate each remaining non-universal entry with its disposition (applied / queued / discarded / retagged / skipped-with-reason / carryover-context-bound); a bare entry-count line is insufficient — the disposition list is the audit trail.
+
+*Empirical case (2026-06-14, project-rag):* a local-mode run terminated reporting "no additional work needed" after a peer central run's `[universal]` strip, while ~26 project-specific entries (registry/gate-test coupling, NDCG scorer-bug discipline, fusion-weight bugs, sidecar-restart ordering, …) sat un-routed. The skill's abstract three-bucket rule covered this in principle; the absent explicit local-mode floor let the residue pass.
 
 ## Anti-Patterns
 
@@ -486,6 +757,7 @@ land — it certifies "every universal up to this date had its promotion opportu
 - **Worker proposing `change_kind: doctrine-edit` or `change_kind: memory-pointer`.** Routing error — downgrade to `wiki-*` + `doe_escalation: true` before the record reaches the PM gate. The wiki edit is the load-bearing change; any CLAUDE.md edit is a separate downstream DoE-authored plan.
 - **Archiving a lesson because its proposed target violates policy.** Substance and proposed target are independent. A `proposed target: CLAUDE.md` that fails the gate is a routing problem, not a substance problem — reroute to the right wiki / agent prompt / hook / script. `discard` only when the substance itself is ephemeral, already covered, or wrong.
 - **Defer-chaining wiki promotions or end-of-run "candidates for next pass."** A run that classifies records with named wiki destinations and defers them is the pattern this skill exists to prevent. Wiki-append/wiki-new with named destinations apply IN THIS RUN (Phase 5 auto-apply contract). Any Phase 8 report line naming records "to be folded next run" is a doctrine violation — apply them, surface them to the PM with a decision request, or escalate the mode. The three buckets are exhaustive; "informational candidates for later" is not a fourth.
+- **Declaring "no additional work needed" while project-specific entries remain.** The local-mode three-bucket exhaustivity rule (applied / PM-surfaced / mode-escalated) applies to every entry, not only to `[universal]`-tagged ones. A run that proudly reports queue-empty after a peer's `[universal]` strip but leaves project-specific entries un-routed is the doctrine violation this skill exists to prevent. The `[universal]` subset is the central run's scope by design; the project-specific tail is the local run's responsibility. Same boundless-accumulation hazard the cruft-sweep cadence floor (Layer 1) prevents for filesystem hygiene — same shape, different surface.
 
 ## Related
 

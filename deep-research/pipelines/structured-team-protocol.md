@@ -236,7 +236,7 @@ The relay is revisited only if Pipeline C adds a prose-synthesis output mode. It
 
 ## Scratch Directory
 
-`tasks/scratch/deep-research-teams/{run-id}/`
+`docs/research/{run-id}-{topic-slug}-workdir/`
 
 - Scout writes to: `{scratch-dir}/{subject}-scout-{topic_id}.md` (one per topic)
 - Each verifier writes to: `{scratch-dir}/{topic_id}-findings.md` (schema field tables)

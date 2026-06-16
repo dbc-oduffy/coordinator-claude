@@ -72,6 +72,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **<20 NEW artifacts:** **Lightweight mode.** Dispatch a single Sonnet agent that reads all NEW files and produces guide deltas + decision records + deletion manifest in one pass. No Haiku scanning, no clustering, no Opus assembly. Jump directly to Phase 4 (PM gate).
    - **20-50 NEW artifacts:** **Standard mode.** 2-3 Haiku batches, skip QG (Phase 1.5), coordinator does clustering inline, 2-3 Sonnet synthesizers, coordinator assembles (skip Phase 3a — run 3b/3c/3d only).
    - **50+ NEW artifacts:** **Full pipeline** as designed below.
+   - **Phase 3d dispatch mode — N > 500 total deletion-eligible candidates:** Flip Phase 3d to **Workflow-fanout-per-cluster** mode. Use `agent-prompts/phase-3d-fanout.md` (one Sonnet agent per scout-grouping cluster; EM assembles fragments into the canonical manifest). Below this threshold, **single-Sonnet-grouped** is canonical. (N = EPHEMERAL + ALREADY_CAPTURED + NEW, not NEW count alone.) (DR-4, 2026-06-14)
 8. **Generate run ID** (format: `YYYY-MM-DD-HHhMM`), create scratch dir at `state/scratch/artifact-distillation/{run-id}/`
 9. **Sort artifacts chronologically** within each source directory (temporal ordering preserved through pipeline — critical for detecting superseded decisions)
 10. **Group artifacts into 4-8 batches** of ~20-50 files each (by source dir + chronological window)
@@ -110,6 +111,8 @@ One Haiku agent per batch. Each agent reads every artifact in its batch and extr
 - `[FORMAT_HINTS]` — format notes from Phase 0 (e.g., "frontmatter-bearing markdown", "plain markdown")
 - `[SCRATCH_PATH]` — `state/scratch/artifact-distillation/{run-id}/batch-{N}-phase1-haiku.md`
 
+Scout output must conform to § Phase 1 Scout Output Schema (below) — fenced YAML block under each group H2 heading is mandatory.
+
 Instruct each agent in its prompt to use Read, Write, and Glob. (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
 **Scratch verification:** Before proceeding to Phase 1.5, verify all expected files exist. Re-dispatch the failed agent once on missing files. If it fails again, skip that batch and note the gap.
@@ -141,6 +144,35 @@ One Haiku agent per batch verifying Phase 1 output.
 Instruct each agent in its prompt to use Read, Write, and Glob (Glob for path verification spot-checks). (The Agent tool has no `tools` parameter — tool guidance goes in the prompt.) Dispatch with `run_in_background: true`.
 
 **Scratch verification:** Verify all expected QG files exist before proceeding to Clustering.
+
+---
+
+## Phase 1 Scout Output Schema
+
+<!-- spec-backlink: docs/plans/2026-06-14-distill-phase3d-output-budget.md § DR-7 -->
+
+Phase 1 Haiku agents must emit a fenced YAML block for each classification group (EPHEMERAL clusters, ALREADY_CAPTURED clusters) — specifically, the first fenced YAML block occurring after the H2 heading and before the next H2 heading (or EOF). Phase 5 reads this YAML block when expanding `deletion_groups:` entries — the YAML block is authoritative; the surrounding Markdown prose is human-readable documentation only.
+
+**H2 heading format:** The heading text must exactly match the `section_anchor:` value declared in the corresponding `deletion_groups:` entry in the Phase 3d manifest. Example:
+
+```
+## EPHEMERAL — task tracking and session logs (archive/completed/2026-05)
+```
+
+**Fenced YAML block (mandatory, immediately under the H2 heading):**
+
+```yaml
+artifact_paths:
+  - archive/completed/2026-05/2026-05-01-foo.md
+  - archive/completed/2026-05/2026-05-02-bar.md
+description: "Completion logs from 2026-05 sprint — pure session tracking, no lasting knowledge."
+```
+
+**Schema:**
+- `artifact_paths:` — required. Ordered list of file paths (relative to repo root) belonging to this group. Phase 5 iterates this list to build synthetic `deletions:` rows. The `count:` field in the `deletion_groups:` entry must equal `len(artifact_paths)` — mismatch causes Phase 5 to abort.
+- `description:` — optional. Human-readable summary of the group for PM review and distillation log. Not consumed programmatically.
+
+**Invariant (AC16):** Every group section in a Phase 1 scout output that is cited by a `deletion_groups:` entry MUST have this fenced YAML block. Missing YAML block → Phase 5 `deletion_groups:` expansion aborts for that group with a named error.
 
 ---
 
@@ -357,7 +389,7 @@ directory_entries:
 
 Instruct the agent in its prompt to use Read and Write.
 
-**Phase 3d scratch output schema:** The Phase 3d scratch file (`phase3d-deletion-manifest.md`) includes a `deletions:` YAML block as the machine-readable source-of-truth. Any prose table is a derived PM-readable view. Full schema: `agent-prompts/phase-3d.md`.
+**Phase 3d scratch output schema:** The Phase 3d scratch file (`phase3d-deletion-manifest.md`) includes a `deletions:` YAML block (per-file rows) and, in `schema_version: 2`, a sibling `deletion_groups:` YAML block (grouped-by-reference rows) as the machine-readable source-of-truth. Any prose table is a derived PM-readable view. Full schema (both keys, self-check ceiling, worked example): `agent-prompts/phase-3d.md`.
 
 **Phase 3d produces:**
 - **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` with reason (YAML `deletions:` block; prose table derived view)
@@ -373,6 +405,34 @@ Instruct the agent in its prompt to use Read and Write.
 4. **Deletion manifest** — every source artifact with `DISTILLED → DELETE`, `EPHEMERAL → DELETE`, `SKIP`, or `PRESERVE` with reason (3d)
 
 **Checkpoint discipline preserved:** The `git checkpoint` before Phase 3a (from the end of Phase 2) applies to 3a/3b/3c/3d re-runnability — each 3a agent writes to a named scratch path, so re-running a completed shard is safe (idempotent).
+
+---
+
+## Phase 3d fanout assembly (Coordinator, Workflow-fanout mode only)
+
+<!-- spec-backlink: docs/plans/2026-06-14-distill-phase3d-output-budget.md § DR-4 -->
+
+**When Workflow-fanout mode engaged (N > 500):** After all per-cluster Phase 3d-fanout agents complete, the EM assembles the per-cluster fragments into a single canonical manifest before Phase 5 runs. This step is skipped in single-Sonnet-grouped mode (N ≤ 500).
+
+**Assembly strategy — multi-document YAML (option b):** Each fragment file is a valid YAML document; the assembler joins them with a `---` separator. Phase 5 iterates YAML documents. Fragments must NOT include a closing `---`; the assembler adds separators between fragments only.
+
+**Canonical assembly command:**
+
+```bash
+ASSEMBLED="state/scratch/artifact-distillation/${RUN_ID}/phase3d-deletion-manifest.md"
+printf 'schema_version: 2\n' > "$ASSEMBLED"
+for f in "state/scratch/artifact-distillation/${RUN_ID}"/phase3d-fragment-*.md; do
+  cat "$f" >> "$ASSEMBLED" && printf '\n---\n' >> "$ASSEMBLED"
+done
+```
+
+**Post-assembly verification:**
+1. Confirm `$ASSEMBLED` exists and is non-empty: `ls -lh "$ASSEMBLED"`.
+2. Confirm fragment count matches expected cluster count: `ls "state/scratch/artifact-distillation/${RUN_ID}"/phase3d-fragment-*.md | wc -l`.
+3. Confirm no fragment file was skipped: total `artifact_path:` lines across fragments must equal the sum of per-fragment counts (spot-check with `grep -c 'artifact_path:' "$ASSEMBLED"`).
+4. Only after verification passes does the Phase 5 sentinel see the canonical manifest and proceed.
+
+**Fragment naming convention:** `phase3d-fragment-{cluster-tag}.md`. The EM must enumerate all cluster tags from the Phase 3d fanout dispatch before verification.
 
 ---
 
@@ -422,12 +482,15 @@ Present to PM:
 
 5. **Delete approved artifacts — `.md`-only filter is MANDATORY.**
 
+   **Fanout assembly sentinel (pre-deletion check).** This sentinel applies only when Phase 0 engaged Workflow-fanout mode (`N > 500` total deletion-eligible candidates). Before reading the deletion manifest, verify that the canonical manifest is present at `state/scratch/artifact-distillation/[RUN_ID]/phase3d-deletion-manifest.md`. If `phase3d-fragment-*.md` files exist at that path AND the canonical manifest is absent, **abort** with the named error: "fanout assembly incomplete — N fragments found, no canonical manifest." Do not proceed to deletion. The EM must assemble the canonical manifest from the fragments before Phase 5 can run. In single-Sonnet mode (N ≤ 500), no fragments are produced and this sentinel does not fire. (AC17)
+
    `git rm -r tasks/<feature-dir>/` is **forbidden**. Recursive directory removal sweeps up co-located non-markdown research corpora (e.g., the 2026-04-26 run swept 525 non-md files from a `.next/`/asar corpus shared with a distill target) and violates the "research provenance is always retained" rule.
 
    Required procedure for each deletion-manifest entry:
    - Build the deletion list as **`*.md` only** — no recursive directory globs.
    - Per directory entry: `git ls-files '<dir>/*.md' '<dir>/**/*.md'` then `git rm` only those.
    - **YAML-manifest consumption (mandatory).** The Phase 3d deletion manifest emits a `deletions:` YAML block (`agent-prompts/phase-3d.md` schema). Extract artifact paths from the `artifact_path:` field of each entry — do NOT use `awk -F'|'` column-extraction on prose Markdown tables. YAML consumption avoids format-drift parsing failures. Entries with `disposition: DELETE` are eligible; `SKIP` and `PRESERVE` entries are excluded. See `snippets/deletion-list-hygiene.md` for hygiene guards.
+   - **`deletion_groups:` expansion (schema_version: 2).** After consuming all `deletions:` rows, check for a sibling `deletion_groups:` list. For each group entry: read the file at `scout_source:`, locate the H2 heading that exactly matches `section_anchor:`, read the first fenced YAML block occurring after that H2 heading and before the next H2 heading (or EOF), and consume the `artifact_paths:` list from that YAML block. Assert `len(artifact_paths) == count` and abort on mismatch (do not silently accept a mismatched expansion). Each path from `artifact_paths:` becomes a synthetic `deletions:` row with `disposition: DELETE` and `reason:` inherited from the group's `reason:` field. The expanded synthetic rows are subject to the `.md`-only audit guard — non-`.md` paths in `artifact_paths:` are silently excluded from the deletion set and appended to `state/distillation-log.md` `## Manual Review` section with disposition `EXCLUDED-NON-MD`. Schema_version: 1 manifests (no `deletion_groups:` key) are consumed as flat `deletions:`-only without error — backward-compat invariant. (AC4, AC8, AC15)
    - **Pre-commit audit gate:** `git status --porcelain | awk '$1=="D"' | grep -v '\.md$'` MUST return empty. If it returns ANY paths, abort the deletion commit, restore the unintended deletions (`git restore --staged --worktree <path>`), and report to PM. Non-`.md` deletions are never silently accepted, even if the deletion manifest names them.
    - Research outputs (`docs/research/`, `~/docs/research/`), NotebookLM artifacts (`*-claims.json`, `*-summary.md`, anything under `tasks/notebooklm-*/`), and Pipeline C structured outputs are **never deleted** by `/distill` regardless of manifest contents — these were marked PRESERVE/PROMOTE at Phase 0 and are corpus, not debris.
 
@@ -482,3 +545,21 @@ Plus PM review time at Phase 4 (variable). Interstitial overhead (coordinator re
 | Phase 5 monolithic Apply-Agent A — function-based slicing puts ALL topic deltas in one process (2026-05-28-pass1: 14 guides in one agent, 20+ min, PM flagged) | Phase 5 step 2: A-role shards by guide-count; function split is role taxonomy, not agent count; wiki files are file-disjoint so deltas fan out freely |
 | Apply-agents under-count their own work in chat | Phase 5 step 3: verify with `git diff --stat`, treat the diff as ground truth, re-dispatch on missing changes |
 | `git rm -r tasks/<dir>/` sweeps up co-located research corpora (asar, `.next/`, datasets) | Phase 5 step 5: `.md`-only deletion lists; pre-commit audit `git status --porcelain \| awk '$1=="D"' \| grep -v '\.md$'` must be empty; PRESERVE/PROMOTE corpora never deleted regardless of manifest |
+| Phase 3d 32K output cap on per-file YAML at N>~100 source artifacts — single Sonnet agent outputs O(N) rows and trips the cap before any Write call flushes | Use grouped-by-reference shape (`deletion_groups:` sibling key); Phase 3d self-check stops at 50 per-file `deletions:` rows and switches to grouped (see agent-prompts/phase-3d.md § Output-budget self-check). Phase 5 expands groups via scout-file YAML-block read. (expansion: AC4/AC8; self-check: AC2 in agent-prompts/phase-3d.md; fanout-mode: DR-4) |
+| Phase 3d fanout fragments exist but canonical manifest was never assembled — Phase 5 reads fragments directly and over-counts or skips rows | Fanout sentinel in Phase 5 step 5: abort with named error "fanout assembly incomplete — N fragments found, no canonical manifest." (AC17) |
+
+---
+
+## Acceptance Criteria
+
+<!-- spec-backlink: docs/plans/2026-06-14-distill-phase3d-output-budget.md § 4 -->
+<!-- ACs not listed here are scoped to agent-prompts (AC1-AC3), commands/distill.md (AC9), sibling plans (AC10), or test fixtures (AC11-AC14). This table covers PIPELINE.md-hosted ACs only. -->
+
+| ID | Criterion | Test (typed-prefix) | Binding-Class |
+|----|-----------|---------------------|---------------|
+| AC4 | `PIPELINE.md` § Phase 5 documents `deletion_groups:` expansion logic — Read `scout_source:`, locate `section_anchor:` heading, consume the fenced YAML block immediately under it, iterate `artifact_paths:` list. | `grep: deletion_groups in PIPELINE.md` (Phase 5 § context) | bind-grep |
+| AC5 | `PIPELINE.md` § Phase 0 carries a scope-gate row: `N > 500` deletion-eligible candidates triggers Workflow-fanout-per-cluster mode (Phase 3d-fanout prompt). | `grep: N > 500 in PIPELINE.md` (Phase 0 § context) | bind-grep |
+| AC8 | Phase 5 implementation honors the new schema — `deletion_groups:` rows are expanded via scout-file YAML-block read (not glob or Markdown parse); `.md`-only audit guard still applies. | `cited: PIPELINE.md § Phase 5 step 5 deletion_groups: expansion` | bind-cited |
+| AC15 | Phase 5 consuming a `schema_version: 1` Phase 3d manifest (only `deletions:`, no `deletion_groups:`) succeeds — backward-compat invariant. Schema v1 parses as flat deletions-only under v2 consumer without error. | `bash: tests/phase3d-fixtures/fixture-4-schema-v1-backcompat.sh` | bind-test |
+| AC16 | Phase 1 scout output includes a fenced YAML block with `artifact_paths:` list under each group section heading (EPHEMERAL / ALREADY_CAPTURED cluster sections), per § Phase 1 Scout Output Schema above. | `grep: artifact_paths: in agent-prompts/phase-1.md` (or phase-1-5.md / clustering.md — verified by C0 executor) | bind-grep |
+| AC17 | Fanout partial-completion sentinel: if `phase3d-fragment-*.md` files exist at the run-id path but no canonical assembled manifest is present at the canonical path (`state/scratch/artifact-distillation/[RUN_ID]/phase3d-deletion-manifest.md`), Phase 5 aborts with named error: "fanout assembly incomplete — N fragments found, no canonical manifest." | `cited: PIPELINE.md § Phase 5 step 5 fanout sentinel` | bind-cited |

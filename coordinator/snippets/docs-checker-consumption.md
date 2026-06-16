@@ -1,4 +1,5 @@
 <!-- canonical source for docs-checker-consumption — edit here, then run verify-docs-checker-sync.sh --fix -->
+<!-- consumers: see bin/snippet-registry list-consumers docs-checker-consumption -->
 
 ## Docs Checker Integration
 

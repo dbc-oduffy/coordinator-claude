@@ -57,7 +57,7 @@ mkdir -p "$VSCODE_DIR"
 # Merge runs in node: JSONC-tolerant, additive, idempotent, atomic. Settings path
 # passed via env (avoids `node -` argv ambiguity). Exit codes: 0 = ok/idempotent/
 # skipped-unparseable; 1 = write failure.
-SETTINGS="$SETTINGS" "$NODE_BIN" <<'NODE'
+SETTINGS="$SETTINGS" "$NODE_BIN" <<'NODE' # verify-no-console-flash: allow — on-demand vscode settings utility, not session-hot-path
 const fs = require('fs');
 const settingsPath = process.env.SETTINGS;
 const KEYS = {

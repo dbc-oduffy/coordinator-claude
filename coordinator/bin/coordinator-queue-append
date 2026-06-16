@@ -1,0 +1,831 @@
+#!/usr/bin/env python
+# ── sh/python polyglot trampoline ──────────────────────────────────────────────
+# The next line is inert Python (a bare string literal) but executable sh/bash.
+# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
+# `bash <script>` reach no longer exec-fails by feeding Python to bash:
+#   coordinator-queue-append ...          # direct, via the shebang above — canonical form
+#   python  coordinator-queue-append ...  # explicit interpreter
+#   bash    coordinator-queue-append ...  # re-execs under python instead of erroring
+# Under sh/bash the line resolves the interpreter as `python3 || python || py`
+# (macOS 12.3+ and modern Linux ship only `python3` — Apple dropped the `python`
+# symlink; clean Windows python.org installs ship only `python`/`py`), captures
+# its path via command substitution, then execs it; under Python the whole line
+# is a no-op string. One `exec`, three-way probe — the canonical pattern.
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+"""
+coordinator-queue-append — append a structured YAML entry to a coordinator queue.
+
+Shebang note: the SHEBANG line above is `python`, NOT `python3` — `python3` is
+not on PATH on a clean Windows install (only `python`/`py` are), so a `python3`
+shebang exec-127s there. This is the documented rule for coordinator CLIs:
+docs/wiki/bash-on-windows-gotchas.md § Windows exception. The TRAMPOLINE line
+above is a separate concern: it probes `python3 || python || py` so
+`bash coordinator-queue-append …` works on macOS, Linux, AND Windows.
+Do not flatten the trampoline back to a single name.
+
+Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
+
+Purpose: Write ONE YAML entry to state/<output_dir>/<ISO-date>-<slug>.yaml
+relative to cwd. The file is left uncommitted (dirty) so it surfaces in
+`git status`.
+
+Output path: state/<output_dir from schema>/<ISO-date>-<slug>.yaml
+  - ISO-date: current date in YYYY-MM-DD format
+  - Slug: title sanitised to lowercase alphanumeric + hyphens, truncated to 40 chars
+
+from_repo resolution order (same convention as cross-repo-memo and
+coordinator-lesson-promote):
+  1. cwd git-root → reverse-lookup against machine-local repos.* table
+  2. ~/.claude meta-repo root → "claude-central-em"
+  3. Unregistered git repo → basename of git root + "-em"
+  4. Not in a git repo → "unknown-sender-em"
+  Never uses `git remote get-url origin` — that yields a URL, not a shortname.
+
+Schemas supported (hardcoded — do NOT parse the markdown docs at runtime):
+  debt-backlog     → state/debt-backlog/<date>-<slug>.yaml
+  bug-backlog      → state/bug-backlog/<date>-<slug>.yaml
+  improvement-queue → state/improvement-queue/<date>-<slug>.yaml
+
+Invocation:
+  coordinator-queue-append \\
+      --schema debt-backlog \\
+      --title "Title here" \\
+      --body "Multi-line body" \\
+      --source "daily-review/2026-06-15" \\
+      --status open \\
+      --risk "Risk text" \\
+      --suggested-action "Action text" \\
+      [--severity P2] [--cross-ref "BS-2026-06-14-1"]
+
+  coordinator-queue-append \\
+      --schema bug-backlog \\
+      --title "Bug title" \\
+      --body "Bug description" \\
+      --system "coordinator/auto-push" \\
+      --severity P1 \\
+      --status open
+
+  coordinator-queue-append \\
+      --schema improvement-queue \\
+      --title "Improvement title" \\
+      --body "Improvement description" \\
+      --surface "setup/publish.sh:88-95" \\
+      --proposed-target "setup/publish.sh (array)" \\
+      --change-kind script-edit \\
+      --status open
+
+Negative-spec: do NOT parse schema markdown docs at runtime — schemas are
+hardcoded in SCHEMAS dict. No third-party libraries; stdlib only.
+"""
+
+import argparse
+import datetime
+import os
+import re
+import subprocess
+import sys
+import uuid
+
+# ---------------------------------------------------------------------------
+# Hardcoded schemas — Patrik F0: runtime MUST NOT parse the markdown docs.
+# Sources: docs/wiki/debt-backlog-schema.md, bug-backlog-schema.md,
+#          improvement-queue-schema.md
+# ---------------------------------------------------------------------------
+
+SCHEMAS: dict[str, dict] = {
+    "debt-backlog": {
+        "required": [
+            "id",
+            "created",
+            "source",
+            "status",
+            "title",
+            "body",
+            "risk",
+            "suggested_action",
+        ],
+        "optional": [
+            "cross_ref",
+            "severity",
+            "resolved_at",
+            "resolution_note",
+            "from_repo",
+        ],
+        "enums": {
+            "status": [
+                "open",
+                "resolved",
+                "open for-weekly-arch-review",
+                "deferred",
+            ],
+            "severity": ["P0", "P1", "P2", "P3"],
+        },
+        "output_dir": "state/debt-backlog",
+        "id_prefix_pattern": r"^(DSR|CDX)-\d{4}-\d{2}-\d{2}-\d+$",
+    },
+    "bug-backlog": {
+        "required": [
+            "id",
+            "created",
+            "system",
+            "severity",
+            "status",
+            "title",
+            "body",
+        ],
+        "optional": [
+            "why_blocked",
+            "cross_ref",
+            "repro_steps",
+            "environment",
+            "closed_at",
+            "closed_by",
+            "from_repo",
+        ],
+        "enums": {
+            "severity": ["P0", "P1", "P2", "P3"],
+            "status": ["open", "closed", "wontfix", "deferred"],
+        },
+        "output_dir": "state/bug-backlog",
+        "id_prefix_pattern": r"^BS-\d{4}-\d{2}-\d{2}-\d+$",
+    },
+    "improvement-queue": {
+        "required": [
+            "id",
+            "created",
+            "from_repo",
+            "title",
+            "body",
+            "surface",
+            "proposed_target",
+            "change_kind",
+            "status",
+        ],
+        "optional": [
+            "scope_tags",
+            "evidence",
+            "closed_at",
+            "closed_by",
+        ],
+        "enums": {
+            "change_kind": [
+                "script-edit",
+                "skill-edit",
+                "wiki-append",
+                "wiki-new",
+                "hook-edit",
+                "agent-prompt-edit",
+            ],
+            "status": ["open", "closed", "deferred"],
+        },
+        "output_dir": "state/improvement-queue",
+        # improvement-queue uses uuid4 — no prefix pattern constraint.
+        "id_prefix_pattern": None,
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_SLUG_MAX_CHARS = 40
+
+# Env var overrides for test isolation (mirrors coordinator-lesson-promote pattern).
+_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
+_CLAUDE_HOME_ENV = "CLAUDE_HOME"
+_QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
+
+# Registry aliases: stable doctrine EM names that diverge from the repo's
+# machine-local shortname convention (mirrors coordinator-lesson-promote).
+_REPO_KEY_ALIASES: dict[str, str] = {
+    "claude_unreal_holodeck": "holodeck",
+}
+
+# ---------------------------------------------------------------------------
+# from_repo resolution — mirrors coordinator-lesson-promote._resolve_from_repo
+# ---------------------------------------------------------------------------
+
+
+def _claude_home() -> str:
+    """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation."""
+    override = os.environ.get(_CLAUDE_HOME_ENV)
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def _machine_local_impl() -> str:
+    """Return the path to _machine_local.py, honouring MACHINE_LOCAL_IMPL for tests."""
+    override = os.environ.get(_MACHINE_LOCAL_IMPL_ENV)
+    if override:
+        return override
+    return os.path.join(_claude_home(), "bin", "_machine_local.py")
+
+
+def _resolve_python() -> str:
+    """Return a usable Python interpreter for subprocess calls.
+
+    sys.executable is always valid — the interpreter running this script.
+    Avoids subprocess probing that raises FileNotFoundError on Windows.
+    """
+    return sys.executable
+
+
+def _machine_local_get(key: str) -> str | None:
+    """Call machine-local get <key> and return the value, or None on failure."""
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    try:
+        result = subprocess.run(
+            [python, impl, "get", key], capture_output=True, text=True
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _machine_local_repos_keys() -> list[str]:
+    """Return all repos.* keys from the machine-local registry."""
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    try:
+        result = subprocess.run(
+            [python, impl, "keys"], capture_output=True, text=True
+        )
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip().startswith("repos.")
+    ]
+
+
+def _repo_key_to_em_id(key: str) -> str:
+    """Convert a repos.<shortname> key to its EM identity (shortname-em), applying aliases."""
+    shortname = key[len("repos."):] if key.startswith("repos.") else key
+    canonical = _REPO_KEY_ALIASES.get(shortname)
+    if canonical is not None:
+        return canonical + "-em"
+    return shortname.replace("_", "-") + "-em"
+
+
+def _same_path(a: str, b: str) -> bool:
+    """True if two paths resolve to the same directory (cross-platform)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(
+            os.path.realpath(b)
+        )
+
+
+def _current_repo_root() -> str | None:
+    """Return the git repo root of the cwd, or None if not inside a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _em_id_for_root(
+    root: str | None, home: str, repo_key_paths: dict[str, str]
+) -> str:
+    """Resolve a sender-EM identity from a git root path.
+
+    Resolution order (mirrors coordinator-lesson-promote._em_id_for_root):
+      1. ~/.claude meta-repo → claude-central-em
+      2. Registered repos.* sibling → <name>-em (with alias table)
+      3. Unregistered git repo → basename-em
+      4. No root → unknown-sender-em
+    """
+    if root is None:
+        return "unknown-sender-em"
+    if _same_path(root, home):
+        return "claude-central-em"
+    for key, path in repo_key_paths.items():
+        if path and _same_path(path, root):
+            return _repo_key_to_em_id(key)
+    return os.path.basename(root.rstrip("/\\")) + "-em"
+
+
+def _resolve_from_repo() -> str:
+    """Identify the from_repo for the queue entry from cwd context."""
+    root = _current_repo_root()
+    home = _claude_home()
+    keys = _machine_local_repos_keys()
+    paths = {k: _machine_local_get(k) for k in keys}
+    return _em_id_for_root(root, home, {k: v for k, v in paths.items() if v})
+
+
+# ---------------------------------------------------------------------------
+# Output path helpers
+# ---------------------------------------------------------------------------
+
+
+def _today_iso() -> str:
+    """Return today's date in YYYY-MM-DD format."""
+    return datetime.date.today().isoformat()
+
+
+def _slug_from_title(title: str) -> str:
+    """Sanitize a title into a filesystem-safe slug.
+
+    Lowercase, alphanumeric + hyphens only, no leading/trailing hyphens.
+    Truncated to _SLUG_MAX_CHARS chars.
+    """
+    slug = title.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    return slug[:_SLUG_MAX_CHARS]
+
+
+def _output_path(schema_name: str, title: str) -> str:
+    """Compute the output path for a new queue entry.
+
+    CWD-relative: state/<output_dir>/<ISO-date>-<slug>.yaml
+    Respects QUEUE_APPEND_OUTPUT_ROOT env var for test isolation.
+    """
+    schema = SCHEMAS[schema_name]
+    output_dir = schema["output_dir"]
+    override_root = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV)
+    if override_root:
+        base = os.path.join(override_root, output_dir)
+    else:
+        base = os.path.join(os.getcwd(), output_dir)
+    date_str = _today_iso()
+    slug = _slug_from_title(title)
+    filename = f"{date_str}-{slug}.yaml"
+    return os.path.join(base, filename)
+
+
+# ---------------------------------------------------------------------------
+# YAML emission (stdlib only — no pyyaml)
+# ---------------------------------------------------------------------------
+
+
+def _yaml_quote_string(value: str) -> str:
+    """Wrap a string in double-quotes if it contains special YAML characters.
+
+    Quoted when the string contains: colon+space, leading/trailing whitespace,
+    special start chars (#, |, >, !, &, *, {, }, [, ]), or is empty.
+    """
+    if not value:
+        return '""'
+    needs_quoting = (
+        ": " in value
+        or value != value.strip()
+        or value[0] in '#|>!&*{}[]'
+        or value.startswith("- ")
+        or "\n" in value
+    )
+    if needs_quoting:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def _yaml_block_scalar(value: str) -> str:
+    """Format a multi-line string as a YAML literal block scalar (body: |)."""
+    lines = value.splitlines()
+    indented = "\n".join("  " + line if line else "" for line in lines)
+    return "|\n" + indented
+
+
+def _emit_yaml_field(key: str, value) -> str:
+    """Emit a single YAML field line or block, handling type dispatch.
+
+    - None values are skipped (caller must check before calling).
+    - Multi-line strings → literal block scalar.
+    - Lists → block sequence.
+    - Scalars → quoted if needed.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        items = "\n".join(f"  - {_yaml_quote_string(str(item))}" for item in value)
+        return f"{key}:\n{items}"
+    if isinstance(value, str) and "\n" in value:
+        return f"{key}: {_yaml_block_scalar(value)}"
+    if isinstance(value, str):
+        return f"{key}: {_yaml_quote_string(value)}"
+    return f"{key}: {value}"
+
+
+def _build_yaml(schema_name: str, fields: dict) -> str:
+    """Construct the YAML document string for a queue entry.
+
+    Field order follows the schema's required list first, then optional fields
+    present in the data. from_repo is injected after id/created for all schemas.
+    """
+    schema = SCHEMAS[schema_name]
+    required = schema["required"]
+    optional = schema["optional"]
+
+    # Determine emit order: required fields first, then optional fields
+    # that are present in the data.
+    emit_order = list(required)
+    for opt in optional:
+        if opt in fields and fields[opt] is not None:
+            if opt not in emit_order:
+                emit_order.append(opt)
+
+    lines = []
+    for key in emit_order:
+        value = fields.get(key)
+        if value is None:
+            continue
+        line = _emit_yaml_field(key, value)
+        if line:
+            lines.append(line)
+
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+def _validate(schema_name: str, fields: dict) -> None:
+    """Fail-loud validation of field values against the schema.
+
+    Checks: unknown schema, missing required fields, invalid enum values,
+    id_prefix_pattern mismatch (when id is explicitly provided).
+    """
+    if schema_name not in SCHEMAS:
+        known = ", ".join(sorted(SCHEMAS.keys()))
+        print(
+            f"error: unknown schema '{schema_name}'. Known: {known}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    schema = SCHEMAS[schema_name]
+
+    # Required field check — id is special (auto-generated) but still must end up present.
+    for field in schema["required"]:
+        if fields.get(field) is None or fields.get(field) == "":
+            print(f"error: missing required field: --{field.replace('_', '-')}", file=sys.stderr)
+            sys.exit(1)
+
+    # Enum value checks.
+    for field, valid_values in schema["enums"].items():
+        value = fields.get(field)
+        if value is not None and value not in valid_values:
+            print(
+                f"error: invalid value for --{field.replace('_', '-')}: '{value}'. "
+                f"Valid values: {', '.join(valid_values)}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # id_prefix_pattern check (only when id was explicitly supplied).
+    pattern = schema.get("id_prefix_pattern")
+    if pattern and fields.get("_id_was_explicit"):
+        id_val = fields.get("id", "")
+        if not re.match(pattern, id_val):
+            print(
+                f"error: --id '{id_val}' does not match required pattern for "
+                f"'{schema_name}'. Pattern: {pattern}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser for coordinator-queue-append."""
+    parser = argparse.ArgumentParser(
+        prog="coordinator-queue-append",
+        description=(
+            "Append a structured YAML entry to a coordinator queue "
+            "(debt-backlog, bug-backlog, or improvement-queue)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+
+  # Debt backlog entry:
+  coordinator-queue-append \\
+      --schema debt-backlog \\
+      --id DSR-2026-06-15-1 \\
+      --title "Fan-out overlap pass verifies interface presence, not correctness" \\
+      --body "The overlap pass verifies a pinned interface file exists..." \\
+      --source "daily-review/patrik/2026-06-15" \\
+      --status open \\
+      --risk "Wrong pin causes divergent executor outputs." \\
+      --suggested-action "Add interface-pin verification gate." \\
+      --severity P2
+
+  # Bug backlog entry:
+  coordinator-queue-append \\
+      --schema bug-backlog \\
+      --id BS-2026-06-15-1 \\
+      --title "publish.sh Phase 4 audit skips unchanged files" \\
+      --body "AUDIT_FILES only covers newly-synced files..." \\
+      --system "setup/publish" \\
+      --severity P1 \\
+      --status open
+
+  # Improvement queue entry:
+  coordinator-queue-append \\
+      --schema improvement-queue \\
+      --title "Promote persona-name patterns into REVIEW_PATTERNS" \\
+      --body "setup/publish.sh:88-95 should promote the 7 persona-name patterns..." \\
+      --surface "setup/publish.sh:88-95" \\
+      --proposed-target "setup/publish.sh (REVIEW_PATTERNS array)" \\
+      --change-kind script-edit \\
+      --status open
+
+Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
+""",
+    )
+
+    # Universal fields (all schemas).
+    parser.add_argument(
+        "--schema",
+        required=True,
+        metavar="NAME",
+        help="Queue schema to use: debt-backlog, bug-backlog, or improvement-queue.",
+    )
+    parser.add_argument(
+        "--id",
+        default=None,
+        metavar="ID",
+        help=(
+            "Explicit entry ID. For debt-backlog: DSR-/CDX- prefix required. "
+            "For bug-backlog: BS- prefix required. "
+            "Defaults to uuid4 for improvement-queue; auto-generated from schema pattern otherwise."
+        ),
+    )
+    parser.add_argument(
+        "--title",
+        required=True,
+        metavar="TEXT",
+        help="One-line entry summary (required for all schemas).",
+    )
+    parser.add_argument(
+        "--body",
+        required=True,
+        metavar="TEXT",
+        help="Multi-line description (required for all schemas). Use literal newlines or \\n.",
+    )
+    parser.add_argument(
+        "--status",
+        required=True,
+        metavar="VALUE",
+        help="Lifecycle state. Valid values depend on the schema (e.g. open, resolved, deferred).",
+    )
+    parser.add_argument(
+        "--created",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Entry creation date. Defaults to today.",
+    )
+
+    # debt-backlog fields.
+    parser.add_argument(
+        "--source",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog) Originating review or observation (required for debt-backlog).",
+    )
+    parser.add_argument(
+        "--risk",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog) Why this debt matters — consequence of leaving it unaddressed (required for debt-backlog).",
+    )
+    parser.add_argument(
+        "--suggested-action",
+        dest="suggested_action",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog) Remediation action description (required for debt-backlog).",
+    )
+    parser.add_argument(
+        "--cross-ref",
+        dest="cross_ref",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog, bug-backlog) Cross-reference to related backlog entries.",
+    )
+    parser.add_argument(
+        "--severity",
+        default=None,
+        metavar="LEVEL",
+        help="(debt-backlog, bug-backlog) Priority classification: P0, P1, P2, P3.",
+    )
+    parser.add_argument(
+        "--resolved-at",
+        dest="resolved_at",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="(debt-backlog) Date the debt was resolved. Required when status is resolved.",
+    )
+    parser.add_argument(
+        "--resolution-note",
+        dest="resolution_note",
+        default=None,
+        metavar="TEXT",
+        help="(debt-backlog) Brief explanation of how the debt was resolved.",
+    )
+
+    # bug-backlog fields.
+    parser.add_argument(
+        "--system",
+        default=None,
+        metavar="TEXT",
+        help="(bug-backlog) Subsystem the bug lives in, path-like (required for bug-backlog).",
+    )
+    parser.add_argument(
+        "--why-blocked",
+        dest="why_blocked",
+        default=None,
+        metavar="TEXT",
+        help="(bug-backlog) Why the bug is parked rather than fixed now.",
+    )
+    parser.add_argument(
+        "--repro-steps",
+        dest="repro_steps",
+        default=None,
+        metavar="TEXT",
+        help="(bug-backlog) Steps to reproduce, if non-trivial.",
+    )
+    parser.add_argument(
+        "--environment",
+        default=None,
+        metavar="TEXT",
+        help="(bug-backlog) Platform/session constraint where the bug manifests.",
+    )
+    parser.add_argument(
+        "--closed-at",
+        dest="closed_at",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="(bug-backlog, improvement-queue) Date the entry was resolved.",
+    )
+    parser.add_argument(
+        "--closed-by",
+        dest="closed_by",
+        default=None,
+        metavar="SHA",
+        help="(bug-backlog, improvement-queue) Git commit SHA that resolved the entry.",
+    )
+
+    # improvement-queue fields.
+    parser.add_argument(
+        "--surface",
+        default=None,
+        metavar="TEXT",
+        help="(improvement-queue) Specific file/skill/script the entry proposes changing (required).",
+    )
+    parser.add_argument(
+        "--proposed-target",
+        dest="proposed_target",
+        default=None,
+        metavar="TEXT",
+        help="(improvement-queue) The fix target — where the change should land (required).",
+    )
+    parser.add_argument(
+        "--change-kind",
+        dest="change_kind",
+        default=None,
+        metavar="VALUE",
+        help=(
+            "(improvement-queue) Classification of the target change. "
+            "Valid: script-edit, skill-edit, wiki-append, wiki-new, hook-edit, agent-prompt-edit."
+        ),
+    )
+    parser.add_argument(
+        "--scope-tags",
+        dest="scope_tags",
+        default=None,
+        metavar="TAGS",
+        help="(improvement-queue) Comma-separated tags for filtering and triage.",
+    )
+    parser.add_argument(
+        "--evidence",
+        default=None,
+        metavar="TEXT",
+        help="(improvement-queue) Commit SHA, plan path, or other provenance.",
+    )
+
+    # from_repo override (normally auto-resolved).
+    parser.add_argument(
+        "--from-repo",
+        dest="from_repo",
+        default=None,
+        metavar="REPO",
+        help="Override the auto-resolved from_repo value (default: resolved from cwd git root).",
+    )
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """Entry point for coordinator-queue-append CLI."""
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    schema_name = args.schema
+    if schema_name not in SCHEMAS:
+        known = ", ".join(sorted(SCHEMAS.keys()))
+        print(
+            f"error: unknown schema '{schema_name}'. Known: {known}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Resolve from_repo (auto-detect or override).
+    from_repo = args.from_repo if args.from_repo else _resolve_from_repo()
+
+    # Resolve id — uuid4 default, explicit override allowed.
+    id_was_explicit = args.id is not None
+    entry_id = args.id if id_was_explicit else str(uuid.uuid4())
+
+    # Resolve created date.
+    created = args.created if args.created else _today_iso()
+
+    # Build the fields dict from all parsed arguments.
+    # scope_tags: comma-separated string → list.
+    scope_tags = None
+    if args.scope_tags:
+        scope_tags = [t.strip() for t in args.scope_tags.split(",") if t.strip()]
+
+    fields: dict = {
+        # Internal sentinel (not emitted to YAML).
+        "_id_was_explicit": id_was_explicit,
+        # Universal fields.
+        "id": entry_id,
+        "created": created,
+        "from_repo": from_repo,
+        "title": args.title,
+        "body": args.body.replace("\\n", "\n"),
+        "status": args.status,
+        # debt-backlog fields.
+        "source": args.source,
+        "risk": args.risk,
+        "suggested_action": args.suggested_action,
+        "cross_ref": args.cross_ref,
+        "severity": args.severity,
+        "resolved_at": args.resolved_at,
+        "resolution_note": args.resolution_note,
+        # bug-backlog fields.
+        "system": args.system,
+        "why_blocked": args.why_blocked,
+        "repro_steps": args.repro_steps,
+        "environment": args.environment,
+        "closed_at": args.closed_at,
+        "closed_by": args.closed_by,
+        # improvement-queue fields.
+        "surface": args.surface,
+        "proposed_target": args.proposed_target,
+        "change_kind": args.change_kind,
+        "scope_tags": scope_tags,
+        "evidence": args.evidence,
+    }
+
+    # Validate before writing.
+    _validate(schema_name, fields)
+
+    # Remove sentinel before YAML emission.
+    fields.pop("_id_was_explicit", None)
+
+    # Build YAML content.
+    yaml_content = _build_yaml(schema_name, fields)
+
+    # Compute output path and ensure directory exists.
+    out_path = _output_path(schema_name, args.title)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    # Write the file.
+    with open(out_path, "w", encoding="utf-8") as fh:
+        fh.write(yaml_content)
+
+    print(out_path)
+
+
+if __name__ == "__main__":
+    main()

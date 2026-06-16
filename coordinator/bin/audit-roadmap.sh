@@ -69,7 +69,7 @@ if [ -n "$READY_PATHS" ]; then
   # Extract wave per file via frontmatter parse. Use node one-liner to keep schema-aware.
   WAVES=$(echo "$READY_PATHS" | while IFS= read -r p; do
     [ -z "$p" ] && continue
-    node -e "
+    node -e "// verify-no-console-flash: allow — on-demand roadmap audit, not session-hot-path
       const fs=require('fs');
       const path=require('path');
       const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator/bin/lib/schema.js'));
@@ -100,7 +100,7 @@ PM_TC_IDS=""
 if [ -n "$PM_STUBS" ]; then
   while IFS= read -r p; do
     [ -z "$p" ] && continue
-    TC=$(node -e "
+    TC=$(node -e "// verify-no-console-flash: allow — on-demand roadmap audit, not session-hot-path
       const fs=require('fs');
       const path=require('path');
       const {parseFrontmatter} = require(path.join(process.argv[2], 'plugins/coordinator/bin/lib/schema.js'));
@@ -136,8 +136,7 @@ if [ -f "$PMG" ]; then
     ALL_TCS=$(node "$QR" --type handoff \
       --where "kind=spinoff-roadmap AND roadmap_id=${RUN_ID}" \
       --format json --root "$ROOT" 2>/dev/null \
-      | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d); a.forEach(r=>console.log(r.frontmatter.tc_id||''))})" 2>/dev/null \
-      || true)
+      | node -e "let d=''; process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d); a.forEach(r=>console.log(r.frontmatter.tc_id||''))})" 2>/dev/null || true) # verify-no-console-flash: allow — on-demand roadmap audit, not session-hot-path
     for tc in $PENDING_TCS; do
       if ! echo "$ALL_TCS" | grep -qFx "$tc"; then
         fail "pm-gates.md has pending row for ${tc} but no stub with that tc_id exists in roadmap_id=${RUN_ID}"

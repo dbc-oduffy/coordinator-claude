@@ -34,15 +34,23 @@ reply, STOP and call Write instead. Verification output must live on disk, not i
    output. Every file in [BATCH_FILES] must have at least one nugget entry (even if
    EPHEMERAL). List any files with zero entries — these are silent omissions.
 
-2. **Template compliance:** Every non-EPHEMERAL nugget has all required fields:
+2. **Template compliance:** Every non-EPHEMERAL / non-ALREADY_CAPTURED nugget has all required fields:
    - [DECISION]: Decision, Over, Because, Context, Source, Date fields present
    - [KNOWLEDGE:{system}]: System, Topic, Content, Source fields present
    - [AMBIGUOUS]: Content, Source, Why ambiguous fields present
 
-3. **Path spot-check:** Pick 3 file paths referenced in Source fields. Verify each
+3. **Group section YAML check:** For any `## EPHEMERAL —` or `## ALREADY_CAPTURED —` group
+   section heading in the Phase 1 output, verify that a fenced YAML block appears immediately
+   under the heading and contains an `artifact_paths:` list with ≥1 entry. Missing or empty
+   `artifact_paths:` blocks under group headings are template violations — report them as FAIL.
+   The fenced YAML block under each group H2 heading is mandatory — Phase 5 parses YAML at the
+   anchor, not the surrounding Markdown prose. The `artifact_paths:` list is authoritative;
+   `description:` is optional documentation.
+
+4. **Path spot-check:** Pick 3 file paths referenced in Source fields. Verify each
    exists on the filesystem using Read. Report: [path] → EXISTS / MISSING.
 
-4. **Verdict:**
+5. **Verdict:**
    - **PASS** — all files covered, templates compliant, paths verified
    - **THIN** — coverage gaps (>20% of files missing entries) → recommend re-dispatch
      of Phase 1 for this batch

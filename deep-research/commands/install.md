@@ -1,10 +1,10 @@
 ---
-description: Set up the deep-research plugin — verify Agent Teams, check pipeline availability, configure NotebookLM. Safe to re-run.
+description: Install the deep-research plugin — verify Agent Teams, check pipeline availability, configure NotebookLM. Safe to re-run.
 allowed-tools: ["Read", "Bash", "Glob", "AskUserQuestion"]
 argument-hint: "[--check-only]"
 ---
 
-# Deep Research Setup
+# Deep Research Install
 
 Verify prerequisites for the deep-research plugin's multi-agent pipelines. All pipelines require Agent Teams; Pipeline D also requires a NotebookLM MCP server.
 
@@ -93,7 +93,7 @@ commit this install was cloned/pulled to — not the publish-time placeholder th
 in the repo (which records the upstream source-repo HEAD and is not a deep-research-claude
 commit; comparing it against a release tag would mis-fire as "differs" forever).
 
-**Re-run `/deep-research setup` after every `git pull`** so the baseline tracks the commit
+**Re-run `/deep-research:install` after every `git pull`** so the baseline tracks the commit
 you actually have — otherwise the hook nags "differs" against a stale baseline.
 
 The bash block self-skips in `--check-only` mode (it writes a file):
@@ -120,7 +120,7 @@ fi
 ## 5. Status Report
 
 ```
-## Deep Research Setup
+## Deep Research Install
 
 | Check                       | Status |
 |-----------------------------|--------|

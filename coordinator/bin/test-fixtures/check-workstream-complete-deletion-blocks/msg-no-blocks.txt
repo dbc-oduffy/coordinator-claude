@@ -1,0 +1,6 @@
+workstream-complete quick-save
+
+This commit body has no structured deletion blocks. The smoke runner stages
+deletions for scratch-a and scratch-b; the gate should reject this message
+because Layer 3 doctrine requires staged deletions to be accounted for in
+a structured block.

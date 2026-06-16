@@ -382,9 +382,9 @@ if [[ "${ARGS[*]}" == *"coordinator_whoami"* && "${ARGS[*]}" == *"get_whoami_jso
 fi
 # For any other -c invocation, delegate to the real interpreter
 if command -v python3 >/dev/null 2>&1; then
-  exec python3 "${ARGS[@]}"
+  exec python3 "${ARGS[@]}" # verify-no-console-flash: allow
 elif command -v python >/dev/null 2>&1; then
-  exec python "${ARGS[@]}"
+  exec python "${ARGS[@]}" # verify-no-console-flash: allow
 fi
 exit 1
 MOCKPY

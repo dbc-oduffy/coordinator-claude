@@ -46,7 +46,6 @@ This skill has a small set of sequential gates and a TODO-LIST cluster. Treat th
 **Todo-list (no edges between *peer* todo-list steps — execute in any order, batch parallel where two independently read/write different files):**
 
 - **Step 2** — lessons (`state/lessons.md`)
-- **Step 2.5** — doc-alignment insurance (chunk/stub `**Status:**` fields)
 - **Step 2.6** — plan documentation (`docs/plans/`, `tasks/<feature>/todo.md`)
 - **Step 2.7** — archive uncaptured work (`archive/completed/`)
 - **Step 2.8** — build/test awareness (a note appended to the handoff body's Current State — reads Step 1's output)
@@ -291,7 +290,16 @@ These four rules apply specifically to `## Recommended Next Steps` and `## In-Pr
 
 **Park-with-links on supersession (superseded workstream, not a continuation).** When a workstream is *superseded* rather than continued — a newer plan, spinoff, or roadmap stub now owns the work the old handoff described, and the old handoff should NOT be picked up — do not leave it sitting `active`/`ready_to_fire` in `state/handoffs/`. A superseded handoff left in the active queue strands the next session on a dead workstream. Park it with three links, all in one commit:
 
-1. **Relocate out of the active queue — relocation is the load-bearing guard.** `git mv state/handoffs/<superseded-file> archive/handoffs/<superseded-file>`. Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
+1. **Relocate out of the active queue — relocation is the load-bearing guard.** Before moving, stamp `shipped_in:` into the handoff frontmatter — the SHA must be captured while the file is still in `state/handoffs/` and the workstream's commit context is fresh:
+
+   ```bash
+   source ~/.claude/plugins/coordinator/lib/coordinator-archive-stamp.sh
+   stamp_shipped_in "state/handoffs/<superseded-file>" --allow-branch-tip-fallback
+   ```
+
+   The `--allow-branch-tip-fallback` flag is correct here: this is a ceremony-complete path where the workstream actually finished, so the branch tip is a plausible signal for the completed workstream. If stamping finds no SHA, it exits 0 and skips silently — the move still proceeds.
+
+   Then: `git mv state/handoffs/<superseded-file> archive/handoffs/<superseded-file>`. Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
 2. **Bidirectional canonical link (schema-free body prose).** In the superseded handoff body, add a one-line `**Superseded by:** <successor-path-or-roadmap-stub-id>`. In the successor (handoff, plan, or stub body), add `**Supersedes:** <superseded-handoff-path>`. The pair makes the provenance trail navigable from either end. This body-prose link pair — NOT any frontmatter field — is the canonical supersession-provenance mechanism for handoffs.
 3. **README / index provenance.** If the repo carries a handoff index or `docs/README.md` row referencing the superseded workstream, repoint it at the successor (per CLAUDE.md "Stale doc references: repoint when covered").
 
@@ -310,10 +318,6 @@ If the script is absent or exits non-zero, skip silently. The generated file is 
 #### Step 2: Capture Lessons
 
 Follow `/workstream-complete` Step 1 (Capture Lessons) — same intake filter, same format requirements, same merge-over-add rules. Skip if compaction is imminent — the handoff file is the priority.
-
-#### Step 2.5: Doc-Alignment Insurance
-
-Follow `/workstream-complete` Step 2.5 (Doc-Alignment Insurance) — verify status fields match reality for any chunk/stub docs and execution trackers worked on this session. Lightweight pass only — read what's in conversation context, don't re-read every file.
 
 #### Step 2.6: Update Plan Documentation
 
@@ -366,6 +370,19 @@ Use the same `<sha-range>`, `<reviewer>`, and date as the trail record (per the 
 **Edge case (PM-flagged):** when `/handoff` is written because the EM is bailing on a workstream they don't want to finish, the successor benefits from a `code-reviewer` pass on what landed. Treat the bailing case the same as any other non-trivial handoff — the diff-shape table determines the scale.
 
 **Staging discipline:** any files edited by `coordinator:review-integrator` during this step must be staged via explicit path in Step 3, not absorbed by a post-integration `git add -A`.
+
+<!-- mandatory-commit-shape -->
+**Mandatory commit shape (concurrent-EM safe).** Plain explicit-path git is the default per SC-DR-008; the helper is reserved for sweep ceremonies + the executor's branch-pin path. Use ONE of:
+
+```bash
+# Default — explicit-path commit (SC-DR-008 baseline):
+git add -- <paths> && git commit -m "<subject>" -- <paths>
+
+# OR, for handoff-scoped sessions, the helper (defaults to em-only as of 2026-06-15):
+coordinator-safe-commit --scope-from <handoff> "<subject>"
+```
+
+Plain-git is listed first deliberately — the helper is the carve-out, not the primary path. **Never `git add -A` / `git add .` / `git add --all`** — the `block-blanket-git-add.sh` PreToolUse hook enforces this; see `docs/wiki/coordinator-tripwires.md § BLOCK-BLANKET-GIT-ADD` and `docs/wiki/scoped-safety-commits.md § SC-DR-014`.
 
 #### Step 2.95: Pre-terminate dirty-tree gate
 

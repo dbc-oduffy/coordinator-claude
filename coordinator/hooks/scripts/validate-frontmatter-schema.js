@@ -372,6 +372,28 @@ function buildViolationPayload(schemaName, errors) {
 // Main
 // ---------------------------------------------------------------------------
 
+// Diagnostic: tee every stdout emit to a session log so we can compare
+// against any "hookSpecificOutput missing hookEventName" schema-validation
+// errors the harness reports. → improvement-queue 2026-06-15.
+(function installEmitTee() {
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = function (chunk, ...rest) {
+    try {
+      const { execSync } = require('child_process');
+      const path = require('path');
+      const fs = require('fs');
+      const gitDir = execSync('git rev-parse --git-dir', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const sessId = process.env.CLAUDE_SESSION_ID || 'no-session';
+      const dir = path.join(gitDir, 'coordinator-sessions', sessId, 'hook-emits');
+      fs.mkdirSync(dir, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '').replace(/-/g, '').slice(0, 15) + 'Z';
+      const line = `${ts}\tvalidate-frontmatter-schema\t${String(chunk).replace(/\n/g, ' ')}\n`;
+      fs.appendFileSync(path.join(dir, 'emits.tsv'), line);
+    } catch { /* best effort */ }
+    return origWrite(chunk, ...rest);
+  };
+})();
+
 async function main() {
   // Read all stdin
   let raw = '';

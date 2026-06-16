@@ -227,21 +227,21 @@ for branch in "${!seen_branches[@]}"; do
       --json number,state,mergedAt,mergeCommit 2>/dev/null || true)
     if [[ -n "$pr_raw" && "$pr_raw" != "[]" ]]; then
       # Pick the most recent (last item in array is typically newest)
-      pr_number=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
+      pr_number=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c " # verify-no-console-flash: allow — on-demand orphan branch sweep, not session-hot-path
 import json,sys
 prs=json.load(sys.stdin)
 if prs:
     p=prs[-1]
     print(p.get('number',''))
 " 2>/dev/null || true)
-      pr_state=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
+      pr_state=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c " # verify-no-console-flash: allow — on-demand orphan branch sweep, not session-hot-path
 import json,sys
 prs=json.load(sys.stdin)
 if prs:
     p=prs[-1]
     print(p.get('state',''))
 " 2>/dev/null || true)
-      pr_merged_at=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c "
+      pr_merged_at=$(echo "$pr_raw" | "${PYTHON_BIN:-python3}" -c " # verify-no-console-flash: allow — on-demand orphan branch sweep, not session-hot-path
 import json,sys
 prs=json.load(sys.stdin)
 if prs:

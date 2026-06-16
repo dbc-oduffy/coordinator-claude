@@ -73,7 +73,7 @@ def _resolve_lessons_path(arg: Path) -> Path:
     """Accept either a repo root (…/state/lessons.md appended) or a direct file."""
     if arg.is_file():
         return arg
-    cand = arg / "tasks" / "lessons.md"
+    cand = arg / "state" / "lessons.md"
     if cand.is_file():
         return cand
     raise FileNotFoundError(f"no lessons.md at {arg} or {cand}")

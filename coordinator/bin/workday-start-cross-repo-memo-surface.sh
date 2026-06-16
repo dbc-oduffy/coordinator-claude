@@ -67,7 +67,7 @@ memo_lines=()
 
 for f in "$INBOX_DIR"/*.md; do
   [[ -f "$f" ]] || continue
-  result=$("$PYTHON_BIN" - "$f" <<'PYEOF'
+  result=$("$PYTHON_BIN" - "$f" <<'PYEOF' # verify-no-console-flash: allow — on-demand cross-repo memo surface, not session-hot-path
 import sys, re
 
 path = sys.argv[1]
@@ -152,7 +152,7 @@ for line in "${sorted[@]}"; do
   if [[ ! "$created" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
     age_days=0
   else
-    age_days=$("$PYTHON_BIN" -c "
+    age_days=$("$PYTHON_BIN" -c " # verify-no-console-flash: allow — on-demand cross-repo memo surface, not session-hot-path
 import os, sys
 from datetime import date
 mock = os.environ.get('MOCK_TODAY', '').strip()

@@ -1,0 +1,107 @@
+---
+manifest: agent-install-manifest.json
+contract: ../wiki/agent-install-contract.md
+---
+
+# Agent install guide — coordinator-claude
+
+> **Chain position:** coordinator-claude sits at **step 5 of 5** in the install DAG. It is the
+> DAG root — it has NO upstream dependencies and is always installed first. Every other repo
+> in the chain directly or transitively depends on coordinator-claude.
+
+> **You are an agent reading this file** because the setup skill dispatched you to walk the
+> install chain for coordinator-claude. Follow the install contract at
+> `docs/wiki/agent-install-contract.md`. Do not improvise. If a step fails, stop and report.
+
+---
+
+## Chain posture
+
+coordinator-claude occupies **chain step 5 of 5** in the five-position install DAG — it is the
+**DAG root**:
+
+```
+5. coordinator-claude   ← YOU ARE HERE (DAG root; no upstream deps)
+4. deep-research-claude  (optional dep of holodeck; soft dep on coordinator-claude)
+3. project-rag-ue-addon (hard dep of holodeck)
+2. project-rag          (hard dep of holodeck; soft dep of ue-addon)
+1. claude-unreal-holodeck (chain leaf)
+```
+
+*Chain positions are numbered leaf-first: 1 = chain leaf (claude-unreal-holodeck); 5 = DAG root (coordinator-claude, always installed first). "Step 5 of 5" means topmost in dep direction, not last in install order.*
+
+This repo declares **zero direct deps** (`direct_deps: []`). The chain-walker visits
+coordinator-claude, observes the empty dep list, and terminates:
+"chain walk complete — coordinator-claude is DAG root".
+
+## Three install verbs — disambiguation
+
+coordinator-claude ships three distinct slash-commands that sound similar but serve different
+purposes. Use the right one:
+
+- **`/coordinator:setup`** — the **install-chain walker** required by the agent-install contract.
+  Reads `agent-install-manifest.json`, walks the `direct_deps` list (empty for this DAG root),
+  and terminates cleanly. This is the verb you invoke when performing a first-time or refreshed
+  install-chain verification. It is specified by the contract at
+  `docs/wiki/agent-install-contract.md` and is what the `setup_skill` field in the manifest
+  points to.
+
+- **`/coordinator:install`** — the **OSS plugin install** verb. Installs the coordinator plugin
+  into a Claude Code environment from scratch (sets up hooks, skills, agents, CLAUDE.md). Not a
+  chain-walker; not contract-mandated. Use this when bootstrapping the coordinator plugin for the
+  first time in a new Claude Code environment.
+
+- **`/coordinator:repo-setup`** — the **consumer-project first-time setup** verb. Configures a
+  specific consumer project to use the coordinator (creates project CLAUDE.md, registers the
+  project with the coordinator, sets up project-level hooks). Not a chain-walker; not a plugin
+  installer. Use this when onboarding a new repo into the coordinator ecosystem.
+
+In short: `/coordinator:setup` walks the install chain (contract); `/coordinator:install` installs
+the plugin; `/coordinator:repo-setup` onboards a project. All three coexist; none replaces another.
+
+## Install via the chain-walker
+
+The `/coordinator:setup` skill reads `agent-install-manifest.json` at this path. Because
+`direct_deps` is empty, the chain-walker takes the DAG-root terminal path immediately:
+
+1. Reads manifest — confirms `repo_id: coordinator-claude`, `direct_deps: []`.
+2. Emits banner: "chain walk complete — coordinator-claude is DAG root".
+3. Exits 0.
+
+No upstream probe, no consent gate, no spinoff seeding in this plan (coord-as-orchestrator
+spinoff seeding is a follow-on workstream per plan §13).
+
+Full walker contract: `docs/wiki/agent-install-contract.md`.
+
+## Override flags
+
+Both flags must be passed together; either alone exits with code 93. For this DAG root, no dep
+check fires — override flags exist for schema-conformance only.
+
+| Flag (key in manifest) | CLI string (value in manifest) | Purpose |
+|---|---|---|
+| `skip_dep_check` | `--skip-dep-check` | First flag of the override pair |
+| `accept_hallucination_risk` | `--accept-missing-deps-risk` | Second flag; signals explicit accept of missing-dep risk |
+
+> **Authority boundary note.** These flag values are upstream-authored — coordinator-claude
+> declares them here. A consumer chain-walker reads them from this manifest at dispatch time
+> rather than hard-coding them, so a rename propagates automatically. The key names
+> (`skip_dep_check`, `accept_hallucination_risk`) are schema-canonical per the v2 contract.
+
+## What the coordinator plugin provides
+
+The coordinator plugin is the session-management spine of the Claude Code agentic ecosystem:
+
+- **Session orchestration** — handoffs, spinoffs, workday/workweek cadence, fan-out dispatch
+- **Review pipeline** — named Opus reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering), code-reviewer,
+  review-integrator
+- **Skills** — plan, enrich, review, workstream-complete, pickup, repo-setup, and more
+- **Hooks** — PreToolUse tripwires, commit guards, auto-push, session-init
+- **Agents** — executor, enricher, reviewer personas, scouts
+
+Install the plugin first via `/coordinator:install` before walking the chain via `/coordinator:setup`.
+
+---
+
+<!-- spec-backlink: ~/.claude/docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 -->
+<!-- spec-backlink: plugins/coordinator/docs/wiki/agent-install-contract.md -->

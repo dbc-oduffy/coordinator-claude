@@ -94,7 +94,7 @@ fi
 
 extract_block() {
     local file="$1"
-    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL"
+    node "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL" # verify-no-console-flash: allow — on-demand sync verifier, not session-hot-path
 }
 
 SNIPPET_BODY="$(awk 'NR>2' "$SNIPPET_FILE")"
@@ -122,7 +122,7 @@ while IFS= read -r consumer; do
         echo "OK           $consumer"
     else
         if [ "$MODE" = "--fix" ]; then
-            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF'
+            "$PYTHON_BIN" - "$consumer" "$BEGIN_SENTINEL" "$END_SENTINEL" "$SNIPPET_BODY" <<'PYEOF' # verify-no-console-flash: allow — on-demand sync verifier --fix mode, not session-hot-path
 import sys, pathlib
 
 fpath = pathlib.Path(sys.argv[1])

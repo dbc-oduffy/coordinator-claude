@@ -1,0 +1,72 @@
+[
+  {
+    "source_line": 5,
+    "classification": "to-migrate",
+    "entry_text": "- 2026-05-30 | claude-central | state/lessons.md:12 | [universal] `date -r FILE` is GNU-only \u2014 BSD/macOS reads arg as epoch seconds; the `|| echo 0` fallback silently zeroes mtime and bypasses every threshold check. Fix: use portable stat helper or `python -c \"import os,sys; print(int(os.path.getmtime(sys.argv[1])))\"`. | proposed target: `~/.claude/docs/wiki/cross-platform-shell-portability.md` \u00a7 Portable mtime pattern (new row)",
+    "proposed_outbox_id": "8504a2fceecff323",
+    "reason": "[universal] tag present and central-wiki target identified: ~/.claude/docs/wiki/cross-platform-shell-portability.md; also seen at line 10 (multi-source, priority signal).",
+    "target_wiki": "~/.claude/docs/wiki/cross-platform-shell-portability.md",
+    "multi_source": [
+      5,
+      10
+    ]
+  },
+  {
+    "source_line": 6,
+    "classification": "project-specific",
+    "entry_text": "- 2026-06-01 | project-rag | state/lessons.md:7 | Embedding cache flush on model-version bump should be gated by a version sentinel in the db schema, not a manual vacuum step. This is specific to the project-rag daemon restart cycle. No cross-repo generalisation applicable.",
+    "proposed_outbox_id": null,
+    "reason": "No [universal] tag; project-specific entry LEFT IN PLACE."
+  },
+  {
+    "source_line": 7,
+    "classification": "to-migrate",
+    "entry_text": "- 2026-06-05 | claude-central | state/lessons.md:~150 | [universal] Premise re-verification at execute-plan time \u2014 concurrent EM sessions can ship overlapping work between plan-draft and execute; reconciliation step needs to fire in /execute-plan Phase 1.5, not just /pickup Step 3.4. | proposed target: `coordinator/docs/wiki/dispatching-parallel-agents.md` \u00a7 Premise-pass (new section)",
+    "proposed_outbox_id": "c02f151315024d06",
+    "reason": "[universal] tag present and central-wiki target identified: coordinator/docs/wiki/dispatching-parallel-agents.md",
+    "target_wiki": "coordinator/docs/wiki/dispatching-parallel-agents.md"
+  },
+  {
+    "source_line": 8,
+    "classification": "unmigrated-no-target",
+    "entry_text": "- 2026-06-08 | DelphiOS | state/lessons.md:14 | [universal] Stale handoff framing is hypothesis, not ground truth \u2014 always re-verify cited code before acting on symptom claims. No specific wiki path identified yet; needs triage to pick the right doctrine surface.",
+    "proposed_outbox_id": null,
+    "reason": "[universal] tag present but no central-wiki path found in body; LEFT IN PLACE \u2014 manual review required to identify target wiki."
+  },
+  {
+    "source_line": 9,
+    "classification": "project-specific",
+    "entry_text": "- 2026-06-09 | DelphiOS | state/lessons.md:19 | Atlas refresh gate: when the atlas is stale and the gate is disabled by flag, the EM silently skips freshness checks \u2014 the flag should require an explicit reason string so the override is auditable in git log. Project-specific to the atlas-gate mechanism.",
+    "proposed_outbox_id": null,
+    "reason": "No [universal] tag; project-specific entry LEFT IN PLACE."
+  },
+  {
+    "source_line": 10,
+    "classification": "to-migrate-duplicate",
+    "entry_text": "- 2026-06-10 | project-rag | state/lessons.md:3 | [universal] `date -r FILE` is GNU-only on BSD/macOS \u2014 same portable mtime issue as the 2026-05-30 entry above, observed again in project-rag build scripts. Fix is identical: use portable stat helper. | proposed target: `~/.claude/docs/wiki/cross-platform-shell-portability.md` \u00a7 Portable mtime pattern (confirms existing entry from different source repo)",
+    "proposed_outbox_id": "8504a2fceecff323",
+    "reason": "Duplicate of line 5 (same target_wiki and title key); collapsed into canonical entry."
+  },
+  {
+    "source_line": 11,
+    "classification": "unmigrated-no-target",
+    "entry_text": "- 2026-06-11 | claude-central | state/lessons.md:~155 | [universal] Bare interpreter name through PATH on macOS resolves to system version, not the running one. Bash subprocess invocations via bare `bash` drop to /bin/bash 3.2 even when parent is bash 5. No target wiki identified for this entry yet \u2014 needs manual review to pick correct page.",
+    "proposed_outbox_id": null,
+    "reason": "[universal] tag present but no central-wiki path found in body; LEFT IN PLACE \u2014 manual review required to identify target wiki."
+  },
+  {
+    "source_line": 12,
+    "classification": "project-specific",
+    "entry_text": "- 2026-06-12 | geneva-mvp | state/lessons.md:5 | GameLift Streams session token expiry is 15 minutes \u2014 the frontend must refresh the stream URL before the token window closes, not just at initial load. Geneva-specific, not a cross-project pattern.",
+    "proposed_outbox_id": null,
+    "reason": "No [universal] tag; project-specific entry LEFT IN PLACE."
+  },
+  {
+    "source_line": 13,
+    "classification": "to-migrate",
+    "entry_text": "- 2026-06-13 | claude-central | state/lessons.md:~8 | [universal] `git commit -m \u2026 -- <new>` after `git mv` ships only the add half \u2014 pass both old+new paths in pathspec, OR drop -- restriction with staging hygiene. | proposed target: `coordinator/docs/wiki/scoped-safety-commits.md` \u00a7 rename mechanics (new row)",
+    "proposed_outbox_id": "e1b7cf0c08c833a2",
+    "reason": "[universal] tag present and central-wiki target identified: coordinator/docs/wiki/scoped-safety-commits.md",
+    "target_wiki": "coordinator/docs/wiki/scoped-safety-commits.md"
+  }
+]

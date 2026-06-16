@@ -225,6 +225,8 @@ No surfacing required — the file's freshness is the signal. Errors (machine-lo
 
 Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surface.sh`. Non-empty → surface verbatim under `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.45`.
 
+Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-outbox-surface.sh`. Non-empty → surface verbatim under `#### Outbox drafts awaiting send (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.46`.
+
 ## Step 1.55: Recent Roadmap Orientation
 
 Surface last quarter's top-10 roadmap completions by size — grounding the day in recent delivery context. Per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern: heading renders regardless of row count.
@@ -410,6 +412,25 @@ Repos with paired cross-repo writers ship a `bin/check-fixture-sync.sh` that byt
 
 Advisory only — never blocks.
 
+## Step 1.10.7: Exec-Bit Drift Probe (meta-repo only)
+
+Daily detect-only probe for shebanged files in the meta-repo whose git index mode is `100644` instead of `100755`. The pre-commit hook (`coordinator-precommit-exec-bit-check`) auto-fixes drift at commit time, so steady-state findings here mean files that drifted out-of-band: `--no-verify` commits, external pushes, or hook-bypass paths.
+
+```bash
+# `realpath` is GNU-only and absent on stock macOS — use the same canon idiom
+# as coordinator-precommit-exec-bit-check (cd && pwd -P).
+_canon(){ (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
+[ "$(_canon "$PWD")" = "$(_canon "$HOME/.claude")" ] && \
+  bash ~/.claude/plugins/coordinator/bin/check-all-shebanged-exec-bits.sh 2>&1
+```
+
+- **Exit 0, no output** → in sync → skip silently.
+- **Exit 1 (drift)** → surface stderr verbatim under `### Exec-Bit Drift` (between `### Addon Health` and `### Priority Suggestions`). Fix path printed by the probe.
+- **Exit 2 (probe infra)** → silent (node/test missing — not a daily-noise condition).
+- **Outside meta-repo** → probe skipped silently (no consumer-repo drift to guard against).
+
+Spec backlink: `state/handoffs/2026-06-15_114014_exec-bit-drift-recurring-on-windows-git-bash.md`.
+
 ## Step 1.11: Cruft Sweep Advisory
 
 Surface filesystem-cruft reclaim opportunities when they cross threshold. Layer 1 floor only — Layer 2 (`/cruft-sweep`) is PM-actioned.
@@ -422,7 +443,7 @@ Surface one-line `Cruft sweep candidates: <N reclaimable>, last sweep <YYYY-MM-D
 - Reclaimable size > 1 GB (read from the dry-run grand-total banner on stderr), OR
 - Staleness > 14d (read the most recent row timestamp from `~/.claude/state/cruft-sweep-log.md` using `tail -1 ~/.claude/state/cruft-sweep-log.md | awk -F'|' '{gsub(/ /, "", $2); print $2}'`; if the file does not exist, treat as stale). <!-- Review: Slice C reviewer F5 — use row-parse not file mtime; log is pipe-delimited, field 2 is the timestamp -->
 
-PM-actioned only — DO NOT auto-invoke `/cruft-sweep` or `cruft-sweep.sh --apply` from this advisory. The Layer 1 script can be invoked with `--apply --quiet` separately on a higher threshold (cron / scheduler), per `docs/wiki/cruft-sweep-cadence.md` § Cadence.
+PM-actioned only — DO NOT auto-invoke `/cruft-sweep` or `cruft-sweep.sh --apply` from this advisory. The apply pass runs automatically in `/workday-complete` Step 1.5; an out-of-session scheduler (cron / Windows Task Scheduler) is optional additional layering for days when Claude Code is not opened, per `docs/wiki/cruft-sweep-cadence.md` § Cadence.
 
 Silent when below both thresholds.
 

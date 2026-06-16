@@ -55,10 +55,10 @@ The scout→specialist transition is scenario 1 (auto-wake). The specialist→sw
 
 The scout builds a **shared corpus** — a pool of broadly useful sources. It does NOT try to be exhaustive per-topic.
 
-- Reads search queries from `{scratch-dir}/scope.md` (written by EM during scoping)
+- Reads search queries from `{workdir}/scope.md` (written by EM during scoping)
 - Executes queries via WebSearch
 - Mechanically vets each result via WebFetch: accessible? paywall? date? source type?
-- Writes corpus to `{scratch-dir}/source-corpus.md`
+- Writes corpus to `{workdir}/source-corpus.md`
 - **No messaging** — scout has no SendMessage tool. Task completion is the only signal.
 - **Timing:** No floor. Ceiling: 3 minutes. This is mechanical work — go fast.
 
@@ -84,7 +84,7 @@ Send targeted messages to specific peers by name. Challenges are **expected**, n
 
 | Category | Format | When |
 |---|---|---|
-| **DONE** | `"DONE: {topic-letter} findings written to {scratch-dir}/{topic-letter}-claims.json and {topic-letter}-summary.md"` | After marking own task `completed` |
+| **DONE** | `"DONE: {topic-letter} findings written to {workdir}/{topic-letter}-claims.json and {topic-letter}-summary.md"` | After marking own task `completed` |
 
 Each DONE message causes the sweep to re-check `TaskList`. When all specialist tasks show `completed`, it proceeds.
 
@@ -145,17 +145,17 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 - **Scout times out (partial corpus):** Specialists use what's there + supplement with own searches
 - **Self-timed convergence (ceiling):** Specialists begin convergence autonomously after max time, without EM intervention
 - **WebSearch/WebFetch failures:** If 3 consecutive fetch attempts fail, converge with what you have and note failures in Investigation Log
-- **Sweep fails:** EM reads raw specialist outputs from `{scratch-dir}/*-claims.json` and `*-summary.md` and presents to PM
+- **Sweep fails:** EM reads raw specialist outputs from `{workdir}/*-claims.json` and `*-summary.md` and presents to PM
 - **All specialists fail:** EM is notified (no completed specialist tasks), reports to PM
 
-## Scratch Directory
+## Work Directory
 
-`tasks/scratch/deep-research-teams/{run-id}/`
+`docs/research/{run-id}-{topic-slug}-workdir/`
 
-- Scout writes to: `{scratch-dir}/source-corpus.md`
-- Each specialist writes to: `{scratch-dir}/{topic-letter}-claims.json` + `{scratch-dir}/{topic-letter}-summary.md`
-- Sweep writes synthesis to: `{output-path}` + `{scratch-dir}/synthesis.md`
-- Sweep writes advisory to: `{advisory-path}` + `{scratch-dir}/advisory.md` (optional — omitted if nothing beyond scope)
+- Scout writes to: `{workdir}/source-corpus.md`
+- Each specialist writes to: `{workdir}/{topic-letter}-claims.json` + `{workdir}/{topic-letter}-summary.md`
+- Sweep writes synthesis to: `{output-path}` + `{workdir}/synthesis.md`
+- Sweep writes advisory to: `{advisory-path}` + `{workdir}/advisory.md` (optional — omitted if nothing beyond scope)
 
 ## Fidelity Relay Protocol
 

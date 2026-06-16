@@ -1,0 +1,16 @@
+{
+  "agent_install_contract_version": 2,
+  "repo_id": "coordinator-claude",
+  "setup_skill": "/coordinator:setup",
+  "doctor_skill": "/coordinator:doctor",
+  "standalone_setup_script": {
+    "posix": "scripts/setup.sh",
+    "windows": "scripts/setup.ps1"
+  },
+  "direct_deps": [],
+  "required_env_vars": [],
+  "override_flags": {
+    "skip_dep_check": "--skip-dep-check",
+    "accept_hallucination_risk": "--accept-missing-deps-risk"
+  }
+}

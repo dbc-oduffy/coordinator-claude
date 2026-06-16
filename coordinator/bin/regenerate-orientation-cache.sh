@@ -203,7 +203,7 @@ emit_rechecks() {
         # (the || echo 0 swallows the error, causing every recheck to be excluded on those platforms).
         # python3 is universally available on the consumer machines this plugin targets and gives a
         # portable epoch without a GNU vs BSD platform-switch.
-        date_epoch=$(python3 -c "import datetime,sys; print(int(datetime.datetime.fromisoformat('$date_str').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+        date_epoch=$(python3 -c "import datetime,sys; print(int(datetime.datetime.fromisoformat('$date_str').replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0) # verify-no-console-flash: allow — on-demand cache regenerator, not session-hot-path
         [[ "$date_epoch" == 0 ]] && continue
         if [[ "$date_epoch" -le "$threshold_epoch" ]]; then
             echo "- \`tasks/$base\` (due $date_str)"

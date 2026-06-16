@@ -24,7 +24,7 @@
 # Prints "NO_MIRRORS" and returns 0 when the registry has no plugin.mirrors.
 _read_all_mirrors() {
     local registry_path="$1"
-    "${PYTHON:-python3}" - "$registry_path" <<'PYEOF' | tr -d '\r'
+    bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe "${PYTHON:-python3}" - "$registry_path" <<'PYEOF' | tr -d '\r'
 import sys, pathlib
 try:
     import tomllib

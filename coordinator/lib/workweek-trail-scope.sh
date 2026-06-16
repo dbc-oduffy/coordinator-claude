@@ -44,6 +44,10 @@ TRAIL_FILES=$(find state/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/
 export TRAIL_FILES
 
 # Resolve Python interpreter — same portable pattern as coordinator-session.sh.
+# Initialise PYTHON_ARGS as an empty array BEFORE sourcing resolve-python.sh —
+# `set -u` would otherwise crash on `"${PYTHON_ARGS[@]}"` if the source step is
+# skipped (resolve-python.sh absent / not on disk in the fallback location).
+PYTHON_ARGS=()
 _WWTS_LIB="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
 [[ ! -f "$_WWTS_LIB" ]] && _WWTS_LIB="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
 if [[ -f "$_WWTS_LIB" ]]; then
@@ -55,7 +59,7 @@ if [[ -z "${PYTHON_BIN:-}" ]]; then
   exit 1
 fi
 
-"$PYTHON_BIN" "${PYTHON_ARGS[@]}" - <<'PYEOF'
+"$PYTHON_BIN" "${PYTHON_ARGS[@]}" - <<'PYEOF'  # verify-no-console-flash: allow (weekly-gate only; not session hot-path)
 import json, os, re, subprocess, sys
 
 # A safe git rev-range from an UNTRUSTED trail-JSON sha_range. Each side must
@@ -76,17 +80,42 @@ if not week_start or not today:
 
 trail_files = [f.strip() for f in trail_env.split("\n") if f.strip() and f.strip().endswith(".json")]
 week_records = []
+# Writer-side doctrine: review-trail records are accepted in either shape —
+#   (a) one JSON object per file (single-line OR pretty-printed; both round-trip
+#       through json.load on the whole file), OR
+#   (b) JSONL — one JSON object per line, used when an integrator envelope is
+#       appended to the original reviewer record without rewriting the file.
+# Convergence lives in the parser (here), not in three independent writers —
+# review-integrator, workstream-complete, and chunk-fanout can each pick the
+# shape that fits the write site. Downstream loop already tolerates records
+# without sha_range (legacy WARN+skip) or with scope_kind in {plan,integration},
+# so appending all JSONL objects is safe — integrator envelopes fall into the
+# non-diff path.
 for f in trail_files:
     basename = os.path.basename(f)
     date_prefix = basename[:10]
-    if week_start <= date_prefix <= today:
+    if not (week_start <= date_prefix <= today):
+        continue
+    try:
+        with open(f) as fh:
+            rec = json.load(fh)
+        week_records.append(rec)
+    except json.JSONDecodeError as json_err:
+        # JSONL fallback — one object per line.
         try:
             with open(f) as fh:
-                rec = json.load(fh)
-            week_records.append(rec)
+                for ln, line in enumerate(fh, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    week_records.append(json.loads(line))
         except Exception as e:
-            print(f"ERROR: could not parse trail record {f}: {e}", file=sys.stderr)
+            # Chain both root causes so the operator sees what failed where.
+            print(f"ERROR: could not parse trail record {f} — failed as JSON ({json_err}) and JSONL ({e})", file=sys.stderr)
             sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: could not parse trail record {f}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 def run(cmd):
     result = subprocess.run(cmd, capture_output=True, text=True, shell=False)

@@ -28,6 +28,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PEER_SCOPE_SNIPPET="${PLUGIN_ROOT}/snippets/peer-scope-block.md"
+PLAN_DOC_OOS_SNIPPET="${PLUGIN_ROOT}/snippets/plan-doc-oos-block.md"
 TEXT_ONLY_SNIPPET="${PLUGIN_ROOT}/snippets/text-only-recovery-preamble.md"
 
 SPEC_FILE=""
@@ -128,6 +129,12 @@ if [[ ! -f "$PEER_SCOPE_SNIPPET" ]]; then
     exit 2
 fi
 PEER_SCOPE_TEMPLATE="$(cat -- "$PEER_SCOPE_SNIPPET")"
+
+if [[ ! -f "$PLAN_DOC_OOS_SNIPPET" ]]; then
+    echo "fan-out-dispatch.sh: ERROR — plan-doc-oos snippet not found: ${PLAN_DOC_OOS_SNIPPET}" >&2
+    exit 2
+fi
+PLAN_DOC_OOS_TEMPLATE="$(cat -- "$PLAN_DOC_OOS_SNIPPET")"
 
 if [[ ! -f "$TEXT_ONLY_SNIPPET" ]]; then
     echo "fan-out-dispatch.sh: ERROR — text-only-recovery-preamble snippet not found: ${TEXT_ONLY_SNIPPET}" >&2
@@ -515,6 +522,39 @@ while IFS= read -r tline; do
 done <<< "$PEER_SCOPE_TEMPLATE"
 
 # ---------------------------------------------------------------------------
+# Strip HTML comment header from plan-doc-oos template, leaving the block body.
+# Parallel to PEER_SCOPE_BODY construction above; no template placeholder
+# substitution is required (the block is identical for every brief).
+# ---------------------------------------------------------------------------
+PLAN_DOC_OOS_BODY=""
+in_html_comment=0
+leading_blank=1
+while IFS= read -r tline; do
+    if [[ "$tline" == "<!--"* ]] && [[ "$in_html_comment" -eq 0 ]]; then
+        in_html_comment=1
+        if [[ "$tline" == *"-->"* ]]; then
+            in_html_comment=0
+        fi
+        continue
+    fi
+    if [[ "$in_html_comment" -eq 1 ]]; then
+        if [[ "$tline" == *"-->"* ]]; then
+            in_html_comment=0
+        fi
+        continue
+    fi
+    if [[ "$leading_blank" -eq 1 ]] && [[ -z "$tline" ]]; then
+        continue
+    fi
+    leading_blank=0
+    if [[ -n "$PLAN_DOC_OOS_BODY" ]]; then
+        PLAN_DOC_OOS_BODY="${PLAN_DOC_OOS_BODY}"$'\n'"${tline}"
+    else
+        PLAN_DOC_OOS_BODY="${tline}"
+    fi
+done <<< "$PLAN_DOC_OOS_TEMPLATE"
+
+# ---------------------------------------------------------------------------
 # Emit N paste-ready dispatch blocks (AC2)
 # ---------------------------------------------------------------------------
 for i in "${!CHUNK_IDS[@]}"; do
@@ -579,6 +619,8 @@ print(body.replace('{{peer_chunks}}', repl), end='')
     done
     echo ""
     echo "${peer_scope_filled}"
+    echo ""
+    echo "${PLAN_DOC_OOS_BODY}"
     echo ""
     echo "### Destructive-action prohibition"
     echo "Do NOT delete, force-push, reset --hard, or run any destructive git operation."

@@ -4,6 +4,7 @@ description: Weekly release ceremony — validate, update docs, cut release note
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: ""
 ---
+<!-- Updated 2026-06-15 by structured-queue-medium-rollout C13: Step 4 surfaces queue depth via query-records.sh --type bug/debt/improvement; central queue stays markdown -->
 
 # Workweek Complete — Weekly Release Ceremony
 
@@ -15,7 +16,27 @@ PM-invoked, release-grade close. Reads the week-changelog as the canonical recor
 
 ## Step 1: Read Week-Changelog — PM Confirmation Gate
 
-Glob `state/week-changelog/*.md` (daily files, sorted by filename). Read HEADER.md and all daily files.
+### Step 1a: Enumerate the ledger BEFORE concluding anything about its content
+
+Substrate-blindness is the failure mode this step exists to prevent: an EM that "looks for" the ledger and concludes it's empty when files are sitting on disk. Print the inventory:
+
+```bash
+bash "$HOME/.claude/plugins/coordinator/bin/list-week-changelog.sh"
+```
+
+Then Read HEADER.md and every daily file. **Pre-condition for the off-cycle / PM-blocking branches in Step 9:** any subsequent step that asserts "no ledger" / "no daily blocks" / "no `/workweek-start` was run" must quote a specific line from the output above as evidence. If the output shows ≥1 daily file with non-zero commit-lines, the ledger is non-empty by definition and the ceremony proceeds with what's there — the off-cycle/PM-blocking branches in Step 9 are gated behind this evidence requirement.
+
+### Step 1b: Backfill missing daily blocks
+
+A skipped `/workday-complete` must reduce fidelity, not erase the day. Run:
+
+```bash
+bash "$HOME/.claude/plugins/coordinator/bin/backfill-week-changelog-gaps.sh"
+```
+
+Past-date synthesized blocks stay frozen (the day's commit set is closed). **Today's `-backfill.md` is overwritable by design** — commits land throughout the day and an early-morning backfill goes stale by ceremony time. The script re-emits today's synthesized block on every run; human-curated daily blocks (no `-backfill` suffix) are always sacred. Prints one line per backfilled/refreshed date. Synthesized blocks feed Step 9 editorial bucketing the same as human-curated ones (the worker reads `Commit log` when `Scope:` is empty). Name any backfilled dates in the Step 1c summary so the PM can amend before release-notes drafting.
+
+### Step 1c: Surface summary
 
 Surface to PM:
 
@@ -99,7 +120,7 @@ If not triggered: note _"Improvement queue: K entries, oldest YYYY-MM-DD — no 
 
 **Prior-art sidecar scan (judgment-based):** Scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times is a revision candidate — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution".
 
-**Bug-backlog depth check:** Read `state/bug-backlog.md` if it exists. Count open P1/P2 items. If ≥10 open, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If absent: skip silently.
+**Bug-backlog depth check:** Use `bin/query-records.sh --type bug --where 'severity in (P1,P2),status=open' | wc -l` to count open P1/P2 items. If ≥10, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If `state/bug-backlog/` directory absent or empty: skip silently.
 
 - **Portability sweep on the week's diff.** Run
   `portability-sweep <repo-root> --diff-only $(week-start-sha)..HEAD --report-format md`.
@@ -288,6 +309,10 @@ fi
 - **Skip cases** (no dispatch, one-line note in summary): no tracked manifests present, OR manifests present but none changed in the last 14 days.
 - **Dispatch case:** at least one manifest changed → dispatch `dep-cve-auditor` (Sonnet worker) with output path `state/review-findings/<week-starting>-cve/deps.md`. Surface its verdict alongside Step 7's gate verdict in Step 9 release notes if any findings warrant it.
 
+**Windows spawn discipline — include this in every `dep-cve-auditor` dispatch prompt:**
+
+> Cross-platform shell — Windows console-flash discipline: Do NOT use bare `python3 -c "…"` or `python -c "…"` for any ad-hoc Python. On Windows these resolve to the venv's console-subsystem `python.exe` and trigger focus-stealing popup windows (~20+ per audit run). If you need an ad-hoc Python one-liner, first check for a project-local quiet wrapper: `project_rag_scripts/python-quiet.sh` (project-rag repos), `bin/python-quiet.sh`, or `bin/python-quiet.ps1`. Route through it if found (`bash project_rag_scripts/python-quiet.sh -c "…"`). If no wrapper exists, document the limitation in the report rather than spawning bare Python. The audit tools themselves (pip-audit, npm audit, cargo audit, govulncheck) are exempt — they are invoked as first-class CLIs, not Python one-liners. References: `docs/wiki/intel-fortran-rtl-console-popup.md` (consuming repo), `docs/wiki/cross-platform-shell-portability.md` (coordinator plugin).
+
 Advisory step — does NOT block merge. The change-aware gate is what makes this cheap: ~/.claude meta-repo (scripts-only `package.json`) skips silently every week; a repo with active dep churn audits when there's something new to audit.
 
 <!-- spec: change-aware-cve-recheck — see commit history; replaces the dropped tasks/cve-recheck-due-*.md marker mechanism (2026-06-08) -->
@@ -362,6 +387,24 @@ bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
 - **OK:** proceed; verdict line goes into release-notes draft for the record.
 
 **Skip rules** (full detail in skill body): <10 lines or internal-only → skip entirely; doc-only week → skip code-semantics chunks (mechanical workers still run); plan-only week → skip entire gate; `--force` passes through.
+
+---
+
+## Step 7.4: Codex Review Gate (default-ON, advisory, does NOT gate merge)
+
+> Architecture and rationale: `docs/plans/2026-06-14-codex-reviewer-integration-opt-in.md` (restoration of historical `codex-review-gate` skill, original ship `b31942c` 2026-04-01, distill-lost in `bb096b9e`, restored 2026-06-14).
+
+Independent-model second opinion on the weekly diff. Codex sees the merge-gate diff (`origin/main..HEAD`) and flags anything the Sonnet chunk reviewers may share blind spots on. **Runs by default on every `/workweek-complete`**; when the `codex-review-gate` skill is absent (user never opted in at `/coordinator:install`), the Codex CLI is not installed/unauthed, or no diff exists against `origin/main`, the step gracefully skips (no-op, one log line).
+
+**Invoke** `skill:codex-review-gate` with:
+
+- `scope: workweek-merge-diff`
+- `base: origin/main`
+- `required: false`
+
+**Advisory only.** This step never blocks merge. Step 7's BLOCKED/WARN/OK synthesizer verdict remains the sole merge gate; Step 8 (Tracker Reconciliation) does NOT consume Step 7.4's output. Codex findings are reported in this step's body but are NOT fed into the merge-decision rollup. P0/P1 Codex findings are surfaced to the PM as a separate advisory line; P2 findings note in the week-changelog.
+
+**Graceful fallback contract:** skill absent → log `Codex review gate: skill not installed — skipped (run /coordinator:install to opt in)` and continue. CLI absent/unauthed → log the reason returned by the skill (`not installed` / `not authenticated` / connection error) and continue. No diff against `origin/main` → log `Codex review gate: no diff against origin/main — skipped` and continue. None of these are gate failures.
 
 ---
 

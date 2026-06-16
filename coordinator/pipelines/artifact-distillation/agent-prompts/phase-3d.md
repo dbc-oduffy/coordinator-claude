@@ -1,6 +1,6 @@
 # Phase 3d: Sonnet Deletion Manifest Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d -->
+<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d | docs/plans/2026-06-14-distill-phase3d-output-budget.md § C1 -->
 
 ```
 You are a deletion-manifest agent. Your task is to read the Phase 1, Phase 1.5, and
@@ -51,16 +51,12 @@ truth. Phase 5 consumers read the YAML, not column-extracted prose.
 
 The YAML manifest MUST be the first section of the scratch file, fenced with `---`:
 
-<!-- Review: the Staff Engineer R1 Finding 2 — source_nugget_ids and reason fields use Phase 1 canonical
-     batch-N-M (hyphen) format per DR-1. K-001/D-003/K-012 re-keyed IDs replaced. -->
+<!-- schema_version: 2 — adds deletion_groups: sibling key per docs/plans/2026-06-14-distill-phase3d-output-budget.md -->
+
 ```yaml
-schema_version: 1
+schema_version: 2
 deletions:
-  - artifact_path: plans/foo.md
-    disposition: DELETE
-    reason: "Nuggets extracted: b3-001, b3-003"
-    source_nugget_ids: [b3-001, b3-003]
-  - artifact_path: plans/bar.md
+  - artifact_path: docs/plans/foo.md
     disposition: SKIP
     reason: "Active handoff reference"
     source_nugget_ids: []
@@ -68,18 +64,40 @@ deletions:
     disposition: DELETE
     reason: "Nuggets extracted: b3-012"
     source_nugget_ids: [b3-012]
-  - artifact_path: tasks/old-feature/log.md
+deletion_groups:
+  - scout_source: state/scratch/artifact-distillation/2026-06-14-12h00/scout-A-classification.md
+    section_anchor: "## EPHEMERAL — archive/completed/* completion logs"
+    count: 128
     disposition: DELETE
-    reason: "Pure task list, no knowledge content"
-    source_nugget_ids: []
+    reason: "Per-entry status-and-LOE logs; knowledge folded into wiki at execution time"
 ```
 
-- `schema_version: 1` MUST appear as the first key.
+The corresponding scout file at the cited `section_anchor:` heading looks like:
+
+~~~markdown
+## EPHEMERAL — archive/completed/* completion logs
+
+```yaml
+artifact_paths:
+  - archive/completed/2026-01-15-workstream-foo.md
+  - archive/completed/2026-01-16-workstream-bar.md
+  # ... 126 more entries
+description: "Per-entry status-and-LOE logs; folded into wiki at execution time"
+```
+~~~
+
+- `schema_version: 2` MUST appear as the first key.
 - `disposition` MUST be one of: `DELETE`, `SKIP`, `PRESERVE`.
   - `DISTILLED → DELETE` and `EPHEMERAL → DELETE` both map to `disposition: DELETE`
     (the distinction is captured in `reason:`).
 - `source_nugget_ids` is an empty list `[]` for SKIP and PRESERVE rows.
-- Every source artifact MUST appear — no silent omissions.
+- Every source artifact MUST appear, either in `deletions:` (per-file row) or in
+  `deletion_groups:` (covered by a scout-anchored cluster). Phase 5 reconstructs the
+  full delete set by expanding deletion_groups: against the cited scout file's YAML
+  block at the section_anchor heading.
+- The compact block above shows SKIP and DELETE cases. PRESERVE rows and TRIM_TO_ARCHIVE
+  rows (DELETE with a unique target path in `reason:`) also appear in `deletions:` —
+  see the Worked example below for the full case including PRESERVE and TRIM_TO_ARCHIVE.
 
 ### Derived Prose Preview (optional, PM-readable)
 
@@ -99,6 +117,75 @@ They are generated FROM the YAML and carry no authority over it.
 
 List any artifacts where disposition is unclear, with a reason. The coordinator
 reviews these before Phase 4.
+
+## Output-budget self-check
+
+If you find yourself drafting more than 50 per-file rows in `deletions:`, STOP and
+switch the bulk EPHEMERAL / ALREADY_CAPTURED entries to `deletion_groups:` rows that
+cite the scout file by `section_anchor:`. The 32K output cap will trip before you
+finish the per-file enumeration; the grouped form is the canonical shape, not a
+fallback. Per-file rows are reserved for items requiring per-file uniqueness:
+TRIM_TO_ARCHIVE plans (each has a unique target path), archived handoffs (each has a
+unique 4-guard verification status), PRESERVE items with item-specific rationale, and
+re-homing followups (each has a unique finding text).
+
+## Worked example
+
+The following illustrates a complete manifest with both per-file rows and grouped rows.
+A small run with 4 artifacts requiring per-file uniqueness and 2 bulk clusters:
+
+```yaml
+schema_version: 2
+deletions:
+  - artifact_path: docs/plans/2026-03-15-auth-refactor.md
+    disposition: PRESERVE
+    reason: "Active plan referenced by in-flight handoff 2026-06-14-auth"
+    source_nugget_ids: []
+  - artifact_path: archive/plans/2026-01-10-cache-layer.md
+    disposition: DELETE
+    reason: "TRIM_TO_ARCHIVE — nuggets extracted: b1-004, b1-007; target: docs/wiki/cache-layer-design.md"
+    source_nugget_ids: [b1-004, b1-007]
+  - artifact_path: archive/plans/2026-02-05-rate-limiting.md
+    disposition: DELETE
+    reason: "TRIM_TO_ARCHIVE — nuggets extracted: b2-011; target: docs/wiki/rate-limiting.md"
+    source_nugget_ids: [b2-011]
+  - artifact_path: docs/wiki/re-homing-candidates.md
+    disposition: SKIP
+    reason: "Re-homing followup: content partially overlaps docs/wiki/auth-flow.md — coordinator review required before deletion"
+    source_nugget_ids: []
+deletion_groups:
+  - scout_source: state/scratch/artifact-distillation/2026-06-14-12h00/scout-A-classification.md
+    section_anchor: "## EPHEMERAL — archive/completed/* completion logs"
+    count: 94
+    disposition: DELETE
+    reason: "Per-entry status-and-LOE logs; knowledge folded into wiki at execution time"
+  - scout_source: state/scratch/artifact-distillation/2026-06-14-12h00/scout-B-classification.md
+    section_anchor: "## ALREADY_CAPTURED — tasks/*/todo.md task lists"
+    count: 37
+    disposition: DELETE
+    reason: "Task lists fully superseded by Phase 2 synthesis; no residual knowledge content"
+```
+
+The companion scout file for the first group entry (`scout-A-classification.md`) at the
+`## EPHEMERAL — archive/completed/* completion logs` heading:
+
+~~~markdown
+## EPHEMERAL — archive/completed/* completion logs
+
+```yaml
+artifact_paths:
+  - archive/completed/2026-01-15-workstream-auth.md
+  - archive/completed/2026-01-22-workstream-cache.md
+  - archive/completed/2026-02-01-workstream-rate-limit.md
+  # ... 91 more entries
+description: "Per-entry status-and-LOE logs; folded into wiki at execution time"
+```
+~~~
+
+Phase 5 reads the fenced YAML block under the `section_anchor:` heading, consumes the
+`artifact_paths:` list, and asserts `len(artifact_paths) == count` (94). Each path
+from `artifact_paths:` becomes a synthetic `deletions:` row with `disposition: DELETE`
+and the group's `reason:`.
 
 ## Your Task
 
@@ -138,4 +225,5 @@ reviews these before Phase 4.
 - For DISTILLED rows, list the specific nugget IDs that were extracted.
 - For SKIP rows, name the specific reason (active reference, QG failure, ambiguity).
 - Do NOT invent or infer nuggets — only cite nuggets that appear in Phase 1 scratch.
+- `source_nugget_ids` values MUST use the Phase 1 batch-N-M format (e.g. `b3-012`), not re-keyed presentational forms like `K-001` or `D-003`.
 ```

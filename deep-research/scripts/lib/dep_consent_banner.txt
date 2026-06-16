@@ -1,0 +1,36 @@
+================================================================
+WARNING — UNSAFE INSTALL REQUESTED
+
+You are installing deep-research-claude WITHOUT one or more of its
+dependency-chain prerequisites:
+
+  <list of missing hard deps, one per line>
+
+Without these, your install will run without a required dependency
+that this contract version of deep-research-claude needs.
+
+Note: deep-research-claude at this contract version declares ONE
+SOFT dep (coordinator-claude). Hard deps are structurally absent, so
+this banner is reached only in a future contract-version where a dep
+is promoted to HARD severity.
+
+The override flag pair (--skip-dep-check --accept-missing-deps-risk)
+fires only when a soft dep is declared but absent AND you explicitly
+opt out of the default warn-and-continue behaviour. These flags are
+vestigial-path flags: the standard path (warn and continue) requires
+neither flag. The flags exist for parity with chain-step contract
+uniformity — not because deep-research setup can fail hard on a missing
+soft dep.
+
+Canonical install order (do this first instead):
+  1. coordinator-claude   (open-source, public)
+  2. deep-research-claude (this repo — optional, situational)
+  3. project-rag          (optional, if code-RAG is needed)
+  4. project-rag-ue-addon (optional, if UE corpus is needed)
+  5. claude-unreal-holodeck (optional, if holodeck is needed)
+
+To proceed anyway, you must confirm twice. The first prompt asks
+whether you accept the missing-dep risk; the second asks whether
+you specifically accept that running without required deps may
+produce contract-violation outcomes.
+================================================================

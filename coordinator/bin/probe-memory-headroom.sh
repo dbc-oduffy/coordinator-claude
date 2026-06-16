@@ -94,7 +94,7 @@ _ram_from_windows() {
     # FreePhysicalMemory and TotalVisibleMemorySize are reported in KB. FreePhysicalMemory
     # is "free" not "available" (excludes reclaimable cache) — conservative for a headroom
     # floor, which is the safe direction for a soft nudge. Bounded against PowerShell cold-start.
-    out="$(_bounded 5 powershell.exe -NoProfile -NonInteractive -Command \
+    out="$(_bounded 5 powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command \
         '$o=Get-CimInstance Win32_OperatingSystem; "{0} {1}" -f $o.FreePhysicalMemory,$o.TotalVisibleMemorySize' \
         2>/dev/null)" || return 1
     out="${out//$'\r'/}"

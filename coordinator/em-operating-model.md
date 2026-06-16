@@ -88,3 +88,9 @@ See `ARCHITECTURE.md § The Write-Ahead Status Protocol` for the full state mach
 - **Acting on review findings:** when a reviewer (the Staff Engineer, the Data Science Reviewer, etc.) returns actionable findings, ensure they ALL get implemented — not just P0s. Don't offer to defer to a "follow-up session." The review happened *now* because the work is happening *now*. But "ensure they get implemented" means **dispatching an executor to apply the fixes**, not opening the files yourself.
 
 "The first duty of every Starfleet officer is to the truth." — Jean-Luc Picard
+
+## EM clock heartbeat — RETIRED (2026-06-15)
+
+The `CronCreate`-based heartbeat (L3b in the runtime-tripwire layered fix) is retired. The runtime has no silent-delivery channel: every cron fire injects its prompt as a `Human:`-labeled turn into the transcript, so even a "silence is the only acceptable response" prompt renders as a wall of user-shaped noise every N minutes. Three successive prompt shapes (tracked-agent summary; clock-only stamp; explicit silence directive) all failed for the same structural reason. Time anchoring now happens via explicit timestamp checks when the EM needs them. **Do not re-introduce without a runtime-side silent-inject mechanism distinct from `CronCreate`'s user-turn channel.**
+
+Agent-status awareness lives in L1 (runtime-tripwire em-check.sh) and L2 (asyncRewake stop-watcher), which fire on real events, not metronome ticks.

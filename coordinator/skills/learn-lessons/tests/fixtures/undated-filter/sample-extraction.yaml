@@ -1,0 +1,40 @@
+# Synthetic extraction fixture for the Phase 2.5 undated-pass filter snippet.
+# Mirrors the shape extract-lessons.py emits for *-extracted-full.yaml.
+#
+# Records (covering the filter polarity matrix):
+#   id=sample-L1  undated=true,  tag_universal=true   → MUST be selected
+#   id=sample-L8  undated=true,  tag_universal=true   → MUST be selected
+#   id=sample-L15 undated=true,  tag_universal=false  → MUST NOT be selected (project-scoped)
+#   id=sample-L22 undated=false, tag_universal=true   → MUST NOT be selected (dated; delta handles it)
+#   id=sample-L29 undated=false, tag_universal=false  → MUST NOT be selected (neither axis)
+meta:
+  shortname: sample
+  total_blocks_seen: 5
+  undated_excluded_under_since: 2
+  dated_excluded_pre_window: 0
+records:
+  - id: sample-L1
+    source: state/lessons.md:1
+    title: "Undated universal — must pass"
+    tag_universal: true
+    undated: true
+  - id: sample-L8
+    source: state/lessons.md:8
+    title: "Another undated universal — must pass"
+    tag_universal: true
+    undated: true
+  - id: sample-L15
+    source: state/lessons.md:15
+    title: "Undated project-scoped — must NOT pass (negative case A)"
+    tag_universal: false
+    undated: true
+  - id: sample-L22
+    source: state/lessons.md:22
+    title: "Dated universal — must NOT pass (negative case B; delta handles it)"
+    tag_universal: true
+    undated: false
+  - id: sample-L29
+    source: state/lessons.md:29
+    title: "Dated project-scoped — must NOT pass (neither axis)"
+    tag_universal: false
+    undated: false

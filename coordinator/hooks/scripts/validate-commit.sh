@@ -387,6 +387,10 @@ if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
   # Tokens like: git commit -m "subject" or git commit -m 'subject' or here-doc.
   # Parse from the full COMMAND variable (already extracted at top of script).
   SUBJECT=$(echo "$COMMAND" | sed -n "s/.*-m[[:space:]]*[\"']\\([^\"']*\\)[\"'].*/\\1/p" | head -1)
+  # Fallback: heredoc-style commits embed newlines; collapse and retry extraction.
+  if [[ -z "$SUBJECT" ]]; then
+    SUBJECT=$(echo "$COMMAND" | tr -s '\n' ' ' | sed -n "s/.*-m[[:space:]]*[\"']\\([^\"']*\\)[\"'].*/\\1/p" | head -1)
+  fi
   # If sed didn't match (here-doc or unusual quoting), leave SUBJECT empty — fail open with warning.
 
   SUBJECT_LC=$(echo "$SUBJECT" | tr '[:upper:]' '[:lower:]')

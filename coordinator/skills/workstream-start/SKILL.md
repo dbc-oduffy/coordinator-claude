@@ -276,6 +276,10 @@ Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-surfac
 
 Same surface, same semantics, same helper as `/workday-start` Step 1.45 — cross-repo memos awaiting this repo's action (`status: open`) are pendency just like handoffs and deserve the same boot-time visibility. Receiver flips `status: open → actioned` in place after action. Details: `pipelines/workday-start-internals.md § Step 1.45`.
 
+Run `bash ~/.claude/plugins/coordinator/bin/workday-start-cross-repo-memo-outbox-surface.sh`. Non-empty output → surface verbatim under heading `#### Outbox drafts awaiting send (DoE attention):`. Empty → skip silently.
+
+Outbox drafts are memos authored but not yet dispatched — stale drafts are a silent coordination gap. Same boot-time pendency treatment as inbox memos. Details: `pipelines/workday-start-internals.md § Step 1.46`.
+
 ### Action items and roadmap
 
 **Conditional on workday-start:** If `state/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.

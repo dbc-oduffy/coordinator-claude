@@ -43,8 +43,11 @@ const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./
 // Review: Patrik F3 — import shared constants/regex so write-time and read-time
 // paths stay greppably aligned without copy-paste drift.
 
+// RAG-bait: scan top-level archive/handoffs/ only. tasks/handoffs/archive/ is a
+//           grandfathered holodeck-specific path (read-only per
+//           spinoff-handoffs.md:341-342) — do NOT add it here.
 const TYPE_TO_GLOB = {
-  handoff:  'state/handoffs',
+  handoff:  ['state/handoffs', 'archive/handoffs'],
   plan:     'docs/plans',
   decision: 'docs/decisions',
   review:   'state/reviews',
@@ -257,25 +260,28 @@ function main() {
   const results = [];
 
   for (const type of opts.types) {
-    const dir = path.join(root, TYPE_TO_GLOB[type]);
-    const tracked = getTrackedFiles(dir, root);
-    for (const file of walkDir(dir)) {
-      // Review: Patrik F5 — skip untracked files silently (tracked===null means
-      // git is unavailable, so we process all files as a fallback).
-      if (tracked !== null && !tracked.has(file)) continue;
-      let out;
-      try {
-        out = normalizeOne(file);
-      } catch (err) {
-        // Review: Patrik F1 — block-scalar field detected; fail loud with filename.
-        process.stderr.write(`ERROR ${path.relative(root, file).replace(/\\/g, '/')}: ${err.message}\n`);
-        process.exitCode = 1;
-        continue;
-      }
-      if (!out) continue;
-      results.push({ file: path.relative(root, file).replace(/\\/g, '/'), changes: out.changes });
-      if (!opts.dryRun) {
-        fs.writeFileSync(file, out.rebuilt, 'utf8');
+    const globs = Array.isArray(TYPE_TO_GLOB[type]) ? TYPE_TO_GLOB[type] : [TYPE_TO_GLOB[type]];
+    for (const glob of globs) {
+      const dir = path.join(root, glob);
+      const tracked = getTrackedFiles(dir, root);
+      for (const file of walkDir(dir)) {
+        // Review: Patrik F5 — skip untracked files silently (tracked===null means
+        // git is unavailable, so we process all files as a fallback).
+        if (tracked !== null && !tracked.has(file)) continue;
+        let out;
+        try {
+          out = normalizeOne(file);
+        } catch (err) {
+          // Review: Patrik F1 — block-scalar field detected; fail loud with filename.
+          process.stderr.write(`ERROR ${path.relative(root, file).replace(/\\/g, '/')}: ${err.message}\n`);
+          process.exitCode = 1;
+          continue;
+        }
+        if (!out) continue;
+        results.push({ file: path.relative(root, file).replace(/\\/g, '/'), changes: out.changes });
+        if (!opts.dryRun) {
+          fs.writeFileSync(file, out.rebuilt, 'utf8');
+        }
       }
     }
   }
