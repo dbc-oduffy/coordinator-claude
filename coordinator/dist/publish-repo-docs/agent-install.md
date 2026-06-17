@@ -231,6 +231,11 @@ cp "$DR_TEMPLATE" "$DR_SPINOFF_DEST"
 sed -i.bak "s/{{DATE}}/${TODAY}/g; s/{{BRANCH}}/${BRANCH}/g" "$DR_SPINOFF_DEST" && rm -f "$DR_SPINOFF_DEST.bak"
 ```
 
+The post-restart session discovers this leg via its Step 0 sweep when run from `~/.claude`; if you
+need to pick it up explicitly from any cwd, its absolute baton path is
+`~/.claude/state/handoffs/install-deep-research.md` (an absolute `/pickup` of it is lifecycle-clean
+from anywhere).
+
 Any *other* downstream repos the human named install their own `kind: spinoff` batons into
 `~/.claude/state/handoffs/` via their own installers — not from here. The post-restart session's
 Step 0 sweep finds whatever is present and lays out the chain; you do not enumerate them.
@@ -252,14 +257,28 @@ Layer 0 is complete. Now the human needs a fresh Claude Code session.
 
 Tell the human exactly this — verbatim matters:
 
-> **Start a fresh Claude Code session and paste:**
+> **Start a fresh Claude Code session from your `~/.claude` directory and paste:**
 >
-> `/pickup state/handoffs/continue-onboarding-and-installation.md`
+> ```
+> cd ~/.claude
+> /pickup ~/.claude/state/handoffs/continue-onboarding-and-installation.md
+> ```
 >
 > Why a fresh session? The Agent Teams capability (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) that
 > the deep-research pipeline depends on is an environment variable that Claude Code reads at
 > startup. `/reload-plugins` activated the coordinator's slash commands without a restart; the
 > env var needs the fresh session to take effect.
+
+The durable onboarding session belongs in `~/.claude` — the continue-onboarding baton (and every
+per-repo install/orient leg) is seeded into `~/.claude/state/handoffs/`, its `scope:` is all
+`~/.claude` files, and `/workday-start`'s sweep resolves `state/handoffs/` relative to the cwd's git
+root. Running from `~/.claude` is therefore the tidiest home for it. The **absolute**-path `/pickup`
+above is lifecycle-clean from *any* cwd regardless (the skill derives the baton's repo from the
+path), so the `cd ~/.claude` is convenience, not a correctness requirement — but it keeps the sweep,
+the commit, and the claim lock all pointed at the right repo with no caveats. This is the one site
+where a hard `/pickup <spine>` is correct: the spine is cold-start-only (see
+`docs/wiki/agent-install-contract.md` § "The spine is cold-start-only"); downstream runbooks route
+post-restart work to `/workday-start`, not a hard re-pickup of the spine.
 
 Do NOT describe the fresh session as "restarting Claude Code" alone — the human needs to know
 they are handing off to a new session that resumes from a specific point. The `/pickup` command
@@ -269,8 +288,8 @@ is the resumption mechanism; make sure they write it down or can copy it.
 
 ## Step 3 — Layer 2: what the fresh session does
 
-The fresh session resumes via `/pickup state/handoffs/continue-onboarding-and-installation.md`.
-That handoff carries everything the new session needs. You (this cold agent) do not need to
+The fresh session resumes via `/pickup ~/.claude/state/handoffs/continue-onboarding-and-installation.md`
+(absolute path — clean from any cwd). That handoff carries everything the new session needs. You (this cold agent) do not need to
 describe the fresh session's work in detail here — that work is specified in the handoff body.
 
 The broad shape is:

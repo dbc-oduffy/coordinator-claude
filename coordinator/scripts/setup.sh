@@ -38,9 +38,10 @@
 #   Nested layout (working-repo):  scripts/ lives under plugins/coordinator/;
 #                                  heuristic: ../coordinator/docs/install/AGENT.md exists.
 #
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 #
 # Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C2
+# Spec backlink: docs/plans/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md §C2
 # Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md
 #                § Read-only flag carve-out, § Severity semantics
 
@@ -130,7 +131,7 @@ source "${_LIB_DIR}/dep_check.sh" 2>/dev/null || {
 
 # ---------------------------------------------------------------------------
 # Argument parsing
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 # ---------------------------------------------------------------------------
 SKIP_DEP_CHECK=false
 ACCEPT_MISSING_DEPS_RISK=false
@@ -154,6 +155,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --help                     Print this help and exit."
             echo "  --version                  Print script version and exit."
             echo "  --phase-list               List install phases and exit."
+            echo "  --phase <name>             Run a named install phase and exit."
+            echo "                             Read-only phases (no state written):"
+            echo "                               seed-install-spinoff  DAG-root no-op; prints that"
+            echo "                                                      coordinator STITCHES+DRIVES"
+            echo "                                                      and seeds no leg baton for itself."
+            echo "                             Unknown phase names exit non-zero with a remediation message."
             echo "  --last-status              Print last install status JSON and exit."
             echo "  --check                    Read-only dep probe + status report. No state written."
             echo "                             coord-specific read-only extension (chain step 5 of 5)."
@@ -172,8 +179,49 @@ while [[ $# -gt 0 ]]; do
             ;;
         --phase-list)
             PHASE_LIST=true
-            echo "dep-check:  coordinator-claude is DAG root — no upstream deps to probe"
+            echo "Available --phase <name> values:"
+            echo "  seed-install-spinoff  DAG-root no-op (read-only, no state written)"
+            echo ""
+            echo "Informational (NOT --phase <name> values):"
+            echo "  dep-check:  coordinator-claude is DAG root — no upstream deps; chain-walk terminates here"
             exit 0
+            ;;
+        --phase)
+            # Value-taking dispatch flag. Consumes the next argument as the phase name.
+            # Read-only phases (no install-status write): seed-install-spinoff
+            # Spec backlink: docs/plans/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md §C2 §Decision-0
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --phase requires a phase name argument." >&2
+                echo "Run with --phase-list to see available phases." >&2
+                echo "Run with --help for full usage." >&2
+                exit 1
+            fi
+            _PHASE_NAME="$2"
+            shift  # consume the phase name token ($2); inner case branches all exit, so the outer-loop shift is unreachable on the phase-dispatch path
+            # Review: code-reviewer — guard against a forgotten phase name producing a confusing "Unknown --phase value: '--nextflag'" error
+            if [[ "${_PHASE_NAME}" == --* ]]; then
+                echo "ERROR: --phase requires a phase name, but got a flag ('${_PHASE_NAME}'). Did you forget the phase name?" >&2
+                exit 1
+            fi
+            case "${_PHASE_NAME}" in
+                seed-install-spinoff)
+                    # Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
+                    # coordinator-claude is the install-chain DAG-root spine: it STITCHES+DRIVES
+                    # the install chain but seeds no leg baton for itself. The leaf bootstrap
+                    # discovers coordinator via the manifest and invokes this phase; the correct
+                    # outcome is exit 0 with an explanatory message — not SEED STEP ABSENT.
+                    # Decision-0: no state written; deep-research baton is seeded by coordinator's
+                    # own onboarding flow pre-reboot, not by this phase invocation.
+                    echo "coordinator-claude: DAG-root spine — STITCHES+DRIVES the install chain; seeds no leg baton for itself (seed-install-spinoff is a no-op by design)."
+                    exit 0
+                    ;;
+                *)
+                    echo "ERROR: Unknown --phase value: '${_PHASE_NAME}'" >&2
+                    echo "Run with --phase-list to see available phase names." >&2
+                    echo "Run with --help for full usage." >&2
+                    exit 1
+                    ;;
+            esac
             ;;
         --last-status)
             LAST_STATUS=true
@@ -183,7 +231,7 @@ while [[ $# -gt 0 ]]; do
         --check)
             # coord repo-specific read-only extension (contract § Read-only flag carve-out).
             # MUST NOT write to install-status, manifest, or any persistent state.
-            # Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+            # Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
             CHECK_FLAG=true
             ;;
         --skip-dep-check)
@@ -249,7 +297,7 @@ fi
 #
 # MUST NOT write to install-status, manifest, or any persistent state.
 # coord repo-specific read-only extension (contract § Read-only flag carve-out).
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 # ---------------------------------------------------------------------------
 if [[ "${CHECK_FLAG}" == true ]]; then
     echo "=========================================================="
@@ -269,11 +317,11 @@ if [[ "${CHECK_FLAG}" == true ]]; then
     fi
     export PYTHON="${_PYTHON}"
 
-    _MANIFEST_PATH="${REPO_ROOT}/docs/install/agent-install-manifest.json"
-    if [[ ! -f "${_MANIFEST_PATH}" ]]; then
-        echo "WARNING: install manifest not found at ${_MANIFEST_PATH}" >&2
-        echo "  C1 (manifest + AGENT.md) must land before --check can probe deps." >&2
-        echo ""
+    # Layout-aware resolution (nested working-tree vs flat publish-repo-root).
+    # The resolver prints not-found remediation to stderr on failure.
+    _MANIFEST_PATH=""
+    if ! _MANIFEST_PATH="$(_co_resolve_manifest_path "${REPO_ROOT}")"; then
+        echo "" >&2
         echo "  ${_CHAIN_BANNER}: no manifest to probe — exiting 0 (check-only mode)."
         exit 0
     fi
@@ -380,7 +428,21 @@ fi
 echo "[setup] Probing direct deps..."
 _DEP_COUNT=0
 
-if declare -F _co_dep_probe_all >/dev/null 2>&1; then
+# Resolve the manifest layout-aware (nested working-tree vs flat publish root).
+# Previously _MANIFEST_PATH was assigned ONLY in the --check block, so the
+# full-install body dereferenced it unbound at the _co_dep_probe_all call
+# below — `set -u` then hard-crashed with "_MANIFEST_PATH: unbound variable"
+# (2026-06-17 holodeck-em report). A missing manifest is non-fatal here (the
+# DAG-root walker has no direct_deps to probe), but it MUST fail loud with
+# remediation instead of crashing. Guard the probe call on a non-empty path.
+_MANIFEST_PATH=""
+if ! _MANIFEST_PATH="$(_co_resolve_manifest_path "${REPO_ROOT}")"; then
+    # Resolver emits only to stderr on failure, so the pre-init "" above already
+    # holds — no inline reset needed; the probe loop below is guarded on non-empty.
+    echo "[setup] WARNING: proceeding without dep probe — coordinator-claude is the DAG root (no direct_deps)." >&2
+fi
+
+if [[ -n "${_MANIFEST_PATH}" ]] && declare -F _co_dep_probe_all >/dev/null 2>&1; then
     while IFS= read -r _probe_line; do
         [[ -z "${_probe_line}" ]] && continue
         _DEP_COUNT=$(( _DEP_COUNT + 1 ))

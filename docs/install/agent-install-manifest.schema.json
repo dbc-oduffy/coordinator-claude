@@ -8,7 +8,6 @@
     "agent_install_contract_version",
     "repo_id",
     "setup_skill",
-    "doctor_skill",
     "standalone_setup_script",
     "direct_deps",
     "required_env_vars",
@@ -32,7 +31,7 @@
       "pattern": "^/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?$"
     },
     "doctor_skill": {
-      "description": "The slash-command that a human types to invoke the doctor/health-check flow (informational).",
+      "description": "OPTIONAL. The slash-command that a human types to invoke a doctor/health-check flow (informational). Omitted entirely by repos that have no health-check flow — not every conforming repo warrants one (e.g. a research-pipeline plugin). Avoid the bare name `doctor`/`/doctor` even when present: it collides with Claude Code's native `/doctor` on bare-name resolution; name any real health command distinctly (e.g. `/coordinator:code-health`).",
       "type": "string",
       "pattern": "^/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?$"
     },

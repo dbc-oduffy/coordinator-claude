@@ -56,6 +56,59 @@ _co_find_python() {
 }
 
 # ---------------------------------------------------------------------------
+# _co_resolve_manifest_path [repo-root]
+#
+# Purpose: layout-aware resolution of agent-install-manifest.json. The
+# coordinator-claude install surface ships in two layouts and the manifest
+# lands in a DIFFERENT place in each — so callers MUST NOT assume a single
+# fixed REPO_ROOT-relative location (the 2026-06-17 holodeck-em failure: the
+# walker resolved coordinator/docs/install/ but the publish flat-mirror put
+# the manifest at repo-root docs/install/, one level higher):
+#
+#   Nested working-tree / mirror layout — manifest beside the coordinator/ tree:
+#       <REPO_ROOT>/docs/install/agent-install-manifest.json
+#       (REPO_ROOT == coordinator/, the parent of scripts/)
+#   Flat publish-repo-root layout — manifest one level ABOVE coordinator/,
+#   published there by the `coordinator-claude-toplevel-install` flat-mirror
+#   target so the leaf bootstrap can find it at a predictable repo root:
+#       <REPO_ROOT>/../docs/install/agent-install-manifest.json
+#
+# Probes both, returns the first that exists (absolute, normalized). Fails
+# LOUD with remediation when neither exists — never emits an empty/unbound
+# path. Callers under `set -u` MUST guard the call (assign "" on failure).
+#
+# Arguments:
+#   $1 (optional) — repo root. Defaults to ${REPO_ROOT}, else derived from
+#                   this lib's location (scripts/lib → two levels up).
+# ---------------------------------------------------------------------------
+_co_resolve_manifest_path() {
+  local _repo_root="${1:-${REPO_ROOT:-}}"
+  if [[ -z "$_repo_root" ]]; then
+    _repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  fi
+  local _rel="docs/install/agent-install-manifest.json"
+  local _nested="${_repo_root}/${_rel}"           # working-tree / mirror layout
+  local _flat="${_repo_root}/../${_rel}"           # publish-repo-root flat-mirror layout
+  local _hit=""
+  if [[ -f "$_nested" ]]; then
+    _hit="$_nested"
+  elif [[ -f "$_flat" ]]; then
+    _hit="$_flat"
+  else
+    echo "ERROR: install manifest not found in either layout location:" >&2
+    echo "  nested (working-tree/mirror): $_nested" >&2
+    echo "  flat   (publish-repo-root):   $_flat" >&2
+    echo "  Remediation: re-publish BOTH install-surface targets from the meta-repo —" >&2
+    echo "    bash setup/publish.sh coordinator-claude-toplevel-install   # repo-root docs/install/" >&2
+    echo "    bash setup/publish.sh coordinator-claude                    # coordinator/ mirror" >&2
+    echo "  (a manifest-only or mirror-only re-publish leaves the layouts inconsistent)." >&2
+    return 1
+  fi
+  # Normalize to an absolute path.
+  (cd "$(dirname "$_hit")" && printf '%s/%s\n' "$(pwd)" "$(basename "$_hit")")
+}
+
+# ---------------------------------------------------------------------------
 # _co_manifest_read_ndjson — emit NDJSON, one line per direct_dep.
 #
 # Purpose: parse agent-install-manifest.json with stdlib json only and emit
@@ -71,18 +124,21 @@ _co_manifest_read_ndjson() {
 
   _python="$(_co_find_python)" || return 1
 
-  # Default manifest location: repo root relative to this script's lib/ directory.
+  # Default manifest location: layout-aware resolution (nested working-tree
+  # vs flat publish-repo-root). The old lib-relative `../../docs/install/`
+  # default was layout-blind and resolved a non-existent path under the publish
+  # flat-mirror layout — see _co_resolve_manifest_path.
   if [[ -z "$_manifest_path" ]]; then
-    local _lib_dir
-    _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    _manifest_path="$_lib_dir/../../docs/install/agent-install-manifest.json"
+    _manifest_path="$(_co_resolve_manifest_path)" || return 1
   fi
 
   # Normalize to absolute path.
-  # F10: wrap with parent-dir existence check. Previously `cd "$(dirname ...)" && pwd`
-  # would silently succeed with an empty/wrong path when the parent directory does not
-  # exist (the subshell `cd` fails, `pwd` falls back to cwd, producing a misleading path).
-  # Now we hard-fail with a clear message when the parent dir is absent.
+  # This guards CALLER-SUPPLIED paths ($1): the default-resolved path from
+  # _co_resolve_manifest_path is already normalized + existence-checked, so for
+  # that branch this block is a harmless re-normalization. F10: wrap with a
+  # parent-dir existence check — in a caller without `set -e`, a `cd "$(dirname
+  # ...)"` into a missing dir leaves `pwd` printing cwd, producing a misleading
+  # path; the explicit check hard-fails with a clear message instead.
   local _manifest_dir
   _manifest_dir="$(dirname "$_manifest_path")"
   if [[ ! -d "$_manifest_dir" ]]; then

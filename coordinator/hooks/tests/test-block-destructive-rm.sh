@@ -97,6 +97,10 @@ run_case "rm -rf out-of-repo scratch allowed" allow "rm -rf $SCRATCH"
 run_case "rm -rf nonexistent path allowed" allow "rm -rf does-not-exist-xyz"
 run_case "single-file rm (no -r, not a dir) left alone" allow "rm tracked.txt"
 run_case "git rm (staged removal, recoverable) allowed" allow "git rm tracked.txt"
+run_case "git -C <path> rm (global flag before subcommand) allowed" allow "git -C $TMP rm tracked.txt"
+run_case "git -c k=v rm (config flag before subcommand) allowed" allow "git -c user.x=y rm tracked.txt"
+run_case "git --no-pager rm (valueless global flag) allowed" allow "git --no-pager rm tracked.txt"
+run_case "git --exec-path <path> rm (space-separated value) allowed" allow "git --exec-path /opt/git rm tracked.txt"
 run_case "rm -rf unresolved var (v1 skip) allowed" allow 'rm -rf $SOME_DIR'
 run_case "rm -rf glob (v1 skip) allowed" allow "rm -rf build/*"
 run_case "override env bypasses block" allow "rm -rf workdir" "COORDINATOR_ALLOW_RM=1"
@@ -142,24 +146,47 @@ run_case "rm -rf src-like dir with content denied" deny "rm -rf fakesrc"
 # Hardened allowlist — new DENY cases added for security-audit-worker findings.
 # ---------------------------------------------------------------------------
 
-# (1) Symlink tasks/<name>-scratch pointing to an external dir with untracked
-#     content must DENY — the -L check prevents the allowlist from firing for
-#     symlinks so that realpath-following can't land the match on an unintended target.
-# NOTE: Windows Git Bash does not support POSIX directory symlinks (ln -s dir
-#       creates a directory copy, not a symlink; -L always returns false). Skip
-#       this case on Windows; the hook code itself is correct for POSIX hosts.
+# (1) Symlink handling in the scratch allowlist (security-audit-worker findings + F9).
+#     The hook guards IN-REPO git-unrecoverable work; targets outside any git repo are
+#     out of scope by design, and `rm -rf <symlink>` removes the LINK, not the target.
+#     So a tasks/*-scratch symlink to an EXTERNAL non-repo dir is ALLOWED (out of scope).
+#     A tasks/*-scratch symlink to an IN-REPO dir with untracked content must DENY: the
+#     -L check (trailing-slash-normalized, F9) excludes it from the allowlist fast path,
+#     so it falls through to the git-status check which catches the in-repo work.
+# NOTE: Windows Git Bash does not support POSIX directory symlinks (ln -s dir creates a
+#       directory copy, not a symlink; -L always returns false). Skipped on Windows.
+
+# (1a) Symlink -> external non-repo dir: ALLOWED (out of the hook's in-repo scope; the
+#      rm unlinks the symlink, it does not recurse into the external target).
 SYMLINK_TARGET=$(mktemp -d)
 echo "external" > "$SYMLINK_TARGET/secret.txt"
 mkdir -p tasks
 ln -s "$SYMLINK_TARGET" tasks/link-scratch 2>/dev/null || true
 if [[ -L "tasks/link-scratch" ]]; then
-  run_case "rm -rf tasks/link-scratch (symlink to external dir) denied" deny "rm -rf tasks/link-scratch"
+  run_case "rm -rf tasks/link-scratch (symlink to external non-repo dir) allowed — out of scope" allow "rm -rf tasks/link-scratch"
 else
   PASS=$((PASS + 1))
-  echo "  [SKIP] symlink-to-dir test: Windows Git Bash does not support POSIX dir symlinks (counted as pass)"
+  echo "  [SKIP] symlink-to-external test: Windows Git Bash no POSIX dir symlinks (counted as pass)"
 fi
 rm -rf tasks/link-scratch
 rm -rf "$SYMLINK_TARGET"
+
+# (1b) Symlink -> IN-REPO *-scratch dir with untracked content: DENY. The -L exclusion
+#      forces fall-through to the git-status check; without it the allowlist would fire
+#      via the resolved target's basename/parent and wrongly ALLOW. The trailing-slash
+#      variant proves the F9 fix (`-L dir/` would otherwise dereference and skip the check).
+mkdir -p tasks/inrepo-target-scratch
+echo "in-repo wip" > tasks/inrepo-target-scratch/work.txt
+ln -s "$TMP/tasks/inrepo-target-scratch" tasks/sym-scratch 2>/dev/null || true
+if [[ -L "tasks/sym-scratch" ]]; then
+  run_case "rm -rf tasks/sym-scratch (symlink to in-repo dirty scratch) denied" deny "rm -rf tasks/sym-scratch"
+  run_case "rm -rf tasks/sym-scratch/ (trailing-slash symlink defeats -L? F9) denied" deny "rm -rf tasks/sym-scratch/"
+else
+  PASS=$((PASS + 2))
+  echo "  [SKIP] in-repo symlink tests: Windows Git Bash no POSIX dir symlinks (counted as pass)"
+fi
+rm -rf tasks/sym-scratch
+rm -rf tasks/inrepo-target-scratch
 
 # (2) Path-traversal: rm -rf tasks/x-scratch/../../<dirty-dir> — the resolved
 #     path is NOT under tasks/*-scratch basename, so it must DENY.

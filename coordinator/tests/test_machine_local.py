@@ -282,3 +282,371 @@ class TestCmdSetDoubleSetAndUpgrade:
         get_result = _run_ml(sandbox, ["get", "repos.foo"])
         assert get_result.returncode == 0
         assert get_result.stdout.strip() == r"E:\dev\foo"
+
+
+# ---------------------------------------------------------------------------
+# AC1 + AC4: array-append creates / appends / idempotent-dedups, get round-trip
+# ---------------------------------------------------------------------------
+
+class TestArrayAppend:
+    """array-append subcommand: AC1 and AC4."""
+
+    def test_append_creates_array(self, tmp_path):
+        """array-append creates the array key when absent."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "coordinator-claude|mirror"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        # File must parse and contain the element.
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        assert parsed["publish.targets"] == ["coordinator-claude|mirror"]
+
+    def test_append_is_idempotent(self, tmp_path):
+        """array-append skips duplicate elements (exact-string dedup)."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["array-append", "publish.targets", "coordinator-claude|mirror"])
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "coordinator-claude|mirror"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        assert parsed["publish.targets"] == ["coordinator-claude|mirror"]
+
+    def test_append_preserves_other_keys(self, tmp_path):
+        """array-append does not clobber other keys in the file."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["set", "repos.foo", "existing-value"])
+        _run_ml(sandbox, ["array-append", "publish.targets", "coordinator-claude|mirror"])
+        get_result = _run_ml(sandbox, ["get", "repos.foo"])
+        assert get_result.returncode == 0, f"stderr: {get_result.stderr}"
+        assert get_result.stdout.strip() == "existing-value"
+
+    def test_append_fails_on_scalar_collision(self, tmp_path):
+        """array-append fails loud when key is already a scalar string."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["set", "publish.targets", "some-scalar-value"])
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "new-element"])
+        assert result.returncode != 0
+        # Review: code-reviewer (F8) — spec requires both message components, not OR.
+        assert "scalar" in result.stderr.lower()
+        assert "array-set" in result.stderr
+
+    def test_append_multiple_elements(self, tmp_path):
+        """array-append accumulates elements in insertion order."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["array-append", "publish.targets", "row1"])
+        _run_ml(sandbox, ["array-append", "publish.targets", "row2"])
+        _run_ml(sandbox, ["array-append", "publish.targets", "row3"])
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        assert parsed["publish.targets"] == ["row1", "row2", "row3"]
+
+    def test_append_single_quote_rejected(self, tmp_path):
+        """array-append refuses elements containing a single quote."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "bad'element"])
+        assert result.returncode != 0
+        assert "single quote" in result.stderr.lower() or "literal" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# AC4: get round-trip — newline-joined, in order
+# ---------------------------------------------------------------------------
+
+class TestArrayGetRoundTrip:
+    """get returns array elements newline-joined in order (AC4)."""
+
+    def test_get_round_trip_newline_joined(self, tmp_path):
+        """get publish.targets returns rows newline-joined in insertion order."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["array-append", "publish.targets", "row1"])
+        _run_ml(sandbox, ["array-append", "publish.targets", "row2"])
+        _run_ml(sandbox, ["array-append", "publish.targets", "row3"])
+        result = _run_ml(sandbox, ["get", "publish.targets"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert result.stdout.strip() == "row1\nrow2\nrow3"
+
+
+# ---------------------------------------------------------------------------
+# AC2: array-set replaces / dedups
+# ---------------------------------------------------------------------------
+
+class TestArraySet:
+    """array-set subcommand: AC2."""
+
+    def test_array_set_replaces(self, tmp_path):
+        """array-set replaces the entire array with the given elements."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["array-append", "publish.targets", "old-row"])
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new-row1", "new-row2"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        assert parsed["publish.targets"] == ["new-row1", "new-row2"]
+
+    def test_array_set_dedups_order_preserving(self, tmp_path):
+        """array-set deduplicates elements while preserving order."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "row1", "row2", "row1", "row3"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        assert parsed["publish.targets"] == ["row1", "row2", "row3"]
+
+    def test_array_set_fails_on_scalar_collision(self, tmp_path):
+        """array-set fails loud when key is already a scalar string."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _run_ml(sandbox, ["set", "publish.targets", "some-scalar-value"])
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new-element"])
+        assert result.returncode != 0
+        assert "scalar" in result.stderr.lower()
+
+    def test_array_set_single_quote_rejected(self, tmp_path):
+        """array-set refuses elements containing a single quote."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "bad'element"])
+        assert result.returncode != 0
+        assert "single quote" in result.stderr.lower() or "literal" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# AC1: --dry-run writes nothing
+# ---------------------------------------------------------------------------
+
+class TestArrayDryRun:
+    """--dry-run flag: no file mutations (AC1)."""
+
+    def test_dry_run_array_append_writes_nothing(self, tmp_path):
+        """array-append --dry-run does not create or modify the registry file."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        registry_local = os.path.join(sandbox, "registry.local.toml")
+        # Ensure no registry.local.toml exists before dry-run.
+        assert not os.path.exists(registry_local)
+        result = _run_ml(sandbox, ["array-append", "--dry-run", "publish.targets", "row1"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert not os.path.exists(registry_local), "dry-run must not create the file"
+
+    def test_dry_run_array_set_writes_nothing(self, tmp_path):
+        """array-set --dry-run does not create or modify the registry file."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        registry_local = os.path.join(sandbox, "registry.local.toml")
+        assert not os.path.exists(registry_local)
+        result = _run_ml(sandbox, ["array-set", "--dry-run", "publish.targets", "row1"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert not os.path.exists(registry_local), "dry-run must not create the file"
+
+
+# ---------------------------------------------------------------------------
+# AC3: set fails loud on array key (F1 guard)
+# ---------------------------------------------------------------------------
+
+class TestSetFailsOnArrayKey:
+    """cmd_set guard F1: fail loud when key resolves to a list (AC3)."""
+
+    def test_set_on_array_key_fails_loud(self, tmp_path):
+        """set on a key that is already an array fails with actionable message."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        # First create the array.
+        _run_ml(sandbox, ["array-append", "publish.targets", "existing-row"])
+        # Now attempt set — must fail.
+        result = _run_ml(sandbox, ["set", "publish.targets", "overwrite-attempt"])
+        assert result.returncode != 0
+        # Assert exact message text (F1: must say "is an array" and name the commands).
+        assert "is an array" in result.stderr
+        assert "array-append" in result.stderr
+        assert "array-set" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# AC3 + F2: array-of-tables and inline-table collision fail loud
+# ---------------------------------------------------------------------------
+
+class TestArrayWriteCollisionShapes:
+    """F2 additional required tests: array-of-tables and inline-table collisions."""
+
+    def test_array_append_fails_on_array_of_tables(self, tmp_path):
+        """array-append fails loud with actionable message when key is array-of-tables."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            "schema = 1\n[[publish.targets]]\nname = 'row1'\n",
+        )
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "new-row"])
+        assert result.returncode != 0
+        # Assert actionable message text.
+        assert "array-of-tables" in result.stderr or "[[" in result.stderr
+
+    def test_array_set_fails_on_array_of_tables(self, tmp_path):
+        """array-set fails loud with actionable message when key is array-of-tables."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            "schema = 1\n[[publish.targets]]\nname = 'row1'\n",
+        )
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new-row"])
+        assert result.returncode != 0
+        assert "array-of-tables" in result.stderr or "[[" in result.stderr
+
+    def test_array_append_fails_on_inline_table(self, tmp_path):
+        """array-append fails loud with actionable message when key is inline table."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            'schema = 1\n"publish.targets" = {name = "row1"}\n',
+        )
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "new-row"])
+        assert result.returncode != 0
+        assert "inline table" in result.stderr.lower() or "hand-edit" in result.stderr.lower()
+
+    def test_array_set_fails_on_inline_table(self, tmp_path):
+        """array-set fails loud with actionable message when key is inline table."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            'schema = 1\n"publish.targets" = {name = "row1"}\n',
+        )
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new-row"])
+        assert result.returncode != 0
+        assert "inline table" in result.stderr.lower() or "hand-edit" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# F2(c)(d): replace-span correctness — no duplicate definitions
+# ---------------------------------------------------------------------------
+
+class TestArrayReplaceSpan:
+    """F2(c)(d): array-append/array-set replaces the span; tomllib sees exactly one definition."""
+
+    def test_array_append_replaces_existing_span(self, tmp_path):
+        """array-append against an existing multi-line array replaces the span (no dup)."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        # Seed a multi-row array directly.
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            textwrap.dedent("""\
+                schema = 1
+                # array-append 2026-01-01T00:00:00Z
+                "publish.targets" = [
+                  'row1',
+                  'row2',
+                ]
+            """),
+        )
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "row3"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+
+        # Exactly one definition via tomllib — duplicate-definition detection.
+        parsed = tomllib.loads(content)
+        raw_val = parsed.get("publish.targets")
+        assert isinstance(raw_val, list), f"Expected list, got {type(raw_val)}: {raw_val!r}"
+        assert len(raw_val) == 3, f"Expected 3 elements, got {len(raw_val)}: {raw_val}"
+
+        # get round-trip returns rows in order.
+        get_result = _run_ml(sandbox, ["get", "publish.targets"])
+        assert get_result.returncode == 0
+        assert get_result.stdout.strip() == "row1\nrow2\nrow3"
+
+    def test_array_set_replaces_n_row_array(self, tmp_path):
+        """array-set replaces an N-row array; tomllib and reader agree."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            textwrap.dedent("""\
+                schema = 1
+                # array-append 2026-01-01T00:00:00Z
+                "publish.targets" = [
+                  'old1',
+                  'old2',
+                  'old3',
+                ]
+            """),
+        )
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new1", "new2"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        parsed = tomllib.loads(content)
+        raw_val = parsed.get("publish.targets")
+        assert isinstance(raw_val, list), f"Expected list, got {type(raw_val)!r}"
+        assert raw_val == ["new1", "new2"], f"Expected [new1, new2], got {raw_val!r}"
+
+        # Old rows must be gone.
+        assert "old1" not in content
+        assert "old2" not in content
+        assert "old3" not in content
+
+        # get round-trip.
+        get_result = _run_ml(sandbox, ["get", "publish.targets"])
+        assert get_result.returncode == 0
+        assert get_result.stdout.strip() == "new1\nnew2"
+
+    # Review: code-reviewer (F3) — provenance-comment preservation tests.
+
+    def test_array_append_preserves_provenance_comment(self, tmp_path):
+        """array-append preserves a pre-existing # array-append <date> comment above the array."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        original_comment = "# array-append 2026-01-01T00:00:00Z"
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            textwrap.dedent(f"""\
+                schema = 1
+                {original_comment}
+                "publish.targets" = [
+                  'row1',
+                ]
+            """),
+        )
+        result = _run_ml(sandbox, ["array-append", "publish.targets", "row2"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        raw_content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        # Original comment line must still be present verbatim.
+        assert original_comment in raw_content, (
+            f"Expected provenance comment {original_comment!r} preserved in:\n{raw_content}"
+        )
+
+    def test_array_set_preserves_provenance_comment(self, tmp_path):
+        """array-set preserves a pre-existing # array-append <date> comment above the array."""
+        sandbox = str(tmp_path)
+        _seed_registry(sandbox)
+        original_comment = "# array-append 2026-01-01T00:00:00Z"
+        _write_file(
+            os.path.join(sandbox, "registry.local.toml"),
+            textwrap.dedent(f"""\
+                schema = 1
+                {original_comment}
+                "publish.targets" = [
+                  'old-row',
+                ]
+            """),
+        )
+        result = _run_ml(sandbox, ["array-set", "publish.targets", "new-row"])
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+
+        raw_content = open(os.path.join(sandbox, "registry.local.toml"), encoding="utf-8").read()
+        # Original comment line must still be present verbatim.
+        assert original_comment in raw_content, (
+            f"Expected provenance comment {original_comment!r} preserved in:\n{raw_content}"
+        )

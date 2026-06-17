@@ -577,8 +577,9 @@ def _probe_mem_ceiling_mechanism() -> str:
 
             # POSIX rlimit — resource is imported at module level (POSIX-only, None on Windows)
             # Review: code-reviewer — P1: guard resource is None; tests patching sys.platform='linux'
-            # on a Windows host would dereference None without this guard.
-            if resource is None:
+            # on a Windows host would dereference None without this guard. hasattr guard mirrors
+            # the darwin arm (RLIMIT_AS is not universally defined across CPython builds).
+            if resource is None or not hasattr(resource, "RLIMIT_AS"):
                 return "unknown"
             soft, _ = resource.getrlimit(resource.RLIMIT_AS)
             if soft != resource.RLIM_INFINITY:
@@ -648,10 +649,25 @@ def _probe_mem_ceiling_mechanism() -> str:
 
             return "none"
 
+        elif sys.platform == "darwin":
+            # macOS has no cgroups; the only memory-ceiling mechanism is the
+            # POSIX rlimit, which Darwin honors. Mirror the Linux rlimit logic
+            # so Mac gets the precise "rlimit"/"none" signal (Decision-5) rather
+            # than the conservative "unknown".
+            # resource is POSIX-only (None on Windows) — guard for tests that
+            # patch sys.platform='darwin' on a non-POSIX host. RLIMIT_AS is not
+            # universally defined across CPython builds, so probe with hasattr.
+            if resource is None or not hasattr(resource, "RLIMIT_AS"):
+                return "unknown"
+            soft, _ = resource.getrlimit(resource.RLIMIT_AS)
+            if soft != resource.RLIM_INFINITY:
+                return "rlimit"
+            return "none"
+
         else:
-            # Non-Linux non-Windows (macOS etc.): no mechanism implemented.
+            # Other POSIX (BSD etc.): no mechanism implemented.
             # Review: code-reviewer — nit: "unknown"=not-determined (probe not attempted);
-            # "none"=probed-and-no-ceiling. macOS probe is not implemented, so "unknown" is correct.
+            # "none"=probed-and-no-ceiling. No probe implemented here, so "unknown" is correct.
             return "unknown"
 
     except Exception:

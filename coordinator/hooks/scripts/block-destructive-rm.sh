@@ -25,6 +25,10 @@
 #     existing directory. A single-file `rm scratch.txt` is low-blast-radius and
 #     left alone — guarding it would make the hook noisy and invite stripping.
 #   - `git rm` is SKIPPED — it stages a tracked-file removal that git recovers.
+#     The skip tolerates git's global options between `git` and the `rm`
+#     subcommand (`git -C <path> rm`, `git -c k=v rm`, `git --no-pager rm`, …) —
+#     a bare `\bgit[[:space:]]+rm\b` would miss `git -C <path> rm` and then
+#     mis-evaluate the `-C` path as a raw-rm target against the wrong repo.
 #
 # Disposability is defined by GIT, not a hand-maintained allowlist: targets whose
 # content is fully committed (clean) pass; gitignored trees (node_modules, build,
@@ -134,9 +138,16 @@ SEGMENTS=$(printf '%s' "$CMD" | sed -E 's/[;&|]+/\n/g')
 
 while IFS= read -r SEG; do
   [[ -z "${SEG//[[:space:]]/}" ]] && continue
-  # Must contain a bare `rm`. Skip `git rm` (staged removal, git-recoverable).
+  # Must contain a bare `rm`. Skip `git rm` (staged removal, git-recoverable),
+  # tolerating git global options (-C <path>, -c <kv>, --git-dir, --work-tree,
+  # --no-pager, …) between `git` and the `rm` subcommand.
+  # Defense-in-depth: the separator split above (sed on [;&|]) is the PRIMARY
+  # isolation — `git log && rm -rf x` is already two segments, so the `rm` segment
+  # carries no `git` prefix. This `\bgit…rm\b` skip is the SECONDARY check within a
+  # single separator-free segment. `-C` (path) and `-c` (config kv) are separate
+  # arms — both take exactly one value token, but git's semantics differ.
   echo "$SEG" | grep -qE '\brm\b' || continue
-  echo "$SEG" | grep -qE '\bgit[[:space:]]+rm\b' && continue
+  echo "$SEG" | grep -qE '\bgit([[:space:]]+(-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--(git-dir|work-tree|namespace)(=[^[:space:]]+|[[:space:]]+[^[:space:]]+)|--exec-path(=[^[:space:]]+|[[:space:]]+[^[:space:]]+)?|-p|--paginate|--no-pager|--bare|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks))*[[:space:]]+rm\b' && continue
 
   # Tokens after the `rm` verb.
   AFTER=$(echo "$SEG" | sed -E 's/.*\brm\b//')
@@ -183,7 +194,13 @@ ${OVERRIDE_HINT}"
     # below is interpreted against the right location even when cwd is a repo
     # SUBDIRECTORY — a relative pathspec under `git -C <root>` would otherwise
     # resolve against the root and silently miss the work.
-    TGT_ABS=$(realpath "$TGT" 2>/dev/null || readlink -f "$TGT" 2>/dev/null || echo "$TGT")
+    # realpath/`readlink -f` are GNU; stock macOS (BSD) lacks `readlink -f` and older
+    # macOS lacks `realpath` — fall back to python3 (already resolved into $PY) before the
+    # bare-echo degradation, so a relative target still resolves to absolute on BSD hosts.
+    TGT_ABS=$(realpath "$TGT" 2>/dev/null \
+      || readlink -f "$TGT" 2>/dev/null \
+      || { [[ -n "$PY" ]] && "$PY" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$TGT" 2>/dev/null; } \
+      || echo "$TGT")
 
     # Any part of a .git store is irreversible repo corruption — deny regardless
     # of which repo it belongs to and without needing to resolve a worktree root
@@ -203,7 +220,10 @@ ${OVERRIDE_HINT}"
     #
     # Hardened allowlist — all conditions must hold:
     #   (a) Not a symlink — realpath-following a symlink could match against an
-    #       unintended target; fall through to normal deny evaluation.
+    #       unintended target; fall through to normal deny evaluation. The trailing
+    #       slash is stripped before the `-L` test (`-L dir/` dereferences the link and
+    #       mis-reports a symlink as a non-link, which would re-open the allowlist fast
+    #       path for `rm -rf tasks/<sym>-scratch/` — F9).
     #   (b) Scoped to THIS repo — only allow when $TGT_ABS is exactly
     #       <repo-root>/tasks/<name>-scratch. "Any tasks/*-scratch anywhere on
     #       disk" is too broad; only THIS repo's regenerable scratch is exempt.
@@ -224,7 +244,7 @@ ${OVERRIDE_HINT}"
     if [[ -n "$SCRATCH_REPO" \
           && -n "$CUR_REPO" \
           && "$CUR_REPO" -ef "$SCRATCH_REPO" \
-          && ! -L "$TGT" \
+          && ! -L "${TGT%/}" \
           && -d "${SCRATCH_REPO}/tasks" \
           && "$SCRATCH_PAR_ABS" -ef "${SCRATCH_REPO}/tasks" \
           && "$SCRATCH_BN" =~ ^[a-zA-Z0-9_-]+-scratch$ ]]; then

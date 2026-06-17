@@ -43,14 +43,18 @@ _make_repo() {
 STDOUT_OUT=""
 STDERR_OUT=""
 RC=0
+# Review: code-reviewer (F10) — fixed /tmp/step2_5_test_stderr path races when two parallel
+# test runs share the machine. Use $TMPBASE so the path is unique per test invocation.
+# (TMPBASE is defined below; _run_script is called after TMPBASE is set.)
+STDERR_TMP=""
 _run_script() {
   local repo="$1"; shift
   STDOUT_OUT=""
   STDERR_OUT=""
   RC=0
   # Run with cwd=repo so git rev-parse --show-toplevel works
-  STDOUT_OUT=$(cd "$repo" && bash "$SUBJECT" "$@" 2>/tmp/step2_5_test_stderr) || RC=$?
-  STDERR_OUT=$(cat /tmp/step2_5_test_stderr 2>/dev/null || true)
+  STDOUT_OUT=$(cd "$repo" && bash "$SUBJECT" "$@" 2>"$STDERR_TMP") || RC=$?
+  STDERR_OUT=$(cat "$STDERR_TMP" 2>/dev/null || true)
 }
 
 # ---------------------------------------------------------------------------
@@ -58,6 +62,8 @@ _run_script() {
 # ---------------------------------------------------------------------------
 TMPBASE=$(mktemp -d)
 trap 'rm -rf "$TMPBASE"' EXIT
+# Review: code-reviewer (F10) — set STDERR_TMP under TMPBASE after mktemp -d runs
+STDERR_TMP="$TMPBASE/stderr"
 
 # ---------------------------------------------------------------------------
 # Test 1: Empty repo, no dirty paths → all-zero summary, exit 0
@@ -183,6 +189,45 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 4c: AUTO-GITIGNORE — TRACKED file exercised via git rm --cached path
+# Review: code-reviewer (F2) — T4 only tested untracked files; the git rm --cached
+# path (for tracked transients that should never have been committed) was never exercised.
+# This test catches the F1 bug: the staged deletion must be included in the gitignore commit.
+# ---------------------------------------------------------------------------
+T4C="$TMPBASE/t4c"
+_make_repo "$T4C"
+mkdir -p "$T4C/logs"
+printf 'tracked log content\n' > "$T4C/logs/foo.log"
+# Track the file so it goes through git rm --cached
+git -C "$T4C" add -- logs/foo.log
+git -C "$T4C" commit -q -m "accidentally track log file"
+# Modify it so it's dirty (worktree differs from HEAD)
+printf 'more log content\n' >> "$T4C/logs/foo.log"
+rev_before=$(git -C "$T4C" rev-list --count HEAD)
+_run_script "$T4C"
+if [[ "$RC" -eq 0 ]]; then
+  rev_after=$(git -C "$T4C" rev-list --count HEAD)
+  if [[ "$rev_after" -gt "$rev_before" ]]; then
+    # File must no longer be tracked
+    if ! git -C "$T4C" ls-files --error-unmatch -- logs/foo.log >/dev/null 2>&1; then
+      # Index must be clean (no staged changes)
+      status_out=$(git -C "$T4C" status --porcelain 2>/dev/null)
+      if [[ -z "$status_out" ]]; then
+        _pass "T4c: tracked log file: git rm --cached committed, index clean"
+      else
+        _fail "T4c: tracked log file" "index not clean after script run; git status: $status_out"
+      fi
+    else
+      _fail "T4c: tracked log file" "logs/foo.log still tracked after script run"
+    fi
+  else
+    _fail "T4c: tracked log file" "no commit landed; rev_before=$rev_before rev_after=$rev_after. stdout=$STDOUT_OUT stderr=$STDERR_OUT"
+  fi
+else
+  _fail "T4c: tracked log file" "expected exit 0, got $RC. stdout=$STDOUT_OUT stderr=$STDERR_OUT"
+fi
+
+# ---------------------------------------------------------------------------
 # Test 5: SOURCE-TREE — modify a bin/ file; exit 2; stderr lists the path
 # ---------------------------------------------------------------------------
 T5="$TMPBASE/t5"
@@ -242,11 +287,17 @@ _run_script "$T7" --dry-run
 
 rev_after=$(git -C "$T7" rev-list --count HEAD)
 if [[ "$rev_after" -eq "$rev_before" ]]; then
-  # Stdout should still show auto-commit summary
-  if echo "$STDOUT_OUT" | grep -q "auto-commit"; then
-    _pass "T7: --dry-run prints summary but no commit"
+  # Review: code-reviewer (F7) — --dry-run emits "DRY-RUN: would commit" to stderr AND the
+  # unconditional summary section emits "auto-commit" to stdout. Assert both; the original
+  # test only checked stdout and passed incidentally because the summary section always runs.
+  if echo "$STDERR_OUT" | grep -q "DRY-RUN: would commit"; then
+    if echo "$STDOUT_OUT" | grep -q "auto-commit"; then
+      _pass "T7: --dry-run: stderr has DRY-RUN notice, stdout has auto-commit summary, no commit landed"
+    else
+      _fail "T7: --dry-run" "expected 'auto-commit' in stdout; got: $STDOUT_OUT"
+    fi
   else
-    _fail "T7: --dry-run" "expected auto-commit summary in stdout; got: $STDOUT_OUT"
+    _fail "T7: --dry-run" "expected 'DRY-RUN: would commit' in stderr; got: $STDERR_OUT"
   fi
 else
   _fail "T7: --dry-run" "commit landed despite --dry-run; rev_before=$rev_before rev_after=$rev_after"

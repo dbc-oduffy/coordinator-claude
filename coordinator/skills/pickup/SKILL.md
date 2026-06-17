@@ -190,14 +190,42 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    > **Negative-spec — the consumed body is paper trail, not a progress journal.** Once this skill flips `status: active → consumed`, the predecessor handoff body is FROZEN. Do not append `### <date> session — pickup, …` sections, do not edit the Progress / Recommended Next Steps blocks, do not tack on a fresh `## What Was Accomplished` for this session's work. Progress goes in commits; the next checkpoint goes in a **successor handoff** authored via `/handoff` (which writes the successor, then chain-archives this predecessor to `archive/handoffs/`). An in-place append is invisible to the pickup index — the next session's `/workday-start` or `/pickup` will not surface a consumed handoff as live work, so any progress stapled into the consumed body is functionally lost. Tripwire: `CONSUMED-HANDOFF-FROZEN` in `docs/wiki/coordinator-tripwires.md`; enforced at the tool layer by `hooks/scripts/block-consumed-handoff-edit.sh` (override env var `COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1` reserved for recovery-flavor crash-invalidation notes and one-off paper-trail corrections, never progress appends).
 
+   ### Resolve the baton's repo (path-derived — do this FIRST, before any lifecycle write)
+
+   `/pickup` of an **absolute-path** baton must do its lifecycle bookkeeping against the repo that
+   *owns the baton*, not the cwd. A `~/.claude` baton picked up from a consumer-repo cwd would
+   otherwise commit/lock against the wrong repo (the wrong-repo onboarding bug class). Resolve the
+   baton repo from the baton's own path and target every lifecycle write at it via `git -C`:
+
+   <!-- TEMPLATE: adapt <file_arg> to the path the PM handed; everything else verbatim -->
+   ```bash
+   # Normalize a ~/- relative path BEFORE abs-resolution — tilde is literal inside a variable,
+   # so `cd ~/...` in the substitution below would fail. Parameter-expansion form, no eval.
+   RAW="<file_arg>"
+   RAW="${RAW/#\~/$HOME}"                                   # spaces already handled by quoting
+   ABS_BATON="$(cd "$(dirname "$RAW")" && pwd)/$(basename "$RAW")"
+   BATON_REPO="$(git -C "$(dirname "$ABS_BATON")" rev-parse --show-toplevel 2>/dev/null)"
+   # REQUIRED gate — fail loud if the baton is outside any git repo. Without this, an empty
+   # BATON_REPO degrades every `git -C "" …` to cwd, silently reintroducing the coupling.
+   [[ -z "$BATON_REPO" ]] && {
+     echo "pickup: baton $ABS_BATON is not inside a git repo — cannot mutate/commit lifecycle frontmatter" >&2
+     exit 1
+   }
+   BATON_RELPATH="${ABS_BATON#$BATON_REPO/}"               # relpath WITHIN the baton repo
+   ```
+
+   The `[[ -z "$BATON_REPO" ]]` gate is **a hard part of the contract, not an optional nicety.**
+   For a cwd-local baton (the common same-repo case), `BATON_REPO` collapses to the cwd repo root,
+   so the change is transparent — bare-relative pickup keeps its existing behavior.
+
    ### Pre-mutation safety gates (sequential, all must pass before any write)
 
-   1. **`git fetch origin <branch>` + re-read frontmatter.** Closes the cross-machine race window — if a peer already mutated and pushed, the fetch pulls their version and the next gate sees `consumed_by:` populated.
+   1. **`git -C "$BATON_REPO" fetch origin <branch>` + re-read frontmatter.** Closes the cross-machine race window — if a peer already mutated and pushed, the fetch pulls their version and the next gate sees `consumed_by:` populated. (Fetch the *baton's* repo, not cwd.)
    2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
-   3. **`cs_claim_handoff <basename>`.** Atomic mkdir gate per the concurrent-pickup spike. Exit non-zero on live concurrent claim. Call:
+   3. **`cs_claim_handoff <basename> <baton-repo-root>`.** Atomic mkdir gate per the concurrent-pickup spike. Pass `$BATON_REPO` so the claim lock lives in the baton's repo — two concurrent pickups of the same baton from different cwds then contest the same lock. Exit non-zero on live concurrent claim. Call:
       ```bash
       source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
-      cs_claim_handoff "$(basename state/handoffs/<file>)"
+      cs_claim_handoff "$(basename "$ABS_BATON")" "$BATON_REPO"
       ```
    4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
       _"⚠ handoff `<basename>` lacks `pickup_ready: true` — proceeding anyway. (Author may not have explicitly authorized pickup; verify the workstream is yours to resume.)"_
@@ -212,9 +240,13 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    ### Commit
 
-   Single explicit-path commit of the mutation only — **no `git mv`** (SC-DR-008):
+   Single explicit-path commit of the mutation only — **no `git mv`** (SC-DR-008). Commit against the
+   **baton's** repo via `git -C "$BATON_REPO"` and the baton-relative path, so an absolute-path pickup
+   from a foreign cwd commits into the right repo (`BATON_RELPATH` is the in-repo path derived above —
+   not the literal `state/handoffs/<file>`, which is only coincidentally correct for the spine):
+   <!-- TEMPLATE: BATON_REPO / BATON_RELPATH from the path-derivation preamble above -->
    ```bash
-   git add -- state/handoffs/<file> && git commit -m "pickup: <workstream> — frontmatter mutation" -- state/handoffs/<file>
+   git -C "$BATON_REPO" add -- "$BATON_RELPATH" && git -C "$BATON_REPO" commit -m "pickup: <workstream> — frontmatter mutation" -- "$BATON_RELPATH"
    ```
 
    The handoff remains in `state/handoffs/`. Archival happens at one of two successor moments:

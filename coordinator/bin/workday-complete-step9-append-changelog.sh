@@ -132,7 +132,8 @@ if [[ -f "${HEADER_FILE}" ]]; then
     # date +%s (portable on macOS BSD date and GNU date).
     DAYS_AGO=""
     if command -v python3 >/dev/null 2>&1; then
-      echo "staleness check: using python3 for date arithmetic" >&2
+      # Review: code-reviewer — gated on STEP9_DEBUG to avoid stderr noise on every run (F9)
+      [[ "${STEP9_DEBUG:-}" == "1" ]] && echo "staleness check: using python3 for date arithmetic" >&2
       DAYS_AGO="$(python3 -c "
 from datetime import date
 today = date.fromisoformat('${TODAY}')
@@ -141,9 +142,10 @@ print((today - start).days)
 " 2>/dev/null || true)"
     fi
     if [[ -z "${DAYS_AGO}" ]]; then
-      echo "staleness check: using epoch arithmetic (date +%s)" >&2
+      [[ "${STEP9_DEBUG:-}" == "1" ]] && echo "staleness check: using epoch arithmetic (date +%s)" >&2
       # date +%s is portable on macOS BSD and GNU date
-      TODAY_EPOCH="$(date -u +%s)"
+      # Review: code-reviewer — renamed from TODAY_EPOCH; scoped to staleness check only (F14)
+      STALE_CHECK_EPOCH="$(date -u +%s)"
       # Parse WEEK_START as YYYY-MM-DD
       WS_YEAR="${WEEK_START:0:4}"
       WS_MON="${WEEK_START:5:2}"
@@ -162,7 +164,7 @@ print((today - start).days)
           'BEGIN{print mktime(y " " m " " d " 00 00 00")}' 2>/dev/null || true)"
       fi
       if [[ -n "${WS_EPOCH}" && "${WS_EPOCH}" -gt 0 ]]; then
-        DAYS_AGO=$(( (TODAY_EPOCH - WS_EPOCH) / 86400 ))
+        DAYS_AGO=$(( (STALE_CHECK_EPOCH - WS_EPOCH) / 86400 ))
       fi
     fi
 
@@ -186,15 +188,21 @@ TRIVIAL_PATTERN='^(chore|docs?)([(:]|$)|^workstream-complete quick-save'
 # Collect today's commits from HEAD relative to origin/main
 # We use --after="yesterday midnight UTC" which doesn't work on BSD.
 # Use a date string that all implementations accept: the ISO date of yesterday.
+# Review: code-reviewer — awk leap-year comment added for readability (F15)
+# The awk fallback only populates days_in_m[] inside the month-boundary branch (d<1),
+# so the array only needs values when we've decremented past the 1st of the month.
+# Leap-year: Feb gets 29 days when (y%4==0 && (y%100!=0 || y%400==0)).
 YESTERDAY="$(python3 -c "from datetime import date, timedelta; print(date.fromisoformat('${TODAY}') - timedelta(days=1))" 2>/dev/null || \
   awk -v today="${TODAY}" 'BEGIN{
     y=substr(today,1,4)+0; m=substr(today,6,2)+0; d=substr(today,9,2)+0
     d--; if(d<1){m--; if(m<1){m=12;y--}
-    days_in_m[1]=31;days_in_m[2]=28;days_in_m[3]=31;days_in_m[4]=30;
-    days_in_m[5]=31;days_in_m[6]=30;days_in_m[7]=31;days_in_m[8]=31;
-    days_in_m[9]=30;days_in_m[10]=31;days_in_m[11]=30;days_in_m[12]=31;
-    if(y%4==0&&(y%100!=0||y%400==0))days_in_m[2]=29
-    d=days_in_m[m]}
+      # days_in_m only populated here (month-boundary branch); standard Gregorian calendar
+      days_in_m[1]=31;days_in_m[2]=28;days_in_m[3]=31;days_in_m[4]=30;
+      days_in_m[5]=31;days_in_m[6]=30;days_in_m[7]=31;days_in_m[8]=31;
+      days_in_m[9]=30;days_in_m[10]=31;days_in_m[11]=30;days_in_m[12]=31;
+      # Proleptic Gregorian leap-year rule
+      if(y%4==0&&(y%100!=0||y%400==0))days_in_m[2]=29
+      d=days_in_m[m]}
     printf "%04d-%02d-%02d\n",y,m,d
   }')"
 
@@ -205,12 +213,15 @@ YESTERDAY="$(python3 -c "from datetime import date, timedelta; print(date.fromis
 # that a second idempotency run sees the same commit list as the first run — otherwise
 # run 1 creates the changelog commit which changes the Commits: count on run 2.
 # Pattern: match lines where the subject field (after TAB) contains the changelog prefix.
-# Use [[:space:]] guard with a tab-delimited field; grep -vE on the full line.
-# SELF_COMMIT_PATTERN matches the TAB + subject of the self-generated commit.
-SELF_COMMIT_SUBJECT="chore(week-changelog): daily block ${TODAY}"
+# Use a tab-delimited field; grep -vE on the full line (regex, not fixed-string — see SELF_COMMIT_REGEX).
+# Review: code-reviewer — broadened to match any date (not just TODAY) to survive midnight
+# rollover where prior run's commit has yesterday's date in its subject.
+# Pattern matches TAB + "chore(week-changelog): daily block YYYY-MM-DD" for any date.
+SELF_COMMIT_REGEX="	chore\(week-changelog\): daily block [0-9]{4}-[0-9]{2}-[0-9]{2}"
 ALL_COMMITS_RAW=""
-ALL_COMMITS_RAW="$(git -C "${COORDINATOR_ROOT}" log --format="%H%x09%s" --after="${YESTERDAY}T23:59:59Z" --no-merges 2>/dev/null \
-  | grep -vF "${SELF_COMMIT_SUBJECT}" || true)"
+# Review: code-reviewer — added --before to prevent future-dated / clock-skew commits leaking in (F2)
+ALL_COMMITS_RAW="$(git -C "${COORDINATOR_ROOT}" log --format="%H%x09%s" --after="${YESTERDAY}T23:59:59Z" --before="${TODAY}T23:59:59Z" --no-merges 2>/dev/null \
+  | grep -vE "${SELF_COMMIT_REGEX}" || true)"
 
 # Filter non-trivial commit subjects
 NON_TRIVIAL_SUBJECTS=()
@@ -268,7 +279,9 @@ fi
 # ---------------------------------------------------------------------------
 # Branch info
 # ---------------------------------------------------------------------------
-BRANCH="$("${SCRIPT_DIR}/coordinator-current-branch" 2>/dev/null || git branch --show-current 2>/dev/null || echo "unknown")"
+# Review: code-reviewer — git branch --show-current fallback now uses -C COORDINATOR_ROOT
+# to avoid reflecting a different repo when invoked from a different cwd (F8)
+BRANCH="$("${SCRIPT_DIR}/coordinator-current-branch" 2>/dev/null || git -C "${COORDINATOR_ROOT}" branch --show-current 2>/dev/null || echo "unknown")"
 
 # ---------------------------------------------------------------------------
 # Plans touched today
@@ -277,7 +290,10 @@ BRANCH="$("${SCRIPT_DIR}/coordinator-current-branch" 2>/dev/null || git branch -
 PLANS_TOUCHED="none"
 if [[ "${COMMIT_COUNT}" -gt 0 ]]; then
   PLANS_RAW=""
-  PLANS_RAW="$(git -C "${COORDINATOR_ROOT}" log --format="" --name-only --after="${YESTERDAY}T23:59:59Z" --no-merges \
+  # Review: code-reviewer — added --before to match commit list query upper bound (F2)
+  # Note: unlike the commit list, no SELF_COMMIT_REGEX exclusion here — self-commit
+  # doesn't touch docs/plans/; asymmetry is intentional (F5).
+  PLANS_RAW="$(git -C "${COORDINATOR_ROOT}" log --format="" --name-only --after="${YESTERDAY}T23:59:59Z" --before="${TODAY}T23:59:59Z" --no-merges \
     -- "docs/plans/*.md" 2>/dev/null | sort -u || true)"
   if [[ -n "${PLANS_RAW}" ]]; then
     # Format as comma-separated list; status detection is out of scope (use "in-progress")
@@ -334,7 +350,8 @@ extract_field_from_handoffs() {
   fi
 
   if command -v python3 >/dev/null 2>&1; then
-    echo "extracting ${field} via python3 YAML-aware reader" >&2
+    # Review: code-reviewer — gated on STEP9_DEBUG to avoid 4 stderr lines per run (F10)
+    [[ "${STEP9_DEBUG:-}" == "1" ]] && echo "extracting ${field} via python3 YAML-aware reader" >&2
     result="$(python3 - "${field}" "${HANDOFFS_PATHS[@]}" <<'PYEOF'
 import sys, re
 
@@ -380,14 +397,16 @@ PYEOF
   fi
 
   if [[ -z "${result}" ]]; then
-    echo "extracting ${field} via grep -E fallback" >&2
+    [[ "${STEP9_DEBUG:-}" == "1" ]] && echo "extracting ${field} via grep -E fallback" >&2
     # grep -E: look for "field: value" or "## Field\nvalue lines"
     local combined=""
     for hpath in "${HANDOFFS_PATHS[@]}"; do
       [[ -f "${hpath}" ]] || continue
       # frontmatter key: "Decisions: ..." (case-insensitive field match)
       local fm_val
-      fm_val="$(grep -iE "^${field}:[[:space:]]*(.+)" "${hpath}" | head -1 | sed "s/^[Dd]ecisions:[[:space:]]*//;s/^[Bb]lockers:[[:space:]]*//" || true)"
+      # Review: code-reviewer — generic strip (any "field: value" prefix) so future callers
+      # passing other field names don't leave the prefix in output (F6)
+      fm_val="$(grep -iE "^${field}:[[:space:]]*(.+)" "${hpath}" | head -1 | sed "s/^[^:]*:[[:space:]]*//" || true)"
       if [[ -n "${fm_val}" && "${fm_val}" != "none" && "${fm_val}" != "n/a" ]]; then
         [[ -n "${combined}" ]] && combined="${combined}; "
         combined="${combined}${fm_val}"
@@ -483,6 +502,13 @@ compose_block() {
 
 NEW_BLOCK="$(compose_block)"
 
+# Review: code-reviewer — write NEW_BLOCK to a temp file so the awk fallback can read
+# it via getline rather than -v, avoiding macOS awk silent truncation on embedded newlines (F4).
+NEW_BLOCK_TMP="$(mktemp)"
+printf '%s\n' "${NEW_BLOCK}" > "${NEW_BLOCK_TMP}"
+cleanup_step9() { rm -f "${NEW_BLOCK_TMP}"; }
+trap cleanup_step9 EXIT
+
 # ---------------------------------------------------------------------------
 # Dry-run: print and exit
 # ---------------------------------------------------------------------------
@@ -502,9 +528,15 @@ SECTION_HEADER="## ${TODAY} — ${MACHINE}"
 # then strip trailing blank lines from the block). Uses temp-file pattern for
 # portability (no sed -i).
 normalise_block() {
-  # Strip trailing spaces from each line, then strip trailing newlines
+  # Strip trailing spaces from each line, then strip trailing blank lines.
+  # Review: code-reviewer — harmonised so python3 and awk extraction paths produce
+  # byte-equivalent output; both now strip ALL trailing blank lines (F3).
+  # The awk one-liner buffers blank lines and only flushes them when a non-blank
+  # line follows — so trailing blanks are swallowed at EOF.
   local input="$1"
-  printf '%s' "${input}" | sed 's/[[:space:]]*$//'
+  printf '%s' "${input}" \
+    | sed 's/[[:space:]]*$//' \
+    | awk 'BEGIN{buf=""} /^$/{buf=buf"\n"; next} {printf "%s", buf; buf=""; print}'
 }
 
 NORM_NEW="$(normalise_block "${NEW_BLOCK}")"
@@ -609,12 +641,22 @@ PYEOF
         exit 1
       fi
     else
-      # awk fallback: rebuild file replacing the section
+      # awk fallback: rebuild file replacing the section.
+      # Review: code-reviewer — read NEW_BLOCK from temp file via getline rather than
+      # -v newblock; macOS awk (one-true-awk / nawk) truncates -v args at first newline (F4).
       TMP_FILE="${CHANGELOG_FILE}.step9.tmp"
-      awk -v hdr="${SECTION_HEADER}" -v newblock="${NEW_BLOCK}" '
-        BEGIN{in_section=0; printed_new=0}
+      awk -v hdr="${SECTION_HEADER}" -v tmpfile="${NEW_BLOCK_TMP}" '
+        BEGIN{
+          in_section=0; printed_new=0
+          # Slurp new block from temp file
+          new_block=""
+          while ((getline line < tmpfile) > 0) {
+            new_block = (new_block == "") ? line : new_block "\n" line
+          }
+          close(tmpfile)
+        }
         $0==hdr{
-          if(!printed_new){printf "%s\n", newblock; printed_new=1}
+          if(!printed_new){printf "%s\n", new_block; printed_new=1}
           in_section=1; next
         }
         in_section && /^## /{in_section=0}
@@ -641,7 +683,7 @@ if "${write_needed}"; then
   fi
 fi
 
-echo "[step9] block written: ${CHANGELOG_FILE}" >&2
+# Review: code-reviewer — removed >&2 duplicate; stdout carries the signal (F16)
 echo "[step9] block written: ${CHANGELOG_FILE}"
 
 # ---------------------------------------------------------------------------
@@ -665,7 +707,8 @@ if [[ -z "${STAGED}" ]]; then
 fi
 
 COMMIT_MSG="chore(week-changelog): daily block ${TODAY} ${MACHINE}"
-if ! git -C "${COORDINATOR_ROOT}" commit -m "${COMMIT_MSG}" 2>&1 | tee /dev/stderr | grep -q ""; then
+# Review: code-reviewer — grep -q "" always matches; removed so pipefail propagates commit failure
+if ! git -C "${COORDINATOR_ROOT}" commit -m "${COMMIT_MSG}" 2>&1 | tee /dev/stderr; then
   echo "ERROR: git commit failed" >&2
   exit 1
 fi

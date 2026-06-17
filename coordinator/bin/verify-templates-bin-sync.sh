@@ -38,6 +38,12 @@ PAIRS=(
     "claude_machine_local.py claude_machine_local.py"
     "claude-machine-local.sh claude-machine-local.sh"
     "claude-machine-local.ps1 claude-machine-local.ps1"
+    # Review: code-reviewer (F6) — WARNING: --fix copies live→template for this pair,
+    # but _machine_local.py's canonical source is the TEMPLATE (opposite polarity from
+    # the claude-home family above). --fix is UNSAFE for this pair without manual review.
+    # Canonical direction is template→live; use verify-mode as the gate, hand-resolve divergence.
+    # After editing the template, propagate manually: cp plugins/.../templates/bin/_machine_local.py bin/_machine_local.py
+    "_machine_local.py _machine_local.py"
 )
 
 EXIT_CODE=0

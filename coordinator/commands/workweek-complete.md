@@ -284,7 +284,7 @@ Weekly dependency-CVE audit. **Change-aware:** dispatch the auditor only when a 
 ```bash
 # Tracked manifest globs (subset of dep-cve-auditor's detection table).
 _MANIFESTS=(package.json package-lock.json yarn.lock pnpm-lock.yaml \
-            requirements.txt pyproject.toml uv.lock \
+            requirements.txt requirements.lock pyproject.toml uv.lock \
             Cargo.toml Cargo.lock go.mod go.sum)
 
 # Any tracked manifest present at all? If none, the repo has no dep surface — skip.

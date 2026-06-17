@@ -1,9 +1,10 @@
-<!-- Updated 2026-06-15 by structured-queue-medium-rollout C10: state/debt-backlog.md → state/debt-backlog/*.yaml; closure via git mv to archive/<YYYY-MM>/ -->
 ---
 name: debt-triage
 description: "EM-PM conversation to review and prioritize the technical debt backlog. Triggers on demand or when open item count exceeds 20."
 version: 1.0.0
 ---
+
+<!-- Updated 2026-06-15 by structured-queue-medium-rollout C10: state/debt-backlog.md → state/debt-backlog/*.yaml; closure via git mv to archive/<YYYY-MM>/ -->
 
 # Debt Triage — Backlog Review and Prioritization
 

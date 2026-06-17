@@ -654,15 +654,76 @@ def test_probe_mem_ceiling_mechanism_linux_cgroup_v1(monkeypatch: pytest.MonkeyP
     assert result == "cgroup_v1", f"expected cgroup_v1, got {result!r}"
 
 
-def test_probe_mem_ceiling_mechanism_darwin_returns_none_or_unknown() -> None:
-    """_probe_mem_ceiling_mechanism() on macOS returns 'none' (no mechanism implemented)."""
+def test_probe_mem_ceiling_mechanism_darwin_reaches_precise_verdict() -> None:
+    """macOS dispatches into the darwin arm and reaches a precise verdict.
+
+    With the real resource module present and RLIMIT_AS defined (standard
+    CPython on Linux/macOS CI), the darwin arm must return 'rlimit' or 'none',
+    never the 'unknown' fallback — a regression that short-circuited the arm
+    would surface as 'unknown' here.
+    """
     import coordinator_whoami.host_probes as _hp
 
     with patch.object(_hp.sys, "platform", "darwin"):
         result = _hp._probe_mem_ceiling_mechanism()
-    assert result in ("none", "unknown"), (
-        f"macOS ceiling probe must return 'none' or 'unknown', got {result!r}"
-    )
+    if _hp.resource is not None and hasattr(_hp.resource, "RLIMIT_AS"):
+        assert result in ("rlimit", "none"), (
+            f"darwin arm with resource present must be 'rlimit'/'none', got {result!r}"
+        )
+    else:
+        assert result == "unknown", (
+            f"darwin arm without resource/RLIMIT_AS must be 'unknown', got {result!r}"
+        )
+
+
+def test_probe_mem_ceiling_mechanism_darwin_no_ceiling() -> None:
+    """macOS branch returns 'none' when RLIMIT_AS is infinite."""
+    import coordinator_whoami.host_probes as _hp
+
+    _RLIM_INFINITY = 2**64 - 1
+    with patch.object(_hp.sys, "platform", "darwin"):
+        with patch.object(_hp, "resource") as mock_resource:
+            mock_resource.getrlimit.return_value = (_RLIM_INFINITY, _RLIM_INFINITY)
+            mock_resource.RLIMIT_AS = 5
+            mock_resource.RLIM_INFINITY = _RLIM_INFINITY
+            result = _hp._probe_mem_ceiling_mechanism()
+    assert result == "none", f"expected 'none' for infinite RLIMIT_AS, got {result!r}"
+
+
+def test_probe_mem_ceiling_mechanism_darwin_rlimit_set() -> None:
+    """macOS branch returns 'rlimit' when RLIMIT_AS is finite."""
+    import coordinator_whoami.host_probes as _hp
+
+    _RLIM_INFINITY = 2**64 - 1
+    with patch.object(_hp.sys, "platform", "darwin"):
+        with patch.object(_hp, "resource") as mock_resource:
+            mock_resource.getrlimit.return_value = (1 << 33, _RLIM_INFINITY)
+            mock_resource.RLIMIT_AS = 5
+            mock_resource.RLIM_INFINITY = _RLIM_INFINITY
+            result = _hp._probe_mem_ceiling_mechanism()
+    assert result == "rlimit", f"expected 'rlimit' for finite RLIMIT_AS, got {result!r}"
+
+
+def test_probe_mem_ceiling_mechanism_darwin_resource_none() -> None:
+    """macOS branch returns 'unknown' when the resource module is absent."""
+    import coordinator_whoami.host_probes as _hp
+
+    with patch.object(_hp.sys, "platform", "darwin"):
+        with patch.object(_hp, "resource", None):
+            result = _hp._probe_mem_ceiling_mechanism()
+    assert result == "unknown", f"expected 'unknown' when resource is None, got {result!r}"
+
+
+def test_probe_mem_ceiling_mechanism_darwin_no_rlimit_as_attr() -> None:
+    """macOS branch returns 'unknown' when RLIMIT_AS is not defined on resource."""
+    import coordinator_whoami.host_probes as _hp
+
+    # A bare object() has no RLIMIT_AS attribute, so hasattr() is False while
+    # resource is not None — exercising the second half of the guard.
+    with patch.object(_hp.sys, "platform", "darwin"):
+        with patch.object(_hp, "resource", object()):
+            result = _hp._probe_mem_ceiling_mechanism()
+    assert result == "unknown", f"expected 'unknown' without RLIMIT_AS, got {result!r}"
 
 
 def test_probe_host_linux_machine_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

@@ -393,6 +393,14 @@ bash "${CLAUDE_PLUGIN_ROOT}/lib/install-substrate.sh"
 
 Helper: fails-loud on missing source-of-truth dirs; honors `CLAUDE_HOME` (`docs/wiki/machine-local-registry.md § 4a`) and `COORDINATOR_NON_INTERACTIVE=1`; preserves operator-customized files with one-line notices; skips Windows checks on non-Windows. Installs 7 bin/ artifacts (3 `machine-local`, 3 `claude-home`, 1 `python3.cmd` shim — shims prevent "Select an app" pickers on extensionless scripts). Orphan AppX stub deletion requires `[y/N]` consent.
 
+### Step 1b — Per-OS health scripts (each self-gates; no-op outside its target OS)
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/ensure-python3-exe-shim.sh"
+```
+
+`ensure-python3-exe-shim.sh` — Windows only; idempotent.
+
 ### Step 2 — Never overwrite live registry files
 
 If `~/.claude/machine-local/registry.toml` or `registry.local.toml` exists, leave untouched regardless of `.example` updates. Same for any `<concern>.toml` / `<concern>.local.toml`.

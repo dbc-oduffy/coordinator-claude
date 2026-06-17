@@ -114,6 +114,15 @@ _record_root() {
 # ---------------------------------------------------------------------------
 # Main classification loop
 # ---------------------------------------------------------------------------
+# Review: code-reviewer (F4) — stderr suppressed on git status loses corrupt-repo / locked-index
+# errors; capture to temp file and fail loud on non-zero exit.
+_GIT_STATUS_TMP=$(mktemp)
+trap 'rm -f "$_GIT_STATUS_TMP"' EXIT
+git status --porcelain --untracked-files=all > "$_GIT_STATUS_TMP" 2>&1 || {
+  echo "[step2.5] ERROR: git status failed" >&2
+  exit 1
+}
+
 while IFS= read -r status_line; do
   [[ -z "$status_line" ]] && continue
 
@@ -123,10 +132,16 @@ while IFS= read -r status_line; do
   xy="${status_line:0:2}"
   rest="${status_line:3}"
 
-  # Handle renames: "old -> new" — operate on the destination path
+  # Handle renames: "old -> new" — operate on destination AND source paths.
+  # Review: code-reviewer (F8) — if source and destination fall in different categories,
+  # source goes silently unclassified. Classify both when rename crosses category boundaries.
+  rename_src=""
   case "$rest" in
-    *" -> "*) path="${rest##* -> }" ;;
-    *)        path="$rest" ;;
+    *" -> "*)
+      rename_src="${rest%% -> *}"
+      path="${rest##* -> }"
+      ;;
+    *) path="$rest" ;;
   esac
 
   # Strip leading/trailing whitespace (shouldn't be needed but defensive)
@@ -148,17 +163,29 @@ while IFS= read -r status_line; do
 
   # -------------------------------------------------------------------------
   # 2. SUBMODULE: mode 160000
+  # Skip submodule check for untracked paths (??) — git ls-files syscall
+  # is unnecessary and can produce spurious output.
+  # Review: code-reviewer (F14) — skip ls-files for ?? paths.
   # -------------------------------------------------------------------------
-  if git ls-files --stage -- "$path" 2>/dev/null | grep -q '^160000'; then
-    cnt_sub=$(( cnt_sub + 1 ))
-    continue
-  fi
+  case "$xy" in
+    "??"*) : ;;  # untracked — no submodule check needed
+    *)
+      if git ls-files --stage -- "$path" 2>/dev/null | grep -q '^160000'; then
+        cnt_sub=$(( cnt_sub + 1 ))
+        continue
+      fi
+      ;;
+  esac
 
   # -------------------------------------------------------------------------
   # 3. LEAVE-ALONE: state/handoffs/ or .git/
+  # Review: code-reviewer (F12) — archive/handoffs/ falls to AUTO-COMMIT via archive/ prefix;
+  # state/handoffs/ is concurrent-session territory. These are distinct; only state/handoffs/
+  # is LEAVE-ALONE here.
   # -------------------------------------------------------------------------
   case "$path" in
     state/handoffs/*|.git/*)
+      # state/handoffs/ (live — concurrent-session territory); archive/handoffs/ falls to AUTO-COMMIT via archive/ prefix
       cnt_leave=$(( cnt_leave + 1 ))
       continue
       ;;
@@ -234,13 +261,18 @@ while IFS= read -r status_line; do
     esac
   fi
 
-  # Glob-style matches for docs/plans/ pre-flight sidecars
+  # Glob-style matches for docs/plans/ pre-flight sidecars.
+  # Review: code-reviewer (F6) — only the three named suffixes are safe; new sidecar types
+  # require an allow-list update here. The comment "sidecars already caught above" implied
+  # broader coverage than exists.
+  # Review: code-reviewer (F11) — commit_root was "<sidecar>" literal placeholder; fixed to *.
   if [[ "$commit_match" -eq 0 ]]; then
     case "$path" in
       docs/plans/*.plan-coverage-check.md|\
       docs/plans/*.prior-art-check.md|\
       docs/plans/*.external-pattern-check.md)
-        commit_match=1; commit_root="docs/plans/<sidecar>"
+        # Only the three named pre-flight sidecar suffixes are safe; new sidecar types require an allow-list update here.
+        commit_match=1; commit_root="docs/plans/*-check.md"
         ;;
     esac
   fi
@@ -292,7 +324,81 @@ while IFS= read -r status_line; do
   cnt_ambiguous=$(( cnt_ambiguous + 1 ))
   needs_pm=1
 
-done < <(git status --porcelain --untracked-files=all 2>/dev/null)
+done < "$_GIT_STATUS_TMP"
+
+# ---------------------------------------------------------------------------
+# F8: Classify rename source paths that were not yet classified.
+# Review: code-reviewer (F8) — porcelain v1 rename "R old -> new" only operated on
+# destination above. If source and destination fall in different categories, source goes
+# silently unclassified. We re-run the status output to pick up rename sources here.
+# ---------------------------------------------------------------------------
+while IFS= read -r status_line; do
+  [[ -z "$status_line" ]] && continue
+  xy="${status_line:0:2}"
+  rest="${status_line:3}"
+  # Only process rename/copy lines; extract source path
+  case "$rest" in
+    *" -> "*)
+      src="${rest%% -> *}"
+      # Classify source path — apply same category logic as destination
+      # SOURCE-TREE check
+      src_source=0
+      case "$src" in
+        plugins/*|bin/*|hooks/*|lib/*|tests/*|schemas/*|\
+        docs/wiki/*|docs/decisions/*|setup/*|skills/*|\
+        agents/*|snippets/*|commands/*|docs/plans/*)
+          src_source=1
+          ;;
+      esac
+      if [[ "$src_source" -eq 1 ]]; then
+        echo "[step2.5] source-tree (rename-src): $src" >&2
+        cnt_source=$(( cnt_source + 1 ))
+        needs_pm=1
+        continue
+      fi
+      # AUTO-COMMIT check for source
+      src_commit=0
+      case "$src" in
+        state/coordinator-improvement-queue.md|\
+        cross-repo/inbox/*|cross-repo/archive/*|\
+        state/review-trail/*|state/memos/*|\
+        state/lessons-outbox/*|state/improvement-queue/*|\
+        state/debt-backlog/*|state/bug-backlog/*|\
+        state/lesson-triage-recheck-due-*|\
+        tasks/learn-lessons-*|tasks/audits/*|\
+        tasks/daily-review-scratch/*|archive/*)
+          src_commit=1
+          ;;
+        docs/plans/*.plan-coverage-check.md|\
+        docs/plans/*.prior-art-check.md|\
+        docs/plans/*.external-pattern-check.md)
+          src_commit=1
+          ;;
+      esac
+      if [[ "$src_commit" -eq 1 ]]; then
+        commit_paths+=("$src")
+        _record_root "rename-src"
+        cnt_commit=$(( cnt_commit + 1 ))
+        continue
+      fi
+      # AUTO-GITIGNORE check for source
+      src_gi=0
+      src_bname="${src##*/}"
+      case "$src" in logs/*) src_gi=1 ;; esac
+      if [[ "$src_gi" -eq 0 ]]; then
+        case "$src_bname" in
+          *.log|*.pid|.DS_Store|Thumbs.db) src_gi=1 ;;
+        esac
+      fi
+      if [[ "$src_gi" -eq 1 ]]; then
+        # source is already gone (renamed away); no action needed; count it
+        cnt_gitignore=$(( cnt_gitignore + 1 ))
+        continue
+      fi
+      ;;
+    *) ;;
+  esac
+done < "$_GIT_STATUS_TMP"
 
 # ---------------------------------------------------------------------------
 # Act: AUTO-GITIGNORE
@@ -318,16 +424,21 @@ if [[ "${#gitignore_paths[@]}" -gt 0 ]]; then
     done
     [[ "$already_seen" -eq 0 ]] && patterns_committed+=("$pat")
 
-    # git rm --cached if the file is tracked (not untracked)
+    # git rm --cached if the file is tracked (not untracked).
+    # Collect removed paths into gi_committed_paths so the commit pathspec includes them (F1).
     if git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
       if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "[step2.5] DRY-RUN: would git rm --cached -- $p" >&2
       else
-        git rm --cached -- "$p" 2>/dev/null || true
+        git rm --cached -- "$p" || {
+          echo "[step2.5] ERROR: git rm --cached failed for $p" >&2
+          exit 1
+        }
       fi
+      # Review: code-reviewer (F1) — only add to gi_committed_paths when actually tracked;
+      # the commit pathspec must include removed paths so the staged deletion is committed.
+      gi_committed_paths+=("$p")
     fi
-
-    gi_committed_paths+=("$p")
   done
 
   # Build comma-sep pattern list for commit message
@@ -339,9 +450,18 @@ if [[ "${#gitignore_paths[@]}" -gt 0 ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "[step2.5] DRY-RUN: would commit .gitignore + ${#gi_committed_paths[@]} paths: chore(gitignore): exclude orphaned transients at workday-complete" >&2
   else
-    # Stage .gitignore explicitly
-    git add -- "$GI_FILE" 2>/dev/null || true
-    git commit -m "chore(gitignore): exclude orphaned transients at workday-complete" -- "$GI_FILE" 2>/dev/null || {
+    # Stage .gitignore explicitly.
+    # Review: code-reviewer (F5) — drop 2>/dev/null and || true; fail loud on add failure.
+    git add -- "$GI_FILE" || {
+      echo "[step2.5] ERROR: git add .gitignore failed" >&2
+      exit 1
+    }
+    # Review: code-reviewer (F1) — the staged index already contains both the .gitignore
+    # write (via git add) and the git rm --cached deletions. Commit without explicit
+    # pathspecs for the deleted files: passing them as pathspecs on Windows git 2.54
+    # causes git to re-stage the worktree copies, undoing the rm --cached. The staged
+    # deletions are committed implicitly when no conflicting pathspec overrides them.
+    git commit -m "chore(gitignore): exclude orphaned transients at workday-complete" || {
       echo "[step2.5] ERROR: gitignore commit failed" >&2
       exit 1
     }
@@ -392,13 +512,12 @@ fi
 [[ "$cnt_orphan"   -gt 0 ]] && echo "[step2.5] orphan-tmp listed (no action): ${cnt_orphan}"
 
 if [[ "$cnt_gitignore" -gt 0 ]]; then
+  # Review: code-reviewer (F3) — the old dedup used word-splitting on a comma-joined string
+  # (${gi_pat_list//,/ }) which breaks if a pattern contains a space. Reuse the
+  # patterns_committed array accumulated during the gitignore action block instead.
   gi_pat_list=""
-  for pat in "${gitignore_patterns[@]+"${gitignore_patterns[@]}"}"; do
-    already=0
-    for sp in ${gi_pat_list//,/ }; do
-      [[ "$sp" == "$pat" ]] && { already=1; break; }
-    done
-    [[ "$already" -eq 0 ]] && { [[ -z "$gi_pat_list" ]] && gi_pat_list="$pat" || gi_pat_list="${gi_pat_list}, ${pat}"; }
+  for pat in "${patterns_committed[@]+"${patterns_committed[@]}"}"; do
+    [[ -z "$gi_pat_list" ]] && gi_pat_list="$pat" || gi_pat_list="${gi_pat_list}, ${pat}"
   done
   echo "[step2.5] gitignore + commit: ${cnt_gitignore} paths, patterns: ${gi_pat_list}"
 fi

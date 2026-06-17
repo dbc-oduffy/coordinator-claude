@@ -59,7 +59,7 @@ Phase 0 (YOU) → Phase 1 (Haiku, parallel) → [wait] → Phase 2 (Sonnet, para
 
 ## Phase 0: Scope and Chunking (~5 min, YOU do this)
 
-1. **Read orientation artifacts:** `state/repomap.md` and `DIRECTORY.md`
+1. **Read orientation artifacts:** `.claude/repomap.md` and `DIRECTORY.md`
 
 2. **Detect mode:**
    - Check for `docs/architecture/systems-index.md`

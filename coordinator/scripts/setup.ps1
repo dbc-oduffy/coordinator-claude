@@ -14,9 +14,9 @@
 #   holodeck → project-rag-ue-addon → project-rag → deep-research → coordinator-claude (DAG root)
 #
 # Usage: pwsh -File scripts/setup.ps1 [-Check] [-SkipDepCheck] [-AcceptMissingDepsRisk]
-#              [-Help] [-Version] [-PhaseList] [-LastStatus] [-IAmAgent]
+#              [-Help] [-Version] [-Phase <name>] [-PhaseList] [-LastStatus] [-IAmAgent]
 #
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 #
 # Exit codes:
 #   0   success (DAG root — no deps to check; or all deps satisfied)
@@ -32,6 +32,7 @@
 #                                 heuristic: ..\coordinator\docs\install\AGENT.md exists.
 #
 # Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C2
+# Spec backlink: docs/plans/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md §C3
 # Spec backlink: plugins/coordinator-claude/coordinator/docs/wiki/agent-install-contract.md
 #                § Read-only flag carve-out, § Severity semantics
 
@@ -45,6 +46,24 @@ param(
     [switch]$IAmHuman,                  # human mode: skip agent-mode prompt, proceed directly
     [switch]$Help,                      # read-only: print usage and exit 0
     [switch]$Version,                   # read-only: print script version and exit 0
+
+    # ---------------------------------------------------------------------------
+    # -Phase <name> vs -PhaseList prefix-collision resolution (C3 — AC5/AC5b).
+    #
+    # PowerShell resolves parameter binding using EXACT-MATCH-FIRST then
+    # unique-prefix-match. "-Phase foo" is an exact match for [string]$Phase
+    # (the name "Phase" == "Phase"), so it routes here and not to $PhaseList.
+    # "-PhaseList" is an exact match for [switch]$PhaseList.
+    # If a caller omits the value after -Phase (e.g. "-Phase" with no arg),
+    # PowerShell will error because [string] is non-nullable without a default;
+    # we default to [string]::Empty and handle that downstream.
+    # The [Parameter()] attribute is present to anchor this comment and to ensure
+    # no future positional-parameter re-numbering accidentally captures a value
+    # intended for another param.
+    # ---------------------------------------------------------------------------
+    [Parameter()]
+    [string]$Phase = '',                # read-only: dispatch named install phase; exit 0 on known, non-zero on unknown
+
     [switch]$PhaseList,                 # read-only: list install phases and exit 0
     [switch]$LastStatus                 # read-only: print last install status JSON and exit 0
 )
@@ -113,14 +132,17 @@ if (Test-Path $DepCheckPs1) {
 
 # ---------------------------------------------------------------------------
 # Read-only flag short-circuits (no Phase 0 triggered, exit 0).
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 # ---------------------------------------------------------------------------
 
 if ($Help) {
-    Write-Host "Usage: pwsh -File scripts\setup.ps1 [OPTIONS]"
+    Write-Host "Usage: pwsh -File scripts/setup.ps1 [OPTIONS]"
     Write-Host ""
     Write-Host "  -Help                    Print this help and exit."
     Write-Host "  -Version                 Print script version and exit."
+    Write-Host "  -Phase <name>            Dispatch named install phase (read-only; no state written)."
+    Write-Host "                           Known phases: seed-install-spinoff"
+    Write-Host "                           Unknown phase values exit non-zero (fail-loud)."
     Write-Host "  -PhaseList               List install phases and exit."
     Write-Host "  -LastStatus              Print last install status JSON and exit."
     Write-Host "  -Check                   Read-only dep probe + status report. No state written."
@@ -140,13 +162,58 @@ if ($Version) {
 }
 
 if ($PhaseList) {
-    Write-Host "dep-check:  coordinator-claude is DAG root -- no upstream deps to probe"
+    Write-Host "Available -Phase <name> values:"
+    Write-Host "  seed-install-spinoff  DAG-root no-op (read-only, no state written)"
+    Write-Host ""
+    Write-Host "Informational (NOT -Phase <name> values):"
+    Write-Host "  dep-check:  coordinator-claude is DAG root -- no upstream deps; chain-walk terminates here"
     exit 0
 }
 
 if ($LastStatus) {
     Write-Host '{"overall": "no-prior-install"}'
     exit 0
+}
+
+# ---------------------------------------------------------------------------
+# -Phase <name> dispatch (read-only carve-out — no install-status write).
+# Parity with setup.sh --phase <name>.
+#
+# Prefix-collision note: PowerShell resolves "-Phase foo" as an exact match for
+# [string]$Phase (the name "Phase" == "Phase"), NOT as a prefix of [switch]$PhaseList.
+# Exact matches always win over prefix matches in PowerShell parameter binding.
+# "-PhaseList" (no value) binds exactly to [switch]$PhaseList.
+# See param block comment above for full analysis.
+# ---------------------------------------------------------------------------
+if ($Phase -ne '') {
+    # Review: code-reviewer — flag-shaped-value guard: PowerShell's [string]$Phase parameter
+    # binding already prevents the "-Phase" with-no-value case at parse time (PowerShell
+    # errors before reaching here). However, protect against a caller passing a flag-shaped
+    # value like "-Phase --next-flag" which would silently land here as $Phase = '--next-flag'.
+    if ($Phase -like '--*') {
+        [Console]::Error.WriteLine("ERROR: -Phase requires a phase name, but got a flag-shaped value ('$Phase'). Did you forget the phase name?")
+        exit 1
+    }
+    switch ($Phase) {
+        'seed-install-spinoff' {
+            # Decision-0 no-op: coordinator-claude is the DAG root (direct_deps: []).
+            # The holodeck leaf-bootstrap invokes this phase to seed install batons.
+            # Coordinator stitches + drives — it does NOT seed a leg baton for itself.
+            # The coordinator's own install is the onboarding handoff, not a spinoff.
+            # Downstream repos seed their own leg batons; coordinator's Step 0 sweep
+            # discovers them post-reboot. Zero gap in the A→D chain.
+            # Read-only carve-out (contract § Read-only flag carve-out): no state written.
+            Write-Host "[setup] coordinator-claude is the DAG-root spine: no install-leg baton seeded."
+            Write-Host "[setup] seed-install-spinoff: no-op (coordinator stitches + drives; downstream repos seed their own legs)."
+            exit 0
+        }
+        default {
+            [Console]::Error.WriteLine("ERROR: Unknown -Phase value: '$Phase'")
+            [Console]::Error.WriteLine("  Known phases: seed-install-spinoff")
+            [Console]::Error.WriteLine("  Use -PhaseList to enumerate all known phase names.")
+            exit 1
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -194,6 +261,45 @@ function Find-Python {
 }
 
 # ---------------------------------------------------------------------------
+# Resolve-CoManifestPath — layout-aware manifest resolution (mirrors the bash
+# _co_resolve_manifest_path). The install surface ships in two layouts and the
+# manifest lands in a DIFFERENT place in each, so callers MUST NOT assume a
+# single fixed RepoRoot-relative location:
+#   Nested working-tree / mirror layout:  <RepoRoot>\docs\install\...
+#   Flat publish-repo-root layout:         <RepoRoot>\..\docs\install\...
+#     (published there by the coordinator-claude-toplevel-install flat-mirror)
+# Probes both, returns the first that exists (resolved absolute). Returns $null
+# and prints remediation to stderr when neither exists.
+# ---------------------------------------------------------------------------
+function Resolve-CoManifestPath {
+    param([Parameter(Mandatory)][string]$RepoRoot)
+    # TrimEnd: Split-Path -Parent on a trailing-separator path strips the
+    # separator rather than the last segment, yielding the wrong parent.
+    $RepoRoot = $RepoRoot.TrimEnd('\','/')
+    $rel    = 'docs\install\agent-install-manifest.json'
+    $nested = Join-Path $RepoRoot $rel
+    $flat   = Join-Path (Split-Path -Parent $RepoRoot) $rel
+    # Resolve-Path THROWS on a missing path under $ErrorActionPreference='Stop';
+    # -ErrorAction SilentlyContinue + the Test-Path gate keeps a TOCTOU race
+    # (file vanishes between probe and resolve) from becoming a hard crash.
+    if (Test-Path $nested) {
+        $r = Resolve-Path -LiteralPath $nested -ErrorAction SilentlyContinue
+        if ($r) { return $r.Path }
+    }
+    if (Test-Path $flat) {
+        $r = Resolve-Path -LiteralPath $flat -ErrorAction SilentlyContinue
+        if ($r) { return $r.Path }
+    }
+    [Console]::Error.WriteLine("ERROR: install manifest not found in either layout location:")
+    [Console]::Error.WriteLine("  nested (working-tree/mirror): $nested")
+    [Console]::Error.WriteLine("  flat   (publish-repo-root):   $flat")
+    [Console]::Error.WriteLine("  Remediation: re-publish BOTH install-surface targets from the meta-repo --")
+    [Console]::Error.WriteLine("    bash setup/publish.sh coordinator-claude-toplevel-install   # repo-root docs/install/")
+    [Console]::Error.WriteLine("    bash setup/publish.sh coordinator-claude                    # coordinator/ mirror")
+    return $null
+}
+
+# ---------------------------------------------------------------------------
 # -Check mode: read-only dep probe.
 #
 # coordinator-claude is DAG root (direct_deps: []). The manifest probe loop
@@ -201,7 +307,7 @@ function Find-Python {
 #
 # MUST NOT write to install-status, manifest, or any persistent state.
 # coord repo-specific read-only extension (contract § Read-only flag carve-out).
-# Read-only flags (no install-status write): --help --version --phase-list --last-status --i-am-agent --check
+# Read-only flags (no install-status write): --help --version --phase-list --phase seed-install-spinoff --last-status --i-am-agent --check
 # ---------------------------------------------------------------------------
 if ($Check) {
     Write-Host "=========================================================="
@@ -219,10 +325,10 @@ if ($Check) {
         exit 1
     }
 
-    $ManifestPath = Join-Path $RepoRoot 'docs\install\agent-install-manifest.json'
-    if (-not (Test-Path $ManifestPath)) {
-        [Console]::Error.WriteLine("WARNING: install manifest not found at $ManifestPath")
-        [Console]::Error.WriteLine("  C1 (manifest + AGENT.md) must land before -Check can probe deps.")
+    # Layout-aware resolution (nested working-tree vs flat publish-repo-root).
+    # The resolver prints not-found remediation to stderr on failure.
+    $ManifestPath = Resolve-CoManifestPath -RepoRoot $RepoRoot
+    if (-not $ManifestPath) {
         Write-Host ""
         Write-Host "  $ChainBanner`: no manifest to probe -- exiting 0 (check-only mode)."
         exit 0
@@ -375,7 +481,13 @@ if (-not $PythonBin) {
 # F12's Get-CoDepProbeAll call (inside the if-ShouldRunPhaseZero block) can use them.
 # These are also used by the dep-probe loop later in the full install body.
 $SiblingRoot  = Split-Path -Parent $RepoRoot
-$ManifestPath = Join-Path $RepoRoot 'docs\install\agent-install-manifest.json'
+# Layout-aware resolution (nested working-tree vs flat publish-repo-root).
+# $null is non-fatal for the DAG-root walker (no direct_deps to probe); the
+# dep-probe calls below are guarded on a non-null path.
+$ManifestPath = Resolve-CoManifestPath -RepoRoot $RepoRoot
+if (-not $ManifestPath) {
+    [Console]::Error.WriteLine("[setup] WARNING: proceeding without dep probe -- coordinator-claude is the DAG root (no direct_deps).")
+}
 
 # Phase 0: collect parsed CLI flags as string array so Test-CoPhaseZeroShouldRun
 # can check for read-only flags.  The read-only flags have already been handled
@@ -388,6 +500,7 @@ if ($AcceptMissingDepsRisk){ $ParsedArgsList.Add('--accept-missing-deps-risk') }
 if ($IAmAgent)             { $ParsedArgsList.Add('--i-am-agent') }
 if ($Help)                 { $ParsedArgsList.Add('--help') }
 if ($Version)              { $ParsedArgsList.Add('--version') }
+if ($Phase -ne '')         { $ParsedArgsList.Add("--phase"); $ParsedArgsList.Add($Phase) }
 if ($PhaseList)            { $ParsedArgsList.Add('--phase-list') }
 if ($LastStatus)           { $ParsedArgsList.Add('--last-status') }
 
@@ -414,10 +527,13 @@ if ($ShouldRunPhaseZero) {
     # Previously -MissingHardDeps was omitted entirely, so the banner always showed the raw
     # placeholder text instead of the actual missing dep list.
     $MissingHardDepIds = [System.Collections.Generic.List[string]]::new()
-    $ProbeResultsForConsent = Get-CoDepProbeAll `
-        -ManifestPath $ManifestPath `
-        -Python       $PythonBin `
-        -SiblingRoot  $SiblingRoot
+    $ProbeResultsForConsent = @()
+    if ($ManifestPath) {
+        $ProbeResultsForConsent = Get-CoDepProbeAll `
+            -ManifestPath $ManifestPath `
+            -Python       $PythonBin `
+            -SiblingRoot  $SiblingRoot
+    }
     foreach ($pLine in $ProbeResultsForConsent) {
         if ([string]::IsNullOrWhiteSpace($pLine)) { continue }
         $pObj = $null
@@ -445,10 +561,13 @@ Write-Host "[setup] Probing direct deps..."
 # Parameters pinned to C3 dep_check.ps1 Get-CoDepProbeAll signature:
 #   -ManifestPath [string], -Python [string], -SiblingRoot [string]
 # (F12: $SiblingRoot and $ManifestPath already assigned above Phase 0 block — no re-assign needed.)
-$ProbeResults = Get-CoDepProbeAll `
-    -ManifestPath $ManifestPath `
-    -Python       $PythonBin `
-    -SiblingRoot  $SiblingRoot
+$ProbeResults = @()
+if ($ManifestPath) {
+    $ProbeResults = Get-CoDepProbeAll `
+        -ManifestPath $ManifestPath `
+        -Python       $PythonBin `
+        -SiblingRoot  $SiblingRoot
+}
 
 $DepCount = 0
 
