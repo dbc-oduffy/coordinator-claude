@@ -12,7 +12,7 @@
 #
 # Exit codes:
 #   0 — full success
-#   1 — sync-main aborted
+#   1 — sync-main aborted; OR detached HEAD / running on main/master branch (guard, F11)
 #   2 — merge conflict during sibling merge (halt; PM resolves)
 #   3 — reconcile with origin/main hit a conflict
 #   4 — push rejected twice (PM surface)
@@ -37,7 +37,7 @@ fi
 # ---------------------------------------------------------------------------
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB_PATH="${PLUGIN_ROOT}/lib/coordinator-daily-branch.sh"
-BIN_SYNC_MAIN="${PLUGIN_ROOT}/bin/sync-main.sh"
+BIN_SYNC_MAIN="${STEP3_SYNC_MAIN:-${PLUGIN_ROOT}/bin/sync-main.sh}"
 BIN_CURRENT_BRANCH="${PLUGIN_ROOT}/bin/coordinator-current-branch"
 
 # ---------------------------------------------------------------------------
@@ -116,32 +116,59 @@ echo "[step3] today: ${TODAY}"
 # ---------------------------------------------------------------------------
 CURRENT_BRANCH=""
 if [[ -x "$BIN_CURRENT_BRANCH" ]]; then
-  CURRENT_BRANCH=$("$BASH" "$BIN_CURRENT_BRANCH" 2>/dev/null || true)
+  # Review: code-reviewer (F14) — invoke directly; "$BASH" wrapper fails if shebang is not bash
+  CURRENT_BRANCH=$("$BIN_CURRENT_BRANCH" 2>/dev/null || true)
 fi
 if [[ -z "$CURRENT_BRANCH" ]]; then
   CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
 fi
 
+# Review: code-reviewer (F11) — catastrophic guard: detached HEAD produces empty string → excludes nothing;
+# on-main guard prevents git push --force-with-lease origin main which is destructive.
+if [[ -z "$CURRENT_BRANCH" ]]; then
+  echo "[step3] ERROR: cannot determine current branch (detached HEAD?)" >&2; exit 1
+fi
+if [[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]]; then
+  echo "[step3] ERROR: current branch is '$CURRENT_BRANCH' — Step 3 must run on a workstream branch" >&2; exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Step 3.3 — Discover sibling workstream branches
 # (case-insensitive; excludes current branch; matches date and span forms)
-# Pattern: work/<machine>/<TODAY> OR work/<machine>/<span-containing-TODAY>
-# The grep -iE pattern is POSIX ERE and BSD-portable.
+# Pattern: work/<machine>/<date-or-span> where the span contains TODAY.
+# Two-pass filter: (1) grep for work/$MACHINE/ prefix, (2) cs_parse_branch_span
+# checks that TODAY falls within [start_date, end_date].
+# Review: code-reviewer (F1) — previous grep anchored on TODAY's literal date,
+# breaking span-form branches like work/striker/2026-05-06to07 whose date
+# component is the start date, not today. Also F15: comment updated to match.
 # ---------------------------------------------------------------------------
-# Collect all local branches matching work/$MACHINE/$TODAY (any span form)
-# We use git branch --list and grep for the work/$MACHINE prefix, then
-# filter for today's date component. Span-form: work/striker/2026-05-06to07
-# Single-date form: work/striker/2026-06-16
-# Both are matched by anchoring on work/$MACHINE/$TODAY.
+# Helper: returns 0 if TODAY falls within the span of the given branch name
+_branch_covers_today() {
+  local b="$1"
+  local span
+  span=$(cs_parse_branch_span "$b") || return 1
+  local start_date end_date
+  start_date="${span%% *}"
+  end_date="${span##* }"
+  # Lexicographic comparison works correctly for YYYY-MM-DD.
+  # bash [[ ]] has no <= operator; use NOT-less-than as the equivalent of >=.
+  [[ ! "$TODAY" < "$start_date" && ! "$end_date" < "$TODAY" ]]
+}
+
 SIBLING_BRANCHES=()
 while IFS= read -r branch; do
   [[ -z "$branch" ]] && continue
+  # Review: code-reviewer (F7) — use [[:space:]]* (zero-or-more) not + so a branch
+  # with no leading whitespace is not stripped to empty by the quantifier.
+  branch=$(echo "$branch" | awk '{gsub(/^\*?[[:space:]]*/,""); print}')
+  [[ -z "$branch" ]] && continue
   # Exclude current branch — we merge siblings INTO it, not itself
   [[ "$branch" == "$CURRENT_BRANCH" ]] && continue
+  # Two-pass: prefix match then span-date check
+  _branch_covers_today "$branch" || continue
   SIBLING_BRANCHES+=("$branch")
 done < <(git branch --list 2>/dev/null \
-  | grep -iE "^\*? *work/${MACHINE}/${TODAY}" \
-  | awk '{gsub(/^\*?[[:space:]]+/,""); print}' \
+  | grep -iE "^\*? *work/${MACHINE}/" \
   || true)
 
 # Build comma-separated list for summary output
@@ -172,7 +199,8 @@ for sibling in "${SIBLING_BRANCHES[@]}"; do
   if ! git merge --no-edit "$sibling" >&2; then
     echo "[step3] CONFLICT merging sibling branch: ${sibling}" >&2
     echo "[step3] Aborting merge. Resolve conflicts, then re-run." >&2
-    git merge --abort >&2 2>/dev/null || true
+    # Review: code-reviewer (F9) — drop 2>/dev/null; abort diagnostics go to stderr
+    git merge --abort >&2 || true
     exit 2
   fi
   MERGED_COUNT=$(( MERGED_COUNT + 1 ))
@@ -195,22 +223,32 @@ elif ! git rev-parse --verify origin/main >/dev/null 2>&1; then
 else
   BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "0")
   if [[ "$BEHIND" == "0" ]]; then
-    # HEAD already contains origin/main — ahead-only state, no rebase needed.
-    # Blind rebase in this state replays merge commits needlessly.
-    echo "[step3] branch already contains origin/main — no rebase needed" >&2
-    RECONCILE_STATUS="no-op (ahead-only)"
+    # HEAD already contains origin/main — no rebase needed.
+    # Distinguish at-parity (zero ahead too) from genuinely-ahead-only.
+    # Review: code-reviewer (F2) — BEHIND==0 is true for both ahead-only AND at-parity;
+    # mislabelling at-parity as "ahead-only" is confusing in machine-readable output.
+    AHEAD=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "0")
+    if [[ "$AHEAD" == "0" ]]; then
+      echo "[step3] branch is at origin/main — no rebase needed" >&2
+      RECONCILE_STATUS="no-op (at origin/main)"
+    else
+      echo "[step3] branch already contains origin/main — no rebase needed" >&2
+      RECONCILE_STATUS="no-op (ahead-only)"
+    fi
   else
     echo "[step3] ${BEHIND} commit(s) behind origin/main — rebasing..." >&2
     if git rebase origin/main >&2; then
       RECONCILE_STATUS="rebased"
     else
       echo "[step3] rebase had conflicts; falling back to merge..." >&2
-      git rebase --abort >&2 2>/dev/null || true
+      # Review: code-reviewer (F9) — drop 2>/dev/null; abort diagnostics go to stderr
+      git rebase --abort >&2 || true
       if git merge origin/main >&2; then
         RECONCILE_STATUS="merged (fallback)"
       else
         echo "[step3] CONFLICT reconciling with origin/main" >&2
-        git merge --abort >&2 2>/dev/null || true
+        # Review: code-reviewer (F9) — drop 2>/dev/null; abort diagnostics go to stderr
+        git merge --abort >&2 || true
         exit 3
       fi
     fi
@@ -233,9 +271,20 @@ else
     PUSH_STATUS="ok"
   else
     # First push failed — fetch then rebase, retry once
+    # Review: code-reviewer (F10) — verify remote branch exists before rebasing;
+    # if absent (first push attempt), rebase errors with fatal "not a git repository".
     echo "[step3] push rejected; fetching and rebasing, then retrying..." >&2
     git fetch origin >&2 || true
-    if git rebase "origin/${CURRENT_BRANCH}" >&2; then
+    if ! git rev-parse --verify "origin/${CURRENT_BRANCH}" >/dev/null 2>&1; then
+      # Remote branch absent — attempt plain push directly (first-time push)
+      echo "[step3] remote branch absent — attempting plain push..." >&2
+      if git push --force-with-lease origin "$CURRENT_BRANCH" >&2; then
+        PUSH_STATUS="retried-ok"
+      else
+        echo "[step3] push rejected twice. PM must resolve before continuing." >&2
+        exit 4
+      fi
+    elif git rebase "origin/${CURRENT_BRANCH}" >&2; then
       if git push --force-with-lease origin "$CURRENT_BRANCH" >&2; then
         PUSH_STATUS="retried-ok"
       else
@@ -243,7 +292,8 @@ else
         exit 4
       fi
     else
-      git rebase --abort >&2 2>/dev/null || true
+      # Review: code-reviewer (F9) — drop 2>/dev/null; abort diagnostics go to stderr
+      git rebase --abort >&2 || true
       echo "[step3] push-retry rebase failed. PM must resolve before continuing." >&2
       exit 4
     fi
@@ -260,9 +310,14 @@ DELETED_COUNT=0
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[step3] DRY-RUN: would delete merged sibling branches" >&2
 else
+  # Review: code-reviewer (F1) — two-pass filter matches span-form branches too;
+  # (F7) use [[:space:]]* (zero-or-more) in awk so no-leading-whitespace branch not stripped empty.
   while IFS= read -r branch; do
     [[ -z "$branch" ]] && continue
+    branch=$(echo "$branch" | awk '{gsub(/^\*?[[:space:]]*/,""); print}')
+    [[ -z "$branch" ]] && continue
     [[ "$branch" == "$CURRENT_BRANCH" ]] && continue
+    _branch_covers_today "$branch" || continue
     echo "[step3] deleting merged sibling: ${branch}" >&2
     if git branch -d "$branch" >&2; then
       DELETED_COUNT=$(( DELETED_COUNT + 1 ))
@@ -270,8 +325,7 @@ else
       echo "[step3] WARN: could not delete ${branch} — may not be fully merged" >&2
     fi
   done < <(git branch --merged 2>/dev/null \
-    | grep -iE "^\*? *work/${MACHINE}/${TODAY}" \
-    | awk '{gsub(/^\*?[[:space:]]+/,""); print}' \
+    | grep -iE "^\*? *work/${MACHINE}/" \
     || true)
 fi
 echo "[step3] siblings deleted: ${DELETED_COUNT}"

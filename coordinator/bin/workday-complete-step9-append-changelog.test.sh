@@ -227,6 +227,13 @@ echo "=== TEST 4: Reviewed records present ==="
 make_fixture_repo
 CHANGELOG_FILE="${FIXTURE_ROOT}/state/week-changelog/${TODAY}-${MACHINE}.md"
 
+# Review: code-reviewer — add a non-trivial commit so HAS_NON_TRIVIAL=true; without this
+# the fixture has no non-trivial commits and the Reviewed line is omitted entirely when
+# list-review-trail-records.sh is absent, producing an ambiguous diagnostic (F11).
+touch "${FIXTURE_ROOT}/real-work.txt"
+git -C "${FIXTURE_ROOT}" add -- "${FIXTURE_ROOT}/real-work.txt"
+git -C "${FIXTURE_ROOT}" commit -q -m "feat: real work for T4"
+
 # Write a fake review-trail JSON record dated today
 cat > "${FIXTURE_ROOT}/state/review-trail/${TODAY}-120000-test.json" <<EOF
 {
@@ -305,6 +312,11 @@ COMMITS_AFTER_SECOND="$(count_commits_since_init)"
 
 assert_exit "T7: first run exit 0" "${RC1}" 0
 assert_exit "T7: second run exit 0" "${RC2}" 0
+# Review: code-reviewer — known ambiguity: two no-op exit paths exist in step9:
+# (1) section-byte-equal path (line ~569), (2) staged-files-empty path (line ~663).
+# T7 asserts the "idempotent no-op" message but cannot discriminate which path fired.
+# A broken byte-comparison would still produce a passing test via the staged-files net.
+# To fully discriminate, instrument the two paths with distinct messages (F13).
 assert_pass "T7: second run no-op signal" "${OUTPUT2}" "idempotent no-op"
 
 if [[ "${COMMITS_AFTER_FIRST}" -eq "${COMMITS_AFTER_SECOND}" ]]; then
@@ -354,6 +366,9 @@ else
   (( PASS++ )) || true
 fi
 assert_file_contains "T8: updated block has handoff" "${CHANGELOG_FILE}" "state/handoffs/${TODAY}-new.md"
+# Review: code-reviewer — verify replaced section content is byte-correct (F12)
+assert_file_contains "T8: decisions replaced" "${CHANGELOG_FILE}" "Used strategy B"
+assert_file_not_contains "T8: old handoffs line absent" "${CHANGELOG_FILE}" "**Handoffs:** none"
 
 # Should be one more commit than after first run
 if [[ "${COMMITS_AFTER_SECOND}" -gt "${COMMITS_AFTER_FIRST}" ]]; then
@@ -440,6 +455,26 @@ else
   echo "FAIL: T10: expected a commit, found none"
   (( FAIL++ )) || true
 fi
+
+# ---------------------------------------------------------------------------
+# TEST 11: Absent HEADER.md — staleness guard skipped, block still written
+# ---------------------------------------------------------------------------
+# Review: code-reviewer — the guard at line ~118 (skip staleness when HEADER absent)
+# was never exercised; make_fixture_repo always writes HEADER.md (F17).
+echo ""
+echo "=== TEST 11: Absent HEADER.md — staleness guard skipped ==="
+make_fixture_repo
+CHANGELOG_FILE="${FIXTURE_ROOT}/state/week-changelog/${TODAY}-${MACHINE}.md"
+
+# Remove the HEADER.md that make_fixture_repo wrote
+rm "${FIXTURE_ROOT}/state/week-changelog/HEADER.md"
+
+OUTPUT="$(run_step9 --no-push 2>/dev/null)"
+RC=$?
+
+assert_exit "T11: exit 0" "${RC}" 0
+assert_pass "T11: block written despite absent HEADER" "${OUTPUT}" "[step9] block written"
+assert_file_contains "T11: header present in changelog" "${CHANGELOG_FILE}" "## ${TODAY} — ${MACHINE}"
 
 # ---------------------------------------------------------------------------
 # Summary

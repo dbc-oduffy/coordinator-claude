@@ -137,7 +137,8 @@ The ecosystem has three tiers. Offer the first two; do NOT offer the third to a 
 |---|---|---|
 | **core** | `coordinator` | Always on. This is the system. |
 | **recommended** | `deep-research` | On by default — opt out if not wanted. Available standalone at [dbc-oduffy/deep-research-claude](https://github.com/dbc-oduffy/deep-research-claude). Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` for full multi-agent pipelines (the fresh session in Step 2 sets this). |
-| **specialized — not part of this install** | UE/holodeck plugins, game-dev plugin, project-rag | Only relevant for Unreal Engine and holodeck workflows. Do NOT offer to a generic OSS user. |
+| **domain** | `data-science`, `web-dev` | On by default — domain reviewers that activate per-project via `coordinator.local.md` `project_type`. Opt out if neither domain is relevant. (`game-dev` is the third domain plugin but ships **off** by default — it belongs to the specialized UE/holodeck-family distribution, not this install.) |
+| **specialized — not part of this install** | Unreal-Engine / holodeck-family plugins, the game-dev plugin, project-rag | Only relevant for Unreal Engine and holodeck-family workflows. Do NOT offer to a generic OSS user. |
 
 If the human gave you a signal about their project type (web, ML, data science), confirm which
 recommended plugins fit. Otherwise ask once, briefly.
@@ -176,11 +177,11 @@ leg (each becomes an install *spinoff* the post-restart session picks up; see St
 # Interactive (recommended — lets the human pick reviewers and confirm plugin selection):
 bash setup/install.sh
 
-# Non-interactive defaults (coordinator + deep-research):
+# Non-interactive defaults (the default-on set: coordinator + deep-research + data-science + web-dev):
 bash setup/install.sh --non-interactive
 
-# Explicit plugin list:
-bash setup/install.sh --plugins coordinator,deep-research
+# Explicit plugin list (the full default-on set):
+bash setup/install.sh --plugins coordinator,deep-research,data-science,web-dev
 ```
 
 Read the installer summary. If it reports validation errors, surface them to the human verbatim —
@@ -401,8 +402,8 @@ default** (renamed personas, structural divergence). It never blindly overwrites
 
 ## Where the deeper docs live
 
-- [docs/getting-started.md](getting-started.md) — first-run usage, per-project config,
-  troubleshooting (audience: human, post-install).
-- [docs/architecture.md](architecture.md) — how the system works.
-- [docs/customization.md](customization.md) — adding skills, persona templates, CI checks.
+- [getting-started.md](../coordinator/docs/wiki/getting-started.md) — first-run usage,
+  per-project config, troubleshooting (audience: human, post-install).
+- The coordinator wiki (`coordinator/docs/wiki/`) — how the system works, plus customization
+  topics (adding skills, persona templates, CI checks).
 - [setup/install.sh](../setup/install.sh) — canonical spec for what "installed" means.

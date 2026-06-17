@@ -644,6 +644,8 @@ def test_receiver_key_convention() -> None:
         "project-rag-em": "repos.project_rag",
         "dronesim-em": "repos.dronesim",
         "project-rag-ue-addon-em": "repos.project_rag_ue_addon",  # the reported gap
+        # Pure key-derivation only — delivery to coordinator-claude-em is still
+        # rejected by the publish-target guard (Tests 21-26) BEFORE this key is used.
         "coordinator-claude-em": "repos.coordinator_claude",
         "holodeck-em": "repos.claude_unreal_holodeck",  # divergent alias
         # No trailing -em: treated as a bare shortname.
@@ -1129,8 +1131,9 @@ def test_no_orphan_dir_on_gitignore_block() -> None:
 #
 # Publish-target repos (OSS distribution mirrors) are outward publish.sh
 # destinations, not EM working trees. The CLI must reject them at parse time,
-# before _resolve_receiver_path runs. The reject message must include
-# "did you mean `claude-central-em`?" to redirect the EM.
+# before _resolve_receiver_path runs. The reject message must NAME THE OWNER
+# (claude-central-em for coordinator/deep-research) so the EM knows where to
+# route the concern — not a generic "did you mean" (2026-06-17 ownership fix).
 #
 # Override: COORDINATOR_OVERRIDE_PUBLISH_TARGET_RECEIVER=1 bypasses the check.
 # ---------------------------------------------------------------------------
@@ -1154,11 +1157,14 @@ def _assert_publish_target_rejected(name: str, to_arg: str) -> bool:
             fail_test(name, f"--to {to_arg!r}: dispatcher should exit non-zero (publish-target rejection); got 0. stdout: {result.stdout!r}")
             return False
         combined = result.stdout + result.stderr
-        if "publish target" not in combined.lower():
-            fail_test(name, f"--to {to_arg!r}: error should mention 'publish target'. stderr: {result.stderr!r}")
+        if "publish-target" not in combined.lower():
+            fail_test(name, f"--to {to_arg!r}: error should mention 'publish-target'. stderr: {result.stderr!r}")
+            return False
+        if "owned by" not in combined.lower():
+            fail_test(name, f"--to {to_arg!r}: error should NAME the owner ('owned by ...'). stderr: {result.stderr!r}")
             return False
         if "claude-central-em" not in combined:
-            fail_test(name, f"--to {to_arg!r}: error should mention 'claude-central-em' redirect. stderr: {result.stderr!r}")
+            fail_test(name, f"--to {to_arg!r}: error should name owner 'claude-central-em'. stderr: {result.stderr!r}")
             return False
         return True
 
@@ -1613,8 +1619,8 @@ def test_list_receivers_lists_registered_siblings() -> None:
         pass_test(name)
 
 
-def test_list_receivers_omits_publish_targets() -> None:
-    name = "Test 38 — --list-receivers omits publish-target mirrors (deep-research-em incl.)"
+def test_list_receivers_shows_mirror_owners() -> None:
+    name = "Test 38 — --list-receivers shows publish-target mirrors WITH their owner (deep-research-em incl.)"
     with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
          tempfile.TemporaryDirectory() as impl_tmpdir:
         # repos.deep_research reverses to deep-research-em — the registry-shortname
@@ -1630,27 +1636,29 @@ def test_list_receivers_omits_publish_targets() -> None:
         if result.returncode != 0:
             fail_test(name, f"--list-receivers should exit 0; got {result.returncode}. stderr: {result.stderr!r}")
             return
-        # DELIBERATE FORMAT COUPLING: we match the sibling-ROW prefix
-        # "    {em_id}   → " (4 leading spaces, ' → ' separator) rather than the bare
-        # em_id, because the footer Note line ALSO names coordinator-claude-em /
-        # deep-research-em as rejected forms — a bare-substring check would false-fail
-        # on the footer. This couples the assertion to _format_receiver_listing's row
-        # format; if that format changes, update both sites (the row template lives at
-        # `sibling_rows.append(f"    {em_id}   → {path}")` in the CLI).
-        if "    coordinator-claude-em   →" in result.stdout:
-            fail_test(name, f"coordinator-claude-em must not be a listed receiver row. stdout: {result.stdout!r}")
+        # DELIBERATE FORMAT COUPLING: mirror rows use the OWNER format
+        # "    {em_id}   → owned by {owner}" while sibling rows use
+        # "    {em_id}   → {path}". The distinction is the 'owned by' token. If the
+        # row format changes, update both sites (mirror_rows template lives in
+        # _format_receiver_listing in the CLI).
+        if "    coordinator-claude-em   → owned by claude-central-em" not in result.stdout:
+            fail_test(name, f"coordinator-claude-em should be listed as a mirror owned by claude-central-em. stdout: {result.stdout!r}")
             return
-        if "    deep-research-em   →" in result.stdout:
-            fail_test(name, f"deep-research-em must not be a listed receiver row (publish mirror). stdout: {result.stdout!r}")
+        if "    deep-research-em   → owned by claude-central-em" not in result.stdout:
+            fail_test(name, f"deep-research-em should be listed as a mirror owned by claude-central-em. stdout: {result.stdout!r}")
             return
-        if "    project-rag-em   →" not in result.stdout:
-            fail_test(name, f"real sibling project-rag-em should still be listed. stdout: {result.stdout!r}")
+        # Mirrors must NOT appear as plain sibling path-rows (→ /work/...).
+        if "    deep-research-em   → /work/" in result.stdout:
+            fail_test(name, f"deep-research-em must not be a plain sibling path row (it is a mirror). stdout: {result.stdout!r}")
+            return
+        if "    project-rag-em   → /work/project-rag" not in result.stdout:
+            fail_test(name, f"real sibling project-rag-em should still be listed with its path. stdout: {result.stdout!r}")
             return
         pass_test(name)
 
 
 def test_deep_research_em_rejected_as_publish_target() -> None:
-    name = "Test 39 — --to deep-research-em rejected as publish target (asymmetry guard)"
+    name = "Test 39 — --to deep-research-em rejected, error names the owner (asymmetry guard)"
     with tempfile.TemporaryDirectory() as claude_home_tmpdir, \
          tempfile.TemporaryDirectory() as impl_tmpdir:
         mock_impl = _make_mock_machine_local_keys_and_get(
@@ -1664,10 +1672,37 @@ def test_deep_research_em_rejected_as_publish_target() -> None:
         if result.returncode != 1:
             fail_test(name, f"expected exit 1 (publish-target rejection); got {result.returncode}. stderr: {result.stderr!r}")
             return
-        if "publish target" not in result.stderr.lower():
+        if "publish-target" not in result.stderr.lower():
             fail_test(name, f"error should name the publish-target reason. stderr: {result.stderr!r}")
             return
+        if "owned by `claude-central-em`" not in result.stderr:
+            fail_test(name, f"error should NAME the owner claude-central-em. stderr: {result.stderr!r}")
+            return
         pass_test(name)
+
+
+def test_publish_target_owner_resolves() -> None:
+    """Test 39b — _publish_target_owner maps each mirror identity to claude-central-em."""
+    name = "Test 39b — _publish_target_owner resolves mirror → owning EM"
+    mod = _load_dispatcher_module()
+    for mirror in [
+        "coordinator-claude-em", "coordinator-claude",
+        "deep-research-claude-em", "deep-research-claude",
+        "deep-research-em", "deep-research",
+        # case/whitespace normalisation — cover BOTH families so a one-sided
+        # normalisation drift (the F1 divergence scenario) is caught here too.
+        "  DEEP-RESEARCH-EM  ", "Coordinator-Claude-EM", "  coordinator-claude  ",
+    ]:
+        owner = mod._publish_target_owner(mirror)
+        if owner != "claude-central-em":
+            fail_test(name, f"_publish_target_owner({mirror!r}) = {owner!r}; expected 'claude-central-em'")
+            return
+    # Non-mirror identities resolve to None.
+    for non_mirror in ["project-rag-em", "holodeck-em", "claude-central-em", ""]:
+        if mod._publish_target_owner(non_mirror) is not None:
+            fail_test(name, f"_publish_target_owner({non_mirror!r}) should be None")
+            return
+    pass_test(name)
 
 
 def test_missing_send_args_points_at_list_receivers() -> None:
@@ -1739,8 +1774,9 @@ def main() -> int:
         # Tests 36-40 — --list-receivers discovery surface + publish-target asymmetry guard
         test_list_receivers_includes_central,
         test_list_receivers_lists_registered_siblings,
-        test_list_receivers_omits_publish_targets,
+        test_list_receivers_shows_mirror_owners,
         test_deep_research_em_rejected_as_publish_target,
+        test_publish_target_owner_resolves,
         test_missing_send_args_points_at_list_receivers,
     ]
 

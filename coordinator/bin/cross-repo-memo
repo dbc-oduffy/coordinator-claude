@@ -98,6 +98,13 @@ convention covers those — so it stays tiny. Identity space is still global
 doctrine; path space is still per-machine — the registry resolves the path.
 """
 
+# NOTE (slice-A F7, declined): `from __future__ import annotations` would let the
+# `str | None` annotations parse on Python 3.7-3.9, but it CANNOT be added here —
+# the bash/python polyglot trampoline above is a string statement Python sees
+# before the module docstring, so __future__ is no longer "at the beginning of the
+# file" and SyntaxErrors. The `str | None` usage is pre-existing (this file already
+# effectively targets 3.10+); the new functions match that existing baseline.
+
 import argparse
 import datetime
 import os
@@ -157,13 +164,27 @@ def _is_central_receiver(receiver_em_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Publish-target receiver rejection set (H — D6)
+# Publish-target ownership map (H — D6; ownership made EXPLICIT 2026-06-17)
 #
-# Spec backlink: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § H (D6)
+# Spec backlinks: docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md § H (D6);
+#                 docs/wiki/cross-repo-communication.md § Publish-target mirrors have an owner
 #
 # Publish-target repos (OSS distribution mirrors) are NOT EM working trees.
 # They are outward publish.sh destinations — a memo dropped there is invisible
-# to EMs and gets clobbered on the next publish run.
+# to EMs and gets clobbered on the next publish run. D6 still holds, unchanged.
+#
+# What changed: this is now a MAP (mirror-identity → owning-EM), not a flat
+# rejection set. The rejection prevented the WRONG delivery but never named the
+# RIGHT one — it offered a generic "did you mean claude-central-em?", which reads
+# to a sibling EM as "central is the catch-all", not "central is THIS mirror's
+# declared owner". An unexpressed owner is indistinguishable from no owner: that
+# is the failure project-rag-em hit on 2026-06-17 — a deep-research concern that
+# found only a rejection, no declared owner, and had to be "proxied" through
+# central as a workaround. Naming the owner turns the nag into an offer.
+#
+# Both coordinator-claude and deep-research-claude are authored in the ~/.claude
+# meta-repo by the DoE, so their owner is claude-central-em. The owner MUST itself
+# be a valid receiver (a _CENTRAL_RECEIVER_IDS member or a repos.* sibling).
 #
 # IMPORTANT: Only OSS-mirror repos that are NOT EM working trees belong here.
 # Do NOT add repos that publish into a subdirectory of an EM working tree.
@@ -172,29 +193,43 @@ def _is_central_receiver(receiver_em_id: str) -> bool:
 # holodeck-em remains a valid memo receiver and must NOT be added here.
 #
 # Source of truth for which repos are publish targets: setup/publish-targets.sh
-# (per-operator, machine-local). The CLI hardcodes this set because it is small,
+# (per-operator, machine-local). The CLI hardcodes this map because it is small,
 # stable, and cross-machine — OSS distribution targets do not vary per operator.
-# Both the bare name and the -em form are included so that either convention
-# used in --to is caught.
+# Both the bare name and the -em form are keyed so that either convention used in
+# --to is caught.
 #
-# Empirical trigger: 2026-05-23 DoE memo misdelivered to
-# X:/coordinator-claude/cross-repo/ where no EM reads it.
+# Empirical triggers: 2026-05-23 DoE memo misdelivered to
+# X:/coordinator-claude/cross-repo/ where no EM reads it; 2026-06-17 deep-research
+# concern with no discoverable owner (this map's reason for being a map).
 # Review: F1 — clarify holodeck carve-out so future authors don't add holodeck-em
 # ---------------------------------------------------------------------------
-_PUBLISH_TARGET_EM_IDS: frozenset[str] = frozenset({
-    "coordinator-claude-em",
-    "coordinator-claude",
-    "deep-research-claude-em",
-    "deep-research-claude",
+_PUBLISH_TARGET_OWNERS: dict[str, str] = {
+    "coordinator-claude-em": "claude-central-em",
+    "coordinator-claude": "claude-central-em",
+    "deep-research-claude-em": "claude-central-em",
+    "deep-research-claude": "claude-central-em",
     # Registry-shortname asymmetry guard: the deep-research publish mirror is
     # commonly registered under repos.deep_research (NOT repos.deep_research_claude),
     # which reverses to 'deep-research-em' — distinct from the 'deep-research-claude-em'
-    # doctrine name above. Both must be rejected: either way the path resolves to the
-    # OSS mirror (X:/deep-research-claude), where no EM reads inbound memos. Without
-    # this row, `--to deep-research-em` silently misdelivers — the exact D6 failure.
-    "deep-research-em",
-    "deep-research",   # bare shortname, same defense as 'coordinator-claude' / 'deep-research-claude' above
-})
+    # doctrine name above. Both must be rejected-with-owner: either way the path
+    # resolves to the OSS mirror (X:/deep-research-claude), where no EM reads inbound
+    # memos. Without this row, `--to deep-research-em` silently misdelivers — the
+    # exact D6 failure.
+    "deep-research-em": "claude-central-em",
+    "deep-research": "claude-central-em",  # bare shortname, same defense as above
+}
+
+
+def _normalize_receiver_id(receiver_em_id: str) -> str:
+    """Canonical form for receiver-id comparison: stripped + lowercased.
+
+    Single source of normalisation shared by `_is_publish_target_em` and
+    `_publish_target_owner` — the non-None guarantee at the owner call sites
+    (an `_is_publish_target_em` True-guard implies `_publish_target_owner` non-None)
+    holds because BOTH route through this one function. Do not inline `.strip().lower()`
+    at either site — that re-creates the divergence risk this collapses. (slice-A F1.)
+    """
+    return receiver_em_id.strip().lower()
 
 
 def _is_publish_target_em(receiver_em_id: str) -> bool:
@@ -203,7 +238,35 @@ def _is_publish_target_em(receiver_em_id: str) -> bool:
     Publish targets are outward distribution mirrors, not EM working trees.
     Memos sent there are invisible and get clobbered on next publish.
     """
-    return receiver_em_id.strip().lower() in _PUBLISH_TARGET_EM_IDS
+    return _normalize_receiver_id(receiver_em_id) in _PUBLISH_TARGET_OWNERS
+
+
+def _publish_target_owner(receiver_em_id: str) -> str | None:
+    """Return the owning-EM identity for a publish-target mirror, or None.
+
+    The owner is the EM working tree that authors and stewards the mirror — the
+    correct --to for any concern about the mirrored plugin. None when the id is
+    not a publish-target (callers should not be asking in that case). Shares
+    `_normalize_receiver_id` with `_is_publish_target_em` so a guarded call site
+    is structurally guaranteed non-None.
+    """
+    return _PUBLISH_TARGET_OWNERS.get(_normalize_receiver_id(receiver_em_id))
+
+
+def _publish_target_rejection_msg(receiver_em_id: str, owner: str, hint: str = "") -> str:
+    """Shared rejection text for a publish-target --to.
+
+    Single source so the legacy `main()` path and the `_cmd_send` path can never
+    drift in wording. (slice-A F8.) Displays the stripped receiver id (slice-A F4)
+    so padded input doesn't print with stray whitespace; `owner` is the resolved
+    `_publish_target_owner` value.
+    """
+    return (
+        f"cross-repo-memo: cannot deliver to '{receiver_em_id.strip()}': it is a "
+        f"publish-target OSS distribution mirror owned by `{owner}`, not an EM working "
+        f"repo — a memo dropped there is invisible to EMs and clobbered on next publish. "
+        f"Route this concern to its owner: `--to {owner}`.{hint}"
+    )
 
 
 def _receiver_repo_key(receiver_em_id: str) -> str:
@@ -396,15 +459,24 @@ def _format_receiver_listing() -> str:
         "                        ALWAYS available — not a repos.* key, never in `machine-local keys`",
         "",
     ]
-    # Filter out publish-target EM ids: they are registered repos.* keys but the
-    # CLI hard-rejects them as receivers (they are outward distribution mirrors,
-    # not EM working trees). A discovery surface must not list a target --to will
-    # reject — that would be exactly as misleading as omitting central.
+    # Partition registry keys into addressable siblings and publish-target
+    # mirrors. Mirrors are repos.* keys but the CLI hard-rejects them as --to
+    # (they are outward distribution mirrors, not EM working trees). Rather than
+    # silently OMIT them — which leaves a sibling EM guessing where a concern
+    # about the mirrored plugin should go — list them with their DECLARED OWNER,
+    # so the discovery surface answers "address the owner" without the EM first
+    # having to trip the rejection. (2026-06-17: ownership made explicit.)
     repo_keys = _machine_local_repos_keys()
     sibling_rows = []
+    mirror_rows = []
     for key in sorted(repo_keys):
         em_id = _repo_key_to_em_id(key)
         if _is_publish_target_em(em_id):
+            owner = _publish_target_owner(em_id)  # non-None: guarded by _is_publish_target_em above
+            mirror_rows.append(
+                f"    {em_id}   → owned by {owner}  "
+                f"(OSS distribution mirror — address the owner, not the mirror)"
+            )
             continue
         path = _machine_local_get(key) or f"(key present but unresolved — run: machine-local get {key})"
         sibling_rows.append(f"    {em_id}   → {path}")
@@ -416,12 +488,16 @@ def _format_receiver_listing() -> str:
             "  (no sibling repos registered — "
             "`machine-local set repos.<name> <path>` to add one)"
         )
+    if mirror_rows:
+        lines.append("")
+        lines.append("  Publish-target mirrors (NOT directly addressable — route to the OWNER):")
+        lines.extend(mirror_rows)
     lines.append("")
     lines.append(
-        "Note: publish-target mirrors are deliberately omitted — they are outward "
-        "distribution mirrors, not EM working trees, and are rejected if used as --to. "
-        "All of these forms reject: coordinator-claude-em / coordinator-claude, "
-        "deep-research-claude-em / deep-research-claude / deep-research-em / deep-research."
+        "Note: publish-target mirrors are outward distribution mirrors, not EM "
+        "working trees — addressing them as --to is rejected, and the rejection "
+        "names the owner. Route any concern about a mirrored plugin to its owner "
+        "above (coordinator-claude / deep-research → claude-central-em)."
     )
     return "\n".join(lines)
 
@@ -1032,11 +1108,8 @@ def _cmd_send(args: argparse.Namespace) -> int:
             f"\n  Known EM receivers: {', '.join(known)}."
             if known else ""
         )
-        print(
-            f"cross-repo-memo send: cannot deliver to '{to}': it is a publish target "
-            f"(outward distribution mirror), not an EM working repo.{hint}",
-            file=sys.stderr,
-        )
+        owner = _publish_target_owner(to)  # non-None: guarded by _is_publish_target_em above
+        print(_publish_target_rejection_msg(to, owner, hint), file=sys.stderr)
         return 1
 
     # Resolve receiver repo path.
@@ -1720,13 +1793,8 @@ def main(argv: list[str] | None = None) -> int:
             f"\n  Known EM receivers: {', '.join(known)}."
             if known else ""
         )
-        print(
-            f"cross-repo-memo: cannot deliver to '{args.to}': it is a publish target "
-            f"(outward distribution mirror), not an EM working repo. A memo dropped "
-            f"there will be invisible to EMs and clobbered on next publish. "
-            f"Did you mean `claude-central-em`?{hint}",
-            file=sys.stderr,
-        )
+        owner = _publish_target_owner(args.to)  # non-None: guarded by _is_publish_target_em above
+        print(_publish_target_rejection_msg(args.to, owner, hint), file=sys.stderr)
         return 1
 
     # Validate --topic slug — refuse anything that could path-traverse out of cross-repo/.

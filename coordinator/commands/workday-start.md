@@ -200,7 +200,7 @@ Per-handoff in `ready_to_fire`: (a) `git log --oneline --since="<handoff-date>" 
 
 Query the completed archive for recent entries:
 ```bash
-"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json
+"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json
 ```
 
 **Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists, read the legacy monolith for this reconciliation check only (read-only; no writes to the legacy path).
@@ -502,7 +502,7 @@ bash ~/.claude/plugins/coordinator/bin/whats-next.sh
 
 Emits: improvement-queue head (top 5), `docs/project-tracker.md` Ready/Executing rows, open handoffs. Use as-is for § Priority Suggestions; do not reconstruct from prose.
 
-**Reconcile active work against completed archive:** `"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/YYYY-MM.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
+**Reconcile active work against completed archive:** `"$HOME/.claude/plugins/coordinator/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/YYYY-MM.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
 - **Match found** → Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
 - Fuzzy match on names/descriptions — when unsure, flag as "possible match — verify" rather than auto-resolving.
 - Report mismatches under **Alignment Check** in the Morning Briefing.

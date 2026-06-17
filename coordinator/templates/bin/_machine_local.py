@@ -334,6 +334,28 @@ def cmd_path(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_header_pats(prefix_parts):
+    """Build (header_pat, aot_pat) for a given table prefix.
+
+    # Review: code-reviewer (F1) — hoisted from inner closures in both
+    # _locate_existing_definition and _locate_existing_array_span to eliminate
+    # verbatim duplication. Both locators call this module-level function.
+    """
+    table_path = ".".join(prefix_parts)
+    # Review: code-reviewer (F1) — OR bare-key and quoted-segment forms.
+    quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
+    h_pat = re.compile(
+        r"^\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\][ \t]*(?:#[^\n]*)?$",
+        re.MULTILINE,
+    )
+    # Review: code-reviewer (F7) — detect [[table.path]] array-of-tables.
+    aot_pat = re.compile(
+        r"^\[\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\]\][ \t]*(?:#[^\n]*)?$",
+        re.MULTILINE,
+    )
+    return h_pat, aot_pat
+
+
 def _locate_existing_definition(content: str, key: str) -> dict | None:
     """Find an existing definition of `key` in TOML content.
 
@@ -375,22 +397,6 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
 
     parts = key.split(".")
     next_section_pat = re.compile(r"^\[", re.MULTILINE)
-
-    def _build_header_pats(prefix_parts):
-        """Build (header_pat, aot_pat) for a given table prefix."""
-        table_path = ".".join(prefix_parts)
-        # Review: code-reviewer (F1) — OR bare-key and quoted-segment forms.
-        quoted_segs = r'\s*\.\s*'.join(f'"{re.escape(p)}"' for p in prefix_parts)
-        h_pat = re.compile(
-            r"^\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\][ \t]*(?:#[^\n]*)?$",
-            re.MULTILINE,
-        )
-        # Review: code-reviewer (F7) — detect [[table.path]] array-of-tables.
-        aot_pat = re.compile(
-            r"^\[\[\s*(?:" + re.escape(table_path) + r"|" + quoted_segs + r")\s*\]\][ \t]*(?:#[^\n]*)?$",
-            re.MULTILINE,
-        )
-        return h_pat, aot_pat
 
     # Review: code-reviewer (F2) — two-pass approach: first pass finds table-leaf
     # matches (longest prefix first); second pass finds table-header-only matches.
@@ -446,6 +452,560 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
     return None
 
 
+def _locate_existing_array_span(content: str, key: str) -> dict | None:
+    """Find an existing flat-array definition of `key` in TOML content.
+
+    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
+    Purpose: Locate the byte span of an existing multi-line flat array assignment so
+    array-append / array-set can replace the whole span atomically.
+
+    The array-write commands (array-append / array-set) only write and read
+    quoted-dotted-key multi-line flat arrays:
+        "publish.targets" = [
+          'row1',
+          'row2',
+        ]
+    This function detects that shape plus the degenerate single-line / empty forms.
+
+    Returns a dict on match:
+        {"kind": "flat-array", "span_start": int, "span_end": int,
+         "comment_start": int | None}
+    where span_start..span_end covers the `"key" = [\n...\n]` block (plus the
+    trailing newline, if any), and comment_start, if not None, points to the start
+    of a provenance-comment line immediately above the array assignment (preserved
+    on replace per F5).
+
+    Returns None if no array assignment is found for this key (caller then creates
+    one fresh).
+
+    Uses module-level _build_header_pats (shared with _locate_existing_definition):
+    if the key's table path appears as [[array-of-tables]], this function returns
+    {"kind": "array-of-tables-detected", "table_path": str} so the caller can emit
+    a specific error.
+
+    Negative-spec: does NOT handle inline-table form (`key = {...}`) — the caller
+    detects that via the round-trip pre-check (same as cmd_set's inline-table path).
+    """
+    # Review: code-reviewer (F4) — removed dead next_section_pat local (unused in this
+    # function) and removed the inner _build_header_pats closure (now module-level per F1).
+    parts = key.split(".")
+
+    # Check for array-of-tables collision on the full key and any prefix.
+    # [[publish.targets]] means the key itself is an array-of-tables table path.
+    # [[publish]] with targets as a leaf would also be a collision (a prefix match).
+    for i in range(len(parts), 0, -1):
+        prefix_parts = parts[:i]
+        _, aot_pat = _build_header_pats(prefix_parts)
+        if aot_pat.search(content):
+            return {"kind": "array-of-tables-detected", "table_path": ".".join(prefix_parts)}
+
+    # Match the flat quoted-dotted-key array form:
+    #   "key.with.dots" = [
+    #     'row1',
+    #     ...
+    #   ]
+    # The opening bracket may be on the same line or the closing may be on the same
+    # line (degenerate []). We match from the `"key"` assignment to the closing `]`.
+    array_open_pat = re.compile(
+        r'^(\s*"' + re.escape(key) + r'"\s*=\s*\[)',
+        re.MULTILINE,
+    )
+    m = array_open_pat.search(content)
+    if not m:
+        return None
+
+    # Find the closing `]` that matches the opening `[`.
+    open_pos = m.start() + m.group(0).index("[")
+    depth = 0
+    close_pos = None
+    for i, ch in enumerate(content[open_pos:], start=open_pos):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                close_pos = i
+                break
+    if close_pos is None:
+        # Malformed (unclosed bracket) — let the round-trip check catch it.
+        return None
+
+    # span_end: include the trailing newline after `]` if present.
+    span_start = m.start()
+    span_end = close_pos + 1
+    if span_end < len(content) and content[span_end] == "\n":
+        span_end += 1
+
+    # Detect a provenance comment immediately above the assignment (F5).
+    comment_start = None
+    line_before_start = content.rfind("\n", 0, m.start())
+    if line_before_start != -1:
+        prev_line_start = content.rfind("\n", 0, line_before_start)
+        if prev_line_start == -1:
+            prev_line_start = 0
+        else:
+            prev_line_start += 1
+        prev_line = content[prev_line_start:line_before_start]
+        if prev_line.strip().startswith("#"):
+            comment_start = prev_line_start
+
+    return {
+        "kind": "flat-array",
+        "span_start": span_start,
+        "span_end": span_end,
+        "comment_start": comment_start,
+    }
+
+
+def _reject_single_quote_element(element: str) -> bool:
+    """Return True (reject) if element contains a single quote.
+
+    TOML literal strings (single-quoted) have no escape mechanism.
+    Negative-spec: no fallback encoding — refuse rather than guess.
+    """
+    return "'" in element
+
+
+def _build_array_content(key: str, elements: list[str], date_tag: str,
+                         provenance_comment: str | None = None) -> str:
+    """Render a quoted-dotted-key multi-line flat TOML array block.
+
+    Write shape per spec:
+        # array-append <date>
+        "publish.targets" = [
+          'row1',
+          'row2',
+        ]
+
+    If provenance_comment is provided (non-None), it replaces the fresh
+    `# array-append <date>` comment (F5: preserve leading comment on replace).
+    If elements is empty, renders an empty array.
+    """
+    comment = provenance_comment if provenance_comment is not None else f"# array-append {date_tag}"
+    rows = "".join(f"  '{e}',\n" for e in elements)
+    return f'{comment}\n"{key}" = [\n{rows}]\n'
+
+
+def _write_registry_file(target_path: str, new_content: str, is_new: bool) -> int:
+    """Atomic tmp+rename write of registry content.
+
+    Returns 0 on success, 1 on failure (prints error to stderr).
+    Preserves file mode when replacing an existing file.
+    """
+    tmp_path = target_path + f".tmp.{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        if not is_new:
+            try:
+                os.chmod(tmp_path, os.stat(target_path).st_mode)
+            except OSError:
+                pass
+        os.replace(tmp_path, target_path)
+    except Exception as exc:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        print(f"machine-local: write failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _load_registry_target(reg_dir: str, write_global: bool) -> tuple[str, str, str, bool]:
+    """Return (target_file, target_path, content, is_new) for set/array commands."""
+    target_file = "registry.toml" if write_global else "registry.local.toml"
+    target_path = os.path.join(reg_dir, target_file)
+    if os.path.exists(target_path):
+        with open(target_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        is_new = False
+    else:
+        is_new = True
+        # Review: code-reviewer (F5) — header says "machine-local" not "machine-local set"
+        # because array commands also create new files via this helper.
+        content = (
+            f"# {target_file}  (created by `machine-local`)\n"
+            "#\n"
+            "# WARNING: Use `machine-local set <key> <value>` to add or change values.\n"
+            "# Direct hand-edits are fragile: they do not reproduce on reinstall and\n"
+            "# will not transfer automatically to a new machine.\n"
+            "schema = 1\n"
+        )
+    return target_file, target_path, content, is_new
+
+
+def _check_concern_namespace(reg_dir: str, key: str) -> int:
+    """Return 1 (with error) if key belongs to a loaded concern namespace, else 0."""
+    reg_path = os.path.join(reg_dir, "registry.toml")
+    reg_local_path = os.path.join(reg_dir, "registry.local.toml")
+    concerns_set = set()
+    for p in (reg_path, reg_local_path):
+        if os.path.exists(p):
+            d = _load_toml(p)
+            for c in d.get("concerns", []):
+                concerns_set.add(str(c).lower())
+    if concerns_set:
+        first_seg = key.split(".")[0].lower()
+        if first_seg in concerns_set:
+            c_match = first_seg
+            print(
+                f"machine-local: key '{key}' belongs to concern namespace '{c_match}'. "
+                f"Write to {c_match}.local.toml instead (that concern file owns this namespace).",
+                file=sys.stderr,
+            )
+            return 1
+    return 0
+
+
+def cmd_array_append(args: argparse.Namespace) -> int:
+    """Implement: machine-local array-append <key> <element> [--global] [--dry-run]
+
+    Append element to the TOML array at key.  Idempotent: skip if element is
+    already present (exact-string dedup).  Create the array if key is absent.
+
+    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
+    Note: the current sole consumer is publish.targets, but the API is keyed on the
+    dotted key, not hardcoded to that name.
+
+    Fail loud if key already exists as a scalar (not an array), as an
+    array-of-tables, or as an inline table.  Reject elements containing a
+    single quote (TOML literal strings have no escape).
+    """
+    reg_dir = _registry_dir()
+
+    rc = _check_concern_namespace(reg_dir, args.key)
+    if rc != 0:
+        return rc
+
+    key = args.key
+    element = args.element
+    dry_run = args.dry_run
+
+    if _reject_single_quote_element(element):
+        print(
+            f"machine-local: refusing to write element containing single quote: {element!r}. "
+            "Literal-string TOML has no escape for single quote.",
+            file=sys.stderr,
+        )
+        return 1
+
+    _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
+    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Review: code-reviewer (F2) — removed dead pre_parsed/pre_flat/pre_val block; pre_val
+    # was never used. The real collision check is the segment-walking parse below.
+
+    # Detect scalar collision — key exists but resolves to a string (not a list).
+    # Note: _flatten_nested stores the native Python type; lists come through as list.
+    # For the pre-check we read the raw parsed value, not _flatten_nested, because
+    # _flatten_nested joins lists with \n (losing the list type we need here).
+    try:
+        pre_raw = tomllib.loads(content)
+        # Walk dotted key segments into the parsed dict.
+        _cursor = pre_raw
+        for seg in key.split("."):
+            if isinstance(_cursor, dict) and seg in _cursor:
+                _cursor = _cursor[seg]
+            else:
+                # Also check quoted-dotted flat key form.
+                if isinstance(_cursor, dict) and key in _cursor:
+                    _cursor = _cursor[key]
+                    break
+                _cursor = None
+                break
+        raw_existing = _cursor
+        # Also try quoted-dotted flat key form at top level.
+        if raw_existing is None and key in pre_raw:
+            raw_existing = pre_raw[key]
+    except tomllib.TOMLDecodeError:
+        raw_existing = None
+
+    if isinstance(raw_existing, str):
+        print(
+            f"machine-local: '{key}' is a scalar; refusing to append — "
+            "hand-edit or use `array-set`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if isinstance(raw_existing, dict):
+        print(
+            f"machine-local: '{key}' is defined as an inline table; "
+            "cannot use array-append. Hand-edit the file to update it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Detect array-of-tables shape via locator.
+    array_span = _locate_existing_array_span(content, key)
+    if array_span is not None and array_span["kind"] == "array-of-tables-detected":
+        print(
+            f"machine-local: '{key}' is defined as an array-of-tables ([[{array_span['table_path']}]]); "
+            "cannot use array-append. Hand-edit the file to update it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Read current elements from the existing flat-array span (if any).
+    current_elements: list[str] = []
+    provenance_comment: str | None = None
+
+    if array_span is not None and array_span["kind"] == "flat-array":
+        # Parse existing array via tomllib to get the current elements.
+        try:
+            parsed_existing = tomllib.loads(content)
+            # Navigate to the key value — may be a flat quoted-dotted key or
+            # nested table, so use _flatten_nested's list-preserving sibling.
+            # _flatten_nested joins lists with \n, so read from the raw parsed dict.
+            flat_raw = _get_raw_list(parsed_existing, key)
+            if isinstance(flat_raw, list):
+                current_elements = [str(e) for e in flat_raw]
+        except tomllib.TOMLDecodeError:
+            pass
+
+        # Retrieve provenance comment (F5).
+        if array_span["comment_start"] is not None:
+            # Find end of comment line.
+            cstart = array_span["comment_start"]
+            cend = content.find("\n", cstart)
+            if cend == -1:
+                cend = len(content)
+            provenance_comment = content[cstart:cend]
+
+    # Idempotent dedup: skip if element already present.
+    if element in current_elements:
+        if dry_run:
+            print(f"[dry-run] '{key}': element already present (no-op): {element!r}")
+        else:
+            print(f"machine-local: '{key}': element already present (no-op): {element!r}")
+        return 0
+
+    new_elements = current_elements + [element]
+    array_block = _build_array_content(key, new_elements, date_tag, provenance_comment)
+
+    if array_span is not None and array_span["kind"] == "flat-array":
+        # Replace the existing span (including provenance comment if we captured it).
+        replace_start = array_span["comment_start"] if array_span["comment_start"] is not None else array_span["span_start"]
+        replace_end = array_span["span_end"]
+        new_content = content[:replace_start] + array_block + content[replace_end:]
+        action = "updated"
+    else:
+        # Insert before first [section] header, or at EOF.
+        section_pat = re.compile(r"^\[", re.MULTILINE)
+        m = section_pat.search(content)
+        if m:
+            insert_at = m.start()
+            new_content = content[:insert_at].rstrip("\n") + "\n" + array_block + "\n" + content[insert_at:]
+        else:
+            new_content = content.rstrip("\n") + "\n" + array_block
+        action = "added"
+
+    # Post-build round-trip sanity: parse new_content and verify the array
+    # contains the expected elements.  Also verifies correct top-level scope
+    # (a key appended after a [table] header would scope INTO that table).
+    try:
+        parsed_new = tomllib.loads(new_content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: refusing to write — post-build TOML is malformed: {exc}. "
+            "This is a bug in machine-local array-append. File a report and edit by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    roundtrip_list = _get_raw_list(parsed_new, key)
+    if not isinstance(roundtrip_list, list) or element not in roundtrip_list:
+        print(
+            f"machine-local: refusing to write — post-build round-trip of '{key}' "
+            f"did not contain the appended element {element!r}. "
+            "Likely cause: key scoped into a table rather than at top level. "
+            "File a report and edit the registry by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if dry_run:
+        print(f"[dry-run] would {action} array '{key}' (append {element!r}) in {target_path}")
+        return 0
+
+    rc = _write_registry_file(target_path, new_content, is_new)
+    if rc != 0:
+        return rc
+
+    print(f"machine-local: {action} array '{key}' (appended {element!r}) in {target_path}")
+    return 0
+
+
+def cmd_array_set(args: argparse.Namespace) -> int:
+    """Implement: machine-local array-set <key> <element>... [--global] [--dry-run]
+
+    Replace the entire array at key with the given elements (order-preserving
+    dedup).  Same scalar-collision fail-loud and single-quote rejection as
+    array-append.
+
+    Spec backlink: docs/plans/2026-06-17-publish-targets-machine-local-migration.md § C1
+    Note: the current sole consumer is publish.targets, but the API is keyed on the
+    dotted key, not hardcoded to that name.
+    """
+    reg_dir = _registry_dir()
+
+    rc = _check_concern_namespace(reg_dir, args.key)
+    if rc != 0:
+        return rc
+
+    key = args.key
+    elements = args.elements
+    dry_run = args.dry_run
+
+    for element in elements:
+        if _reject_single_quote_element(element):
+            print(
+                f"machine-local: refusing to write element containing single quote: {element!r}. "
+                "Literal-string TOML has no escape for single quote.",
+                file=sys.stderr,
+            )
+            return 1
+
+    _target_file, target_path, content, is_new = _load_registry_target(reg_dir, args.write_global)
+    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Same pre-check as array-append: fail loud on scalar / inline-table.
+    try:
+        pre_raw = tomllib.loads(content)
+        _cursor = pre_raw
+        for seg in key.split("."):
+            if isinstance(_cursor, dict) and seg in _cursor:
+                _cursor = _cursor[seg]
+            else:
+                if isinstance(_cursor, dict) and key in _cursor:
+                    _cursor = _cursor[key]
+                    break
+                _cursor = None
+                break
+        raw_existing = _cursor
+        if raw_existing is None and key in pre_raw:
+            raw_existing = pre_raw[key]
+    except tomllib.TOMLDecodeError:
+        raw_existing = None
+
+    if isinstance(raw_existing, str):
+        print(
+            f"machine-local: '{key}' is a scalar; refusing to set array — "
+            "hand-edit or use `set`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if isinstance(raw_existing, dict):
+        print(
+            f"machine-local: '{key}' is defined as an inline table; "
+            "cannot use array-set. Hand-edit the file to update it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    array_span = _locate_existing_array_span(content, key)
+    if array_span is not None and array_span["kind"] == "array-of-tables-detected":
+        print(
+            f"machine-local: '{key}' is defined as an array-of-tables ([[{array_span['table_path']}]]); "
+            "cannot use array-set. Hand-edit the file to update it.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Order-preserving dedup of supplied elements.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for e in elements:
+        if e not in seen:
+            seen.add(e)
+            deduped.append(e)
+
+    # Retrieve provenance comment from existing span (F5).
+    provenance_comment: str | None = None
+    if array_span is not None and array_span["kind"] == "flat-array":
+        if array_span["comment_start"] is not None:
+            cstart = array_span["comment_start"]
+            cend = content.find("\n", cstart)
+            if cend == -1:
+                cend = len(content)
+            provenance_comment = content[cstart:cend]
+
+    array_block = _build_array_content(key, deduped, date_tag, provenance_comment)
+
+    if array_span is not None and array_span["kind"] == "flat-array":
+        replace_start = array_span["comment_start"] if array_span["comment_start"] is not None else array_span["span_start"]
+        replace_end = array_span["span_end"]
+        new_content = content[:replace_start] + array_block + content[replace_end:]
+        action = "replaced"
+    else:
+        section_pat = re.compile(r"^\[", re.MULTILINE)
+        m = section_pat.search(content)
+        if m:
+            insert_at = m.start()
+            new_content = content[:insert_at].rstrip("\n") + "\n" + array_block + "\n" + content[insert_at:]
+        else:
+            new_content = content.rstrip("\n") + "\n" + array_block
+        action = "created"
+
+    # Post-build round-trip sanity.
+    try:
+        parsed_new = tomllib.loads(new_content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: refusing to write — post-build TOML is malformed: {exc}. "
+            "This is a bug in machine-local array-set. File a report and edit by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    roundtrip_list = _get_raw_list(parsed_new, key)
+    if not isinstance(roundtrip_list, list) or list(roundtrip_list) != deduped:
+        print(
+            f"machine-local: refusing to write — post-build round-trip of '{key}' "
+            f"returned {roundtrip_list!r}, expected {deduped!r}. "
+            "Likely cause: key scoped into a table rather than at top level. "
+            "File a report and edit the registry by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if dry_run:
+        print(f"[dry-run] would {action} array '{key}' = {deduped!r} in {target_path}")
+        return 0
+
+    rc = _write_registry_file(target_path, new_content, is_new)
+    if rc != 0:
+        return rc
+
+    print(f"machine-local: {action} array '{key}' = {deduped!r} in {target_path}")
+    return 0
+
+
+def _get_raw_list(parsed: dict, key: str) -> object:
+    """Navigate parsed TOML dict to retrieve the native value for a dotted key.
+
+    Handles both quoted-dotted-key flat form (where the literal dot is in the
+    top-level dict key) and nested-table form.  Returns the raw Python object
+    (list, str, dict, etc.) so callers can isinstance-check the type.
+    Returns None if the key is not found.
+    """
+    # Try quoted-dotted flat key first (the form array-write uses).
+    if key in parsed:
+        return parsed[key]
+    # Try walking nested dicts via split(".").
+    cursor: object = parsed
+    for seg in key.split("."):
+        if isinstance(cursor, dict) and seg in cursor:
+            cursor = cursor[seg]
+        else:
+            return None
+    return cursor
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     """Implement: machine-local set <key> <value> [--global] [--dry-run]
 
@@ -466,28 +1026,11 @@ def cmd_set(args: argparse.Namespace) -> int:
     value = args.value
     dry_run = args.dry_run
 
-    # Refuse to write keys that belong to a loaded concern namespace.
-    # Union concerns from both registry.toml and registry.local.toml so that
-    # an operator with concerns declared only in registry.local.toml gets the
-    # same guard as one using registry.toml — mirrors _build_resolution_layers.
-    reg_path = os.path.join(reg_dir, "registry.toml")
-    reg_local_path = os.path.join(reg_dir, "registry.local.toml")
-    concerns_set = set()
-    for p in (reg_path, reg_local_path):
-        if os.path.exists(p):
-            d = _load_toml(p)
-            for c in d.get("concerns", []):
-                concerns_set.add(str(c).lower())
-    if concerns_set:
-        first_seg = key.split(".")[0].lower()
-        if first_seg in concerns_set:
-            c_match = first_seg
-            print(
-                f"machine-local: key '{key}' belongs to concern namespace '{c_match}'. "
-                f"Write to {c_match}.local.toml instead (that concern file owns this namespace).",
-                file=sys.stderr,
-            )
-            return 1
+    # Review: code-reviewer (F7) — replaced inline concern-namespace check with
+    # _check_concern_namespace helper (same behavior, matches array commands).
+    rc = _check_concern_namespace(reg_dir, key)
+    if rc != 0:
+        return rc
 
     # Read existing content or seed a new file.
     if os.path.exists(target_path):
@@ -530,6 +1073,29 @@ def cmd_set(args: argparse.Namespace) -> int:
     # duplicate when the existing definition was (2), creating a TOML where the
     # table-form silently won on read.
     update_result = _locate_existing_definition(content, key)
+
+    # Guard F1: if the key resolves (via _flatten_nested on the parsed file) to a
+    # list, it is an array — fail loud before touching it.  This fires BEFORE the
+    # array-of-tables branch and inline-table check so the operator gets the
+    # actionable array-command message rather than a generic shape error.
+    try:
+        _pre_parsed_for_guard = tomllib.loads(content)
+        _pre_flat_for_guard = _flatten_nested(_pre_parsed_for_guard)
+        _pre_val_for_guard = _pre_flat_for_guard.get(key)
+    except tomllib.TOMLDecodeError:
+        _pre_val_for_guard = None
+
+    if isinstance(_pre_val_for_guard, list):
+        # _flatten_nested joins lists with \n, so the value is a str when the
+        # key is a list — but raw pre-parse check is more reliable.  Re-check
+        # via _get_raw_list to confirm it is genuinely a list.
+        _raw_for_guard = _get_raw_list(_pre_parsed_for_guard, key)
+        if isinstance(_raw_for_guard, list):
+            print(
+                f"machine-local: '{key}' is an array; use `array-append`/`array-set`, not `set`.",
+                file=sys.stderr,
+            )
+            return 1
 
     if update_result is not None and update_result["kind"] == "array-of-tables-detected":
         # Review: code-reviewer (F7) — array-of-tables detected; route to actionable error.
@@ -726,6 +1292,44 @@ def main() -> int:
         help="Print what would be written without making changes",
     )
 
+    # array-append
+    aa_p = subparsers.add_parser(
+        "array-append",
+        help="Append an element to a TOML array key (idempotent; current sole consumer: publish.targets)",
+    )
+    aa_p.add_argument("key", help="Dotted key for the array (e.g. publish.targets)")
+    aa_p.add_argument("element", help="String element to append")
+    aa_p.add_argument(
+        "--global",
+        dest="write_global",
+        action="store_true",
+        help="Write to registry.toml (tracked/shared) instead of registry.local.toml",
+    )
+    aa_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be written without making changes",
+    )
+
+    # array-set
+    as_p = subparsers.add_parser(
+        "array-set",
+        help="Replace a TOML array key with the given elements (order-preserving dedup; current sole consumer: publish.targets)",
+    )
+    as_p.add_argument("key", help="Dotted key for the array (e.g. publish.targets)")
+    as_p.add_argument("elements", nargs="+", help="String elements to set (replaces current array)")
+    as_p.add_argument(
+        "--global",
+        dest="write_global",
+        action="store_true",
+        help="Write to registry.toml (tracked/shared) instead of registry.local.toml",
+    )
+    as_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be written without making changes",
+    )
+
     parsed = parser.parse_args()
 
     dispatch = {
@@ -734,6 +1338,8 @@ def main() -> int:
         "keys": cmd_keys,
         "path": cmd_path,
         "set": cmd_set,
+        "array-append": cmd_array_append,
+        "array-set": cmd_array_set,
     }
     return dispatch[parsed.command](parsed)
 

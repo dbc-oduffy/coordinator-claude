@@ -18,3 +18,43 @@ plugins/coordinator/bin/tests/test-depersonalize-identity.sh:183
 plugins/coordinator/bin/tests/test-depersonalize-identity.sh:187
 plugins/coordinator/bin/tests/test-depersonalize-identity.sh:188
 plugins/coordinator/bin/tests/test-depersonalize-identity.sh:190
+
+# publish-time-transform.sh IS the depersonalization tool — its name→role
+# substitution map (and the comments/tests documenting it) MUST name the
+# personae literally for the substitution to work. Same structural false
+# positive as test-depersonalize-identity.sh above (precedent: commit 2de1862).
+coordinator/bin/publish-time-transform.sh:28
+coordinator/bin/publish-time-transform.sh:29
+coordinator/bin/publish-time-transform.sh:30
+coordinator/bin/publish-time-transform.sh:31
+coordinator/bin/publish-time-transform.sh:32
+coordinator/bin/publish-time-transform.sh:33
+coordinator/bin/publish-time-transform.sh:34
+coordinator/bin/publish-time-transform.sh:57
+coordinator/bin/publish-time-transform.sh:59
+coordinator/bin/publish-time-transform.sh:61
+coordinator/bin/publish-time-transform.sh:118
+coordinator/bin/publish-time-transform.sh:119
+coordinator/bin/publish-time-transform.sh:120
+coordinator/bin/publish-time-transform.sh:121
+coordinator/bin/publish-time-transform.sh:122
+coordinator/bin/publish-time-transform.sh:123
+coordinator/bin/publish-time-transform.sh:124
+coordinator/bin/publish-time-transform.sh:195
+coordinator/bin/publish-time-transform.sh:196
+coordinator/bin/publish-time-transform.sh:197
+coordinator/bin/publish-time-transform.sh:198
+coordinator/bin/publish-time-transform.sh:199
+coordinator/bin/publish-time-transform.sh:200
+coordinator/bin/publish-time-transform.sh:201
+coordinator/bin/publish-time-transform.sh:217
+coordinator/bin/publish-time-transform.sh:218
+coordinator/bin/publish-time-transform.sh:219
+coordinator/bin/publish-time-transform.sh:220
+coordinator/bin/publish-time-transform.sh:221
+coordinator/bin/publish-time-transform.sh:222
+coordinator/bin/publish-time-transform.sh:223
+coordinator/bin/publish-time-transform.sh:322
+coordinator/bin/publish-time-transform.sh:491
+coordinator/bin/publish-time-transform.sh:515
+coordinator/bin/publish-time-transform.sh:542

@@ -2,10 +2,9 @@
   "agent_install_contract_version": 2,
   "repo_id": "coordinator-claude",
   "setup_skill": "/coordinator:setup",
-  "doctor_skill": "/coordinator:doctor",
   "standalone_setup_script": {
-    "posix": "scripts/setup.sh",
-    "windows": "scripts/setup.ps1"
+    "posix": "coordinator/scripts/setup.sh",
+    "windows": "coordinator/scripts/setup.ps1"
   },
   "direct_deps": [],
   "required_env_vars": [],

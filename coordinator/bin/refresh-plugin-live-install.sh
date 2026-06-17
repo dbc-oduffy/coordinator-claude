@@ -100,10 +100,21 @@ fi
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_HOME_BIN="$SCRIPT_DIR/claude-home"
-if [[ ! -x "$CLAUDE_HOME_BIN" ]]; then
-    # Fall back to PATH
-    CLAUDE_HOME_BIN="claude-home"
+# Resolve the claude-home helper. The canonical in-plugin location is
+# coordinator/lib/claude-home/claude-home (always present in an installed tree);
+# the next-to-script and bare-PATH candidates cover dev shims and ~/.claude/bin
+# on an interactive shell. Without the ../lib candidate the script aborts on a
+# stock non-interactive shell where ~/.claude/bin is not on PATH.
+CLAUDE_HOME_BIN=""
+for _cand in "$SCRIPT_DIR/claude-home" "$SCRIPT_DIR/../lib/claude-home/claude-home" claude-home; do
+    if [[ -x "$_cand" ]] || command -v "$_cand" >/dev/null 2>&1; then
+        CLAUDE_HOME_BIN="$_cand"
+        break
+    fi
+done
+if [[ -z "$CLAUDE_HOME_BIN" ]]; then
+    echo "refresh-plugin-live-install.sh: claude-home helper not found (looked next-to-script, ../lib/claude-home/, and PATH)" >&2
+    exit 1
 fi
 
 # Resolve Python interpreter: prefer python3, fall back to python (matches claude-home pattern).

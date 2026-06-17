@@ -104,7 +104,6 @@ def test_manifest_valid():
         "agent_install_contract_version",
         "repo_id",
         "setup_skill",
-        "doctor_skill",
         "standalone_setup_script",
         "direct_deps",
         "required_env_vars",
@@ -292,19 +291,59 @@ def test_setup_skill_field():
     )
 
 
-def test_doctor_skill_field():
-    """doctor_skill declares '/coordinator:doctor' (stub skill — AC12; contract schema required).
+def test_doctor_skill_optional_and_not_native_collision():
+    """doctor_skill is OPTIONAL — coordinator declares none (its health surface is /coordinator:code-health).
 
-    Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 verbatim manifest
-    the Staff Engineer 2026-06-15 finding F1: doctor_skill is required in schema with no null option.
-    C4b authors the conforming stub at skills/doctor/SKILL.md.
+    Reverses the earlier C1/C4b shape (doctor_skill required → stub skill at skills/doctor/SKILL.md).
+    The field is informational and unread by the chain-walker, so requiring it forced a do-nothing
+    stub whose bare name collided with Claude Code's native /doctor. The contract now omits it for
+    repos with no health-check flow. If a repo DOES declare one, it must not be the bare name `doctor`.
+
+    Spec backlink: docs/wiki/agent-install-contract.md § Schema reference (doctor_skill OPTIONAL).
     """
     assert MANIFEST_PATH.exists(), (
         f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
         "Tests are intentionally RED until Wave 2 lands the manifest."
     )
     manifest = _load_manifest()
-    assert manifest.get("doctor_skill") == "/coordinator:doctor", (
-        f"doctor_skill expected '/coordinator:doctor'; got {manifest.get('doctor_skill')!r}. "
-        "Per plan §7 C1 verbatim manifest + the Staff Engineer 2026-06-15 F1 (schema requires non-null doctor_skill)."
+    doctor = manifest.get("doctor_skill")
+    assert doctor is None, (
+        f"coordinator declares no doctor_skill (optional field; health surface is /coordinator:code-health); "
+        f"got {doctor!r}."
     )
+    # Forward guard: if a future health command is added, it must not re-introduce the native /doctor
+    # collision. Conditional so it bites a real value rather than being vacuously true under `is None`.
+    if doctor is not None:
+        assert doctor != "/coordinator:doctor", (
+            "doctor_skill must not be '/coordinator:doctor' — bare /doctor collides with Claude Code's native command."
+        )
+
+
+def test_doctor_skill_when_present_is_pattern_constrained():
+    """The retained (optional) doctor_skill property still constrains values when a repo declares one.
+
+    The field is optional, but the schema KEEPS the property definition so a repo with a genuine health
+    command (e.g. holodeck) can declare one informationally. This pins that the pattern still validates a
+    well-formed slash-command and rejects a malformed one.
+
+    Note the bare-`/doctor` collision rule is a coordinator TEST convention, not a schema constraint:
+    `/doctor` is itself a well-formed slash-command per the pattern, so the schema cannot reject it. The
+    collision guard lives in test_doctor_skill_optional_and_not_native_collision above.
+
+    Spec backlink: docs/wiki/agent-install-contract.md § Schema reference (doctor_skill OPTIONAL).
+    Addresses the Staff Engineer 2026-06-17 finding 0 (positive-validation path for the retained optional property).
+    """
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema not installed — install with: pip install jsonschema"
+    )
+    assert SCHEMA_PATH.exists(), f"schema not found at {SCHEMA_PATH}"
+    schema = _load_schema()
+    base = _load_manifest()
+
+    # A well-formed, non-colliding health command validates against the optional property.
+    jsonschema.validate(instance=dict(base, doctor_skill="/coordinator:code-health"), schema=schema)
+
+    # Malformed values are rejected by the pattern (missing leading slash; uppercase).
+    for bad in ("doctor", "coordinator:health", "/Doctor", "/coordinator:Health"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=dict(base, doctor_skill=bad), schema=schema)

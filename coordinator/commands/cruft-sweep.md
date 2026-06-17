@@ -25,7 +25,7 @@ The Layer 1 script handles three distinct classes, each with its own auto-prune 
 - **Class 2 — In-repo scratch dirs**
   Name-anchored directories inside the current git repo (`tmp-cc/`, `nonexistent/`, `fake/`, single-char `[a-z]/`, chained identical dirs). Auto-pruned by Layer 1 when untracked, older than 7 days, and outside the negative-spec list. Confirm-needed names (`tmp/`, `scratch/`, `output/`) are surfaced here for PM confirmation.
 
-- **Class 3 — Parent-folder orphans at `X:\` and `E:\dev\`**
+- **Class 3 — Parent-folder orphans at the machine's dev roots**
   Top-level children at the parent roots whose names match the literal cruft list AND whose contents match a sonnet-default fingerprint (`vector/store/chroma.sqlite3`, lone `mcp_queries.jsonl`, etc.). Broader registry-diff against the canonical sibling-repo list is Layer 2's responsibility — Layer 1 auto-prunes only the name+fingerprint conjoint gate.
 
 ---
@@ -45,7 +45,7 @@ The following are out of scope for this skill — do NOT attempt them:
 These are the highest-blast-radius cases — hardcoded refusals regardless of what the Layer 1 JSONL output says:
 
 - **Do NOT auto-prune any directory whose path contains a `.git/` boundary** (handoff Anti-scope #3). A parent-altitude `nonexistent/` that is itself a git repo retains all history inside `.git/`; pruning would be irreversible and catastrophic. Check: `[[ -d "$candidate/.git" ]]` before any prune call.
-- **Do NOT expand the parent-folder scan beyond `X:\` and `E:\dev\`** (handoff Anti-scope #5). Speculative discovery of additional parent roots is not the skill's remit. The canonical roots are fixed in `~/.claude/CLAUDE.local.md § Sibling repos`; deviating from them without PM direction introduces unpredictable blast radius.
+- **Do NOT expand the parent-folder scan beyond this machine's resolved dev roots** (handoff Anti-scope #5). Speculative discovery of additional parent roots is not the skill's remit. The roots are resolved deterministically per-machine (see Step 2): on Windows the documented `X:\` and `E:\dev\` from `~/.claude/CLAUDE.local.md § Sibling repos`; on other machines the registry-derived parent dirs of resolved `repos.*` entries. Registry-derived ≠ speculative — deviating from these resolved roots without PM direction introduces unpredictable blast radius.
 - **Do NOT conflate "untracked" with "cruft"** (handoff Anti-scope #6). A directory that is git-untracked is not automatically cruft — it may be a new repo not yet registered, a working area created this session, or intentionally unversioned. Untracked status is a necessary but not sufficient condition for any prune action.
 - **Do NOT auto-prune a session directory whose UUID is referenced as `predecessor:` in any active handoff** (handoff Anti-scope #7). The pre-flight UUID block-list check in `cruft-sweep.sh` covers Layer 1; the skill must honor the same constraint for any confirm-needed item it surfaces. If a PM confirms deletion of a UUID dir, verify against the active-handoff block-list before invoking `--apply`.
 
@@ -81,7 +81,13 @@ Compute total reclaimable MB across `auto-prune` + `confirm-needed` records.
 
 ### Step 2 — Scout parent-altitude orphans (Class 3 registry-diff)
 
-For candidates where `class == "orphans"` and `disposition == "skip"` (name matched but no sonnet fingerprint — Layer 2 broader scan), dispatch a read-only `Explore` agent to enumerate parent-altitude children at the canonical roots against the sibling-repo registry in `~/.claude/CLAUDE.local.md` § Sibling repos.
+For candidates where `class == "orphans"` and `disposition == "skip"` (name matched but no sonnet fingerprint — Layer 2 broader scan), dispatch a read-only `Explore` agent to enumerate parent-altitude children at this machine's dev roots against the sibling-repo registry in `~/.claude/CLAUDE.local.md` § Sibling repos.
+
+**Resolve the dev roots for THIS machine first** — they are not the same on every box, and hardcoding Windows drive letters breaks the scan on macOS/Linux:
+
+- On Windows (e.g. Striker): `X:\` and `E:\dev\` per CLAUDE.local.md § Sibling repos.
+- On macOS/Linux: the distinct parent directories of the non-empty `repos.*` entries in `~/.claude/machine-local/registry.local.toml` (e.g. `/Users/<user>/Code_Projects/`). This is registry-derived, not speculative discovery — anti-scope #5 still forbids hunting for arbitrary roots.
+- Test each candidate root with `[[ -d "$root" ]]`. **If no dev root exists on this machine, skip Class 3 entirely** and log one line — `Class 3 parent-orphan scan skipped — no dev roots present on this machine.` — then proceed to Step 3. Enumerate only roots that exist.
 
 <!-- Review: Slice C reviewer F6 — explicit dispatch shape added; Explore agent; no acceptEdits needed (read-only) -->
 Dispatch shape:
@@ -93,7 +99,7 @@ Agent(
   prompt: """
     Do NOT modify files, commit, or push. Read-only.
 
-    Enumerate top-level children of X:\\ and E:\\dev\\. For each child:
+    Enumerate top-level children of these resolved dev roots: {{RESOLVED_DEV_ROOTS}}. For each child:
     1. Check whether its name appears in ~/.claude/CLAUDE.local.md § Sibling repos bullet list.
     2. If NOT in the registry AND NOT matching the Layer 1 auto-prune conjoint gate
        (name match + fingerprint match), include it in the result.
@@ -107,7 +113,7 @@ Agent(
 
 No `mode: acceptEdits` is needed — this agent is read-only and produces inline JSON output for the skill to parse. Do not use `general-purpose` or any write-capable subagent type.
 
-The scout enumerates top-level children at `X:\` and `E:\dev\`, cross-references against the registry, and returns candidates for PM review.
+The scout enumerates top-level children at this machine's resolved dev roots, cross-references against the registry, and returns candidates for PM review.
 
 ### Step 3 — Present confirm-needed items via offer-shape AskUserQuestion
 

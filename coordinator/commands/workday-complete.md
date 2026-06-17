@@ -11,6 +11,8 @@ Lightweight daily wrap: validate, consolidate branches, run the strategic daily 
 
 Daily is a branch wrap, not a release ceremony. Each step below is an explicit script under `~/.claude/plugins/coordinator/bin/`; the prose names the contract, the script enforces it. All scripts are idempotent (re-running is a no-op when state is unchanged) and portable per `docs/wiki/cross-platform-shell-portability.md`.
 
+`$ARGUMENTS` below refers to the user-supplied day-summary argument to the slash command (may be empty), per Claude Code conventions.
+
 ---
 
 ## Step 1: Validate (blocking gate)
@@ -20,14 +22,14 @@ eval "$(~/.claude/plugins/coordinator/bin/workday-complete-step1-validate.sh)"
 RC_STEP1=$?
 ```
 
-The script runs the UBT pending-record resolution (UE work only, presence-detected) then the configured fast-test command. Emits `RC_UBT=… RC_VALIDATE=…` on stdout for the caller to consume in Step 9. All other output is on stderr.
+The script runs the UBT pending-record resolution (UE work only, presence-detected) then the configured fast-test command. Emits `RC_UBT=…` (informs the Step 1 branch decision below) and `RC_VALIDATE=…` (forwarded to Step 9 via env). All other output is on stderr.
 
 **Exit-code branch:**
 - `0` — both gates ok or skipped. Proceed.
-- `1` — UBT resolved blocked. Stop and fix the C++ compile error. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM authorises.
+- `1` — UBT resolved blocked. Stop and fix the C++ compile error. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM authorises (override path emits `RC_VALIDATE=ubt-overridden` so Step 9 can distinguish bypass from a real validation pass).
 - `2` — fast-test build failure. Stop and fix.
 - `3` — fast-test test failures only. Fix what's quick, flag the rest, proceed.
-- `4` — resolver lib missing (configure `fast_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FAST_TEST_CMD`).
+- `4` — resolver lib missing (`RC_VALIDATE=lib-missing`, distinct from "no fast-test configured" which emits `RC_VALIDATE=skipped`). Configure `fast_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FAST_TEST_CMD`, or repair the install if the lib was deleted.
 
 ---
 
@@ -66,7 +68,10 @@ The script walks `git status --porcelain` and acts:
 
 **Exit-code branch:**
 - `0` — all clear-wins handled, nothing ambiguous remains. Proceed.
+- `1` — processing error (git failure, `.gitignore` write failure, commit failure). Stop; inspect stderr before retrying.
 - `2` — clear-wins handled, but source-tree or ambiguous paths remain. Surface the script's stderr listing to the PM and ask: _"Adopt-commit (mine, forgot to attribute), discard (abandoned), or attribute to another session?"_ Wait for response before proceeding.
+
+> The allow-list of housekeeping roots is **authoritative in the script** (`workday-complete-step2_5-dirty-tree.sh`); the bullets above are illustrative. To add a root, edit the script's allow-list AND the smoke test, then update the prose here.
 
 **If in doubt — look harder.** Read the file, `git log -- <path>` for prior touches, grep for the workstream, check `state/handoffs/` and `archive/handoffs/` for a `scope:` block that names it. Bailing to "I cannot decide" is the failure mode.
 
@@ -85,11 +90,11 @@ The script: syncs main, discovers same-machine sibling workstream branches (case
 
 **Exit-code branch:**
 - `0` — full success.
-- `1` — `sync-main` aborted. Report and stop.
+- `1` — startup error: `sync-main` aborted, OR detached HEAD (cannot determine current branch), OR current branch is `main`/`master` (the script refuses to push-force to main). Report and stop.
 - `2` — merge conflict during sibling merge. Report and halt.
 - `3` — reconcile conflict with origin/main.
 - `4` — push rejected twice. Report to PM.
-- `5` — `cs_compute_machine` lib unavailable.
+- `5` — `cs_compute_machine` lib unavailable. Report to PM; the coordinator lib path is broken.
 
 **Args:** `--no-push` for PM-deferred push; `--dry-run` for inspection.
 
@@ -147,7 +152,7 @@ The daily summary artifact is committed by Step 9 alongside the changelog row �
 
 ## Step 4.5: Completion-Log Clustering Pass
 
-<!-- Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 4 -->
+<!-- Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 4 (plan archived; sidecar at docs/plans/2026-05-19-completion-log-phase1-foundational-loop.plan-coverage-check.md retained) -->
 
 Groups today's completion entries by `chain:` field and synthesizes a machine-readable `narrative:` for each multi-entry chain. Single-entry chains skip. Enables `/workweek-complete` editorial bucketing to read `narrative:` rather than re-derive.
 
@@ -224,7 +229,7 @@ RC_STEP9=$?
 ```
 
 The script:
-- Checks `state/week-changelog/HEADER.md` staleness; emits hard WARN and skips if `Week starting:` is >14 days past today.
+- Checks `state/week-changelog/HEADER.md` staleness; emits a WARN and skips (non-blocking — caller proceeds to Step 10) if `Week starting:` is >14 days past today.
 - Synthesises a per-machine block from today's handoffs (`state/handoffs/YYYY-MM-DD-*.md`), the daily summary, and review-trail records (via `bin/list-review-trail-records.sh --date-prefix "$TODAY"`).
 - Extracts `Decisions:` and `Blockers:` from handoff bodies (does not re-author).
 - Auto-fills `Validation:` from the env vars above.
@@ -282,6 +287,7 @@ If `$ARGUMENTS` is provided, prepend: _"Day summary: {arguments}"_.
 - **ShellCheck or scc stats** — `/workweek-complete`.
 - **Delete the work branch** — stays alive for morning.
 - **Delete handoffs** — `/pickup` archives, `/distill` deletes from archive (guarded). Spec: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
+- **Propagate dirty-tree auto-disposition to other terminators** — Step 2.5's allow-list logic is workday-complete-specific; `/workstream-complete` and `/handoff` keep their stricter surface where unattributable IS a real signal worth surfacing.
 
 ### Concurrent Session Safety
 

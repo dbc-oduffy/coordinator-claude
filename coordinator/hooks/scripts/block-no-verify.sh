@@ -43,15 +43,23 @@ fi
 [[ -z "$COMMAND" ]] && exit 0
 
 # Normalise before matching:
-#   1. Collapse backslash-newline continuations (\ at line-end) into a single space.
-#      Two forms exist depending on the JSON parser path:
-#      - Real backslash + LF   (jq produces a real newline from JSON \n)
-#      - Literal \\n two-char  (sed fallback leaves JSON escape un-expanded)
-#      Both are normalised so multi-line commands don't evade detection.
+#   1. Flatten every newline to a space so multi-line commands can't evade
+#      detection. Three newline forms exist depending on the JSON parser path:
+#      - Real LF (jq produces a real newline from JSON \n) — handled by `tr`.
+#      - CRLF (\r\n from a Windows JSON path) — the `tr -d '\r'` strips the \r
+#        first, then `tr '\n' ' '` turns the LF into a space.
+#      - Literal \\n two-char (sed fallback leaves the JSON escape un-expanded)
+#        — handled by the trailing `sed 's/\\n/ /g'`.
+#      Any backslash left dangling from a former `\<LF>` line-continuation is
+#      harmless: FLAT_COMMAND feeds the regex only, which tolerates arbitrary
+#      chars between `git` and the bypass flag.
 #   2. The result goes into FLAT_COMMAND for regex matching only;
 #      COMMAND is preserved for the error message.
-#   (Single physical line by design — see CRLF-robustness note in the header.)
-FLAT_COMMAND=$(printf '%s' "$COMMAND" | tr -d '\r' | sed ':a;N;$!ba;s/\\\n/ /g' | sed 's/\\n/ /g')
+#   BSD-portability (DR-148): the previous GNU `sed ':a;N;$!ba'` slurp idiom
+#   errors on macOS/BSD sed ("unused label") — labels/branches need newline,
+#   not `;`, separators — leaking stderr on every commit. `tr '\n' ' '` is the
+#   portable equivalent for a match-only flattened string.
+FLAT_COMMAND=$(printf '%s' "$COMMAND" | tr -d '\r' | tr '\n' ' ' | sed 's/\\n/ /g')
 
 # ERE that catches the three bypass forms our doctrine prohibits.
 # Branch explanations:

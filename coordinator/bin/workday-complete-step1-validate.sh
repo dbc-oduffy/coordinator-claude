@@ -19,9 +19,9 @@
 # produces identical stdout and the same exit code.
 #
 # Stdout (caller eval's this line):
-#   RC_UBT=<n|skipped> RC_VALIDATE=<n|skipped|blocked>
-#   Exactly one line, shell-eval-safe. RC_VALIDATE feeds the Validation: field in
-#   Step 9 changelog synthesis.
+#   RC_UBT='<n|skipped>' RC_VALIDATE='<n|skipped|blocked|ubt-overridden|lib-missing>'
+#   Exactly one line, shell-eval-safe (values are single-quoted — eval injection defence).
+#   RC_VALIDATE feeds the Validation: field in Step 9 changelog synthesis.
 #
 # Stderr: all human-readable detail (UBT output, fast-test output, resolver hints).
 #
@@ -29,9 +29,12 @@
 #   0 — both gates ok or skipped; proceed.
 #   1 — UBT resolved to blocked (override with COORDINATOR_OVERRIDE_UBT_GATE=1).
 #   2 — fast-test exited non-zero AND output indicates a build failure
-#        (patterns: "error:" / "BUILD FAILED" / "Compilation" / cargo build failure).
+#        (patterns: "error:" / "BUILD FAILED" / "Compilation").
 #   3 — fast-test exited non-zero with test failures only (fix-quick or flag).
-#   4 — resolver lib missing at expected path (flagged distinctly; fast-test skipped).
+#   4 — resolver lib missing at resolved path (flagged distinctly; fast-test skipped).
+#        RC_VALIDATE=lib-missing on this path (not skipped) to give Step 9 a distinct signal.
+#   0 (UBT override path) — UBT blocked but COORDINATOR_OVERRIDE_UBT_GATE=1 active;
+#        RC_VALIDATE=ubt-overridden (not blocked) to avoid misleading Step 9 synthesis.
 #
 # Env (optional):
 #   COORDINATOR_OVERRIDE_UBT_GATE=1  — bypass exit 1 on UBT-blocked verdict.
@@ -66,7 +69,8 @@ _classify_fast_test_output() {
   fi
   # Build-failure patterns (case-insensitive scan on the captured output).
   # grep -i / -E is POSIX ERE — no grep -P (BSD portability requirement).
-  if echo "$output" | grep -qiE '(error:|BUILD FAILED|Compilation|cargo build)'; then
+  # Review: code-reviewer — bare "cargo build" matched command-echo lines; rely on "error:" for rustc output.
+  if echo "$output" | grep -qiE '(error:|BUILD FAILED|Compilation)'; then
     return 2
   fi
   return 3
@@ -90,13 +94,16 @@ if [[ -x "bin/check-ubt-build-fresh.sh" ]]; then
   if [[ $_ubt_rc -ne 0 ]]; then
     if [[ "${COORDINATOR_OVERRIDE_UBT_GATE:-0}" == "1" ]]; then
       echo "[workday-complete-step1] UBT gate: resolved to blocked (rc=${_ubt_rc}) — OVERRIDE active, continuing." >&2
-      echo "RC_UBT=${RC_UBT} RC_VALIDATE=blocked"
+      # Review: code-reviewer — RC_VALIDATE=blocked under override is internally inconsistent;
+      # ubt-overridden signals Step 9 that the gate was bypassed, not that fast-test was blocked.
+      echo "RC_UBT='${RC_UBT}' RC_VALIDATE='ubt-overridden'"
       exit 0
     else
       echo "[workday-complete-step1] UBT gate: resolved to blocked (rc=${_ubt_rc})." >&2
       echo "[workday-complete-step1] Fix the C++ compile error and re-run /workday-complete." >&2
       echo "[workday-complete-step1] Override (PM-authorized only): COORDINATOR_OVERRIDE_UBT_GATE=1" >&2
-      echo "RC_UBT=${RC_UBT} RC_VALIDATE=blocked"
+      # Review: code-reviewer — single-quote values in eval-safe stdout (eval injection defence).
+      echo "RC_UBT='${RC_UBT}' RC_VALIDATE='blocked'"
       exit 1
     fi
   fi
@@ -113,7 +120,9 @@ RC_VALIDATE="skipped"
 
 if [[ ! -f "$_LIB" ]]; then
   echo "[workday-complete-step1] WARN: resolver lib not found at ${_LIB} — fast-test gate skipped." >&2
-  echo "RC_UBT=${RC_UBT} RC_VALIDATE=${RC_VALIDATE}"
+  # Review: code-reviewer — "expected path" overstated (path is dynamically resolved via BASH_SOURCE).
+  # Review: code-reviewer — lib-missing distinguishes exit 4 from unconfigured (skipped) for Step 9.
+  echo "RC_UBT='${RC_UBT}' RC_VALIDATE='lib-missing'"
   exit 4
 fi
 
@@ -134,7 +143,8 @@ CMD=$(cs_resolve_fast_test_cmd 2>"$_resolve_stderr") || _rc_resolve=$?
 if [[ $_rc_resolve -ne 0 ]]; then
   # No command configured — resolver already emitted remediation hints above.
   RC_VALIDATE="skipped"
-  echo "RC_UBT=${RC_UBT} RC_VALIDATE=${RC_VALIDATE}"
+  # Review: code-reviewer — single-quote values in eval-safe stdout (eval injection defence).
+  echo "RC_UBT='${RC_UBT}' RC_VALIDATE='${RC_VALIDATE}'"
   exit 0
 fi
 
@@ -142,11 +152,13 @@ echo "[workday-complete-step1] fast-test: running: ${CMD}" >&2
 
 # Capture combined stdout+stderr for classification AND forward to human stderr.
 # We capture once to a temp file, then cat to stderr (tee-like, without GNU tee).
-# Child-shell sandbox (bash -c): isolates child from this shell's variable namespace,
-# preventing assignment-injection clobber of RC_VALIDATE / $? / other caller state.
-# $BASH forwards the current interpreter (DR-148: never bare `bash`).
+# Child-shell sandbox (bash -c): isolates child variable mutations from this shell's namespace
+# (assignments in the child do not propagate back); does not restrict what the configured
+# command executes. $BASH forwards the current interpreter (DR-148: never bare `bash`).
+# Review: code-reviewer — tightened sandbox comment; prior comment overstated protection scope.
 _ft_out=$(mktemp)
-# Append _ft_out to the trap so it is cleaned up even on early exit.
+# Review: code-reviewer — trap does not accumulate; re-declare to include both temp files
+# (the second call replaces the first, not appends).
 trap 'rm -f "$_resolve_stderr" "$_ft_out"' EXIT
 
 set +e
@@ -161,7 +173,8 @@ _ft_content=$(cat "$_ft_out")
 RC_VALIDATE=$_ft_rc
 
 if [[ $_ft_rc -eq 0 ]]; then
-  echo "RC_UBT=${RC_UBT} RC_VALIDATE=${RC_VALIDATE}"
+  # Review: code-reviewer — single-quote values in eval-safe stdout (eval injection defence).
+  echo "RC_UBT='${RC_UBT}' RC_VALIDATE='${RC_VALIDATE}'"
   exit 0
 fi
 
@@ -171,6 +184,8 @@ set +e
 _classify_fast_test_output "$_ft_content" "$_ft_rc"
 _classify_rc=$?
 set -e
+# Review: code-reviewer — _ft_rc is non-zero at this point (guarded above); _classify_rc will be 2 or 3.
 
-echo "RC_UBT=${RC_UBT} RC_VALIDATE=${RC_VALIDATE}"
+# Review: code-reviewer — single-quote values in eval-safe stdout (eval injection defence).
+echo "RC_UBT='${RC_UBT}' RC_VALIDATE='${RC_VALIDATE}'"
 exit $_classify_rc

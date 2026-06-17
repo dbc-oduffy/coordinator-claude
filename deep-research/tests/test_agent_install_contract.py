@@ -112,7 +112,6 @@ def test_manifest_valid():
         "agent_install_contract_version",
         "repo_id",
         "setup_skill",
-        "doctor_skill",
         "standalone_setup_script",
         "direct_deps",
         "required_env_vars",
@@ -125,11 +124,9 @@ def test_manifest_valid():
     )
 
     # jsonschema validation when available
-    try:
-        import jsonschema  # type: ignore[import]
-    except ImportError:
-        pytest.skip("jsonschema not installed — install with: pip install jsonschema")
-        return  # unreachable; satisfies type-checkers
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema not installed — install with: pip install jsonschema"
+    )
 
     assert SCHEMA_PATH.exists(), (
         f"agent-install-manifest.schema.json not found at {SCHEMA_PATH}. "
@@ -353,3 +350,44 @@ def test_dep_upstream_url():
         f"direct_deps[0].upstream_url expected {_EXPECTED_DEP_UPSTREAM_URL!r}; "
         f"got {dep.get('upstream_url')!r}"
     )
+
+
+def test_doctor_skill_optional_and_absent():
+    """doctor_skill is OPTIONAL and deep-research declares none — a research pipeline has no health-check flow.
+
+    Mirrors the coordinator test. The field was made optional 2026-06-17 (it is informational and unread by
+    the chain-walker); deep-research previously shipped doctor_skill pointing at a never-existent
+    /deep-research:doctor, which is exactly why the field was demoted from required.
+
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § Schema reference.
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}."
+    )
+    manifest = _load_manifest()
+    assert manifest.get("doctor_skill") is None, (
+        f"deep-research declares no doctor_skill (optional field; no health-check flow); "
+        f"got {manifest.get('doctor_skill')!r}."
+    )
+
+
+def test_doctor_skill_when_present_is_pattern_constrained():
+    """The retained (optional) doctor_skill property still constrains values when a repo declares one.
+
+    Mirrors the coordinator test — the schema keeps the property def so a repo with a real health command
+    can declare one; the pattern must still validate a well-formed slash-command and reject a malformed one.
+
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § Schema reference.
+    """
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="jsonschema not installed — install with: pip install jsonschema"
+    )
+    assert SCHEMA_PATH.exists(), f"schema not found at {SCHEMA_PATH}"
+    schema = _load_schema()
+    base = _load_manifest()
+
+    jsonschema.validate(instance=dict(base, doctor_skill="/deep-research:health"), schema=schema)
+
+    for bad in ("doctor", "deep-research:health", "/Doctor", "/deep-research:Health"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(instance=dict(base, doctor_skill=bad), schema=schema)

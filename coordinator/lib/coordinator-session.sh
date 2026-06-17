@@ -806,22 +806,37 @@ cs_atomic_dedup_append() {
   return 0
 }
 
-# cs_claim_handoff <basename>
+# cs_claim_handoff <basename> [baton_repo_root]
 #   Atomic mkdir-based claim primitive for concurrent /pickup race detection.
-#   Claim directory: .git/coordinator-sessions/<sid>/handoff-claims/<basename>/
+#   Claim directory: <root>/.git/coordinator-sessions/<sid>/handoff-claims/<basename>/
+#
+#   <baton_repo_root> (optional): the git repo that OWNS the baton being picked up.
+#   When supplied, the claim directory lives under the baton repo's .git, so two
+#   concurrent /pickup sessions of the SAME baton contest the same mkdir regardless
+#   of each session's cwd (foreign-cwd pickup of a ~/.claude baton). When absent
+#   (legacy one-arg call), the claim lives under the cwd repo — byte-for-byte the
+#   prior behavior. A SUPPLIED-but-non-git root fails loud (detect-then-fail-loud,
+#   never a silent cwd fallback). NOTE: only the lock LOCATION follows the baton —
+#   session-id resolution (incl. the sentinel read below) stays anchored to the
+#   running (cwd) session, because .current-session-id is written into the cwd
+#   session's .git by session-init.sh, never into the baton repo.
 #
 #   On EEXIST:
 #     - If the holding session's PID is alive  → exit 1 with held-by message.
 #     - If the holding session's PID is dead   → log warning, rm -rf and recreate.
 #
 #   On success, writes pid, session_id, claimed_at inside the claim directory.
-#   Release is structural: cs_archive moves the entire session dir (including
-#   handoff-claims/) into .archive/, so no separate cs_release_handoff_claim is
-#   needed. Single release point as a consequence of session end.
+#   Release is structural: cs_archive moves the cwd-session dir (including
+#   handoff-claims/) into .archive/. CAVEAT: a claim written under a FOREIGN baton
+#   repo (baton_repo_root != cwd) is not reached by the cwd session's cs_archive —
+#   it self-corrects on next contention (stale-PID takeover), otherwise persists as
+#   an unreaped orphan in the baton repo .git, bounded by pickup frequency.
 #
-#   Spec backlink: tasks/split-pickup-archival/plan.md § Edit 1
+#   Spec backlinks: tasks/split-pickup-archival/plan.md § Edit 1;
+#                   docs/plans/2026-06-17-foreign-cwd-pickup-hardening.md § C1
 cs_claim_handoff() {
   local basename="${1:?basename required}"
+  local baton_repo_root="${2:-}"
   local sid="${COORDINATOR_SESSION_ID:-}"
   # Explicit test override — mirrors resolve_session_id's Priority 1 slot so
   # test harnesses can inject a known id without clobbering the real env var.
@@ -832,7 +847,9 @@ cs_claim_handoff() {
   # sentinel. Mirrors coordinator-safe-commit resolve_session_id Priority 2.
   [[ -z "$sid" ]] && sid="${CLAUDE_CODE_SESSION_ID:-}"
   if [[ -z "$sid" ]]; then
-    # Fall back to sentinel file (last-writer-wins; only reached on old Claude Code)
+    # Fall back to sentinel file (last-writer-wins; only reached on old Claude Code).
+    # sid is a property of the running (cwd) session; only the lock location follows
+    # the baton — so the sentinel read stays on cwd _cs_git_root even in baton-repo mode.
     local root
     root=$(_cs_git_root) || return 1
     local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
@@ -841,7 +858,17 @@ cs_claim_handoff() {
   [[ -z "$sid" ]] && { echo "cs_claim_handoff: no session_id available" >&2; return 1; }
 
   local base sdir claims_dir claim_dir
-  base=$(_cs_sessions_dir) || return 1
+  if [[ -n "$baton_repo_root" ]]; then
+    # Baton-repo mode REQUESTED (arg present) — fail loud on an unresolvable root
+    # rather than silently writing the lock into the wrong (cwd) repo.
+    if [[ ! -d "${baton_repo_root}/.git" ]]; then
+      echo "cs_claim_handoff: baton repo root <${baton_repo_root}> is not a git repo" >&2
+      return 1
+    fi
+    base="${baton_repo_root}/.git/coordinator-sessions"
+  else
+    base=$(_cs_sessions_dir) || return 1
+  fi
   sdir="${base}/${sid}"
   claims_dir="${sdir}/handoff-claims"
   claim_dir="${claims_dir}/${basename}"

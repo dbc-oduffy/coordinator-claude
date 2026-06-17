@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: inject project orientation documents into context
 # Convention-based discovery — reads what exists, skips what doesn't.
 # Subsumes the old repomap-sessionstart.sh (staleness check + content injection).
@@ -17,6 +17,37 @@ done
 # RAM cache check — prefer compact cache over raw docs
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 CACHE="${REPO_ROOT:-.}/state/orientation_cache.md"
+
+# ── Repo map staleness banner ────────────────────────────────────────────────
+# Emitted on EVERY session path (deliberately above the cache early-exits below,
+# so a warm-cache session still surfaces a stale repomap). Stale-only: silent
+# when fresh (<24h), one line when stale (24-168h), louder when very-stale
+# (>=168h). Tracks the generator's canonical output .claude/repomap.md (gitignored,
+# regenerable — see docs/wiki/repomap-rag-gating.md § Canonical output path).
+# Kill-switch: COORDINATOR_REPOMAP_STATUS_OFF (sentinel to stderr, no stdout).
+if [ -n "${COORDINATOR_REPOMAP_STATUS_OFF:-}" ]; then
+    echo "[coordinator] repomap staleness banner: disabled via COORDINATOR_REPOMAP_STATUS_OFF" >&2
+else
+    RM_REPOMAP="${REPO_ROOT:-.}/.claude/repomap.md"
+    if [ -f "$RM_REPOMAP" ]; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            rm_epoch=$(stat -f %m "$RM_REPOMAP" 2>/dev/null)
+        else
+            rm_epoch=$(stat -c %Y "$RM_REPOMAP" 2>/dev/null)
+        fi
+        if [ -n "$rm_epoch" ]; then
+            rm_age_hours=$(( ( $(date +%s) - rm_epoch ) / 3600 ))
+            if [ "$rm_age_hours" -ge 168 ]; then
+                echo ""
+                echo "── ⚠ Repo map VERY STALE: ${rm_age_hours}h old — regenerate: bin/generate-repomap.sh (or /update-docs) ──"
+            elif [ "$rm_age_hours" -ge 24 ]; then
+                echo "── Repo map stale: ${rm_age_hours}h old — refresh via /update-docs or bin/generate-repomap.sh ──"
+            fi
+            # <24h: fresh — silent by design
+        fi
+    fi
+    # missing repomap: silent here; the cache-absent pointers section reports availability
+fi
 
 if [ -f "$CACHE" ]; then
     # Extract git HEAD from YAML frontmatter (portable across GNU/BSD sed)
@@ -94,24 +125,11 @@ pointer_doc() {
 
 found=0
 
-# Repo map — pointer with staleness note
-REPOMAP="state/repomap.md"
+# Repo map — read-pointer (staleness is surfaced every-session by the banner above)
+REPOMAP="${REPO_ROOT:-.}/.claude/repomap.md"
 if [ -f "$REPOMAP" ]; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        file_epoch=$(stat -f %m "$REPOMAP" 2>/dev/null)
-    else
-        file_epoch=$(stat -c %Y "$REPOMAP" 2>/dev/null)
-    fi
-    stale_note=""
-    if [ -n "$file_epoch" ]; then
-        now_epoch=$(date +%s)
-        age_hours=$(( (now_epoch - file_epoch) / 3600 ))
-        if [ "$age_hours" -ge 24 ]; then
-            stale_note=" [STALE: ${age_hours}h old — run bin/generate-repomap.sh or /update-docs]"
-        fi
-    fi
     lines=$(wc -l < "$REPOMAP" | tr -d ' ')
-    echo "  Repo Map: $REPOMAP (${lines} lines)${stale_note} — read when needed"
+    echo "  Repo Map: .claude/repomap.md (${lines} lines) — read when needed"
     found=$((found + 1))
 else
     echo "  Repo Map: not found — run bin/generate-repomap.sh (via /update-docs) to create"

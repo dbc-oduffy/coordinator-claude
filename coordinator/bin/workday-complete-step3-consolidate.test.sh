@@ -70,28 +70,60 @@ _fail() {
 #   MACHINE     — "striker" (fixed for tests)
 # ---------------------------------------------------------------------------
 _make_repo() {
+  # Review: code-reviewer (F4) — set -e inside _make_repo so git failures produce
+  # a clear FATAL diagnostic rather than misleading downstream test output.
   local base="$1"
   ORIGIN_DIR="${base}/origin.git"
   WORK_DIR="${base}/work"
   TODAY=$(date -u +%Y-%m-%d)
   MACHINE="striker"
+  # SIBLING_BRANCH — a valid span-form sibling that covers today.
+  # Computed as work/striker/<YYYY-MM-(DD-1)>to<DD> (starts yesterday, ends today).
+  # cs_parse_branch_span validates this as a span branch covering TODAY.
+  local today_dd today_yy today_mm yesterday_dd yesterday_yy yesterday_mm sibling_start
+  today_dd="${TODAY##*-}"
+  today_yy="${TODAY%%-*}"
+  today_mm="${TODAY#*-}"; today_mm="${today_mm%%-*}"
+  if (( 10#$today_dd > 1 )); then
+    yesterday_dd=$(printf '%02d' $(( 10#$today_dd - 1 )))
+    yesterday_mm="$today_mm"
+    yesterday_yy="$today_yy"
+  else
+    # First of the month — use last day of prior month (simplified: use 28 as safe value)
+    yesterday_dd="28"
+    if (( 10#$today_mm > 1 )); then
+      yesterday_mm=$(printf '%02d' $(( 10#$today_mm - 1 )))
+      yesterday_yy="$today_yy"
+    else
+      yesterday_mm="12"
+      yesterday_yy=$(( 10#$today_yy - 1 ))
+    fi
+  fi
+  sibling_start="${yesterday_yy}-${yesterday_mm}-${yesterday_dd}"
+  SIBLING_BRANCH="work/striker/${sibling_start}to${today_dd}"
 
-  # Bare repo acts as the fake remote
-  git init --bare "$ORIGIN_DIR" >/dev/null 2>&1
+  (
+    set -e
+    # Bare repo acts as the fake remote
+    git init --bare "$ORIGIN_DIR" >/dev/null 2>&1
 
-  # Clone into working dir
-  git clone "$ORIGIN_DIR" "$WORK_DIR" >/dev/null 2>&1
+    # Clone into working dir
+    git clone "$ORIGIN_DIR" "$WORK_DIR" >/dev/null 2>&1
+    cd "$WORK_DIR"
+
+    # Identity for commits
+    git config user.email "test@test.local"
+    git config user.name "Test"
+
+    # Seed origin/main with an initial commit
+    echo "seed" > seed.txt
+    git add seed.txt
+    git commit -m "initial" >/dev/null 2>&1
+    git push -u origin main >/dev/null 2>&1
+  ) || { echo "FATAL: _make_repo failed at $base" >&2; exit 1; }
+
+  # cd into WORK_DIR so callers start in the right place
   cd "$WORK_DIR"
-
-  # Identity for commits
-  git config user.email "test@test.local"
-  git config user.name "Test"
-
-  # Seed origin/main with an initial commit
-  echo "seed" > seed.txt
-  git add seed.txt
-  git commit -m "initial" >/dev/null 2>&1
-  git push -u origin main >/dev/null 2>&1
 }
 
 # _add_commit <message> [<file>]
@@ -109,44 +141,27 @@ _add_commit() {
 #   the plugin root pointing at the real plugin (for lib sourcing) but
 #   with a stub sync-main.sh that is a no-op (to avoid real network ops).
 #
+# Review: code-reviewer (F3) — uses STEP3_SYNC_MAIN env-var override instead of
+# mutating the live sync-main.sh on disk (which would corrupt it on runner kill).
+#
 # Returns the exit code in STEP3_RC and combined stdout+stderr in STEP3_OUT.
 _run_step3() {
-  local plugin_root
-  plugin_root="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-  # Provide a stub sync-main.sh in a temp bin dir so the script doesn't
-  # attempt network operations. We prepend that dir to PATH.
+  # Create a per-call stub sync-main.sh in a temp dir; pass via STEP3_SYNC_MAIN
   local stub_bin
   stub_bin="$(mktemp -d)"
-  cat > "${stub_bin}/sync-main.sh" <<'STUB'
+  local stub_path="${stub_bin}/sync-main.sh"
+  cat > "$stub_path" <<'STUB'
 #!/usr/bin/env bash
 # stub: no-op sync-main for tests
 exit 0
 STUB
-  chmod +x "${stub_bin}/sync-main.sh"
-
-  # The script discovers its PLUGIN_ROOT from __BASH_SOURCE[0]__ so it will
-  # find the real lib/coordinator-daily-branch.sh. We only need to override
-  # the bin/sync-main.sh lookup. The script builds BIN_SYNC_MAIN as
-  # "${PLUGIN_ROOT}/bin/sync-main.sh" — we cannot easily override it via
-  # PATH because the script uses absolute path. Instead we temporarily
-  # replace sync-main.sh with a symlink to our stub, then restore.
-  local real_sync="${plugin_root}/bin/sync-main.sh"
-  local backup_sync="${stub_bin}/sync-main.sh.bak"
-
-  # Non-destructive: only shadow if the file exists
-  # We write a wrapper that immediately calls exit 0
-  local saved_content
-  saved_content=$(cat "$real_sync")
-  local stub_content
-  stub_content=$'#!/usr/bin/env bash\n# test-stub: no-op sync-main\nexit 0'
-  printf '%s\n' "$stub_content" > "$real_sync"
+  chmod +x "$stub_path"
 
   STEP3_RC=0
-  STEP3_OUT=$(COORDINATOR_MACHINE="striker" "$BASH" "$STEP3" "$@" 2>&1) || STEP3_RC=$?
-
-  # Restore the real sync-main.sh
-  printf '%s\n' "$saved_content" > "$real_sync"
+  # Review: code-reviewer (F8) — || STEP3_RC=$? pattern preserves the real exit code;
+  # || true here would absorb failure RC — regression for the || true bug
+  # TEST_COORDINATOR_MACHINE allows callers to override the machine name (e.g. test 8).
+  STEP3_OUT=$(COORDINATOR_MACHINE="${TEST_COORDINATOR_MACHINE:-striker}" STEP3_SYNC_MAIN="$stub_path" "$BASH" "$STEP3" "$@" 2>&1) || STEP3_RC=$?
 
   rm -rf "$stub_bin"
 }
@@ -156,7 +171,9 @@ STUB
 # ---------------------------------------------------------------------------
 test_1_no_siblings_ahead() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Cut workstream branch and add a commit (now ahead of origin/main)
@@ -188,7 +205,9 @@ test_1_no_siblings_ahead() {
 # ---------------------------------------------------------------------------
 test_2_no_siblings_current() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Workstream branch at same SHA as origin/main (zero ahead)
@@ -229,7 +248,9 @@ test_2_no_siblings_current() {
 # ---------------------------------------------------------------------------
 test_3_sibling_non_conflicting() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Main workstream branch
@@ -237,10 +258,11 @@ test_3_sibling_non_conflicting() {
   git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
   _add_commit "main-branch-commit" "file-main.txt"
 
-  # Sibling branch with non-conflicting commit (different file)
-  git checkout -b "work/striker/${TODAY}-2" >/dev/null 2>&1
+  # Sibling branch with non-conflicting commit (different file).
+  # Use SIBLING_BRANCH (span-form, covers today) — valid cs_parse_branch_span input.
+  git checkout -b "$SIBLING_BRANCH" >/dev/null 2>&1
   _add_commit "sibling-commit" "file-sibling.txt"
-  git push -u origin "work/striker/${TODAY}-2" >/dev/null 2>&1
+  git push -u origin "$SIBLING_BRANCH" >/dev/null 2>&1
 
   # Return to main workstream branch
   git checkout "work/striker/${TODAY}" >/dev/null 2>&1
@@ -265,7 +287,7 @@ test_3_sibling_non_conflicting() {
     rm -rf "$base"; return
   fi
   # Verify sibling is gone
-  if git -C "$WORK_DIR" branch --list "work/striker/${TODAY}-2" | grep -q "work/striker/${TODAY}-2"; then
+  if git -C "$WORK_DIR" branch --list "$SIBLING_BRANCH" | grep -q "$SIBLING_BRANCH"; then
     _fail "test3" "sibling branch was not deleted"
     rm -rf "$base"; return
   fi
@@ -278,7 +300,9 @@ test_3_sibling_non_conflicting() {
 # ---------------------------------------------------------------------------
 test_4_sibling_conflict() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Main workstream branch with a commit on conflict.txt
@@ -288,9 +312,10 @@ test_4_sibling_conflict() {
   git add conflict.txt
   git commit -m "main: conflict.txt version A" >/dev/null 2>&1
 
-  # Sibling: branch from the initial commit, write conflicting content
+  # Sibling: branch from the initial commit, write conflicting content.
+  # Use SIBLING_BRANCH (span-form, covers today) — valid cs_parse_branch_span input.
   git checkout main >/dev/null 2>&1
-  git checkout -b "work/striker/${TODAY}-2" >/dev/null 2>&1
+  git checkout -b "$SIBLING_BRANCH" >/dev/null 2>&1
   echo "sibling version" > conflict.txt
   git add conflict.txt
   git commit -m "sibling: conflict.txt version B" >/dev/null 2>&1
@@ -322,7 +347,9 @@ test_4_sibling_conflict() {
 # ---------------------------------------------------------------------------
 test_5_behind_origin_main() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Workstream branch cut at initial state
@@ -370,7 +397,9 @@ test_5_behind_origin_main() {
 # ---------------------------------------------------------------------------
 test_6_dry_run() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   # Workstream branch with a sibling and an ahead commit
@@ -378,7 +407,8 @@ test_6_dry_run() {
   git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
   _add_commit "ahead-commit" "ahead.txt"
 
-  git checkout -b "work/striker/${TODAY}-2" >/dev/null 2>&1
+  # Use SIBLING_BRANCH (span-form, covers today) — valid cs_parse_branch_span input.
+  git checkout -b "$SIBLING_BRANCH" >/dev/null 2>&1
   _add_commit "sibling-dry" "sibling-dry.txt"
   git checkout "work/striker/${TODAY}" >/dev/null 2>&1
 
@@ -422,7 +452,9 @@ test_6_dry_run() {
 # ---------------------------------------------------------------------------
 test_7_no_push() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
@@ -453,15 +485,18 @@ test_7_no_push() {
 # ---------------------------------------------------------------------------
 test_8_machine_lowercase() {
   local base
-  base=$(mktemp -d)
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
   git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
   git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
 
   # Force the machine name to an uppercase variant to confirm lowercase output
-  local rc8=0
-  STEP3_OUT=$(COORDINATOR_MACHINE="STRIKER" "$BASH" "$STEP3" --no-push 2>&1) || rc8=$?
+  # Review: code-reviewer (F5) — use _run_step3 wrapper so STEP3_SYNC_MAIN stub applies;
+  # direct invocation bypasses the wrapper and may hit real sync-main.sh.
+  TEST_COORDINATOR_MACHINE="STRIKER" _run_step3 --no-push
   cd "$WORK_DIR"
 
   if ! echo "$STEP3_OUT" | grep -q "machine: striker"; then
@@ -473,9 +508,47 @@ test_8_machine_lowercase() {
 }
 
 # ---------------------------------------------------------------------------
+# Test 9: PLUGIN_ROOT without lib → exit 5
+# ---------------------------------------------------------------------------
+# Review: code-reviewer (F12) — no test previously covered exit code 5 (lib missing).
+test_9_lib_missing() {
+  local fake_root
+  # Review: code-reviewer (F6) — route under TMPDIR_ROOT so cleanup trap handles on early failure.
+  # Use template form (portable BSD+GNU; -p flag is GNU-only).
+  fake_root=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
+  # Create a minimal bin dir so --help path discovery works, but no lib/
+  mkdir -p "${fake_root}/bin"
+
+  # Override PLUGIN_ROOT by invoking via a symlink in fake_root/bin so the script's
+  # own PLUGIN_ROOT resolution (dirname BASH_SOURCE[0]/..) lands on fake_root.
+  # Simpler: pass PLUGIN_ROOT via the script's own discovery — it uses dirname of its own path.
+  # We create a stub script that sources the real step3 with PLUGIN_ROOT overridden via env.
+  # Actually the script resolves PLUGIN_ROOT from BASH_SOURCE[0] — we can't override it via env.
+  # Easiest: symlink the script into fake_root/bin/ so PLUGIN_ROOT resolves to fake_root.
+  ln -s "$STEP3" "${fake_root}/bin/workday-complete-step3-consolidate.sh"
+
+  local rc9=0
+  local out9
+  out9=$("$BASH" "${fake_root}/bin/workday-complete-step3-consolidate.sh" --no-push 2>&1) || rc9=$?
+
+  rm -rf "$fake_root"
+
+  if [[ "$rc9" -ne 5 ]]; then
+    _fail "test9" "expected exit 5 (lib missing), got $rc9. Output: $out9"
+    return
+  fi
+  if ! echo "$out9" | grep -q "lib not found"; then
+    _fail "test9" "expected 'lib not found' diagnostic. Output: $out9"
+    return
+  fi
+  _pass "test9 (PLUGIN_ROOT without lib: exit 5)"
+}
+
+# ---------------------------------------------------------------------------
 # Run all tests
 # ---------------------------------------------------------------------------
-# We need a single shared TMPDIR_ROOT for the cleanup trap
+# Review: code-reviewer (F6) — TMPDIR_ROOT is the single root for all per-test dirs;
+# cleanup trap at top of file handles it on exit (including early failure).
 TMPDIR_ROOT=$(mktemp -d)
 
 echo "Running workday-complete-step3-consolidate smoke tests..."
@@ -489,6 +562,7 @@ test_5_behind_origin_main
 test_6_dry_run
 test_7_no_push
 test_8_machine_lowercase
+test_9_lib_missing
 
 echo ""
 echo "Results: ${PASS} PASS / ${FAIL} FAIL"

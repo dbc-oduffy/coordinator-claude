@@ -18,6 +18,9 @@
 #   9. Schema version bump tripwire — canonical-structure.yaml change without
 #      coordinator-schema-version bump (warn-only; delegates to
 #      bin/check-schema-version-bump.sh)
+#  10. Windows-python shebang flip tripwire — coordinator/bin/ protected-class
+#      scripts must not carry #!/usr/bin/env python3 (warn-only; delegates to
+#      bin/check-windows-python-shebang.sh)
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
@@ -461,8 +464,32 @@ if [[ -f "$BUMP_CHECK_SCRIPT" ]]; then
   # BUMP_EXIT 2 = script error (not a git repo, etc.) — silently skip
 fi
 
+# --- Check 10: Windows-python shebang flip tripwire ---
+# No coordinator/bin/ polyglot or .test.py script may carry a #!/usr/bin/env python3
+# shebang — that shebang flip breaks Windows compat. Delegates to
+# bin/check-windows-python-shebang.sh --staged (warn-only).
+#
+# Doctrine: docs/wiki/cross-platform-shell-portability.md § sh/python trampoline.
+# Greppable token: WINDOWS-PYTHON-SHEBANG.
+
+SHEBANG_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-windows-python-shebang.sh"
+if [[ ! -f "$SHEBANG_CHECK_SCRIPT" ]]; then
+  SHEBANG_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-windows-python-shebang.sh"
+fi
+
+if [[ -f "$SHEBANG_CHECK_SCRIPT" ]]; then
+  SHEBANG_OUT="$(bash "$SHEBANG_CHECK_SCRIPT" --staged 2>/dev/null)"
+  SHEBANG_EXIT=$?
+  if [[ $SHEBANG_EXIT -eq 1 ]]; then
+    WARNINGS="${WARNINGS}\nWINDOWS-PYTHON-SHEBANG-TRIPWIRE:\n${SHEBANG_OUT}"
+  fi
+  # SHEBANG_EXIT 0 = OK; 1 = violation (warned above); any other non-zero =
+  # infrastructure error (script not in a git repo, etc.) — silently skip,
+  # mirroring Check 9's BUMP_EXIT 2 treatment.
+fi
+
 # --- Single warn-only flush ---
-# Every warn-only check (1-9) appends to WARNINGS above. This is the single sink
+# Every warn-only check (1-10) appends to WARNINGS above. This is the single sink
 # that surfaces them; the early-exit hard/strict blocks each printed WARNINGS
 # themselves before denying. Flushing here (not before Checks 8/9) is what fixes
 # the previously-dropped frontmatter + schema-bump warnings.
