@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """
-Check that plugin names in documentation stay in sync with setup/install.sh::PLUGIN_REGISTRY.
+Check that plugin names in documentation stay in sync with the marketplace registry
+(.claude-plugin/marketplace.json).
 
 What this checks:
-  - Parses PLUGIN_REGISTRY from setup/install.sh (anchor on opener, not line numbers).
+  - Reads the plugin list from .claude-plugin/marketplace.json (the flat-layout source of
+    truth; the legacy setup/install.sh::PLUGIN_REGISTRY no longer ships).
   - Verifies docs/agent-install.md fenced-code-block + --plugins + table-row contexts
-    mention exactly the default-on set and no ghost plugins.
-  - Verifies docs/safety.md "Default-on plugins copied:" enumeration matches PLUGIN_REGISTRY.
+    mention the default-on set and no ghost plugins.
+  - Verifies docs/safety.md "Default-on plugins copied:" enumeration matches the default-on set.
   - Verifies README.md fenced code blocks and table rows reference no ghost plugin names.
+
+Note: marketplace.json carries plugin names + sources but no install-default state, so the
+documented recommended set (coordinator + deep-research, per the agent-install.md tier table)
+is encoded below as DEFAULT_ON.
 
 What this does NOT check:
   - Prose references to plugin names outside explicit enumeration contexts — common-English
@@ -20,9 +26,16 @@ Spec backlink: docs/plans/2026-05-08-coordinator-claude-feedback-resolution.md �
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
+
+
+# Documented recommended ("default-on") set — coordinator (core) + deep-research
+# (recommended), per the agent-install.md tier table. marketplace.json does not
+# carry an install-default state, so it is encoded here.
+DEFAULT_ON = {"coordinator", "deep-research"}
 
 
 # ---------------------------------------------------------------------------
@@ -35,73 +48,51 @@ def find_repo_root() -> Path:
     for _ in range(6):
         if (candidate / ".claude-plugin" / "marketplace.json").exists():
             return candidate
-        if (candidate / "setup" / "install.sh").exists():
-            return candidate
         candidate = candidate.parent
     raise FileNotFoundError(
-        "Could not find repo root (looked for .claude-plugin/marketplace.json or setup/install.sh up to 6 levels up)"
+        "Could not find repo root (looked for .claude-plugin/marketplace.json up to 6 levels up)"
     )
 
 
 # ---------------------------------------------------------------------------
-# PLUGIN_REGISTRY parser
+# Marketplace registry parser
 # ---------------------------------------------------------------------------
 
-def parse_plugin_registry(install_sh: Path) -> dict[str, dict]:
+def parse_marketplace(marketplace_json: Path) -> dict[str, dict]:
     """
-    Parse PLUGIN_REGISTRY from setup/install.sh.
+    Read the plugin list from .claude-plugin/marketplace.json (the flat-layout
+    source of truth; setup/install.sh::PLUGIN_REGISTRY no longer ships).
 
-    Anchors on the literal `PLUGIN_REGISTRY=(` opener and reads until the
-    matching closing `)` — deliberately avoids line numbers, which drift.
+    The manifest carries name + source but no install-default state, so the
+    documented recommended set (DEFAULT_ON) decides each plugin's "default" value.
 
-    Returns: {name: {"default": "on"|"off"|"optional", "source": "local"|"npm"|"github"}}
+    Returns: {name: {"default": "on"|"optional", "source": <relative path>}}
 
-    Fails loudly if the registry block cannot be found or a row cannot be parsed.
+    Fails loudly if the manifest cannot be parsed or carries no plugins.
     """
-    text = install_sh.read_text(encoding="utf-8")
-
-    # Find the PLUGIN_REGISTRY block
-    start_match = re.search(r'^PLUGIN_REGISTRY=\($', text, re.MULTILINE)
-    if not start_match:
-        _fail(f"Could not find PLUGIN_REGISTRY=( opener in {install_sh}")
-
-    block_start = start_match.end()
-    # Find matching closing paren on its own line
-    end_match = re.search(r'^\)', text[block_start:], re.MULTILINE)
-    if not end_match:
-        _fail(f"Could not find closing ) for PLUGIN_REGISTRY in {install_sh}")
-
-    block = text[block_start : block_start + end_match.start()]
-
-    # Each row: "name|default|source_kind|description"
-    # Tolerates leading/trailing whitespace and quote characters around the row.
-    row_pattern = re.compile(
-        r'^\s*["\']?'
-        r'([a-z0-9_-]+)'       # name
-        r'\|'
-        r'(on|off|optional)'   # default state
-        r'\|'
-        r'(local|npm|github)'  # source kind
-        r'\|'
-        r'[^"\']*'             # description (ignored)
-        r'["\']?\s*$',
-        re.MULTILINE,
-    )
+    try:
+        data = json.loads(marketplace_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        _fail(f"Could not read/parse {marketplace_json}: {exc}")
 
     plugins: dict[str, dict] = {}
-    for row_match in row_pattern.finditer(block):
-        name, default, source = row_match.group(1), row_match.group(2), row_match.group(3)
-        plugins[name] = {"default": default, "source": source}
+    for entry in data.get("plugins", []):
+        name = entry.get("name")
+        if not name:
+            continue
+        plugins[name] = {
+            "default": "on" if name in DEFAULT_ON else "optional",
+            "source": entry.get("source", ""),
+        }
 
     if not plugins:
         _fail(
-            f"PLUGIN_REGISTRY block found but no rows parsed — registry shape may have changed.\n"
-            f"Block content:\n{block}"
+            f"marketplace.json found but no plugins parsed — manifest shape may have changed: {marketplace_json}"
         )
 
     # Sanity: coordinator must always be present
     if "coordinator" not in plugins:
-        _fail("PLUGIN_REGISTRY parsed but 'coordinator' row not found — something is wrong.")
+        _fail("marketplace.json parsed but 'coordinator' not found — something is wrong.")
 
     return plugins
 
@@ -159,24 +150,29 @@ def check_agent_install(path: Path, plugins: dict[str, dict], errors: list[str])
     all_names = set(plugins.keys())
     default_on = {n for n, m in plugins.items() if m["default"] == "on"}
 
+    # Coverage uses ALL enumeration contexts (fenced code, --plugins lines, table rows).
     enum_lines = (
         _extract_fenced_code_blocks(text)
         + _extract_plugins_flag_lines(text)
         + _extract_table_rows(text)
     )
-
     found_names = _plugin_names_in_text(enum_lines, all_names)
 
-    # Ghost check: any name found that isn't in the registry?
-    # (We only know the registry names, so ghosts would be unexpected strings —
-    #  but we can cross-check against a hardcoded prior ghost list.)
+    # Ghost check fires ONLY in actual install-command contexts (fenced code +
+    # --plugins lines) — NOT descriptive table rows. A tier table that names an
+    # excluded plugin ("specialized — not part of this install: holodeck") is correct
+    # guidance, not a ghost; the hazard is a ghost in a real `claude plugin install` /
+    # `--plugins` invocation, which these contexts catch.
+    install_context_lines = (
+        _extract_fenced_code_blocks(text) + _extract_plugins_flag_lines(text)
+    )
     known_ghosts = {"remember", "holodeck", "holodeck-control", "holodeck-docs"}
-    ghost_text = "\n".join(enum_lines)
+    ghost_text = "\n".join(install_context_lines)
     for ghost in known_ghosts:
         if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', ghost_text):
             errors.append(
-                f"{path}: ghost plugin '{ghost}' found in enumeration context "
-                f"(fenced code / --plugins line / table row) but '{ghost}' is not in PLUGIN_REGISTRY."
+                f"{path}: ghost plugin '{ghost}' found in an install-command context "
+                f"(fenced code / --plugins line) but '{ghost}' is not in the marketplace registry."
             )
 
     # Coverage check: all default-on plugins should appear in enumeration contexts
@@ -244,15 +240,17 @@ def check_readme(path: Path, plugins: dict[str, dict], errors: list[str]) -> Non
     text = path.read_text(encoding="utf-8")
     all_names = set(plugins.keys())
 
-    enum_lines = _extract_fenced_code_blocks(text) + _extract_table_rows(text)
-    ghost_text = "\n".join(enum_lines)
+    # Ghost check fires only in fenced install-command blocks — NOT table rows or prose,
+    # which legitimately name excluded/external plugins (e.g. an "other plugins worth
+    # knowing" list linking clangd-lsp, or a tier table naming holodeck as excluded).
+    ghost_text = "\n".join(_extract_fenced_code_blocks(text))
 
     known_ghosts = {"remember", "holodeck", "holodeck-control", "holodeck-docs"}
     for ghost in known_ghosts:
         if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', ghost_text):
             errors.append(
-                f"{path}: ghost plugin '{ghost}' found in fenced-code or table-row context "
-                f"but '{ghost}' is not in PLUGIN_REGISTRY."
+                f"{path}: ghost plugin '{ghost}' found in a fenced install-command block "
+                f"but '{ghost}' is not in the marketplace registry."
             )
 
     # Also verify that names appearing in explicit table rows are valid registry names
@@ -278,7 +276,7 @@ def _fail(msg: str) -> None:
 
 
 def _print_registry(plugins: dict[str, dict]) -> None:
-    print("PLUGIN_REGISTRY (parsed from setup/install.sh):")
+    print("Plugins (parsed from .claude-plugin/marketplace.json):")
     for name, meta in sorted(plugins.items()):
         print(f"  {name:20s}  default={meta['default']:8s}  source={meta['source']}")
 
@@ -294,21 +292,18 @@ def main() -> int:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    # Flat layout: install.sh lives under coordinator/dist/publish-repo-setup/
-    install_sh = repo_root / "coordinator" / "dist" / "publish-repo-setup" / "install.sh"
-    if not install_sh.exists():
-        install_sh = repo_root / "setup" / "install.sh"  # legacy layout fallback
+    marketplace_json = repo_root / ".claude-plugin" / "marketplace.json"
     agent_install = repo_root / "docs" / "agent-install.md"
     safety_md = repo_root / "docs" / "safety.md"
     readme = repo_root / "README.md"
 
-    # Parse registry
+    # Parse registry from the marketplace manifest
     try:
-        plugins = parse_plugin_registry(install_sh)
+        plugins = parse_marketplace(marketplace_json)
     except SystemExit:
         raise
     except Exception as exc:
-        print(f"ERROR parsing PLUGIN_REGISTRY: {exc}", file=sys.stderr)
+        print(f"ERROR parsing marketplace.json: {exc}", file=sys.stderr)
         return 2
 
     _print_registry(plugins)
@@ -316,13 +311,18 @@ def main() -> int:
 
     errors: list[str] = []
 
-    for path, checker in [
-        (agent_install, check_agent_install),
-        (safety_md, check_safety_md),
-        (readme, check_readme),
+    # (path, checker, required) — safety.md is optional (not present in the flat
+    # marketplace layout); a missing optional file is skipped, not an error.
+    for path, checker, required in [
+        (agent_install, check_agent_install, True),
+        (safety_md, check_safety_md, False),
+        (readme, check_readme, True),
     ]:
         if not path.exists():
-            errors.append(f"Expected file not found: {path}")
+            if required:
+                errors.append(f"Expected file not found: {path}")
+            else:
+                print(f"(skipped — optional file absent: {path.name})")
             continue
         checker(path, plugins, errors)
 
