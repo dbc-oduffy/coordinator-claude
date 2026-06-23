@@ -68,8 +68,11 @@ kind: problem-set
 
 ## Problems
 
-- **P1 — <short name>.** <The problem, stated falsifiably. What's wrong / missing / needed and why.>
-- **P2 — …**
+1. **<short name>.** <The problem, stated falsifiably. What's wrong / missing / needed and why.>
+2. …
+
+<!-- Numbering is plain enumeration, NOT prioritization. Do not use a `P<n>` prefix — it collides with the P0/P1/P2 priority convention; these are unordered problem statements, not ranked ones. -->
+
 
 ## Out of scope (architectural reasons)
 

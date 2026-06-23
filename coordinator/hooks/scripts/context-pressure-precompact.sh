@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreCompact sentinel + state serialization.
 # Output is IGNORED by Claude Code for PreCompact events.
 # State is bridged to context via context-pressure-advisory.sh (PostToolUse).

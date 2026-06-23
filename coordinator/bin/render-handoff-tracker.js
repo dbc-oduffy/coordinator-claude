@@ -416,7 +416,14 @@ function renderRepoSection(root) {
     where: null, // we'll filter manually to avoid requiring parseWhereExpr here
   };
   const allMemos = queryRecords(memoOptsResolved, root);
-  const openMemos = allMemos.filter(r => r.frontmatter && r.frontmatter.status === 'open');
+  // Include in_progress (claimed-at-pickup) memos alongside open ones — a claimed memo is
+  // being handled, not free, but it must still appear on the status board with its state
+  // (the Status column shows open vs in_progress). Excluding it would make the tracker
+  // under-report the same way an unsurfaced in_progress memo makes the inbox look free.
+  // Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C4
+  // NOTE: these status values mirror the cross-repo-memo schema enum
+  // (schemas/cross-repo-memo.yaml `status.values`) — keep in lockstep if the enum changes.
+  const openMemos = allMemos.filter(r => r.frontmatter && (r.frontmatter.status === 'open' || r.frontmatter.status === 'in_progress'));
 
   // --- Render Handoffs table ---
   const handoffHeaders = ['File', 'Created', 'State', 'Category', 'Summary', 'Workstream-Seq'];

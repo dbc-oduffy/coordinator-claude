@@ -27,19 +27,19 @@ You don't install this — your agent does. Open Claude Code in any project and 
 ```
 Install coordinator-claude. The playbook is at
 https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/agent-install.md
-— read it, follow it, and queue /repo-setup as the immediate next step
-after I restart Claude Code.
+— read it, follow it, and queue /coordinator:repo-setup as the immediate
+next step after I restart Claude Code.
 ```
 
-Claude clones the repo, runs the installer, validates the result, and tells you when to restart. After restart, `/repo-setup` bootstraps tracking infrastructure in your project.
+Claude clones the repo, installs the plugins with the native `claude plugin` CLI (`claude plugin marketplace add dbc-oduffy/coordinator-claude` then `claude plugin install coordinator@coordinator-claude`), and tells you when to restart. (The marketplace is the public GitHub repo, not your clone, so the install lives entirely under `~/.claude` — delete or move the clone afterward and the plugins keep working.) After restart, `/coordinator:install` finishes the environment wiring and `/coordinator:repo-setup` bootstraps tracking infrastructure in your project.
 
-**Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the installer changes, what it does not do, audit commands, and exact uninstall steps.
+**Auditing & uninstall** → [`docs/safety.md`](docs/safety.md) — what the install changes, what it does not do, audit commands, and exact uninstall steps.
 
 ## Compatibility
 
 | coordinator-claude | Claude Code | OS tested | Notes |
 |--------------------|-------------|-----------|-------|
-| v2.0.0 | tested with Claude Code 2026-05-07 release; minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Reference: `setup/install.sh`. **Requires bash 4.3+** — the scripts use associative arrays (4.0+) and `coordinator-safe-commit` uses `local -n` namerefs (4.3+). macOS ships bash 3.2 as `/bin/bash`, so Mac users install [Homebrew](https://brew.sh), `brew install bash`, and run the installer with it (`"$(brew --prefix)/bin/bash" setup/install.sh`); the installer fails fast with this guidance if run under 4.3. Linux/WSL/Git Bash ship bash 4.3+. v2.0.0 has breaking changes — see [CHANGELOG](CHANGELOG.md#200--2026-05-07). |
+| v2.x | tested with Claude Code 2.1.186 (native `claude plugin` CLI install); minimum version not formally established | macOS, Linux, WSL, Windows (Git Bash) | Install: `claude plugin marketplace add dbc-oduffy/coordinator-claude` + `claude plugin install coordinator@coordinator-claude`, then `/coordinator:install` after restart. **Requires bash 4.3+** — coordinator's scripts use associative arrays (4.0+) and `coordinator-safe-commit` uses `local -n` namerefs (4.3+). macOS ships bash 3.2 as `/bin/bash`, so Mac users install [Homebrew](https://brew.sh) and `brew install bash` (put it first on PATH); `/coordinator:install` fails fast with this guidance under 4.3. Linux/WSL/Git Bash ship bash 4.3+. Windows: install a real `python3` (the Store App-Execution-Alias stub breaks it) — see [docs/agent-install.md](docs/agent-install.md) Prerequisites. |
 
 ## How a Session Works
 
@@ -78,7 +78,7 @@ That's it for daily use. Everything else — delegation, review routing, doc mai
 
 Don't memorize commands; learn five flows. Most of what the system does, you'll touch through one of these.
 
-**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **the VP-Product Reviewer** (`coordinator:vp-product`) — scope challenger, naming optional via [`setup/name-personas.sh`](setup/name-personas.sh) — stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
+**Flow 1 — Build a feature.** You describe intent → Claude enters plan mode and proposes acceptance criteria + scope mode → you review and approve → Claude delegates implementation → reviewers (domain expert first, generalist second) check the artifact with fix gates between → for user-visible work or patches that smell like they should be refactors, **the VP-Product Reviewer** (`coordinator:vp-product`) — scope challenger, naming optional via `/coordinator:install` Phase 6 — stress-tests the choice → `/merging-to-main` produces a ship verdict and you decide.
 
 **Flow 2 — Fix a bug.** Reproduction first (don't trust the report) → root cause via the [systematic-debugging guide](docs/wiki/systematic-debugging.md) → scoped fix in production-patch mode (minimal diff, no opportunistic refactors) → regression check → reviewer → merge. For codebase-wide grinds, `/bug-blitz` autonomously works through the bug backlog with EM-serial commits at each wave gate.
 
@@ -161,9 +161,9 @@ The one role we don't have deeply embedded in workflows: **designer.** Meatspace
 
 **6-layer project knowledge.** Structure, architecture, activity, temporal, intent, state — none bulk-loaded. A tiered context model loads a ~60-line orientation cache at L1, pulls detailed artifacts on demand at L2, and reserves L3 for deep storage read by subagents. An 11-phase maintenance pipeline fights doc staleness automatically.
 
-**Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the bundled [deep-research](plugins/deep-research/) pipelines (internet, repo, structured, NotebookLM).
+**Agent Teams for planning.** Claude Code's [Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams) enables multiple Claude sessions that communicate and coordinate. This system uses it for multi-perspective planning: persona-based debaters form independent positions, challenge each other, and a synthesizer cross-references into consensus. Also powers the bundled [deep-research](deep-research/) pipelines (internet, repo, structured, NotebookLM).
 
-**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI integration is available as an opt-in add-on (`setup/install.sh --enable-codex` plus the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin) for a second-opinion channel and independent implementation path; default installs omit it.
+**Cross-model delegation.** Haiku for mechanical checks, Sonnet for most execution, Opus for judgment and synthesis. Codex CLI integration is available as an opt-in add-on (enable it in `/coordinator:install` Phase 6, plus the external [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin) for a second-opinion channel and independent implementation path; default installs omit it.
 
 See [docs/architecture.md](docs/architecture.md) for the full model. For the testable claims — what each agent role promises and which hook or script enforces each promise — see [docs/contracts.md](docs/contracts.md). For broader context, the [novelty research](docs/research/2026-03-20-agent-orchestration-novelty-unified.md) assesses all patterns against published prior art.
 
@@ -177,17 +177,17 @@ For evidence — what was actually built under this workflow, alongside the cont
 
 | Plugin | Purpose | When to Enable |
 |--------|---------|----------------|
-| **[coordinator](plugins/coordinator/)** | Core orchestration, reviewers, all workflow skills | Always |
-| **[deep-research](plugins/deep-research/)** | Multi-agent research pipelines — internet (A), repo (B), structured (C) | Any project that needs grounded research |
-| **[notebooklm](plugins/deep-research/notebooklm/)** | NotebookLM-backed research pipeline (D) — YouTube, podcasts, audio sources | When you need media Claude can't read directly |
-| **[web-dev](plugins/web-dev/)** | Front-end architecture review + UX flow review | Web projects |
-| **[data-science](plugins/data-science/)** | ML, statistics, data modeling review | ML/data work |
+| **[coordinator](coordinator/)** | Core orchestration, reviewers, all workflow skills | Always |
+| **[deep-research](deep-research/)** | Multi-agent research pipelines — internet (A), repo (B), structured (C) | Any project that needs grounded research |
+| **[notebooklm](deep-research/notebooklm/)** | NotebookLM-backed research pipeline (D) — YouTube, podcasts, audio sources | When you need media Claude can't read directly |
+| **[web-dev](web-dev/)** | Front-end architecture review + UX flow review | Web projects |
+| **[data-science](data-science/)** | ML, statistics, data modeling review | ML/data work |
 
 The coordinator plugin is always enabled. Domain plugins are toggled per-project via `.claude/coordinator.local.md`.
 
 ## Customization
 
-- **Name your reviewers (optional).** Role labels ship as the default — `bash setup/name-personas.sh "the Staff Engineer" "Alex" "the Director of Engineering" "Jordan"` binds chosen names to role labels across all plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
+- **Name your reviewers (optional).** Role labels ship as the default — bind chosen names to role labels in `/coordinator:install` Phase 6 (Persona Customization), or hand-edit them across the plugin files. See the role table in [docs/customization.md](docs/customization.md) for all seven roles and their slugs.
 - **Create your own domain reviewer.** The shipped domain plugins are the reference pattern: web-dev ships a Front-end Reviewer and a UX Reviewer, data-science ships a Data Science Reviewer (ML/statistics). Each is a self-contained plugin with an agent prompt, a `CLAUDE.md`, and a `.claude-plugin/plugin.json` — copy any of them as a starting point for your own specialization.
 - **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
 
@@ -205,22 +205,21 @@ All are optional. Coordinator works without them; relevant features degrade grac
 <summary><strong>Directory structure</strong></summary>
 
 ```
-coordinator-claude/
-├── plugins/
-│   ├── coordinator/            # Core orchestration (always enabled)
-│   │   ├── .claude-plugin/plugin.json
-│   │   ├── agents/             # 18 — enricher, executor, docs-checker, reviewers, eng-director, vp-product, reviewer-routed workers
-│   │   ├── commands/           # 12 workflow commands (hook/ceremony auto-runners)
-│   │   ├── hooks/              # context pressure, orientation, commit validation, tier-usage telemetry
-│   │   ├── pipelines/          # staff-session team protocol + prompt templates
-│   │   └── skills/             # 29 skills (planning, review, debugging, TDD, etc.)
-│   ├── deep-research/          # Pipelines A/B/C + 6 research agents
-│   │   └── notebooklm/         # Pipeline D (media research via NotebookLM)
-│   ├── web-dev/                # Front-end + UX flow reviewers
-│   └── data-science/           # ML, statistics reviewer (the Data Science Reviewer)
-├── docs/                       # Architecture, customization, research
-├── setup/                      # Installer
-└── assets/                     # Social preview
+coordinator-claude/                # flat Claude Code marketplace (plugins at repo root)
+├── .claude-plugin/marketplace.json # marketplace manifest (auto-discovery)
+├── coordinator/                   # Core orchestration (always enabled)
+│   ├── .claude-plugin/plugin.json
+│   ├── agents/                    # 18 — enricher, executor, docs-checker, reviewers, eng-director, vp-product, reviewer-routed workers
+│   ├── commands/                  # workflow commands (hook/ceremony auto-runners)
+│   ├── hooks/                     # context pressure, orientation, commit validation, tier-usage telemetry
+│   ├── pipelines/                 # staff-session team protocol + prompt templates
+│   └── skills/                    # planning, review, debugging, TDD, etc.
+├── deep-research/                 # Pipelines A/B/C + 6 research agents
+│   └── notebooklm/                # Pipeline D (media research via NotebookLM)
+├── web-dev/                       # Front-end + UX flow reviewers
+├── data-science/                  # ML, statistics reviewer (the Data Science Reviewer)
+├── docs/                          # Architecture, customization, install playbook, research
+└── assets/                        # Social preview
 ```
 
 </details>
@@ -232,10 +231,10 @@ coordinator-claude/
 - Check `enabledPlugins` in `~/.claude/settings.json` — must be `true`
 - Check `~/.claude/plugins/installed_plugins.json` — must have entry with correct `installPath`
 - Restart Claude Code (changes take effect on next session)
-- The installer (`setup/install.sh`) manages all config files automatically
+- `/coordinator:install` (run after restart) manages all config files automatically
 
 **Plugin cache not syncing after editing source:**
-- Claude Code caches plugins by version. Run `bash setup/dev-sync.sh` to sync.
+- Claude Code caches plugins by version. Re-run `claude plugin install coordinator@coordinator-claude` to pick up a newer published version; contributors editing plugin source locally, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Per-project plugin selection:**
 - Create `.claude/coordinator.local.md` with `project_type` field

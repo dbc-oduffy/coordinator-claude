@@ -235,6 +235,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-windows-console-popup.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Agent",
         "hooks": [
           {
@@ -346,7 +356,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-python3-shebang-flip.sh",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-bin-polyglot-break.sh",
             "timeout": 5
           }
         ]
@@ -357,6 +367,16 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-improvement-queue-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-windows-subprocess-popup.sh",
             "timeout": 5
           }
         ]
@@ -391,7 +411,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.sh",
-            "timeout": 5
+            "timeout": 15
           }
         ]
       },

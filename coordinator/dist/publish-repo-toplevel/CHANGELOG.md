@@ -4,7 +4,18 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [2.9.0] — 2026-06-22
+
 ### Breaking changes
+
+**`/coordinator:setup` is now the install-chain walker only — repo scaffolding moves to `/coordinator:repo-setup` (2026-06-22).** The scaffolding command (`commands/setup.md`) was a redundant wrapper over `/coordinator:repo-setup` (which already does single-repo *and* `--batch` fleet via the same orchestrator) and collided with the ecosystem-wide `/<repo>:setup` install-chain-walker convention. It has been retired. Migration:
+
+| Old verb | New verb |
+|---|---|
+| `/coordinator:setup` (scaffold a repo) | `/coordinator:repo-setup` |
+| `/coordinator:setup --batch` (fleet) | `/coordinator:repo-setup --batch` |
+
+`/coordinator:setup` now unambiguously runs the install-chain walker (the `setup_skill` named in `docs/install/agent-install-manifest.json`). See `docs/plans/2026-06-22-oss-install-flat-layout-cli-primary-migration.md`.
 
 `/project-onboarding` and `/bootstrap-repos` consolidated into single `/repo-setup` command (2026-06-08). Migration:
 
@@ -14,6 +25,48 @@ All notable changes to coordinator-claude are documented here.
 | `/bootstrap-repos` | `/repo-setup --batch` |
 
 Rationale: new-project setup is infrequent enough that muscle-memory cost is low. Single consolidated surface eliminates the "which verb do I invoke when" decision the prior dual-surface architecture imposed on every setup site. See `docs/plans/2026-06-08-repo-setup-consolidation.md` (and the Decision-#0 reversal of 2026-05-30 in that plan) for the full architectural rationale.
+
+### Added
+
+- **`/coordinator:new-project` — one-command greenfield repo creation.** Creates the directory, `git init`s, scaffolds a vendored stack template (`next-app` = Next/React/TS/Tailwind/Vitest shell, or `empty`), delegates coordinator onboarding to `/coordinator:repo-setup`, and offers an opt-in remote (never defaults to public, never creates a remote without an explicit choice). Sibling of `repo-setup`: **create-new** (`new-project`, from any cwd) vs **onboard-existing** (`repo-setup`, inside the folder). Promptable inputs with defaults (`--name`, `--parent`, `--template`, `--remote`).
+- **Three-state Claude-home install classifier.** `install.sh` now distinguishes a *pristine* `~/.claude` from a *used-vanilla* and an already-*configured* one, and adapts the install path to each instead of assuming a clean home.
+- **PowerShell 7 + Windows Terminal as default-on install prerequisites.** Windows operators are now provisioned a modern shell baseline by default.
+- **Distill cruft-sweep — two-layer filesystem hygiene.** Layer 1 `bin/cruft-sweep.sh` (mechanical) + Layer 2 `/cruft-sweep` (judgment + registry-diff), with an EM front-line self-clean at workstream-complete.
+- **Runtime tripwire** — a model-aware nudge that actuates the 15-minute executor ceiling, with an orphan-tail max-age cap.
+- **Partitioned code-review parallel-integrator fan-out** (`bin/fan-out-integrator.sh`) — integrator dispatches now run 1:1 with reviewer slices.
+- **Atlas attestation clock split** — a `last_attested:` schema field separates "when the doc was written" from "when its claims were last verified."
+- **Durable coordinator venv pin.** `ensure-coordinator-venv.sh` (idempotent create + seed + pin, build mutex, network-aware fail-loud) gives `coordinator_whoami` and the doctor a stable interpreter on a fresh machine.
+- **Windows console-flash suppression.** PreToolUse Bash/Write offer-hooks plus portable `creationflags` for subprocess spawns stop the console-window flash on Windows installs.
+
+### Changed
+
+- **Native `claude plugin` CLI is now the primary documented install path.** The agent-install flow drops `setup/install.sh` and the sentinel/baton staging in favour of the native CLI; solo post-restart routes to `/coordinator:install` (+ `/workday-start` for queued chain legs). Windows gains a `python3` App-Execution-Alias prereq. See `docs/plans/2026-06-22-oss-install-flat-layout-cli-primary-migration.md`.
+- **`/coordinator:repo-setup` produce-not-prescribe.** Repo-setup now emits minimum-viable downstream artifacts and installs `coordinator_whoami` self-sufficiently in Phase 1, rather than prescribing files the consumer must hand-author.
+- **DR-148 bash baseline.** Every shipped `.sh`/hook now targets bash ≥ 4 + BSD coreutils; stock macOS bash 3.2 is unsupported as an execution target (fail-loud guard with brew remediation). `coordinator:install` provisions brew bash.
+- **`tasks/` vs `state/` folder split.** Load-bearing session substrate lives under `state/` (never swept); ephemera under `tasks/` (swept aggressively by `/distill` and `/update-docs`). A tripwire blocks writing a load-bearing surface under `tasks/`.
+- **Acceptance-oracle parser grammar-first rewrite**, with backtick-tolerance for typed prefixes; `plan-coverage-checker` Lens 4 retired.
+- **Percolate-hardening** — content-aware copy gate, source-authoritative `plugin.json`, and a `publish.sh` version-regression gate.
+- **Executor flight-recorder sidecars** — plan bodies are now mechanically immutable to executors; status writes go through a sidecar.
+- **Background-by-default `Agent` dispatch is now enforced.** Foreground dispatch is hard-blocked by a PreToolUse hook (with `COORDINATOR_AGENT_FOREGROUND_OK=1` escape), reconciled with param-less Agent harnesses via a capability-probe gate.
+- **Review-integrator emits a bulk-dispositions block** (with optional Rationale prose) instead of per-finding inline annotations.
+- **Cross-machine portability for Claude-home settings** — a settings union + per-machine overrides driven by a `platform-localize` hook.
+- **`#!/bin/bash` → `#!/usr/bin/env bash`** normalized across 82 scripts.
+- **`/update-docs` doc-link check** renumbered from Phase 11e to Phase 12 (EM-led); DoE handoff-tracker refresh wired into `/workday-start`.
+
+### Fixed
+
+- **Exec-bit install-surface completion (DR-151).** The exec-bit invariant gate was widened to every shebanged tracked file (the 2.8.1 fix covered the 168 hook/bin scripts); OSS publish parity restored.
+- **Personal-data leak scrub** across the `coordinator-claude` publish surface, plus a cross-repo audit; `cross-repo-memo` and `publish.sh` made macOS-portable.
+- **`known_marketplaces.json` schema invariant** (`lastUpdated` now required) — `platform-localize.sh` writes and backfills it, with a regression test.
+- **Runtime-tripwire EM-side false positive** firing on already-completed agents.
+- **`mktemp` concurrency collision on BSD/macOS** (predictable suffix when `X` is not template-terminal) in the snapshot emitter.
+- **snippet-sync** now fails loud when a canonical body extracts empty, and restored missing sentinels in the docs-checker / prior-art-check canonicals.
+
+### Removed
+
+- **`/coordinator:setup` scaffolding behavior** — folded into `/coordinator:repo-setup` (see Breaking changes).
+- **`plan-coverage-checker` Lens 4.**
+- **`dep-cve-auditor` marker ceremony** — folded into the change-aware `/workweek-complete` cadence.
 
 ## [2.8.1] — 2026-06-01
 

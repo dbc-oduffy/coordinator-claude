@@ -1,0 +1,8 @@
+# Single-package repo. This file exists only to carry pnpm 11 settings —
+# pnpm moved build-script allowlisting out of package.json.
+# esbuild (pulled by vitest) links a platform-native binary in its
+# postinstall; sharp (pulled by next) builds its image codec. Without this
+# allowlist a clean `pnpm install` leaves them unbuilt and tsx/next fail.
+allowBuilds:
+  esbuild: true
+  sharp: true

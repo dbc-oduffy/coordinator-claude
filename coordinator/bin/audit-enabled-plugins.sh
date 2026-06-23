@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # audit-enabled-plugins.sh — drift-check this repo's enabledPlugins against project_type / stack_tags.
 #
 # Lesson source: state/lessons.md:302 (claude-central, 2026-05-14) — project-scoped

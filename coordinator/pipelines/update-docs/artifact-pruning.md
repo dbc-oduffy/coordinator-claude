@@ -8,6 +8,8 @@ version: 1.0.0
 
 > **Inlined by `/update-docs` Phase 8b.** Not invoked standalone — `/update-docs` is the only caller. Replaces the former `coordinator:artifact-consolidation` skill (absorbed 2026-05-06).
 
+> **This is age-archival, not knowledge-archival.** Two lifecycles wear the word "archive": **knowledge-archival** (`/distill` — trim a ripe plan to its canonical skeleton and move it to `archive/specs/YYYY-MM/` *after* extracting its knowledge into wiki/DR) and **age-archival** (this pipeline — time-thresholded janitorial pruning of aged, non-knowledge-bearing artifacts; no extraction). This pipeline owns the latter only. Boundary doctrine: `commands/distill.md` § Relationship to Other Commands; `docs/wiki/cruft-sweep-cadence.md`.
+
 > **Negative-spec — consumed markers:** This pipeline moves and deletes files. It does NOT write `<!-- consumed: YYYY-MM-DD -->` markers — that's `/pickup`'s exclusive responsibility. Active handoffs in `state/handoffs/` are outside this pipeline's scope; chain-aware archival of those is `pipelines/update-docs/handoff-archival.md`'s job (Phase 8), which runs immediately before this pipeline.
 
 ## When This Runs
@@ -18,8 +20,8 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 
 | Directory | What accumulates | Pruning rule |
 |-----------|-----------------|--------------|
-| `plans/` | Session plan files (`*.md`) | Delete plans older than 14 days with no open references |
-| `archive/handoffs/` | Consumed handoff files | Keep the 10 most recent; delete the rest |
+| `docs/plans/` | Session plan files (`*.md`) | Delete plans older than 14 days with no open references, subject to the ripeness-safety guard below. **Ordering hazard (mirror of the `cross-repo/archive/` 90d floor):** this 14d floor age-DELETES plans — it does not knowledge-archive them. If a plan is RIPE-but-unharvested (delivered, but `/distill` has not yet trimmed→archived it to `archive/specs/`), deleting it here loses the wiki/DR promotion (git history survives, but the extraction never runs). The floor MUST exceed the `/distill` cadence; if `/distill` runs less often than every 14d, raise this floor proportionally — same cadence-exceeds-floor anchor as the cross-repo memo row. Knowledge-archival is `/distill`'s job and runs upstream of this deletion. **Ripeness-safety guard:** a plan in `docs/plans/` is ONLY eligible for age-deletion when BOTH conditions hold: (a) its frontmatter `status:` is terminal-abandoned (`superseded`, `abandoned`, or `cancelled`) OR a trimmed copy already exists under `archive/specs/**` (i.e. `/distill` has already knowledge-archived it — see `commands/distill.md` § Relationship to Other Commands); AND (b) it is not referenced by any active handoff, task file, or `MEMORY.md` entry. NEVER age-delete a plan whose `status:` is `implemented`/`shipped` but which has no counterpart under `archive/specs/**` (ripe-unharvested — that extraction is `/distill`'s job, not this pipeline's). NEVER age-delete a plan with `status:` `draft`, `in-progress`, or `reviewed` (in-flight). When `status:` is absent or unrecognised, treat as in-flight (KEEP). |
+| `archive/handoffs/` | Consumed handoff files | Keep the 10 most recent by filename timestamp; delete the rest. **Month-subfolder transition:** files are migrating from flat `archive/handoffs/*.md` to month-subfolders `archive/handoffs/YYYY-MM/<file>.md` (matching the `archive/specs/YYYY-MM/` convention). Enumerate BOTH `archive/handoffs/*.md` AND `archive/handoffs/*/*.md` to cover files in either layout during the transition. Select the 10 most recent across the combined set; delete the rest individually (not `git rm -r`). |
 | `tasks/*/` | Feature task directories | Delete dirs where all `todo.md` items are `[x]` AND the feature branch is merged or deleted |
 | `state/handoffs/` | Active handoffs | **Out of scope** — `pipelines/update-docs/handoff-archival.md` (Phase 8) handles these |
 | `tasks/doc-link-check-*.md` | doc-link-checker reports from prior `/update-docs` runs | Keep the 3 most recent; delete the rest (PRUNE rule below) |
@@ -30,11 +32,12 @@ Every `/update-docs` invocation, after Phase 8 (handoff archival) completes. Con
 ### Step 1: Inventory
 
 1. **Count and classify:**
-   - **Plans (`plans/*.md`):**
-     - PRUNE if file is older than 14 days AND not referenced by any active handoff, task file, or `MEMORY.md` entry. Check references by grepping the filename across `state/handoffs/`, `tasks/`, and `MEMORY.md`.
+   - **Plans (`docs/plans/*.md`):**
+     - PRUNE if ALL of the following hold: (1) file is older than 14 days; (2) not referenced by any active handoff, task file, or `MEMORY.md` entry (grep the filename across `state/handoffs/`, `tasks/`, and `MEMORY.md`); AND (3) the ripeness-safety guard passes — `status:` is `superseded`/`abandoned`/`cancelled` OR a trimmed copy exists under `archive/specs/**`. Plans with `status:` `implemented`/`shipped` that have no `archive/specs/**` counterpart are ripe-but-unharvested (KEEP; `/distill`'s job). Plans with `status:` `draft`/`in-progress`/`reviewed` or absent/unrecognised are in-flight (KEEP).
      - KEEP otherwise.
-   - **Archived handoffs (`archive/handoffs/*.md`):**
-     - KEEP the 10 most recent by filename timestamp.
+   - **Archived handoffs (`archive/handoffs/*.md` and `archive/handoffs/*/*.md`):**
+     - Enumerate BOTH globs to cover flat files and month-subfoldered files during the ongoing migration to `archive/handoffs/YYYY-MM/` layout.
+     - KEEP the 10 most recent across the combined set by filename timestamp.
      - PRUNE the rest — they've been consumed and their context lives in successor handoffs.
    - **doc-link-checker reports (`tasks/doc-link-check-*.md`):**
      - KEEP the 3 most recent by filename timestamp.
@@ -64,8 +67,8 @@ This makes the entire prune operation revertible as a single `git revert`.
 ### Step 3: Delete
 
 Use `git rm` so deletions appear in git history:
-- Plans: `git rm plans/<file>`
-- Archived handoffs: `git rm archive/handoffs/<file>`
+- Plans: `git rm docs/plans/<file>`
+- Archived handoffs: `git rm archive/handoffs/<file>` or `git rm archive/handoffs/<YYYY-MM>/<file>` depending on layout — individual files, not `git rm -r`
 - doc-link-check reports: `git rm tasks/doc-link-check-<file>`
 - Feature task dirs: `git rm -r tasks/<feature>/`
 - Cross-repo archive memos: `git rm cross-repo/archive/<file>` (individual files, NOT `git rm -r cross-repo/archive/` — the directory and its README must survive)

@@ -99,9 +99,8 @@ extract_block() {
 
 SNIPPET_BODY="$(awk 'NR>2' "$SNIPPET_FILE")"
 
-normalize() {
-    printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
-}
+# shellcheck source=../lib/normalize-snippet.sh
+source "$SCRIPT_DIR/../lib/normalize-snippet.sh"
 
 SNIPPET_NORM="$(normalize "$SNIPPET_BODY")"
 

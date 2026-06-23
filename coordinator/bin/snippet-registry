@@ -151,13 +151,27 @@ for name, entry in snippets.items():
         # Escape pipe characters in path just in case (none expected, but be safe)
         print(f"CONSUMER={name}|{path}")
     for cond in entry.get("conditional_consumer", []):
-        for required in ("path", "condition_type", "condition_key"):
+        # path + condition_type are required on every conditional_consumer.
+        for required in ("path", "condition_type"):
             if required not in cond:
                 print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] missing required field '{required}'", file=sys.stderr)
                 sys.exit(1)
         cond_path = cond["path"]
         cond_type = cond["condition_type"]
-        cond_key  = cond["condition_key"]
+        # Per-condition_type field contract (DR F6 as amended 2026-06-19, schema v2).
+        if cond_type == "machine-local-key":
+            if "condition_key" not in cond:
+                print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] condition_type='machine-local-key' requires field 'condition_key'", file=sys.stderr)
+                sys.exit(1)
+            cond_key = cond["condition_key"]
+        elif cond_type == "file-exists":
+            if "condition_key" in cond:
+                print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] condition_type='file-exists' FORBIDS field 'condition_key' (paste-drift from a machine-local-key entry?)", file=sys.stderr)
+                sys.exit(1)
+            cond_key = ""
+        else:
+            print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] unknown condition_type '{cond_type}'", file=sys.stderr)
+            sys.exit(1)
         print(f"COND={name}|{cond_path}|{cond_type}|{cond_key}")
 PYEOF
 )
@@ -173,8 +187,9 @@ while IFS= read -r _line; do
     fi
 done <<< "$_PARSED_DATA"
 
-if [[ "$_SCHEMA_VERSION" != "1" ]]; then
-    echo "ERROR: snippet-registry: unknown schema_version (expected 1, got ${_SCHEMA_VERSION}). Update the CLI before reading this registry." >&2
+# Review: logic-slice L-F7 — Enumerated allowlist, not arithmetic — a non-integer version must also fail-loud.
+if [[ "$_SCHEMA_VERSION" != "1" && "$_SCHEMA_VERSION" != "2" ]]; then
+    echo "ERROR: snippet-registry: unknown schema_version (this CLI supports up to 2, got ${_SCHEMA_VERSION}). Update the CLI before reading this registry." >&2
     exit 3
 fi
 
@@ -231,15 +246,6 @@ while IFS= read -r _line; do
 done <<< "$_PARSED_DATA"
 
 # ---------------------------------------------------------------------------
-# Resolve a consumer path to a filesystem path.
-# For unconditional consumers: relative to PLUGIN_ROOT.
-# ---------------------------------------------------------------------------
-_resolve_consumer_path() {
-    local raw_path="$1"
-    echo "$PLUGIN_ROOT/$raw_path"
-}
-
-# ---------------------------------------------------------------------------
 # Emit sorted unconditional consumers for a snippet, then conditional ones.
 # F5 ordering rule:
 #   1. PLUGIN_ROOT-relative paths (no leading "../"), sorted alpha.
@@ -286,6 +292,16 @@ _emit_consumers_for_snippet() {
             local _rest2="${cond_entry#*|}"
             cond_type="${_rest2%%|*}"
             cond_key="${_rest2#*|}"
+
+            if [[ "$cond_type" == "file-exists" ]]; then
+                # path is relative to $PLUGIN_ROOT (live-install tree). Emit iff the file
+                # exists — graceful skip when the sibling marketplace is not installed.
+                local fe_path="$PLUGIN_ROOT/$cond_path"
+                if [[ -f "$fe_path" ]]; then
+                    echo "$fe_path"
+                fi
+                continue
+            fi
 
             if [[ "$cond_type" != "machine-local-key" ]]; then
                 echo "NOTE: snippet-registry: unknown condition_type '$cond_type' for $sn/$cond_path — skipping" >&2
@@ -375,6 +391,19 @@ _cmd_list_for() {
                     local _rest3="${cond_entry#*|}"
                     cond_type="${_rest3%%|*}"
                     cond_key="${_rest3#*|}"
+
+                    # Review: logic-slice L-F2 — handle file-exists conditional before the
+                    # machine-local-key continue so reverse-lookup doesn't silently skip
+                    # file-exists entries (which have no condition_key, just a PLUGIN_ROOT-relative
+                    # path). Match raw cond_path OR the resolved absolute path.
+                    if [[ "$cond_type" == "file-exists" ]]; then
+                        local fe_abs_path="$PLUGIN_ROOT/$cond_path"
+                        if [[ "$cond_path" == "$target_path" || "$fe_abs_path" == "$target_path" ]]; then
+                            _matched=1
+                            break
+                        fi
+                        continue
+                    fi
 
                     [[ "$cond_type" != "machine-local-key" ]] && continue
 

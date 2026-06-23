@@ -1,14 +1,19 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # publish-targets.example.sh — Example target registry for publish.sh (percolation / push-to-publish-repo)
 #
 # Copy this file to publish-targets.sh and adjust paths for your machine.
 # publish-targets.sh is gitignored (machine-specific paths).
 #
-# NOTE: This file is the legacy fallback. The preferred source for
-# publish.sh's target list is the machine-local registry key `publish.targets`
-# (see ~/.claude/machine-local/README.md and the registry.toml.example
-# alongside it). When `publish.targets` is set there, publish-targets.sh is
-# ignored; this file remains supported for back-compat.
+# DEPRECATED — FALLBACK ONLY. The RECOMMENDED source for publish.sh's target
+# list is the machine-local registry key `publish.targets`, written via:
+#   machine-local array-append publish.targets "<name|mode|source|path>"
+#   machine-local array-set    publish.targets "<entry1>" "<entry2>" ...
+# (see ~/.claude/machine-local/README.md for the array-write subcommands and
+# ~/.claude/machine-local/registry.toml.example for the publish.targets key).
+# When `publish.targets` is present in the registry, publish.sh reads it and
+# this file is ignored. This file remains as a back-compat fallback for
+# machines that have not yet migrated; removal is gated on a later Striker
+# session once all registered targets are confirmed in the registry.
 #
 # ---------------------------------------------------------------------------
 # Tuple format
@@ -52,6 +57,14 @@ TARGETS=(
   # 4-field shape (no per-target native-slug allowlist):
   "coordinator-claude|mirror|/path/to/source/plugins/coordinator-claude|/path/to/coordinator-claude/plugins"
   "deep-research-claude|manifest|/path/to/source/plugins/coordinator-claude/deep-research|/path/to/deep-research-claude"
+
+  # Top-level flat-mirror targets — required for the install-chain contract
+  # (docs/install/agent-install-manifest.json + AGENT.md + schema mirror) and
+  # docs/wiki/ to land at the publish repo's canonical paths, NOT nested under
+  # plugins/coordinator/. Added 2026-06-15 (coord Phase B AC13 substrate-drift fix —
+  # see docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §13).
+  "coordinator-claude-toplevel-wiki|flat-mirror|/path/to/source/plugins/coordinator/docs/wiki|/path/to/coordinator-claude/docs/wiki"
+  "coordinator-claude-toplevel-install|flat-mirror|/path/to/source/plugins/coordinator/docs/install|/path/to/coordinator-claude/docs/install"
 
   # 5-field shape (with native_slugs — comma-separated marketplace slugs
   # expected to appear in this target's content):

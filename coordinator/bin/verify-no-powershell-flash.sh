@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # verify-no-powershell-flash.sh — thin shim; canonical guard is now verify-no-console-flash.sh.
 #
 # This script is preserved so existing callers by the old name continue to work.

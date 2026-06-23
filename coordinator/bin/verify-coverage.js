@@ -307,6 +307,12 @@ const REF_ALLOWLIST = new Set([
   // script, NOT a slash skill. The wiki itself argues a /coordinator:doctor command "would be
   // bloat for a non-interactive verification surface" — the backticked mention is the false positive.
   'coordinator:doctor',                 // doctor is docs/wiki/coordinator-doctor.md + coordinator-doctor-sentinel.sh, not a skill (2026-05-20)
+  // Documented never-existent artifact: the schema-`required` lesson in
+  // implementation-standards-by-domain.md cites /deep-research:doctor as the
+  // negative example — deep-research shipped a doctor_skill field pointing at a
+  // never-existent /deep-research:doctor (2026-06-17). The backticked mention is
+  // the load-bearing lesson narrative, not a live dispatch ref.
+  'deep-research:doctor',               // never-existent artifact, cited as negative example in schema-required lesson (2026-06-17)
   // Project-specific agent in holodeck consumer repo (plugin/game-dev/agents/schema-migration-auditor.md).
   // The agent exists but lives in the project repo, not the global game-dev plugin — the prefix
   // 'game-dev' is known but the specific agent-id is not resolvable from the coordinator-plugin tree.

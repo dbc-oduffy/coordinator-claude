@@ -7,9 +7,9 @@ argument-hint: "[handoff-file-path | memo-file-path]"
 
 # Pickup — Resume from Handoff or Action a Memo
 
-Pick up a handoff document and continue executing where the previous session left off, OR action an inbound cross-repo memo. Both are batons from another place — you must read the artifact before acting on it. This is a relay race; your job is to grab the baton and run, not to ask what race you're in.
+Pick up a handoff document and continue where the previous session left off, OR action an inbound cross-repo memo. Both are batons — read the artifact before acting. Grab the baton and run.
 
-**Design contrast with `/workstream-start`:** Workstream-start is general orientation — "what are we doing today?" with handoffs as one option among many. Pickup is artifact-first — the PM has already pointed you at specific prior work to continue or an inbound memo to act on. Skip the menu, skip the ceremony, get to the work.
+**Design contrast with `/workstream-start`:** Workstream-start is general orientation; pickup is artifact-first — PM has already pointed you at specific work. Skip the menu, skip the ceremony.
 
 ---
 
@@ -47,7 +47,7 @@ Minimal — just enough to not lose work.
 
 ## Step 1.5: Classify the Artifact
 
-**Read before reasoning — the anti-confabulation gate.** A bare file path arrives with no procedure attached. The failure mode this step prevents is acting on, summarizing to the PM, or editing an unread artifact — the void-filling confabulation that rewrites the memo into what the model assumes it should say. STOP: read the artifact first, before any classification or action.
+**Read before reasoning — anti-confabulation gate.** STOP: read the artifact in full before any classification or action. Acting on a summary is the failure mode this step prevents.
 
 Once read, classify by **path + frontmatter shape**:
 
@@ -108,9 +108,7 @@ After reading the handoff, extract the handoff's date from its filename (`YYYY-M
   Cap the surface at ~10 lines. If more files exist than the cap:
   > "(N more days — see `state/week-changelog/` for the full record)"
 
-  If no daily files exist since the handoff (changelog not yet in use), skip silently.
-
-**Purpose:** ambient context across other workstreams that moved while this workstream was paused. Not a decision gate — just orientation.
+  If no daily files exist since the handoff (changelog not yet in use), skip silently. Ambient orientation only — not a decision gate.
 
 ---
 
@@ -126,7 +124,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
 4. **Reconcile handoff items against git — MANDATORY before executing anything.**
 
-   Concurrent sessions and machines routinely close items the handoff still lists as open. Before acting on ANY item in "Recommended Next Steps," "In-Progress Work," or equivalent pending-work sections:
+   Concurrent sessions and machines routinely close items the handoff still lists as open:
 
    a. **Git log check:** Extract the handoff's written date from its filename or header (`YYYY-MM-DD`). Then run:
       ```bash
@@ -139,9 +137,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
       - **Plan files (`docs/plans/*.md`):** Executors no longer stamp `**Status:**` into plan bodies — those lines no longer exist as per-chunk closure signals. The canonical closure-signal sources are:
         1. **`## Dispatch Ledger` table (if present):** Read the table and note which rows show `status: committed` or `status: complete` — those chunks are closed.
         2. **Git commit log:** Run `git log --oneline --since="<handoff-date>" -- <plan-path>` and scan for commit subjects whose prefix matches a chunk-id (e.g., `C4a-pickup-skill:`). A commit subject beginning with `<chunk-id>:` indicates that chunk shipped.
-        3. **Plan-header `Status:` field** (EM-authored): still valid for phase transitions (`draft`, `review`, `execution`, `shipped`) but does NOT carry per-chunk completion state. A plan-header `Status: execution` only means the plan entered execution phase; it does not confirm any individual chunk is done.
-
-         > Why: per-chunk executor stamps no longer exist — executors flight-record to a sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`, not the plan body. Plan-header `Status:` remains EM-authored for phase transitions. See `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`.
+        3. **Plan-header `Status:` field** (EM-authored): still valid for phase transitions (`draft`, `review`, `execution`, `shipped`) but does NOT carry per-chunk completion state. A plan-header `Status: execution` only means the plan entered execution phase; it does not confirm any individual chunk is done. See `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`.
 
       - **Stub/todo files (`tasks/*/stub.md`, `tasks/*/todo.md`):** The enricher's stub-stamping protocol is a distinct, unchanged protocol — stubs are the enricher's own deliverable, not an executor-written-into surface. A stub whose own `**Status:**` field reads `Shipped`, `Completed`, or `Execution complete` is closed — the handoff is stale on that item. This remains a valid closure signal for stubs.
 
@@ -149,11 +145,13 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    d. **Gate-source re-read for `awaiting_gate` handoffs.** If the handoff frontmatter carries `deployment_state: awaiting_gate` with a `gate_dependency: <path>` one-liner, Read the gate path before treating the handoff as still-pending. Gates clear silently between handoff-write and pickup — a PR merges, a sibling stub ships, a flag flips. If the gate has cleared, flip `deployment_state: ready_to_fire` in the mutation pass (Step 5) and proceed; if it's still closed, surface the gate status to the PM before queuing further work.
 
-      **Aging reconcile:** compute `now − created_at` from handoff frontmatter (`created:` field per `docs/wiki/spinoff-handoffs.md` schema). If ≥14 days AND `deployment_state: awaiting_gate` AND no `last_gate_recheck:` field (or `last_gate_recheck` ≥7 days ago), the gate is **stale** — force a re-check of the named gate even if the prior re-read in this step would otherwise have been a quick literal-string match. After the re-check, write `last_gate_recheck: <ISO date>` into frontmatter in the mutation pass (Step 5). If the gate has cleared, flip to `ready_to_fire` as above; if still closed but the gate text no longer accurately names the blocker (e.g., the named sibling stub has been archived without shipping), surface to PM with the discrepancy — do NOT silently retain a stale gate. See `docs/wiki/spinoff-handoffs.md` § "Awaiting_gate aging" for full rationale and the 14d / 7d threshold derivation.
+      **Aging reconcile:** compute `now − created_at` from handoff frontmatter. If ≥14 days AND `deployment_state: awaiting_gate` AND (`last_gate_recheck:` absent OR ≥7 days ago): force re-check the named gate, write `last_gate_recheck: <ISO date>` in the Step 5 mutation pass, flip to `ready_to_fire` if cleared, or surface the discrepancy to PM if the gate text is stale — do NOT silently retain a stale gate. See `docs/wiki/spinoff-handoffs.md` § "Awaiting_gate aging".
+
+      **Cross-repo investigation handoffs:** apply the 14d aging check regardless of `deployment_state` (not only `awaiting_gate`) when scope names ≥2 repos or body contains "investigation complete / spike done / ready to execute" against multi-repo work. Before executing: grep cited failure modes against sibling HEAD (`git -C <sibling-repo> log --oneline --since=<created>` + read relevant files), confirm the symptom still reproduces, surface discrepancies to PM rather than executing a stale investigation script.
 
    e. **Premise verification — paths, commits, scope claims.** The handoff body is hypothesis, not ground truth (per coordinator CLAUDE.md § Verifying Handoff Premises). Before executing:
 
-      - **Paths cited as "modified" or "needs editing":** `ls` / `Read` each one. Files move, get renamed, or get deleted between handoff-write and pickup. A handoff that says "edit `foo/bar.py`" against a renamed file is a false-premise dispatch.
+      - **Paths cited as "modified" or "needs editing":** `ls` / `Read` each one. **A single failed `ls` is NOT "substrate absent"** — run a repo-wide search (`find . -name "<file>" -not -path "./node_modules/*"` / `Glob`) before declaring a premise failure. The handoff may be wrong about the path but right about the substrate. (2026-06-15: `plugin/.../skills/blueprints/SKILL.md` failed `ls` but the real dir was `control/server/skills/` with the correct files — avoidable with one grep.)
       - **Commit SHAs cited as "shipped" or "landed":** `git cat-file -e <sha>` to confirm reachable; `git branch --contains <sha>` to confirm landing claim. Cherry-picks and rebases invalidate SHA assertions across sessions.
       - **Scope frontmatter pathspecs:** glob each pathspec. An empty glob means the workstream substrate has moved — surface to PM before mutation, do not proceed silently.
       - **Premises that include "X is true" / "Y already done" / "Z was decided":** for each load-bearing premise, identify the witness (a file, a commit, a doc section) and confirm it. Premise drift is the dominant failure mode for >24h-old handoffs.
@@ -164,9 +162,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    g. **Prereq tables: executable verification, not visual checkmark.** Handoff prereq tables that list `✅ verified` against prerequisites are themselves hypothesis at pickup time, even when the checkmark is fresh. Re-run the verification commands or grep the asserted state before consuming the prereq downstream. A prereq verified at handoff-write can age out by pickup time (a sibling session merged a conflicting change, a dependency rotated, an env var got unset). Visual ✅ in a prose table is paper-trail, not gate. The actual gate is whichever command would have produced the ✅ — re-run it.
 
-   **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping this step means redoing shipped work, conflicting with landed commits, or spawning duplicate executors.
-
-   **Partial-completion claims** (DroneSim T1.2): Before redoing any work the handoff describes as "stalled", "unfinished", or "partial", verify against `git log --oneline --all -- <relevant paths>`, the `archive/completed/` log, and live artifact state. Treat the handoff's status as a hypothesis, not ground truth — work often persisted despite the handoff saying otherwise.
+   **Empirical baseline:** Expect 30–60% of inherited items to be already closed. Skipping means redoing shipped work, conflicting with landed commits, or spawning duplicate executors. For "stalled"/"unfinished"/"partial" work, verify against `git log --oneline --all -- <relevant paths>`, `archive/completed/`, and live artifact state before redoing — work often persisted despite the handoff saying otherwise (DroneSim T1.2).
 
 5. **Report briefly — two lines max:**
    ```
@@ -178,17 +174,17 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    ```
    This is a spinoff — predecessor is none by design. Treat the handoff body as ground-truth spec; do not look for in-progress work to resume.
    ```
-   Counters the default assumption that a handoff describes already-in-progress work. Note: `kind: spinoff` and `kind: spinoff-roadmap` both carry `predecessor: none` — when premise verification (Step 3.4e) cannot find a continuity ancestor, that is correct by design for spinoffs and not a stale-handoff signal. See `docs/wiki/spinoff-handoffs.md` § "Pickup-side premise check — spinoff exemption".
+   `kind: spinoff` and `kind: spinoff-roadmap` both carry `predecessor: none` — missing continuity ancestor is correct by design, not a stale-handoff signal. See `docs/wiki/spinoff-handoffs.md` § "Pickup-side premise check — spinoff exemption".
 
    **Recovery banner:** If the handoff frontmatter has `kind: recovery`, prepend one extra line:
    ```
    This is a recovery handoff — prior session terminated uncleanly (crash/kill). Verify on-disk state against the handoff body before resuming; partial work may exist that the author could not commit.
    ```
-   Recovery handoffs follow the standard continuation flow, but the successor's first move is disk verification (uncommitted edits, orphan `.tmp.*` files, partial executor output) per CLAUDE.md § "Verifying Executor Output After a Crash or Timeout". A null `predecessor:` on `kind: recovery` is permitted (no recoverable predecessor existed) and is NOT a stale-handoff signal.
+   A null `predecessor:` on `kind: recovery` is permitted and is NOT a stale-handoff signal. Disk verification follows CLAUDE.md § "Verifying Executor Output After a Crash or Timeout".
 
 5. **Frontmatter mutation in place** — `/pickup` mutates frontmatter only; archival happens at the successor moment (`/handoff` chain-archival or `/workstream-complete` Step 2.7).
 
-   > **Negative-spec — the consumed body is paper trail, not a progress journal.** Once this skill flips `status: active → consumed`, the predecessor handoff body is FROZEN. Do not append `### <date> session — pickup, …` sections, do not edit the Progress / Recommended Next Steps blocks, do not tack on a fresh `## What Was Accomplished` for this session's work. Progress goes in commits; the next checkpoint goes in a **successor handoff** authored via `/handoff` (which writes the successor, then chain-archives this predecessor to `archive/handoffs/`). An in-place append is invisible to the pickup index — the next session's `/workday-start` or `/pickup` will not surface a consumed handoff as live work, so any progress stapled into the consumed body is functionally lost. Tripwire: `CONSUMED-HANDOFF-FROZEN` in `docs/wiki/coordinator-tripwires.md`; enforced at the tool layer by `hooks/scripts/block-consumed-handoff-edit.sh` (override env var `COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1` reserved for recovery-flavor crash-invalidation notes and one-off paper-trail corrections, never progress appends).
+   > **Negative-spec — the consumed body is paper trail, not a progress journal.** Once this skill flips `status: active → consumed`, the predecessor handoff body is FROZEN. Do NOT append session notes, edit Progress / Recommended Next Steps blocks, or tack on `## What Was Accomplished` for this session's work — progress goes in commits; the next checkpoint goes in a **successor handoff** via `/handoff`. An in-place append is invisible to the pickup index and the progress is functionally lost. Tripwire: `CONSUMED-HANDOFF-FROZEN` in `docs/wiki/coordinator-tripwires.md`; enforced by `hooks/scripts/block-consumed-handoff-edit.sh` (override `COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1` reserved for recovery-flavor crash notes only, never progress appends).
 
    ### Resolve the baton's repo (path-derived — do this FIRST, before any lifecycle write)
 
@@ -211,7 +207,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
      echo "pickup: baton $ABS_BATON is not inside a git repo — cannot mutate/commit lifecycle frontmatter" >&2
      exit 1
    }
-   BATON_RELPATH="${ABS_BATON#$BATON_REPO/}"               # relpath WITHIN the baton repo
+   BATON_RELPATH="${ABS_BATON#"${BATON_REPO}"/}"             # relpath WITHIN the baton repo
    ```
 
    The `[[ -z "$BATON_REPO" ]]` gate is **a hard part of the contract, not an optional nicety.**
@@ -265,38 +261,72 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
 ### M0 — Short-circuit already-actioned memos
 
-<!-- Review: code-reviewer F1 — guard terminal memos before any re-action attempt.
-     An already-actioned memo is schema-valid; the guard is behavioral, not schema-enforced. -->
-
 **Check `status:` before any other action.** If the memo's `status:` field is already `actioned` (terminal state):
 
 1. Read the full memo to load its existing `decision:`, `decision_note:`, and `actioned_note:` fields.
 2. Report those fields to the PM as **read-only context** — e.g.: _"This memo is already actioned. Decision: `<decision>`. Note: `<decision_note or actioned_note>`."_
-3. **STOP.** Do NOT re-run M3 disposition. Do NOT flip any frontmatter. A terminal memo is not re-actioned.
-
-Re-opening a closed memo is a **sender action** via a new memo, not a receiver pickup.
+3. **Run the [Routed-plan reconcile-and-surface](#routed-plan-reconcile-and-surface) (see below) BEFORE stopping.** This is the load-bearing step for Gap #2: a terminal memo that routed to a plan (`decision_note`/frontmatter points at a `docs/plans/*.md` or `tasks/*/todo.md`) is exactly the re-pickup path that retreads a live peer's in-flight execution. M0 must echo the routed plan's live execution state — not just the decision fields — before STOP. (No claim is acquired on the M0 path; it is read-only.)
+4. **STOP.** Do NOT re-run M3 disposition. Do NOT flip any frontmatter. A terminal memo is not re-actioned. Re-opening is a **sender action** via a new memo.
 
 ---
 
 ### M1 — Read the whole memo before any other action
 
-**STOP.** Do not summarize-to-PM. Do not act on the memo's request. Do not edit any field. Read the full memo body — title, `from:`, body text, cited locus, proposed action — before proceeding.
+**STOP.** Do not summarize-to-PM, act on the request, or edit any field. Read the full memo body — title, `from:`, body text, cited locus, proposed action — before proceeding. Skipping this read and acting on a summary is the root failure the memo branch exists to prevent.
 
-This is the same anti-confabulation gate as Step 1.5, applied a second time at the action boundary. Skipping this read and acting on a brief summary is the root failure the memo branch exists to prevent.
-
-### M2 — Verify premises
-
-Before acting on the memo's content, apply the discipline from `docs/wiki/cross-repo-communication.md` § "Memo content is hypothesis — verify before acting":
+### M2 — Verify premises (`docs/wiki/cross-repo-communication.md` § "Memo content is hypothesis")
 
 - Grep the cited locus/symbol in THIS repo — the proposed fix-locus may be wrong even when the symptom is real.
 - Run `git fetch` and scan `origin/<branch>` for commits that address the memo's topic — a concurrent session may have already actioned it.
 - Sweep `cross-repo/archive/`, `archive/completed/`, and `docs/plans/` for same-topic terminal artifacts (standdown / abandoned / superseded) — an `open` status is a lagging indicator, not ground truth.
+- **Sender absence-claims are sender-visibility-scoped.** When the memo asserts "X does not exist on any branch" or "X was never landed," treat that claim as the sender's view from their repo, not an authoritative fact about the receiver's tree. Before accepting the absence-premise: `git branch -a | grep work/` to enumerate receiver-local unmerged work branches, then `git log --oneline --all -- <path-or-symbol>` to scan for the asserted-absent artifact. A sender cannot see the receiver's unmerged `work/*` branches — their "not on any branch" is a best-effort report from origin scope. *(Source: 2026-06-17 — a sender absence-claim about a file caused the receiver to re-author content that existed on an unmerged local branch.)*
+
+### M2.5 — Claim gate (atomic, fail-loud — parity with handoff Step 5)
+
+<!-- Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C3 (the Staff Engineer #7 ordering) -->
+
+**Ordering is load-bearing: M2.5 runs AFTER M1 (whole-memo read) AND M2 (premise verification incl. `git fetch`), BEFORE M3 (disposition).** Claiming before reading inverts the anti-confabulation discipline; claiming before M2's fetch+scan locks work a peer may already have done. Sequence: M0 → M1 → M2 → **M2.5** → M3.
+
+This closes the memo-pickup TOCTOU window (the 2026-06-20 whoami collision). Mirrors handoff Step 5 pre-mutation gates.
+
+**Resolve the baton's repo FIRST** (path-derived — lifecycle bookkeeping must target the repo that owns the baton, not cwd):
+
+<!-- TEMPLATE: adapt <file_arg> to the memo path the PM handed; everything else verbatim -->
+```bash
+RAW="<file_arg>"
+RAW="${RAW/#\~/$HOME}"
+ABS_BATON="$(cd "$(dirname "$RAW")" && pwd)/$(basename "$RAW")"
+BATON_REPO="$(git -C "$(dirname "$ABS_BATON")" rev-parse --show-toplevel 2>/dev/null)"
+[[ -z "$BATON_REPO" ]] && {
+  echo "pickup: memo $ABS_BATON is not inside a git repo — cannot claim/mutate lifecycle frontmatter" >&2
+  exit 1
+}
+BATON_RELPATH="${ABS_BATON#"${BATON_REPO}"/}"
+```
+
+**Pre-claim safety gates (sequential, all must pass before stamping):**
+
+1. **`git -C "$BATON_REPO" fetch origin <branch>` + re-read frontmatter.** May be folded with M2's fetch if adjacent, but the idempotency re-read MUST be the LAST read before the `mkdir` — it closes the cross-machine race window.
+2. **`picked_up_by` idempotency check.** If frontmatter shows `picked_up_by:` non-empty after fetch (and `status: in_progress`), exit non-zero: _"Concurrent memo-pickup detected on `<file>` — already claimed by `<picked_up_by>`. Inspect their session before proceeding."_
+3. **`cs_claim_memo "$(basename "$ABS_BATON")" "$BATON_REPO"`** — atomic mkdir gate (sibling of `cs_claim_handoff`). Exit non-zero on a live concurrent claim. Call:
+   ```bash
+   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
+   cs_claim_memo "$(basename "$ABS_BATON")" "$BATON_REPO"
+   ```
+
+**Stamp the claim (in place at `cross-repo/inbox/<file>`):**
+
+- `status: open` → `status: in_progress`
+- Append `picked_up_at: <ISO UTC timestamp>`, `picked_up_by: <session-id>` — resolve the session id with `$CLAUDE_CODE_SESSION_ID` first, falling back to `cat .git/coordinator-sessions/.current-session-id` (same resolution as handoff `consumed_by:`). `picked_up_by` is REQUIRED when `status: in_progress` (schema cross-field rule).
+- Commit the stamp single-file: `git -C "$BATON_REPO" add -- "$BATON_RELPATH" && git -C "$BATON_REPO" commit -m "memo: claim <topic> — in_progress" -- "$BATON_RELPATH"`.
+
+The terminal flip to `actioned` (Accept/Decline/Surface-decided) stays at M3/M4. A non-terminal exit (Decline/Surface-to-PM that ends the session) RELEASES the claim — see the release step in M3.
+
+**Then run the [Routed-plan reconcile-and-surface](#routed-plan-reconcile-and-surface) (see below) before dispatching any work** — if the claimed memo carries a `docs/plans/*.md`/`tasks/*/todo.md` pointer (e.g. a previously-routed memo being resumed), echo that plan's live execution state first, exactly as the M0 path does. Same block, two callers.
 
 ### M3 — Branch on `kind`
 
-Determine the memo's `kind` field. **If absent, treat as `ask`** — the safe default (surfaces with urgency; never silently downgrades an unlabeled memo).
-
-**Pinned enum:** `ask | consult | fyi`. `ack` is NOT a valid `kind` — it is receipt-state, never sender-declared.
+Determine the memo's `kind` field. **If absent, treat as `ask`** — the safe default (surfaces with urgency; never silently downgrades an unlabeled memo). **Pinned enum:** `ask | consult | fyi`. `ack` is NOT a valid `kind` — it is receipt-state, never sender-declared.
 
 ---
 
@@ -304,9 +334,7 @@ Determine the memo's `kind` field. **If absent, treat as `ask`** — the safe de
 
 `fyi` is the **sender's** framing of *their* intent, not a verdict on your exposure. The sender can't see your active plans, in-flight workstreams, or in-revision doctrine. Ack-only is a disposition you *reach after assessing*, not the reflex on seeing the label. (2026-06-09: a project-rag `fyi` closing per-band routing was acked "noted" by the addon EM — it had silently shifted an active addon plan; PM intervention recovered it.)
 
-**1. Assess impact** against this repo: active plans (`docs/plans/*` non-archived), in-flight workstreams (branch log, `state/handoffs/`), consumer/doctrine surfaces named in the memo, any explicitly corrected hypotheses.
-
-**2. Route on the result:**
+**1. Assess impact** against this repo: active plans (`docs/plans/*` non-archived), in-flight workstreams (branch log, `state/handoffs/`), consumer/doctrine surfaces named in the memo, any explicitly corrected hypotheses. **2. Route on the result:**
 
 - **Nil (verified)** — `status: actioned` + `actioned_note: "noted — impact-assessed nil against <what you checked>"`. The named substrate is the audit trail.
 - **Active plan invalidated / workstream scope shifted** — re-plan (`coordinator:plan` / `coordinator:shape`) or scope-adjust + commit, THEN action with note pointing at the new plan/commit.
@@ -320,16 +348,12 @@ Determine the memo's `kind` field. **If absent, treat as `ask`** — the safe de
 
 #### `ask` — adjudicate-and-own
 
-The sender is requesting action. Per `docs/wiki/cross-repo-communication.md` § "Memo-lifecycle adjudication is EM work": **do not surface to the PM with "what should I do?" — adjudicate and own the disposition for this repo's customers and consumers.** The sender's ask is a peer hypothesis from another EM, not a work order.
-
-Weigh the request against this repo's context, then choose one of three dispositions:
+The sender is requesting action. Per `docs/wiki/cross-repo-communication.md` § "Memo-lifecycle adjudication is EM work": **do not surface to the PM with "what should I do?" — adjudicate and own the disposition for this repo's customers and consumers.** The sender's ask is a peer hypothesis from another EM, not a work order. Choose one of three dispositions:
 
 **Accept** — the ask is sound and actionable. **Before performing the work, calibrate ceremony — this is the receiver's call, not the sender's.** An ask's magnitude is not knowable from its register: a sender writes every `ask` plainly and in the imperative (§ Authoring an ask, comm wiki) — that governs sender *plainness*, NOT how big a deal it is for *your* repo. You judge magnitude here, at pickup. Ceremony and channel are orthogonal: this calibration is about how much process an *accepted* ask earns, independent of whether a memo channel was the right vehicle at all (that is the §208 channel question — see comm wiki § Picking up a memo).
 
 - **Default: mechanical-direct.** Most accepted asks are surgical follow-ups, not novel decisions. Perform the work now, commit it (on both sides where you hold authority over the offering repo — see step 3), and action the memo. **No plan, no round-trip, no back-and-forth.** Moving a document, adopting a named doctrine, applying an agreed rename are direct-dispatch work — treat them as such.
 - **Escalate to a plan ONLY on a NAMED weighty signal.** Inherit the `ceremony-calibration.md` § TL;DR decider — escalate when the ask is a *novel decision* (not a surgical follow-up to one already made), *instance #1* of a pattern with downstream occupancy, or *vague enough* in framing to need shaping first. Absent a named signal, the default stands; do not manufacture ceremony to feel thorough.
-
-Then, having calibrated:
 
 1. Perform the work — directly (the default), or via the plan pipeline if you named a weighty signal above.
 2. Write in place:
@@ -342,21 +366,23 @@ Then, having calibrated:
 
 **Decline** — the ask is wrong for this repo's consumers, already done, or superseded:
 
-1. Write in place:
+1. Write in place (terminal — `in_progress → actioned`):
    ```yaml
    status: actioned
    decision: declined
    decision_note: "<rationale — why it doesn't apply or was already handled>"
    ```
 2. Commit the single-file mutation.
+3. **Release the claim** (cleanup — the memo is now terminal): `cs_release_artifact "memo" "$(basename "$ABS_BATON")" "$BATON_REPO"`. Holder-identity-checked, no-op if not the holder. (Harmless to skip — M0 short-circuits re-pickup of an `actioned` memo before M2.5 — but release keeps the claim dir clean rather than waiting on the dead-PID reaper.)
 
 **Surface to PM** — only when the ask implicates a genuine product decision, architectural tradeoff, or scope fork that is above EM authority:
 
 1. Surface a one-line summary: _"Inbound `ask` memo from `<from>` on `<topic>` requires a product decision: `<one-line framing>`. Proceed with [option A] or [option B]?"_
-2. **Wait for PM response before writing any frontmatter.** Do not mark `actioned` until the PM has decided.
-3. Once decided, write `status: actioned` + the chosen `decision:` + `decision_note:`.
+2. **Wait for PM response before writing any disposition frontmatter.** Do not mark `actioned` until the PM has decided. (The memo is `in_progress` from M2.5 while you hold it.)
+3. Once decided, write `status: actioned` + the chosen `decision:` + `decision_note:`, commit, then release the claim (`cs_release_artifact "memo" "$(basename "$ABS_BATON")" "$BATON_REPO"`).
+4. **If the session ends BEFORE the PM decides — release the claim back to `open`.** Ordering is load-bearing: (a) revert `status: in_progress → open` and clear `picked_up_by`/`picked_up_at`, commit FIRST; (b) `cs_release_artifact "memo" "$(basename "$ABS_BATON")" "$BATON_REPO"` SECOND — a crash between (a) and (b) leaves recoverable "open but claim-held" (reaper cleans it); the reverse re-admits two sessions.
 
-**There is no fourth disposition — queuing the ask is the laundering anti-pattern, not a disposition.** Accept / Decline / Surface-to-PM are the *only* exits. Filing the inbound ask into `state/improvement-queue.md` (or `~/.claude/state/coordinator-improvement-queue.md`, or re-framing it as "a separate plan for later") is NOT a way to handle a memo — it moves the baton from one staging ground to another, adds zero value, and silently makes a *prioritization* call (deciding this ask is not-now) that belongs to the PM, not the EM. The reflex feels productive because the inbox row clears; it is not. If you cannot Accept the work this session, the honest exits are: **Decline** with an architectural rationale (the ask is wrong for this repo's consumers / already done / superseded), or **Surface-to-PM** (you'd action it but it's competing for priority — that's a PM call, so ask, don't queue around them). "Annoying to do right now" is not an architectural rationale; presume action and do it. → coordinator CLAUDE.md § Improvement Queue (admission rule); `docs/wiki/cross-repo-communication.md` § Picking up a memo.
+**There is no fourth disposition — Accept | Decline | Surface-to-PM only; queuing is not a disposition.** Filing the ask into `state/improvement-queue.md` (or re-framing it as "a separate plan for later") silently makes a prioritization call that belongs to the PM. If you cannot Accept this session, the honest exits are Decline (wrong for this repo / already done / superseded) or Surface-to-PM (priority conflict — ask, don't queue around them). "Annoying to do right now" is not an architectural rationale. → coordinator CLAUDE.md § Improvement Queue; `docs/wiki/cross-repo-communication.md` § Picking up a memo.
 
 **Critical negative-spec:** write `status: actioned` (the terminal state). NEVER write `status: action_taken` — that is a grandfathered-only schema value whose cross-field rule (`bin/lib/schema.js:664-671`) requires both `action_taken_at` AND `decision`. The `decision:` field on `actioned` is an audit choice, not a schema requirement.
 
@@ -365,9 +391,6 @@ Then, having calibrated:
 #### `consult` — reply in place
 
 The sender wants input or opinion, not action.
-
-<!-- Review: code-reviewer F2 — replace ambiguous "OR" with a decision rule: short responses into
-     actioned_note; longer responses into ## EM Response section with actioned_note as pointer. -->
 
 1. Write a substantive response into the memo using the following decision rule:
    - **Response ≤ ~200 chars:** write it directly into `actioned_note`.
@@ -383,17 +406,43 @@ The sender wants input or opinion, not action.
    actioned_note: "see ## EM Response in body"
    ```
 3. Commit the single-file mutation.
-4. **No return-memo.** The receiver-side flip + commit IS the receipt. Per `docs/wiki/cross-repo-communication.md` rule 6 ("don't send an ack-of-ack when the inbound was a confirmation, not a request") and the ack-of-ack prohibition: the sender looks at the receiver's inbox/archive on the same machine — a return memo sent back is ceremony with no new channel. Terminal: `actioned` with a substantive response captured.
+4. **No return-memo.** The receiver-side flip + commit IS the receipt (comm wiki rule 6 — no ack-of-ack). Terminal: `actioned` with a substantive response captured.
 
 ### M4 — Commit shape
 
-All memo mutations use an explicit single-file commit — no `git add -A`, no sweep:
+**Flip `status:` in-place — never append.** When writing `status: actioned`, REPLACE the existing `status:` line rather than appending a new one. A duplicate YAML key leaves `grep -m1`-based tooling (and many YAML parsers) reading the FIRST (stale) value, silently preserving the old `open` status even after you've written `actioned`. After the edit, confirm exactly one `status:` line: `grep -c '^status:' <file>` must return `1`. *(Source: 2026-06-17 — a dup-key memo appeared still-open at the next `/workday-start` surfacing because the edit appended rather than replaced.)* This applies equally to the M2.5 `open → in_progress` flip and any release `in_progress → open` revert — replace, never append.
+
+**Release the claim on every terminal disposition.** Whenever you write the terminal `status: actioned` (Accept / Decline / Surface-decided / `consult` reply / `fyi` ack), release the claim acquired at M2.5: `cs_release_artifact "memo" "$(basename "$ABS_BATON")" "$BATON_REPO"` (holder-identity-checked, no-op if not the holder). The dead-PID reaper is the safety net; explicit release frees the lock immediately. The one NON-terminal release (session ends before PM decision) reverts to `open` first — see M3 Surface step 4. *(Foreign-baton note: a memo claim under a foreign `BATON_REPO` is not reached by the session-init reaper on cwd — explicit release is the primary cleanup for cross-repo memo pickup.)*
+
+All memo mutations use an explicit single-file commit — no `git add -A`, no sweep. The flip + commit IS the receipt; no ack-of-ack:
 
 ```bash
 git add -- cross-repo/inbox/<file> && git commit -m "memo: actioned <topic> — <decision|noted|replied>" -- cross-repo/inbox/<file>
 ```
 
-The flip + commit IS the receipt. The sender reads it on the same machine at their next session. No ack-of-ack. No return memo.
+### Routed-plan reconcile-and-surface
+
+<!-- Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C3 (Gap #2, the Staff Engineer #2). Authored ONCE; called from M0 (before STOP) and M2.5 (before dispatch). The D5 future-generalization to all plan-forward-pointing pickup artifacts is a single-site change here. -->
+
+**Single source, two callers (M0 and M2.5) — do not duplicate this procedure inline.** This closes Gap #2: a picked-up memo that routed to a plan must echo that plan's **live execution state** before the session dispatches work against it, so a re-pickup sees an in-flight peer and stands down instead of retreading (the 2026-06-21 originating incident — a redispatched integrator collided with a live C1→C3 execution on the shared branch).
+
+**When it runs:** the memo carries a forward pointer to a plan — a `docs/plans/*.md` or `tasks/*/todo.md` path in `decision_note:`, `actioned_note:`, or any frontmatter field.
+
+**Procedure (positive-liveness, not bare commit-existence):**
+
+1. Resolve the plan path `P` from the memo's pointer.
+2. **Compute a POSITIVE liveness predicate.** Emit "likely live" ONLY if ANY of:
+   - an **active (non-`consumed`) handoff** in `state/handoffs/` whose `scope:`/body references `P`;
+   - a **live `cs` claim** for `P` or its workstream (a live-PID claim dir under `.git/coordinator-sessions/*-claims/`);
+   - the plan's **`## Dispatch Ledger`** shows in-progress (non-`committed`/non-`complete`) rows **AND** `git log --oneline --since=<memo date> -- P` shows a commit **within the last 24h**.
+3. **Emit exactly one verdict line:**
+   - Positive signal → `⚠ plan P likely LIVE — <signal>, last commit <sha> <age>. Verify before dispatching; a peer may be mid-execution.`
+   - No positive signal but commits exist since the memo date → `plan P shipped/concluded — last touched <date>, no live signal.` (true-negative, NOT silence and NOT a false alarm).
+   - No commits and no plan file → `plan P: no commits since memo, no live signal.`
+
+**Why bare `git log --since=<memo date> -- P` is wrong (the Staff Engineer #2):** on the shared `work/*` branch, a shipped plan still shows commits-since-memo-date forever — bare commit-existence fires "likely live" on every re-pickup in perpetuity (cry-wolf). Commit-existence is necessary-not-sufficient; the positive predicate (active handoff / live claim / live Ledger rows + recent commit) is the gate — same pairing Handoff Step 3.4 already enforces.
+
+**Generalization (D5, future):** any pickup artifact that forward-points to a plan benefits from this echo. It lives on the memo branch now; promoting it to a shared pre-dispatch step for handoffs too is a single edit here.
 
 ---
 
@@ -408,9 +457,6 @@ The PM hands you the path `cross-repo/inbox/2026-05-30-kind-enum-proposal.md` as
 **M2 — Verify premises:** Grep `kind` in `schemas/cross-repo-memo.yaml` — field absent; premise is accurate. `git fetch` + `git log` — no concurrent work on this topic. `cross-repo/archive/` sweep — no standdown or superseded memo.
 
 **M3 — kind = `ask` (explicit).** Adjudicate: the proposal is sound and fits this repo's consumers (no product tradeoff). Disposition: accept. Perform work (e.g., ticket it or plan it — commit the frontmatter flip in the same session; if the work spans multiple sessions, flip to `actioned` immediately with `decision_note: 'in progress — see <plan path>'` so the inbox doesn't age as open). Then write in place:
-
-<!-- Review: code-reviewer F7 — parenthetical added: same-session flip is the norm; multi-session
-     work should flip immediately with an in-progress decision_note to prevent inbox aging. -->
 
 ```yaml
 status: actioned
@@ -431,20 +477,16 @@ Done. No return memo sent.
 
 ## Cross-Repo MOVE and Tracker-Residual Discipline
 
-**Cross-repo MOVE of a roadmap stub requires a source-side residual audit before archiving the original.** Scan source scope vs destination need; if any scope is not transported (e.g., framework-agnostic detector when destination only needs UE overlay), file a successor stub for the residual on the source side BEFORE archiving the original. Update downstream `blocked_by:` lists to reference the successor.
-
-**Tracker entry naming a non-existent plan file is a closure signal, not a missing-file bug.** Verify on-disk; if the workstream shipped without leaving a plan, write a closing DR and resolve the tracker row. Do not re-author the plan from scratch.
+**Cross-repo MOVE of a roadmap stub requires a source-side residual audit before archiving the original.** Scan source scope vs destination need; if any scope is not transported (e.g., framework-agnostic detector when destination only needs UE overlay), file a successor stub for the residual on the source side BEFORE archiving the original. Update downstream `blocked_by:` lists to reference the successor. **Tracker entry naming a non-existent plan file is a closure signal, not a missing-file bug.** Verify on-disk; if the workstream shipped without leaving a plan, write a closing DR and resolve the tracker row. Do not re-author the plan from scratch.
 
 ## Notes
 
 - **T3 handoff detection.** If ANY of the following fire, surface the recommendation below before executing:
   - The handoff frontmatter shows `cost: T3`.
   - The handoff body contains ≥7 numbered implementation steps AND ≥3 distinct architectural seams.
-  - **Cross-repo signal (size-from-investigation correction).** The handoff describes multi-repo execution AND was authored from inside an investigation — detected by ANY of: (a) the handoff body or `## Recommended Next Steps` names ≥2 distinct repos (sibling-repo paths, `cross-repo/`, or `$REPO_*` registry handles), OR (b) the body contains a "investigation complete," "ready to execute," "spike done," or equivalent investigation-terminus phrase AND the scope touches more than one repo, OR (c) frontmatter `scope:` pathspecs resolve into ≥2 repos. T-shirt sizes authored from inside an investigation systematically under-read cross-repo execution scope — the investigation felt finished, but the multi-repo execution ahead is the actual work. Treat the under-sizing as the default, not the exception.
+  - **Cross-repo signal.** The handoff describes multi-repo execution AND was authored from inside an investigation — detected by: (a) body or `## Recommended Next Steps` names ≥2 distinct repos, OR (b) body contains "investigation complete / spike done / ready to execute" against multi-repo scope, OR (c) frontmatter `scope:` pathspecs resolve into ≥2 repos. T-shirt sizes from inside an investigation systematically under-read cross-repo execution scope — treat under-sizing as the default.
 
-  **Disposition splits on whether the handoff prescribes a plan — and the two halves are NOT both PM-gated.**
-
-  - **The plan is transitively authorized — do NOT ask.** A handoff handed to you for pickup is a PM-authored artifact (only the PM creates one). If its body prescribes a plan ("plan-shaped, not straight-to-executor", "invoke `/plan`", "decompose before executing", or equivalent), the act of handing you that pickup IS the plan authorization — the keyword-gate on `/plan` is satisfied transitively through the upstream gate that produced the handoff. **Invoke `coordinator:plan` directly.** Do NOT bounce back with "want me to plan?" / "proceed directly or fork-and-plan?" — that is the false-choice anti-pattern dressed up as gate-compliance (the PM already prescribed the plan; asking permission to do it re-litigates a settled decision). See coordinator CLAUDE.md § Challenging the PM ¶ `/plan` exemption. The "grab the baton and run" default applies to T1/T2 executor work; for T3 the baton you grab is the *plan*, not the executors — same run-don't-ask spirit, one altitude up.
+  - **The plan is transitively authorized — do NOT ask** (the two halves are NOT both PM-gated). A handoff handed to you for pickup is a PM-authored artifact (only the PM creates one). If its body prescribes a plan ("plan-shaped, not straight-to-executor", "invoke `/plan`", "decompose before executing", or equivalent), the act of handing you that pickup IS the plan authorization — the keyword-gate on `/plan` is satisfied transitively through the upstream gate that produced the handoff. **Invoke `coordinator:plan` directly.** Do NOT bounce back with "want me to plan?" / "proceed directly or fork-and-plan?" — that is the false-choice anti-pattern dressed up as gate-compliance (the PM already prescribed the plan; asking permission to do it re-litigates a settled decision). See coordinator CLAUDE.md § Challenging the PM ¶ `/plan` exemption. The "grab the baton and run" default applies to T1/T2 executor work; for T3 the baton you grab is the *plan*, not the executors — same run-don't-ask spirit, one altitude up.
 
   - **The spinoff *fork* IS still PM-gated — but it must NOT block the plan.** Forking the T3 continuation into its own spinoff handoff creates a new continuity artifact, which stays PM-authorized per `skills/spinoff` Step 0. Surface it as a separate one-line candidate (_"Candidate spinoff: <slug> — <topic>. Authorize?"_) **without gating the plan on the answer** — plan now off the pickup; the fork is an orthogonal continuity question the PM can answer in parallel or later. Conflating the two (the prior failure mode) let a PM-gated fork question hold a transitively-authorized plan hostage.
 
@@ -454,4 +496,3 @@ Done. No return memo sent.
 - The handoff's "Key Decisions Made" section is context you should internalize — don't re-litigate those decisions unless you find evidence they were wrong.
 - **`git mv` after Edit stages only the rename, not the content change.** If a future revision of this skill (or a sibling skill) ever needs to both rename AND edit a file, the correct order is: `git mv src dst` FIRST, THEN Edit `dst`, THEN `git add -- dst`, THEN commit. Edit-then-`git mv` stages only the rename and silently drops the content delta.
 - **Archiving:** `/pickup` mutates frontmatter in place at `state/handoffs/` and commits — it does NOT move the file. Archival is deferred to the picking-up session's terminal event: `/handoff` (chain-archival of the explicit predecessor) or `/workstream-complete` Step 2.7 (archives any handoff whose `consumed_by:` matches this session). The `session-init.sh` boot-time sweep provides a safety net for orphaned consumed handoffs (session died before archival). Handoffs are never archived based on age alone.
-- **Failure mode to avoid:** Executing items a concurrent session already shipped. The git log + plan status reconciliation in Step 3.4 is the gate — empirical baseline says 30–60% of inherited items are already closed. Skipping it means duplicate work, conflicts with landed commits, or spawned duplicate executors.

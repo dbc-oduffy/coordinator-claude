@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks runtime Write/Edit to the generated handoff tracker
 # files (state/handoff-tracker.md, state/doe-handoff-tracker.md).
 #
@@ -28,6 +28,7 @@
 #    hook-best-practices.md § PreToolUse deny).
 
 set -uo pipefail
+# NOTE: -e deliberately omitted — deny hook must fail-open (allow) on unexpected error, never fail-closed.
 
 # Safe stdin read
 if command -v timeout &>/dev/null; then
@@ -69,8 +70,11 @@ while [[ "$FILE_PATH_NORM" == *//* ]]; do
   FILE_PATH_NORM="${FILE_PATH_NORM//\/\///}"
 done
 
-# Match the generated tracker files by path tail.
-if [[ "$FILE_PATH_NORM" =~ (^|/)tasks/(handoff-tracker|doe-handoff-tracker)\.md$ ]]; then
+# Match the generated tracker files by path tail. The renderer writes
+# <root>/state/handoff-tracker.md and ~/.claude/state/doe-handoff-tracker.md
+# (per render-handoff-tracker.js header) — NOT tasks/ (a stale relic from before the
+# state/-vs-tasks/ split that silently disabled this guard).
+if [[ "$FILE_PATH_NORM" =~ (^|/)state/(handoff-tracker|doe-handoff-tracker)\.md$ ]]; then
   REASON="Tracker edit blocked: ${FILE_PATH} is a GENERATED render, not source. The handoff tracker is produced by bin/render-handoff-tracker.js from handoff frontmatter (the single source of truth) — any hand-edit is overwritten on the next render and, if committed first, masquerades as source. To change what the tracker shows, edit the relevant handoff's frontmatter (category / summary / deployment_state) and re-run: node \"\$HOME/.claude/plugins/coordinator/bin/render-handoff-tracker.js\" (add --root <repo> for another repo, --all-repos for the DoE aggregate). See docs/wiki/handoff-tracker-system.md. If you genuinely must hand-write this file (fixture / one-off correction), set COORDINATOR_OVERRIDE_TRACKER_EDIT=1."
   if command -v jq &>/dev/null; then
     jq -nc --arg reason "$REASON" '{

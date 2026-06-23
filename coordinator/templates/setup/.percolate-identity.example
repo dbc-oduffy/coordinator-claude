@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # .percolate-identity — per-operator identity tokens for publish.sh audit.
 #
 # Copy this file to .percolate-identity (no .example) and edit with your own

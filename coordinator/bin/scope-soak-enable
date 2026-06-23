@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # scope-soak-enable — start the warn-only soak clock for scoped-safety-commits
 #
 # Writes .git/coordinator-sessions/.warn-mode-enabled-at with the current ISO

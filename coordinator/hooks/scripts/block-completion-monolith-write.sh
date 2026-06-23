@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks runtime writes to archive/completed/YYYY-MM.md
 # outside the legacy/ subdirectory.
 #

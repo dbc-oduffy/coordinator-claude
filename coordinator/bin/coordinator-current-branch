@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-current-branch — output the canonical (on-disk) branch name.
 #
 # Why this exists: on Windows's case-insensitive filesystem, `.git/HEAD` can store

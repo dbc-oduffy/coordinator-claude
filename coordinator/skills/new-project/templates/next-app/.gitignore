@@ -1,0 +1,36 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+pnpm-debug.log*
+
+# env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Coordinator universal — scratch + machine-local settings
+.claude/settings.local.json
+
+# Scratch — transient agent output, investigation notes, workstream byproduct.
+scratch/
+tasks/_*.log
+
+# Per-session transient markers (consumed by /workstream-start)
+state/.repo-setup-*

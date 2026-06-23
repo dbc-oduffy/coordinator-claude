@@ -96,7 +96,7 @@ fix = "none"
 symptom_keywords = ["machine-local CLI not found", "bin not on PATH", "CLI failed", "machine-local key not found"]
 triage = true
 severity_if_fail = "error"
-remediation = "Re-run /coordinator:install Phase 3; verify ~/.claude/bin/ on PATH"
+remediation = "Re-run /coordinator:install Phase 3; on macOS ~/.claude/bin is reached via the coordinator/bin forwarder (it is not on PATH directly) — re-running Phase 3 installs the forwarder"
 
 # ---------------------------------------------------------------------------
 # Cluster: whoami — coordinator_whoami package + mcpServers config
@@ -159,7 +159,27 @@ fix = "none"
 symptom_keywords = ["claude-home not found", "resolver drift", "plugins did not resolve", "claude-home"]
 triage = true
 severity_if_fail = "error"
-remediation = "Re-run /coordinator:install Phase 3; verify ~/.claude/bin/ on PATH and claude-home + _claude_home.py present"
+remediation = "Re-run /coordinator:install Phase 3; on macOS ~/.claude/bin is reached via the coordinator/bin forwarder (it is not on PATH directly) — re-running Phase 3 installs the forwarder and the claude-home + _claude_home.py scripts"
+
+[[probe]]
+id = "P-14"
+cluster = "resolver"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["bare machine-local not found", "forwarder missing", "bin not on PATH (macos)", "bare-name resolver", "command not found machine-local", "command not found claude-home"]
+# Review: code-reviewer slice1-F3 — P-4 already fires at triage for the missing-CLI case;
+# P-14's unique value is diagnostic depth (bare-name vs absolute-path resolution), so it
+# belongs in the full run, not the triage gate — avoids three identical-remediation REDs
+# at triage on a fresh install.
+triage = false
+severity_if_fail = "error"
+# Review: code-reviewer slice1-F4 — corrected: the forwarders ship WITH the plugin
+# (present from clone/install); Phase 3 installs the REAL resolvers to ~/.claude/bin/.
+# A P-14 failure means either the plugin-bin forwarder is absent (plugin corruption /
+# harness didn't inject plugins/*/bin — reinstall the plugin) OR the real ~/.claude/bin/
+# <tool> resolver is missing (re-run /coordinator:install Phase 3).
+remediation = "P-14 failure: either the plugin-bin forwarder is absent (plugin corruption / harness did not inject plugins/*/bin — reinstall the plugin) OR the real ~/.claude/bin/<tool> resolver is missing (re-run /coordinator:install Phase 3)"
 
 # ---------------------------------------------------------------------------
 # Cluster: structure — sentinel presence, template drift, canonical scaffold

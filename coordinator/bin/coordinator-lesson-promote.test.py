@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/bin/sh
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 """
 coordinator-lesson-promote.test.py — smoke tests for the coordinator-lesson-promote CLI.
 

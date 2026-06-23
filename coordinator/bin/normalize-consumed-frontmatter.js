@@ -223,9 +223,24 @@ function walkDir(absDir) {
   if (!fs.existsSync(absDir)) return [];
   const stat = fs.statSync(absDir);
   if (!stat.isDirectory()) return [];
-  return fs.readdirSync(absDir)
-    .filter(f => f.endsWith('.md'))
-    .map(f => path.join(absDir, f));
+  // Depth-1 recursion: top-level *.md (flat handoffs + no-date install batons)
+  // AND one level into month-subdirs (archive/handoffs/YYYY-MM/*.md, added by the
+  // 2026-06-18 month-foldering migration). state/handoffs and the plan/decision/
+  // review dirs are flat, so the subdir descent is a harmless no-op there.
+  const out = [];
+  for (const f of fs.readdirSync(absDir)) {
+    const full = path.join(absDir, f);
+    let st;
+    try { st = fs.statSync(full); } catch { continue; }
+    if (st.isDirectory()) {
+      for (const sub of fs.readdirSync(full)) {
+        if (sub.endsWith('.md')) out.push(path.join(full, sub));
+      }
+    } else if (f.endsWith('.md')) {
+      out.push(full);
+    }
+  }
+  return out;
 }
 
 /**

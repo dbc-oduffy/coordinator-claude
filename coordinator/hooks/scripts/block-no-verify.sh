@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks git invocations that skip commit hooks or signing.
 # Fires on ALL Bash tool invocations (matcher: "Bash").
 # Exits immediately (<5ms) on non-matching commands.

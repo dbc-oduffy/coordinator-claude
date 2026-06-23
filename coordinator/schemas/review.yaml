@@ -5,7 +5,7 @@ required:
   created: iso-date
   reviewer:
     type: enum
-    values: [patrik, sid, camelia, pali, fru, zoli]
+    values: [patrik, sid, camelia, pali, fru, zoli, code-reviewer]
   target: string
   findings_count:
     type: number

@@ -95,37 +95,40 @@ RESIDUAL is **not** sprint material — singletons don't consolidate. Surface th
 
 Config file: `~/.claude/state/learn-lessons-config.md`.
 
-**Self-population via helper script.** Before any other Phase 0 work, invoke `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-config-update.sh` to ensure the current cwd is registered in the config. The script is idempotent — silent no-op if the path is already present. Normalization is handled by the script (absolute path, lowercase on Windows, trailing slash stripped, POSIX separators).
+**Discovery roots come from the machine-local registry, not a committed list.** Roots are derived
+PER-MACHINE by `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-roots.sh` — it emits `$CLAUDE_HOME` plus each
+registered `machine-local get repos.*` that resolves on disk (skip-absent), minus publish-target/mirror
+repos (a publish target is an OUTWARD mirror, never a lessons source). A machine with only a subset of
+repos on disk is normal — absent repos are silently skipped, never an error. This helper is the single
+source of truth for "which repos does learn-lessons process here," and it works on any machine that
+installs coordinator-claude, including a fresh install with nothing registered (emits just `$CLAUDE_HOME`).
 
-### Self-population
+### Registering a repo
 
-Every `learn-lessons` invocation appends the running repo's path to the config file if absent
-(create-if-absent; never overwrite an existing entry).
+There is no committed roots list to hand-edit. The old absolute-path sentinel was retired 2026-06-19 —
+it baked one machine's paths into a git-tracked file and did not survive a machine change (and its
+self-population append was silently broken). To make a repo's lessons visible to central runs, register it
+once in the machine-local registry: `machine-local set repos.<slug> <path>`.
+`${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-config-update.sh` (invoked at Phase 0) is now an idempotent no-op
+that prints exactly this hint when run from an unregistered repo; it never mutates a tracked file.
 
-**Normalization for dedup (apply in order):**
-1. Resolve to absolute path.
-2. Lowercase on Windows.
-3. Strip trailing slash.
-4. Convert backslashes to POSIX `/`.
+### Skip-absent (replaces the old stale-entry prune)
 
-So `X:/foo`, `X:\foo`, `x:/foo/`, and `X:/foo` all normalize to the same entry `x:/foo`.
-
-**Shell:** use `$PWD`. **Python:** use `os.getcwd()` or `pathlib.Path.cwd()`.
-
-### Stale-entry handling
-
-- **`local` and `recheck` modes:** if a configured root path is unresolvable on disk, emit a
-  one-line warning and skip that entry. Do NOT prune.
-- **`central` mode only:** prune config entries whose normalized paths no longer resolve on disk.
-  Log each pruned entry: `"Pruned stale root from config: <path>"`.
+The registry helper already skip-absents unresolvable roots, so there is **no config-prune step in any
+mode**. The registry — not a config sentinel — is the prunable SSoT: a genuinely retired repo is removed
+via `machine-local` (a registry concern), not by learn-lessons.
 
 ### Fallback chain
 
-1. **Config file** `~/.claude/state/learn-lessons-config.md` sentinel block
-   (`<!-- BEGIN learn-lessons-roots -->` … `<!-- END learn-lessons-roots -->`).
-2. **Default:** `~/.claude` only (if config file absent or empty).
+1. **Registry helper** `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-roots.sh` (primary).
+2. **Optional supplemental sentinel** in `state/learn-lessons-config.md`
+   (`<!-- BEGIN learn-lessons-roots -->` … `<!-- END learn-lessons-roots -->`), empty by default — for
+   non-registry roots only.
+3. **Default:** `$CLAUDE_HOME` only (the helper emits it unconditionally even with an empty registry — the
+   OSS fresh-install case).
 
-No hardcoded project paths outside the config file's documented example block.
+`state/learn-lessons-config.md` retains only the `central_volume_threshold` knob plus the optional
+supplemental sentinel. No hardcoded machine-specific paths.
 
 ## Per-Lesson Routing Schema and Change-Kind Taxonomy
 
@@ -143,7 +146,8 @@ Re-Read the queue from disk; build a hash-set of normalized one-line summaries; 
 
 ## Phase 1 — Discovery
 
-Glob the configured roots (from config sentinel block). For each `lessons.md` found, capture:
+Enumerate roots via `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-roots.sh` (per-machine, registry-derived;
+see Phase 0 — NOT a committed sentinel). For each `lessons.md` found under those roots, capture:
 - Total line count
 - Tagged `[universal]` entry count (`grep -c '\[universal\]'`)
 - Heuristic entry count (`##` and `**bold**` tallies)
@@ -241,7 +245,9 @@ Schema reference: `docs/wiki/lessons-outbox-schema.md`.
 ### Step 1 — Enumerate peer repos
 
 Read the `[repos]` table from `~/.claude/machine-local/registry.local.toml`. This is the canonical
-source for all registered peer repos on this machine.
+source for all registered peer repos on this machine — the same registry that Phase 0/1 discovery roots
+derive from via `${CLAUDE_PLUGIN_ROOT}/bin/learn-lessons-roots.sh` (the helper centralizes this read;
+the raw enumeration is shown here because the drain also needs each peer's outbox path, not just its root).
 
 ```bash
 # Enumerate registered peers. machine-local keys returns dotted keys; resolve each to its filesystem path:
@@ -763,7 +769,7 @@ The goal is aspirational because the queue can exceed what fits in one context w
 
 - `coordinator/CLAUDE.md` "Self-Improvement Loop" — references this skill for cadence + capture.
 - `~/.claude/state/coordinator-improvement-queue.md` — central queue; destination for deferred items.
-- `~/.claude/state/learn-lessons-config.md` — configured project roots; self-populates on each run.
+- `~/.claude/state/learn-lessons-config.md` — optional supplemental-roots sentinel (empty by default) + `central_volume_threshold` knob. Discovery roots are registry-derived via `bin/learn-lessons-roots.sh`, NOT written here.
 - `snippets/text-only-recovery-preamble.md` — synced snippet consumed in Phase 2 scout dispatches.
 - `archive/lessons-archived/YYYY-MM.md` — per-repo discard + age-sweep archive; append-only, per-month.
 - `bin/age-sweep-lessons.py` — Phase 4.5 mechanism; reuses `extract-lessons.py`'s parser; archives aged `[universal]` entries to bound `lessons.md`. Requires an explicit cutoff (`--before <last-central-run>`).

@@ -47,6 +47,8 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 ## Phase 0: Scoping (Coordinator, ~5 min)
 
 1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`, `docs/superpowers/specs/`, `tasks/*/spec.md`, `tasks/*/design.md`, `cross-repo/archive/` (closed `status: actioned` memos — see `commands/distill.md` § Cross-repo archive distillation)
+
+   **Plan files are the priority cohort.** Ripe plans under `docs/plans/` (enumerated via `bin/query-records --type plan --format paths`, ripeness classified per § Phase 0 ripeness gate below) are the highest-yield distillation source (`commands/distill.md:20-21`) and carry the heaviest Phase 5 sub-step (trim+archive). They are processed **first** and banked before ephemera disposal — see the harvest-before-disposal invariant in Phase 5 and `commands/distill.md § Phase 5`.
 2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON/YAML, or mixed formats.
 3. **Inventory existing wiki:** `docs/wiki/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check. Also note any gaps: systems that appear in specs or research but have no corresponding guide yet (these are new-guide candidates). **Index on filename, not just H1 title.** Capture the full `docs/wiki/*.md` and `docs/decisions/*.md` filename list alongside the H1/topic headings — near-duplicate FILENAME collisions (e.g. `coordinator-installer-shape.md` already on disk while a synthesizer later proposes `coordinator-installer.md`) are invisible to a heading-keyed index. Pass the filename list to the reality-check scout so ALREADY_CAPTURED classification can match on filename stem similarity, not only on title. (sibling: `CLAUDE.md` § Pre-Dispatch Verification — "grep existing surface before scaffolding agent-facing files; collisions hide under longer existing names".)
 
@@ -64,6 +66,15 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path, `*-claims.json`, `*-summary.md` from research pipelines): always **PRESERVE** — never deleted, never modified in place. Key claims may be extracted into guides at synthesizer discretion.
    - **Archived handoffs** (`archive/handoffs/*.md`): always **NEW** — the `## What Was Accomplished`, `## Key Decisions Made`, and `## Blockers or Issues` sections contain architectural decisions and gotchas that must be extracted into guides and decision records.
    - **Design specs** (`docs/superpowers/specs/*.md`, `tasks/*/spec.md`, `tasks/*/design.md`): classify as **NEW** if the spec was executed (check for corresponding implementation in git log or code) — extract all design decisions as decision records in the relevant guide, then mark the spec as archivable. Classify as **SKIP** if the spec is still in-progress or unapproved.
+   - **Canonical plans** (`docs/plans/*.md`): classified by the **ripeness gate** below — only RIPE (delivered) plans are **NEW** (extract + trim→archive fate); PARTIAL / IN-FLIGHT / ABANDONED plans are **SKIP** (not harvested, not archived).
+
+   **Phase 0 ripeness gate (plans — delegates to `plan-delivery-audit`).** Do NOT hand-roll a done-vs-in-flight predicate — the canonical classifier is `skills/plan-delivery-audit/SKILL.md:128-136`. For each `docs/plans/*.md`, classify by frontmatter `status:` + AC verifiability at HEAD:
+   - **RIPE → NEW** (harvest: extract nuggets + trim→archive): `status: implemented` or `status: shipped` AND all typed-prefix ACs pass at HEAD (Oracle DELIVERED+REVIEWED or DELIVERED-UNREVIEWED). This is the dominant case — `status: implemented` is on the large majority of completed plans.
+   - **PARTIAL → SKIP**: `status: implemented`/`shipped` but ACs fail or are absent/unverifiable ("self-assertion without machine-checkable evidence is not delivery" — Oracle PARTIAL tie-break). Logged, not archived, not deleted.
+   - **IN-FLIGHT → SKIP**: `status: in-progress` / `draft` / `reviewed`. Logged, untouched.
+   - **ABANDONED → SKIP**: `status: superseded` / `abandoned` / `cancelled`. **Never harvested** — an abandoned plan must NOT be trim→archived as if delivered.
+   - **Default on ambiguity → SKIP** (treat as PARTIAL). Wrongly burying a live plan costs more than leaving a ripe plan one cycle; the conservative default is intentional.
+   - **Excluded signals (do NOT use):** `## Deviations` sections (retired 2026-06-15 at `skills/workstream-complete/SKILL.md:93` — dead surface), and `SHIPPED: X (was: Y)` annotations (a forecast-correction marker on a small minority of plans, a Phase 1 knowledge input, NOT a ripeness gate). `status: consumed`/`shipped`-as-handoff-status do not apply to plans.
 
    The scout returns a classified list with counts. This is the **ground truth** for scope, replacing the distill-log as the primary filter. The distill-log is a hint; the scout is the authority.
 
@@ -438,10 +449,13 @@ done
 
 ## Phase 4: PM Approval Gate (Coordinator)
 
+**Atlas staleness advisory (sensor, non-blocking) — run FIRST.** Before presenting the manifest, run the read-only atlas check and surface an advisory per `commands/distill.md § Phase 4 — PM Gate: Atlas Staleness Advisory`: run `bin/check-atlas-watch-drift.sh`, map the run's churn (RIPE plans + archived handoffs) to atlas systems via the seed keyword/path-prefix map, and for any churned system that is `DRIFT`/`STALE` emit a one-line "good cause to run `/architecture-audit` on `<system>` before deletion" advisory. No-map case emits a fail-loud-soft "advisory skipped" line. `/distill` is the **sensor**, never the actuator — it never invokes the audit and never blocks on it.
+
 Present to PM:
 - Summary table: N guides created/updated, N decisions created, N artifacts to delete
 - Full deletion manifest (from Phase 3d)
 - `DIRECTORY_GUIDE.md` preview (from Phase 3c)
+- Atlas staleness advisory (if any churned system is DRIFT/STALE), or the no-map skipped-line
 - PM can remove items from the deletion list
 
 **Wait for explicit approval. Do not proceed without it.**
@@ -451,6 +465,8 @@ Present to PM:
 ---
 
 ## Phase 5: Apply and Clean (Coordinator-orchestrated, Sonnet-applied)
+
+**Harvest-before-disposal invariant (plan-priority).** The ripe-plan trim+archive pass (`commands/distill.md § 5a`) runs first and is committed (step 4) **before** the deletion steps (5-6). A budget-truncated run completes the plan harvest before any ephemera disposal — the cheap mechanical deletion never preempts the expensive plan archival. Full rationale + ordering: `commands/distill.md § Phase 5` intro.
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
 1. **Safety commit:** `CLAUDE_INVOKING_COMMAND=distillation ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "pre-distillation checkpoint"`

@@ -562,6 +562,15 @@ Pull from the active state: bugs (top severity first), stale sweep, stale tests,
 [Surface tracker Ready items, handoff action items, and PM-facing options]
 ```
 
+After synthesizing the Priority Suggestions, for each suggestion, emit a structured daily goal event. Run one invocation per suggestion:
+
+    # Review: A-F12 — moved outside the Morning Briefing markdown fence to prevent nested-fence parse failure
+    # Review: A-F13 — absolute path required; /workday-start runs from arbitrary cwd
+    bash "${CLAUDE_HOME:-$HOME}/.claude/plugins/coordinator/bin/append-goal-event.sh" \
+      --period day --period-value <today ISO date, e.g. 2026-06-22> --text "<the suggestion>"
+
+Runs automatically as part of the ceremony — no new manual PM step.
+
 **Set marker:** Write `state/.workday-start-marker` with today's date (single line). Workstream-start checks this one file.
 
 ## Step 5.5: Write Orientation Cache

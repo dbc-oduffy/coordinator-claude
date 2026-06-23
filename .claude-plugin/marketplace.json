@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Structured agent orchestration for Claude Code — multi-agent workflows, named reviewer personas, session continuity, and workflow skills.",
-    "version": "2.1.1"
+    "version": "2.9.0"
   },
   "plugins": [
     {

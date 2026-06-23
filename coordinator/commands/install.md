@@ -20,25 +20,40 @@ Phase 1 checks each item and fails loud (or warns) per the D4 contract.
 - **jq** — required for JSON output in `/workday-start` addon-health.
 - **Node 18+** — only for NotebookLM deep-research add-on.
 - **scc** — optional; powers code statistics in session orientation.
+- **PowerShell 7+ (`pwsh`)** — default-on, all platforms. Windows hidden-spawn / auto-push / `.ps1` scripts target it (falling back to the inbuilt Windows PowerShell 5.1); offered on macOS, Linux, and Windows. Not a hard blocker.
+- **Windows Terminal** — default-on, Windows only. Modern console host paired with `pwsh` 7 (no legacy conhost flash on hidden-spawn paths).
 
 ## Execution dial and structural fork
 
 **Execution dial:** Default is **agent-led** — prompts only where genuine decisions are needed. Pass `--non-interactive` to suppress all `AskUserQuestion` calls; see the **D4 Non-Interactive Contract** below for per-site fallback.
 
-**Structural fork — Track A / Track B:** Before any phase, detect which track applies:
+**Structural fork — three states:** Before any phase, classify the Claude home:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/lib/detect-existing-claude-home.sh"
-# Emits: track=A  (fresh install — ~/.claude is empty or absent)
-#     or track=B  (existing setup — ~/.claude already has content)
+# Emits one line: state=<pristine|used-vanilla|configured> track=<A|B> reason: …
 ```
 
-- **Track A (fresh install):** Proceed through all phases. Every step runs from zero — no merge, no cherry-pick.
-- **Track B (existing setup):** Surface at top of status report:
+Branch on **`state=`** (the `track=` field is a backward-compat binary alias —
+`configured → B`, else `A` — kept only for older callers; do not key new logic on it):
 
-  > **Existing `~/.claude` detected.** This installs from zero; merge is yours. Re-running is safe; it skips anything already present. Use `--check-only` to see state without changes.
+- **`pristine`** — Claude Code has never run here; no artifacts at all. Proceed through all phases from zero. No caveat in the status report — there is nothing to merge or collide with.
 
-  Continue through all phases as normal (idempotency guards prevent overwrites). Do NOT offer a merge engine or selective-adoption UI.
+- **`used-vanilla`** — Claude Code HAS been run, but nothing opinionated was set up (no git, no installed plugins, no coordinator infra — only session history, Claude-Code-managed `plugins/` scaffolding, and/or a hand-edited `CLAUDE.md`). Proceed through all phases from effectively zero. Surface a *light, non-alarming* note:
+
+  > **Existing Claude Code usage detected (no custom setup).** Installing the coordinator on top — your sessions and any `CLAUDE.md` edits are preserved, not overwritten. Re-running is safe. Use `--check-only` to preview.
+
+  Do NOT show the "your setup may collide / merge is yours" warning — there is no opinionated setup to collide with. This is the state a freshly-installed machine lands in, and it MUST NOT read as a clobber risk.
+
+- **`configured`** — an opinionated, deliberately-customized home (git-tracked, installed plugins, or coordinator infrastructure — "a setup like ours"). Surface at top of status report:
+
+  > **Existing `~/.claude` setup detected.** This installs from zero; merge is yours. Re-running is safe; it skips anything already present. Use `--check-only` to see state without changes.
+
+  Continue through all phases as normal. Do NOT offer a merge engine or selective-adoption UI.
+
+**Invariant across all three states:** idempotency guards (never clobber `CLAUDE.md`, `settings.json`, machine-local registry files) hold regardless of the classified state. The state drives *posture and messaging*, never whether file-level overwrites are permitted — they never are.
+
+**Status-table row:** surface the classification as the first row of the Phase 7 status table — `home_state: <pristine|used-vanilla|configured>` — so the report records which posture was taken.
 
 ## Check-only mode
 
@@ -50,7 +65,7 @@ If `$ARGUMENTS` contains `--check-only`: report environment state without making
 
 Each prompt site is annotated: `skip-with-note` (skip, surface in status table), `default-with-warning` (apply safe default, surface value), or `fail-loud` (exit non-zero with remediation; no safe default). Unannotated sites default to `fail-loud`. `--check-only` prevents all mutation; `--non-interactive` controls only prompt fallback. Both are orthogonal and may be combined.
 
-**Scope distinction:** This command sets up the coordinator *environment* (plugins, env vars, tools). For per-project scaffolding (CLAUDE.md, tracker, workstreams), use `/repo-setup` after this.
+**Scope distinction:** This command sets up the coordinator *environment* (plugins, env vars, tools). For per-project scaffolding (CLAUDE.md, tracker, workstreams), use `/coordinator:repo-setup` after this.
 
 ## Phase 1 — Environment
 
@@ -127,7 +142,7 @@ if [[ "$OSTYPE" == darwin* ]]; then
           echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
           echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
           echo "      brew install bash"
-          echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zshrc or ~/.bashrc"
+          echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zprofile (zsh, macOS default) or ~/.bash_profile (bash)"
           OFFER_B_SUCCESS=0
         fi
       else
@@ -137,7 +152,7 @@ if [[ "$OSTYPE" == darwin* ]]; then
         echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
         echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
         echo "      brew install bash"
-        echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zshrc or ~/.bashrc"
+        echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zprofile (zsh, macOS default) or ~/.bash_profile (bash)"
         OFFER_B_SUCCESS=0
       fi
     fi
@@ -202,6 +217,7 @@ fi"
                   STATUS: shellenv_block: ready (appended to $RC)
                   echo ""
                   echo "Open a new shell or \`source $RC\` for the change to take effect — this Claude Code session inherits the stale PATH."
+                  echo "  (macOS: a new terminal tab is often a non-login shell and will not source $RC automatically. Restart the terminal app to ensure the value is inherited.)"
                 else
                   STATUS: shellenv_block: failed (append succeeded but sentinel absent — inspect $RC)
                 fi
@@ -261,6 +277,28 @@ Read `~/.claude/settings.json`. If an `env` block exists, check for the key. If 
 
 Note: this takes effect on next Claude Code restart.
 
+### 1b.1. Python 3 (real interpreter — not the Windows Store App-Execution-Alias stub)
+
+<!-- D4 annotation: read-only check in Phase 1; the Phase 3 install-substrate.sh remediation (python3.cmd shim + orphan-stub deletion) is where the fix lands. This row surfaces the condition early so the status table flags it before any python3-dependent step. -->
+
+Hooks and config helpers call `python3`. On **Windows**, `python3` resolves by default to a Microsoft Store **App-Execution-Alias** — a 0-byte stub that errors on run and is invisible to Git Bash — so a bare `python3` check can read as "present" while every invocation fails. Probe the real interpreter:
+
+```bash
+PY3="$(command -v python3 2>/dev/null || true)"
+if [ -z "$PY3" ]; then
+  echo "python3: not_found"
+elif python3 -c 'import sys; print(sys.version.split()[0])' >/dev/null 2>&1; then
+  echo "python3: ready ($(python3 -c 'import sys; print(sys.version.split()[0])') at $PY3)"
+else
+  # Resolves but does not execute → the Windows App-Execution-Alias stub
+  echo "python3: App-Execution-Alias stub detected ($PY3) — Phase 3 install-substrate.sh installs a python3.cmd shim and offers to delete the orphan stub"
+fi
+```
+
+- **ready:** real interpreter present. Status: `python3: ready (<version> at <path>)`.
+- **App-Execution-Alias stub detected (Windows):** `default-with-warning` — Phase 3 (`install-substrate.sh`) lays a `python3.cmd` shim and detects/offers-to-delete the orphan AppX stub. Status: `python3: stub (will shim in Phase 3)`. Until then, recommend a real Python (`winget install Python.Python.3.13`) with `Python313\` ahead of `…\WindowsApps` on PATH.
+- **not_found:** `fail-loud` — JSON manipulation and hooks need it. Status: `python3: failed (not on PATH)`. Install from https://python.org.
+
 ### 1c. Code statistics tool (scc)
 
 ```bash
@@ -277,6 +315,45 @@ command -v jq 2>/dev/null || echo "not_found"
 
 - If found: ready. Required for `orphan-branch-sweep.sh --format json` (load-bearing in `/workday-start` Step 1.10).
 - If not found: **required for JSON output**. Without `jq`, sweep falls back to `--format text` — downstream JSON consumers fail silently. Install: https://jqlang.org/download/.
+
+### 1c.2 PowerShell 7+ (`pwsh`) — default-on, all platforms
+
+<!-- D4 annotation: skip-with-note — install offer is elective; --non-interactive skips and notes status. -->
+
+Coordinator's Windows hidden-process spawning (`lib/spawn-hidden.sh`, `bin/coordinator-auto-push`), machine-local shims, and `hooks/project-rag-detect.ps1` target PowerShell. On Windows these fall back to the inbuilt Windows PowerShell 5.1 (`powershell.exe`), but **PowerShell 7+ (`pwsh`) is the default-on target** — the supported cross-platform shell, superseding 5.1. Offered on macOS, Linux, and Windows; not a hard blocker.
+
+```bash
+PWSH_BIN="$(command -v pwsh 2>/dev/null || true)"
+PWSH_VER=""
+[ -n "$PWSH_BIN" ] && PWSH_VER="$("$PWSH_BIN" --version 2>/dev/null | awk '{print $2}')"
+PWSH_MAJOR="${PWSH_VER%%.*}"
+```
+
+- **`pwsh` present and major ≥ 7:** ready. Status: `powershell: ready ($PWSH_VER at $PWSH_BIN)`.
+- **`pwsh` absent (or major < 7):** offer install per platform. Under `--check-only`: `powershell: not_found (would offer)`. Under `--non-interactive`: skip — `powershell: not_found (install offer suppressed — non-interactive)`. Under interactive, offer Y/n (default Y); on accept run the platform command, on decline emit `powershell: declined`:
+
+  - **macOS (`$OSTYPE` = `darwin*`):** `brew install powershell` — **formula, not cask.** The legacy `--cask powershell` was removed from homebrew-cask; PowerShell now ships as a homebrew-core formula (depends on `dotnet`). Requires brew (Offer A above). On success: `powershell: installed ($(pwsh --version | awk '{print $2}'))`.
+  - **Linux (`$OSTYPE` = `linux*`):** if `command -v snap` → `sudo snap install powershell --classic`; else doc pointer — `powershell: not_found (install: https://learn.microsoft.com/powershell/scripting/install/install-on-linux)`. Distro package repos vary; a clean one-liner isn't portable.
+  - **Windows (`$OSTYPE` = `msys`/`cygwin`):** if `command -v winget.exe` → `winget.exe install --id Microsoft.PowerShell --source winget --accept-package-agreements --accept-source-agreements`; else doc pointer `https://learn.microsoft.com/powershell/scripting/install/install-on-windows`.
+
+### 1c.3 Windows Terminal (`wt`) — default-on, Windows only
+
+<!-- D4 annotation: skip-with-note — Windows-only; silent no-op on macOS/Linux. -->
+
+Windows-only. On macOS/Linux this check is a silent no-op (emit no row). On Windows, Windows Terminal is the **default-on** modern console host paired with PowerShell 7 — it gives the hidden-spawn and auto-push paths a host that doesn't flash a legacy conhost window.
+
+```bash
+if [[ "$OSTYPE" == msys || "$OSTYPE" == cygwin ]]; then
+  WT_PRESENT="$(command -v wt.exe 2>/dev/null || true)"
+  # winget is the authority when wt is not yet on PATH:
+  [ -z "$WT_PRESENT" ] && command -v winget.exe >/dev/null 2>&1 && \
+    winget.exe list --id Microsoft.WindowsTerminal >/dev/null 2>&1 && WT_PRESENT="installed (winget)"
+fi
+```
+
+- **Present:** `windows_terminal: ready`.
+- **Absent, interactive:** offer Y/n (default Y) → `winget.exe install --id Microsoft.WindowsTerminal --source winget --accept-package-agreements --accept-source-agreements`. On success `windows_terminal: installed`; on decline `windows_terminal: declined`; no winget → `windows_terminal: not_found (install via Microsoft Store or https://aka.ms/terminal)`.
+- **`--check-only`:** `windows_terminal: not_found (would offer)`. **`--non-interactive`:** skip — `windows_terminal: not_found (install offer suppressed — non-interactive)`.
 
 ### 1d. Deep research plugin
 
@@ -393,13 +470,13 @@ bash "${CLAUDE_PLUGIN_ROOT}/lib/install-substrate.sh"
 
 Helper: fails-loud on missing source-of-truth dirs; honors `CLAUDE_HOME` (`docs/wiki/machine-local-registry.md § 4a`) and `COORDINATOR_NON_INTERACTIVE=1`; preserves operator-customized files with one-line notices; skips Windows checks on non-Windows. Installs 7 bin/ artifacts (3 `machine-local`, 3 `claude-home`, 1 `python3.cmd` shim — shims prevent "Select an app" pickers on extensionless scripts). Orphan AppX stub deletion requires `[y/N]` consent.
 
-### Step 1b — Per-OS health scripts (each self-gates; no-op outside its target OS)
+### Step 1b — Run the install-health orchestrator (drop-in scripts; each self-gates)
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/ensure-python3-exe-shim.sh"
+bash "${CLAUDE_PLUGIN_ROOT}/bin/install-health-run.sh"
 ```
 
-`ensure-python3-exe-shim.sh` — Windows only; idempotent.
+The orchestrator iterates `bin/install-health/*.sh` in lexicographic order, runs each in an isolated `bash` subprocess, and aggregates the failure count — it exits non-zero if any script failed, and stderr names each failing script with its exit code (it does NOT abort on the first failure — partial install completeness beats total bail). Each script self-gates on OS / preconditions and exits 0 silently when not applicable, so a clean run is silent. **Adding a new install-completion script is a directory drop into `bin/install-health/` — no edit to this command is required.** Scripts must be OS-self-gating, idempotent, and resolve libs via `CLAUDE_PLUGIN_ROOT`.
 
 ### Step 2 — Never overwrite live registry files
 
@@ -438,16 +515,36 @@ Add a `Coordinator plugin.mirrors` row to the Phase 7 status table.
 
 ### Step 6 — Install `coordinator_whoami` package (idempotent)
 
-<!-- spec-backlink: docs/plans/2026-05-21-whoami-first-class-substrate.md § Chunk 1 / AC-1, AC-2, AC-3, AC-15 -->
+<!-- spec-backlink: docs/plans/2026-05-21-whoami-first-class-substrate.md § Chunk 1 / AC-1, AC-2, AC-3, AC-15 — superseded for Step 6 by the 2026-06-20 plan below; these ACs no longer address the Step 6 implementation shape. -->
+<!-- spec-backlink: docs/plans/2026-06-20-whoami-durable-install-surface.md (durable venv install surface) -->
 <!-- D4: default-with-warning — no prompt site; install fires mechanically under --non-interactive same as interactive. -->
 
+**Sequencing note:** Step 6 MUST run after Phase 3 Step 1 (the `install-substrate.sh` run that places the `machine-local` CLI on PATH). The ensure script writes the venv python pin via `machine-local set coordinator.python`; if the CLI is absent it degrades gracefully (venv is still built and usable via `COORDINATOR_PYTHON`), but proper ordering is required.
+
+Delegate all venv creation, `coordinator_whoami` installation, and registry pinning to `ensure-coordinator-venv.sh`. The script is idempotent, mutex-protected, and resolves the system Python at runtime — no binding to a specific interpreter version, no PEP-668 bare-pip conflict.
+
 ```bash
-python3 -c "import coordinator_whoami" 2>/dev/null
+# Normal mode — create/validate venv, install package, pin registry
+bash "${CLAUDE_PLUGIN_ROOT}/bin/ensure-coordinator-venv.sh"
+
+# Check-only mode — report without mutating
+bash "${CLAUDE_PLUGIN_ROOT}/bin/ensure-coordinator-venv.sh" --check
 ```
 
-- **Import succeeds:** status `coordinator_whoami: ready`. No mutation.
-- **`--check-only`:** status `coordinator_whoami: would write`. Exit step.
-- **Otherwise:** `python3 -m pip install -e "${CLAUDE_PLUGIN_ROOT}/whoami/"`. On exit 0: `ready`. On non-zero: `failed` (log pip stderr; do NOT halt chain). Post-install probe P-5 in `docs/wiki/coordinator-doctor.md`.
+Under `--check-only`, invoke with `--check`. Under normal install, invoke without flags.
+
+Map the script's stdout to the Phase 7 status row:
+
+| Script output | Phase 7 status |
+|---|---|
+| `ready` | `coordinator_whoami: ready` |
+| `ready` (check mode, venv healthy) | `coordinator_whoami: ready` |
+| `rebuilt` | `coordinator_whoami: rebuilt` |
+| `would write` (check mode, venv absent or broken) | `coordinator_whoami: would write` |
+| non-zero exit | `coordinator_whoami: failed (<first line of stderr>)` — do NOT halt chain |
+<!-- Review: code-reviewer F1 — collapsed the prior would-write/would-rebuild split into a single `would write` token per the pinned contract; added check-mode-healthy `ready` row per F3. -->
+
+On non-zero exit: log the script's stderr for diagnostics; do NOT halt the install chain (same non-halting contract as prior Steps). Post-install probe P-5 in `docs/wiki/coordinator-doctor.md`.
 
 Add row to Phase 7 table.
 
@@ -737,7 +834,7 @@ Skip under `--check-only`. After the status table, offer: *"Want a guided tour? 
 bash "${CLAUDE_PLUGIN_ROOT}/bin/coordinator-setup-state.sh" record orientation_started
 ```
 
-End with: _"`/coordinator:install` is environment-only. Run `/coordinator:setup` to scaffold a new project, then `/workstream-start` to begin work."_ If `--check-only`, show the table but note what *would* be created/configured without the flag.
+End with: _"`/coordinator:install` is environment-only. Run `/coordinator:repo-setup` to scaffold a new project, then `/workstream-start` to begin work."_ If `--check-only`, show the table but note what *would* be created/configured without the flag.
 
 **Refinement target close.** Include verbatim in every next-steps block (not under `--check-only`):
 
@@ -748,12 +845,12 @@ End with: _"`/coordinator:install` is environment-only. Run `/coordinator:setup`
 <!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 4 / AC8 -->
 <!-- D4 annotation: skip-with-note — elective offer; suppressed under --non-interactive and --check-only. -->
 
-**Suppressed under `--non-interactive` or `--check-only`.** Status row: `repo_setup_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/repo-setup --batch` invocation, no offer text.
+**Suppressed under `--non-interactive` or `--check-only`.** Status row: `repo_setup_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/coordinator:repo-setup --batch` invocation, no offer text.
 
 Under interactive (after the status table has been shown), read `~/.claude/working-repos.yaml` to get the discovered repo count (N). If N > 0, offer:
 
-> Discovered **N** working repo(s) in `working-repos.yaml`. Want to bootstrap coordinator scaffolding into them? Run `/repo-setup --batch` — Express mode applies to all, Custom mode lets you pick per-repo. 0% destructive; every change is git-revertible.
+> Discovered **N** working repo(s) in `working-repos.yaml`. Want to bootstrap coordinator scaffolding into them? Run `/coordinator:repo-setup --batch` — Express mode applies to all, Custom mode lets you pick per-repo. 0% destructive; every change is git-revertible.
 
-If accepted, instruct them to run `/coordinator:setup --batch` (do NOT inline scaffolding here — `/coordinator:install` is environment-only). If declined or N = 0, skip silently.
+If accepted, instruct them to run `/coordinator:repo-setup --batch` (do NOT inline scaffolding here — `/coordinator:install` is environment-only). If declined or N = 0, skip silently.
 
 Status row: `bootstrap_offer: offered (N repos)` (after offer shown) / `suppressed (--non-interactive|--check-only)` / `skipped (0 repos discovered)`.

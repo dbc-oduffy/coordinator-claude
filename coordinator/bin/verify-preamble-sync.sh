@@ -132,10 +132,8 @@ extract_block() {
 # Long-term fix: extract-snippet-body mode in bin/lib/sentinel-blocks-cli.js. See BS-2026-05-20-013.
 SNIPPET_BODY="$(awk 'NR>2' "$SNIPPET_FILE")"
 
-# Normalize: strip trailing whitespace, collapse trailing blank lines.
-normalize() {
-    printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
-}
+# shellcheck source=../lib/normalize-snippet.sh
+source "$SCRIPT_DIR/../lib/normalize-snippet.sh"
 
 SNIPPET_NORM="$(normalize "$SNIPPET_BODY")"
 

@@ -78,6 +78,12 @@ $ScriptName    = 'coordinator-claude setup'
 $ChainStep     = 'chain step 5 of 5'
 $ChainBanner   = "coordinator install-chain walker -- $ChainStep"
 
+# chain-preinstall is stateful-by-contract (NOT in the read-only carve-out): the -Phase
+# switch sets this marker instead of exiting inline, so the post-parse agent/token gate
+# decides exit 92 vs no-op body. Mirrors setup.sh _RUN_CHAIN_PREINSTALL.
+# agent-install-contract.md § chain-preinstall phase.
+$RunChainPreinstall = $false
+
 # ---------------------------------------------------------------------------
 # Locate this script and resolve RepoRoot (layout-agnostic).
 #
@@ -140,8 +146,11 @@ if ($Help) {
     Write-Host ""
     Write-Host "  -Help                    Print this help and exit."
     Write-Host "  -Version                 Print script version and exit."
-    Write-Host "  -Phase <name>            Dispatch named install phase (read-only; no state written)."
-    Write-Host "                           Known phases: seed-install-spinoff"
+    Write-Host "  -Phase <name>            Dispatch named install phase and exit."
+    Write-Host "                           Read-only phases (no state written): seed-install-spinoff"
+    Write-Host "                           Stateful phases (gated): chain-preinstall — pre-restart full-install"
+    Write-Host "                             seam; requires `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT (or the override pair)"
+    Write-Host "                             in agent mode; no-op body at the DAG root."
     Write-Host "                           Unknown phase values exit non-zero (fail-loud)."
     Write-Host "  -PhaseList               List install phases and exit."
     Write-Host "  -LastStatus              Print last install status JSON and exit."
@@ -164,6 +173,7 @@ if ($Version) {
 if ($PhaseList) {
     Write-Host "Available -Phase <name> values:"
     Write-Host "  seed-install-spinoff  DAG-root no-op (read-only, no state written)"
+    Write-Host "  chain-preinstall      Pre-restart full-install seam (stateful-by-contract; gated by `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT in agent mode; no-op body at the DAG root)"
     Write-Host ""
     Write-Host "Informational (NOT -Phase <name> values):"
     Write-Host "  dep-check:  coordinator-claude is DAG root -- no upstream deps; chain-walk terminates here"
@@ -176,7 +186,8 @@ if ($LastStatus) {
 }
 
 # ---------------------------------------------------------------------------
-# -Phase <name> dispatch (read-only carve-out — no install-status write).
+# -Phase <name> dispatch. Read-only phases (seed-install-spinoff) exit inline in the carve-out;
+# stateful phases (chain-preinstall) set a deferred marker and fall through to the agent/token gate.
 # Parity with setup.sh --phase <name>.
 #
 # Prefix-collision note: PowerShell resolves "-Phase foo" as an exact match for
@@ -207,9 +218,14 @@ if ($Phase -ne '') {
             Write-Host "[setup] seed-install-spinoff: no-op (coordinator stitches + drives; downstream repos seed their own legs)."
             exit 0
         }
+        'chain-preinstall' {
+            # Stateful-by-contract phase — NOT an inline read-only exit like seed-install-spinoff.
+            # Set the marker and DO NOT exit; the post-parse agent/token gate decides exit 92 vs
+            # no-op body. Phase-level gate, uniform across legs. agent-install-contract.md § chain-preinstall.
+            $RunChainPreinstall = $true
+        }
         default {
             [Console]::Error.WriteLine("ERROR: Unknown -Phase value: '$Phase'")
-            [Console]::Error.WriteLine("  Known phases: seed-install-spinoff")
             [Console]::Error.WriteLine("  Use -PhaseList to enumerate all known phase names.")
             exit 1
         }
@@ -241,14 +257,36 @@ $CoordRunMode = $env:COORDINATOR_RUN_MODE
 if ($IAmAgent -or $CoordRunMode -eq 'agent') {
     if ($SkipDepCheck -and $AcceptMissingDepsRisk) {
         # full override pair present — fall through
+    } elseif ($RunChainPreinstall -and -not [string]::IsNullOrEmpty($env:COORDINATOR_CHAIN_PREINSTALL_CONSENT)) {
+        # chain-preinstall phase inside a consented chain walk — fall through.
+        # The consent token is the same trust altitude as the override pair (a deliberate
+        # redirect-guard escape, not a capability token). agent-install-contract.md § chain-preinstall.
     } else {
         [Console]::Error.WriteLine("AGENT_MANIFEST_PATH=docs/install/AGENT.md")
         [Console]::Error.WriteLine("[setup] Agent-direct invocation detected. Use /coordinator:setup instead.")
         [Console]::Error.WriteLine("[setup] Agent install guide: docs/install/AGENT.md")
-        [Console]::Error.WriteLine("[setup] To run non-interactively, supply both:")
-        [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        if ($RunChainPreinstall) {
+            [Console]::Error.WriteLine("[setup] -Phase chain-preinstall requires a consented chain walk:")
+            [Console]::Error.WriteLine("[setup]   set `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT (the chain-walk token) -- or supply the override pair")
+            [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        } else {
+            [Console]::Error.WriteLine("[setup] To run non-interactively, supply both:")
+            [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        }
         exit 92
     }
+}
+
+# ---------------------------------------------------------------------------
+# chain-preinstall phase body (post-gate). Reached only when the agent/token
+# gate above passed (or in non-agent mode). coordinator-claude is the DAG root
+# with no script-install body, so chain-preinstall is a no-op here -- it still
+# routes THROUGH the gate above (phase-level gate, uniform across legs), then
+# exits 0. NOT in the read-only carve-out: stateful-by-contract.
+# ---------------------------------------------------------------------------
+if ($RunChainPreinstall) {
+    Write-Host "coordinator-claude: DAG-root spine -- nothing to preinstall (chain-preinstall no-op body at the root; capability install happens at downstream heavy-install legs)."
+    exit 0
 }
 
 # ---------------------------------------------------------------------------

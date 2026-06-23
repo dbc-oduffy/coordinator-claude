@@ -21,7 +21,7 @@
 #   3 — schema_version mismatch in registry.toml
 #
 # Checks performed (in order):
-#   1. schema_version == 1 in registry.toml (exit 3 on mismatch)
+#   1. schema_version ∈ {1, 2} in registry.toml (exit 3 on unknown/higher version)
 #   2. registry.toml and all 4 verify-X-sync.sh scripts exist on disk (exit 2 if absent)
 #   3. bash -n parse check on each of the 4 verify-X-sync.sh scripts (exit 1 on parse error)
 #   4. Per script mode detection (post-migration | legacy | broken → exit 1 on broken)
@@ -87,7 +87,7 @@ SNIPPET_NAMES=(
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--list" ]; then
     # Review: code-reviewer F6 — document that schema_version exits 3 on mismatch (not surfaced otherwise in --list)
-    echo "check:schema_version — registry.toml schema_version == 1 (exit 3 on mismatch)"
+    echo "check:schema_version — registry.toml schema_version ∈ {1,2} (exit 3 on unknown/higher version)"
     echo "check:registry_exists — registry.toml exists on disk"
     for name in "${SNIPPET_NAMES[@]}"; do
         script="${VERIFY_SCRIPTS[$name]}"
@@ -237,7 +237,9 @@ try:
     sv = data.get("schema_version")
     if sv is None:
         print("ERROR schema_version field missing from registry.toml")
-        sys.exit(0)
+        # Review: logic-slice L-F1 — exit 3 (not 0) to match CLI contract (sys.exit(3) for
+        # schema_version problems) and the documented exit-code table in the file header.
+        sys.exit(3)
     print(f"SCHEMA_VERSION {sv}")
 
     # Emit consumers and conditionals per snippet
@@ -263,7 +265,11 @@ try:
             cpath = cond.get("path", "")
             ckey  = cond.get("condition_key", "")
             print(f"COND_PATH {sname} {cpath}")
-            print(f"COND_KEY {sname} {ckey}")
+            # Review: logic-slice L-F3 — only emit COND_KEY when ckey is non-empty;
+            # file-exists entries have no condition_key, and an unconditional emit pollutes
+            # REGISTRY_COND_KEYS with empty entries that corrupt the condition_key parity check.
+            if ckey:
+                print(f"COND_KEY {sname} {ckey}")
 
 except FileNotFoundError:
     print(f"ERROR registry.toml not found: {registry_path}")
@@ -300,8 +306,9 @@ if [ -z "$SCHEMA_VER" ]; then
     echo "ERROR: verify-snippet-registry-consistency: schema_version field missing from registry.toml" >&2
     exit 3
 fi
-if [ "$SCHEMA_VER" != "1" ]; then
-    echo "ERROR: verify-snippet-registry-consistency: unknown schema_version (expected 1, got ${SCHEMA_VER})" >&2
+# Review: logic-slice L-F7 — Enumerated allowlist, not arithmetic — a non-integer version must also fail-loud.
+if [ "$SCHEMA_VER" != "1" ] && [ "$SCHEMA_VER" != "2" ]; then
+    echo "ERROR: verify-snippet-registry-consistency: unknown schema_version (supports up to 2, got ${SCHEMA_VER})" >&2
     exit 3
 fi
 
@@ -675,6 +682,16 @@ for name in "${SNIPPET_NAMES[@]}"; do
     # (REG_COND non-empty), not only when the script has a holodeck conditional (SCR_COND).
     # Previously, a registry entry with a malformed condition_key AND no script holodeck block
     # would pass unchecked.
+    #
+    # Awareness note (2026-06-19, schema v2 file-exists migration): this legacy parity block is
+    # MOOT today — all 4 verify scripts are post-migration (mapfile from the CLI), so the
+    # per-snippet loop reaches here only for legacy-mode scripts, of which there are none. The
+    # `[ -z "$ckey" ] && continue` below already skips file-exists entries (empty condition_key),
+    # so the condition_key assertion is file-exists-safe. The residual exposure is a FUTURE
+    # legacy revert: a script reverted to legacy mode would mismatch the file-exists paths at the
+    # set-equality check above (655) and FAIL. This is unprotected by design — legacy mode assumes
+    # the machine-local-key shape and is being retired, not extended. If a legacy revert is ever
+    # contemplated, make the set-equality + parity logic condition_type-aware first.
     REG_KEYS="${REGISTRY_COND_KEYS[$name]}"
     if [ -n "$REG_COND" ]; then
         if [ -z "$SCR_COND" ]; then

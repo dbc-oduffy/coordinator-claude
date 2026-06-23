@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Validates git commit commands.
 # Fires on ALL Bash tool invocations (PreToolUse matcher is tool-name-only).
 # Exits immediately (<10ms) when command is not git commit.
@@ -18,9 +18,9 @@
 #   9. Schema version bump tripwire — canonical-structure.yaml change without
 #      coordinator-schema-version bump (warn-only; delegates to
 #      bin/check-schema-version-bump.sh)
-#  10. Windows-python shebang flip tripwire — coordinator/bin/ protected-class
-#      scripts must not carry #!/usr/bin/env python3 (warn-only; delegates to
-#      bin/check-windows-python-shebang.sh)
+#  10. bin/sh polyglot shebang tripwire — coordinator/bin/ scripts must use
+#      #!/bin/sh polyglot (not a named interpreter shebang) (warn-only; delegates to
+#      bin/check-bin-sh-polyglot.sh)
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
@@ -464,24 +464,24 @@ if [[ -f "$BUMP_CHECK_SCRIPT" ]]; then
   # BUMP_EXIT 2 = script error (not a git repo, etc.) — silently skip
 fi
 
-# --- Check 10: Windows-python shebang flip tripwire ---
-# No coordinator/bin/ polyglot or .test.py script may carry a #!/usr/bin/env python3
-# shebang — that shebang flip breaks Windows compat. Delegates to
-# bin/check-windows-python-shebang.sh --staged (warn-only).
+# --- Check 10: bin/sh polyglot shebang tripwire ---
+# coordinator/bin/ scripts must use a #!/bin/sh polyglot shebang, not a named
+# interpreter shebang (#!/usr/bin/env python, #!/usr/bin/env python3, etc.).
+# Delegates to bin/check-bin-sh-polyglot.sh --staged (warn-only).
 #
 # Doctrine: docs/wiki/cross-platform-shell-portability.md § sh/python trampoline.
-# Greppable token: WINDOWS-PYTHON-SHEBANG.
+# Greppable token: BIN-SH-POLYGLOT-TRIPWIRE.
 
-SHEBANG_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-windows-python-shebang.sh"
+SHEBANG_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-bin-sh-polyglot.sh"
 if [[ ! -f "$SHEBANG_CHECK_SCRIPT" ]]; then
-  SHEBANG_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-windows-python-shebang.sh"
+  SHEBANG_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-bin-sh-polyglot.sh"
 fi
 
 if [[ -f "$SHEBANG_CHECK_SCRIPT" ]]; then
   SHEBANG_OUT="$(bash "$SHEBANG_CHECK_SCRIPT" --staged 2>/dev/null)"
   SHEBANG_EXIT=$?
   if [[ $SHEBANG_EXIT -eq 1 ]]; then
-    WARNINGS="${WARNINGS}\nWINDOWS-PYTHON-SHEBANG-TRIPWIRE:\n${SHEBANG_OUT}"
+    WARNINGS="${WARNINGS}\nBIN-SH-POLYGLOT-TRIPWIRE:\n${SHEBANG_OUT}"
   fi
   # SHEBANG_EXIT 0 = OK; 1 = violation (warned above); any other non-zero =
   # infrastructure error (script not in a git repo, etc.) — silently skip,

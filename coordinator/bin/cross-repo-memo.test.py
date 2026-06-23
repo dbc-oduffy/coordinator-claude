@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/bin/sh
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 """
 cross-repo-memo.test.py — smoke tests for the cross-repo-memo dispatcher CLI.
 

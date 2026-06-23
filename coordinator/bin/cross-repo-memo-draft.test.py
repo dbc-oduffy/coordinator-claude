@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/bin/sh
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 """
 cross-repo-memo-draft.test.py — tests for the draft lifecycle subcommands (C1 + C2).
 

@@ -163,6 +163,7 @@ Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_V
 2. **Backlog** — only for genuinely blocked bugs:
    - Needs human verification, needs a plan session, logic that might be intentional and requires PM judgment
    - **NOT for:** "low confidence" findings — verify them and either fix or drop. NOT for "code smells" — those are fixable. NOT for anything you could fix in under 10 minutes.
+   - **"Needs runtime test to confirm" + free+safe fix = FIXED, not backlogged.** Split bug-confirmation from fix-shape: if the only blocker is "I can't confirm the bug without running the system," but the fix is free (trivially correct by inspection) and safe (reverts cleanly, no schema migration, no user-visible behavior change), apply the fix NOW and note "fix applied; runtime confirmation deferred." Backlogs a symptom description without applying a known-safe fix wastes the next session's context. The fix going in is not contingent on confirming the bug was real — if the code was correct already, the fix is a no-op and costs nothing. Only backlog when the fix itself is unclear or risky, not merely because confirmation would require a runtime. [source: queue-triage-2026-06-21 chunk-1, queue line 34]
 
 3. **False positive** — pattern matched but not a bug:
    - Intentional patterns, comments/docs that mention bug patterns
@@ -321,8 +322,9 @@ Without the flag, this phase is a no-op (no skill invocation, no log line). With
    **Track C API sweep:** [N INCORRECT API findings fixed, N suspicious-UNVERIFIED flagged / skipped: `DOCS_VERIFY` not set for this stack]
    ```
 
-5. **Clean scratch:** `rm -rf tasks/scratch/bug-sweep/{run-id}/`
-   Only delete after commit succeeds. If Phase 2/3 agents failed, scratch contains Phase 1 findings for recovery.
+5. **Clean scratch — defer past commit to workstream-complete or explicit PM signal.** Do NOT delete `tasks/scratch/bug-sweep/{run-id}/` immediately after commit. The scratch directory preserves `file:line` citations that downstream consumers may need: cross-repo memos citing specific findings, plan amendments referencing the triage output, or a follow-on session picking up blocked items from the backlog. Delete the scratch directory at `/workstream-complete` Step 2.67 (session self-clean) or on an explicit PM cleanup signal — whichever comes first. If the next step is a `/handoff`, note the scratch path in the handoff body so the receiving session knows it exists. [source: queue-triage-2026-06-21 chunk-3, queue line 95]
+
+   `rm -rf tasks/scratch/bug-sweep/{run-id}/` is the cleanup command when the time is right. After commit: leave it. At workstream-complete: sweep it.
 
 ## Pattern Library, Cost Profile, Failure Modes
 

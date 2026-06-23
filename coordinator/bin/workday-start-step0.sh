@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # workday-start-step0.sh — deterministic Step 0 (Branch Setup) for /workday-start.
 #
 # Encapsulates the precedence switch documented in

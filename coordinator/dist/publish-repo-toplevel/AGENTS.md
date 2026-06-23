@@ -12,10 +12,10 @@ Read and follow **[`docs/agent-install.md`](docs/agent-install.md)** — that is
 
 It tells you:
 - What you are installing and why the order of steps matters
-- The recommended path (run `setup/install.sh`) and what it does
+- The recommended path — the native `claude plugin` CLI (`claude plugin marketplace add dbc-oduffy/coordinator-claude` + `claude plugin install coordinator@coordinator-claude`, registering the public GitHub repo so the install is self-contained under `~/.claude`) — and what it does
 - How to validate the result
 - What to tell the user before they restart Claude Code
-- The one command to resume after the restart — `/pickup state/handoffs/continue-onboarding-and-installation.md` in a fresh session
+- The one command to run after the restart — `/coordinator:install` in a fresh session (it finishes the environment wiring; no `/pickup` baton)
 
 ## Why this file exists
 
@@ -25,6 +25,6 @@ It tells you:
 
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, bash version checks) that you will get wrong without it.
 - Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
-- Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The playbook stages a continue-onboarding handoff; the post-restart step is `/pickup state/handoffs/continue-onboarding-and-installation.md`.
+- Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The post-restart step is `/coordinator:install` (it finishes the environment wiring and records its own completion receipt — there is no `/pickup` baton in the CLI-install flow).
 
 Follow the playbook. Then report back to the human.

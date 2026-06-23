@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-session-loe.sh — Read helper: compute LoE (Level of Effort) metrics
 # for a coordinator session and emit a t-shirt size.
 #

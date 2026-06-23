@@ -138,14 +138,16 @@ extract_block() {
     "$NODE_BIN" "$SCRIPT_DIR/lib/sentinel-blocks-cli.js" extract "$file" "$BEGIN_SENTINEL" "$END_SENTINEL" # verify-no-console-flash: allow — on-demand sync verifier, not session-hot-path
 }
 
-# Review: code-reviewer (F1) — sentinel-anchored extraction; resilient to future header additions.
-# Extract body between BEGIN/END sentinels.
-SNIPPET_BODY="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '$0==b{p=1;next} $0==e{p=0} p' "$SNIPPET_FILE")"
+# Extract body from the canonical snippet file.
+# The snippet file has NO BEGIN/END sentinels — its header is two <!-- --> comment
+# lines followed by a blank line, then the doctrine content.  Sentinel-anchored awk
+# would yield an empty string, which silently propagates empties to all consumers.
+# Instead: skip the leading run of <!-- ... --> comment lines and any immediately
+# following blank lines, then emit the remainder verbatim.
+SNIPPET_BODY="$(awk 'BEGIN{skip=1} skip && /^<!--/{next} skip && /^[[:space:]]*$/{next} {skip=0; print}' "$SNIPPET_FILE")"
 
-# Normalize: strip trailing whitespace, collapse trailing blank lines.
-normalize() {
-    printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
-}
+# shellcheck source=../lib/normalize-snippet.sh
+source "$SCRIPT_DIR/../lib/normalize-snippet.sh"
 
 SNIPPET_NORM="$(normalize "$SNIPPET_BODY")"
 

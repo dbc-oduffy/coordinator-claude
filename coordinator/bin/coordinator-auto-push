@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-auto-push — canonical post-commit auto-push helper
 #
 # Pushes the current branch to origin if it is a work/* or feature/* branch.

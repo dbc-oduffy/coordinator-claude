@@ -68,24 +68,29 @@ if [[ "$MODE" == "--check-sentinel-presence" ]]; then
   exit 0
 fi
 
-# Resolve a Python 3 interpreter. Windows Git Bash typically ships `python` (a
-# Python 3.x install) but no `python3`; Linux/macOS typically ship `python3`
-# but may lack `python`. Honour an explicit override; otherwise prefer python3.
-PY="${COORDINATOR_PYTHON:-}"
+# Resolve a Python 3 interpreter via the shared lib (honors COORDINATOR_PYTHON
+# env var and machine-local coordinator.python pin before falling through to
+# OS-level resolution). Windows Git Bash typically ships `python` (a Python
+# 3.x install) but no `python3`; Linux/macOS typically ship `python3` but may
+# lack `python`.
+_SCAN_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/resolve-python.sh
+# Review: code-reviewer — source must fail-loud so a broken COORDINATOR_PYTHON pin
+# propagates as an error rather than silently falling through to the "no python on PATH"
+# advisory and exit 0. Remove 2>/dev/null so the lib's own diagnostic reaches the operator.
+source "${_SCAN_SCRIPT_DIR}/../lib/resolve-python.sh" || {
+  echo "[health] coordinator: resolve-python.sh failed (broken COORDINATOR_PYTHON pin?) — cannot select interpreter" >&2
+  exit 1
+}
+PY="${PYTHON_BIN:-}"
 if [[ -z "$PY" ]]; then
-  if command -v python3 >/dev/null 2>&1; then
-    PY=python3
-  elif command -v python >/dev/null 2>&1; then
-    PY=python
-  else
-    # No interpreter — script can't parse sentinels at all. Emit a single
-    # diagnostic in red-and-stale mode so the operator knows why health is
-    # silent; stay silent in red-only mode (signal-not-noise).
-    if [[ "$MODE" == "--red-and-stale" ]]; then
-      echo "[health] coordinator: no python3/python on PATH — addon-health scanner cannot parse sentinels. Install Python 3 or set COORDINATOR_PYTHON."
-    fi
-    exit 0
+  # No interpreter — script can't parse sentinels at all. Emit a single
+  # diagnostic in red-and-stale mode so the operator knows why health is
+  # silent; stay silent in red-only mode (signal-not-noise).
+  if [[ "$MODE" == "--red-and-stale" ]]; then
+    echo "[health] coordinator: no python3/python on PATH — addon-health scanner cannot parse sentinels. Install Python 3 or set COORDINATOR_PYTHON."
   fi
+  exit 0
 fi
 
 NOW=$(date +%s)

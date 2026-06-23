@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ensure-vscode-readonly.sh — idempotently mark the generated handoff tracker
 # files read-only in VS Code (and forks that honor files.readonlyInclude).
 #

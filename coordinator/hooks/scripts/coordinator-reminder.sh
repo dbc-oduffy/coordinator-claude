@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Context-aware coordinator reminder
 # Emits light-touch reminder + capability catalog for all project repos.
 # Spec backlink: docs/plans/2026-05-08-coordinator-setup-onboarding-friction-fixes.md § Chunk 6

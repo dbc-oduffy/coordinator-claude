@@ -81,6 +81,20 @@ fi
 
 TOTAL_DRIFT=0
 
+# Returns the physical git work-tree root of $1 IFF $1 is itself that root
+# (not a data-only dir nested in a parent repo, not a submodule). Empty otherwise.
+# Canon via cd && pwd -P (realpath is GNU-only, DR-148).
+_git_worktree_root_if_self() {
+    local dir="$1" canon top
+    canon="$( (cd "$dir" 2>/dev/null && pwd -P) || true )"
+    [[ -z "$canon" ]] && return 0
+    top="$( (cd "$dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) | tr -d '\r' )"
+    [[ -z "$top" ]] && return 0
+    top="$( (cd "$top" 2>/dev/null && pwd -P) || true )"
+    # empty → not a git root; caller skips; non-empty → $1 IS its own work-tree root.
+    [[ "$top" == "$canon" ]] && printf '%s\n' "$canon"
+}
+
 _check_plugin() {
     local plugin_name="$1" source_path="$2" live_path="$3" track_ref="$4" dist_name="$5" prop_mode="$6" source_subpath="$7"
     local plugin_drift=0
@@ -527,8 +541,20 @@ PYEOF
     fi
 
     if [[ $CHECK_CLEAN_ONLY -eq 1 ]]; then
-        # copy_install entries exit early above; this git status call is only for
-        # git-checkout-managed entries that have a live git working tree.
+        # Guard: only run git status when live_path is its own work-tree root.
+        # A data-only nested dir (e.g. project-rag) has no .git; the helper returns
+        # empty → skip → treat as clean (same semantics as Leg 3 silent-skip).
+        local _cco_wtr
+        _cco_wtr="$(_git_worktree_root_if_self "$live_path")"
+        if [[ -z "$_cco_wtr" ]]; then
+            # Emit an [info] diagnostic when the dir IS a git path but not its own root
+            # (nested dir or submodule) so the caller can distinguish "not a git dir at
+            # all" from "git path skipped — Leg 3 / --check-clean-only not applicable".
+            if git -C "$live_path" rev-parse --git-dir >/dev/null 2>&1; then
+                echo "[info] $plugin_name: --check-clean-only skipped — live_path is not its own work-tree root (nested dir or submodule)" >&2
+            fi
+            return 0
+        fi
         local porcelain
         porcelain="$(git -C "$live_path" status --porcelain 2>&1 | tr -d '\r')" || { return 1; }
         if [[ -n "$porcelain" ]]; then
@@ -761,16 +787,47 @@ PYEOF
         esac
     fi
 
-    # Leg 3: working-tree cleanliness
-    local porcelain
-    porcelain="$(git -C "$live_path" status --porcelain 2>&1 | tr -d '\r')" || porcelain=""
-    if [[ -n "$porcelain" ]]; then
-        echo "[drift] working-tree: $plugin_name live checkout has uncommitted edits -- refresh blocked"
-        plugin_drift=1
+    # Leg 3: working-tree cleanliness.
+    # Only run when live_path is the ROOT of its own git work-tree. A data-only
+    # live install (e.g. project-rag's ~/.claude/plugins/project-rag, no nested
+    # .git) lets `git -C "$live_path" status` escape UPWARD to the enclosing repo
+    # and report the parent's transient dirty tree as this plugin's — a perpetual
+    # false "refresh blocked". _git_worktree_root_if_self encapsulates the guard:
+    # empty → skip; non-empty → live_path IS its own root. Canon via cd&&pwd -P
+    # (realpath is GNU-only; DR-148). Non-canonical fallbacks removed (Finding 2/3).
+    local leg3_wtr
+    leg3_wtr="$(_git_worktree_root_if_self "$live_path")"
+    if [[ -n "$leg3_wtr" ]]; then
+        local porcelain
+        # Fail-loud on git-status failure (corrupt repo, missing index) rather than
+        # silently treating the error as clean (Finding 7).
+        if ! porcelain="$(git -C "$live_path" status --porcelain 2>&1 | tr -d '\r')"; then
+            echo "[warn] $plugin_name: working-tree cleanliness unknown — git status failed" >&2
+            plugin_drift=1
+        elif [[ -n "$porcelain" ]]; then
+            echo "[drift] working-tree: $plugin_name live checkout has uncommitted edits -- refresh blocked"
+            plugin_drift=1
+        fi
+    else
+        # live_path is not its own work-tree root — emit an [info] diagnostic when it
+        # IS a git path (nested dir or submodule) so the caller can distinguish that
+        # case from a non-git data-only dir (the intended silent-skip, e.g. project-rag).
+        if git -C "$live_path" rev-parse --git-dir >/dev/null 2>&1; then
+            echo "[info] $plugin_name: Leg 3 skipped — live_path is not its own work-tree root (nested dir or submodule); working-tree cleanliness not checked" >&2
+        fi
     fi
 
     return $plugin_drift
 }
+
+# Lib-only sourcing escape hatch for unit tests: `CHECK_PLUGIN_DRIFT_LIB_ONLY=1
+# source check-plugin-drift.sh` loads the helper functions (_git_worktree_root_if_self,
+# _check_plugin) WITHOUT running the registry scan below. Inert on normal execution
+# (BASH_SOURCE == $0), so the production invocation path is unchanged.
+# Tested by: check-plugin-drift.test.sh
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]] && [[ "${CHECK_PLUGIN_DRIFT_LIB_ONLY:-}" == "1" ]]; then
+    return 0 2>/dev/null || true
+fi
 
 # Main
 REGISTRY_FILE=""

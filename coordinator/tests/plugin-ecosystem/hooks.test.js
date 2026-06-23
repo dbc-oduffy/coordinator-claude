@@ -5,7 +5,7 @@ const os = require('os');
 const { execSync } = require('child_process');
 const { PLUGINS_ROOT, fileExists, dirExists, readJson, getDirectoryMarketplaces } = require('./helpers/fs');
 
-const VALID_EVENT_TYPES = ['SessionStart', 'PreToolUse', 'PostToolUse', 'PreCompact', 'Notification', 'Stop'];
+const VALID_EVENT_TYPES = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PreCompact', 'Notification', 'Stop', 'SubagentStop'];
 
 /**
  * Given a hook command string, substitute ${CLAUDE_PLUGIN_ROOT} and extract

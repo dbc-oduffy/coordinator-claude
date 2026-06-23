@@ -168,18 +168,18 @@ grep -E '^\s*(UPDATE|NEW):' "$DRYRUN_LOG" | awk '{print $2}' | \
   while read -r rel; do echo "<source_dir>/$rel"; done > /tmp/percolate-scan-files.txt
 
 # Tier HIGH — credential / secret shapes. Blocks publish on any hit.
-xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
+tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE \
   "(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|xox[bpars]-[A-Za-z0-9-]{10,}|ya29\.[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)" \
   2>/dev/null
 
 # Tier MEDIUM — PM/EM identity, internal paths, peer-repo names. Surfaces to PM gate.
-xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
+tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE \
   "([Dd][óo]nal\\b|O'?[Dd]uffy|\\boduffy\\b|delphiinteractive|\\bstriker\\b|/c/Users/oduffy|~/\\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b)" \
   2>/dev/null
 
 # Tier LOW — informational only. Renders in panel without forcing gate.
 # 40-char hex commit SHAs (excluding lockfile contexts), "First Officer" outside doctrine files.
-xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE \
+tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE \
   "(\\b[0-9a-f]{40}\\b|First Officer Doctrine)" \
   2>/dev/null
 ```
@@ -192,7 +192,7 @@ if [[ -f "$HOME/.claude/state/repo-registry.md" ]]; then
   PEER_REPOS=$(awk '/^- name:/ {print $3}' "$HOME/.claude/state/repo-registry.md" | \
     grep -v "^$(<target>)$" | paste -sd'|' -)
   if [[ -n "$PEER_REPOS" ]]; then
-    xargs -a /tmp/percolate-scan-files.txt -d'\n' grep -nIE "\\b($PEER_REPOS)\\b" 2>/dev/null
+    tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE "\\b($PEER_REPOS)\\b" 2>/dev/null
   fi
 fi
 ```

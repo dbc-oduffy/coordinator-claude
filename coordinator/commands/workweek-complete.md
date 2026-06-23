@@ -106,6 +106,27 @@ Wait for completion before proceeding.
 
 ---
 
+## Step 4: Runtime-Tripwire Fire-Log Triage
+
+Before queue triage, read the runtime-tripwire fire-log:
+
+```bash
+_FIRE_LOG="$HOME/.claude/state/runtime-tripwire-fire-log.tsv"
+if [[ -f "$_FIRE_LOG" ]]; then
+  wc -l < "$_FIRE_LOG"
+  # Summarize fire counts by fire_type (columns: timestamp, agentId, model, elapsed_min, fire_type)
+  awk -F'\t' 'NR>1 {count[$5]++} END {for (t in count) print t, count[t]}' "$_FIRE_LOG" | sort
+  # Surface recurring agents (same agentId fired ≥3 times)
+  awk -F'\t' 'NR>1 {count[$2]++} END {for (id in count) if (count[id]>=3) print count[id], id}' "$_FIRE_LOG" | sort -rn | head -20
+else
+  echo "runtime-tripwire-fire-log.tsv absent — skipping."
+fi
+```
+
+**Triage signal:** If `em-side` fires dominate (≥50% of entries) or any `agentId` fires ≥3 times, treat as miscalibration evidence. Surface to PM: _"Tripwire fire-log shows N recurring dispatches — consider recalibrating `SONNET_MAX_MINUTES` or the dispatch-size ceiling."_ See `docs/wiki/runtime-tripwire.md` §6 for the recalibration mechanism. Recurring `agent-side` fires at reasonable elapsed times indicate legitimate long executors; no action needed.
+
+---
+
 ## Step 4: Improvement-Queue Triage
 
 Read `~/.claude/state/coordinator-improvement-queue.md`. Note oldest entry date and total active count.
@@ -596,6 +617,21 @@ Either way the governing principle is the same: a version bump communicates user
 Present to PM: _"Proposed: vX.Y.Z (rationale: [one line]). Confirm or adjust."_
 
 **Wait for PM confirmation.** Update the release-notes filename and HEADER.md `Prior week released:` value to the confirmed version.
+
+**Stamp ALL version surfaces together (coordinator-claude).** A version bump is one atomic move across every surface — `docs/wiki/versioning-convention.md` names the SSOT (`coordinator/.claude-plugin/plugin.json` `.version`) and the invariant. In the same commit that stamps the CHANGELOG `[Unreleased] → [X.Y.Z] — <date>` (Step 9):
+
+1. `coordinator/.claude-plugin/plugin.json` `.version` → `X.Y.Z`
+2. `.claude-plugin/marketplace.json` `.metadata.version` → `X.Y.Z`
+
+Then **run the consistency gate before proceeding to merge** — it fails loud if any surface lags. Resolve the gate path layout-agnostically (meta-repo source layout vs flat OSS publish layout):
+
+```bash
+gate="$HOME/.claude/plugins/coordinator/bin/check-version-consistency.sh"
+[[ -f "$gate" ]] || gate="$(git rev-parse --show-toplevel)/coordinator/bin/check-version-consistency.sh"
+bash "$gate"
+```
+
+A non-zero exit here means a surface was missed — fix it before Step 11. (This is the gate that would have caught the 2.7.1/2.1.1/2.8.1 drift surfaced on 2026-06-22.)
 
 ---
 

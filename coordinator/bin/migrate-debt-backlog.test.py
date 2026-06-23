@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/bin/sh
 # ── sh/python polyglot trampoline ──────────────────────────────────────────────
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 """

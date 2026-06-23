@@ -108,10 +108,12 @@ _load_targets() {
   # Review: code-reviewer (F8) — empty array treated as "not configured"; fall
   # through to deprecation fallback so `"publish.targets" = []` in an operator's
   # registry doesn't silently publish nothing.
-  if [[ -x "$machine_local_bin" ]] && bash "$machine_local_bin" has publish.targets 2>/dev/null; then
+  if [[ -x "$machine_local_bin" ]] && "$BASH" "$machine_local_bin" has publish.targets 2>/dev/null; then
     # machine-local get returns TOML array elements joined by newlines (one row per line).
+    # Use "$BASH" (not bare `bash`) so the v4+ interpreter publish.sh requires
+    # is forwarded; bare `bash` resolves to /bin/bash 3.2 on macOS.
     local raw
-    raw="$(bash "$machine_local_bin" get publish.targets)"
+    raw="$("$BASH" "$machine_local_bin" get publish.targets)"
     TARGETS=()
     while IFS= read -r row; do
       [[ -n "$row" ]] && TARGETS+=("$row")
@@ -144,6 +146,25 @@ _load_targets() {
   echo "      cp $SCRIPT_DIR/publish-targets.example.sh $targets_file" >&2
   exit 1
 }
+
+# ---------------------------------------------------------------------------
+# Pre-flight: ensure contract-required toplevel flat-mirror targets are present
+# in publish-targets.sh BEFORE _load_targets sources it.  The helper is
+# idempotent — re-running on an already-complete file is a safe no-op.  If the
+# helper is absent or fails (e.g. no coordinator-claude|mirror row on an unusual
+# setup), we emit a one-line advisory to stderr and continue — a missing
+# ensure-required-targets.sh must not hard-abort an otherwise-valid publish run.
+#
+# Spec backlink: docs/plans/2026-06-17-coordinator-install-seed-phase-and-manifest-alignment.md § C0b
+_ENSURE_TARGETS_HELPER="$SCRIPT_DIR/bin/ensure-required-targets.sh"
+if [[ -x "$_ENSURE_TARGETS_HELPER" ]]; then
+  if ! "$BASH" "$_ENSURE_TARGETS_HELPER"; then
+    echo "[publish.sh] WARNING: ensure-required-targets.sh exited non-zero — continuing without auto-derived toplevel targets." >&2
+  fi
+else
+  # Review: code-reviewer (F8) — use $_ENSURE_TARGETS_HELPER (already defined above) instead of re-interpolating the path.
+  echo "[publish.sh] WARNING: $_ENSURE_TARGETS_HELPER not found or not executable — skipping toplevel-target pre-flight." >&2
+fi
 
 _load_targets
 
@@ -221,9 +242,42 @@ if [[ "$SCRIPT_DIR" =~ ^/([a-zA-Z])/ ]]; then
   fi
 fi
 
-# Final REVIEW_PATTERNS = generic + personal.
+# Cross-platform home-path catchers (OS-independent).
+#
+# The $HOME-derived patterns above catch the RUNNING operator's home path. They
+# do NOT catch the home paths of OTHER operators (or the running operator's
+# *other-OS* home) when those literals appear in source content authored on a
+# different machine and sync'd over. Empirically (2026-06-11 personal-data-
+# cleanup spinoff) Mac-side percolate runs missed Windows-flavor leaks like
+# `c:/users/oduffy` because $HOME on Mac is `/Users/thislaptop` — the audit
+# scanned for the wrong literal.
+#
+# These four patterns catch home-path SHAPES regardless of running OS:
+#   * Windows native: `C:\Users\<name>` or `C:/Users/<name>` (case-insensitive)
+#   * Git-Bash POSIX: `/c/Users/<name>` (case-insensitive)
+#   * Linux:         `/home/<name>`
+#   * macOS:         `/Users/<name>`
+#
+# Each uses a Perl negative-lookahead `(?!<placeholders>)` so common
+# pedagogical placeholders (yourname, name, username, user, operator, foo, …,
+# `<your-username>`-style angle-bracket forms) are NOT flagged. Real-looking
+# usernames ARE flagged.
+#
+# Maintenance: add new placeholders to _placeholder_alt below as pedagogy
+# vocabulary expands. The audit is a REVIEW gate, not a hard block — a false
+# positive on a new placeholder just nudges the operator to extend the list.
+_placeholder_alt='yourname|YourName|your-name|your-username|YourUsername|username|USERNAME|user|USER|name|NAME|you|operator|placeholder|example|EXAMPLE|foo|bar|baz|alice|bob|dev|op|me|runner|someone|someuser|<[A-Za-z0-9_-]+>'
+_review_pat_xplatform=(
+  "[Cc]:[\\\\/]+[Uu]sers[\\\\/]+(?!(?:${_placeholder_alt})[\\\\/\"'\\s]|(?:${_placeholder_alt})\$)[A-Za-z][A-Za-z0-9._-]+"
+  "/c/[Uu]sers/(?!(?:${_placeholder_alt})[\\\\/\"'\\s]|(?:${_placeholder_alt})\$)[A-Za-z][A-Za-z0-9._-]+"
+  "/home/(?!(?:${_placeholder_alt})[\\\\/\"'\\s]|(?:${_placeholder_alt})\$)[A-Za-z][A-Za-z0-9._-]+"
+  "/Users/(?!(?:${_placeholder_alt})[\\\\/\"'\\s]|(?:${_placeholder_alt})\$)[A-Za-z][A-Za-z0-9._-]+"
+)
+
+# Final REVIEW_PATTERNS = generic + xplatform + personal.
 REVIEW_PATTERNS=(
   "${_review_pat_generic[@]+"${_review_pat_generic[@]}"}"
+  "${_review_pat_xplatform[@]}"
   "${PERSONAL_REVIEW_PATTERNS[@]+"${PERSONAL_REVIEW_PATTERNS[@]}"}"
 )
 
@@ -239,8 +293,50 @@ declare -A TARGET_NATIVE_SLUGS=()
 # requiring GNU grep. LC_ALL=C on grep was needed for MSYS2; perl handles
 # encoding cleanly on its own.
 # Portability fix: replaced grep -P (GNU/PCRE-only) with perl -ne (universally available).
-perl_match() { perl -ne '$f=1 if /'"$1"'/; END{exit !$f}' "$2"; }
-perl_any()   { perl -ne 'print if /'"$1"'/' "$2"; }
+#
+# CRITICAL — pattern delivery must bypass shell-quote interpolation.
+# The prior form `perl -ne '$f=1 if /'"$1"'/; …'` concatenated the pattern bare
+# between two `/` regex delimiters. Any pattern containing a forward slash
+# (universal in POSIX `$HOME` paths — `/Users/<name>`, `/home/<name>`) was
+# read by Perl as a CLOSING delimiter, with the rest of the path becoming
+# bareword tokens and `Uer` becoming illegal regex flags. Perl aborted with
+# "Unknown regexp modifier", returned exit 255, and the caller's `if perl_match
+# …; then` saw non-zero and treated it as "no match found" — false-clean.
+# Fix: deliver the pattern via `perl -s` (`-pat=value`) so the regex body
+# never touches the shell-quoting boundary. Forward slashes in $pat are now
+# safe because they are CONTENT of a Perl scalar, not regex delimiters.
+# Stderr is captured and a non-empty stderr is reported AND treated as a
+# scan failure (return code 2 — distinct from 1=no-match and 0=match) so a
+# future pattern that breaks Perl is loud, not silent.
+perl_match() {
+  local _tmp_err _rc
+  _tmp_err=$(mktemp) || return 2
+  perl -sne '$f=1 if /$pat/; END{exit !$f}' -- -pat="$1" "$2" 2>"$_tmp_err"
+  _rc=$?
+  if [[ -s "$_tmp_err" ]]; then
+    echo "  ERROR: perl_match scan FAILED for pattern [$1] on file $2:" >&2
+    cat >&2 "$_tmp_err"
+    rm -f "$_tmp_err"
+    return 2
+  fi
+  rm -f "$_tmp_err"
+  return "$_rc"
+}
+perl_any() {
+  local _tmp_err _out _rc
+  _tmp_err=$(mktemp) || return 2
+  _out=$(perl -sne 'print if /$pat/' -- -pat="$1" "$2" 2>"$_tmp_err")
+  _rc=$?
+  if [[ -s "$_tmp_err" ]]; then
+    echo "  ERROR: perl_any scan FAILED for pattern [$1] on file $2:" >&2
+    cat >&2 "$_tmp_err"
+    rm -f "$_tmp_err"
+    return 2
+  fi
+  rm -f "$_tmp_err"
+  printf '%s' "$_out"
+  return "$_rc"
+}
 
 # Global array for per-target file tracking (populated by sync_mirror/sync_manifest)
 AUDIT_FILES=()
@@ -407,15 +503,22 @@ run_hooks() {
   for hook in "${sorted_hooks[@]}"; do
     [[ -e "$hooks_dir/$hook" ]] || continue
     echo "  → $hook_point/$hook"
+    # Invoke the hook via "$BASH" — the path of the currently-executing bash —
+    # so the v4+ interpreter publish.sh requires is forwarded to subprocess
+    # hooks. A bare `bash` resolves through PATH, which on macOS picks up
+    # /bin/bash (3.2) and bash-4 features (e.g. associative arrays in
+    # publish-time-transform.sh) abort. publish.sh's top-of-file bash<4 guard
+    # already guarantees "$BASH" is bash-4+. See: docs/wiki/bash-on-windows-
+    # gotchas.md § Shell shebangs must respect environment locality.
     if [[ "$hook_point" == "post-rsync" ]]; then
       # Empty-array-safe under set -u: the ${AUDIT_FILES[@]+...} form expands
       # to the array elements only when set, otherwise to nothing.
-      if ! printf '%s\n' ${AUDIT_FILES[@]+"${AUDIT_FILES[@]}"} | bash "$hooks_dir/$hook" "$target_dir"; then
+      if ! printf '%s\n' ${AUDIT_FILES[@]+"${AUDIT_FILES[@]}"} | "$BASH" "$hooks_dir/$hook" "$target_dir"; then
         echo "  → $hook_point/$hook FAILED (exit non-zero) — aborting publish" >&2
         exit 1
       fi
     else
-      if ! bash "$hooks_dir/$hook" "$target_dir" </dev/null; then
+      if ! "$BASH" "$hooks_dir/$hook" "$target_dir" </dev/null; then
         echo "  → $hook_point/$hook FAILED (exit non-zero) — aborting publish" >&2
         exit 1
       fi
@@ -822,13 +925,21 @@ for target_entry in "${TARGETS[@]}"; do
     echo "  --- personal data audit ---"
 
     local_review_found=false
+    local_audit_errored=false
 
     for f in "${AUDIT_FILES[@]}"; do
       for pat in "${REVIEW_PATTERNS[@]}"; do
-        if perl_match "$pat" "$f"; then
-          echo "  REVIEW  [$pat]  $f"
-          local_review_found=true
-        fi
+        # errexit-safe rc capture: a standalone perl_match returns 1 on no-match
+        # (the overwhelmingly common case), which under `set -euo pipefail` aborts
+        # the entire publish BEFORE `case` can read $?. The `|| _pm_rc=$?` form
+        # leaves _pm_rc=0 on a match and captures 1/2 otherwise. Same trap at the
+        # two bare-identifier scans below.
+        _pm_rc=0; perl_match "$pat" "$f" || _pm_rc=$?
+        case $_pm_rc in
+          0) echo "  REVIEW  [$pat]  $f"; local_review_found=true ;;
+          1) : ;;  # no match — clean for this pattern
+          *) local_audit_errored=true ;;  # scan failed; perl_match already logged to stderr
+        esac
       done
       # Bare-identifier check: if any PERSONAL_ALLOW_TOKENS are configured,
       # flag occurrences of the bare identifier (alphabetic prefix of the
@@ -845,7 +956,14 @@ for target_entry in "${TARGETS[@]}"; do
         if [[ "$_first_token" =~ ^([a-zA-Z]+) ]]; then
           _bare_ident="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
         fi
-        if [[ -n "$_bare_ident" ]] && perl_match "\\b${_bare_ident}\\b" "$f"; then
+        if [[ -n "$_bare_ident" ]]; then
+          _bare_rc=0; perl_match "\\b${_bare_ident}\\b" "$f" || _bare_rc=$?
+          if [[ $_bare_rc -ge 2 ]]; then
+            local_audit_errored=true
+            continue
+          fi
+        fi
+        if [[ -n "$_bare_ident" && ${_bare_rc:-1} -eq 0 ]]; then
           # Build allow_re from PERSONAL_ALLOW_TOKENS, joined by '|'. Add
           # per-target native_slugs (comma-separated → '|'-separated) if set.
           # CONTRACT: allow_re tokens are interpolated verbatim into a Perl inline
@@ -860,8 +978,10 @@ for target_entry in "${TARGETS[@]}"; do
           fi
           # Collect grep output before piping to perl — avoids SIGPIPE false-negative
           # under set -o pipefail when perl exits early after finding a disallowed match.
-          _matches="$(perl_any "\\b${_bare_ident}\\b" "$f" || true)"
-          if printf '%s\n' "$_matches" | perl -ne "\$f=1 if !/$allow_re/; END{exit !\$f}"; then
+          _any_rc=0; _matches="$(perl_any "\\b${_bare_ident}\\b" "$f")" || _any_rc=$?
+          if [[ $_any_rc -ge 2 ]]; then
+            local_audit_errored=true
+          elif printf '%s\n' "$_matches" | perl -ne "\$f=1 if !/$allow_re/; END{exit !\$f}"; then
             echo "  REVIEW  [bare ${_bare_ident}]  $f"
             local_review_found=true
           fi
@@ -869,7 +989,13 @@ for target_entry in "${TARGETS[@]}"; do
       fi
     done
 
-    if $local_review_found; then
+    if $local_audit_errored; then
+      echo ""
+      echo "  ERROR: personal data audit had scan failures — verdict UNKNOWN." >&2
+      echo "  This is NOT a clean run; one or more files could not be scanned." >&2
+      echo "  Inspect the stderr messages above; do not treat the audit as run." >&2
+      (( total_warnings += 1 )) || true
+    elif $local_review_found; then
       echo ""
       echo "  WARNING: REVIEW items found — inspect files above before publishing."
       (( total_warnings += 1 )) || true

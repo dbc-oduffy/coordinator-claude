@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # check-description-length.sh — assert each enabled SKILL.md description fits its budget.
 # Three-tier limit:
 #   - description-budget: <N> frontmatter field → use N

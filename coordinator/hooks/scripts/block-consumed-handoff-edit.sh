@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks runtime Write/Edit/MultiEdit/NotebookEdit on handoff
 # files (state/handoffs/*.md) whose YAML frontmatter declares `status: consumed`.
 #

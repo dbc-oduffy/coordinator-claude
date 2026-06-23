@@ -12,6 +12,14 @@
 # Input format (TSV, one row per chunk):
 #   <chunk-id>TAB<brief-one-liner-or-@filepath>TAB<comma-separated-file-paths>
 #
+# Optional 4th field (pinned-interface existence check — offer-shaped, exit 0 always):
+#   <chunk-id>TAB<brief>TAB<comma-separated-file-paths>TAB<symbol>@<producer-relative-path>
+#   If the file exists but the symbol is absent, a NOTE is emitted on stderr advising
+#   serial predecessor-wave shape. If the file does not exist, a similar file-absent NOTE
+#   is emitted. In both cases concurrent dispatch proceeds — this is an advisory, not a gate.
+#   Malformed 4th fields (not matching <symbol>@<path>) emit a NOTE and are skipped.
+#   Review: code-reviewer — F12: document optional 4th field in Input format header.
+#
 # Usage:
 #   printf 'chunk-A\tFix the auth module\tauth.py,auth_test.py\n' | bash bin/fan-out-dispatch.sh
 #   bash bin/fan-out-dispatch.sh --spec wave.tsv
@@ -148,6 +156,7 @@ TEXT_ONLY_PREAMBLE="$(cat -- "$TEXT_ONLY_SNIPPET")"
 declare -a CHUNK_IDS=()
 declare -a CHUNK_BRIEFS=()
 declare -a CHUNK_FILES_RAW=()
+declare -a CHUNK_PINS=()  # optional 4th-column pinned-interface declarations
 
 ROW_NUM=0
 while IFS= read -r line; do
@@ -157,11 +166,13 @@ while IFS= read -r line; do
 
     ROW_NUM=$((ROW_NUM + 1))
 
-    # Split on TAB — require exactly 3 fields
+    # Split on TAB — accept 3 fields (legacy) or 4 fields (optional pinned-interface pin)
+    # Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2
+    # 4th field form: <symbol>@<producer-relative-path>
     IFS=$'\t' read -ra FIELDS <<< "$line"
 
-    if [[ ${#FIELDS[@]} -ne 3 ]]; then
-        echo "fan-out-dispatch.sh: ERROR — malformed row ${ROW_NUM}: expected exactly 3 tab-separated fields, got ${#FIELDS[@]}." >&2
+    if [[ ${#FIELDS[@]} -lt 3 ]] || [[ ${#FIELDS[@]} -gt 4 ]]; then
+        echo "fan-out-dispatch.sh: ERROR — malformed row ${ROW_NUM}: expected 3 or 4 tab-separated fields, got ${#FIELDS[@]}." >&2
         echo "  Row content: ${line}" >&2
         echo "  No output emitted." >&2
         exit 1
@@ -170,6 +181,7 @@ while IFS= read -r line; do
     CHUNK_ID="${FIELDS[0]}"
     BRIEF_RAW="${FIELDS[1]}"
     FILES_RAW="${FIELDS[2]}"
+    PIN_RAW="${FIELDS[3]:-}"  # optional; empty for 3-field rows
 
     # Validate: no empty required fields
     if [[ -z "$CHUNK_ID" ]]; then
@@ -208,6 +220,7 @@ while IFS= read -r line; do
     CHUNK_IDS+=("$CHUNK_ID")
     CHUNK_BRIEFS+=("$BRIEF")
     CHUNK_FILES_RAW+=("$FILES_RAW")
+    CHUNK_PINS+=("$PIN_RAW")
 
 done <<< "$SPEC_CONTENT"
 
@@ -253,6 +266,46 @@ for i in "${!CHUNK_IDS[@]}"; do
         fi
     done
     CHUNK_FILES_LISTS+=("$joined")
+done
+
+# ---------------------------------------------------------------------------
+# Pinned-interface existence check (offer-shaped — exit 0, NOTE to stderr).
+#
+# For each chunk that declared a 4th-column pin (<symbol>@<producer-relative-path>),
+# grep the symbol in the producer's write-target path. If absent, emit a NOTE on
+# stderr naming the serial-fallback as remediation. Dispatch blocks are still emitted;
+# exit code is 0 regardless.
+#
+# Design: POST-HOC OBSERVER, not a gate. Modelled on the fat-chunk NOTE (exit 0,
+# advisory). NOT modelled on the file-overlap pass (exit 1).
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (Flag 1)
+# Negative-spec: do NOT copy the file-overlap pass's exit 1 — that would make this
+# a pre-dispatch gate, violating the plan's hard constraint.
+# ---------------------------------------------------------------------------
+for i in "${!CHUNK_IDS[@]}"; do
+    pin="${CHUNK_PINS[$i]}"
+    [[ -z "$pin" ]] && continue
+
+    # Expect form: <symbol>@<producer-relative-path>
+    # Split on FIRST '@' only — symbol names don't contain '@'; paths might be relative.
+    pin_symbol="${pin%%@*}"
+    pin_path="${pin#*@}"
+
+    if [[ -z "$pin_symbol" ]] || [[ -z "$pin_path" ]] || [[ "$pin_symbol" == "$pin" ]]; then
+        # Malformed pin — warn and skip (not a fatal error; the chunk still dispatches)
+        echo "NOTE: chunk '${CHUNK_IDS[$i]}' has a malformed 4th-column pin (expected <symbol>@<path>, got '${pin}') — skipping interface-existence check for this chunk." >&2
+        continue
+    fi
+
+    # grep -q: BSD-portable (POSIX grep). Exit 1 = no match (contract-false, not grep error).
+    # -F: fixed-string, not regex — symbol names may contain chars special in grep ERE.
+    if [[ -f "$pin_path" ]]; then
+        if ! grep -qF -- "$pin_symbol" "$pin_path" 2>/dev/null; then
+            echo "NOTE: chunk '${CHUNK_IDS[$i]}' declares a pinned interface '${pin_symbol}' but that symbol was NOT found in '${pin_path}'. The producer may not have written this interface yet. Consider using a serial predecessor-wave shape instead: land the producer first (verify '${pin_symbol}' is present in '${pin_path}'), then dispatch this consumer chunk. Concurrent dispatch proceeds — this is an advisory, not a gate. See docs/wiki/dispatching-parallel-agents.md § Read-Overlap Is NOT Write-Overlap (§ Author vs. verify)." >&2
+        fi
+    else
+        echo "NOTE: chunk '${CHUNK_IDS[$i]}' declares a pinned interface '${pin_symbol}' against '${pin_path}' but that file does not exist. The producer may not have written it yet. Consider using a serial predecessor-wave shape: land the producer first, then dispatch this consumer chunk. Concurrent dispatch proceeds — this is an advisory, not a gate. See docs/wiki/dispatching-parallel-agents.md § Dispatch-Gate Taxonomy." >&2
+    fi
 done
 
 # ---------------------------------------------------------------------------

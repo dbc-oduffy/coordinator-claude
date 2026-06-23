@@ -61,7 +61,7 @@ const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./
 // ---------------------------------------------------------------------------
 const TYPE_TO_GLOB = {
   handoff:            'state/handoffs/*.md',
-  'handoff-archived': 'archive/handoffs/*.md',  // post-/pickup home; used by /distill enumeration
+  'handoff-archived': 'archive/handoffs/**/*.md',  // post-/pickup home; used by /distill enumeration. Recursive `**` since 2026-06-18 month-foldering (archive/handoffs/YYYY-MM/) — matches BOTH foldered handoffs AND flat no-date install batons; same glob as handoff-ledger (queryRecords ~L580), closing the prior flat/recursive asymmetry.
   decision:           'docs/decisions/*.md',
   plan:               'docs/plans/*.md',
   review:             'state/reviews/*.md',

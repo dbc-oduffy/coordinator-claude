@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: detect and auto-recover a clobbered user settings.json.
 #
 # Failure mode (recurring): the user-global ~/.claude/settings.json is silently

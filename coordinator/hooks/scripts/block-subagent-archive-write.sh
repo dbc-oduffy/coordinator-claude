@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Unconditional backstop — blocks subagent writes to archive/**
 # outside the archive/daily-summaries/YYYY-MM-DD.md dated-file carve-out.
 #
@@ -36,11 +36,6 @@
 # Override env vars named in deny message:
 #   COORDINATOR_OVERRIDE_SUBAGENT_ARCHIVE=1  — this hook
 #   COORDINATOR_OVERRIDE_COMPLETION_MONOLITH=1 — monolith hook (if path is that shape)
-#
-# Bug-backlog note (P0-2 / Conflict #2, out-of-scope to fix here):
-#   block-completion-monolith-write.sh uses the {"decision":"block"}→stderr→exit 1
-#   deny shape that hook-best-practices.md:14-28 documents as silently non-blocking.
-#   EM should dogfood that hook and fix its deny mechanism if it does not block.
 #
 # Tripwires registry: docs/wiki/coordinator-tripwires.md
 

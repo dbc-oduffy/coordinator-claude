@@ -130,11 +130,20 @@ extract_block() {
 # Extract body between BEGIN/END sentinels.
 SNIPPET_BODY="$(awk -v b="$BEGIN_SENTINEL" -v e="$END_SENTINEL" '$0==b{p=1;next} $0==e{p=0} p' "$SNIPPET_FILE")"
 
-normalize() {
-    printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
-}
+# shellcheck source=../lib/normalize-snippet.sh
+source "$SCRIPT_DIR/../lib/normalize-snippet.sh"
 
 SNIPPET_NORM="$(normalize "$SNIPPET_BODY")"
+
+# Fail-loud guard: an empty canonical body means $SNIPPET_FILE is missing its
+# BEGIN/END sentinel wrappers (the sentinel-anchored awk above extracts nothing).
+# Proceeding would report every consumer OK against empty — and on --fix would
+# WIPE every consumer's block. Refuse rather than silently corrupt. (2026-06-19)
+if [ -z "$SNIPPET_NORM" ]; then
+    echo "ERROR: canonical snippet body is empty — $SNIPPET_FILE is missing its BEGIN/END sentinel wrappers." >&2
+    echo "       Expected '$BEGIN_SENTINEL' ... '$END_SENTINEL' around the body. Refusing to verify/fix (would wipe consumer blocks)." >&2
+    exit 2
+fi
 
 EXIT_CODE=0
 

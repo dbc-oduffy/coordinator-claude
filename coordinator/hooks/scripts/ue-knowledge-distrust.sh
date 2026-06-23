@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: Detect UE projects, emit knowledge-distrust warning, and
 # auto-bootstrap per-project UE plugin settings for next session.
 #

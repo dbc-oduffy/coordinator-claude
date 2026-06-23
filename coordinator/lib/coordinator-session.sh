@@ -535,6 +535,79 @@ cs_reap_stale() {
   done
 }
 
+# cs_reap_stale_claims [baton_repo_root] [class]
+#   Reap orphaned artifact claims left by cs_claim_artifact (handoff + memo classes).
+#   Because the claim dir is basename-only (<base>/<class>-claims/<basename>/, NOT under
+#   <sid>/), cs_archive's session-dir move no longer carries it away — this is its release path.
+#
+#   Class coverage: a NO-ARG call sweeps BOTH handoff-claims AND memo-claims (so the existing
+#   no-arg session-init call site reaps memo claims with zero edits). An optional <class>
+#   second arg narrows to one subdir (handoff | memo).
+#
+#   Liveness rule: reap iff the holder PID is DEAD. NO age check — a live holder is
+#   NEVER reaped regardless of how long it has held the claim (a /pickup can hold a
+#   workstream open across a workday). This matches cs_claim_artifact's inline takeover
+#   (dead-PID only); the two paths MUST agree on what "stale" means.
+#
+#   TOCTOU: re-read the held PID immediately before rm -rf and skip if it changed or is
+#   now alive — closes the rm-vs-inline-takeover race (reaper reads dead PID-A, a
+#   concurrent pickup takes over writing live PID-B, reaper would otherwise delete the
+#   live claim). Best-effort; never fatal to caller (session-init wraps it || true).
+#
+#   <baton_repo_root> (optional): reap a foreign baton repo's claims; defaults to cwd.
+#   FOREIGN-BATON NON-COVERAGE (memo parity with cs_claim_artifact's note): a memo claim
+#   written under a foreign BATON_REPO is NOT reached by session-init's no-arg reaper
+#   (which fires on the cwd repo via _cs_sessions_dir). For cross-repo memo pickup — the
+#   primary use case — such claims are cleaned up by inline dead-PID takeover on the next
+#   pickup of the same baton, or by an explicit cs_reap_stale_claims <baton-root> call.
+#
+#   Spec backlink: docs/plans/2026-06-17-concurrent-pickup-guard-sid-regression.md § C2;
+#                  docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C1
+cs_reap_stale_claims() {
+  # Review: code-reviewer — silent return (not fail-loud) is intentional: the reaper is
+  # best-effort; contrast with cs_claim_artifact which fails loud on a bad baton root.
+  local baton_repo_root="${1:-}"
+  local class_filter="${2:-}"
+  local base
+  if [[ -n "$baton_repo_root" ]]; then
+    [[ -d "${baton_repo_root}/.git" ]] || return 0
+    base="${baton_repo_root}/.git/coordinator-sessions"
+  else
+    base=$(_cs_sessions_dir) || return 0
+  fi
+
+  # No-arg sweeps both classes; a class filter narrows to one subdir.
+  local subdirs
+  if [[ -n "$class_filter" ]]; then
+    subdirs="${class_filter}-claims"
+  else
+    subdirs="handoff-claims memo-claims"
+  fi
+
+  local sub claims_dir claim held_pid recheck_pid
+  for sub in $subdirs; do
+    claims_dir="${base}/${sub}"
+    [[ -d "$claims_dir" ]] || continue
+    for claim in "${claims_dir}"/*/; do
+      [[ -d "$claim" ]] || continue
+      held_pid=$(cat "${claim}/pid" 2>/dev/null || echo "")
+      # Only dead-PID claims are reapable.
+      _cs_pid_alive "$held_pid" && continue
+      # TOCTOU re-read: a concurrent inline takeover may have just claimed it with a live PID.
+      recheck_pid=$(cat "${claim}/pid" 2>/dev/null || echo "")
+      [[ "$recheck_pid" != "$held_pid" ]] && continue
+      _cs_pid_alive "$recheck_pid" && continue
+      # Review: code-reviewer — && is intentional: echo fires only on successful rm;
+      # a failed rm (lost the race to another reaper) is silently skipped, not fatal.
+      # Review: code-reviewer — rm -rf on an already-absent dir is idempotent (returns 0
+      # on BSD/macOS), so a concurrent double-reaper run is safe: the second reaper gets
+      # a harmless extra "reaped claim" echo at worst. Mirrors the cs_reap_stale mv/ENOENT
+      # idempotency note.
+      rm -rf "$claim" 2>/dev/null && echo "reaped claim $(basename "${claim%/}")"
+    done
+  done
+}
+
 # _cs_is_session_live <pid> <elapsed_sec>
 #   Returns 0 (true) when the session should be considered Live:
 #     - PID is alive (kill -0 check)
@@ -806,9 +879,19 @@ cs_atomic_dedup_append() {
   return 0
 }
 
-# cs_claim_handoff <basename> [baton_repo_root]
-#   Atomic mkdir-based claim primitive for concurrent /pickup race detection.
-#   Claim directory: <root>/.git/coordinator-sessions/<sid>/handoff-claims/<basename>/
+# cs_claim_artifact <class> <basename> [baton_repo_root]
+#   Atomic mkdir-based claim primitive for concurrent /pickup race detection, shared by
+#   both pickup artifact classes. <class> is `handoff` or `memo`; it selects the claims
+#   subdir (<class>-claims) and the log-message prefix. cs_claim_handoff / cs_claim_memo
+#   are thin wrappers below. Generalized 2026-06-21 (memo-pickup claim-lock parity); the
+#   handoff call site behaves byte-for-byte as before (cs_claim_handoff handoff "$@").
+#   Claim directory: <root>/.git/coordinator-sessions/<class>-claims/<basename>/
+#
+#   BASENAME-ONLY, NOT sid-namespaced: all sessions sharing a <root> contend for ONE
+#   lock per artifact. That shared-path mkdir IS the same-machine concurrent-pickup
+#   guard (DR-110). It was sid-namespaced until 2026-06-17, which silently defeated
+#   the guard once Claude Code moved to per-session CLAUDE_CODE_SESSION_ID (two
+#   same-machine sessions held distinct sids → distinct paths → never collided).
 #
 #   <baton_repo_root> (optional): the git repo that OWNS the baton being picked up.
 #   When supplied, the claim directory lives under the baton repo's .git, so two
@@ -821,22 +904,36 @@ cs_atomic_dedup_append() {
 #   running (cwd) session, because .current-session-id is written into the cwd
 #   session's .git by session-init.sh, never into the baton repo.
 #
-#   On EEXIST:
+#   On EEXIST (the holder is ALWAYS a different session — this session just attempted
+#   mkdir and hit EEXIST, so by definition it does not hold the lock; the lock is
+#   basename-only shared): held_pid/held_sid are read from the claim
+#   dir's OWN metadata, so liveness is evaluated against the HOLDER, not the caller.
+#   Do NOT refactor this to use $$/$sid — that reintroduces the per-session bug.
 #     - If the holding session's PID is alive  → exit 1 with held-by message.
 #     - If the holding session's PID is dead   → log warning, rm -rf and recreate.
 #
 #   On success, writes pid, session_id, claimed_at inside the claim directory.
-#   Release is structural: cs_archive moves the cwd-session dir (including
-#   handoff-claims/) into .archive/. CAVEAT: a claim written under a FOREIGN baton
-#   repo (baton_repo_root != cwd) is not reached by the cwd session's cs_archive —
-#   it self-corrects on next contention (stale-PID takeover), otherwise persists as
-#   an unreaped orphan in the baton repo .git, bounded by pickup frequency.
+#   IMPORTANT — PID recorded is $$ of the CALLER, which MUST be a long-lived process
+#   (skill shell, interactive shell). Do NOT call cs_claim_artifact from a hook
+#   subprocess — the hook's $$ exits within seconds, making the claim appear immediately
+#   dead to the reaper. Review: code-reviewer.
+#   Release/cleanup: basename-only claims are NOT carried by cs_archive (no longer
+#   under <sid>/) — they are reaped by cs_reap_stale_claims (dead-PID only, wired
+#   into the session-init gated reaper). A crashed session's claim persists until
+#   the next reaper pass OR until the next pickup of the same baton takes it over
+#   inline (dead-PID) — bounded, best-effort. NOTE on foreign-baton coverage: a claim
+#   written under a foreign <baton_repo_root> is NOT reached by session-init's reaper
+#   (which fires on the cwd repo via _cs_sessions_dir) — it is cleaned up on next
+#   contention via the inline dead-PID takeover, or by an explicit
+#   cs_reap_stale_claims <baton-root> call. Review: code-reviewer.
 #
-#   Spec backlinks: tasks/split-pickup-archival/plan.md § Edit 1;
-#                   docs/plans/2026-06-17-foreign-cwd-pickup-hardening.md § C1
-cs_claim_handoff() {
-  local basename="${1:?basename required}"
-  local baton_repo_root="${2:-}"
+#   Spec backlinks: docs/plans/2026-06-17-foreign-cwd-pickup-hardening.md § C1;
+#                   docs/plans/2026-06-17-concurrent-pickup-guard-sid-regression.md § C1;
+#                   docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C1
+cs_claim_artifact() {
+  local class="${1:?artifact class required}"
+  local basename="${2:?basename required}"
+  local baton_repo_root="${3:-}"
   local sid="${COORDINATOR_SESSION_ID:-}"
   # Explicit test override — mirrors resolve_session_id's Priority 1 slot so
   # test harnesses can inject a known id without clobbering the real env var.
@@ -855,22 +952,24 @@ cs_claim_handoff() {
     local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
     [[ -f "$sentinel" ]] && sid=$(cat "$sentinel" 2>/dev/null)
   fi
-  [[ -z "$sid" ]] && { echo "cs_claim_handoff: no session_id available" >&2; return 1; }
+  [[ -z "$sid" ]] && { echo "cs_claim_${class}: no session_id available" >&2; return 1; }
 
-  local base sdir claims_dir claim_dir
+  local base claims_dir claim_dir
   if [[ -n "$baton_repo_root" ]]; then
     # Baton-repo mode REQUESTED (arg present) — fail loud on an unresolvable root
     # rather than silently writing the lock into the wrong (cwd) repo.
     if [[ ! -d "${baton_repo_root}/.git" ]]; then
-      echo "cs_claim_handoff: baton repo root <${baton_repo_root}> is not a git repo" >&2
+      echo "cs_claim_${class}: baton repo root <${baton_repo_root}> is not a git repo" >&2
       return 1
     fi
     base="${baton_repo_root}/.git/coordinator-sessions"
   else
     base=$(_cs_sessions_dir) || return 1
   fi
-  sdir="${base}/${sid}"
-  claims_dir="${sdir}/handoff-claims"
+  # Basename-only (NOT ${base}/${sid}/...): the shared path is the same-machine guard —
+  # distinct-sid sessions must contend for ONE lock per artifact. The session-id is still
+  # recorded in the claim metadata below (for the held-by message), just not in the path.
+  claims_dir="${base}/${class}-claims"
   claim_dir="${claims_dir}/${basename}"
 
   mkdir -p "$claims_dir" 2>/dev/null || true
@@ -892,12 +991,12 @@ cs_claim_handoff() {
   held_sid=$(cat "${claim_dir}/session_id" 2>/dev/null || echo "unknown")
 
   if _cs_pid_alive "$held_pid"; then
-    echo "cs_claim_handoff: ${basename} held by session ${held_sid} (PID ${held_pid}) — concurrent /pickup detected" >&2
+    echo "cs_claim_${class}: ${basename} held by session ${held_sid} (PID ${held_pid}) — concurrent /pickup detected" >&2
     return 1
   fi
 
   # Dead PID — stale claim; take over
-  echo "cs_claim_handoff: stale claim on ${basename} (session ${held_sid}, dead PID ${held_pid:-?}) — taking over" >&2
+  echo "cs_claim_${class}: stale claim on ${basename} (session ${held_sid}, dead PID ${held_pid:-?}) — taking over" >&2
   rm -rf "$claim_dir" 2>/dev/null || true
   if mkdir "$claim_dir" 2>/dev/null; then
     local now
@@ -908,8 +1007,67 @@ cs_claim_handoff() {
     return 0
   fi
 
-  echo "cs_claim_handoff: failed to create claim dir for ${basename} after stale takeover" >&2
+  echo "cs_claim_${class}: failed to create claim dir for ${basename} after stale takeover" >&2
   return 1
+}
+
+# cs_claim_handoff <basename> [baton_repo_root]
+# cs_claim_memo    <basename> [baton_repo_root]
+#   Thin class-bound wrappers over cs_claim_artifact. The handoff wrapper preserves the
+#   exact two-arg (basename, baton_repo_root) contract every existing call site uses —
+#   byte-for-byte behavior. The memo wrapper is the parity addition for memo-pickup
+#   (Memo Branch M2.5 of skills/pickup/SKILL.md).
+cs_claim_handoff() { cs_claim_artifact handoff "$@"; }
+cs_claim_memo()    { cs_claim_artifact memo "$@"; }
+
+# cs_release_artifact <class> <basename> [baton_repo_root]
+#   Explicit, holder-identity-checked release of a claim. Unlike handoffs (dead-PID
+#   reaping only), memo-pickup reaches meaningful NON-TERMINAL dispositions while still
+#   alive (Decline, Surface-to-PM) — those must release the claim so a legitimate
+#   re-pickup is not blocked until the PID dies. SAFETY: release only if THIS session is
+#   the holder (claim-dir pid == $$); if not the holder, or the claim is already absent,
+#   it is a NO-OP (return 0). A bare rm without this check would race inline dead-PID
+#   takeover and could delete a live peer's claim — the exact TOCTOU class cs_reap_stale_claims
+#   guards against. Mirrors the held-pid-from-claim-metadata discipline above.
+#
+#   ORDERING CONTRACT (enforced by the caller, not here): the caller MUST revert the
+#   artifact's frontmatter (status in_progress → open, clear stamps) BEFORE calling this.
+#   That way a crash between the two steps leaves a recoverable "open but claim-held" state
+#   (reaper / inline-takeover cleans up); the reverse (claim freed, status still in_progress)
+#   would re-admit two sessions — the bug this whole workstream fixes.
+#
+#   Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C1 (the Staff Engineer #1)
+cs_release_artifact() {
+  local class="${1:?artifact class required}"
+  local basename="${2:?basename required}"
+  local baton_repo_root="${3:-}"
+
+  local base
+  if [[ -n "$baton_repo_root" ]]; then
+    [[ -d "${baton_repo_root}/.git" ]] || return 0
+    base="${baton_repo_root}/.git/coordinator-sessions"
+  else
+    base=$(_cs_sessions_dir) || return 0
+  fi
+  local claim_dir="${base}/${class}-claims/${basename}"
+  [[ -d "$claim_dir" ]] || return 0   # already absent — no-op
+
+  # Holder-identity check: only the session that holds the claim may release it.
+  local held_pid
+  held_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
+  [[ "$held_pid" == "$$" ]] || return 0   # not the holder (or reaped/taken-over) — no-op
+
+  # TOCTOU re-read before rm, mirroring cs_reap_stale_claims' two-read discipline: if an
+  # inline dead-PID takeover (rm + mkdir + new live pid) slipped in after the identity
+  # check, the recheck no longer reads $$ and we skip — never delete a live peer's claim.
+  # (Narrow in practice — the takeover path requires the holder PID to be dead, and the
+  # holder here is $$, alive by definition at call time — but kept symmetric with the reaper.)
+  local recheck_pid
+  recheck_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
+  [[ "$recheck_pid" != "$$" ]] && return 0
+
+  rm -rf "$claim_dir" 2>/dev/null || true
+  return 0
 }
 
 # cs_reap_agents

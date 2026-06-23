@@ -92,3 +92,40 @@ schema = 1
 # concerns = ["unreal", "cuda"]
 concerns = ["project_rag", "unreal"]
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Regeneratability classification — machine-readable via tomllib.
+#
+# NOTE: This MUST appear after all top-level scalar keys (schema, repos.*, concerns,
+# publish.targets etc.) because in TOML, keys written after a [table] header are
+# scoped to that table, not the document root. Placement here (after all flat keys)
+# is load-bearing — do not move above the concerns= line.
+#
+# Every coordinator-owned key must be classified here. Three values:
+#
+#   idempotent-regeneratable         — An idempotent installer/script can re-derive the value
+#                                      with no human input and no state loss (e.g., coordinator.python
+#                                      is rewritten by bin/ensure-coordinator-venv.sh).
+#   session-accumulated-must-survive-crash — The value encodes the operator's machine layout and
+#                                      cannot be recovered from code alone. Loss = manual re-entry.
+#                                      All repos.* keys are in this class.
+#   ephemeral                        — Transient; safe to lose on restart.
+#
+# This is a REAL TOML TABLE (not a comment convention). `tomllib` reads it;
+# bin/check-machine-local-regeneratability.sh queries it. Do NOT use inline
+# `# regeneratability:` comments — tomllib discards comments on load.
+#
+# See docs/wiki/machine-local-registry.md § 13 for the full classification rationale.
+# ---------------------------------------------------------------------------
+[regeneratability]
+"coordinator.python"           = "idempotent-regeneratable"
+"plugin.mirrors"               = "idempotent-regeneratable"
+"publish.targets"              = "idempotent-regeneratable"
+"repos.coordinator_claude"     = "session-accumulated-must-survive-crash"
+"repos.dronesim"               = "session-accumulated-must-survive-crash"
+"repos.project_rag"            = "session-accumulated-must-survive-crash"
+"repos.project_rag_ue_addon"   = "session-accumulated-must-survive-crash"
+"repos.claude_unreal_holodeck" = "session-accumulated-must-survive-crash"
+"repos.geneva_mvp"             = "session-accumulated-must-survive-crash"
+"repos.fifa_stats"             = "session-accumulated-must-survive-crash"
+"repos.experiments"            = "session-accumulated-must-survive-crash"

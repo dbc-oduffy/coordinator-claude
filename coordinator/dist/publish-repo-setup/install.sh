@@ -362,11 +362,21 @@ check_prerequisites() {
   local optional_missing=()
 
   if ! command -v shellcheck &>/dev/null; then
-    optional_missing+=("shellcheck — lints .sh files on commit (winget install koalaman.shellcheck)")
+    case "$PLATFORM" in
+      darwin)        optional_missing+=("shellcheck — lints .sh files on commit (brew install shellcheck)") ;;
+      linux|wsl)     optional_missing+=("shellcheck — lints .sh files on commit (sudo apt install shellcheck  # or your distro's pkg-manager)") ;;
+      # Review: code-reviewer slice2-F1 — covers gitbash (Windows) and unknown platforms
+      *)             optional_missing+=("shellcheck — lints .sh files on commit (winget install koalaman.shellcheck)") ;;
+    esac
   fi
 
   if ! command -v scc &>/dev/null && [[ ! -x "$HOME/bin/scc" ]] && [[ ! -x "$HOME/bin/scc.exe" ]]; then
-    optional_missing+=("scc — code statistics in session orientation (winget install BenBoyter.scc)")
+    case "$PLATFORM" in
+      darwin)        optional_missing+=("scc — code statistics in session orientation (brew install scc)") ;;
+      linux|wsl)     optional_missing+=("scc — code statistics in session orientation (go install github.com/boyter/scc/v3@latest  # or your distro's pkg-manager)") ;;
+      # Review: code-reviewer slice2-F1 — covers gitbash (Windows) and unknown platforms
+      *)             optional_missing+=("scc — code statistics in session orientation (winget install BenBoyter.scc)") ;;
+    esac
   fi
 
   if [[ ${#optional_missing[@]} -gt 0 ]]; then

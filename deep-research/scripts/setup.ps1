@@ -41,6 +41,13 @@ param(
     [switch]$IAmAgent,                  # agent mode: exit 92 with AGENT_MANIFEST_PATH
     [switch]$Help,                      # read-only: print usage and exit 0
     [switch]$Version,                   # read-only: print script version and exit 0
+
+    # -Phase <name> vs -PhaseList prefix-collision: PowerShell resolves "-Phase foo" as an
+    # exact match for [string]$Phase, NOT a prefix of [switch]$PhaseList. Exact-match wins;
+    # "-PhaseList" (no value) binds exactly to [switch]$PhaseList. Mirrors coordinator setup.ps1.
+    [Parameter()]
+    [string]$Phase = '',                # dispatch named install phase; chain-preinstall is stateful/gated
+
     [switch]$PhaseList,                 # read-only: list install phases and exit 0
     [switch]$LastStatus                 # read-only: print last install status JSON and exit 0
 )
@@ -54,6 +61,11 @@ $ScriptVersion = '1.0.0'
 $ScriptName    = 'deep-research-claude setup'
 $ChainStep     = 'chain step 4 of 5'
 $ChainBanner   = "DR install-chain walker -- $ChainStep"
+
+# chain-preinstall is stateful-by-contract (NOT in the read-only carve-out): the -Phase
+# switch sets this marker instead of exiting inline, so the post-parse agent/token gate
+# decides exit 92 vs no-op body. Mirrors setup.sh _RUN_CHAIN_PREINSTALL.
+$RunChainPreinstall = $false
 
 # ---------------------------------------------------------------------------
 # Locate this script and resolve RepoRoot (layout-agnostic).
@@ -117,6 +129,11 @@ if ($Help) {
     Write-Host "  -Help                    Print this help and exit."
     Write-Host "  -Version                 Print script version and exit."
     Write-Host "  -PhaseList               List install phases and exit."
+    Write-Host "  -Phase <name>            Dispatch named install phase and exit."
+    Write-Host "                           Stateful phases (gated): chain-preinstall — pre-restart full-install"
+    Write-Host "                             seam; requires `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT (or the override pair)"
+    Write-Host "                             in agent mode; no-op body (DR is pure-plugin)."
+    Write-Host "                           Unknown phase values exit non-zero (fail-loud)."
     Write-Host "  -LastStatus              Print last install status JSON and exit."
     Write-Host "  -Check                   Read-only dep probe + status report. No state written."
     Write-Host "                           DR-specific read-only extension (chain step 4 of 5)."
@@ -135,13 +152,41 @@ if ($Version) {
 }
 
 if ($PhaseList) {
-    Write-Host "dep-check:  probe coordinator-claude soft dep and report status"
+    Write-Host "Available -Phase <name> values:"
+    Write-Host "  chain-preinstall  Pre-restart full-install seam (stateful-by-contract; gated by `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT in agent mode; no-op body -- DR is pure-plugin)"
+    Write-Host ""
+    Write-Host "Informational (NOT -Phase <name> values):"
+    Write-Host "  dep-check:  probe coordinator-claude soft dep and report status"
     exit 0
 }
 
 if ($LastStatus) {
     Write-Host '{"overall": "no-prior-install"}'
     exit 0
+}
+
+# ---------------------------------------------------------------------------
+# -Phase <name> dispatch (parity with setup.sh --phase <name>).
+# chain-preinstall is stateful-by-contract: set the marker and fall through to
+# the post-parse agent/token gate; do NOT exit inline. DR has no
+# seed-install-spinoff (coordinator seeds DR's spinoff from a template).
+# ---------------------------------------------------------------------------
+if ($Phase -ne '') {
+    if ($Phase -like '--*') {
+        [Console]::Error.WriteLine("ERROR: -Phase requires a phase name, but got a flag-shaped value ('$Phase'). Did you forget the phase name?")
+        exit 1
+    }
+    switch ($Phase) {
+        'chain-preinstall' {
+            $RunChainPreinstall = $true
+        }
+        default {
+            [Console]::Error.WriteLine("ERROR: Unknown -Phase value: '$Phase'")
+            [Console]::Error.WriteLine("  Known phases: chain-preinstall")
+            [Console]::Error.WriteLine("  Use -PhaseList to enumerate all known phase names.")
+            exit 1
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -169,14 +214,34 @@ $AddonRunMode = $env:ADDON_RUN_MODE
 if ($IAmAgent -or $AddonRunMode -eq 'agent') {
     if ($SkipDepCheck -and $AcceptMissingDepsRisk) {
         # full override pair present — fall through
+    } elseif ($RunChainPreinstall -and -not [string]::IsNullOrEmpty($env:COORDINATOR_CHAIN_PREINSTALL_CONSENT)) {
+        # chain-preinstall phase inside a consented chain walk — fall through.
+        # The consent token is the same trust altitude as the override pair (a deliberate
+        # redirect-guard escape, not a capability token). agent-install-contract.md § chain-preinstall.
     } else {
         [Console]::Error.WriteLine("AGENT_MANIFEST_PATH=docs/install/AGENT.md")
         [Console]::Error.WriteLine("[setup] Agent-direct invocation detected. Use /deep-research:setup instead.")
         [Console]::Error.WriteLine("[setup] Agent install guide: docs/install/AGENT.md")
-        [Console]::Error.WriteLine("[setup] To run non-interactively, supply both:")
-        [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        if ($RunChainPreinstall) {
+            [Console]::Error.WriteLine("[setup] -Phase chain-preinstall requires a consented chain walk:")
+            [Console]::Error.WriteLine("[setup]   set `$env:COORDINATOR_CHAIN_PREINSTALL_CONSENT (the chain-walk token) -- or supply the override pair")
+            [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        } else {
+            [Console]::Error.WriteLine("[setup] To run non-interactively, supply both:")
+            [Console]::Error.WriteLine("[setup]   -IAmAgent -SkipDepCheck -AcceptMissingDepsRisk")
+        }
         exit 92
     }
+}
+
+# ---------------------------------------------------------------------------
+# chain-preinstall phase body (post-gate). DR is a pure coordinator-plugin with
+# no script-install body, so chain-preinstall is a no-op here -- it still routes
+# THROUGH the gate above (phase-level gate, uniform across legs), then exits 0.
+# ---------------------------------------------------------------------------
+if ($RunChainPreinstall) {
+    Write-Host "deep-research-claude: chain step 4 of 5 -- nothing to preinstall (chain-preinstall no-op body; pure-plugin, no script-install). Capability install happens at downstream heavy-install legs."
+    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -380,6 +445,7 @@ if ($AcceptMissingDepsRisk){ $ParsedArgsList.Add('--accept-missing-deps-risk') }
 if ($IAmAgent)             { $ParsedArgsList.Add('--i-am-agent') }
 if ($Help)                 { $ParsedArgsList.Add('--help') }
 if ($Version)              { $ParsedArgsList.Add('--version') }
+if ($Phase -ne '')         { $ParsedArgsList.Add("--phase"); $ParsedArgsList.Add($Phase) }
 if ($PhaseList)            { $ParsedArgsList.Add('--phase-list') }
 if ($LastStatus)           { $ParsedArgsList.Add('--last-status') }
 

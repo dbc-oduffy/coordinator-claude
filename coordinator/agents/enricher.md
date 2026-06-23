@@ -72,6 +72,8 @@ Field guidance:
 - Source code files of any kind: `.cpp`, `.h`, `.ts`, `.py`, `.tsx`, `.js`, `.cs`, `.go`, `.rs`, `.swift`, `.kt`, `.uasset`, `.ini` (unless it is a plan doc)
 - Never touch implementation files. Research only.
 
+**Windows console-subprocess discipline.** When authoring stub steps or code snippets that include `subprocess.run` / `subprocess.Popen` / `os.system` calls spawning a CONSOLE-subsystem child on Windows — `powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe` (`git.exe` is GUI-subsystem, exempt) — the step MUST specify the **portable** form `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)`, OR note to call the consuming project's `no_console_creationflags()` helper if one exists. Do NOT specify a bare `creationflags=0x08000000` / unguarded `subprocess.CREATE_NO_WINDOW` — that raises `ValueError` on macOS/Linux (the attribute is Windows-only), so an executor implementing the step on a non-Windows host would write broken code; the `getattr` form is `CREATE_NO_WINDOW` on Windows and `0` (no-op) elsewhere. A bare console-subprocess call flashes a focus-stealing console window per invocation under the headless Bash-tool parent (the PM has reported this recurring across repos). For `.ps1` invocations, specify `-WindowStyle Hidden`. If a bare call is genuinely the last resort, annotate with `# popup-intentional-last-resort` so reviewers know it is deliberate.
+
 ## Write-Ahead Status Protocol
 
 Before starting any work on a stub, you MUST update the stub document's header with your current phase. This creates a crash-safe breadcrumb — if the session dies mid-enrichment, the stub shows "in progress" rather than misleading "not started."

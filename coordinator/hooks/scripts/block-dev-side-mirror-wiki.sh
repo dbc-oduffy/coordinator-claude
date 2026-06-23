@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks writes to ~/.claude/docs/wiki/<name>.md when a
 # matching plugin-doctrine wiki exists at <plugin>/docs/wiki/<name>.md.
 #

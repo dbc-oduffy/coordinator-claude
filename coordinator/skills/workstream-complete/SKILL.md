@@ -36,6 +36,7 @@ This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus 
 - **Step 2.6** — archive uncaptured work (`archive/completed/YYYY-MM/`; internal chain 2.6.1→2.6.7 is real but isolated to this slot)
 - **Step 2.7** — archive predecessor handoff (file move only — independent of all other slots)
 - **Step 2.8** — refresh orientation documents (pinboard + tracker + action-items + docs README)
+- **Step 2.9b** — dispatch-shape observation (read-only; never blocks; surface any offer into Step 4 summary) — parallel-safe with the 2.x cluster
 - **Step 2.95** — cross-cutting check (big-workstream only; one-line `clear` / `<finding>` in Step 4 summary) — parallel-safe with the 2.x cluster
 
 These six slots touch disjoint surfaces. Among peer slots, none consumes another's output — where two slots operate on different paths, run them in the same response via parallel tool calls. **Step 3 is a fan-in:** it stages the union of all files touched by the cluster; peer ordering is irrelevant, only their position before Step 3 matters.
@@ -320,9 +321,19 @@ stamp_shipped_in "state/handoffs/<file>" --allow-branch-tip-fallback
 
 The `--allow-branch-tip-fallback` flag is correct here: this is a ceremony-complete path where the workstream actually finished, so the branch tip is a plausible signal for the completed workstream. If stamping finds no SHA, it exits 0 and skips silently — the `git mv` still proceeds.
 
-Then move: `git mv state/handoffs/<file> archive/handoffs/<file>`. Create `archive/handoffs/` if absent. On `git mv` failure (already moved by a concurrent `/handoff`), log to stderr and continue. The move folds into the Step 3 commit.
+**Shared-branch tip caveat.** On a shared concurrent-EM branch (`work/{machine}/{date}`), the branch tip at this moment may be a SIBLING EM's HEAD commit — not this session's last commit — because auto-push from a concurrent session may have landed between this session's last commit and this ceremony step. Before trusting the stamped `shipped_in` SHA, verify it belongs to this session: `git show --format='%s%n%(trailers:key=Session-Id)' --no-patch <sha>` must surface a `Session-Id:` trailer matching `$CLAUDE_CODE_SESSION_ID`. If the trailer is absent (legacy commit) or mismatches, walk `git log` backwards from HEAD until you find a commit with a matching trailer — that SHA is the correct `shipped_in` value. If no matching commit is found in the last 20 commits, record `shipped_in` as `null` and note the ambiguity in Step 4. [source: queue-triage-2026-06-21 chunk-5, queue line 143]
 
-**No claim release call needed** — `cs_archive` at Step 3.5 carries the entire session directory (including `handoff-claims/`) into `.archive/`. **Skip entirely if** exiting via `/handoff` — the two paths are mutually exclusive.
+Then move into the handoff's **month-subfolder** (matching the `archive/specs/YYYY-MM/` convention) — derive `YYYY-MM` from the handoff filename's date prefix:
+
+```bash
+bn="$(basename "<file>")"; ym="${bn:0:7}"   # filenames start YYYY-MM-DD..; first 7 chars = YYYY-MM
+mkdir -p "archive/handoffs/$ym"
+git mv "state/handoffs/$bn" "archive/handoffs/$ym/$bn"
+```
+
+(If the filename has no `YYYY-MM` date prefix — e.g. a no-date install baton — fall back to flat `archive/handoffs/$bn`.) Create the month dir if absent. On `git mv` failure (already moved by a concurrent `/handoff`), log to stderr and continue. The move folds into the Step 3 commit.
+
+**No claim release call needed** — handoff claims are basename-only (`.git/coordinator-sessions/handoff-claims/<basename>/`, NOT under `<sid>/`, since 2026-06-17 — see DR-110 § Correction), so `cs_archive` does NOT carry them; they are reaped by `cs_reap_stale_claims` (dead-PID only, session-init gated, ~12h cadence) or taken over inline on the next pickup of the same baton. **Skip entirely if** exiting via `/handoff` — the two paths are mutually exclusive.
 
 ### Step 2.75: Refresh Handoff Tracker
 
@@ -479,6 +490,33 @@ The doctrine root is `docs/wiki/tool-output-flakiness-protocol.md § API quota e
   bin/check-ubt-build-fresh.sh --since "$(git merge-base origin/main HEAD 2>/dev/null || git rev-parse HEAD~1)" --mode pending
 ```
 
+### Step 2.9b: Dispatch-Shape Observation (read-only, never blocks)
+
+<!-- spec-backlink: docs/plans/2026-06-22-invariant-verification-observers.md § C3 -->
+
+**Peer read-only slot — parallel-safe with the 2.x cluster.** Runs alongside Step 2.95 and the other 2.x slots. Does NOT gate the commit (Step 3) or any other step. Read-only: consumes the plan's Dispatch Ledger and the session's dispatched-agents.txt; writes nothing.
+
+**When to run:** any session where a governing plan with a `## Dispatch Ledger` exists (the plan slug or path is known from session context). Skip silently if no plan governs this session or the plan has no Dispatch Ledger.
+
+**Invocation:**
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/classify-dispatch-shape.sh \
+  --plan-file <path/to/docs/plans/YYYY-MM-DD-<slug>.md>
+```
+
+Or by slug if the plan lives under `docs/plans/`:
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/classify-dispatch-shape.sh <plan-slug>
+```
+
+**What it checks:** counts parallel-permitted gate-groups in the Dispatch Ledger (`runs: parallel`, `gate-kind ∈ {none, output-consumption-content, contract-change}`, excluding `inline (EM)` rows — F1) and compares against distinct EXECUTOR-CLASS agentIds in the session's `dispatched-agents.txt` (reviewers/scouts excluded — F3). If N > 1 parallel-permitted chunks were declared but only 1 executor agent is attributable, it emits a question-framed offer to stderr.
+
+**Output disposition:** any offer text from stderr surfaces in the **Step 4 summary** (one-line mention: `Dispatch-shape: <paste or summarize offer>` / `Dispatch-shape: clear`). If nothing was emitted, write `Dispatch-shape: clear`. This is the only output required — no action is mandatory; the offer is advisory.
+
+**Fidelity limit (stated in the tool's offer text):** records do not carry a plan slug; attribution is scoped to the em_sid session. Multi-plan sessions may mix agents from other plans. The classifier detects the gross serial-grind antipattern; fine-grained interleaving is not distinguishable. Pilot-then-expand and inline-EM shapes may also present as 1 agent — the offer asks a question rather than pronouncing a verdict.
+
 ### Step 2.95: Cross-cutting check (big-workstream sessions)
 
 **Fires on big workstreams** — same trigger as Step 2.9 rows 3/4/5/6. Skip silently on row-1/row-2 trivial sessions.
@@ -486,6 +524,14 @@ The doctrine root is `docs/wiki/tool-output-flakiness-protocol.md § API quota e
 One question: *anything cross-cutting that the line-level review at Step 2.9 wouldn't have surfaced?* Quick self-check against session memory — examples: install surface reproducing on a clean machine (→ `docs/wiki/install-surface-completeness.md`), a new convention's contact-points all updated (→ CLAUDE.md § Adding a Convention), security/secret surface clean (route to `security-audit-worker` / `dep-cve-auditor` for depth — don't self-assess), doc/wiki stale refs repointed, lessons captured (Step 1/1.2 covers; universals to central queue). Tradeoff-free corrections fold in; real tradeoffs surface to PM.
 
 **Output:** one line in Step 4 summary — `clear` or `<finding + disposition>`. The five sub-areas have independent load-bearing gates elsewhere; this is the cross-cutting safety net, not a re-run.
+
+**Sub-check: machine-local regeneratability (install-surface-completeness).** Run as a peer sub-check alongside the install-surface examples above. Offer-shaped — exit 0 always; findings to stderr only:
+
+```bash
+bash ~/.claude/plugins/coordinator/bin/check-machine-local-regeneratability.sh
+```
+
+A `session-accumulated-must-survive-crash` key with no tracked baseline declaration in `registry.toml` IS an install-surface defect (fresh-machine clone loses the value). The script emits a remediation offer on stderr when the condition is detected; it is silent on a clean registry. See `docs/wiki/machine-local-registry.md § 13` for the regeneratability classification table and `docs/wiki/install-surface-completeness.md § Bootstrap gap` for the broader context.
 
 ### Step 3: Commit + Verify Remote
 

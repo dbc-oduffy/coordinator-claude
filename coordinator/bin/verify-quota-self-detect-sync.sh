@@ -131,10 +131,8 @@ fi
 # Review: code-reviewer — NR>3 silently skipped the heading; NR>2 includes it so injected blocks carry the heading.
 SNIPPET_BODY="$(awk -v end_sentinel="$END_SENTINEL" 'NR>2 && $0 != end_sentinel' "$SNIPPET_FILE")"
 
-normalize() {
-    # TODO: see verify-plan-coverage-sync.sh — same BSD-portability concern with sed :loop; tracked separately.
-    printf '%s' "$1" | sed 's/[[:space:]]*$//' | sed -e '/./,$!d' | sed -e :loop -e '/^\n*$/{$d;N;b loop}'
-}
+# shellcheck source=../lib/normalize-snippet.sh
+source "$SCRIPT_DIR/../lib/normalize-snippet.sh"
 
 SNIPPET_NORM="$(normalize "$SNIPPET_BODY")"
 

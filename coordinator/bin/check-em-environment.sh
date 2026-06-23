@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # EM environment safety-check — invoked as a STEP inside the ceremony skills
 # (/workstream-start, /workday-start, /workweek-start), NOT as a hook. Verifies the
 # EM is running on the expected EFFORT (medium) and, best-effort, MODEL (Opus),

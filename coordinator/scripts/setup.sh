@@ -141,6 +141,11 @@ VERSION_FLAG=false
 PHASE_LIST=false
 LAST_STATUS=false
 I_AM_AGENT=false
+# chain-preinstall is stateful-by-contract (NOT in the read-only carve-out): set a
+# deferred marker here, run the no-op body only AFTER the post-parse agent/token gate
+# (so later-parsed override flags / the consent token are seen). See
+# agent-install-contract.md § chain-preinstall phase.
+_RUN_CHAIN_PREINSTALL=false
 # F5: removed pre-loop export here; variables are exported once after the while loop
 # at the canonical post-parse export block (line ~210). The pre-loop export was redundant
 # and could export stale values if the parser modified any variable after this point.
@@ -160,6 +165,10 @@ while [[ $# -gt 0 ]]; do
             echo "                               seed-install-spinoff  DAG-root no-op; prints that"
             echo "                                                      coordinator STITCHES+DRIVES"
             echo "                                                      and seeds no leg baton for itself."
+            echo "                             Stateful phases (gated; write install-status at heavy legs):"
+            echo "                               chain-preinstall      pre-restart full-install seam;"
+            echo "                                                      requires \$COORDINATOR_CHAIN_PREINSTALL_CONSENT (or the"
+            echo "                                                      override pair) in agent mode; no-op body at root."
             echo "                             Unknown phase names exit non-zero with a remediation message."
             echo "  --last-status              Print last install status JSON and exit."
             echo "  --check                    Read-only dep probe + status report. No state written."
@@ -181,6 +190,7 @@ while [[ $# -gt 0 ]]; do
             PHASE_LIST=true
             echo "Available --phase <name> values:"
             echo "  seed-install-spinoff  DAG-root no-op (read-only, no state written)"
+            echo "  chain-preinstall      Pre-restart full-install seam (stateful-by-contract; gated by \$COORDINATOR_CHAIN_PREINSTALL_CONSENT in agent mode; no-op body at the DAG root)"
             echo ""
             echo "Informational (NOT --phase <name> values):"
             echo "  dep-check:  coordinator-claude is DAG root — no upstream deps; chain-walk terminates here"
@@ -214,6 +224,14 @@ while [[ $# -gt 0 ]]; do
                     # own onboarding flow pre-reboot, not by this phase invocation.
                     echo "coordinator-claude: DAG-root spine — STITCHES+DRIVES the install chain; seeds no leg baton for itself (seed-install-spinoff is a no-op by design)."
                     exit 0
+                    ;;
+                chain-preinstall)
+                    # Stateful-by-contract phase — NOT an inline read-only exit like seed-install-spinoff.
+                    # Set a deferred marker and DO NOT exit: let the rest of the arg loop parse
+                    # (so a later --skip-dep-check / --accept-missing-deps-risk is seen), then the
+                    # post-parse agent/token gate decides exit 92 vs no-op body. Phase-level gate,
+                    # uniform across no-op and heavy legs. agent-install-contract.md § chain-preinstall.
+                    _RUN_CHAIN_PREINSTALL=true
                     ;;
                 *)
                     echo "ERROR: Unknown --phase value: '${_PHASE_NAME}'" >&2
@@ -254,7 +272,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-export SKIP_DEP_CHECK ACCEPT_MISSING_DEPS_RISK CHECK_FLAG HELP_FLAG VERSION_FLAG PHASE_LIST LAST_STATUS I_AM_AGENT
+export SKIP_DEP_CHECK ACCEPT_MISSING_DEPS_RISK CHECK_FLAG HELP_FLAG VERSION_FLAG PHASE_LIST LAST_STATUS I_AM_AGENT _RUN_CHAIN_PREINSTALL
 
 # ---------------------------------------------------------------------------
 # Override-flag pair integrity check.
@@ -279,14 +297,37 @@ fi
 if [[ "${I_AM_AGENT:-false}" == true || "${COORDINATOR_RUN_MODE:-}" == "agent" ]]; then
     if [[ "${SKIP_DEP_CHECK:-false}" == true && "${ACCEPT_MISSING_DEPS_RISK:-false}" == true ]]; then
         : # full override pair present — fall through
+    elif [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true && -n "${COORDINATOR_CHAIN_PREINSTALL_CONSENT:-}" ]]; then
+        : # chain-preinstall phase inside a consented chain walk — fall through.
+          # The consent token is the same trust altitude as the override pair (a deliberate
+          # redirect-guard escape, not a capability token); it gates this phase WITHOUT
+          # being a blanket agent bypass. agent-install-contract.md § chain-preinstall.
     else
         echo "AGENT_MANIFEST_PATH=docs/install/AGENT.md" >&2
         echo "[setup] Agent-direct invocation detected. Use /coordinator:setup instead." >&2
         echo "[setup] Agent install guide: docs/install/AGENT.md" >&2
-        echo "[setup] To run non-interactively, supply both:" >&2
-        echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        if [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true ]]; then
+            echo "[setup] --phase chain-preinstall requires a consented chain walk:" >&2
+            echo "[setup]   set \$COORDINATOR_CHAIN_PREINSTALL_CONSENT (the chain-walk token) — or supply the override pair" >&2
+            echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        else
+            echo "[setup] To run non-interactively, supply both:" >&2
+            echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        fi
         exit 92
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# chain-preinstall phase body (post-gate). Reached only when the agent/token
+# gate above passed (or in non-agent mode). coordinator-claude is the DAG root
+# with no script-install body, so chain-preinstall is a no-op here — it still
+# routes THROUGH the gate above (phase-level gate, uniform across legs), then
+# exits 0. NOT in the read-only carve-out: stateful-by-contract.
+# ---------------------------------------------------------------------------
+if [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true ]]; then
+    echo "coordinator-claude: DAG-root spine — nothing to preinstall (chain-preinstall no-op body at the root; capability install happens at downstream heavy-install legs)."
+    exit 0
 fi
 
 # ---------------------------------------------------------------------------

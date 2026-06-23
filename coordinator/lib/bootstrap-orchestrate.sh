@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # coordinator/lib/bootstrap-orchestrate.sh — Discovery-to-per-repo orchestration for
-# coordinator:setup (/coordinator:setup --batch command, consolidated 2026-06-08 from
+# /coordinator:repo-setup --batch (fleet scaffolding; consolidated 2026-06-08 from
 # the former /bootstrap-repos). Script filename kept for git-mv history continuity;
 # the implementation logic and execution path are unchanged from its bootstrap-repos origin; only user-visible command names (in printf strings, summary headers, and error messages) were updated.
 #

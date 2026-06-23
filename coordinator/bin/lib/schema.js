@@ -7,7 +7,7 @@
  * Exports:
  *   loadSchemas(schemasDir)        → { [name]: schema, _byGlob: [{glob, schemaName}] }
  *   matchSchemaForPath(repoRel, schemas) → {schemaName, schema} | null
- *   parseFrontmatter(content)      → {frontmatter, body}
+ *   parseFrontmatter(content)      → {frontmatter, body}  (body starts after closing ---; leading comment excluded)
  *   validateFrontmatter(fm, schema) → {ok, errors}
  *   validateLessonsFile(content, lessonSchema) → {ok, errors}
  *
@@ -319,17 +319,60 @@ function matchSchemaForPath(repoRelPath, schemas) {
 
 /**
  * Extract YAML frontmatter from markdown content.
- * Expects optional "---\n...\n---\n" delimiters at the start.
+ * Expects optional "---\n...\n---\n" delimiters at the start, optionally preceded
+ * by one or more HTML comment blocks (<!-- ... -->) and surrounding whitespace.
+ *
+ * Seed-handoff templates deliberately lead with a <!-- seed comment --> explaining
+ * substitution-time instructions. The leading comment is annotation metadata, not
+ * body content — it is skipped before frontmatter extraction, and the returned
+ * `body` starts after the closing `---` delimiter (the comment is dropped).
+ *
  * Returns {frontmatter: object|null, body: string}.
+ * When frontmatter is present, body is the content AFTER the closing --- delimiter;
+ * the leading HTML comment (if any) is excluded from body.
+ *
+ * Negative-spec: if a <!-- has no matching -->, the function treats the file as
+ * having no frontmatter (returns {frontmatter:null, body:content}) — no hang risk.
  */
 function parseFrontmatter(content) {
-  if (!content.startsWith('---')) {
+  // Skip optional leading HTML comment block(s) before looking for frontmatter.
+  // Multi-line and multiple consecutive comments are handled; unclosed comments bail out.
+  let cursor = 0;
+  // Trim leading whitespace/newlines before each comment candidate.
+  while (true) {
+    // Advance past whitespace/newlines at current position.
+    // JS \s already includes \n and \r — no need for explicit [\s\n\r]*.
+    const wsMatch = content.slice(cursor).match(/^\s*/);
+    const wsLen = wsMatch ? wsMatch[0].length : 0;
+    const afterWs = cursor + wsLen;
+    if (content.slice(afterWs, afterWs + 4) === '<!--') {
+      const closeIdx = content.indexOf('-->', afterWs + 4);
+      if (closeIdx === -1) {
+        // Unclosed comment — treat as no frontmatter.
+        return { frontmatter: null, body: content };
+      }
+      cursor = closeIdx + 3; // advance past '-->'
+    } else {
+      cursor = afterWs;
+      break;
+    }
+  }
+  // cursor now points at the content after any leading comments + surrounding whitespace.
+  const remaining = content.slice(cursor);
+  if (!remaining.startsWith('---')) {
     return { frontmatter: null, body: content };
   }
-  const afterFirst = content.slice(3);
+  const afterFirst = remaining.slice(3);
   // Allow optional \r after ---
   const firstNewline = afterFirst.indexOf('\n');
   if (firstNewline === -1) {
+    return { frontmatter: null, body: content };
+  }
+  // Guard: a real YAML frontmatter delimiter is "---\n" with nothing but optional
+  // whitespace between the dashes and the newline. An HR like "--- foo" or "------"
+  // is not a frontmatter opener. If there is non-whitespace before the first newline,
+  // treat the file as having no frontmatter.
+  if (afterFirst.slice(0, firstNewline).trim() !== '') {
     return { frontmatter: null, body: content };
   }
   // Find closing ---
@@ -342,6 +385,13 @@ function parseFrontmatter(content) {
   const body = rest.slice(closeIdx).replace(/^---\s*\n?/, '');
   try {
     const fm = parseYaml(yamlBlock);
+    // Guard: parseYaml is lenient and returns {} for non-YAML prose (e.g. markdown
+    // body prose accidentally wrapped in --- delimiters). An empty object is not a
+    // valid frontmatter block — treat it as no-frontmatter so callers don't index
+    // a record with all fields missing.
+    if (fm === null || fm === undefined || Object.keys(fm).length === 0) {
+      return { frontmatter: null, body: content };
+    }
     return { frontmatter: fm, body };
   } catch {
     return { frontmatter: null, body: content };
@@ -692,6 +742,27 @@ const CROSS_FIELD_RULES = {
     // requirements (action_taken_at AND decision both required) to prevent data loss
     // on old memos that relied on those fields being present.
 
+    // status: in_progress requires picked_up_by (claim attribution).
+    // The open → in_progress → actioned lifecycle (2026-06-21 memo-pickup claim-lock parity):
+    // in_progress is the receiver's at-pickup claim state, mirroring handoff deployment_state:
+    // in_flight. picked_up_by makes the "who holds it" attribution non-optional in the one state
+    // where it matters — without it an in_progress memo is claimed-by-nobody, defeating the
+    // visibility half of the design. Symmetric with the action_taken/closed required-companion
+    // rules below. Back-compat: open/actioned/grandfathered statuses are unaffected.
+    // Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C2
+    {
+      check: (fm) => {
+        if (fm.status !== 'in_progress') return null;
+        if (!fm.picked_up_by || String(fm.picked_up_by).trim() === '') {
+          return {
+            field: 'picked_up_by',
+            error: `required when status=in_progress`,
+            hint: `Set picked_up_by to the claiming session id when a memo is claimed at pickup-start (status: in_progress). Cleared on release back to open.`
+          };
+        }
+        return null;
+      },
+    },
     // status: action_taken requires action_taken_at AND decision.
     {
       check: (fm) => {

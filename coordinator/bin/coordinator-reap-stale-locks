@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-reap-stale-locks — reap orphaned git index/maintenance lock files.
 #
 # Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (holodeck consult);

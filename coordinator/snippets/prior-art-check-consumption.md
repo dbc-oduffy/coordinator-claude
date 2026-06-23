@@ -1,6 +1,7 @@
 <!-- canonical source for prior-art-check-consumption — edit here, then run verify-prior-art-sync.sh --fix -->
 <!-- consumers: see bin/snippet-registry list-consumers prior-art-check-consumption -->
 
+<!-- BEGIN prior-art-check-consumption (synced from snippets/prior-art-check-consumption.md) -->
 ## Prior-Art Check Integration
 
 If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar path (typically `<plan-path>.prior-art-check.md`), the artifact has already been cross-referenced against the coordinator's accumulated prior art — project wikis, global wikis, `state/lessons.md`, and the central improvement queue. Use the pre-flight to focus your review on architecture, approach, and design rather than re-deriving lessons we've already captured.
@@ -27,3 +28,5 @@ If your dispatch prompt cites a **prior-art-check pre-flight** with a sidecar pa
 ### Conflicts vs. your own findings
 
 If you also identify a finding that overlaps a prior-art-check Conflict, label your finding "reinforces prior-art-check Conflict #N" — convergence between an independent reviewer and the corpus is high-confidence signal. The integrator uses this for fix prioritization.
+
+<!-- END prior-art-check-consumption -->

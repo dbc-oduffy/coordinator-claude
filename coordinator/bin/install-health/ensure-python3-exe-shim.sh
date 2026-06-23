@@ -40,12 +40,16 @@ esac
 
 # Prefer CLAUDE_PLUGIN_ROOT (set by skill/command invocations) over BASH_SOURCE
 # derivation — BASH_SOURCE resolves to the symlink path, not the real path, when
-# this script is symlinked into a wrapper location.
-_plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# this script is symlinked into a wrapper location. This script lives at
+# bin/install-health/, so the plugin root is two levels up from its own dir.
+_plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # shellcheck source=../lib/resolve-python.sh
 # shellcheck disable=SC1091
-source "${_plugin_root}/lib/resolve-python.sh"
+# `|| true`: a broken COORDINATOR_PYTHON pin makes the lib print its reason and `return 1`;
+# don't let that abort us under `set -e`. PYTHON_BIN="" is already set (lib initializes it),
+# so the empty-check below degrades gracefully (skip, exit 0).
+source "${_plugin_root}/lib/resolve-python.sh" || true
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
   echo "[ensure-python3-exe-shim] no Python interpreter resolved (PYTHON_BIN unset); skipping" >&2
@@ -105,7 +109,7 @@ if [[ -f "$_py3_exe_posix" ]]; then
   if diff -q "$_py_exe_posix" "$_py3_exe_posix" >/dev/null 2>&1; then
     exit 0
   fi
-  echo "[ensure-python3-exe-shim] existing python3.exe diverges from python.exe (stale copy from prior patch?); re-shimming"
+  echo "[ensure-python3-exe-shim] existing python3.exe diverges from python.exe (stale copy from prior patch?); re-shimming" >&2
   rm -f "$_py3_exe_posix"
 fi
 
@@ -127,7 +131,7 @@ fi
 _mklink_err="$(mktemp -t mklink_err.XXXXXX 2>/dev/null || printf '/tmp/mklink_err.%s' "$$")"
 trap 'rm -f "$_mklink_err"' EXIT
 if cmd.exe //c "mklink /H \"${_py3_exe_win}\" \"${_py_exe_win}\"" >/dev/null 2>"$_mklink_err"; then
-  echo "[ensure-python3-exe-shim] hardlinked ${_py3_exe_win} -> python.exe"
+  echo "[ensure-python3-exe-shim] hardlinked ${_py3_exe_win} -> python.exe" >&2
   exit 0
 fi
 
@@ -137,7 +141,7 @@ fi
 # auto-track python.exe patch updates — the pre-shim diff guard above re-shims
 # on next run if drift is detected.
 if cp "$_py_exe_posix" "$_py3_exe_posix"; then
-  echo "[ensure-python3-exe-shim] copied python.exe -> ${_py3_exe_win} (hardlink unavailable; mklink stderr: $(tr -d '\r\n' < "$_mklink_err"))"
+  echo "[ensure-python3-exe-shim] copied python.exe -> ${_py3_exe_win} (hardlink unavailable; mklink stderr: $(tr -d '\r\n' < "$_mklink_err"))" >&2
   exit 0
 fi
 

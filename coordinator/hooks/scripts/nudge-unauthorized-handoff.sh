@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PostToolUse hook: when a new file is Written into state/handoffs/ or
 # tasks/spinoffs/ WITHOUT an authoring skill active, surface an offer-shaped
 # nudge — without blocking the write.

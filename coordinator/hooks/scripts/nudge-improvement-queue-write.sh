@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: When the EM appends a new entry to an improvement queue
 # (central or per-project), surface a four-question friction prompt before the
 # write lands. Goal: make "just queue it" more expensive than "just fix it."

@@ -19,6 +19,10 @@ set -uo pipefail
 
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 CONFIG="$CLAUDE_HOME/state/learn-lessons-config.md"
+# Discovery roots are PER-MACHINE, derived from the machine-local [repos] registry by this helper
+# (NOT the old BEGIN/END learn-lessons-roots sentinel in $CONFIG, which is retired). $CONFIG is read
+# below only for the central_volume_threshold knob.
+ROOTS_HELPER="$CLAUDE_HOME/plugins/coordinator/bin/learn-lessons-roots.sh"
 EXTRACT="$CLAUDE_HOME/plugins/coordinator/bin/extract-lessons.py"
 # Python 3 interpreter: python3 on macOS/Linux, python on Windows git-bash.
 PYTHON="$(command -v python3 || command -v python || true)"
@@ -73,8 +77,7 @@ while IFS= read -r root; do
   fi
   total=$((total + n))
   [ "$n" -gt 0 ] && detail="${detail:+$detail }$(basename "$root"):$n"
-done < <(sed -n '/BEGIN learn-lessons-roots/,/END learn-lessons-roots/p' "$CONFIG" \
-         | grep -E '^- ' | sed 's/^- //')
+done < <( [ -x "$ROOTS_HELPER" ] && "$ROOTS_HELPER" 2>/dev/null )
 
 if [ "$total" -ge "$THRESHOLD" ]; then
   echo "CENTRAL_RUN_DUE volume: $total [universal] entries accrued since last central run ($cutoff) >= threshold $THRESHOLD.${detail:+ Breakdown: $detail}. Consider /learn-lessons central."
